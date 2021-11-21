@@ -1,0 +1,29 @@
+;; shadow-cljs configuration
+{:source-paths
+ ["src/dev"
+  "src/cljs"
+  "src/test"]
+
+ :dependencies
+ [[cljs-bean "1.7.0"]
+  [org.clojure/core.async "1.3.618"]
+  [org.clojure/data.csv "1.0.0"]
+  [reagent "1.0.0"]
+  [stigmergy/mercury "0.1.2-SNAPSHOT"]
+  [stigmergy/wocket "0.1.6-SNAPSHOT"]]
+
+ :dev-http {9000 "public"}
+ 
+ :builds
+ {:datomworld
+  {:target :browser
+   :devtools {:devtools-url "https://beta.datom.world/shadow-cljs"
+              :use-document-protocol true}
+   :modules {:main {:init-fn datomworld.core/init}}}
+  
+  :local {:target :browser
+          :devtools {:use-document-protocol true}
+          :closure-defines {datomworld.core/WEBSOCKET_PORT 8090}
+          :modules {:main {:init-fn datomworld.core/init}}}}}
+
+
