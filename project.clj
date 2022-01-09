@@ -8,5 +8,6 @@
                  [mount "0.1.16"]
                  [org.clojure/clojure "1.10.3"]
                  [ring/ring-core "1.9.4"]
-                 [stigmergy/wocket "0.1.6-SNAPSHOT"]]
+                 [stigmergy/wocket "0.1.6-SNAPSHOT"]
+                 [org.clojure/data.csv "1.0.0"]]
   :repl-options {:init-ns world.server})
