@@ -130,7 +130,7 @@
                                 ol-map (ol/Map. param)
                                 me (create-agent (clj->js [108.3734454638195 15.879951769807438]))]
                             (add-agent-to-map me)
-                            #_(doseq [i (range 100)
+                            (doseq [i (range 100)
                                     :let [r1 (rand 2)
                                           r2 (rand 2)
                                           lon-lat [(+ 107 r1) (+ 15 r2)]
@@ -186,7 +186,7 @@
 
                                                       (init-openlayer {:dom-id "map"})
                                                       (init-materialize-ui)
-                                                      #_(animate))
+                                                      (animate))
                                :reagent-render (fn []
                                                  [:div {:style {:width "100%" :height "100%"}}
                                                   ;;[nav-bar]
