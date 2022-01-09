@@ -1,4 +1,4 @@
-(ns migration.core
+(ns world.migration
   (:require [clojure.pprint :refer :all]
             [clojure.java.io :as io]
             [clojure.data.csv :as csv]))
@@ -76,7 +76,7 @@
 
 
 ; load regional data
-(def province_vec (file->vec "/Volumes/GoogleDrive/My Drive/Self study/Econometrics study/R/My model/region(1).csv" \;))
+(def province_vec (file->vec "region.csv" \;))
 
 (def province (mapv (fn [row]
                       {:province (nth row 0)
@@ -88,7 +88,7 @@
                        :urban    (nth row 15)})
                     province_vec))
 
-(def agent_vec (file->vec "/Volumes/GoogleDrive/My Drive/Self study/Econometrics study/R/My model/agent_1.csv" \,))
+(def agent_vec (file->vec "agent_1.csv" \,))
 (def families  (map (fn [row]
                       { :person_id   (nth row 9)
                        :family_id   (nth row 1)
