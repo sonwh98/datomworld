@@ -47,6 +47,8 @@
                     [province (mapv second province-person)])
                   province-group-province))))
 
+(def fc1 (family->province-count "1"))
+
 (defn person-id->family-id [person-id]
   (:family-id (first (filter (fn [person]
                                (= (:person-id person)
@@ -54,7 +56,104 @@
                              families))))
 
 
-(defn province-weight [person-id]
+(defn family-subset
+  "given a family-id return the data for that family
+  "
+  [agents family-id]
+  ;;what is agents?
+  ;;answer agents is the first paramter or the function which-province
+  
+  (filter (fn [fd]
+            (= (:family_id fd)
+               family-id
+               ))
+          agents)
+  )
+(defn which-province
+  "given family subset, return provinces family members live in {:province 1 :people-in-family [1 2 3]}
+  "
+  [agents family-id]
+ 
+  
+  (map :province  (family-subset agents family-id)))
+
+
+
+
+(comment
+  ;;how do I get a value of a key in a map?
+  (def m {:province 1 :age 10})
+
+  (:age m)
+  (:province m)
+  
+  (family-subset my-agents "2")
+
+  (which-province my-agents "2")
+  
+  (def foo [{:person_id "5",
+             :family_id "2",
+             :age "62",
+             :province "1",
+             :female "0",
+             :migrant "0",g
+             :schooling "6"}
+            {:person_id "6",
+             :family_id "2",
+             :age "63",
+             :province "10",
+             :female "1",
+             :migrant "0",
+             :schooling "7"}])
+
+  (map :province foo)
+
+  (map (fn [m]
+         (:province m))
+       foo)
+  
+  
+  (let [family-data [{:person-id 1
+                      :family-id "Su"}
+                     {:person-id 2
+                      :family-id "Su"}
+                     {:person-id 3
+                      :family-id "Su"}
+                     {:person-id 4
+                      :family-id "vo"}]]
+    (filter (fn [fd]
+              (= (:family-id fd)
+                 "vo"
+                 ))
+            family-data))
+
+  (which-province "vo")
+  (which-province my-agents "1")
+  )
+
+
+
+(defn family-in-provinces
+  "given a person-id, return family member in all provinces"
+  [person-id]
+  (let [family-id (person-id->family-id person-id)
+        family-member-in-provinces (which-province family-id)
+        ;;[ [:p1 [1 2 3] [:p2 [4 6]] ]
+        ]
+    ;;(keep (fn []) family-member-in-provinces)
+    ))
+
+(defn person->family-province-pair
+  "take person id and return number of the person's family members in every province
+  (person->province_family_count 1) => [ {:p1 1} {:p2 1} {:p3 2} ]
+  "
+  [person-id]
+
+  )
+
+(defn province-weight
+
+  [person-id]
   (let [
         family-id (person-id->family-id person-id)
         family (family-id->family family-id)
@@ -69,50 +168,27 @@
     )
   )
 
-(defn file->vec [file separator]
+  (defn file->vec [file separator]
   (let [reader (io/reader file)]
     (rest (csv/read-csv reader :separator separator))))
 
 
 
-; load regional data
-(def province_vec (file->vec "region.csv" \;))
+(defn load-agents []
+  (let [agent_vec (file->vec "agent_1.csv" \,)]
+    (map (fn [row]
+           {:person_id   (nth row 9)
+            :family_id   (nth row 1)
+            :age         (nth row 3)
+            :province    (nth row 4)
+            :female      (nth row 5)
+            :migrant     (nth row 6)
+            :schooling   (nth row 7)})
+         agent_vec)))
 
-(def province (mapv (fn [row]
-                      {:province (nth row 0)
-                       :name     (nth row 1)
-                       :lat      (nth row 2)
-                       :long     (nth row 3)
-                       :year     (nth row 4)
-                       :income   (nth row 13)
-                       :urban    (nth row 15)})
-                    province_vec))
+(def my-agents (take 100 (load-agents)))
 
-(def agent_vec (file->vec "agent_1.csv" \,))
-(def families  (map (fn [row]
-                      { :person_id   (nth row 9)
-                       :family_id   (nth row 1)
-                       :age         (nth row 3)
-                       :province    (nth row 4)
-                       :female      (nth row 5)
-                       :migrant     (nth row 6)
-                       :schooling   (nth row 7)})
-                    agent_vec))
-
-(def ten (take 10 agent_init))
-
-(def my_agent (map (fn [row]
-                     { :person_id   (nth row 9)
-                       :family_id   (nth row 1)
-                       :age         (nth row 3)
-                       :province    (nth row 4)
-                       :female      (nth row 5)
-                       :migrant     (nth row 6)
-                       :schooling   (nth row 7)})
-                    agent_init)
+(comment
+  (count my-agents)
+  (which-province my-agents "1")
   )
-
-
-(def m {:agent_id "1", :hh_id "1", :age "41", :province "1", :female "1", :migrant "0", :schooling "10"})
-
-
