@@ -203,7 +203,12 @@
                                                                                                                         :family-id family-id})
                                                                                                                      people))
                                                                                                               (partition 3 (range 10))))
-                                                                                   :columns [{:key "person-id" :name "person id" :editor TextEditor}
+                                                                                   :on-rows-change (fn [rows]
+                                                                                                     (prn "rows=" rows)
+                                                                                                     )
+                                                                                   :columns [{:key "person-id" :name "person id" :editor TextEditor #_(fn [p]
+                                                                                                                                                        (prn p))
+                                                                                              }
                                                                                              {:key "family-id" :name "family id" :editor TextEditor}]
                                                                                    :style {:position :absolute
                                                                                            :left 0
