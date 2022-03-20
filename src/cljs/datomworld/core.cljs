@@ -4,7 +4,7 @@
             [reagent.dom :as rdom]
             [stigmergy.mercury :as m]
             [stigmergy.wocket.client :as ws :refer [process-msg]]
-            ["react-data-grid" :default DataGrid]
+            ["react-data-grid" :default DataGrid :refer [TextEditor]]
             
             ["ol" :as ol]
             ["ol/coordinate" :as ol.coordinate]
@@ -199,13 +199,12 @@
                                                                                                  []
                                                                                                  (map-indexed (fn [family-id people]
                                                                                                                 (map (fn [person-id]
-                                                                                                                       {:id person-id
-                                                                                                                        :title family-id})
+                                                                                                                       {:person-id person-id
+                                                                                                                        :family-id family-id})
                                                                                                                      people))
-                                                                                                              (partition 3 (range 10))))#_[{ :id 0 :title "1" }
-                                                                                          { :id 1 :title "1" }]
-                                                                                   :columns [{ :key "id" :name "person id" }
-                                                                                             { :key "title" :name "family id" }]
+                                                                                                              (partition 3 (range 10))))
+                                                                                   :columns [{:key "person-id" :name "person id" :editor TextEditor}
+                                                                                             {:key "family-id" :name "family id" :editor TextEditor}]
                                                                                    :style {:position :absolute
                                                                                            :left 0
                                                                                            :top 0
@@ -213,10 +212,10 @@
                                                                                            :height "40%"}
                                                                                    }]
                                                   
-                                                  [(r/adapt-react-class DataGrid) {:rows [{ :id 0 :title "21.0278° N, 105.8342° E" }
-                                                                                          { :id 1 :title "10.8231° N, 106.6297° E" }]
-                                                                                   :columns [{ :key "id" :name "person id" }
-                                                                                             { :key "title" :name "GPS" }]
+                                                  [(r/adapt-react-class DataGrid) {:rows [{ :person-id 0 :lat-lon "21.0278° N, 105.8342° E" }
+                                                                                          { :person-id 1 :lat-lon "10.8231° N, 106.6297° E" }]
+                                                                                   :columns [{ :key "person-id" :name "person id" :editor TextEditor}
+                                                                                             { :key "lat-lon" :name "GPS lattitude-longitude" :editor TextEditor}]
                                                                                    :style {:position :absolute
                                                                                            :left 0
                                                                                            :top 500
