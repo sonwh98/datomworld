@@ -6,8 +6,10 @@
     "shadow-cljs": "2.15.3"
   },
   "dependencies": {
+    "@babel/runtime": "^7.17.8",
     "ol": "^6.6.1",
     "react": "^17.0.2",
+    "react-data-grid": "^7.0.0-beta.11",
     "react-dom": "^17.0.2"
   },
   "description": "A world built on data",

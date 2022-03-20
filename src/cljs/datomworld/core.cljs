@@ -4,6 +4,7 @@
             [reagent.dom :as rdom]
             [stigmergy.mercury :as m]
             [stigmergy.wocket.client :as ws :refer [process-msg]]
+            ["react-data-grid" :default DataGrid]
             
             ["ol" :as ol]
             ["ol/coordinate" :as ol.coordinate]
@@ -182,22 +183,62 @@
     [:li 
      [:a {:href "mobile.html"} "Mobile"]]]])
 
+
 (def map-view (r/create-class {:component-did-mount (fn [this-component]
 
                                                       (init-openlayer {:dom-id "map"})
-                                                      (init-materialize-ui)
+                                                      ;;(init-materialize-ui)
                                                       #_(animate))
                                :reagent-render (fn []
                                                  [:div {:style {:width "100%" :height "100%"}}
                                                   ;;[nav-bar]
                                                   
-                                                  [:div#map {:style {:width "100%"  :height "100%" :margin-top 1 }}]])}))
+                                                  [:div#map {:style {:width "100%"  :height "100%" :margin-top 1 }}]
+                                                  [(r/adapt-react-class DataGrid) {:rows (reduce (fn [acc a-list]
+                                                                                                   (into acc a-list))
+                                                                                                 []
+                                                                                                 (map-indexed (fn [family-id people]
+                                                                                                                (map (fn [person-id]
+                                                                                                                       {:id person-id
+                                                                                                                        :title family-id})
+                                                                                                                     people))
+                                                                                                              (partition 3 (range 10))))#_[{ :id 0 :title "1" }
+                                                                                          { :id 1 :title "1" }]
+                                                                                   :columns [{ :key "id" :name "person id" }
+                                                                                             { :key "title" :name "family id" }]
+                                                                                   :style {:position :absolute
+                                                                                           :left 0
+                                                                                           :top 0
+                                                                                           :width 500
+                                                                                           :height "40%"}
+                                                                                   }]
+                                                  
+                                                  [(r/adapt-react-class DataGrid) {:rows [{ :id 0 :title "21.0278° N, 105.8342° E" }
+                                                                                          { :id 1 :title "10.8231° N, 106.6297° E" }]
+                                                                                   :columns [{ :key "id" :name "person id" }
+                                                                                             { :key "title" :name "GPS" }]
+                                                                                   :style {:position :absolute
+                                                                                           :left 0
+                                                                                           :top 500
+                                                                                           :width 500
+                                                                                           :height "40%"}
+                                                                                   }]
+                                                  ])}))
 
 (goog-define WEBSOCKET_PORT 8099)
 
 (defn init []
   (ws/connect-to-websocket-server {:uri "/api/ws" :port WEBSOCKET_PORT})
   (let [app (js/document.getElementById "app")]
+    #_(rdom/render [:div {:style {:width "100%" :height "100%"}}
+                  ;;[nav-bar]
+                  [(r/adapt-react-class DataGrid) {:rows [{ :id 0 :title "Example" }
+                                                          { :id 1 :title "Demo" }]
+                                                   :columns [{ :key "id" :name "ID" }
+                                                             { :key "title" :name "Title" }]
+                                                   }]
+                  [:div#map {:style {:width "100%"  :height "100%" :margin-top 1 }}]]
+                 app)
     (rdom/render [map-view] app)))
 
 (defmethod process-msg :move-me [ [_ coordinates]]
