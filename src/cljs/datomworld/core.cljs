@@ -184,49 +184,70 @@
      [:a {:href "mobile.html"} "Mobile"]]]])
 
 
+(defn grid [properties]
+  (let [left (r/atom 0)
+        top (r/atom 0)
+        width (atom 500)
+        height (r/atom 500)
+        dragable? (r/atom false)]
+    (m/on :mouse-move (fn [[_ [x y]]]
+                        (when @dragable?
+                          (reset! left (- x 100))
+                          (reset! top (- y 20)))))
+    (fn [properties]
+      [:div {:id (:id properties)
+             :style {:position :absolute
+                     :left @left
+                     :top @top
+                     :width @width
+                     :height @height}}
+       [:div {:style {:background-color :red
+                      :width @width
+                      :height 30}
+              :on-mouse-down #(reset! dragable? true)
+              :on-mouse-up #(reset! dragable? false)}]
+       [(r/adapt-react-class DataGrid) properties]])))
+
 (def map-view (r/create-class {:component-did-mount (fn [this-component]
 
                                                       (init-openlayer {:dom-id "map"})
                                                       ;;(init-materialize-ui)
                                                       #_(animate))
                                :reagent-render (fn []
-                                                 [:div {:style {:width "100%" :height "100%"}}
+                                                 [:div {:style {:width "100%" :height "100%"}
+                                                        :on-mouse-move (fn [evt]
+                                                                         (let [x (.-clientX evt)
+                                                                               y (.-clientY evt)]
+                                                                           (m/broadcast [:mouse-move [x y]])))}
                                                   ;;[nav-bar]
                                                   
                                                   [:div#map {:style {:width "100%"  :height "100%" :margin-top 1 }}]
-                                                  [(r/adapt-react-class DataGrid) {:rows (reduce (fn [acc a-list]
-                                                                                                   (into acc a-list))
-                                                                                                 []
-                                                                                                 (map-indexed (fn [family-id people]
-                                                                                                                (map (fn [person-id]
-                                                                                                                       {:person-id person-id
-                                                                                                                        :family-id family-id})
-                                                                                                                     people))
-                                                                                                              (partition 3 (range 10))))
-                                                                                   :on-rows-change (fn [rows]
-                                                                                                     (prn "rows=" rows)
-                                                                                                     )
-                                                                                   :columns [{:key "person-id" :name "person id" :editor TextEditor #_(fn [p]
-                                                                                                                                                        (prn p))
-                                                                                              }
-                                                                                             {:key "family-id" :name "family id" :editor TextEditor}]
-                                                                                   :style {:position :absolute
-                                                                                           :left 0
-                                                                                           :top 0
-                                                                                           :width 500
-                                                                                           :height "40%"}
+
+                                                  (let [rows (reduce (fn [acc a-list]
+                                                                       (into acc a-list))
+                                                                     []
+                                                                     (map-indexed (fn [family-id people]
+                                                                                    (map (fn [person-id]
+                                                                                           {:person-id person-id
+                                                                                            :family-id family-id})
+                                                                                         people))
+                                                                                  (partition 3 (range 10))))
+                                                        cols [{:key "person-id" :name "person id" :editor TextEditor #_(fn [p]
+                                                                                                                                (prn p))
+                                                               }
+                                                              {:key "family-id" :name "family id" :editor TextEditor}]]
+                                                    [grid {:id :foobar
+                                                           :rows rows
+                                                           :columns cols
+                                                           :on-rows-change (fn [rows]
+                                                                             (prn "rows=" rows))}])
+                                                  [grid {:rows [{ :person-id 0 :lat-lon "21.0278° N, 105.8342° E" }
+                                                                { :person-id 1 :lat-lon "10.8231° N, 106.6297° E" }]
+                                                         :columns [{ :key "person-id" :name "person id" :editor TextEditor}
+                                                                   { :key "lat-lon" :name "GPS lattitude-longitude" :editor TextEditor}]
+                                                         
                                                                                    }]
-                                                  
-                                                  [(r/adapt-react-class DataGrid) {:rows [{ :person-id 0 :lat-lon "21.0278° N, 105.8342° E" }
-                                                                                          { :person-id 1 :lat-lon "10.8231° N, 106.6297° E" }]
-                                                                                   :columns [{ :key "person-id" :name "person id" :editor TextEditor}
-                                                                                             { :key "lat-lon" :name "GPS lattitude-longitude" :editor TextEditor}]
-                                                                                   :style {:position :absolute
-                                                                                           :left 0
-                                                                                           :top 500
-                                                                                           :width 500
-                                                                                           :height "40%"}
-                                                                                   }]
+                                                  #_[(r/adapt-react-class DataGrid) ]
                                                   ])}))
 
 (goog-define WEBSOCKET_PORT 8099)
