@@ -192,7 +192,7 @@
         dragable? (r/atom false)]
     (m/on :mouse-move (fn [[_ [x y]]]
                         (when @dragable?
-                          (reset! left (- x 100))
+                          (reset! left  (- x 10) )
                           (reset! top (- y 20)))))
     (fn [properties]
       [:div {:id (:id properties)
