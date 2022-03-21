@@ -206,7 +206,26 @@
                       :height 30}
               :on-mouse-down #(reset! dragable? true)
               :on-mouse-up #(reset! dragable? false)}]
-       [(r/adapt-react-class DataGrid) properties]])))
+       [(r/adapt-react-class DataGrid) properties]
+       
+       [:div {:style {:background-color :green
+                      :position :relative
+                      :width 20
+                      :heiht 1
+                      :bottom 0
+                      :margin-left :auto
+                      :margin-right 0
+                      :border-right "5px solid red"
+                      :border-bottom "5px solid red"
+                      }}
+        "F"
+        #_[:div {:style {:position :relative
+                       :bottom 10
+                       
+                       :width 20
+                       }} "F"]]
+       
+       ])))
 
 (def map-view (r/create-class {:component-did-mount (fn [this-component]
 
