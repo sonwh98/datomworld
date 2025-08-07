@@ -1,0 +1,9 @@
+-node_modules/*
+-*.log
+-*~
+-.cpcache/*
+-target
+-js/*
+-.shadow-cljs
+-static/videos
+-.clj-kondo/*
