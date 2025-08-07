@@ -18,15 +18,13 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true, // Optional: for Material 3 styling
       ),
-      home: const MyHomePage(title: 'OpenStreetMap Example'),
+      home: const MyHomePage(),
     );
   }
 }
 
 class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  final String title;
+  const MyHomePage({super.key});
 
   @override
   State<MyHomePage> createState() => _MyHomePageState();
@@ -46,11 +44,7 @@ class _MyHomePageState extends State<MyHomePage> {
     webViewController = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(Colors.white)
-      ..loadRequest(
-        Uri.parse(
-          'https://media.istockphoto.com/id/1420676204/photo/portrait-of-a-royal-bengal-tiger-alert-and-staring-at-the-camera-national-animal-of-bangladesh.webp?s=1024x1024&w=is&k=20&c=WLyTdqemXbqIHvH_Jl8KUig8hnU1Hph76w5XmXaRitg=',
-        ),
-      );
+      ..loadRequest(Uri.parse("https://www.airbnb.com"));
   }
 
   void _toggleWebView() {
@@ -73,10 +67,6 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        title: Text(widget.title),
-      ),
       body: Stack(
         children: [
           FlutterMap(
@@ -105,7 +95,8 @@ class _MyHomePageState extends State<MyHomePage> {
                     width: 40,
                     height: 40,
                     child: GestureDetector(
-                      onLongPress: _toggleWebView,
+                      onTap:
+                          _toggleWebView,
                       child: Icon(Icons.home, color: Colors.red, size: 40),
                     ),
                   ),
