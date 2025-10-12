@@ -1,56 +1,46 @@
 (ns world.server
   (:require
+   [bidi.ring :as bidi] :reload
    [clojure.pprint :as pp :refer :all]
-   [mount.core :as mount :refer [defstate]]
    [org.httpkit.server :as httpkit]
-   [ring.middleware.params :as params]
-   [ring.middleware.keyword-params :as kparams]
-   [ring.util.request :as req-util]
-   [stigmergy.wocket.server :as ws :refer [process-msg]]
-   [taoensso.timbre :as log]))
+   [ring.middleware.file]
+   [ring.middleware.params]
+   [ring.middleware.multipart-params]
+   [ring.middleware.content-type]
+   [stigmergy.chp]
+   [stigmergy.config :as c]))
 
-;;curl "https://beta.datom.world/api/save-location?timestamp=0&lat=1&lon=2&alt=3"
-;;curl -X POST -d "timestamp=0&lat=1&lon=2&alt=3" "https://beta.datom.world/api/save-location"
+(defn create-app []
+  (let [routes (c/config :bidi-routes)
+        handler (bidi/make-handler routes)
+        mime-types (merge {"chp" "text/html"
+                           nil "text/html"}
+                          (c/config :mime-types))
+        app (-> handler
+                (ring.middleware.file/wrap-file "public")
+                ring.middleware.params/wrap-params
+                ring.middleware.multipart-params/wrap-multipart-params
+                (ring.middleware.content-type/wrap-content-type {:mime-types mime-types}))]
+    (fn [req]
+      (app req))))
 
-(def uri->handler {"/api/save-location" (fn [req]
-                                          ;;(pprint req)
-                                          (let [params (:params req)
-                                                {:keys [timestamp lon lat alt]} params]
-                                            (spit "location.log" (str [timestamp lat lon alt] "\n") :append true)
-                                            (ws/broadcast! [:move-me [lon lat alt]])
-                                            {:status  200
-                                             :headers {"Content-Type" "text/html"}
-                                             :body    (str [timestamp lat lon alt])}))
-                   "/api/ws" ws/listen-for-client-websocket-connections})
-(defn app [req]
-  (let [uri (:uri req)
-        handler (-> uri uri->handler kparams/wrap-keyword-params params/wrap-params)]
-    (if handler
-      (handler  req)
-      {:status  404
-       :headers {"Content-Type" "text/html"}
-       :body    (format "'%s' no handler" uri)})))
+(defonce server (atom nil))
 
-(defstate server
-  :start (httpkit/run-server app {:port 8090})
-  :stop (server :timeout 100))
+(defn start-server []
+  (println "Loading configuration in" (System/getProperty "config"))
+  (c/reload)
+  (let [port (c/config :port)
+        s (httpkit/run-server (create-app) {:port port})]
+    (reset! server s)
+    (println (format "Server running on http://localhost:%s " port))))
 
-
-(defmethod process-msg :location [ [client-websocket-channel [msg-tag msg-payload]] ]
-    ;;do something with the msg-payload from cljs
-    (log/info "msg-payload from cljs " msg-payload)
-
-    ;;send something back to cljs using the core.async channel client-socket-channel
-    (ws/send! client-websocket-channel [:location-respond "I hear you"])
-)
+(defn -main []
+  (start-server))
 
 (comment
-  (mount/start)
-  (mount/stop)
-  (httpkit/run-server app {:port 8090})
-
   (require '[clojure.pprint :as pp :refer :all]
            '[taoensso.timbre.appenders.core :as appenders])
+  
   (log/merge-config! {:min-level :debug
                       :middleware [(fn [data]
                                      (update data :vargs (partial mapv #(if (string? %)
@@ -63,11 +53,6 @@
                                                    :level :debug
                                                    :ns-filter {:allow #{"world.core"}}})}})
 
-
-
-  (ws/broadcast! [:move-me [1 16.8815912 105.3536929  3]])
-  (ws/broadcast! [:location-response [1 108.49399836341877 16.938692193860614 3]])
-
-
+  
   )
 
