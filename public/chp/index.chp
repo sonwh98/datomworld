@@ -1,0 +1,207 @@
+[:html {:lang "en"}
+ [:head
+  [:meta {:charset "utf-8"}]
+  [:meta {:name "viewport" :content "width=device-width, initial-scale=1"}]
+  [:title "Datom.World — Everything is a stream"]
+  [:link {:rel "preconnect" :href "https://fonts.googleapis.com"}]
+  [:link {:rel "preconnect" :href "https://fonts.gstatic.com" :crossorigin true}]
+  [:link {:href "https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap"
+          :rel "stylesheet"}]
+  [:link {:rel "stylesheet" :href "/css/datomworld.css"}]]
+ [:body.page
+  [:header.site-header
+   [:div.section-inner
+    [:a.brand {:href "#top"} "Datom.World"]
+    [:nav.primary-nav
+     [:a {:href "#general"} "Overview"]
+     [:a {:href "#design"} "Design"]
+     [:a {:href "#documentation"} "Docs"]
+     [:a {:href "#engineers"} "Engineers"]
+     [:a {:href "#investors"} "Investors"]
+     [:a.cta {:href "mailto:hello@datom.world"} "Contact"]]]]
+  [:main#top
+   [:section.hero
+    [:div.section-inner
+     [:div.hero-copy
+      [:span.status-pill "Private preview"]
+      [:h1 "Stream-native knowledge that travels with you"]
+      [:p.lead
+       "Datom.World is a local-first tuple store and runtime. "
+       "Streams of immutable datoms sync securely across devices, "
+       "letting apps, agents, and teammates collaborate without handing over control."]
+      [:div.hero-actions
+       [:a.btn {:href "#general"} "Explore the platform"]
+       [:a.btn.btn-outline {:href "#documentation"} "Browse docs"]]
+      [:div.hero-metrics
+       [:div.metric [:span.label "Sync latency"] [:span.value "< 15ms"]]
+       [:div.metric [:span.label "Platforms"] [:span.value "iOS · WASM · Edge"]]
+       [:div.metric [:span.label "Core primitive"] [:span.value "[e a v t c]"]]]]
+     [:div.hero-panel
+      [:div.hero-card
+       [:span.hero-badge "Why datoms?"]
+       [:p
+        "Each datom is a five-part fact. Append-only streams make history auditable "
+        "and interpretation pluggable, so multiple applications can reuse the same truth."]
+       [:ul.hero-list
+        [:li [:strong "Composable schemas"] " stay queryable from design to delivery."]
+        [:li [:strong "Agent-native"] " continuations move compute to where the data lives."]
+        [:li [:strong "Offline by default"] " with optional entangled sync when you reconnect."]]]]]]
+   [:section#general.section-light
+    [:div.section-inner
+     [:h2 "A platform for shared understanding"]
+     [:p.section-lead
+      "Build narratives, surface operational context, and connect research to delivery with "
+      "streams that everyone can trust."]
+     [:div.feature-grid
+      [:article.feature-card
+       [:h3 "Narratives as systems"]
+       [:p "Compose guided stories that stay linked to the underlying data, so updates never break context."]]
+      [:article.feature-card
+       [:h3 "Workspace intelligence"]
+       [:p "Blend research notes, metrics, media, and design tokens into a single adaptive canvas."]]
+      [:article.feature-card
+       [:h3 "Context you can reuse"]
+       [:p "Datoms carry intent, authorship, and temporal anchors. Remix them into portals, briefs, or dashboards."]]
+      [:article.feature-card
+       [:h3 "Secure collaboration"]
+       [:p "Granular scopes let partners and teams contribute without exposing the rest of your graph."]]]
+     [:div.faq-grid
+      [:details.faq
+       [:summary "What makes Datom.World different?"]
+       [:p
+        "We treat data, interface, and automation as the same stream-native fabric. "
+        "You own the graph and invite tools to participate, rather than exporting your work into silos."]]
+      [:details.faq
+       [:summary "How does sync work?"]
+       [:p
+        "Nodes append locally and share when entangled. A lightweight coordinator maintains ordering, "
+        "with automatic failover so every participant keeps a full audit trail."]]]]]
+   [:section#design.section-dark
+    [:div.section-inner
+     [:h2 "Designing with datoms"]
+     [:p.section-lead
+      "Designers orchestrate experiences by shaping schemas, curating streams, and composing visual layers."]
+     [:div.design-grid
+      [:article.design-card
+       [:h3 "Schema-driven canvases"]
+       [:p "Map journeys, domains, and UX flows onto typed datoms. Everything stays queryable and versioned."]]
+      [:article.design-card
+       [:h3 "Live design tokens"]
+       [:p "Expose brand and interaction tokens as datoms so prototypes, design tools, and production UI stay aligned."]]
+      [:article.design-card
+       [:h3 "Feedback in the flow"]
+       [:p "Annotations and decisions resolve back into the same stream, turning reviews into structured memory."]]]]]
+   [:section#documentation.section-light
+    [:div.section-inner
+     [:h2 "Documentation that evolves with you"]
+     [:p.section-lead
+      "Onboard quickly and keep your team in sync with docs generated from your actual datoms."]
+     [:div.doc-layout
+      [:ol.doc-steps
+       [:li
+        [:h3 "1 · Create a space"]
+        [:p "Provision a workspace, set access policies, and invite collaborators with scoped roles."]]
+       [:li
+        [:h3 "2 · Define schemas"]
+        [:p "Model your domain or import existing structures from JSON, CSV, or live integrations."]]
+       [:li
+        [:h3 "3 · Compose narratives"]
+        [:p "Blend datoms, visuals, and commentary into guided stories that stay linked to source data."]]
+       [:li
+        [:h3 "4 · Automate updates"]
+        [:p "Use webhooks or scheduled ingests to keep streams fresh and notify reviewers when things change."]]
+       [:li
+        [:h3 "5 · Share portals"]
+        [:p "Publish read-only or interactive portals with comment trails, usage insights, and embedded docs."]]]
+      [:aside.doc-side
+       [:h3 "Resources"]
+       [:ul
+        [:li [:a {:href "https://datom.world/docs"} "Developer handbook"]]
+        [:li [:a {:href "https://datom.world/changelog"} "Changelog & roadmap"]]
+        [:li [:a {:href "mailto:hello@datom.world"} "Implementation support"]]]
+       [:p.guide-note
+        "Need more? Drop into office hours for schema reviews, design pairing, or agent walkthroughs."]]]]]
+   [:section#engineers.section-dark
+    [:div.section-inner
+     [:h2 "Bring your Clojure tooling"]
+     [:p
+      "The core runtime combines Rust for performance with Yin, a continuation-friendly dialect of Clojure "
+      "that runs on desktop, edge devices, and the browser via WASM."]
+     [:div.code-grid
+      [:article.code-card
+       [:h3 "Write datoms"]
+       [:pre
+        [:code "(def datom [e a v t c])
+
+;; append to a stream
+(write \"/users/son/datoms\"
+       {:transport :ring-buffer}
+       [42 :likes \"pho\" 1747091200000 :app/web])"]]]
+      [:article.code-card
+       [:h3 "Stream them anywhere"]
+       [:pre
+        [:code "(doseq [d (read \"/users/son/datoms\" {:since 1747091})]
+  (tap> d))"]]]
+      [:article.code-card
+       [:h3 "Move agents with data"]
+       [:pre
+        [:code "(defn agent-step [ctx datom]
+  ;; pure transform
+  (assoc ctx :last datom))
+
+(migrate! agent-step
+          {:from :phone/wallet
+           :to   :edge/mini-pc
+           :scope \"/users/son/datoms\"})"]]]]
+     [:details.faq
+      [:summary "Quick axioms"]
+      [:ul.bulleted
+       [:li "Streams are append-only and observable"]
+       [:li "Datoms are five-part immutable facts"]
+       [:li "Semantics live in interpreters, not storage"]
+       [:li "Causality is explicit via references"]
+       [:li "No single source of truth—just coordinated views"]]]
+     [:p.next
+      "Clone the preview repo, connect a REPL, and explore "
+      [:code "core.stream"]
+      ", "
+      [:code "yin.vm"]
+      ", and "
+      [:code "tao.vm"]
+      " for rendering pipelines."]]]
+   [:section#investors.section-light
+    [:div.section-inner
+     [:h2 "Why now"]
+     [:p.section-lead
+      "Datom.World bets on agent-centric computing, where software travels with the user instead of the cloud."]
+     [:div.stats-grid
+      [:article.stat-card
+       [:h3 "Thesis"]
+       [:p "Data stays local. Apps negotiate access to streams owned by the user or organization."]]
+      [:article.stat-card
+       [:h3 "Go-to-market"]
+       [:p "Open-core runtime + vertical solutions for offline-heavy industries and spatial interfaces."]]
+      [:article.stat-card
+       [:h3 "Moat"]
+       [:p "Simple primitives, portable runtime, and deep DX for Clojure, Rust, and WASM teams."]]]
+     [:details.faq
+      [:summary "Business model"]
+      [:ul.bulleted
+       [:li "Enterprise entanglement orchestration & observability"]
+       [:li "Premium agent marketplace and compliance tooling"]
+       [:li "Hosted coordination for teams that don’t want to self-manage"]]]
+     [:p.cta-line
+      "Looking to invest or partner? "
+      [:a {:href "mailto:hello@datom.world"} "Let’s talk."]]]]
+   [:section.cta-section
+    [:div.section-inner
+     [:h2 "Build the stream-native future"]
+     [:p
+      "Join the private preview to shape how datoms power your next product or internal platform."]
+     [:div.hero-actions
+      [:a.btn {:href "mailto:hello@datom.world"} "Request access"]
+      [:a.btn.btn-outline {:href "https://datom.world/docs"} "Read the handbook"]]]]]
+  [:footer.site-footer
+   [:div.section-inner
+    [:p "© " [:span {:id "year"}] " Datom.World — Crafted for collective intelligence."]
+    [:script "document.getElementById('year').textContent = new Date().getFullYear();"]]]]]
