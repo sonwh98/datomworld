@@ -4,14 +4,14 @@
             [reagent.dom :as rdom]
             [stigmergy.mercury :as m]
             [stigmergy.wocket.client :as ws :refer [process-msg]]
-            
+
             ["ol" :as ol]
             ["ol/coordinate" :as ol.coordinate]
-            ["ol/interaction" :as ol.interaction] 
+            ["ol/interaction" :as ol.interaction]
             ["ol/layer/Tile"  :default ol.layer.Tile]
             ["ol/layer/Vector" :default ol.layer.VectorLayer]
             ["ol/source" :as ol.source]
-            ["ol/source/Vector" :default VectorSource ]
+            ["ol/source/Vector" :default VectorSource]
             ["ol/proj" :as ol.proj :refer [fromLonLat]]
             ["ol/Feature" :default ol.Feature]
             ["ol/geom/Point" :default ol.geom.Point]
@@ -46,8 +46,7 @@
         red-square (Style. #js{:image (Icon. #js{:color "red"
                                                  :crossOrigin "anonymous"
                                                  :imgSize #js[20 20]
-                                                 :src "https://openlayers.org/en/latest/examples/data/square.svg"
-                                                 })})]
+                                                 :src "https://openlayers.org/en/latest/examples/data/square.svg"})})]
     (.setStyle feature red-square)
     feature))
 
@@ -56,7 +55,6 @@
 (defn add-agent-to-map [agent]
   (.. vector-source (addFeature agent))
   (swap! agents conj agent))
-
 
 (defn animate []
   (a/go-loop []
@@ -72,42 +70,34 @@
                   delta-y (if (even? delta-y)
                             delta-y
                             (- 0 delta-y))
-                  pt (ol.geom.Point. (clj->js [(+ x delta-x) (+ y delta-y)]))
+                  pt (ol.geom.Point. (clj->js [(+ x delta-x) (+ y delta-y)]))]]
 
-                  ]]
       (.. feature (setGeometry pt)))
     (recur)))
-
-
 
 (comment
   (doseq [feature @agents
           :let [coord (.. feature getGeometry getCoordinates)
                 [x y] coord
-                
-                pt (ol.geom.Point. #js[(+ x 1000) (+ y 1000)])]]
-    (.. feature (setGeometry pt))
-    )
-  
-  
 
-  )
+                pt (ol.geom.Point. #js[(+ x 1000) (+ y 1000)])]]
+    (.. feature (setGeometry pt))))
+
 ;;https://gis.stackexchange.com/questions/214400/dynamically-update-position-of-geolocation-marker-in-openlayers-3
 (def init-openlayer (let [full-screen? (atom false)
                           red-square (Style. #js{:image (Icon. #js{:color "red"
                                                                    :crossOrigin "anonymous"
                                                                    :imgSize #js[20 20]
-                                                                   :src "https://openlayers.org/en/latest/examples/data/square.svg"
-                                                                   })})
-                          
-                          ;;vector-source (VectorSource.)
+                                                                   :src "https://openlayers.org/en/latest/examples/data/square.svg"})})
+
+;;vector-source (VectorSource.)
                           vector-layer (ol.layer.VectorLayer. #js{:source vector-source})
                           hoian #js[107.3536929 15.8815912]
-                          
+
                           here-pt (ol.geom.Point. (fromLonLat hoian))
                           view (ol/View. (clj->js {:center (ol.proj/fromLonLat hoian)
                                                    :zoom 10}))]
-                      
+
                       #_(m/on :here (fn [[_ {:keys [longitude latitude]} :as msg]]
                                       (prn msg)
                                       (let [lon-lat (clj->js [longitude latitude])
@@ -116,12 +106,12 @@
                                         (prn "lon-lat=" lon-lat)
                                         (.. view (animate (clj->js {:center coords
                                                                     :duration 500}))))))
-                      
+
                       (fn [{:keys [dom-id]}]
                         (a/go
                           (let [;; current-point (ol.Feature. (clj->js {:geometry here-pt}))
                                 ;; _ (.setStyle current-point red-square)
-                                
+
                                 param (clj->js {:target dom-id
                                                 :layers #js[(ol.layer.Tile. #js{:source (ol.source/OSM.)})
                                                             vector-layer]
@@ -131,12 +121,12 @@
                                 me (create-agent (clj->js [108.3734454638195 15.879951769807438]))]
                             (add-agent-to-map me)
                             #_(doseq [i (range 100)
-                                    :let [r1 (rand 2)
-                                          r2 (rand 2)
-                                          lon-lat [(+ 107 r1) (+ 15 r2)]
-                                          agent (create-agent (clj->js lon-lat))]]
+                                      :let [r1 (rand 2)
+                                            r2 (rand 2)
+                                            lon-lat [(+ 107 r1) (+ 15 r2)]
+                                            agent (create-agent (clj->js lon-lat))]]
                                 (add-agent-to-map agent))
-                            
+
                             (.. ol-map (on "dblclick" (fn []
                                                         (if @full-screen?
                                                           (do
@@ -145,8 +135,7 @@
                                                           (do
                                                             (js/alert "Enter Full Screen")
                                                             (js/document.documentElement.requestFullscreen)))
-                                                        (swap! full-screen? not))))))
-                        )))
+                                                        (swap! full-screen? not)))))))))
 
 (defn init-materialize-ui []
   (js/M.AutoInit)
@@ -157,29 +146,29 @@
 
 (defn nav-bar []
   [:div
-   [:nav  
+   [:nav
     [:div {:class "nav-wrapper"}
 
      [:a {:href "#", :data-target "mobile-demo", :class "sidenav-trigger show-on-large"}
       [:i {:class "material-icons"} "menu"]]
      [:ul {:class "right hide-on-med-and-down"}
-      [:li 
+      [:li
        [:a {:href "sass.html"} "Sass"]]
-      [:li 
+      [:li
        [:a {:href "badges.html"} "Components"]]
-      [:li 
+      [:li
        [:a {:href "collapsible.html"} "Javascript"]]
-      [:li 
+      [:li
        [:a {:href "mobile.html"} "Mobile"]]]]]
 
    [:ul {:class "sidenav", :id "mobile-demo"}
-    [:li 
+    [:li
      [:a {:href "sass.html"} "Sass"]]
-    [:li 
+    [:li
      [:a {:href "badges.html"} "Components"]]
-    [:li 
+    [:li
      [:a {:href "collapsible.html"} "Javascript"]]
-    [:li 
+    [:li
      [:a {:href "mobile.html"} "Mobile"]]]])
 
 (def map-view (r/create-class {:component-did-mount (fn [this-component]
@@ -190,8 +179,8 @@
                                :reagent-render (fn []
                                                  [:div {:style {:width "100%" :height "100%"}}
                                                   ;;[nav-bar]
-                                                  
-                                                  [:div#map {:style {:width "100%"  :height "100%" :margin-top 1 }}]])}))
+
+                                                  [:div#map {:style {:width "100%"  :height "100%" :margin-top 1}}]])}))
 
 (goog-define WEBSOCKET_PORT 8099)
 
@@ -200,7 +189,7 @@
   (let [app (js/document.getElementById "app")]
     (rdom/render [map-view] app)))
 
-(defmethod process-msg :move-me [ [_ coordinates]]
+(defmethod process-msg :move-me [[_ coordinates]]
   (let [lon-lat (clj->js (mapv js/parseFloat (take 2 coordinates)))
         ;;lon-lat (clj->js [108.24019629,16.05132689])
         pt (fromLonLat lon-lat)
@@ -219,7 +208,7 @@
                                          (prn "read family")
                                          (if num-of-agent
                                            (doall (take num-of-agent (csv/read-csv family-reader)))
-                                           (doall (csv/read-csv family-reader)))))          
+                                           (doall (csv/read-csv family-reader)))))
           agent-lines (future (with-open [agent-reader (io/reader agent-csv)]
                                 (prn "read agent")
                                 (if num-of-agent
@@ -229,7 +218,7 @@
           family-network-header (first @family-network-lines)
           family-network-data (vec (rest @family-network-lines))
           _ (prn "done reading family")
-          
+
           agent-header (first @agent-lines)
           agent-data (rest @agent-lines)
           _ (prn "done reading agent")
@@ -257,7 +246,6 @@
 
   (def my-agents (create-agents "agent.csv" "family_network.csv" 100))
   (def my-agents (create-agents "agent.csv" "family_network.csv"))
-  
+
   (nth my-agents 2)
-  (last my-agents)
-  )
+  (last my-agents))

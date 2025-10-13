@@ -40,7 +40,7 @@
 (comment
   (require '[clojure.pprint :as pp :refer :all]
            '[taoensso.timbre.appenders.core :as appenders])
-  
+
   (log/merge-config! {:min-level :debug
                       :middleware [(fn [data]
                                      (update data :vargs (partial mapv #(if (string? %)
@@ -51,8 +51,5 @@
                                                                                      (str  log-dir "/world.log"))})
                                                   {:min-level :debug
                                                    :level :debug
-                                                   :ns-filter {:allow #{"world.core"}}})}})
-
-  
-  )
+                                                   :ns-filter {:allow #{"world.core"}}})}}))
 
