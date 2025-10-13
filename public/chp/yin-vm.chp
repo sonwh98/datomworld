@@ -1,0 +1,56 @@
+(let [template (load-file "public/chp/template.chp")]
+  (clojure.walk/postwalk-replace
+   {:template/title "Datom.World — Yin.VM"
+    :template/content
+    (list
+     [:section#yin-vm.section-dark
+      [:div.section-inner
+       [:span.status-pill "Deep dive"]
+       [:h1 "Yin.VM"]
+       [:p.section-lead
+        "Yin.VM is a continuation-friendly virtual machine that runs Yin, our dialect of Clojure tuned for stream-native computing."]
+       [:div.code-grid
+        [:article.code-card
+         [:h3 "Write datoms"]
+         [:pre
+          [:code "(def datom [e a v t c])
+
+;; append to a stream
+(write \"/users/son/datoms\"
+       {:transport :ring-buffer}
+       [42 :likes \"pho\" 1747091200000 :app/web])"]]]
+        [:article.code-card
+         [:h3 "Stream them anywhere"]
+         [:pre
+          [:code "(doseq [d (read \"/users/son/datoms\" {:since 1747091})]
+  (tap> d))"]]]
+        [:article.code-card
+         [:h3 "Move agents with data"]
+         [:pre
+          [:code "(defn agent-step [ctx datom]
+  ;; pure transform
+  (assoc ctx :last datom))
+
+(migrate! agent-step
+          {:from :phone/wallet
+           :to   :edge/mini-pc
+           :scope \"/users/son/datoms\"})"]]]]
+       [:details.faq
+        [:summary "Quick axioms"]
+        [:ul.bulleted
+         [:li "Streams are append-only and observable"]
+         [:li "Datoms are five-part immutable facts"]
+         [:li "Semantics live in interpreters, not storage"]
+         [:li "Causality is explicit via references"]
+         [:li "No single source of truth—just coordinated views"]]]
+       [:p.next
+        "Clone the preview repo, connect a REPL, and explore "
+        [:code "core.stream"]
+        ", "
+        [:code "yin.vm"]
+        ", and "
+        [:code "tao.vm"]
+        ". Then hop back to "
+        [:a {:href "/index.chp"} "the overview"]
+        " to see how Tao.VM renders these streams."]]])}
+   template))

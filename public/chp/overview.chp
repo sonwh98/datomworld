@@ -1,0 +1,67 @@
+(let [template (load-file "public/chp/template.chp")]
+  (clojure.walk/postwalk-replace
+   {:template/title "Datom.World — Private preview overview"
+    :template/content
+    (list
+     [:section.hero
+      [:div.section-inner
+       [:div.hero-copy
+        [:span.status-pill "Private preview"]
+        [:h1 "Stream-native knowledge that travels with you"]
+        [:p.lead
+         "Datom.World is a local-first tuple store and runtime. "
+         "Streams of immutable datoms sync securely across devices, "
+         "letting apps, agents, and teammates collaborate without handing over control."]
+        [:p
+         "Think about how you use the internet today. You send messages, share photos, watch videos, "
+         "and look up information. But behind the scenes, a handful of giant companies decide "
+         "how it all works, monetize your attention, and lock your data behind their walls."]
+        [:p
+         "Datom.World imagines something different: a stream-native fabric where you keep custody of "
+         "your information, invite services on your terms, and tap into collective compute the way "
+         "you might book a spare room on Airbnb."]
+        [:p
+         "Because datoms are the smallest unit of data—the data atom—you can share facts without forfeiting control. "
+         "Services interpret the streams you expose, making collaboration additive instead of extractive."]
+        [:div.hero-actions
+         [:a.btn {:href "/index.chp#general"} "Return to the platform tour"]
+         [:a.btn.btn-outline {:href "/yin-vm.chp"} "Learn about Yin.VM"]]
+        [:div.hero-metrics
+         [:div.metric
+          [:span.label "Sync latency"]
+          [:span.value "< 15ms"]]
+         [:div.metric
+          [:span.label "Platforms"]
+          [:span.value "iOS · WASM · Edge"]]
+         [:div.metric
+          [:span.label "Core primitive"]
+          [:span.value "[e a v t c]"]]]]
+       [:div.hero-panel
+        [:div.hero-card
+         [:span.hero-badge "Why datoms?"]
+         [:p
+          "Each datom is a five-part fact. Append-only streams make history auditable "
+          "and interpretation pluggable, so multiple applications can reuse the same truth."]
+         [:ul.hero-list
+          [:li [:strong "Composable schemas"] " stay queryable from design to delivery."]
+          [:li [:strong "Agent-native"] " continuations move compute to where the data lives."]
+          [:li [:strong "Offline by default"] " with optional entangled sync when you reconnect."]]]]]]
+     [:section.section-light
+      [:div.section-inner
+       [:h2 "What to expect in the preview"]
+       [:p
+        "You’ll gain hands-on access to the tuple store, entangled sync, and agent workflows. "
+        "We schedule pairing sessions to map your domain into datoms and deploy the first Tao.VM canvases."]
+       [:ul.bulleted
+        [:li "Prototype agents in Yin.VM that migrate across devices with your data."]
+        [:li "Configure Shibi attention markets to keep outreach consentful."]
+        [:li "Compose portals and dashboards in Tao.VM using shared stream semantics."]]]]
+     [:section.section-dark
+      [:div.section-inner
+       [:h2 "Next steps"]
+       [:p
+        "Ready to co-create the stream-native future? Tell us about your use case, and we’ll line up a preview workspace."]
+       [:div.hero-actions
+        [:a.btn {:href "mailto:hello@datom.world"} "Request preview access"]
+        [:a.btn.btn-outline {:href "/index.chp"} "Back to homepage"]]]])}
+   template))

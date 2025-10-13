@@ -1,0 +1,31 @@
+(let [template (load-file "public/chp/template.chp")]
+  (clojure.walk/postwalk-replace
+   {:template/title "Datom.World — Shibi"
+    :template/content
+    (list
+     [:section#shibi.section-dark
+      [:div.section-inner
+       [:span.status-pill "Economic primitive"]
+       [:h1 "Shibi (屎币)"]
+       [:p.section-lead
+        "Shibi is your personal attention currency. Set the price, invite trusted contacts, and turn spam into a voluntary exchange."]
+       [:div.feature-grid
+        [:article.feature-card
+         [:h3 "Set your price"]
+         [:p "Choose how much your Shibi costs. If you’re heads-down, raise the price; if you’re open to outreach, drop it."]]
+        [:article.feature-card
+         [:h3 "Earn and spend"]
+         [:p "People buy your Shibi to message you. You earn theirs when you reach out—turning spam into a voluntary exchange."]]
+        [:article.feature-card
+         [:h3 "Market-driven signal"]
+         [:p "Because every inbox has its own currency, genuine intent rises to the top while bots get priced out."]]]
+       [:p
+        "You decide who gets through, not a filter you never asked for. Attention stays accountable, and conversations "
+        "start from mutual respect."]
+       [:p.next
+        "Ready to implement Shibi in your own apps? Pair it with "
+        [:a {:href "/yin-vm.chp"} "Yin.VM"]
+        " agents for programmable attention policies, then surface the exchange inside "
+        [:a {:href "/tao-vm.chp"} "Tao.VM"]
+        " portals."]]])}
+   template))
