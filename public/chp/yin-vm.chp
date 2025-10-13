@@ -16,7 +16,7 @@
         "while Yin receives, introspects, and executes them."]
        [:div.hero-actions
         [:a.btn {:href "/yang.chp"} "Meet the Yang compiler"]
-        [:a.btn.btn-outline {:href "/index.chp"} "Return to overview"]]]]
+        [:a.btn.btn-outline {:href "/"} "Return to overview"]]]]
      [:section.section-light
       [:div.section-inner
        [:h2 "Main ideas"]

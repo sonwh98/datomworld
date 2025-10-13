@@ -46,12 +46,24 @@
            "It is self-organizing intelligence without command-and-control."]]]
         [:details.faq
          [:summary "What does “everything is a stream” actually mean?"]
-         [:div
+        [:div
           [:p
            "In Datom.World, data never freezes in silos. "
            "Every fact lives in an append-only stream that can be read, transformed, or extended. "
            "Streams become the common language for messages, automations, analytics, or agents—"
            "a single primitive that replaces piles of bespoke stacks."]]]
+        [:details.faq
+         [:summary "What does “everything is a continuation” mean for me?"]
+         [:div
+          [:p
+           "Imagine pausing a story midway and later resuming at the exact sentence you left. "
+           "A continuation is that bookmark—capturing where you are and what unfolds next. "
+           "In Datom.World, every conversation, workflow, or shared process leaves such a bookmark so it can resume effortlessly."]
+          [:ul.bulleted
+           [:li "Your data, apps, and flows persist across time without depending on a single vendor’s session."]
+           [:li "Switching devices feels natural because your context lives in the shared world, not on one machine."]
+           [:li "Collaboration stays fluid—others can pick up where you paused, continuing the same thread securely."]]]
+        ]
         [:details.faq
          [:summary "Who owns the data flowing through these streams?"]
          [:div
@@ -119,10 +131,21 @@
         [:details.faq
          [:summary "How should developers interpret “everything is a stream”?"]
          [:div
-          [:p
+         [:p
            "Streams are the single I/O abstraction. "
            "Read, write, transform, and entangle datoms through asynchronous channels instead of bespoke APIs. "
            "Files, sockets, message queues, and databases collapse into this one primitive, giving apps a shared protocol for collaboration."]]]
+        [:details.faq
+         [:summary "How does “everything is a continuation” shape the architecture?"]
+         [:div
+          [:p
+           "In Yin.VM, a continuation is not an exotic construct—it is the universal one. "
+           "Functions, coroutines, paused computations, and distributed agents all manifest as continuations that record exactly where execution stands."]
+          [:ul.bulleted
+           [:li "Execution as data — continuations are serializable values that can be stored, versioned, or shipped like any other datom payload."]
+           [:li "Mobility — computation moves toward the data streams instead of pulling streams across the network."]
+           [:li "Resilience and reflection — peers resume after failure, inspect live control flow, or even compose continuations for metaprogramming across nodes."]]]
+        ]
         [:details.faq
          [:summary "What role does Yin.VM play?"]
          [:div
@@ -157,11 +180,16 @@
            "Each datom includes metadata for access policies, encryption, and provenance. "
            "Nodes evaluate those rules locally before sharing, encrypt before transmission, and rely on short-lived capabilities—not central identity servers—to authorize peers."]]]]]]
      [:section.section-light
-      [:div.section-inner
+     [:div.section-inner
        [:h2 "Still curious?"]
        [:p
         "Bring your scenario or data model and we will explore it together. "
         "Intros, architecture reviews, and partner pilots happen weekly."]
+       [:div.callout
+        [:p [:strong "Continuation mindset"] " — the system never loses context."]
+        [:ul.bulleted
+         [:li "User perspective: the web remembers how it flows, so experiences remain seamless, local-first, and privacy-centric."]
+         [:li "Developer perspective: every execution state is a first-class continuation that unifies concurrency, recovery, and distribution."]]]
        [:div.hero-actions
         [:a.btn {:href "mailto:hello@datom.world"} "Request a preview session"]
         [:a.btn.btn-outline {:href "/overview.chp"} "Return to the overview"]]]])}
