@@ -7,7 +7,7 @@
       [:div.section-inner
        [:div.hero-copy
         [:span.status-pill "Private preview"]
-        [:h1 "Stream-native knowledge that travels with you"]
+        [:h1 "Your world, materialized from datom streams"]
         [:p.lead
          "Datom.World is a local-first tuple store and runtime. "
          "Streams of immutable datoms sync securely across devices, "
