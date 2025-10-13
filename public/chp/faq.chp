@@ -1,0 +1,20 @@
+(let [template (load-file "public/chp/template.chp")]
+  (clojure.walk/postwalk-replace
+   {:template/title "Datom.World — FAQ"
+    :template/content
+    (list
+     [:section.section-light
+      [:div.section-inner
+       [:h1 "Frequently Asked Questions"]
+       [:dl
+        [:dt "What is Datom.World?"]
+        [:dd "Datom.World is a local-first tuple store and runtime. It's a system for building, distributing, and running universal agents, built on streams of immutable datoms."]
+        [:dt "What are datom streams?"]
+        [:dd "Datom streams are the core of Datom.World. Every event, from a keystroke to a query, is a reversible, auditable datom. These streams sync securely across devices."]
+        [:dt "What is the Universal AST?"]
+        [:dd "The Universal AST is a language-agnostic, map-based structure that captures syntax, semantics, and metadata in immutable data. It's designed to be a compiler target, allowing different languages to compile into this canonical form."]
+        [:dt "What are Yin.VM and Yang?"]
+        [:dd "Yin.VM is a continuation virtual machine that executes programs expressed in the Universal AST. The Yang compiler takes code (starting with Clojure) and compiles it into the Universal AST for Yin.VM to run."]
+        [:dt "Is this related to Datomic?"]
+        [:dd "Datom.World is inspired by the ideas behind Datomic, particularly the use of datoms and immutable data. However, it is a distinct system with a focus on being a distributed, local-first runtime for universal agents."]]]])}
+   template))

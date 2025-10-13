@@ -17,6 +17,7 @@
      [:a {:href "/yang.chp"} "Yang"]
      [:a {:href "/shibi.chp"} "Shibi"]
      [:a {:href "/tao-vm.chp"} "Tao.VM"]
+     [:a {:href "/faq.chp"} "FAQ"]
      [:a.cta {:href "mailto:hello@datom.world"} "Contact"]]]]
   [:main#top
    :template/content]
