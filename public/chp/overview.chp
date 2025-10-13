@@ -24,7 +24,7 @@
          "Because datoms are the smallest unit of data—the data atom—you can share facts without forfeiting control. "
          "Services interpret the streams you expose, making collaboration additive instead of extractive."]
         [:div.hero-actions
-         [:a.btn {:href "/index.chp#general"} "Return to the platform tour"]
+         [:a.btn {:href "/shibi.chp"} "Explore Shibi"]
          [:a.btn.btn-outline {:href "/yin-vm.chp"} "Learn about Yin.VM"]]
         [:div.hero-metrics
          [:div.metric
@@ -48,14 +48,23 @@
           [:li [:strong "Offline by default"] " with optional entangled sync when you reconnect."]]]]]]
      [:section.section-light
       [:div.section-inner
-       [:h2 "What to expect in the preview"]
+       [:h2 "What is Datom.World?"]
        [:p
-        "You’ll gain hands-on access to the tuple store, entangled sync, and agent workflows. "
-        "We schedule pairing sessions to map your domain into datoms and deploy the first Tao.VM canvases."]
-       [:ul.bulleted
-        [:li "Prototype agents in Yin.VM that migrate across devices with your data."]
-        [:li "Configure Shibi attention markets to keep outreach consentful."]
-        [:li "Compose portals and dashboards in Tao.VM using shared stream semantics."]]]]
+        "Datom.World is inspired by ant colonies—vast systems built without central command. "
+        "Ants collaborate through stigmergy, leaving traces that guide others. "
+        "We apply that principle to the digital world."]
+       [:p
+        "Instead of a centralized internet ruled by a handful of servers, Datom.World is a living ecosystem of independent nodes—"
+        "personal devices, computers, sensors—each contributing to a shared fabric. "
+        "Nodes exchange tiny data atoms, or datoms, just as ants share signals grain by grain."]
+       [:p
+        "A datom is the smallest unit of shared knowledge: a self-contained piece of truth you fully own. "
+        "You choose what to share and with whom. There are no hidden algorithms or distant data centers dictating the rules. "
+        "Everything stays local-first and private by design."]
+       [:p
+        "Streams of datoms flow between trusted peers, creating an internet that is distributed, entangled, and alive—"
+        "where collaboration emerges naturally and privacy is foundational. "
+        "Datom.World reimagines software as a digital ecosystem: self-organizing, adaptive, and free."]]]
      [:section.section-dark
       [:div.section-inner
        [:h2 "Next steps"]
@@ -63,5 +72,5 @@
         "Ready to co-create the stream-native future? Tell us about your use case, and we’ll line up a preview workspace."]
        [:div.hero-actions
         [:a.btn {:href "mailto:hello@datom.world"} "Request preview access"]
-        [:a.btn.btn-outline {:href "/index.chp"} "Back to homepage"]]]])}
+        [:a.btn.btn-outline {:href "/yang.chp"} "Meet the Yang compiler"]]]])}
    template))
