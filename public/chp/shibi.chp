@@ -6,26 +6,63 @@
      [:section#shibi.section-dark
       [:div.section-inner
        [:span.status-pill "Economic primitive"]
-       [:h1 "Shibi (屎币)"]
+       [:h1 "💩 Shibi (屎币)"]
        [:p.section-lead
-        "Shibi is your personal attention currency. Set the price, invite trusted contacts, and turn spam into a voluntary exchange."]
+        "Shibi turns spam into an economy. On open networks like Datom.World, nothing is blocked—every message simply carries a price in Shibi tokens."]
+       [:p
+        "When sending has a visible cost, attention stops being free real estate. Shibi makes every request part of a market where focus is scarce, tradable, and respected."]
+       [:p
+        "Set your price, invite trusted contacts, and earn when you engage. If someone wants your attention, they pay for the privilege; if you grant it, you capture the value."]
        [:div.feature-grid
         [:article.feature-card
-         [:h3 "Set your price"]
-         [:p "Choose how much your Shibi costs. If you’re heads-down, raise the price; if you’re open to outreach, drop it."]]
+         [:h3 "Price the ping"]
+         [:p "Post, DM, or API calls carry a configurable Shibi toll. Low-effort blasts grow prohibitively expensive, while meaningful outreach remains affordable."]]
         [:article.feature-card
-         [:h3 "Earn and spend"]
-         [:p "People buy your Shibi to message you. You earn theirs when you reach out—turning spam into a voluntary exchange."]]
+         [:h3 "Recoup your focus"]
+         [:p "Opt in, get paid, and reinvest attention on your own terms. You only subsidize the conversations you actually want."]]
         [:article.feature-card
-         [:h3 "Market-driven signal"]
-         [:p "Because every inbox has its own currency, genuine intent rises to the top while bots get priced out."]]]
+         [:h3 "Programmable gates"]
+         [:p "Let Shibimon agents negotiate terms automatically—pause inbound requests, raise the rate, or whitelist the circles that matter."]]]
        [:p
-        "You decide who gets through, not a filter you never asked for. Attention stays accountable, and conversations "
-        "start from mutual respect."]
+        "You decide who gets through, not a filter you never asked for. Attention stays accountable, and every conversation starts from mutual respect."]
        [:p.next
-        "Ready to implement Shibi in your own apps? Pair it with "
+        "Ready to embed Shibi? Pair it with "
         [:a {:href "/yin-vm.chp"} "Yin.VM"]
-        " agents for programmable attention policies, then surface the exchange inside "
+        " agents for programmable attention, then surface the exchange inside "
         [:a {:href "/tao-vm.chp"} "Tao.VM"]
-        " portals."]]])}
+        " portals."]]]
+     [:section.section-light
+      [:div.section-inner
+       [:h2 "🧠 The Economic Layer"]
+       [:p
+        "Spam is a negative externality: one party consumes another person's attention without paying for the cost it imposes."]
+       [:p
+        "Shibi applies Coasean logic to that imbalance. By attaching a price to each request, attention becomes a measurable commodity. Low-value noise gets priced out, while high-value communication earns its way through."]]]
+     [:section.section-dark
+      [:div.section-inner
+       [:h2 "⚙️ The Technical Layer"]
+       [:p
+        "Built on Algorand, Shibi settles tokenized incentives through transparent, low-latency microtransactions."]
+       [:p
+        "Wallet APIs and smart contracts empower Shibimon agents to manage your balance, accept offers, or sell attention programmatically. Instead of opaque moderation, scarcity and settlement happen in the open."]]]
+     [:section.section-light
+      [:div.section-inner
+       [:h2 "🌍 Why It Matters"]
+       [:p
+        "The modern web runs on attention, yet attention rarely has a native price. Shibi changes that dynamic by revealing the true cost of unwanted outreach and rewarding the people who choose to listen."]]]
+     [:section.section-dark
+      [:div.section-inner
+       [:h2 "How It Works"]
+       [:div.feature-grid
+        [:article.feature-card
+         [:h3 "Wallet flow"]
+         [:p "Every account maintains an Algorand wallet that escrows Shibi for outbound messages and releases rewards the moment attention is granted."]]
+        [:article.feature-card
+         [:h3 "Shibimon agents"]
+         [:p "Agents tune prices in real time, enforce intake rules, and negotiate bundles—pause inbound, raise the toll, or whitelist collaborators without manual babysitting."]]
+        [:article.feature-card
+         [:h3 "Datom.World integration"]
+         [:p "Datom.World apps meter API calls, posts, and requests through the same contracts, so economic guarantees travel wherever your identity does."]]]
+       [:p
+        "Drop Shibi into any protocol as a programmable economic layer and every interaction becomes a conscious trade instead of ambient noise."]]])}
    template))
