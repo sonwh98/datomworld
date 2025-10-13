@@ -136,30 +136,6 @@
            "Read, write, transform, and entangle datoms through asynchronous channels instead of bespoke APIs. "
            "Files, sockets, message queues, and databases collapse into this one primitive, giving apps a shared protocol for collaboration."]]]
         [:details.faq
-         [:summary "How does “everything is a continuation” shape the architecture?"]
-         [:div
-          [:p
-           "In Yin.VM, a continuation is not an exotic construct—it is the universal one. "
-           "Functions, coroutines, paused computations, and distributed agents all manifest as continuations that record exactly where execution stands."]
-          [:ul.bulleted
-           [:li "Execution as data — continuations are serializable values that can be stored, versioned, or shipped like any other datom payload."]
-           [:li "Mobility — computation moves toward the data streams instead of pulling streams across the network."]
-           [:li "Resilience and reflection — peers resume after failure, inspect live control flow, or even compose continuations for metaprogramming across nodes."]]]
-        ]
-        [:details.faq
-         [:summary "What role does Yin.VM play?"]
-         [:div
-          [:p
-           "Yin.VM is the universal VM. "
-           "It executes serialized continuations over datom streams using a persistent CESK machine with first-class continuations. "
-           "Because continuations are just data, computation can migrate to where the datoms reside—code flows to data, not vice versa."]]]
-        [:details.faq
-         [:summary "How does the Yang compiler fit in?"]
-         [:div
-          [:p
-           "Yang compiles high-level languages (launching with Clojure) into Yin’s universal, map-based AST. "
-           "Other languages can target the same AST, unlocking cross-language execution, reflection, and live transformation in Yin.VM."]]]
-        [:details.faq
          [:summary "What is entanglement between nodes?"]
          [:div
           [:p
@@ -183,8 +159,100 @@
            "Execution safety rides on Yin.VM acting as the universal security container. "
            "Like Docker, WASM, or the JVM, Yin.VM sandboxes code so untrusted continuations can run on your hardware without escaping. "
            "The same isolation reassures collaborators: their datoms can execute on your node without you peering into the VM, keeping both compute and data private even when hardware is shared."]]]]]]
+     [:section.section-dark
+      [:div.section-inner
+       [:h2 "Yin-Yang FAQ"]
+       [:p.section-lead
+        "Dive deeper into the universal continuation layer that powers Datom.World’s programmable computation."]
+       [:div.faq-grid
+        [:details.faq {:open true}
+         [:summary "What is Yin-Yang?"]
+         [:div
+          [:p
+           "Yin-Yang is a universal continuation machine and compiler framework that unifies interpretation, compilation, and transformation."]
+          [:p
+           "It pairs Yin.VM—a continuation-centric virtual machine that evaluates map-based ASTs—with the Yang compiler that lowers higher-level languages into that canonical form. "
+           "Together they make computation portable, inspectable, and transformable across networks."]]]
+        [:details.faq
+         [:summary "Why is it called Yin-Yang?"]
+         [:div
+          [:p
+           "Yin represents evaluation—the generative flow of continuations—while Yang embodies compilation—the structural organization of code. "
+           "They continually transform into each other, forming two inseparable halves of a single process."]]]
+        [:details.faq
+         [:summary "What is unique about Yin.VM?"]
+         [:div
+          [:ul.bulleted
+           [:li "Everything is a continuation: functions, closures, and coroutines live in the same model."]
+           [:li "Eval is the virtual machine: the evaluator is the runtime, not a separate layer."]
+           [:li "ASTs stay canonical as EDN maps, never hidden behind bytecode."]
+           [:li "Persistent CESK machine keeps control, environment, store, and continuation immutable yet efficient."]
+           [:li "Opcodes are configurable, so semantics and instruction sets can be tailored per deployment."]]]]
+        [:details.faq
+         [:summary "How does it differ from VMs like the JVM or EVM?"]
+         [:div
+          [:p
+           "Where the JVM hides runtime state behind bytecode, Yin.VM exposes evaluation as data. "
+           "Where the EVM prices computation but limits introspection, Yin.VM reifies continuations—enabling distributed execution, dynamic transformation, and zero-copy migration."]]]
+        [:details.faq
+         [:summary "What is a map-based AST?"]
+         [:div
+          [:p
+           "Programs are immutable maps with explicit keys for operation, arguments, environment, and continuation. "
+           "Everything is addressable, inspectable, and serializable—ideal for distributed or persisted execution."]]]
+        [:details.faq
+         [:summary "What is the Yang compiler?"]
+         [:div
+          [:p
+           "Yang lowers high-level languages (starting with Clojure) into Yin’s universal AST. "
+           "Additional backends for Python, JavaScript, Rust, and beyond bring cross-language continuations into the same runtime."]]]
+        [:details.faq
+         [:summary "What does “everything is a continuation” mean for developers?"]
+         [:div
+          [:p
+           "Control flow, concurrency, and suspension points become data. "
+           "You can capture, transform, serialize, or route continuations across the network—turning distributed computation into composable building blocks."]]]
+        [:details.faq
+         [:summary "What does “everything is a continuation” mean for users?"]
+         [:div
+          [:p
+           "Programs can pause, migrate, or resume anywhere without losing context. "
+           "Your computation travels with you—locally or in the cloud—with the same continuity as your data."]]]
+        [:details.faq
+         [:summary "Can Yin.VM interoperate with other systems?"]
+         [:div
+          [:p
+           "Yes. Yin.VM uses EDN as an interchange format so continuations cross language and network boundaries. "
+           "It integrates with native Rust or C functions and can compile to or from platforms like Gambit Scheme or WebAssembly."]]]
+        [:details.faq
+         [:summary "Why persistent data structures?"]
+         [:div
+          [:p
+           "Persistent structures make it cheap to snapshot and resume whole VM states without mutation or leaks. "
+           "You gain lightweight time travel debugging, safe distributed execution, and resilience without relying on stop-the-world garbage collection."]]]
+        [:details.faq
+         [:summary "What can developers build?"]
+         [:div
+          [:ul.bulleted
+           [:li "Language interpreters and compilers."]
+           [:li "Distributed continuation services."]
+           [:li "Stream-based or reactive runtimes."]
+           [:li "Portable, inspectable computation graphs."]
+           [:li "Reflective or self-modifying research systems."]]]]
+        [:details.faq
+         [:summary "How does Yin-Yang relate to Datom.World?"]
+         [:div
+          [:p
+           "Datom.World handles data as streams. "
+           "Yin-Yang handles computation as continuations. "
+           "Together they form the continuation-aware fabric that powers programmable agents and attention economies."]]]
+        [:details.faq
+         [:summary "What is the long-term vision?"]
+         [:div
+          [:p
+           "To reify computation as data so code, runtime, and transformation merge into one universal fabric—continuations flowing through datom streams."]]]]]]
      [:section.section-light
-     [:div.section-inner
+      [:div.section-inner
        [:h2 "Still curious?"]
        [:p
         "Bring your scenario or data model and we will explore it together. "
