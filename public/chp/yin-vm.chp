@@ -21,7 +21,7 @@
       [:div.section-inner
        [:h2 "Main ideas"]
        [:ul.bulleted
-        [:li [:strong "Universal AST"] " — immutable maps capture syntax, semantics, and metadata across languages."]
+        [:li [:strong "Universal AST"] " — designed as a compiler target, these immutable maps capture syntax, semantics, and metadata across languages."]
        [:li [:strong "Persistent CESK"] " — control, environment, store, and continuation reuse structure for speed."]
         [:li [:strong "First-class continuations"] " — computation pauses, migrates, and resumes anywhere, even across network boundaries."]
         [:li [:strong "Unified call constructs"] " — functions, closures, and continuations are the same reified execution context."]
