@@ -11,7 +11,7 @@
  [:body.page
   [:header.site-header
    [:div.section-inner
-    [:a.brand {:href "/overview.chp"} "Datom.World"]
+    [:a.brand {:href "/"} "Datom.World"]
     [:nav.primary-nav
      [:a {:href "/yin-vm.chp"} "Yin.VM"]
      [:a {:href "/shibi.chp"} "Shibi"]
