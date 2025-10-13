@@ -14,6 +14,7 @@
     [:a.brand {:href "/"} "Datom.World"]
     [:nav.primary-nav
      [:a {:href "/yin-vm.chp"} "Yin.VM"]
+     [:a {:href "/yang.chp"} "Yang"]
      [:a {:href "/shibi.chp"} "Shibi"]
      [:a {:href "/tao-vm.chp"} "Tao.VM"]
      [:a.cta {:href "mailto:hello@datom.world"} "Contact"]]]]

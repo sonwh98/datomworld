@@ -1,0 +1,58 @@
+(let [template (load-file "public/chp/template.chp")]
+  (clojure.walk/postwalk-replace
+   {:template/title "Datom.World — Yang Compiler"
+    :template/content
+    (list
+     [:section#yang.section-dark
+      [:div.section-inner
+       [:span.status-pill "Generative counterpart"]
+       [:h1 "Yang Compiler — The generative half of Yin.VM"]
+       [:p.section-lead
+        "If Yin.VM is the continuation engine, the Yang compiler is its expression engine. "
+        "Together they form a dual system—Yin for execution, reception, and introspection; Yang for generation, expression, and emission."]
+       [:p
+        "Yang transforms high-level intents into continuations that Yin.VM can execute. "
+        "It shapes the Universal AST (U-AST), seeds migrations, and ensures every emitted agent carries context for the runtime to honor."]
+       [:div.relationship-grid
+        [:article.relationship-card
+         [:h3 "Conceptual relationship"]
+         [:table.relationship-table
+          [:thead
+           [:tr
+            [:th "Axis"]
+            [:th "Yin.VM"]
+            [:th "Yang compiler"]]]
+          [:tbody
+           [:tr
+            [:td "Modality"]
+            [:td "Passive — receives and executes continuations"]
+            [:td "Active — generates and emits continuations"]]
+           [:tr
+            [:td "Lifecycle"]
+            [:td "Runtime"]
+            [:td "Compile-time"]]
+           [:tr
+            [:td "Focus"]
+            [:td "Continuation execution"]
+            [:td "Continuation construction"]]
+           [:tr
+            [:td "U-AST role"]
+            [:td "Consumes the Universal AST (U-AST)"]
+            [:td "Produces the Universal AST (U-AST)"]]
+           [:tr
+            [:td "Metaphor"]
+            [:td "Represents potential realized"]
+            [:td "Represents potential becoming"]]]]]
+        [:article.relationship-card
+         [:h3 "Where to go next"]
+         [:ul.bulleted
+          [:li
+           [:a {:href "/yin-vm.chp"} "Revisit Yin.VM"]
+           " to see how continuations are scheduled and migrated."]
+          [:li
+           [:a {:href "/tao-vm.chp"} "Explore Tao.VM"]
+           " to watch emitted continuations shape living interfaces."]
+          [:li
+           [:a {:href "/shibi.chp"} "Study Shibi"]
+           " to combine economic signaling with generated agents."]]]]]])}
+   template))
