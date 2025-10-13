@@ -60,9 +60,8 @@
         "running on embedded devices, edge racks, or supercomputers without changing shape. "
         "They can be paused, serialized, migrated, and resumed—turning mobile agents into continuations by design."]
        [:p
-        "Functions and closures become specific shapes of the same construct: a continuation with arguments and, optionally, captured environments."]
-       [:p
-        "With this unification, metaprogramming, reflection, and code mobility stop being special cases—they are native behaviors."]]]
+        "Functions, closures and continuations are a unified concept. With this unification, metaprogramming, reflection, and "
+        "code mobility stop being special cases—they are native behaviors."]]]
      [:section.section-light
       [:div.section-inner
        [:h2 "Eval is the virtual machine"]
@@ -81,7 +80,7 @@
        [:h2 "In summary"]
        [:p
         "Yin.VM turns code into data and data into computation. "
-        "The Universal AST anchors every stage, persistent CESK execution keeps state efficient and immutable, "
+        "The Universal AST anchors every stage, persistent data structures makes CESK state efficient and immutable, "
         "and first-class continuations make agents mobile by design. "
         "Eval is the machine, runtime macros stay reversible, and distributed AST transformation keeps teams iterating together."]
        [:p
