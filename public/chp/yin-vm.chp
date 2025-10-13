@@ -8,9 +8,8 @@
        [:span.status-pill "Deep dive"]
        [:h1 "Yin.VM"]
        [:p.section-lead
-        "Yin.VM feels like Smalltalk meets Lisp: an image-based world where everything is an object you can inspect, "
-        "and a homoiconic language where code is data you can rewrite. "
-        "It is a continuation-centric virtual machine where the universal, map-based AST stays canonical, eval is the machine, "
+        "Yin.VM is what happens when Clojure and Smalltalk got together and had a baby."
+        "It is a continuation virtual machine where the universal, map-based AST stays canonical, eval is the machine, "
         "and persistent data structures keep continuations fast, mobile, and immutable."]
        [:p
         "Together with the Yang compiler, Yin.VM forms a dual system: Yang generates and emits continuations from Clojure code, "
