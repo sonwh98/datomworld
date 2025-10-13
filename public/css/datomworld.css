@@ -549,6 +549,145 @@ pre {
   margin: 1rem auto 2rem;
   color: var(--muted);
 }
+.docs-hero {
+  background: rgba(11, 15, 31, 0.9);
+  border-bottom: 1px solid rgba(123, 220, 255, 0.16);
+}
+
+.docs-content {
+  background: rgba(6, 8, 23, 0.92);
+}
+
+.docs-content .section-inner {
+  display: grid;
+  gap: clamp(2rem, 6vw, 3rem);
+}
+
+@media (min-width: 960px) {
+  .docs-content .section-inner {
+    grid-template-columns: 0.4fr 1fr;
+  }
+}
+
+.docs-toc {
+  padding: 1.6rem;
+  border-radius: 20px;
+  background: rgba(14, 19, 40, 0.82);
+  border: 1px solid rgba(123, 220, 255, 0.2);
+  position: sticky;
+  top: 6rem;
+  height: fit-content;
+}
+
+.docs-toc h2 {
+  margin-top: 0;
+  font-size: 1rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.docs-toc ol {
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.65rem;
+}
+
+.docs-toc a {
+  color: var(--text);
+  font-size: 0.95rem;
+}
+
+.docs-toc a:hover {
+  color: var(--accent);
+}
+
+.docs-body {
+  display: grid;
+  gap: clamp(2rem, 5vw, 3rem);
+}
+
+.docs-body section h2 {
+  margin-top: 0;
+}
+
+.callout {
+  margin: 1.2rem 0;
+  padding: 1rem 1.2rem;
+  border-radius: 16px;
+  background: rgba(123, 220, 255, 0.08);
+  border: 1px solid rgba(123, 220, 255, 0.2);
+  color: var(--muted);
+}
+
+.component-grid {
+  display: grid;
+  gap: 1.2rem;
+}
+
+@media (min-width: 768px) {
+  .component-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.component-card {
+  padding: 1.2rem 1.4rem;
+  border-radius: 18px;
+  background: rgba(14, 19, 40, 0.85);
+  border: 1px solid rgba(123, 220, 255, 0.18);
+  box-shadow: 0 16px 30px rgba(6, 8, 23, 0.45);
+}
+
+.component-card h3 {
+  margin: 0 0 0.7rem;
+  font-size: 1.05rem;
+  color: var(--text);
+}
+
+.component-card p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.numbered {
+  counter-reset: item;
+  margin: 1rem 0;
+  padding-left: 0;
+  display: grid;
+  gap: 1rem;
+}
+
+.numbered > li {
+  list-style: none;
+  padding-left: 3.2rem;
+  position: relative;
+  padding-bottom: 0.5rem;
+}
+
+.numbered > li::before {
+  counter-increment: item;
+  content: counter(item, decimal-leading-zero);
+  position: absolute;
+  left: 0;
+  top: 0.15rem;
+  font-weight: 600;
+  color: var(--accent);
+  font-size: 0.85rem;
+  letter-spacing: 0.08em;
+}
+
+@media (max-width: 600px) {
+  .docs-content .section-inner {
+    grid-template-columns: 1fr;
+  }
+
+  .docs-toc {
+    position: static;
+  }
+}
 
 .site-footer {
   border-top: 1px solid rgba(120, 137, 255, 0.18);
