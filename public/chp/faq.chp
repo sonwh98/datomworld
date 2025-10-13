@@ -3,18 +3,166 @@
    {:template/title "Datom.World — FAQ"
     :template/content
     (list
+     [:section.hero
+      [:div.section-inner
+       [:div.hero-copy
+        [:span.status-pill "FAQ"]
+        [:h1 "Answers for the stream-native future"]
+        [:p.lead
+         "The quick way to understand why Datom.World feels different from today’s cloud."]
+        [:p
+         "Whether you are mapping your first datom stream or orchestrating fleets of agents, "
+         "these answers explain the intent behind the platform and how the pieces interlock."]]
+       [:div.hero-panel
+        [:div.hero-card
+         [:span.hero-badge "Need a walkthrough?"]
+         [:p
+          "We host regular preview sessions that pair product tours with deep architectural dives."]
+         [:ul.hero-list
+          [:li [:strong "Private preview"] " — hello@datom.world"]
+          [:li [:strong "Partner scenarios"] " — collaborative pilots and field deployments"]
+          [:li [:strong "Runtime clinics"] " — bring your streams, continuations, or schemas"]]]]]]
      [:section.section-light
       [:div.section-inner
-       [:h1 "Frequently Asked Questions"]
-       [:dl
-        [:dt "What is Datom.World?"]
-        [:dd "Datom.World is a local-first tuple store and runtime. It's a system for building, distributing, and running universal agents, built on streams of immutable datoms."]
-        [:dt "What are datom streams?"]
-        [:dd "Datom streams are the core of Datom.World. Every event, from a keystroke to a query, is a reversible, auditable datom. These streams sync securely across devices."]
-        [:dt "What is the Universal AST?"]
-        [:dd "The Universal AST is a language-agnostic, map-based structure that captures syntax, semantics, and metadata in immutable data. It's designed to be a compiler target, allowing different languages to compile into this canonical form."]
-        [:dt "What are Yin.VM and Yang?"]
-        [:dd "Yin.VM is a continuation virtual machine that executes programs expressed in the Universal AST. The Yang compiler takes code (starting with Clojure) and compiles it into the Universal AST for Yin.VM to run."]
-        [:dt "Is this related to Datomic?"]
-        [:dd "Datom.World is inspired by the ideas behind Datomic, particularly the use of datoms and immutable data. However, it is a distinct system with a focus on being a distributed, local-first runtime for universal agents."]]]])}
+       [:h2 "Datom.World in plain language"]
+       [:p.section-lead
+        "A conversational overview of how local-first datoms power collaborative software without central gatekeepers."]
+       [:div.faq-grid
+        [:details.faq {:open true}
+         [:summary "What is Datom.World?"]
+         [:div
+          [:p
+           "Datom.World is a new kind of internet — one built on collaboration, not control. "
+           "Instead of routing your life through distant servers, it keeps information anchored to "
+           "your devices and neighborhoods while still letting knowledge flow. "
+           "Nodes share datoms—tiny structured facts—that stay private, portable, and ready to combine into living systems."]]]
+        [:details.faq
+         [:summary "Why the metaphor of ant colonies and stigmergy?"]
+         [:div
+          [:p
+           "Ants coordinate by leaving traces for others to interpret, not by reporting to a central brain. "
+           "Datom.World brings that principle online: every device leaves datoms in shared space, "
+           "and the collective behavior emerges from local actions. "
+           "It is self-organizing intelligence without command-and-control."]]]
+        [:details.faq
+         [:summary "What does “everything is a stream” actually mean?"]
+         [:div
+          [:p
+           "In Datom.World, data never freezes in silos. "
+           "Every fact lives in an append-only stream that can be read, transformed, or extended. "
+           "Streams become the common language for messages, automations, analytics, or agents—"
+           "a single primitive that replaces piles of bespoke stacks."]]]
+        [:details.faq
+         [:summary "Who owns the data flowing through these streams?"]
+         [:div
+          [:p
+           "You do. Datoms stay under the author’s control from creation through sharing. "
+           "There is no corporate datastore to monetize or subpoena. "
+           "You decide which peers can observe a stream, for how long, and with which capabilities."]]]
+        [:details.faq
+         [:summary "What is a datom, exactly?"]
+         [:div
+          [:p
+           "A datom is the smallest unit of shared knowledge: "
+           "the immutable 5-tuple [entity attribute value time context]. "
+           "It captures who, what, value, when, and provenance with enough structure to be recomposed safely. "
+           "Just as atoms assemble into matter, datoms assemble into living datasets."]]]
+        [:details.faq
+         [:summary "How does this differ from conventional cloud computing?"]
+         [:div
+          [:p
+           "Traditional clouds centralize data in opaque silos. "
+           "Datom.World flips the model—data stays local, and streams entangle trusted devices with end-to-end encryption. "
+           "You gain the convenience of synced collaboration without surrendering custody or observability."]]]
+        [:details.faq
+         [:summary "What does collaboration look like without a central server?"]
+         [:div
+          [:p
+           "Collaboration flows through entanglement: a lightweight protocol where independent nodes agree on the order of datoms. "
+           "Leadership can rotate instantly, so the stream stays live even as devices appear or disappear. "
+           "The result feels like a living network that adapts instead of waiting on a monolithic authority."]]]
+        [:details.faq
+         [:summary "How is privacy preserved if everything is streaming?"]
+         [:div
+          [:p
+           "Privacy is the default. "
+           "Each datom can bundle access rules, key material, expiration, and audit trails. "
+           "Encryption happens before transmission, so only the peers you authorize can interpret the facts they receive."]]]
+        [:details.faq
+         [:summary "What kinds of experiences can I build?"]
+         [:div
+          [:p
+           "Anything that benefits from shared truth: "
+           "social spaces, marketplaces, automation meshes, IoT telemetry, multiplayer tooling, or AI agents. "
+           "Because streams are universal, the same facts can render as dashboards, maps, spreadsheets, or code triggers—"
+           "all without duplicating data."]]]
+        [:details.faq
+         [:summary "What does Datom.World mean for the future of the web?"]
+         [:div
+          [:p
+           "It aims toward a digital commons—where data lives with people, not platforms. "
+           "Apps cooperate instead of compete, privacy and openness co-exist, and collective intelligence emerges from shared streams. "
+           "Think of it as an internet reborn as an organism: decentralized, adaptive, and deeply human."]]]]]]
+     [:section.section-dark
+      [:div.section-inner
+       [:h2 "Developer deep cuts"]
+       [:p.section-lead
+        "Answering the technical questions builders ask first about the runtime, streams, and tooling."]
+       [:div.faq-grid
+        [:details.faq {:open true}
+         [:summary "What exactly is a datom in implementation terms?"]
+         [:div
+          [:p
+           "A datom is a fixed five-element tuple: [e a v t c] → entity, attribute, value, time, context. "
+           "It is immutable, append-only, and causally traceable. "
+           "Datoms live locally, replicate by subscription, and form the atomic event log every index or materialization derives from."]]]
+        [:details.faq
+         [:summary "How should developers interpret “everything is a stream”?"]
+         [:div
+          [:p
+           "Streams are the single I/O abstraction. "
+           "Read, write, transform, and entangle datoms through asynchronous channels instead of bespoke APIs. "
+           "Files, sockets, message queues, and databases collapse into this one primitive, giving apps a shared protocol for collaboration."]]]
+        [:details.faq
+         [:summary "What role does Yin.VM play?"]
+         [:div
+          [:p
+           "Yin.VM is the universal VM. "
+           "It executes serialized continuations over datom streams using a persistent CESK machine with first-class continuations. "
+           "Because continuations are just data, computation can migrate to where the datoms reside—code flows to data, not vice versa."]]]
+        [:details.faq
+         [:summary "How does the Yang compiler fit in?"]
+         [:div
+          [:p
+           "Yang compiles high-level languages (launching with Clojure) into Yin’s universal, map-based AST. "
+           "Other languages can target the same AST, unlocking cross-language execution, reflection, and live transformation in Yin.VM."]]]
+        [:details.faq
+         [:summary "What is entanglement between nodes?"]
+         [:div
+          [:p
+           "Entanglement is a lightweight consensus mechanism. "
+           "Entangled nodes maintain a partially ordered view of a shared stream. "
+           "Temporary leaders serialize events, but leadership can shift on demand—delivering consistency without global locks or blockchains."]]]
+        [:details.faq
+         [:summary "How is data stored and replicated?"]
+         [:div
+          [:p
+           "Every node keeps an append-only tuple store and subscribes to streams it cares about. "
+           "Replication pulls missing datoms, merges by timestamp or causal ID, and maintains local indexes. "
+           "Compression, encryption, and snapshots are pluggable per stream."]]]
+        [:details.faq
+         [:summary "How is privacy enforced in a decentralized fabric?"]
+         [:div
+          [:p
+           "Each datom includes metadata for access policies, encryption, and provenance. "
+           "Nodes evaluate those rules locally before sharing, encrypt before transmission, and rely on short-lived capabilities—not central identity servers—to authorize peers."]]]]]]
+     [:section.section-light
+      [:div.section-inner
+       [:h2 "Still curious?"]
+       [:p
+        "Bring your scenario or data model and we will explore it together. "
+        "Intros, architecture reviews, and partner pilots happen weekly."]
+       [:div.hero-actions
+        [:a.btn {:href "mailto:hello@datom.world"} "Request a preview session"]
+        [:a.btn.btn-outline {:href "/overview.chp"} "Return to the overview"]]]])}
    template))
