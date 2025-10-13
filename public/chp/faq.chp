@@ -178,7 +178,11 @@
          [:div
           [:p
            "Each datom includes metadata for access policies, encryption, and provenance. "
-           "Nodes evaluate those rules locally before sharing, encrypt before transmission, and rely on short-lived capabilities—not central identity servers—to authorize peers."]]]]]]
+           "Nodes evaluate those rules locally before sharing, encrypt before transmission, and rely on short-lived capabilities—not central identity servers—to authorize peers."]
+          [:p
+           "Execution safety rides on Yin.VM acting as the universal security container. "
+           "Like Docker, WASM, or the JVM, Yin.VM sandboxes code so untrusted continuations can run on your hardware without escaping. "
+           "The same isolation reassures collaborators: their datoms can execute on your node without you peering into the VM, keeping both compute and data private even when hardware is shared."]]]]]]
      [:section.section-light
      [:div.section-inner
        [:h2 "Still curious?"]
