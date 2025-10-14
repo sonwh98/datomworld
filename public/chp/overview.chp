@@ -44,6 +44,7 @@
           " interpret the same base facts in its own way — one truth, many perspectives."
           ]
          [:ul.hero-list
+          [:li [:strong "Universal composition"] " datoms can be composed to create any type of data structure, keeping your models fluid."]
           [:li [:strong "Composable schemas"] " evolve without migrations, staying queryable from design to delivery"]
           [:li [:strong "Offline by default"] "with entangled sync that reconnects your state when you’re back online."]]]]]]
      [:section.section-light
