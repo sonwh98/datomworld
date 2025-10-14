@@ -38,14 +38,14 @@
           [:span.value "[e a v t c]"]]]]
        [:div.hero-panel
         [:div.hero-card
-         [:span.hero-badge "Why datoms?"]
+         [:span.hero-badge "Why datom streams?"]
          [:p
-          "Each datom is a five-part fact. Append-only streams make history auditable "
-          "and interpretation pluggable, so multiple applications can reuse the same truth."]
+          "A datom is a five element tuple stored in immutable streams. Immutable streams make history verifiable and let any application"
+          " interpret the same base facts in its own way — one truth, many perspectives."
+          ]
          [:ul.hero-list
-          [:li [:strong "Composable schemas"] " stay queryable from design to delivery."]
-          [:li [:strong "Agent-native"] " continuations move compute to where the data lives."]
-          [:li [:strong "Offline by default"] " with optional entangled sync when you reconnect."]]]]]]
+          [:li [:strong "Composable schemas"] " evolve without migrations, staying queryable from design to delivery"]
+          [:li [:strong "Offline by default"] "with entangled sync that reconnects your state when you’re back online."]]]]]]
      [:section.section-light
       [:div.section-inner
        [:h2 "What is Datom.World?"]
@@ -56,21 +56,21 @@
        [:p
         "Instead of a centralized internet ruled by a handful of servers, Datom.World is a living ecosystem of independent nodes—"
         "personal devices, computers, sensors—each contributing to a shared fabric. "
-        "Nodes exchange tiny data atoms, or datoms, just as ants share signals grain by grain."]
+        "Nodes exchange tiny data atoms, or datoms, just as ants share pheramon signals molecule by molecule."]
        [:p
-        "A datom is the smallest unit of shared knowledge: a self-contained piece of truth you fully own. "
+        "A datom is the smallest unit of structured data: a self-contained piece of fact you fully own. "
         "You choose what to share and with whom. There are no hidden algorithms or distant data centers dictating the rules. "
         "Everything stays local-first and private by design."]
        [:p
         "Streams of datoms flow between trusted peers, creating an internet that is distributed, entangled, and alive—"
         "where collaboration emerges naturally and privacy is foundational. "
         "Datom.World reimagines software as a digital ecosystem: self-organizing, adaptive, and free."]]]
-     [:section.section-dark
-      [:div.section-inner
-       [:h2 "Next steps"]
-       [:p
-        "Ready to co-create the stream-native future? Tell us about your use case, and we’ll line up a preview workspace."]
-       [:div.hero-actions
-        [:a.btn {:href "mailto:hello@datom.world"} "Request preview access"]
-        [:a.btn.btn-outline {:href "/yang.chp"} "Meet the Yang compiler"]]]])}
+     #_[:section.section-dark
+        [:div.section-inner
+         [:h2 "Next steps"]
+         [:p
+          "Ready to co-create the stream-native future? Tell us about your use case, and we’ll line up a preview workspace."]
+         [:div.hero-actions
+          [:a.btn {:href "mailto:hello@datom.world"} "Request preview access"]
+          [:a.btn.btn-outline {:href "/yang.chp"} "Meet the Yang compiler"]]]])}
    template))

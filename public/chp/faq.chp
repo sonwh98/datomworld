@@ -3,30 +3,9 @@
    {:template/title "Datom.World — FAQ"
     :template/content
     (list
-     [:section.hero
-      [:div.section-inner
-       [:div.hero-copy
-        [:span.status-pill "FAQ"]
-        [:h1 "Answers for the stream-native future"]
-        [:p.lead
-         "The quick way to understand why Datom.World feels different from today’s cloud."]
-        [:p
-         "Whether you are mapping your first datom stream or orchestrating fleets of agents, "
-         "these answers explain the intent behind the platform and how the pieces interlock."]]
-       [:div.hero-panel
-        [:div.hero-card
-         [:span.hero-badge "Need a walkthrough?"]
-         [:p
-          "We host regular preview sessions that pair product tours with deep architectural dives."]
-         [:ul.hero-list
-          [:li [:strong "Private preview"] " — hello@datom.world"]
-          [:li [:strong "Partner scenarios"] " — collaborative pilots and field deployments"]
-          [:li [:strong "Runtime clinics"] " — bring your streams, continuations, or schemas"]]]]]]
      [:section.section-light
       [:div.section-inner
-       [:h2 "Datom.World in plain language"]
-       [:p.section-lead
-        "A conversational overview of how local-first datoms power collaborative software without central gatekeepers."]
+       [:h2 "Datom.World FAQ"]
        [:div.faq-grid
         [:details.faq {:open true}
          [:summary "What is Datom.World?"]
@@ -40,7 +19,7 @@
          [:summary "Why the metaphor of ant colonies and stigmergy?"]
          [:div
           [:p
-           "Ants coordinate by leaving traces for others to interpret, not by reporting to a central brain. "
+           "Ants coordinate by leaving traces of chemical data for others to interpret, not by reporting to a central brain. "
            "Datom.World brings that principle online: every device leaves datoms in shared space, "
            "and the collective behavior emerges from local actions. "
            "It is self-organizing intelligence without command-and-control."]]]
@@ -51,7 +30,7 @@
            "In Datom.World, data never freezes in silos. "
            "Every fact lives in an append-only stream that can be read, transformed, or extended. "
            "Streams become the common language for messages, automations, analytics, or agents—"
-           "a single primitive that replaces piles of bespoke stacks."]]]
+           "a single primitive that replaces piles of bespoke stacks. There's only two API: reaad and write"]]]
         [:details.faq
          [:summary "What does “everything is a continuation” mean for me?"]
          [:div
@@ -75,10 +54,10 @@
          [:summary "What is a datom, exactly?"]
          [:div
           [:p
-           "A datom is the smallest unit of shared knowledge: "
+           "A datom is the smallest unit of structured data: "
            "the immutable 5-tuple [entity attribute value time context]. "
            "It captures who, what, value, when, and provenance with enough structure to be recomposed safely. "
-           "Just as atoms assemble into matter, datoms assemble into living datasets."]]]
+           "Just as atoms assemble into matter, datoms assemble into any data structure"]]]
         [:details.faq
          [:summary "How does this differ from conventional cloud computing?"]
          [:div
