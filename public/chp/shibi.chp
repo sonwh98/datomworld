@@ -49,7 +49,12 @@
       [:div.section-inner
        [:h2 "🌍 Why It Matters"]
        [:p
-        "The modern web runs on attention, yet attention rarely has a native price. Shibi changes that dynamic by revealing the true cost of unwanted outreach and rewarding the people who choose to listen."]]]
+        "The modern web runs on attention, yet attention rarely has a native price. Shibi changes that dynamic by revealing the true cost of unwanted outreach and rewarding the people who choose to listen."]
+       [:p
+        "Today, the "
+        [:a {:href "/tracking.chp"} "digital tracking industry"]
+        " treats your attention as free real estate—harvesting it through cookies, fingerprinting, and cross-device surveillance to build detailed profiles for sale. "
+        "Shibi inverts that model: instead of your attention being extracted without consent, it becomes a tradable asset you control and price yourself."]]]
      [:section.section-dark
       [:div.section-inner
        [:h2 "How It Works"]

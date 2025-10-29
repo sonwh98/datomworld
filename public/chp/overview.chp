@@ -17,6 +17,12 @@
          "and look up information. But behind the scenes, a handful of giant companies decide "
          "how it all works, monetize your attention, and lock your data behind their walls."]
         [:p
+         "Worse, they're "
+         [:a {:href "/tracking.chp"} "tracking everything you do"]
+         "—cookies follow you across websites, fingerprints identify your device even when you clear your history, "
+         "and cross-device tracking links your phone to your laptop to build detailed profiles of your life. "
+         "Your private data becomes their product, sold to advertisers, data brokers, and anyone willing to pay."]
+        [:p
          "Datom.World imagines something different: a stream-native fabric where you keep custody of "
          "your information, invite services on your terms, and tap into collective compute the way "
          "you might book a spare room on Airbnb."]
@@ -63,15 +69,27 @@
         "You choose what to share and with whom. There are no hidden algorithms or distant data centers dictating the rules. "
         "Everything stays local-first and private by design."]
        [:p
+        "Unlike today's internet—where "
+        [:a {:href "/tracking.chp"} "third-party trackers, data brokers, and surveillance capitalism"]
+        " extract value from your every move—Datom.World keeps your data under your control. "
+        "No Meta Pixel watching what you buy. No Google Analytics profiling your browsing. "
+        "No probabilistic matching linking your devices without consent. Just facts you own, shared on your terms."]
+       [:p
         "Streams of datoms flow between trusted peers, creating an internet that is distributed, entangled, and alive—"
         "where collaboration emerges naturally and privacy is foundational. "
         "Datom.World reimagines software as a digital ecosystem: self-organizing, adaptive, and free."]]]
-     #_[:section.section-dark
-        [:div.section-inner
-         [:h2 "Next steps"]
-         [:p
-          "Ready to co-create the stream-native future? Tell us about your use case, and we’ll line up a preview workspace."]
-         [:div.hero-actions
-          [:a.btn {:href "mailto:hello@datom.world"} "Request preview access"]
-          [:a.btn.btn-outline {:href "/yang.chp"} "Meet the Yang compiler"]]]])}
+     [:section.section-dark
+      [:div.section-inner
+       [:h2 "Next steps"]
+       [:p
+        "The current internet was built on extraction—your attention harvested, your data profiled, your privacy sold. "
+        "Datom.World offers an alternative: a stream-native fabric where collaboration is additive, not extractive."]
+       [:p
+        "Want to understand how deep the surveillance goes? Explore "
+        [:a {:href "/tracking.chp"} "how the tracking industry works"]
+        ". Ready to help build the alternative? Tell us about your use case."]
+       [:div.hero-actions
+        [:a.btn {:href "mailto:hello@datom.world"} "Request preview access"]
+        [:a.btn.btn-outline {:href "/tracking.chp"} "Learn about tracking"]
+        [:a.btn.btn-outline {:href "/shibi.chp"} "Explore Shibi"]]]])}
    template))
