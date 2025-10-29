@@ -34,6 +34,9 @@
          [:a.btn.btn-outline {:href "/yin-vm.chp"} "Learn about Yin"]]
         [:div.hero-metrics
          [:div.metric
+          [:span.label "API surface"]
+          [:span.value "2 functions"]]
+         [:div.metric
           [:span.label "Sync latency"]
           [:span.value "< 15ms"]]
          [:div.metric
@@ -51,8 +54,9 @@
           ]
          [:ul.hero-list
           [:li [:strong "Universal composition"] " datoms can be composed to create any type of data structure, keeping your models fluid."]
+          [:li [:strong "Two-function API"] " " [:code "read"] " and " [:code "write"] " — that's the entire interface. No REST, no GraphQL, no query languages."]
           [:li [:strong "Composable schemas"] " evolve without migrations, staying queryable from design to delivery"]
-          [:li [:strong "Offline by default"] "with entangled sync that reconnects your state when you’re back online."]]]]]]
+          [:li [:strong "Offline by default"] " with entangled sync that reconnects your state when you're back online."]]]]]]
      [:section.section-light
       [:div.section-inner
        [:h2 "What is Datom.World?"]
@@ -78,6 +82,49 @@
         "Streams of datoms flow between trusted peers, creating an internet that is distributed, entangled, and alive—"
         "where collaboration emerges naturally and privacy is foundational. "
         "Datom.World reimagines software as a digital ecosystem: self-organizing, adaptive, and free."]]]
+     [:section.section-dark
+      [:div.section-inner
+       [:h2 "Everything is a stream"]
+       [:p
+        "In Datom.World, everything—messages, files, databases, API calls, user interactions—exists as streams of datoms. "
+        "This isn't just a metaphor. There is literally one universal abstraction: the append-only datom stream."]
+       [:p
+        "No more wrestling with REST APIs, GraphQL schemas, database drivers, message queues, file systems, and WebSocket protocols. "
+        "All of these collapse into a single primitive: the stream."]
+       [:div.feature-grid
+        [:article.feature-card
+         [:h3 "Two functions. That's it."]
+         [:p [:code "read(stream)"] " — consume datoms from a stream"]
+         [:p [:code "write(stream, datom)"] " — append a datom to a stream"]
+         [:p "That's the entire API. Every app, every agent, every service uses the same two operations."]]
+        [:article.feature-card
+         [:h3 "Universal composition"]
+         [:p "Messages? Stream of datoms. User profile? Stream of datoms. Shopping cart? Stream of datoms. Analytics? Stream of datoms."]
+         [:p "Because everything speaks the same language, everything composes. Your chat app can feed into your analytics. Your shopping cart can trigger your calendar. Seamlessly."]]
+        [:article.feature-card
+         [:h3 "No impedance mismatch"]
+         [:p "Traditional apps spend most of their complexity translating between incompatible systems—SQL to JSON to REST to UI state."]
+         [:p "With datom streams, data flows through your system without translation. Read datoms, transform datoms, write datoms. That's the whole pipeline."]]]
+       [:p
+        "This radical simplicity doesn't limit what you can build—it liberates it. "
+        "Complex behaviors emerge from composing simple streams, just as complex molecules emerge from simple atoms."]]]
+     [:section.section-light
+      [:div.section-inner
+       [:h2 "Why streams instead of APIs?"]
+       [:p
+        "Modern software is drowning in accidental complexity. Every service exposes a different API. "
+        "Every database speaks a different query language. Every protocol requires different client libraries."]
+       [:p
+        "Datom streams cut through this chaos:"]
+       [:ul.bulleted
+        [:li [:strong "Uniform interface"] " — Learn " [:code "read"] " and " [:code "write"] " once, use everywhere"]
+        [:li [:strong "Temporal by default"] " — Every stream is an immutable log. Time travel, audit trails, and undo are built-in, not bolted-on"]
+        [:li [:strong "Naturally distributed"] " — Streams replicate, merge, and sync across devices without complex reconciliation logic"]
+        [:li [:strong "Composable by nature"] " — Any stream can feed any other stream. Pipelines emerge naturally"]
+        [:li [:strong "Offline-first reality"] " — Write to local streams, sync when connected. No special \"offline mode\" needed"]]
+       [:p
+        "When everything is a stream, the distinction between database, API, filesystem, and message queue disappears. "
+        "There are only datoms flowing through time, and you decide which streams to read and write."]]]
      [:section.section-dark
       [:div.section-inner
        [:h2 "Next steps"]
