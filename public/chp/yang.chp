@@ -50,7 +50,7 @@
            [:a {:href "/yin-vm.chp"} "Revisit Yin"]
            " to see how continuations are scheduled and migrated."]
           [:li
-           [:a {:href "/tao-vm.chp"} "Explore Tao.VM"]
+           [:a {:href "/tao-vm.chp"} "Explore Tao"]
            " to watch emitted continuations shape living interfaces."]
           [:li
            [:a {:href "/shibi.chp"} "Study Shibi"]

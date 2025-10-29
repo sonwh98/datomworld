@@ -1,14 +1,14 @@
 (let [template (load-file "public/chp/template.chp")]
   (clojure.walk/postwalk-replace
-   {:template/title "Datom.World — Tao.VM"
+   {:template/title "Datom.World — Tao"
     :template/content
     (list
      [:section#tao-vm.section-dark
       [:div.section-inner
        [:span.status-pill "Interface runtime"]
-       [:h1 "Tao.VM"]
+       [:h1 "Tao"]
        [:p.section-lead
-        "Tao.VM renders datoms into living interfaces so every view stays consistent with the underlying streams."]
+        "Tao renders datoms into living interfaces so every view stays consistent with the underlying streams."]
        [:div.design-grid
         [:article.design-card
          [:h3 "Composable canvases"]
@@ -18,9 +18,9 @@
          [:p "Expose brand, motion, and interaction tokens as datoms so prototypes and production UI stay aligned."]]
         [:article.design-card
          [:h3 "Feedback in the flow"]
-         [:p "Annotations resolve back into the same stream, turning every review into structured memory Tao.VM can replay."]]]
+         [:p "Annotations resolve back into the same stream, turning every review into structured memory Tao can replay."]]]
        [:p
-        "Because Tao.VM listens to the same streams your agents do, product surfaces never drift from the truth held inside your datoms."]
+        "Because Tao listens to the same streams your agents do, product surfaces never drift from the truth held inside your datoms."]
        [:p.next
         "Explore "
         [:a {:href "/yin-vm.chp"} "Yin"]
