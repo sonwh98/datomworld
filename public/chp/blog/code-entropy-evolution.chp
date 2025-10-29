@@ -75,6 +75,28 @@
         [:p
          "Additionally, premature naming constrains your design. When you name a module before you understand its boundaries, "
          "you lock in assumptions. Structure should guide naming, not the other way around."]
+        [:p
+         "Example: You create a " [:code "user-service"] " namespace early in the project. "
+         "Later you realize some functions deal with authentication, others with profiles, others with permissions. "
+         "But the name " [:code "user-service"] " doesn't reflect these distinctions. Now you face a choice:"]
+        [:ul.bulleted
+         [:li "Refactor into " [:code "auth"] ", " [:code "profiles"] ", and " [:code "permissions"]
+          " (correct but requires renaming and moving code)"]
+         [:li "Keep everything in " [:code "user-service"] " (easy but hides the real structure)"]]
+        [:p
+         "The premature name created resistance to the right structure. If you'd started with " [:code "core"]
+         " or " [:code "users"] " and let the cohesive clusters emerge, "
+         "the structure would have guided you toward " [:code "auth"] ", " [:code "profiles"] ", and " [:code "permissions"]
+         " naturally."]
+        [:p
+         "Frameworks like Ruby on Rails make this worse by forcing everything into MVC: models, views, controllers. "
+         "This is " [:strong "solution domain vocabulary"] ", not " [:strong "problem domain vocabulary"] ". "
+         "Your e-commerce app doesn't naturally think in \"controllers\"—it thinks in orders, payments, inventory, shipping. "
+         "But Rails forces you to organize by technical pattern instead of business concept."]
+        [:p
+         "The result: " [:code "OrdersController"] ", " [:code "PaymentsController"] ", " [:code "InventoryController"]
+         "—where the suffix \"Controller\" adds no information and the real domain concepts (orders, payments, inventory) "
+         "are buried in a solution-domain structure. You've let the framework name your modules before you understand the problem."]
         [:h2 "Entropy in Software: Distribute to Organize"]
         [:p
          "Entropy measures disorder. In software, low module-level entropy creates meaningful structure, "
