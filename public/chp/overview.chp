@@ -37,11 +37,14 @@
           [:span.label "API surface"]
           [:span.value "2 functions"]]
          [:div.metric
+          [:span.label "Transport"]
+          [:span.value "WireGuard"]]
+         [:div.metric
+          [:span.label "Isolation"]
+          [:span.value "Yin sandbox"]]
+         [:div.metric
           [:span.label "Sync latency"]
           [:span.value "< 15ms"]]
-         [:div.metric
-          [:span.label "Platforms"]
-          [:span.value "iOS · WASM · Edge"]]
          [:div.metric
           [:span.label "Core primitive"]
           [:span.value "[e a v t c]"]]]]
@@ -145,7 +148,8 @@
         [:article.feature-card
          [:h3 "Run on hardware you don't own"]
          [:p "Like Airbnb for compute. Rent spare cycles from anyone's server, edge device, or cloud instance."]
-         [:p "Because Yin sandboxes every continuation, the host can't peek into your computation, and your agent can't escape the sandbox. Mutual security through isolation."]]
+         [:p "Yin provides mutual security: you trust it won't leak your computation's secrets, and the hardware owner trusts it won't damage their system or breach data it shouldn't access."]
+         [:p "Both sides are protected through isolation, not trust."]]
         [:article.feature-card
          [:h3 "Never lose context"]
          [:p "Close your laptop mid-task. Your continuation persists in the stream. Open your tablet. Resume exactly where you left off."]
@@ -154,12 +158,22 @@
         "Traditional cloud computing forces you to trust distant data centers with your code and data. "
         "Container orchestration (Kubernetes, Docker) requires complex configuration and centralized control."]
        [:p
-        "Datom.World inverts this: your continuations are encrypted, sandboxed, and mobile. "
-        "They run wherever compute is available—your devices, your friend's server, a stranger's edge node—without surrendering privacy or control."]
+        "Datom.World inverts this through two key technologies:"]
+       [:ul.bulleted
+        [:li [:strong "WireGuard tunnels"]
+         " connect entangled nodes with end-to-end encryption. Your devices, collaborators, and rented compute form a secure mesh network. "
+         "Data flowing between nodes is encrypted in transit—no one in the middle can read your streams."]
+        [:li [:strong "Yin sandboxing"]
+         " isolates every continuation at runtime. Like Docker, WASM, or the JVM, Yin acts as a security container—but for "
+         [:em "computation"] " rather than just processes. "
+         "Your code can't escape to read files it shouldn't access, and the host can't peek into your continuation's memory. "
+         "This mutual isolation means you can safely run your agents on strangers' hardware, and they can safely rent you cycles."]]
        [:p
         "The result is a "
         [:strong "distributed compute fabric"]
         " where execution flows to available resources, just as water flows to open channels. "
+        "WireGuard ensures " [:em "transport security"] " (encrypted channels), "
+        "while Yin ensures " [:em "execution security"] " (sandboxed computation). "
         "No orchestrator. No central authority. Just continuations finding their way through the network."]]]
      [:section.section-light
       [:div.section-inner
