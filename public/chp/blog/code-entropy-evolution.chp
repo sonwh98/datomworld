@@ -70,8 +70,9 @@
          "Without deliberate effort, those dependencies accumulate randomly. "
          "The probability space of \"spaghetti architectures\" vastly exceeds the probability space of \"clean architectures.\""]
         [:p
-         "This is entropy at work. Systems tend toward disorder unless energy is applied to maintain structure. "
-         "Tight coupling is the high-entropy default. Loose coupling requires continuous effort."]
+         "This is entropy at work. Entropy measures the number of possible states—the degrees of freedom in a system. "
+         "More ways things can be arranged = higher entropy. Tight coupling (spaghetti) has vastly more possible configurations than loose coupling (clean layers). "
+         "Without deliberate effort, systems drift toward the high-entropy state simply because there are more ways to be messy than organized."]
         [:p
          "Additionally, premature naming constrains your design. When you name a module before you understand its boundaries, "
          "you lock in assumptions. Structure should guide naming, not the other way around."]
@@ -99,8 +100,13 @@
          "are buried in a solution-domain structure. You've let the framework name your modules before you understand the problem."]
         [:h2 "Entropy in Software: Distribute to Organize"]
         [:p
-         "Entropy measures disorder. In software, low module-level entropy creates meaningful structure, "
-         "but low system-level entropy creates monoliths."]
+         "Entropy measures uncertainty—specifically, how hard it is to predict what will happen. "
+         "A high-entropy system has many possible states (many degrees of freedom), making it unpredictable. "
+         "A low-entropy system has fewer possibilities, making it easier to reason about."]
+        [:p
+         "In software: a module with high entropy can change in many different ways when requirements shift—"
+         "you can't predict which functions will need to change. A module with low entropy changes in predictable patterns—"
+         "the functions that belong together change together."]
         [:p
          "The solution is counterintuitive: "
          [:strong "increase system entropy while decreasing module entropy"]
