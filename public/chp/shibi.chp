@@ -27,9 +27,9 @@
         "You decide who gets through, not a filter you never asked for. Attention stays accountable, and every conversation starts from mutual respect."]
        [:p.next
         "Ready to embed Shibi? Pair it with "
-        [:a {:href "/yin-vm.chp"} "Yin"]
+        [:a {:href "/yin.chp"} "Yin"]
         " agents for programmable attention, then surface the exchange inside "
-        [:a {:href "/tao-vm.chp"} "Tao"]
+        [:a {:href "/tao.chp"} "Tao"]
         " portals."]]]
      [:section.section-light
       [:div.section-inner

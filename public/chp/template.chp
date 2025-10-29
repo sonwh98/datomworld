@@ -15,10 +15,10 @@
    [:div.section-inner
     [:a.brand {:href "/"} "Datom.World"]
     [:nav.primary-nav
-     [:a {:href "/yin-vm.chp"} "Yin"]
+     [:a {:href "/yin.chp"} "Yin"]
      [:a {:href "/yang.chp"} "Yang"]
+     [:a {:href "/tao.chp"} "Tao"]
      [:a {:href "/shibi.chp"} "Shibi"]
-     [:a {:href "/tao-vm.chp"} "Tao"]
      [:a {:href "/blog/index.chp"} "Blog"]
      [:a {:href "/faq.chp"} "FAQ"]
      [:a.cta {:href "mailto:hello@datom.world"} "Contact"]]]]

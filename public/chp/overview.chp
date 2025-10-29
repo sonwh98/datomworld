@@ -31,7 +31,7 @@
          "Services interpret the streams you expose, making collaboration additive instead of extractive."]
         [:div.hero-actions
          [:a.btn {:href "/shibi.chp"} "Explore Shibi"]
-         [:a.btn.btn-outline {:href "/yin-vm.chp"} "Learn about Yin"]]
+         [:a.btn.btn-outline {:href "/yin.chp"} "Learn about Yin"]]
         [:div.hero-metrics
          [:div.metric
           [:span.label "API surface"]
@@ -138,7 +138,7 @@
         ": a snapshot of computation that can pause, migrate, and resume anywhere."]
        [:p
         "This isn't a metaphor either. Built on "
-        [:a {:href "/yin-vm.chp"} "Yin"]
+        [:a {:href "/yin.chp"} "Yin"]
         ", the continuation virtual machine, your code becomes portable, mobile, and secure by design."]
        [:div.feature-grid
         [:article.feature-card

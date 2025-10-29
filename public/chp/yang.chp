@@ -47,10 +47,10 @@
          [:h3 "Where to go next"]
          [:ul.bulleted
           [:li
-           [:a {:href "/yin-vm.chp"} "Revisit Yin"]
+           [:a {:href "/yin.chp"} "Revisit Yin"]
            " to see how continuations are scheduled and migrated."]
           [:li
-           [:a {:href "/tao-vm.chp"} "Explore Tao"]
+           [:a {:href "/tao.chp"} "Explore Tao"]
            " to watch emitted continuations shape living interfaces."]
           [:li
            [:a {:href "/shibi.chp"} "Study Shibi"]
