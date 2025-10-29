@@ -127,6 +127,64 @@
         "There are only datoms flowing through time, and you decide which streams to read and write."]]]
      [:section.section-dark
       [:div.section-inner
+       [:h2 "Everything is a continuation"]
+       [:p
+        "If streams are how data flows, continuations are how computation flows. "
+        "In Datom.World, every piece of running code—every agent, every workflow, every background task—is a "
+        [:em "continuation"]
+        ": a snapshot of computation that can pause, migrate, and resume anywhere."]
+       [:p
+        "This isn't a metaphor either. Built on "
+        [:a {:href "/yin-vm.chp"} "Yin"]
+        ", the continuation virtual machine, your code becomes portable, mobile, and secure by design."]
+       [:div.feature-grid
+        [:article.feature-card
+         [:h3 "Mobile agents"]
+         [:p "Your agent starts on your phone, continues processing on an edge server near you, and finishes on a powerful GPU cluster—all without changing shape."]
+         [:p "Continuations serialize the entire execution state, so your code literally travels across the network as data."]]
+        [:article.feature-card
+         [:h3 "Run on hardware you don't own"]
+         [:p "Like Airbnb for compute. Rent spare cycles from anyone's server, edge device, or cloud instance."]
+         [:p "Because Yin sandboxes every continuation, the host can't peek into your computation, and your agent can't escape the sandbox. Mutual security through isolation."]]
+        [:article.feature-card
+         [:h3 "Never lose context"]
+         [:p "Close your laptop mid-task. Your continuation persists in the stream. Open your tablet. Resume exactly where you left off."]
+         [:p "Collaboration works the same way: your teammate picks up your continuation, adds their work, and hands it back. The context never breaks."]]]
+       [:p
+        "Traditional cloud computing forces you to trust distant data centers with your code and data. "
+        "Container orchestration (Kubernetes, Docker) requires complex configuration and centralized control."]
+       [:p
+        "Datom.World inverts this: your continuations are encrypted, sandboxed, and mobile. "
+        "They run wherever compute is available—your devices, your friend's server, a stranger's edge node—without surrendering privacy or control."]
+       [:p
+        "The result is a "
+        [:strong "distributed compute fabric"]
+        " where execution flows to available resources, just as water flows to open channels. "
+        "No orchestrator. No central authority. Just continuations finding their way through the network."]]]
+     [:section.section-light
+      [:div.section-inner
+       [:h2 "Streams + Continuations = Living Software"]
+       [:p
+        "Most software today is either data-centric (databases, APIs) or compute-centric (functions, containers). "
+        "These worlds rarely meet gracefully."]
+       [:p
+        "Datom.World unifies them:"]
+       [:ul.bulleted
+        [:li [:strong "Streams carry data"] " through time as immutable logs"]
+        [:li [:strong "Continuations carry computation"] " through space as mobile agents"]
+        [:li [:strong "Together they flow"] " through the same fabric, reading and writing each other"]]
+       [:p
+        "An agent (continuation) reads from a stream, processes the datoms, and writes results to another stream. "
+        "That agent can pause, migrate to faster hardware, and resume—all while the streams keep flowing."]
+       [:p
+        "This is software that "
+        [:em "breathes"]
+        ": data and computation flow together, pausing and resuming as resources become available, "
+        "collaborating across devices and people without central coordination."]
+       [:p
+        "It's the internet reimagined as a living organism: self-organizing, adaptive, and resilient."]]]
+     [:section.section-dark
+      [:div.section-inner
        [:h2 "Next steps"]
        [:p
         "The current internet was built on extraction—your attention harvested, your data profiled, your privacy sold. "
