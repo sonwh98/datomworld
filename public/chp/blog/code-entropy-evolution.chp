@@ -42,7 +42,7 @@
          ". Bad code is rigid—small changes cascade through the system, forcing rewrites instead of refinements."]
         [:p
          "This isn't about aesthetics. It's about survival. Software that can't change dies when the world around it shifts. "
-         "Malleability is the only fitness function that matters."]
+         "Malleability is the only fitness function that matters. It is why software is soft."]
         [:h2 "High Cohesion and Loose Coupling: The Core Principle"]
         [:p
          "Kent Beck spent 17 years learning to explain cohesion and coupling. The principle is simple:"]
