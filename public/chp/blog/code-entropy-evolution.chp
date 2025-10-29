@@ -27,7 +27,7 @@
         [:p
          "Here's the nuance: " [:strong "all code increases in entropy over time"] ". "
          "That's thermodynamics. But like biological cells that maintain internal order while increasing entropy in their environment, "
-         "good code " [:em "minimizes entropy within each module while increasing entropy across the system"] "."]
+         "good code " [:em "minimizes entropy within each module while increasing entropy of the whole system"] "."]
         [:p
          "This is the key insight: distribute complexity outward (more modules, more namespaces) "
          "while keeping each module internally coherent. The system becomes more entropic, but each piece stays organized. "
