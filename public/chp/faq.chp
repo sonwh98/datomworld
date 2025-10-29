@@ -135,8 +135,8 @@
            "Each datom includes metadata for access policies, encryption, and provenance. "
            "Nodes evaluate those rules locally before sharing, encrypt before transmission, and rely on short-lived capabilities—not central identity servers—to authorize peers."]
           [:p
-           "Execution safety rides on Yin.VM acting as the universal security container. "
-           "Like Docker, WASM, or the JVM, Yin.VM sandboxes code so untrusted continuations can run on your hardware without escaping. "
+           "Execution safety rides on Yin acting as the universal security container. "
+           "Like Docker, WASM, or the JVM, Yin sandboxes code so untrusted continuations can run on your hardware without escaping. "
            "The same isolation reassures collaborators: their datoms can execute on your node without you peering into the VM, keeping both compute and data private even when hardware is shared."]]]]]]
      [:section.section-dark
       [:div.section-inner
@@ -150,7 +150,7 @@
           [:p
            "Yin-Yang is a universal continuation machine and compiler framework that unifies interpretation, compilation, and transformation."]
           [:p
-           "It pairs Yin.VM—a continuation-centric virtual machine that evaluates map-based ASTs—with the Yang compiler that lowers higher-level languages into that canonical form. "
+           "It pairs Yin—a continuation-centric virtual machine that evaluates map-based ASTs—with the Yang compiler that lowers higher-level languages into that canonical form. "
            "Together they make computation portable, inspectable, and transformable across networks."]]]
         [:details.faq
          [:summary "Why is it called Yin-Yang?"]
@@ -159,7 +159,7 @@
            "Yin represents evaluation—the generative flow of continuations—while Yang embodies compilation—the structural organization of code. "
            "They continually transform into each other, forming two inseparable halves of a single process."]]]
         [:details.faq
-         [:summary "What is unique about Yin.VM?"]
+         [:summary "What is unique about Yin?"]
          [:div
           [:ul.bulleted
            [:li "Everything is a continuation: functions, closures, and coroutines live in the same model."]
@@ -171,8 +171,8 @@
          [:summary "How does it differ from VMs like the JVM or EVM?"]
          [:div
           [:p
-           "Where the JVM hides runtime state behind bytecode, Yin.VM exposes evaluation as data. "
-           "Where the EVM prices computation but limits introspection, Yin.VM reifies continuations—enabling distributed execution, dynamic transformation, and zero-copy migration."]]]
+           "Where the JVM hides runtime state behind bytecode, Yin exposes evaluation as data. "
+           "Where the EVM prices computation but limits introspection, Yin reifies continuations—enabling distributed execution, dynamic transformation, and zero-copy migration."]]]
         [:details.faq
          [:summary "What is a map-based AST?"]
          [:div
@@ -198,10 +198,10 @@
            "Programs can pause, migrate, or resume anywhere without losing context. "
            "Your computation travels with you—locally or in the cloud—with the same continuity as your data."]]]
         [:details.faq
-         [:summary "Can Yin.VM interoperate with other systems?"]
+         [:summary "Can Yin interoperate with other systems?"]
          [:div
           [:p
-           "Yes. Yin.VM uses EDN as an interchange format so continuations cross language and network boundaries. "
+           "Yes. Yin uses EDN as an interchange format so continuations cross language and network boundaries. "
            "It integrates with native Rust or C functions and can compile to or from platforms like Gambit Scheme or WebAssembly."]]]
         [:details.faq
          [:summary "Why persistent data structures?"]

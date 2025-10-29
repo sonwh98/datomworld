@@ -23,7 +23,7 @@
         "Because Tao.VM listens to the same streams your agents do, product surfaces never drift from the truth held inside your datoms."]
        [:p.next
         "Explore "
-        [:a {:href "/yin-vm.chp"} "Yin.VM"]
+        [:a {:href "/yin-vm.chp"} "Yin"]
         " to script stateful agents, or revisit "
         [:a {:href "/shibi.chp"} "Shibi"]
         " to layer economic controls into your experiences."]]])}

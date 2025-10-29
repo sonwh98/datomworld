@@ -31,7 +31,7 @@
          "Services interpret the streams you expose, making collaboration additive instead of extractive."]
         [:div.hero-actions
          [:a.btn {:href "/shibi.chp"} "Explore Shibi"]
-         [:a.btn.btn-outline {:href "/yin-vm.chp"} "Learn about Yin.VM"]]
+         [:a.btn.btn-outline {:href "/yin-vm.chp"} "Learn about Yin"]]
         [:div.hero-metrics
          [:div.metric
           [:span.label "Sync latency"]

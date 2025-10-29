@@ -6,12 +6,12 @@
      [:section#yang.section-dark
       [:div.section-inner
        [:span.status-pill "Generative counterpart"]
-       [:h1 "Yang Compiler — The generative half of Yin.VM"]
+       [:h1 "Yang Compiler — The generative half of Yin"]
        [:p.section-lead
-        "If Yin.VM is the continuation engine, the Yang compiler is its expression engine. "
+        "If Yin is the continuation engine, the Yang compiler is its expression engine. "
         "Together they form a dual system—Yin for execution, reception, and introspection; Yang for generation, expression, and emission."]
        [:p
-        "Yang transforms high-level intents into continuations that Yin.VM can execute. "
+        "Yang transforms high-level intents into continuations that Yin can execute. "
         "It shapes the Universal AST (U-AST), seeds migrations, and ensures every emitted agent carries context for the runtime to honor."]
        [:div.relationship-grid
         [:article.relationship-card
@@ -20,7 +20,7 @@
           [:thead
            [:tr
             [:th "Axis"]
-            [:th "Yin.VM"]
+            [:th "Yin"]
             [:th "Yang compiler"]]]
           [:tbody
            [:tr
@@ -47,7 +47,7 @@
          [:h3 "Where to go next"]
          [:ul.bulleted
           [:li
-           [:a {:href "/yin-vm.chp"} "Revisit Yin.VM"]
+           [:a {:href "/yin-vm.chp"} "Revisit Yin"]
            " to see how continuations are scheduled and migrated."]
           [:li
            [:a {:href "/tao-vm.chp"} "Explore Tao.VM"]

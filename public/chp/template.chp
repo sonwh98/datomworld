@@ -15,7 +15,7 @@
    [:div.section-inner
     [:a.brand {:href "/"} "Datom.World"]
     [:nav.primary-nav
-     [:a {:href "/yin-vm.chp"} "Yin.VM"]
+     [:a {:href "/yin-vm.chp"} "Yin"]
      [:a {:href "/yang.chp"} "Yang"]
      [:a {:href "/shibi.chp"} "Shibi"]
      [:a {:href "/tao-vm.chp"} "Tao.VM"]

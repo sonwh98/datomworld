@@ -1,18 +1,18 @@
 (let [template (load-file "public/chp/template.chp")]
   (clojure.walk/postwalk-replace
-   {:template/title "Datom.World — Yin.VM"
+   {:template/title "Datom.World — Yin"
     :template/content
     (list
      [:section#yin-vm.section-dark
       [:div.section-inner
        [:span.status-pill "Deep dive"]
-       [:h1 "Yin.VM"]
+       [:h1 "Yin"]
        [:p.section-lead
-        "Yin.VM is what happens when Clojure and Smalltalk got together and had a baby."
+        "Yin is what happens when Clojure and Smalltalk got together and had a baby."
         "It is a continuation virtual machine where the universal, map-based AST stays canonical, eval is the machine, "
         "and persistent data structures keep continuations fast, mobile, and immutable."]
        [:p
-        "Together with the Yang compiler, Yin.VM forms a dual system: Yang generates and emits continuations from Clojure code, "
+        "Together with the Yang compiler, Yin forms a dual system: Yang generates and emits continuations from Clojure code, "
         "while Yin receives, introspects, and executes them."]
        [:div.hero-actions
         [:a.btn {:href "/yang.chp"} "Meet the Yang compiler"]
@@ -31,18 +31,18 @@
       [:div.section-inner
        [:h2 "Universal map-based AST"]
        [:p
-        "Every program Yin.VM runs is first expressed as the Universal AST: a language-agnostic, map-based structure "
+        "Every program Yin runs is first expressed as the Universal AST: a language-agnostic, map-based structure "
         "that records syntax, semantics, and metadata in immutable data. Python, JavaScript, Java, and Clojure can all "
         "compile into this canonical form via the Yang compiler (launching with Clojure support first)."]
        [:p
-        "Once a program is a Universal AST, Yin.VM can transform, optimize, or execute it uniformly. "
+        "Once a program is a Universal AST, Yin can transform, optimize, or execute it uniformly. "
         "The AST persists—bytecode, continuations, and runtime state derive from it, and it is never discarded. "
         "Every transformation therefore preserves reversibility, provenance, and rich introspection."]]]
      [:section.section-light
       [:div.section-inner
        [:h2 "CESK machine with persistent data structures"]
        [:p
-        "Yin.VM implements the CESK model (Control, Environment, Store, Continuation) with persistent data structures. "
+        "Yin implements the CESK model (Control, Environment, Store, Continuation) with persistent data structures. "
         "Structural sharing replaces wholesale copying, so each step produces tiny deltas rather than cloning entire environments."]
        [:ul.bulleted
         [:li "Control — current AST node or continuation frame"]
@@ -79,12 +79,12 @@
       [:div.section-inner
        [:h2 "In summary"]
        [:p
-        "Yin.VM turns code into data and data into computation. "
+        "Yin turns code into data and data into computation. "
         "The Universal AST anchors every stage, persistent data structures makes CESK state efficient and immutable, "
         "and first-class continuations make agents mobile by design. "
         "Eval is the machine, runtime macros stay reversible, and distributed AST transformation keeps teams iterating together."]
        [:p
         "Ready to emit new continuations? Explore "
         [:a {:href "/yang.chp"} "the Yang compiler"]
-        " to see how Clojure code becomes Universal ASTs and enters the Yin.VM runtime."]]])}
+        " to see how Clojure code becomes Universal ASTs and enters the Yin runtime."]]])}
    template))
