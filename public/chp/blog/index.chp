@@ -14,6 +14,14 @@
        [:div.blog-grid
         [:article.blog-card
          [:div.blog-meta
+          [:span "Oct 29, 2025"]
+          [:span "10 min read"]]
+         [:h2 [:a {:href "/blog/code-entropy-evolution.chp"} "Code as Entropy: Why Good Software Evolves, Not Designed"]]
+         [:p
+          "Good code isn't designed—it evolves toward low-entropy structures. On cohesion, coupling, test-induced brittleness, and why all documentation decays."]
+         [:a {:href "/blog/code-entropy-evolution.chp"} "Read the article →"]]
+        [:article.blog-card
+         [:div.blog-meta
           [:span "Dec 3, 2024"]
           [:span "6 min read"]]
          [:h2 [:a {:href "/blog/datoms-as-streams.chp"} "Streaming Datoms with Transducers"]]
