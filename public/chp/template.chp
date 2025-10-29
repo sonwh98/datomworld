@@ -18,7 +18,6 @@
      [:a {:href "/yin-vm.chp"} "Yin.VM"]
      [:a {:href "/yang.chp"} "Yang"]
      [:a {:href "/shibi.chp"} "Shibi"]
-     [:a {:href "/tracking.chp"} "Tracking"]
      [:a {:href "/tao-vm.chp"} "Tao.VM"]
      [:a {:href "/blog/index.chp"} "Blog"]
      [:a {:href "/faq.chp"} "FAQ"]
