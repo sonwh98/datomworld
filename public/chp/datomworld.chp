@@ -52,14 +52,8 @@
         [:div.hero-card
          [:span.hero-badge "Why datom streams?"]
          [:p
-          "A datom is a five element tuple stored in immutable streams. Immutable streams make history verifiable and let any application"
-          " interpret the same base facts in its own way — one truth, many perspectives."
-          ]
-         [:ul.hero-list
-          [:li [:strong "Universal composition"] " datoms can be composed to create any type of data structure, keeping your models fluid."]
-          [:li [:strong "Two-function API"] " " [:code "read"] " and " [:code "write"] " — that's the entire interface. No REST, no GraphQL, no query languages."]
-          [:li [:strong "Composable schemas"] " evolve without migrations, staying queryable from design to delivery"]
-          [:li [:strong "Offline by default"] " with entangled sync that reconnects your state when you're back online."]]]]]]
+          "A datom is a five-element tuple [e a v t c] stored in immutable streams. "
+          "Immutable streams make history verifiable and let any application interpret the same base facts in its own way—one truth, many perspectives."]]]]]
      [:section.section-light
       [:div.section-inner
        [:h2 "What is Datom.World?"]
@@ -136,10 +130,8 @@
          [:p "With datom streams, data flows through your system without translation. Read datoms, transform datoms, write datoms. That's the whole pipeline."]]]
        [:p
         "This radical simplicity doesn't limit what you can build—it liberates it. "
-        "Complex behaviors emerge from composing simple streams, just as complex molecules emerge from simple atoms."]]]
-     [:section.section-dark
-      [:div.section-inner
-       [:h2 "Why streams instead of APIs?"]
+        "Complex behaviors emerge from composing simple streams, just as complex molecules emerge from simple atoms."]
+       [:h3 "Why streams instead of APIs?"]
        [:p
         "Modern software is drowning in accidental complexity. Every service exposes a different API. "
         "Every database speaks a different query language. Every protocol requires different client libraries."]
