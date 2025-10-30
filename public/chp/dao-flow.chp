@@ -1,50 +1,50 @@
 (let [template (load-file "public/chp/template.chp")]
   (clojure.walk/postwalk-replace
-   {:template/title "Datom.World — Tao"
+   {:template/title "Datom.World — DaoFlow"
     :template/content
     (list
      [:section#tao-vm.section-dark
       [:div.section-inner
        [:span.status-pill "Interface runtime"]
-       [:h1 "TaoFlow"]
+       [:h1 "DaoFlow"]
        [:p.section-lead
-        "TaoFlow rethinks how we approach graphics and computation. "
-        "Instead of treating rendering, physics, UI, and dataflow as separate domains, TaoFlow unifies them under a single model: everything is a stream of datoms."]
+        "DaoFlow rethinks how we approach graphics and computation. "
+        "Instead of treating rendering, physics, UI, and dataflow as separate domains, DaoFlow unifies them under a single model: everything is a stream of datoms."]
        [:p
         "A stream is a continuous flow of datoms, immutable tuples that represent state, transformation, or intent. "
         "Every pixel, vertex, shader parameter, and event is just another datom in motion. "
-        "TaoFlow doesn't \"run\" code in the traditional sense; it interprets these streams, composing behavior and visuals from the same substrate."]
+        "DaoFlow doesn't \"run\" code in the traditional sense; it interprets these streams, composing behavior and visuals from the same substrate."]
        [:p
-        "At its foundation, TaoFlow is written in Rust for safety and performance. "
+        "At its foundation, DaoFlow is written in Rust for safety and performance. "
         "Its higher-level interface uses Yin-Yang, a Clojure dialect also implemented in Rust. "
-        "Developers describe systems declaratively in Yin-Yang, while TaoFlow handles the orchestration of GPU and CPU workloads beneath the surface. "
-        "Because the interpreter operates on streams, TaoFlow naturally supports reactive rendering, live state mutation, and distributed execution, all without separate paradigms for logic, data, and graphics."]]]
+        "Developers describe systems declaratively in Yin-Yang, while DaoFlow handles the orchestration of GPU and CPU workloads beneath the surface. "
+        "Because the interpreter operates on streams, DaoFlow naturally supports reactive rendering, live state mutation, and distributed execution, all without separate paradigms for logic, data, and graphics."]]]
      [:section.section-light
       [:div.section-inner
        [:h2 "The Philosophy: Yin and Yang"]
        [:p
-        "Inspired by the Taoist concept of Yin and Yang, TaoFlow views computation not as discrete operations but as dynamic balance. "
+        "Inspired by the Taoist concept of Yin and Yang, DaoFlow views computation not as discrete operations but as dynamic balance. "
         "Yin represents the generative, interpretive aspect, the flow of meaning, the why. "
         "Yang embodies execution, the form, the how. "
-        "TaoFlow is the unifying principle between them, a bridge where interpretation and execution converge into one self-consistent stream."]
+        "DaoFlow is the unifying principle between them, a bridge where interpretation and execution converge into one self-consistent stream."]
        [:p
-        "The name Tao reflects its guiding principle: harmony between opposites."]
+        "The name Dao (道) reflects its guiding principle: harmony between opposites, the way that flows."]
        [:ul.bulleted
         [:li [:strong "Yin"] " — interpretation, composition, generative flow"]
         [:li [:strong "Yang"] " — execution, realization, hardware interaction"]]
        [:p
-        "TaoFlow is the balance point, a system where meaning (Yin) and mechanism (Yang) cooperate through continuous feedback."]]]
+        "DaoFlow is the balance point, a system where meaning (Yin) and mechanism (Yang) cooperate through continuous feedback."]]]
      [:section.section-dark
       [:div.section-inner
        [:h2 "Stream-Based Rendering"]
        [:p
-        "Where traditional engines manage draw calls and frame loops, TaoFlow treats rendering as stream transformation. "
+        "Where traditional engines manage draw calls and frame loops, DaoFlow treats rendering as stream transformation. "
         "A 3D scene, a UI tree, or a compute graph are all the same: append new datoms, observe the flow, and let the GPU converge to the next visual state. "
         "This design makes it possible to prototype GPU pipelines, visualization tools, or even cross-platform frameworks (mobile, desktop, web) with the same reactive semantics."]
        [:p
-        "Technically, TaoFlow is an interpreter of graphics primitives represented as datoms, small, immutable tuples describing state and transformation. "
+        "Technically, DaoFlow is an interpreter of graphics primitives represented as datoms, small, immutable tuples describing state and transformation. "
         "Every vertex, texture, or shader is expressed as a datom flowing through the GPU pipeline. "
-        "Instead of static render loops, TaoFlow treats rendering as a form of stream processing: scenes evolve, recompute, and re-render as the stream changes. "
+        "Instead of static render loops, DaoFlow treats rendering as a form of stream processing: scenes evolve, recompute, and re-render as the stream changes. "
         "This gives developers a consistent model for animation, simulation, and UI, all from a single, reactive substrate."]]]
      [:section.section-light
       [:div.section-inner
@@ -53,7 +53,7 @@
         "For developers, this means fewer abstractions to fight. "
         "No more rigid boundaries between \"engine\" and \"app.\" "
         "The same stream that drives your UI can drive your compute kernel or shader network. "
-        "TaoFlow invites you to think in flows, not frames, to build systems that evolve naturally as data moves."]
+        "DaoFlow invites you to think in flows, not frames, to build systems that evolve naturally as data moves."]
        [:div.design-grid
         [:article.design-card
          [:h3 "Composable canvases"]
@@ -63,11 +63,11 @@
          [:p "Expose brand, motion, and interaction tokens as datoms so prototypes and production UI stay aligned."]]
         [:article.design-card
          [:h3 "Feedback in the flow"]
-         [:p "Annotations resolve back into the same stream, turning every review into structured memory TaoFlow can replay."]]]
+         [:p "Annotations resolve back into the same stream, turning every review into structured memory DaoFlow can replay."]]]
        [:p
-        "Because TaoFlow listens to the same streams your agents do, product surfaces never drift from the truth held inside your datoms."]
+        "Because DaoFlow listens to the same streams your agents do, product surfaces never drift from the truth held inside your datoms."]
        [:p
-        "TaoFlow isn't just another graphics runtime. It's an invitation to build software that feels alive, systems that compute the way nature flows."]
+        "DaoFlow isn't just another graphics runtime. It's an invitation to build software that feels alive, systems that compute the way nature flows."]
        [:p.next
         "Explore "
         [:a {:href "/yin.chp"} "Yin"]

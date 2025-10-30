@@ -151,7 +151,7 @@
         "Ready to embed Shibi? Pair it with "
         [:a {:href "/yin.chp"} "Yin"]
         " agents for programmable attention, then surface the exchange inside "
-        [:a {:href "/tao-flow.chp"} "TaoFlow"]
+        [:a {:href "/dao-flow.chp"} "DaoFlow"]
         " portals."]]]
      )}
    template))
