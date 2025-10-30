@@ -17,7 +17,7 @@
     [:nav.primary-nav
      [:a {:href "/yin.chp"} "Yin"]
      [:a {:href "/yang.chp"} "Yang"]
-     [:a {:href "/tao.chp"} "Tao"]
+     [:a {:href "/tao-flow.chp"} "TaoFlow"]
      [:a {:href "/shibi.chp"} "Shibi"]
      [:a {:href "/blog/index.chp"} "Blog"]
      [:a {:href "/faq.chp"} "FAQ"]

@@ -101,7 +101,7 @@
         "LocalStorage becomes DaoDB, the distributed tuple store, where data is not isolated but shared as streams of datoms, immutable 5-tuples that form the substrate of all knowledge. "
         "HTTP's request–response model dissolves into pure streams, allowing data to flow continuously between entangled peers. "
         "And instead of the DOM, Datom.World uses "
-        [:a {:href "/tao.chp"} "Tao"]
+        [:a {:href "/tao-flow.chp"} "TaoFlow"]
         ", a rendering engine that visualizes distributed data structures directly, treating the UI as an emergent view of living data."]
        [:p
         "Each component corresponds to its web counterpart, but their composition is entirely different. "
