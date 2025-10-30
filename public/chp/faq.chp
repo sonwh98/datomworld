@@ -243,5 +243,5 @@
          [:li "Developer perspective: every execution state is a first-class continuation that unifies concurrency, recovery, and distribution."]]]
        [:div.hero-actions
         [:a.btn {:href "mailto:hello@datom.world"} "Request a preview session"]
-        [:a.btn.btn-outline {:href "/overview.chp"} "Return to the overview"]]]])}
+        [:a.btn.btn-outline {:href "/datomworld.chp"} "Return to the overview"]]]])}
    template))
