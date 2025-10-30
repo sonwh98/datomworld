@@ -439,8 +439,12 @@
          "produces remarkably resilient systems."]
         [:p [:strong "Further reading:"]]
         [:ul.bulleted
-         [:li "Kent Beck's work on coupling and cohesion (he spent 17 years learning to explain it)"]
-         [:li "Rich Hickey's talks on simplicity, especially \"Simple Made Easy\""]
+         [:li [:a {:href "https://www.infoq.com/news/2022/10/beck-design-human-relationships/"}
+          "Kent Beck: Software Design is an Exercise in Human Relationships"]
+          " , InfoQ , he spent 17 years learning how to explain cohesion in software design"]
+         [:li [:a {:href "https://www.infoq.com/presentations/Simple-Made-Easy/"}
+          "Simple Made Easy"]
+          " , Rich Hickey's foundational talk on simplicity and complexity"]
          [:li [:a {:href "https://www.quantamagazine.org/a-new-thermodynamics-theory-of-the-origin-of-life-20140122/"}
           "A New Thermodynamics Theory of the Origin of Life"]
           " , Quanta Magazine , on how systems maintain low entropy by increasing entropy in their environment"]
