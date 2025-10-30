@@ -70,7 +70,7 @@
        [:p
         "Instead of a centralized internet ruled by a handful of servers, Datom.World is a living ecosystem of independent nodes—"
         "personal devices, computers, sensors—each contributing to a shared fabric. "
-        "Nodes exchange tiny data atoms, or datoms, just as ants share pheramon signals molecule by molecule."]
+        "Nodes exchange tiny data atoms, or datoms, just as ants share pheromone signals molecule by molecule."]
        [:p
         "A datom is the smallest unit of structured data: a self-contained piece of fact you fully own. "
         "You choose what to share and with whom. There are no hidden algorithms or distant data centers dictating the rules. "
@@ -86,6 +86,30 @@
         "where collaboration emerges naturally and privacy is foundational. "
         "Datom.World reimagines software as a digital ecosystem: self-organizing, adaptive, and free."]]]
      [:section.section-dark
+      [:div.section-inner
+       [:h2 "Recomposing the Web"]
+       [:p
+        "Datom.World can be thought of as a decomposition of the modern web browser into its elemental technologies, then recomposed around a new philosophy to build a new world wide web: everything is a stream, and everything is a continuation."]
+       [:p
+        "In the traditional web stack, the JavaScript VM drives execution, HTTP defines communication, the DOM structures the UI, and local storage keeps data persistent. "
+        "Each of these layers was built to serve a client–server world, where the browser is a consumer of remote computation. "
+        "Datom.World reverses this assumption. Every device, from a phone to a cluster, becomes a sovereign node capable of computation, storage, and visualization."]
+       [:p
+        "Where the JavaScript VM once stood, Datom.World introduces "
+        [:a {:href "/yin.chp"} "Yin"]
+        ", a continuation-based virtual machine that treats computation as an evolving process rather than a sequence of calls. "
+        "LocalStorage becomes DaoDB, the distributed tuple store, where data is not isolated but shared as streams of datoms, immutable 5-tuples that form the substrate of all knowledge. "
+        "HTTP's request–response model dissolves into pure streams, allowing data to flow continuously between entangled peers. "
+        "And instead of the DOM, Datom.World uses "
+        [:a {:href "/tao.chp"} "Tao"]
+        ", a rendering engine that visualizes distributed data structures directly, treating the UI as an emergent view of living data."]
+       [:p
+        "Each component corresponds to its web counterpart, but their composition is entirely different. "
+        "Instead of a client viewing a remote world, every node in Datom.World participates in creating that world. "
+        "The result is not a web of documents or servers, but a web of processes, a distributed organism of computation and collaboration."]
+       [:p
+        "In short, Datom.World is what the Web becomes when it is rebuilt from first principles: local-first, continuation-based, and stream-native."]]]
+     [:section.section-light
       [:div.section-inner
        [:h2 "Everything is a stream"]
        [:p
@@ -111,7 +135,7 @@
        [:p
         "This radical simplicity doesn't limit what you can build—it liberates it. "
         "Complex behaviors emerge from composing simple streams, just as complex molecules emerge from simple atoms."]]]
-     [:section.section-light
+     [:section.section-dark
       [:div.section-inner
        [:h2 "Why streams instead of APIs?"]
        [:p
