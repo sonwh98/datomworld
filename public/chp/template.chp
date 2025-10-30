@@ -17,6 +17,7 @@
     [:nav.primary-nav
      [:a {:href "/yin.chp"} "Yin"]
      [:a {:href "/yang.chp"} "Yang"]
+     [:a {:href "/dao-db.chp"} "DaoDB"]
      [:a {:href "/dao-flow.chp"} "DaoFlow"]
      [:a {:href "/shibi.chp"} "Shibi"]
      [:a {:href "/blog/index.chp"} "Blog"]

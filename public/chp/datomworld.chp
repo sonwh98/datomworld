@@ -92,7 +92,9 @@
         "Where the JavaScript VM once stood, Datom.World introduces "
         [:a {:href "/yin.chp"} "Yin"]
         ", a continuation-based virtual machine that treats computation as an evolving process rather than a sequence of calls. "
-        "LocalStorage becomes DaoDB, the distributed tuple store, where data is not isolated but shared as streams of datoms, immutable 5-tuples that form the substrate of all knowledge. "
+        "LocalStorage becomes "
+        [:a {:href "/dao-db.chp"} "DaoDB"]
+        ", the distributed tuple store, where data is not isolated but shared as streams of datoms, immutable 5-tuples that form the substrate of all knowledge. "
         "HTTP's request–response model dissolves into pure streams, allowing data to flow continuously between entangled peers. "
         "And instead of the DOM, Datom.World uses "
         [:a {:href "/dao-flow.chp"} "DaoFlow"]

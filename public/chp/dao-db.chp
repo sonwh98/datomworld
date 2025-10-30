@@ -1,0 +1,75 @@
+(let [template (load-file "public/chp/template.chp")]
+  (clojure.walk/postwalk-replace
+   {:template/title "Datom.World — DaoDB"
+    :template/content
+    (list
+     [:section#dao-db.section-dark
+      [:div.section-inner
+       [:span.status-pill "Distributed tuple store"]
+       [:h1 "DaoDB"]
+       [:p.section-lead
+        "DaoDB is the distributed tuple store at the heart of Datom.World. "
+        "Where traditional databases isolate data behind walls, DaoDB shares it as streams of immutable datoms across entangled nodes."]
+       [:p
+        "Every piece of data in DaoDB is a datom: a five-element tuple [e a v t c] representing entity, attribute, value, transaction, and causality. "
+        "Datoms are immutable facts that accumulate over time, creating a complete history of all state changes. "
+        "This isn't a database that stores current state—it's a database that stores all states, making time travel, audit trails, and undo built-in rather than bolted-on."]
+       [:p
+        "DaoDB replaces LocalStorage in the traditional web stack, but instead of isolating data in a single browser, it distributes datoms across all your devices as synchronized streams. "
+        "Your phone, laptop, and collaborators' machines all participate in the same tuple store, each maintaining their own local-first copy that syncs when connected."]]]
+     [:section.section-light
+      [:div.section-inner
+       [:h2 "The Five-Element Tuple"]
+       [:p
+        "Every datom in DaoDB follows the same structure: [e a v t c]"]
+       [:ul.bulleted
+        [:li [:strong "e (entity)"] " — The thing being described (a user, a post, a shopping cart)"]
+        [:li [:strong "a (attribute)"] " — The property being asserted (name, color, quantity)"]
+        [:li [:strong "v (value)"] " — The actual data (\"Alice\", \"red\", 42)"]
+        [:li [:strong "t (transaction)"] " — When this fact was recorded (timestamp/transaction ID)"]
+        [:li [:strong "c (causality)"] " — The causal relationship to other datoms, enabling distributed consistency"]]
+       [:p
+        "This structure makes every fact self-describing and independently meaningful. "
+        "You can query any datom without needing to understand the entire database schema. "
+        "Schemas evolve naturally as new attributes are added—no migrations, no downtime, no breaking changes."]]]
+     [:section.section-dark
+      [:div.section-inner
+       [:h2 "Local-First, Globally Synced"]
+       [:p
+        "DaoDB is fundamentally local-first. Every device maintains its own complete tuple store, so your apps work offline by default. "
+        "When you write a datom, it's immediately available on your device. When you reconnect, entangled sync propagates changes across your mesh of trusted nodes."]
+       [:p
+        "Unlike cloud databases that force you to trust a central server, DaoDB keeps custody of your data locally. "
+        "You choose which streams to expose and who can read them. "
+        "Collaboration happens through shared streams, not by surrendering control to a third party."]
+       [:div.feature-grid
+        [:article.feature-card
+         [:h3 "Immutable history"]
+         [:p "Every datom is append-only. Nothing is ever deleted or overwritten. Query any point in time. Undo becomes trivial. Audit trails are built-in."]]
+        [:article.feature-card
+         [:h3 "Distributed by design"]
+         [:p "DaoDB syncs across devices using CRDTs and causal ordering. Conflicts resolve automatically. No central coordination needed."]]
+        [:article.feature-card
+         [:h3 "Schema-on-read"]
+         [:p "Define schemas when you query, not when you write. Add new attributes without migrations. Multiple interpreters can view the same datoms differently."]]]]]
+     [:section.section-light
+      [:div.section-inner
+       [:h2 "One Truth, Many Perspectives"]
+       [:p
+        "Because datoms are self-describing and immutable, different applications can interpret the same base facts in their own way. "
+        "Your email client sees communication streams. Your calendar sees event streams. Your analytics tool sees behavior streams. "
+        "All reading from the same underlying tuple store, each applying their own interpretation."]
+       [:p
+        "This is the \"one truth, many perspectives\" principle: DaoDB stores universal facts, and interpreters extract meaning. "
+        "No need to duplicate data across different databases for different purposes. No need to transform data between incompatible schemas. "
+        "Just streams of datoms flowing through time, and interpreters that read them."]
+       [:p
+        "DaoDB isn't just a database—it's the substrate of all knowledge in Datom.World. "
+        "Where the old web fragments data across silos, DaoDB unifies it into streams you own and control."]
+       [:p.next
+        "See how "
+        [:a {:href "/yin.chp"} "Yin"]
+        " agents process DaoDB streams, or explore "
+        [:a {:href "/dao-flow.chp"} "DaoFlow"]
+        " to visualize the data."]]])}
+   template))
