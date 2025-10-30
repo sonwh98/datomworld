@@ -1,6 +1,6 @@
 (let [template (load-file "public/chp/template.chp")]
   (clojure.walk/postwalk-replace
-   {:template/title "Datom.World — Shibi"
+   {:template/title "Datom.World , Shibi"
     :template/content
     (list
      [:section#shibi.section-dark
@@ -8,9 +8,47 @@
        [:span.status-pill "Economic primitive"]
        [:h1 "💩 Shibi (屎币)"]
        [:p.section-lead
-        "Shibi turns spam into an economy. On open networks like Datom.World, nothing is blocked—every message simply carries a price in Shibi tokens."]
+        "All open networks suffer from spam when they get popular. Walled gardens like most social networks respond with censorship. "
+        "The spam problem is real, but censorship is equally problematic. Shibi offers a compromise: a third path between censorship and chaos."]
        [:p
-        "When sending has a visible cost, attention stops being free real estate. Shibi makes every request part of a market where focus is scarce, tradable, and respected."]
+        "Shibi (屎币) literally means \"shit coin\" in Chinese. The name is intentional. "
+        "This isn't money, and it's not trying to replace money. It's an application of blockchain to control spam, not to create a new currency."]
+       [:p
+        "More importantly, Shibi isn't a single token. It's a system that allows anyone,people, organizations, or autonomous AI agents,to easily issue infinitely many tokens for infinitely different purposes. "
+        "Each token is purpose-specific: one for email attention, another for API rate limiting, another for forum moderation. "
+        "The provocative name \"shit coin\" makes this clear: these aren't speculative assets, they're contextual utilities."]
+       [:p
+        "The inspiration comes from carbon credit systems, which turn pollution,an environmental negative externality,into a tradable commodity. "
+        "Spam is also a negative externality: one party consumes another person's attention without paying for the cost it imposes. "
+        "Just as carbon trading makes pollution costly and creates market incentives for reduction, Shibi makes interruption costly and creates economic pressure against spam."]
+       [:p
+        "In Datom.World, nothing is blocked. Every message simply carries a price in purpose-specific tokens. "
+        "Instead of censorship, market economics tames spam. "
+        "Shibi turns spam into an economy by making token issuance trivial, letting supply and demand do what moderation cannot: reveal the true cost of interruption."]
+       [:p
+        "When sending has a visible cost, attention stops being free real estate. By attaching a price to each request, attention becomes a measurable commodity. "
+        "Low-value noise gets priced out, while high-value communication earns its way through. The invisible cost of interruption becomes visible, and the market handles the rest."]
+       [:p
+        "Shibi works on a simple assumption: people will tolerate spam if they are appropriately compensated. "
+        "The question isn't whether spam should exist, it's who bears the cost. "
+        "Traditional systems make receivers pay (in time and attention) while senders pay nothing. "
+        "Shibi inverts this: senders pay tokens, receivers earn them. If the compensation matches the interruption, spam becomes tolerable, even welcome."]
+       [:p
+        "Today, the "
+        [:a {:href "/tracking.chp"} "digital tracking industry"]
+        " treats your attention as free real estate, harvesting it through cookies, fingerprinting, and cross-device surveillance to build detailed profiles for sale. "
+        "Shibi inverts that model: instead of your attention being extracted without consent, it becomes a tradable asset you control and price yourself."]
+       [:p
+        "This fundamentally changes the online advertising business model. "
+        "Current advertising is surveillance-based: track users, build profiles, sell access to their eyeballs. "
+        "Advertisers pay platforms (Google, Meta) who extract value from users without compensation. "
+        "With Shibi, advertisers pay users directly for attention. No surveillance needed, no intermediary taking a cut. "
+        "Users become vendors of their own attention, setting prices and choosing which ads to engage with based on offered compensation."]
+       [:p
+        "Shibi tokens also define relationships of trust. "
+        "Users can give their tokens to trusted contacts or systems, making communication between them free and transaction-free. "
+        "Trust becomes explicit: when you hold someone's tokens, you can reach them without cost. "
+        "This creates circles of trust within the broader economic layer, where close relationships operate freely while unknown parties must pay for access."]
        [:p
         "Set your price, invite trusted contacts, and earn when you engage. If someone wants your attention, they pay for the privilege; if you grant it, you capture the value."]
        [:div.feature-grid
@@ -22,7 +60,7 @@
          [:p "Opt in, get paid, and reinvest attention on your own terms. You only subsidize the conversations you actually want."]]
         [:article.feature-card
          [:h3 "Programmable gates"]
-         [:p "Let Shibimon agents negotiate terms automatically—pause inbound requests, raise the rate, or whitelist the circles that matter."]]]
+         [:p "Let Shibimon agents negotiate terms automatically,pause inbound requests, raise the rate, or whitelist the circles that matter."]]]
        [:p
         "You decide who gets through, not a filter you never asked for. Attention stays accountable, and every conversation starts from mutual respect."]
        [:p.next
@@ -31,43 +69,5 @@
         " agents for programmable attention, then surface the exchange inside "
         [:a {:href "/tao.chp"} "Tao"]
         " portals."]]]
-     [:section.section-light
-      [:div.section-inner
-       [:h2 "🧠 The Economic Layer"]
-       [:p
-        "Spam is a negative externality: one party consumes another person's attention without paying for the cost it imposes."]
-       [:p
-        "Shibi applies Coasean logic to that imbalance. By attaching a price to each request, attention becomes a measurable commodity. Low-value noise gets priced out, while high-value communication earns its way through."]]]
-     [:section.section-dark
-      [:div.section-inner
-       [:h2 "⚙️ The Technical Layer"]
-       [:p
-        "Built on Algorand, Shibi settles tokenized incentives through transparent, low-latency microtransactions."]
-       [:p
-        "Wallet APIs and smart contracts empower Shibimon agents to manage your balance, accept offers, or sell attention programmatically. Instead of opaque moderation, scarcity and settlement happen in the open."]]]
-     [:section.section-light
-      [:div.section-inner
-       [:h2 "🌍 Why It Matters"]
-       [:p
-        "The modern web runs on attention, yet attention rarely has a native price. Shibi changes that dynamic by revealing the true cost of unwanted outreach and rewarding the people who choose to listen."]
-       [:p
-        "Today, the "
-        [:a {:href "/tracking.chp"} "digital tracking industry"]
-        " treats your attention as free real estate—harvesting it through cookies, fingerprinting, and cross-device surveillance to build detailed profiles for sale. "
-        "Shibi inverts that model: instead of your attention being extracted without consent, it becomes a tradable asset you control and price yourself."]]]
-     [:section.section-dark
-      [:div.section-inner
-       [:h2 "How It Works"]
-       [:div.feature-grid
-        [:article.feature-card
-         [:h3 "Wallet flow"]
-         [:p "Every account maintains an Algorand wallet that escrows Shibi for outbound messages and releases rewards the moment attention is granted."]]
-        [:article.feature-card
-         [:h3 "Shibimon agents"]
-         [:p "Agents tune prices in real time, enforce intake rules, and negotiate bundles—pause inbound, raise the toll, or whitelist collaborators without manual babysitting."]]
-        [:article.feature-card
-         [:h3 "Datom.World integration"]
-         [:p "Datom.World apps meter API calls, posts, and requests through the same contracts, so economic guarantees travel wherever your identity does."]]]
-       [:p
-        "Drop Shibi into any protocol as a programmable economic layer and every interaction becomes a conscious trade instead of ambient noise."]]])}
+     )}
    template))
