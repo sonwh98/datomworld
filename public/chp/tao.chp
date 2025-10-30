@@ -8,7 +8,52 @@
        [:span.status-pill "Interface runtime"]
        [:h1 "Tao"]
        [:p.section-lead
-        "Tao renders datoms into living interfaces so every view stays consistent with the underlying streams."]
+        "Tao VM rethinks how we approach graphics and computation. "
+        "Instead of treating rendering, physics, UI, and dataflow as separate domains, Tao VM unifies them under a single model: everything is a stream."]
+       [:p
+        "A stream is a continuous flow of datoms, immutable tuples that represent state, transformation, or intent. "
+        "Every pixel, vertex, shader parameter, and event is just another datom in motion. "
+        "Tao VM doesn't \"run\" code in the traditional sense; it interprets these streams, composing behavior and visuals from the same substrate."]
+       [:p
+        "At its foundation, Tao VM is written in Rust for safety and performance. "
+        "Its higher-level interface uses Yin-Yang, a Clojure dialect also implemented in Rust. "
+        "Developers describe systems declaratively in Yin-Yang, while Tao VM handles the orchestration of GPU and CPU workloads beneath the surface. "
+        "Because the interpreter operates on streams, Tao VM naturally supports reactive rendering, live state mutation, and distributed execution, all without separate paradigms for logic, data, and graphics."]]]
+     [:section.section-light
+      [:div.section-inner
+       [:h2 "The Philosophy: Yin and Yang"]
+       [:p
+        "Inspired by the Taoist concept of Yin and Yang, Tao VM views computation not as discrete operations but as dynamic balance. "
+        "Yin represents the generative, interpretive aspect, the flow of meaning, the why. "
+        "Yang embodies execution, the form, the how. "
+        "Tao VM is the unifying principle between them, a bridge where interpretation and execution converge into one self-consistent stream."]
+       [:p
+        "The name Tao reflects its guiding principle: harmony between opposites."]
+       [:ul.bulleted
+        [:li [:strong "Yin"] " — interpretation, composition, generative flow"]
+        [:li [:strong "Yang"] " — execution, realization, hardware interaction"]]
+       [:p
+        "Tao VM is the balance point, a system where meaning (Yin) and mechanism (Yang) cooperate through continuous feedback."]]]
+     [:section.section-dark
+      [:div.section-inner
+       [:h2 "Stream-Based Rendering"]
+       [:p
+        "Where traditional engines manage draw calls and frame loops, Tao VM treats rendering as stream transformation. "
+        "A 3D scene, a UI tree, or a compute graph are all the same: append new datoms, observe the flow, and let the GPU converge to the next visual state. "
+        "This design makes it possible to prototype GPU pipelines, visualization tools, or even cross-platform frameworks (mobile, desktop, web) with the same reactive semantics."]
+       [:p
+        "Technically, Tao VM is an interpreter of graphics primitives represented as datoms, small, immutable tuples describing state and transformation. "
+        "Every vertex, texture, or shader is expressed as a datom flowing through the GPU pipeline. "
+        "Instead of static render loops, Tao VM treats rendering as a form of stream processing: scenes evolve, recompute, and re-render as the stream changes. "
+        "This gives developers a consistent model for animation, simulation, and UI, all from a single, reactive substrate."]]]
+     [:section.section-light
+      [:div.section-inner
+       [:h2 "For Developers"]
+       [:p
+        "For developers, this means fewer abstractions to fight. "
+        "No more rigid boundaries between \"engine\" and \"app.\" "
+        "The same stream that drives your UI can drive your compute kernel or shader network. "
+        "Tao VM invites you to think in flows, not frames, to build systems that evolve naturally as data moves."]
        [:div.design-grid
         [:article.design-card
          [:h3 "Composable canvases"]
@@ -21,6 +66,8 @@
          [:p "Annotations resolve back into the same stream, turning every review into structured memory Tao can replay."]]]
        [:p
         "Because Tao listens to the same streams your agents do, product surfaces never drift from the truth held inside your datoms."]
+       [:p
+        "Tao VM isn't just another graphics runtime. It's an invitation to build software that feels alive, systems that compute the way nature flows."]
        [:p.next
         "Explore "
         [:a {:href "/yin.chp"} "Yin"]
