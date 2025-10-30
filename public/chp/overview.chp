@@ -108,7 +108,9 @@
         "Instead of a client viewing a remote world, every node in Datom.World participates in creating that world. "
         "The result is not a web of documents or servers, but a web of processes, a distributed organism of computation and collaboration."]
        [:p
-        "In short, Datom.World is what the Web becomes when it is rebuilt from first principles: local-first, continuation-based, and stream-native."]]]
+        "In short, Datom.World is what the Web becomes when it is rebuilt from first principles: local-first, continuation-based, and stream-native. "
+        "Where the old web is limited to HTML, Datom.World interpreters can visualize the same datom streams as anything: 3D video games, traditional web pages, VR environments, or any other form. "
+        "DaoFlow is one such interpreter that renders datoms into living, reactive interfaces."]]]
      [:section.section-light
       [:div.section-inner
        [:h2 "Everything is a stream"]
