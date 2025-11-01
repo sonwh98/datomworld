@@ -9,9 +9,9 @@
         [:span.status-pill "Private preview"]
         [:h1 "Your world, materialized from datom streams"]
         [:p.lead
-         "Datom.World is a local-first tuple store and runtime. "
-         "Streams of immutable datoms sync securely across devices, "
-         "letting apps, agents, and teammates collaborate without handing over control."]
+         "Datom.World is a platform for building local-first, stream-native software. "
+         "Streams of datoms flow between devices, and apps interpret those streams according to their domain. "
+         "Apps, agents, and teammates collaborate without handing over control."]
         [:p
          "Think about how you use the internet today. You send messages, share photos, watch videos, "
          "and look up information. But behind the scenes, a handful of giant companies decide "
@@ -27,15 +27,15 @@
          "your information, invite services on your terms, and tap into collective compute the way "
          "you might book a spare room on Airbnb."]
         [:p
-         "Because datoms are the smallest unit of data—the data atom—you can share facts without forfeiting control. "
+         "Datoms are granular facts you fully own—share what you choose, when you choose. "
          "Services interpret the streams you expose, making collaboration additive instead of extractive."]
         [:div.hero-actions
-         [:a.btn {:href "/shibi.chp"} "Explore Shibi"]
-         [:a.btn.btn-outline {:href "/yin.chp"} "Learn about Yin"]]
+         [:a.btn {:href "/dao-stream.chp"} "Understand Streams"]
+         [:a.btn.btn-outline {:href "/shibi.chp"} "Explore Shibi"]]
         [:div.hero-metrics
          [:div.metric
           [:span.label "API surface"]
-          [:span.value "2 functions"]]
+          [:span.value "5 functions"]]
          [:div.metric
           [:span.label "Transport"]
           [:span.value "WireGuard"]]
@@ -52,8 +52,8 @@
         [:div.hero-card
          [:span.hero-badge "Why datom streams?"]
          [:p
-          "A datom is a five-element tuple [e a v t c] stored in immutable streams. "
-          "Immutable streams make history verifiable and let any application interpret the same base facts in its own way—one truth, many perspectives."]]]]]
+          "Datoms are tuples [e a v t c] that flow through streams. "
+          "Each app interprets them differently—one truth, many perspectives."]]]]]
      [:section.section-light
       [:div.section-inner
        [:h2 "What is Datom.World?"]
@@ -92,13 +92,15 @@
         "Where the JavaScript VM once stood, Datom.World introduces "
         [:a {:href "/yin.chp"} "Yin"]
         ", a continuation-based virtual machine that treats computation as an evolving process rather than a sequence of calls. "
+        "HTTP's request–response model dissolves into "
+        [:a {:href "/dao-stream.chp"} "Dao Stream"]
+        ", the universal streaming API where data flows continuously between entangled peers through append-only datom streams. "
         "LocalStorage becomes "
         [:a {:href "/dao-db.chp"} "DaoDB"]
-        ", the distributed tuple store, where data is not isolated but shared as streams of datoms, immutable 5-tuples that form the substrate of all knowledge. "
-        "HTTP's request–response model dissolves into pure streams, allowing data to flow continuously between entangled peers. "
-        "And instead of the DOM, Datom.World uses "
+        ", an app that materializes queryable indexes from those streams. "
+        "And instead of the DOM, "
         [:a {:href "/dao-flow.chp"} "DaoFlow"]
-        ", a rendering engine that visualizes distributed data structures directly, treating the UI as an emergent view of living data."]
+        " interprets streams as renderable interfaces, treating the UI as an emergent view of living data."]
        [:p
         "Each component corresponds to its web counterpart, but their composition is entirely different. "
         "Instead of a client viewing a remote world, every node in Datom.World participates in creating that world. "
@@ -118,10 +120,9 @@
         "All of these collapse into a single primitive: the stream."]
        [:div.feature-grid
         [:article.feature-card
-         [:h3 "Two functions. That's it."]
-         [:p [:code "read(stream)"] " — consume datoms from a stream"]
-         [:p [:code "write(stream, datom)"] " — append a datom to a stream"]
-         [:p "That's the entire API. Every app, every agent, every service uses the same two operations."]]
+         [:h3 "Five functions. That's it."]
+         [:p [:code "open"] ", " [:code "read"] ", " [:code "write"] ", " [:code "close"] ", " [:code "status"]]
+         [:p "That's the entire " [:a {:href "/dao-stream.chp"} "Dao Stream"] " protocol. Every app, every agent, every service uses the same five operations."]]
         [:article.feature-card
          [:h3 "Universal composition"]
          [:p "Messages? Stream of datoms. User profile? Stream of datoms. Shopping cart? Stream of datoms. Analytics? Stream of datoms."]
@@ -133,21 +134,10 @@
        [:p
         "This radical simplicity doesn't limit what you can build—it liberates it. "
         "Complex behaviors emerge from composing simple streams, just as complex molecules emerge from simple atoms."]
-       [:h3 "Why streams instead of APIs?"]
        [:p
-        "Modern software is drowning in accidental complexity. Every service exposes a different API. "
-        "Every database speaks a different query language. Every protocol requires different client libraries."]
-       [:p
-        "Datom streams cut through this chaos:"]
-       [:ul.bulleted
-        [:li [:strong "Uniform interface"] " — Learn " [:code "read"] " and " [:code "write"] " once, use everywhere"]
-        [:li [:strong "Temporal by default"] " — Every stream is an immutable log. Time travel, audit trails, and undo are built-in, not bolted-on"]
-        [:li [:strong "Naturally distributed"] " — Streams replicate, merge, and sync across devices without complex reconciliation logic"]
-        [:li [:strong "Composable by nature"] " — Any stream can feed any other stream. Pipelines emerge naturally"]
-        [:li [:strong "Offline-first reality"] " — Write to local streams, sync when connected. No special \"offline mode\" needed"]]
-       [:p
-        "When everything is a stream, the distinction between database, API, filesystem, and message queue disappears. "
-        "There are only datoms flowing through time, and you decide which streams to read and write."]]]
+        "Why this architecture? Modern software drowns in accidental complexity—every service with its own API, every database with its own query language. "
+        [:a {:href "/dao-stream.chp"} "Dao Stream"]
+        " replaces this chaos with a single universal protocol, enabling uniform interfaces, temporal queries, natural distribution, and offline-first operation by default."]]]
      [:section.section-dark
       [:div.section-inner
        [:h2 "Everything is a continuation"]

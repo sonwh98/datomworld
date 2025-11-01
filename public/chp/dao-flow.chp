@@ -11,7 +11,7 @@
         "DaoFlow rethinks how we approach graphics and computation. "
         "Instead of treating rendering, physics, UI, and dataflow as separate domains, DaoFlow unifies them under a single model: everything is a stream of datoms."]
        [:p
-        "A stream is a continuous flow of datoms, immutable tuples that represent state, transformation, or intent. "
+        "A stream is a continuous flow of datoms—tuples that represent state, transformation, or intent. "
         "Every pixel, vertex, shader parameter, and event is just another datom in motion. "
         "DaoFlow doesn't \"run\" code in the traditional sense; it interprets these streams, composing behavior and visuals from the same substrate."]
        [:p
@@ -42,7 +42,7 @@
         "A 3D scene, a UI tree, or a compute graph are all the same: append new datoms, observe the flow, and let the GPU converge to the next visual state. "
         "This design makes it possible to prototype GPU pipelines, visualization tools, or even cross-platform frameworks (mobile, desktop, web) with the same reactive semantics."]
        [:p
-        "Technically, DaoFlow is an interpreter of graphics primitives represented as datoms, small, immutable tuples describing state and transformation. "
+        "Technically, DaoFlow is an interpreter of graphics primitives represented as datoms—small tuples describing state and transformation. "
         "Every vertex, texture, or shader is expressed as a datom flowing through the GPU pipeline. "
         "Instead of static render loops, DaoFlow treats rendering as a form of stream processing: scenes evolve, recompute, and re-render as the stream changes. "
         "This gives developers a consistent model for animation, simulation, and UI, all from a single, reactive substrate."]]]

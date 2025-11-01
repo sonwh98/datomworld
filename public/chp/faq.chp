@@ -11,10 +11,10 @@
          [:summary "What is Datom.World?"]
          [:div
           [:p
-           "Datom.World is a new kind of internet — one built on collaboration, not control. "
-           "Instead of routing your life through distant servers, it keeps information anchored to "
-           "your devices and neighborhoods while still letting knowledge flow. "
-           "Nodes share datoms—tiny structured facts—that stay private, portable, and ready to combine into living systems."]]]
+           "Datom.World is a platform for building local-first, stream-native software. "
+           "Streams of datoms flow between devices, and apps interpret those streams according to their domain. "
+           "The platform includes Yin (continuation VM), Yang (compiler), and built-in apps like DaoDB (tuple store), DaoFlow (rendering engine), and Shibi (economic primitive). "
+           "All apps work the same way: they consume datom streams and interpret them—DaoDB interprets them as queryable indexes, DaoFlow interprets them as renderable interfaces, Shibi interprets them as economic signals."]]]
         [:details.faq
          [:summary "Why the metaphor of ant colonies and stigmergy?"]
          [:div
@@ -54,10 +54,9 @@
          [:summary "What is a datom, exactly?"]
          [:div
           [:p
-           "A datom is the smallest unit of structured data: "
-           "the immutable 5-tuple [entity attribute value time context]. "
-           "It captures who, what, value, when, and provenance with enough structure to be recomposed safely. "
-           "Just as atoms assemble into matter, datoms assemble into any data structure"]]]
+           "A datom is a tuple [e a v t c]—entity, attribute, value, time, context. "
+           "Just as atoms assemble into matter, datoms assemble into any data structure. "
+           "See " [:a {:href "/dao-db.chp#the-five-element-tuple"} "DaoDB"] " for the detailed structure."]]]
         [:details.faq
          [:summary "How does this differ from conventional cloud computing?"]
          [:div
@@ -105,8 +104,8 @@
          [:div
           [:p
            "A datom is a fixed five-element tuple: [e a v t c] → entity, attribute, value, time, context. "
-           "It is immutable, append-only, and causally traceable. "
-           "Datoms live locally, replicate by subscription, and form the atomic event log every index or materialization derives from."]]]
+           "It is immutable and causally traceable. "
+           "Datoms flow through Dao Streams. Apps consume streams and can materialize datoms into indexes or other structures."]]]
         [:details.faq
          [:summary "How should developers interpret “everything is a stream”?"]
          [:div
@@ -125,9 +124,9 @@
          [:summary "How is data stored and replicated?"]
          [:div
           [:p
-           "Every node keeps an append-only tuple store and subscribes to streams it cares about. "
-           "Replication pulls missing datoms, merges by timestamp or causal ID, and maintains local indexes. "
-           "Compression, encryption, and snapshots are pluggable per stream."]]]
+           "Datoms flow through Dao Streams. Apps like DaoDB consume streams and materialize what they need. "
+           "DaoDB maintains append-only indexes, merging datoms by timestamp and causal ID. "
+           "Each node can choose what to materialize—some store everything, others keep only recent data or specific attributes."]]]
         [:details.faq
          [:summary "How is privacy enforced in a decentralized fabric?"]
          [:div
