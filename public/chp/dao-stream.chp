@@ -1,37 +1,37 @@
 (let [template (load-file "public/chp/template.chp")]
   (clojure.walk/postwalk-replace
-   {:template/title "Datom.World — Dao Stream"
+   {:template/title "Datom.World — DaoStream"
     :template/content
     (list
      [:section#dao-stream.section-dark
       [:div.section-inner
        [:span.status-pill "The substrate of flow"]
-       [:h1 "Dao Stream"]
+       [:h1 "DaoStream"]
        [:p.subtitle "The Way That Flows"]
        [:p.section-lead
-        "In Datom.World, everything begins and ends with the Dao Stream — the living current that connects all things."]
+        "In Datom.World, everything begins and ends with the DaoStream — the living current that connects all things."]
        [:p
-        "The Dao Stream is the substrate of flow — an ever-unfolding stream through which datoms flow, carrying interactions, transformations, and continuations across space, time, and device boundaries."]
+        "The DaoStream is the substrate of flow — an ever-unfolding stream through which datoms flow, carrying interactions, transformations, and continuations across space, time, and device boundaries."]
        [:p
         "Like the Dao (道) in Taoist philosophy, it maintains a simple, constant form — the five-element tuple [e a v t c] — yet adapts to infinite contexts. "
         "The same datom stream flows locally, distributed, offline, or entangled, shaping itself to the environment. "
-        "The Dao Stream carries meaning not by dictating interpretation, but by allowing interpreters to emerge around it."]
+        "The DaoStream carries meaning not by dictating interpretation, but by allowing interpreters to emerge around it."]
        [:p
-        "In Datom.World, the Dao Stream replaces countless specialized APIs, message queues, and database protocols with a single, universal, and complete stream API:"]
+        "In Datom.World, the DaoStream replaces countless specialized APIs, message queues, and database protocols with a single, universal, and complete stream API:"]
        [:p.emphasis [:strong "Everything is a stream."]]
        [:p
         "Applications, agents, and nodes do not \"call\" or \"store.\" "
-        "They listen, observe, and append to the Dao Stream."]
+        "They listen, observe, and append to the DaoStream."]
        [:div.principle-box
         [:p "Every event is a datom: " [:code "[e a v t c]"]]
         [:p "Every stream is a story of becoming."]]
        [:p
-        "Through the Dao Stream, the world of software moves closer to the world of nature — spontaneous, adaptive, and self-organizing."]]]
+        "Through the DaoStream, the world of software moves closer to the world of nature — spontaneous, adaptive, and self-organizing."]]]
      [:section.section-light
       [:div.section-inner
        [:h2 "The Stream Protocol"]
        [:p
-        "Dao Stream defines a simple protocol with five operations for stream lifecycle and data flow:"]
+        "DaoStream defines a simple protocol with five operations for stream lifecycle and data flow:"]
        [:div.code-block
         [:pre [:code
 "(defprotocol Stream
@@ -91,7 +91,7 @@
       [:div.section-inner
        [:h2 "Streams as Infrastructure"]
        [:p
-        "Dao Stream isn't just an API—it's the infrastructure of Datom.World:"]
+        "DaoStream isn't just an API—it's the infrastructure of Datom.World:"]
        [:div.feature-grid
         [:article.feature-card
          [:h3 "Append-only immutability"]
@@ -115,7 +115,7 @@
       [:div.section-inner
        [:h2 "One Truth, Many Perspectives"]
        [:p
-        "The power of Dao Stream comes from separation of data and interpretation. "
+        "The power of DaoStream comes from separation of data and interpretation. "
         "Streams carry datoms—[entity attribute value time causality] tuples that represent universal facts. "
         "Apps decide what those facts mean."]
        [:p
@@ -142,7 +142,7 @@
         [:li "Every protocol requires different client libraries"]
         [:li "REST, GraphQL, gRPC, WebSockets, SQL, NoSQL—each with its own mental model"]]
        [:p
-        "Dao Stream replaces all of this with a single primitive. The benefits compound:"]
+        "DaoStream replaces all of this with a single primitive. The benefits compound:"]
        [:div.feature-grid
         [:article.feature-card
          [:h3 "Uniform interface"]
@@ -163,7 +163,7 @@
         "In Taoist philosophy, the Dao is the natural order—the way things flow when not forced. "
         "Water doesn't fight its way downhill; it follows the path of least resistance."]
        [:p
-        "Dao Stream embodies this principle in software architecture:"]
+        "DaoStream embodies this principle in software architecture:"]
        [:ul.bulleted
         [:li [:strong "No central authority"] " — Streams flow between peers, not through gatekeepers"]
         [:li [:strong "Natural composition"] " — Data flows where it's needed, organically"]

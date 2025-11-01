@@ -58,21 +58,22 @@
       [:div.section-inner
        [:h2 "What is Datom.World?"]
        [:p
-        "Datom.World is inspired by ant colonies—vast systems built without central command. "
-        "Ants collaborate through stigmergy, leaving traces that guide others. "
+        "Datom.World is inspired by ant colonies and neural networks, systems where intelligence emerges from simple components through stigmergy. "
+        "Ants leave traces that guide others. Neurons fire and form connections. "
+        "No central control, yet collective intelligence arises. "
         "We apply that principle to the digital world."]
        [:p
-        "Instead of a centralized internet ruled by a handful of servers, Datom.World is a living ecosystem of independent nodes—"
-        "personal devices, computers, sensors—each contributing to a shared fabric. "
+        "Instead of a centralized internet ruled by a handful of servers, Datom.World is a living ecosystem of independent nodes, "
+        "personal devices, computers, sensors, each contributing to a shared fabric. "
         "Nodes exchange tiny data atoms, or datoms, just as ants share pheromone signals molecule by molecule."]
        [:p
         "A datom is the smallest unit of structured data: a self-contained piece of fact you fully own. "
         "You choose what to share and with whom. There are no hidden algorithms or distant data centers dictating the rules. "
         "Everything stays local-first and private by design."]
        [:p
-        "Unlike today's internet—where "
+        "Unlike today's internet, where "
         [:a {:href "/tracking.chp"} "third-party trackers, data brokers, and surveillance capitalism"]
-        " extract value from your every move—Datom.World keeps your data under your control. "
+        " extract value from your every move, Datom.World keeps your data under your control. "
         "No Meta Pixel watching what you buy. No Google Analytics profiling your browsing. "
         "No probabilistic matching linking your devices without consent. Just facts you own, shared on your terms."]
        [:p
@@ -93,7 +94,7 @@
         [:a {:href "/yin.chp"} "Yin"]
         ", a continuation-based virtual machine that treats computation as an evolving process rather than a sequence of calls. "
         "HTTP's request–response model dissolves into "
-        [:a {:href "/dao-stream.chp"} "Dao Stream"]
+        [:a {:href "/dao-stream.chp"} "DaoStream"]
         ", the universal streaming API where data flows continuously between entangled peers through append-only datom streams. "
         "LocalStorage becomes "
         [:a {:href "/dao-db.chp"} "DaoDB"]
@@ -113,7 +114,7 @@
       [:div.section-inner
        [:h2 "Everything is a stream"]
        [:p
-        "In Datom.World, everything—messages, files, databases, API calls, user interactions—exists as streams of datoms. "
+        "In Datom.World, everything, messages, files, databases, API calls, user interactions, exists as streams of datoms. "
         "This isn't just a metaphor. There is literally one universal abstraction: the append-only datom stream."]
        [:p
         "No more wrestling with REST APIs, GraphQL schemas, database drivers, message queues, file systems, and WebSocket protocols. "
@@ -122,7 +123,7 @@
         [:article.feature-card
          [:h3 "Five functions. That's it."]
          [:p [:code "open"] ", " [:code "read"] ", " [:code "write"] ", " [:code "close"] ", " [:code "status"]]
-         [:p "That's the entire " [:a {:href "/dao-stream.chp"} "Dao Stream"] " protocol. Every app, every agent, every service uses the same five operations."]]
+         [:p "That's the entire " [:a {:href "/dao-stream.chp"} "DaoStream"] " protocol. Every app, every agent, every service uses the same five operations."]]
         [:article.feature-card
          [:h3 "Universal composition"]
          [:p "Messages? Stream of datoms. User profile? Stream of datoms. Shopping cart? Stream of datoms. Analytics? Stream of datoms."]
@@ -136,7 +137,7 @@
         "Complex behaviors emerge from composing simple streams, just as complex molecules emerge from simple atoms."]
        [:p
         "Why this architecture? Modern software drowns in accidental complexity—every service with its own API, every database with its own query language. "
-        [:a {:href "/dao-stream.chp"} "Dao Stream"]
+        [:a {:href "/dao-stream.chp"} "DaoStream"]
         " replaces this chaos with a single universal protocol, enabling uniform interfaces, temporal queries, natural distribution, and offline-first operation by default."]]]
      [:section.section-dark
       [:div.section-inner

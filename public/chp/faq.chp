@@ -105,7 +105,7 @@
           [:p
            "A datom is a fixed five-element tuple: [e a v t c] → entity, attribute, value, time, context. "
            "It is immutable and causally traceable. "
-           "Datoms flow through Dao Streams. Apps consume streams and can materialize datoms into indexes or other structures."]]]
+           "Datoms flow through DaoStreams. Apps consume streams and can materialize datoms into indexes or other structures."]]]
         [:details.faq
          [:summary "How should developers interpret “everything is a stream”?"]
          [:div
@@ -124,7 +124,7 @@
          [:summary "How is data stored and replicated?"]
          [:div
           [:p
-           "Datoms flow through Dao Streams. Apps like DaoDB consume streams and materialize what they need. "
+           "Datoms flow through DaoStreams. Apps like DaoDB consume streams and materialize what they need. "
            "DaoDB maintains append-only indexes, merging datoms by timestamp and causal ID. "
            "Each node can choose what to materialize—some store everything, others keep only recent data or specific attributes."]]]
         [:details.faq

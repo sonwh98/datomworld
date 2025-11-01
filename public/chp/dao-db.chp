@@ -8,10 +8,10 @@
        [:span.status-pill "Distributed database"]
        [:h1 "DaoDB"]
        [:p.section-lead
-        "DaoDB is a distributed database built on " [:a {:href "/dao-stream.chp"} "Dao Stream"] ". "
+        "DaoDB is a distributed database built on " [:a {:href "/dao-stream.chp"} "DaoStream"] ". "
         "Datoms flow through the stream—some ephemeral, some persistent—and DaoDB selectively consumes them to materialize queryable covered indexes."]
        [:p
-        "Dao Stream is the flow through which datoms travel—five-element tuples [e a v t c] representing entity, attribute, value, transaction, and causality. "
+        "DaoStream is the flow through which datoms travel—five-element tuples [e a v t c] representing entity, attribute, value, transaction, and causality. "
         "The stream itself doesn't store datoms; they flow through it, some ephemeral and transient, others consumed by apps like DaoDB that choose to materialize them. "
         "DaoDB taps into this flow and selectively materializes covered indexes from the datoms it observes. "
         "Every piece of data in DaoDB is a materialized covered index derived from the datom stream. "
