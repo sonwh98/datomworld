@@ -1,0 +1,225 @@
+(let [template (load-file "public/chp/template.chp")]
+  (clojure.walk/postwalk-replace
+   {:template/title "Datom.World — Private preview overview"
+    :template/content
+    (list
+     [:section.hero
+      [:div.section-inner
+       [:div.hero-copy
+        [:span.status-pill "Private preview"]
+        [:h1 "Your world, materialized from datom streams"]
+        [:p.lead
+         "Datom.World is a platform for building local-first, stream-native software. "
+         "Streams of datoms flow between devices, and apps interpret those streams according to their domain. "
+         "Apps, agents, and teammates collaborate without handing over control."]
+        [:p
+         "Think about how you use the internet today. You send messages, share photos, watch videos, "
+         "and look up information. But behind the scenes, a handful of giant companies decide "
+         "how it all works, monetize your attention, and lock your data behind their walls."]
+        [:p
+         "Worse, they're "
+         [:a {:href "/tracking.chp"} "tracking everything you do"]
+         "—cookies follow you across websites, fingerprints identify your device even when you clear your history, "
+         "and cross-device tracking links your phone to your laptop to build detailed profiles of your life. "
+         "Your private data becomes their product, sold to advertisers, data brokers, and anyone willing to pay."]
+        [:p
+         "Datom.World imagines something different: a stream-native fabric where you keep custody of "
+         "your information, invite services on your terms, and tap into collective compute the way "
+         "you might book a spare room on Airbnb."]
+        [:p
+         "Datoms are granular facts you fully own—share what you choose, when you choose. "
+         "Services interpret the streams you expose, making collaboration additive instead of extractive."]
+        [:div.hero-actions
+         [:a.btn {:href "/dao-stream.chp"} "Understand Streams"]
+         [:a.btn.btn-outline {:href "/shibi.chp"} "Explore Shibi"]]
+        [:div.hero-metrics
+         [:div.metric
+          [:span.label "API surface"]
+          [:span.value "5 functions"]]
+         [:div.metric
+          [:span.label "Transport"]
+          [:span.value "WireGuard"]]
+         [:div.metric
+          [:span.label "Isolation"]
+          [:span.value "Yin sandbox"]]
+         [:div.metric
+          [:span.label "Sync latency"]
+          [:span.value "< 15ms"]]
+         [:div.metric
+          [:span.label "Core primitive"]
+          [:span.value "[e a v t c]"]]]]
+       [:div.hero-panel
+        [:div.hero-card
+         [:span.hero-badge "Why datom streams?"]
+         [:p
+          "Datoms are tuples [e a v t c] that flow through streams. "
+          "Each app interprets them differently—one truth, many perspectives."]]]]]
+     [:section.section-light
+      [:div.section-inner
+       [:h2 "What is Datom.World?"]
+       [:p
+        "Datom.World is inspired by ant colonies and neural networks, systems where intelligence emerges from simple components through stigmergy. "
+        "Ants leave traces that guide others. Neurons fire and form connections. "
+        "No central control, yet collective intelligence arises. "
+        "We apply that principle to the digital world."]
+       [:p
+        "Instead of a centralized internet ruled by a handful of servers, Datom.World is a living ecosystem of independent nodes, "
+        "personal devices, computers, sensors, each contributing to a shared fabric. "
+        "Nodes exchange tiny data atoms, or datoms, just as ants share pheromone signals molecule by molecule."]
+       [:p
+        "A datom is the smallest unit of structured data: a self-contained piece of fact you fully own. "
+        "You choose what to share and with whom. There are no hidden algorithms or distant data centers dictating the rules. "
+        "Everything stays local-first and private by design."]
+       [:p
+        "Unlike today's internet, where "
+        [:a {:href "/tracking.chp"} "third-party trackers, data brokers, and surveillance capitalism"]
+        " extract value from your every move, Datom.World keeps your data under your control. "
+        "No Meta Pixel watching what you buy. No Google Analytics profiling your browsing. "
+        "No probabilistic matching linking your devices without consent. Just facts you own, shared on your terms."]
+       [:p
+        "Streams of datoms flow between trusted peers, creating an internet that is distributed, entangled, and alive—"
+        "where collaboration emerges naturally and privacy is foundational. "
+        "Datom.World reimagines software as a digital ecosystem: self-organizing, adaptive, and free."]]]
+     [:section.section-dark
+      [:div.section-inner
+       [:h2 "Recomposing the Web"]
+       [:p
+        "Datom.World can be thought of as a decomposition of the modern web browser into its elemental technologies, then recomposed around a new philosophy to build a new world wide web: everything is a stream, and everything is a continuation."]
+       [:p
+        "In the traditional web stack, the JavaScript VM drives execution, HTTP defines communication, the DOM structures the UI, and local storage keeps data persistent. "
+        "Each of these layers was built to serve a client–server world, where the browser is a consumer of remote computation. "
+        "Datom.World reverses this assumption. Every device, from a phone to a cluster, becomes a sovereign node capable of computation, storage, and visualization."]
+       [:p
+        "Where the JavaScript VM once stood, Datom.World introduces "
+        [:a {:href "/yin.chp"} "Yin"]
+        ", a continuation-based virtual machine that treats computation as an evolving process rather than a sequence of calls. "
+        "HTTP's request–response model dissolves into "
+        [:a {:href "/dao-stream.chp"} "DaoStream"]
+        ", the universal streaming API where data flows continuously between entangled peers through append-only datom streams. "
+        "LocalStorage becomes "
+        [:a {:href "/dao-db.chp"} "DaoDB"]
+        ", an app that materializes queryable indexes from those streams. "
+        "And instead of the DOM, "
+        [:a {:href "/dao-flow.chp"} "DaoFlow"]
+        " interprets streams as renderable interfaces, treating the UI as an emergent view of living data."]
+       [:p
+        "Each component corresponds to its web counterpart, but their composition is entirely different. "
+        "Instead of a client viewing a remote world, every node in Datom.World participates in creating that world. "
+        "The result is not a web of documents or servers, but a web of processes, a distributed organism of computation and collaboration."]
+       [:p
+        "In short, Datom.World is what the Web becomes when it is rebuilt from first principles: local-first, continuation-based, and stream-native. "
+        "Where the old web is limited to HTML, Datom.World interpreters can visualize the same datom streams as anything: 3D video games, traditional web pages, VR environments, or any other form. "
+        "DaoFlow is one such interpreter that renders datoms into living, reactive interfaces."]]]
+     [:section.section-light
+      [:div.section-inner
+       [:h2 "Everything is a stream"]
+       [:p
+        "In Datom.World, everything, messages, files, databases, API calls, user interactions, exists as streams of datoms. "
+        "This isn't just a metaphor. There is literally one universal abstraction: the append-only datom stream."]
+       [:p
+        "No more wrestling with REST APIs, GraphQL schemas, database drivers, message queues, file systems, and WebSocket protocols. "
+        "All of these collapse into a single primitive: the stream."]
+       [:div.feature-grid
+        [:article.feature-card
+         [:h3 "Five functions. That's it."]
+         [:p [:code "open"] ", " [:code "read"] ", " [:code "write"] ", " [:code "close"] ", " [:code "status"]]
+         [:p "That's the entire " [:a {:href "/dao-stream.chp"} "DaoStream"] " protocol. Every app, every agent, every service uses the same five operations."]]
+        [:article.feature-card
+         [:h3 "Universal composition"]
+         [:p "Messages? Stream of datoms. User profile? Stream of datoms. Shopping cart? Stream of datoms. Analytics? Stream of datoms."]
+         [:p "Because everything speaks the same language, everything composes. Your chat app can feed into your analytics. Your shopping cart can trigger your calendar. Seamlessly."]]
+        [:article.feature-card
+         [:h3 "No impedance mismatch"]
+         [:p "Traditional apps spend most of their complexity translating between incompatible systems—SQL to JSON to REST to UI state."]
+         [:p "With datom streams, data flows through your system without translation. Read datoms, transform datoms, write datoms. That's the whole pipeline."]]]
+       [:p
+        "This radical simplicity doesn't limit what you can build—it liberates it. "
+        "Complex behaviors emerge from composing simple streams, just as complex molecules emerge from simple atoms."]
+       [:p
+        "Why this architecture? Modern software drowns in accidental complexity—every service with its own API, every database with its own query language. "
+        [:a {:href "/dao-stream.chp"} "DaoStream"]
+        " replaces this chaos with a single universal protocol, enabling uniform interfaces, temporal queries, natural distribution, and offline-first operation by default."]]]
+     [:section.section-dark
+      [:div.section-inner
+       [:h2 "Everything is a continuation"]
+       [:p
+        "If streams are how data flows, continuations are how computation flows. "
+        "In Datom.World, every piece of running code—every agent, every workflow, every background task—is a "
+        [:em "continuation"]
+        ": a snapshot of computation that can pause, migrate, and resume anywhere."]
+       [:p
+        "This isn't a metaphor either. Built on "
+        [:a {:href "/yin.chp"} "Yin"]
+        ", the continuation virtual machine, your code becomes portable, mobile, and secure by design."]
+       [:div.feature-grid
+        [:article.feature-card
+         [:h3 "Mobile agents"]
+         [:p "Your agent starts on your phone, continues processing on an edge server near you, and finishes on a powerful GPU cluster—all without changing shape."]
+         [:p "Continuations serialize the entire execution state, so your code literally travels across the network as data."]]
+        [:article.feature-card
+         [:h3 "Run on hardware you don't own"]
+         [:p "Like Airbnb for compute. Rent spare cycles from anyone's server, edge device, or cloud instance."]
+         [:p "Yin provides mutual security: you trust it won't leak your computation's secrets, and the hardware owner trusts it won't damage their system or breach data it shouldn't access."]
+         [:p "Both sides are protected through isolation, not trust."]]
+        [:article.feature-card
+         [:h3 "Never lose context"]
+         [:p "Close your laptop mid-task. Your continuation persists in the stream. Open your tablet. Resume exactly where you left off."]
+         [:p "Collaboration works the same way: your teammate picks up your continuation, adds their work, and hands it back. The context never breaks."]]]
+       [:p
+        "Traditional cloud computing forces you to trust distant data centers with your code and data. "
+        "Container orchestration (Kubernetes, Docker) requires complex configuration and centralized control."]
+       [:p
+        "Datom.World inverts this through two key technologies:"]
+       [:ul.bulleted
+        [:li [:strong "WireGuard tunnels"]
+         " connect entangled nodes with end-to-end encryption. Your devices, collaborators, and rented compute form a secure mesh network. "
+         "Data flowing between nodes is encrypted in transit—no one in the middle can read your streams."]
+        [:li [:strong "Yin sandboxing"]
+         " isolates every continuation at runtime. Like Docker, WASM, or the JVM, Yin acts as a security container—but for "
+         [:em "computation"] " rather than just processes. "
+         "Your code can't escape to read files it shouldn't access, and the host can't peek into your continuation's memory. "
+         "This mutual isolation means you can safely run your agents on strangers' hardware, and they can safely rent you cycles."]]
+       [:p
+        "The result is a "
+        [:strong "distributed compute fabric"]
+        " where execution flows to available resources, just as water flows to open channels. "
+        "WireGuard ensures " [:em "transport security"] " (encrypted channels), "
+        "while Yin ensures " [:em "execution security"] " (sandboxed computation). "
+        "No orchestrator. No central authority. Just continuations finding their way through the network."]]]
+     [:section.section-light
+      [:div.section-inner
+       [:h2 "Streams + Continuations = Living Software"]
+       [:p
+        "Most software today is either data-centric (databases, APIs) or compute-centric (functions, containers). "
+        "These worlds rarely meet gracefully."]
+       [:p
+        "Datom.World unifies them:"]
+       [:ul.bulleted
+        [:li [:strong "Streams carry data"] " through time as immutable logs"]
+        [:li [:strong "Continuations carry computation"] " through space as mobile agents"]
+        [:li [:strong "Together they flow"] " through the same fabric, reading and writing each other"]]
+       [:p
+        "An agent (continuation) reads from a stream, processes the datoms, and writes results to another stream. "
+        "That agent can pause, migrate to faster hardware, and resume—all while the streams keep flowing."]
+       [:p
+        "This is software that "
+        [:em "breathes"]
+        ": data and computation flow together, pausing and resuming as resources become available, "
+        "collaborating across devices and people without central coordination."]
+       [:p
+        "It's the internet reimagined as a living organism: self-organizing, adaptive, and resilient."]]]
+     [:section.section-dark
+      [:div.section-inner
+       [:h2 "Next steps"]
+       [:p
+        "The current internet was built on extraction—your attention harvested, your data profiled, your privacy sold. "
+        "Datom.World offers an alternative: a stream-native fabric where collaboration is additive, not extractive."]
+       [:p
+        "Want to understand how deep the surveillance goes? Explore "
+        [:a {:href "/tracking.chp"} "how the tracking industry works"]
+        ". Ready to help build the alternative? Tell us about your use case."]
+       [:div.hero-actions
+        [:a.btn {:href "mailto:hello@datom.world"} "Request preview access"]
+        [:a.btn.btn-outline {:href "/tracking.chp"} "Learn about tracking"]
+        [:a.btn.btn-outline {:href "/shibi.chp"} "Explore Shibi"]]]])}
+   template))

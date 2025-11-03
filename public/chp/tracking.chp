@@ -1,0 +1,252 @@
+(let [template (load-file "public/chp/template.chp")]
+  (clojure.walk/postwalk-replace
+   {:template/title "The Digital Tracking Industry — Datom.World"
+    :template/content
+    (list
+     [:section.hero
+      [:div.section-inner
+       [:div.hero-copy
+        [:h1 "The Digital Tracking Industry"]
+        [:p.lead
+         "Every click, every page view, every purchase is being observed, recorded, and analyzed. "
+         "This isn't conspiracy theory—it's the business model that powers most of the \"free\" internet."]
+        [:p
+         "This guide explains who is tracking you, how they correlate data across devices and platforms, "
+         "and what you can do about it."]]]]
+     [:section.section-light
+      [:div.section-inner
+       [:h2 "Who Is Gathering the Data?"]
+       [:p
+        "The ecosystem is primarily made of two types of players:"]
+       [:h3 "1. First-Party & Ad Tech Giants"]
+       [:p
+        "These are the companies you interact with directly, and they have unprecedented visibility into your digital life:"]
+       [:ul
+        [:li [:strong "Google (Alphabet)"] " — Search queries reveal your interests. Chrome tracks every website. "
+         "Android monitors app usage and location. YouTube knows what you watch. Google Analytics is embedded on most websites. "
+         "Google AdSense serves ads on millions of sites, creating a massive tracking network."]
+        [:li [:strong "Meta (Facebook)"] " — Facebook, Instagram, and WhatsApp track your social connections and messages. "
+         "The \"Meta Pixel\" is embedded on millions of shopping and news sites, tracking what you browse even when you're not on their platforms."]
+        [:li [:strong "Amazon"] " — Every search, every product viewed, every purchase. Plus a massive advertising network "
+         "that tracks browsing behavior across the web. Alexa devices listen in your home."]
+        [:li [:strong "Apple, Microsoft, and others"] " — Collect data primarily for their own ecosystems. "
+         "Generally less focused on third-party ad-selling than Google/Meta, but still substantial data collection."]]
+       [:h3 "2. Third-Party Data Brokers: The Hidden Industry"]
+       [:p
+        "These are companies you've probably never heard of, but they know you intimately. "
+        "Their entire business model is collecting data from thousands of sources, building detailed profiles, and selling them."]
+       [:p [:strong "Major players:"] " Acxiom, Experian (yes, the credit bureau), Epsilon, CoreLogic, Oracle Data Cloud, "
+        "LiveRamp, Neustar."]
+       [:p [:strong "What they collect:"] " Credit card purchase history, store loyalty card data, public records "
+        "(home ownership, voter registration), web browsing history from apps and trackers, magazine subscriptions, "
+        "survey responses, catalog purchases, and even your offline shopping at physical stores."]
+       [:p
+        "They combine all of this into profiles with hundreds or thousands of data points about you."]]]
+     [:section.section-dark
+      [:div.section-inner
+       [:h2 "The Correlation Toolkit: How They Link Everything Together"]
+       [:p
+        "Your data is scattered across hundreds of companies and thousands of devices. "
+         "So how do they connect it all? Through a sophisticated set of techniques that act like digital detective work."]
+       [:h3 "1. Universal Identifiers: The Holy Grail"]
+       [:p [:strong "Email Addresses (Hashed)"] " — When you log into a store with you@gmail.com and then log into a news site with the same email, "
+        "trackers can link those activities. They don't even need to see your actual email address. "
+        "They use a \"hashed\" (cryptographically scrambled) version that is identical everywhere."]
+       [:p "Example: \"user@example.com\" becomes \"5d41402abc4b2a76b9719d911017c592\". "
+        "Same email always produces the same hash, creating a universal identifier."]
+       [:p [:strong "Phone Numbers"] " — Your phone number is another key that unlocks your identity across services. "
+        "Used for cross-platform matching and verification."]
+       [:h3 "2. Third-Party Cookies: The Classic Method"]
+       [:p "This is the original tracking method, and it's still widely used:"]
+       [:ol
+        [:li "You visit SiteA.com"]
+        [:li "A tracker from doubleclick.net (owned by Google) places a cookie on your browser with a unique ID: " [:code "TrackerID-12345"]]
+        [:li "You later visit SiteB.com, which also has a doubleclick.net tracker"]
+        [:li "Your browser automatically sends that same " [:code "TrackerID-12345"] " cookie to doubleclick.net"]
+        [:li "Google's ad network now knows that \"User 12345\" visited both sites"]]
+       [:p [:strong "The power:"] " Doesn't need your IP address. Works across thousands of websites. "
+        "Can track your browsing for months or years. Builds a detailed profile of your interests and behavior."]
+       [:p [:strong "Why it's declining:"] " Browsers are starting to block third-party cookies. "
+        "Safari and Firefox already block them by default. Chrome is phasing them out (though slowly, and with alternatives)."]]]
+     [:section.section-light
+      [:div.section-inner
+       [:h3 "3. Browser Fingerprinting: The Modern Stealth Method"]
+       [:p
+        "This is what trackers use when you block cookies. Even if your IP address changes constantly, "
+        "your device configuration is remarkably unique."]
+       [:p [:strong "How it works:"] " A tiny JavaScript snippet gathers dozens of data points that your browser shares openly:"]
+       [:ul
+        [:li [:strong "Basic information:"] " Operating system (e.g., Windows 10, macOS 13.2), browser and exact version "
+         "(e.g., Chrome 108.0.5359.124), screen resolution and color depth, language settings, time zone"]
+        [:li [:strong "Advanced hardware details:"] " Exact list of installed fonts (surprisingly unique), graphics card model "
+         "and capabilities (WebGL fingerprint), audio hardware specifications (AudioContext fingerprint), CPU cores and performance, "
+         "available sensors (accelerometer, gyroscope), battery status and charging state"]
+        [:li [:strong "Browser capabilities:"] " Plugins and extensions (partially detectable), Canvas rendering characteristics "
+         "(each GPU renders slightly differently), WebRTC leak (can reveal real IP even through VPN), Do Not Track setting "
+         "(ironically, this setting itself helps fingerprint you)"]]
+       [:p [:strong "The result:"] " The combination of these 50+ data points creates a \"fingerprint\" that can identify you with 99%+ accuracy. "
+        "Even if you clear all cookies, use a VPN to change your IP, or browse in incognito mode—your fingerprint often remains the same."]
+       [:h3 "4. Cross-Device Tracking: Linking Your Phone, Laptop, Tablet, and TV"]
+       [:p "This is the ultimate goal: knowing that the laptop, phone, and tablet all belong to the same person."]
+       [:p [:strong "Method 1: Deterministic (The Easy Way)"] " — You're logged into your Google or Facebook account on all your devices. "
+        "Game over. They know exactly who you are on every device. This is why ad tech companies push so hard for you to \"sign in.\""]
+       [:p [:strong "Method 2: Probabilistic (The \"Best Guess\" Way)"] " — This is where data science gets creepy:"]
+       [:ol
+        [:li "A laptop with " [:code "Fingerprint-ABC"] " connects from home Wi-Fi IP " [:code "1.2.3.4"] " every evening"]
+        [:li "A phone with " [:code "Fingerprint-XYZ"] " connects from the same home Wi-Fi IP " [:code "1.2.3.4"] " every evening"]
+        [:li "That same phone connects from cell tower IP " [:code "5.6.7.8"] " near downtown during weekdays 9am-5pm"]
+        [:li "The laptop occasionally connects from IP " [:code "9.10.11.12"] " which geolocates to the same downtown area"]]
+       [:p [:strong "The conclusion:"] " With 99%+ confidence, the data broker infers: the laptop and phone belong to the same person, "
+        "that person lives at the location of the home IP, and they work at or near the downtown IPs. "
+        "They can now track this person across both devices."]
+       [:h3 "5. Location Tracking"]
+       [:p [:strong "How they track your physical location:"] " GPS data from apps (weather, maps, games), "
+        "Wi-Fi network names (BSSIDs) mapped to physical locations, Bluetooth beacons in stores and public spaces, "
+        "cell tower triangulation, IP address geolocation."]
+       [:p [:strong "What they learn:"] " Where you live (you're there every night), where you work (you're there weekdays), "
+        "what stores you visit, what restaurants you frequent, places of worship, medical facilities (revealing health conditions), "
+        "political rallies or events."]
+       [:p [:strong "The data marketplace:"] " Location data is bought and sold by advertisers, retailers (foot traffic analysis), "
+        "real estate companies, hedge funds (predicting company performance), political campaigns, and law enforcement (often without warrants)."]]]
+     [:section.section-dark
+      [:div.section-inner
+       [:h2 "The Complete Tracking Picture"]
+       [:p "Here's how it all comes together in a typical day:"]
+       [:ol
+        [:li [:strong "Morning:"] " You search Google for \"best running shoes\" on your phone while on your home Wi-Fi"]
+        [:li [:strong "Commute:"] " Your phone's location is tracked via cell towers and GPS-enabled apps"]
+        [:li [:strong "Work:"] " You browse a news site on your laptop. The Meta Pixel and Google Analytics note this"]
+        [:li [:strong "Lunch:"] " You use your credit card at a restaurant. The transaction is recorded and sold to data brokers"]
+        [:li [:strong "Afternoon:"] " You research products on Amazon from your work laptop"]
+        [:li [:strong "Evening:"] " You scroll Instagram on your phone at home. You see ads for running shoes"]]
+       [:p [:strong "What they know:"] " Google knows you searched for running shoes. Meta knows you visited certain news articles. "
+        "Amazon knows what products you compared. Data brokers bought your credit card data and know where you eat. "
+        "Cross-device tracking connected your phone and laptop. Location data knows where you live, work, and shop."]
+       [:p "All of this is correlated into a single profile using your email, device fingerprints, and behavioral patterns."]
+       [:p "The profile includes: your interests and intent (running shoes → fitness-conscious), your income level (credit card spending), "
+        "your location patterns (home, work, gym), your social connections (Facebook friends), your political leanings (news sites visited), "
+        "your health concerns (searches, pharmacy visits), your relationship status (restaurants, entertainment patterns)."]]]
+     [:section.section-light
+      [:div.section-inner
+       [:h2 "Why This Matters"]
+       [:h3 "Privacy Concerns"]
+       [:ul
+        [:li "Detailed profiles can reveal sensitive information: health conditions, financial struggles, relationship problems"]
+        [:li "Data breaches expose this information to criminals"]
+        [:li "No real consent—most people don't understand the extent of tracking"]
+        [:li "Profiles used for discrimination: insurance rates, job applications, credit decisions"]]
+       [:h3 "Manipulation"]
+       [:ul
+        [:li "Political campaigns use profiles for targeted propaganda"]
+        [:li "Advertisers exploit psychological vulnerabilities"]
+        [:li "Dynamic pricing: charging more to people willing to pay more"]
+        [:li "Filter bubbles: only seeing information that confirms existing beliefs"]]
+       [:h3 "Surveillance"]
+       [:ul
+        [:li "Governments purchase this data from brokers (bypassing warrant requirements)"]
+        [:li "Stalkers and abusers can access location data"]
+        [:li "Permanent records: your digital trail follows you forever"]]]]
+     [:section.section-dark
+      [:div.section-inner
+       [:h2 "What You Can Do: Practical Defenses"]
+       [:h3 "Browser-Level Protection"]
+       [:p [:strong "Use privacy-focused browsers:"] " Firefox with strict tracking protection, Brave (built-in ad and tracker blocking). "
+        "Avoid Chrome (owned by Google, the largest ad company)."]
+       [:p [:strong "Essential browser extensions:"] " uBlock Origin (blocks ads and trackers), Privacy Badger (learns and blocks trackers), "
+        "HTTPS Everywhere (encrypts connections), ClearURLs (removes tracking parameters)."]
+       [:p [:strong "Browser settings:"] " Block third-party cookies (Firefox, Safari, Brave do this by default). "
+        "Clear cookies regularly. Use containers/profiles to separate activities (Firefox Multi-Account Containers)."]
+       [:h3 "VPN: Breaking the IP Address Link"]
+       [:p [:strong "What a VPN does:"] " Masks your real IP address, prevents probabilistic matching based on shared home/work IPs, "
+        "stops ISPs from selling your browsing history, protects on public Wi-Fi."]
+       [:p [:strong "What a VPN doesn't do:"] " Doesn't stop tracking if you're logged into Google/Facebook. "
+        "Doesn't prevent browser fingerprinting. Doesn't block cookies or trackers."]
+       [:p [:strong "Recommended VPNs:"] " Proton VPN (Swiss privacy laws, NetShield ad/tracker blocking), "
+        "Mullvad (anonymous accounts, strong privacy), IVPN (audited, transparent)."]
+       [:p [:strong "Avoid:"] " Free VPNs (they often sell your data), VPNs owned by data brokers, VPNs with poor privacy policies."]
+       [:h3 "Fighting Fingerprinting"]
+       [:ul
+        [:li "Use Tor Browser (everyone has identical fingerprints)"]
+        [:li "Use Brave with fingerprinting protection"]
+        [:li "Use Firefox with " [:code "privacy.resistFingerprinting"] " enabled"]
+        [:li "Disable JavaScript on sensitive sites (breaks many sites)"]
+        [:li "Use a common OS, browser, and screen resolution"]
+        [:li "Don't install unusual fonts or extensions"]]
+       [:h3 "Mobile Protection"]
+       [:p [:strong "iOS:"] " Settings → Privacy → Tracking → Disable \"Allow Apps to Request to Track\". "
+        "Settings → Privacy → Location Services → Minimize permissions. Use Safari with privacy settings enabled. "
+        "Regularly review app permissions."]
+       [:p [:strong "Android:"] " Settings → Privacy → Ads → Reset advertising ID regularly (or opt out). "
+        "Use Firefox or Brave instead of Chrome. Minimize app permissions, especially location. "
+        "Use F-Droid for open-source apps."]
+       [:h3 "Email and Identity"]
+       [:p [:strong "Email strategy:"] " Use email aliases (SimpleLogin, AnonAddy) for different services. "
+        "Never use Facebook/Google login for third-party sites. Use a privacy-focused email provider (ProtonMail, Tutanota)."]
+       [:p [:strong "Phone number:"] " Use VoIP numbers (Google Voice, MySudo) for non-essential services. "
+        "Never give your real number unless required."]
+       [:h3 "Search Engines"]
+       [:p "Alternatives to Google: DuckDuckGo (doesn't track searches), Startpage (Google results without tracking), "
+        "Brave Search, Qwant (EU-based)."]
+       [:h3 "Payment Tracking"]
+       [:p "Use privacy.com for virtual card numbers. Use cash for sensitive purchases. "
+        "Avoid store loyalty cards (or use fake information)."]]]
+     [:section.section-light
+      [:div.section-inner
+       [:h2 "The Reality Check"]
+       [:p [:strong "You cannot be completely anonymous online"] " unless you only use Tor Browser, "
+        "never log into any account, use a different device for each identity, pay for everything with cash or cryptocurrency, "
+        "and never use location services. And even then, sophisticated adversaries (government agencies) can potentially de-anonymize you."]
+       [:p [:strong "But you can dramatically reduce tracking."] " The goal isn't perfection—it's raising the cost of tracking you:"]
+       [:ul
+        [:li "Block the easy tracking (cookies, third-party scripts)"]
+        [:li "Break the correlation links (VPN, email aliases)"]
+        [:li "Minimize the data you give up (limit logins, permissions)"]
+        [:li "Use privacy-respecting services when possible"]]
+       [:p
+        "Every layer of protection you add makes tracking harder and more expensive. "
+        "Most advertisers and data brokers won't bother with sophisticated techniques if the easy ones don't work."]]]
+     [:section.section-dark
+      [:div.section-inner
+       [:h2 "The Bigger Picture: Systemic Change"]
+       [:p [:strong "Individual action is important, but insufficient."] " Real change requires:"]
+       [:ul
+        [:li [:strong "Regulation:"] " Laws like GDPR (EU) and CCPA (California) that require consent and give control"]
+        [:li [:strong "Competition:"] " Breaking up ad tech monopolies"]
+        [:li [:strong "Transparency:"] " Requiring companies to disclose what they collect and sell"]
+        [:li [:strong "Defaults:"] " Privacy-by-default instead of opt-out schemes"]
+        [:li [:strong "Liability:"] " Companies should face consequences for data breaches and misuse"]]
+       [:p [:strong "Support organizations fighting for privacy:"] " Electronic Frontier Foundation (EFF), "
+        "Privacy International, European Digital Rights (EDRi), and your local privacy advocacy groups."]]]
+     [:section.section-light
+      [:div.section-inner
+       [:h2 "Conclusion"]
+       [:p
+        "The digital tracking industry is vast, sophisticated, and largely invisible. Companies you interact with daily, "
+        "and companies you've never heard of, are building detailed profiles of your life—your interests, your health, "
+        "your relationships, your movements, your finances."]
+       [:p
+        "They use a toolkit of techniques: cookies, fingerprinting, email matching, cross-device tracking, and probabilistic inference. "
+        "They link your laptop to your phone, your home to your work, your online behavior to your offline purchases."]
+       [:p
+        "This isn't a distant dystopia—it's happening right now, every time you browse the web, use an app, or make a purchase."]
+       [:p
+        "But you're not powerless. By understanding how tracking works, you can take concrete steps to protect yourself: "
+        "use privacy tools, change your habits, minimize data sharing, and support systemic change."]
+       [:p
+        "The goal isn't paranoia or perfection—it's informed consent and meaningful control over your own digital life."]
+       [:p
+        "What if attention itself had a price? "
+        [:a {:href "/shibi.chp"} "Shibi"]
+        " reimagines the attention economy by making your focus a tradable asset you control—turning the extractive surveillance model on its head."]
+       [:p [:strong "Your data is valuable. It's yours. Guard it accordingly."]]
+       [:h3 "Further Reading"]
+       [:p [:strong "Books:"] " \"The Age of Surveillance Capitalism\" by Shoshana Zuboff, "
+        "\"Permanent Record\" by Edward Snowden, \"Data and Goliath\" by Bruce Schneier."]
+       [:p [:strong "Websites:"] " PrivacyGuides.org, PrivacyTools.io, Electronic Frontier Foundation (EFF.org), "
+        "Spreading Privacy (spreadprivacy.com - DuckDuckGo's blog)."]
+       [:p [:strong "Tools to test your privacy:"] " Cover Your Tracks (EFF's browser fingerprinting test), "
+        "DNS Leak Test (check if your VPN is working), Have I Been Pwned (check if your email/data was breached)."]
+       [:p
+        "Remember: Privacy is a right, not a privilege. You deserve to navigate the digital world without being "
+        "constantly surveilled, profiled, and manipulated."]]])}
+   template))

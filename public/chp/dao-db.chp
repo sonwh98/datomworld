@@ -1,0 +1,81 @@
+(let [template (load-file "public/chp/template.chp")]
+  (clojure.walk/postwalk-replace
+   {:template/title "Datom.World — DaoDB"
+    :template/content
+    (list
+     [:section#dao-db.section-dark
+      [:div.section-inner
+       [:span.status-pill "Distributed database"]
+       [:h1 "DaoDB"]
+       [:p.section-lead
+        "DaoDB is a distributed database built on " [:a {:href "/dao-stream.chp"} "DaoStream"] ". "
+        "Datoms flow through the stream—some ephemeral, some persistent—and DaoDB selectively consumes them to materialize queryable covered indexes."]
+       [:p
+        "DaoStream is the flow through which datoms travel—five-element tuples [e a v t c] representing entity, attribute, value, transaction, and causality. "
+        "The stream itself doesn't store datoms; they flow through it, some ephemeral and transient, others consumed by apps like DaoDB that choose to materialize them. "
+        "DaoDB taps into this flow and selectively materializes covered indexes from the datoms it observes. "
+        "Every piece of data in DaoDB is a materialized covered index derived from the datom stream. "
+        "These indexes are append-only and immutable, creating a complete history of all state changes. "
+        "This isn't a database that stores current state—it's a database that stores all states, making time travel, audit trails, and undo built-in rather than bolted-on."]
+       [:p
+        "Not all datoms in a stream need to be stored in DaoDB. "
+        "DaoDB selectively consumes the datoms it needs to materialize its indexes, deciding what to store based on query patterns and retention policies. "
+        "This allows different nodes to maintain different views of the same streams—some storing everything, others keeping only recent data or specific attributes."]]]
+     [:section.section-light
+      [:div.section-inner
+       [:h2 "The Five-Element Tuple"]
+       [:p
+        "Every datom in DaoDB follows the same structure: [e a v t c]"]
+       [:ul.bulleted
+        [:li [:strong "e (entity)"] " — The thing being described (a user, a post, a shopping cart)"]
+        [:li [:strong "a (attribute)"] " — The property being asserted (name, color, quantity)"]
+        [:li [:strong "v (value)"] " — The actual data (\"Alice\", \"red\", 42)"]
+        [:li [:strong "t (transaction)"] " — When this fact was recorded (timestamp/transaction ID)"]
+        [:li [:strong "c (causality)"] " — The causal relationship to other datoms, enabling distributed consistency"]]
+       [:p
+        "This structure makes every fact self-describing and independently meaningful. "
+        "You can query any datom without needing to understand the entire database schema. "
+        "Schemas evolve naturally as new attributes are added—no migrations, no downtime, no breaking changes."]]]
+     [:section.section-dark
+      [:div.section-inner
+       [:h2 "Local-First, Globally Synced"]
+       [:p
+        "DaoDB is fundamentally local-first. Every device maintains its own complete tuple store, so your apps work offline by default. "
+        "When you write a datom, it's immediately available on your device. When you reconnect, entangled sync propagates changes across your mesh of trusted nodes."]
+       [:p
+        "Unlike cloud databases that force you to trust a central server, DaoDB keeps custody of your data locally. "
+        "You choose which streams to expose and who can read them. "
+        "Collaboration happens through shared streams, not by surrendering control to a third party."]
+       [:div.feature-grid
+        [:article.feature-card
+         [:h3 "Immutable history"]
+         [:p "Every datom is append-only. Nothing is ever deleted or overwritten. Query any point in time. Undo becomes trivial. Audit trails are built-in."]]
+        [:article.feature-card
+         [:h3 "Distributed by design"]
+         [:p "DaoDB syncs across devices using CRDTs and causal ordering. Conflicts resolve automatically. No central coordination needed."]]
+        [:article.feature-card
+         [:h3 "Schema-on-read"]
+         [:p "Define schemas when you query, not when you write. Add new attributes without migrations. Multiple interpreters can view the same datoms differently."]]]]]
+     [:section.section-light
+      [:div.section-inner
+       [:h2 "Querying the Stream"]
+       [:p
+        "DaoDB interprets datom streams as a queryable database. "
+        "By materializing covered indexes from the stream, DaoDB lets you ask questions about your data: "
+        "What entities have a specific attribute? What changed between two points in time? Which datoms share causal relationships?"]
+       [:p
+        "Because indexes are materialized from immutable streams, queries naturally support temporal access. "
+        "Ask what the world looked like at any point in history. "
+        "Track how entities evolved over time. "
+        "Audit who changed what and when."]
+       [:p
+        "Other apps interpret the same streams differently—" [:a {:href "/dao-flow.chp"} "DaoFlow"] " renders them as interfaces, "
+        [:a {:href "/shibi.chp"} "Shibi"] " interprets them as economic signals. "
+        "DaoDB provides the database view: structured queries over flowing facts."]
+       [:p.next
+        "See how "
+        [:a {:href "/yin.chp"} "Yin"]
+        " agents process DaoDB streams, or explore "
+        [:a {:href "/dao-flow.chp"} "DaoFlow"]
+        " to visualize the data."]]])}
+   template))

@@ -1,0 +1,246 @@
+(let [template (load-file "public/chp/template.chp")]
+  (clojure.walk/postwalk-replace
+   {:template/title "Datom.World — FAQ"
+    :template/content
+    (list
+     [:section.section-light
+      [:div.section-inner
+       [:h2 "Datom.World FAQ"]
+       [:div.faq-grid
+        [:details.faq {:open true}
+         [:summary "What is Datom.World?"]
+         [:div
+          [:p
+           "Datom.World is a platform for building local-first, stream-native software. "
+           "Streams of datoms flow between devices, and apps interpret those streams according to their domain. "
+           "The platform includes Yin (continuation VM), Yang (compiler), and built-in apps like DaoDB (tuple store), DaoFlow (rendering engine), and Shibi (economic primitive). "
+           "All apps work the same way: they consume datom streams and interpret them—DaoDB interprets them as queryable indexes, DaoFlow interprets them as renderable interfaces, Shibi interprets them as economic signals."]]]
+        [:details.faq
+         [:summary "Why the metaphor of ant colonies and stigmergy?"]
+         [:div
+          [:p
+           "Ants coordinate by leaving traces of chemical data for others to interpret, not by reporting to a central brain. "
+           "Datom.World brings that principle online: every device leaves datoms in shared space, "
+           "and the collective behavior emerges from local actions. "
+           "It is self-organizing intelligence without command-and-control."]]]
+        [:details.faq
+         [:summary "What does “everything is a stream” actually mean?"]
+        [:div
+          [:p
+           "In Datom.World, data never freezes in silos. "
+           "Every fact lives in an append-only stream that can be read, transformed, or extended. "
+           "Streams become the common language for messages, automations, analytics, or agents—"
+           "a single primitive that replaces piles of bespoke stacks. There's only two API: reaad and write"]]]
+        [:details.faq
+         [:summary "What does “everything is a continuation” mean for me?"]
+         [:div
+          [:p
+           "Imagine pausing a story midway and later resuming at the exact sentence you left. "
+           "A continuation is that bookmark—capturing where you are and what unfolds next. "
+           "In Datom.World, every conversation, workflow, or shared process leaves such a bookmark so it can resume effortlessly."]
+          [:ul.bulleted
+           [:li "Your data, apps, and flows persist across time without depending on a single vendor’s session."]
+           [:li "Switching devices feels natural because your context lives in the shared world, not on one machine."]
+           [:li "Collaboration stays fluid—others can pick up where you paused, continuing the same thread securely."]]]
+        ]
+        [:details.faq
+         [:summary "Who owns the data flowing through these streams?"]
+         [:div
+          [:p
+           "You do. Datoms stay under the author’s control from creation through sharing. "
+           "There is no corporate datastore to monetize or subpoena. "
+           "You decide which peers can observe a stream, for how long, and with which capabilities."]]]
+        [:details.faq
+         [:summary "What is a datom, exactly?"]
+         [:div
+          [:p
+           "A datom is a tuple [e a v t c]—entity, attribute, value, time, context. "
+           "Just as atoms assemble into matter, datoms assemble into any data structure. "
+           "See " [:a {:href "/dao-db.chp#the-five-element-tuple"} "DaoDB"] " for the detailed structure."]]]
+        [:details.faq
+         [:summary "How does this differ from conventional cloud computing?"]
+         [:div
+          [:p
+           "Traditional clouds centralize data in opaque silos. "
+           "Datom.World flips the model—data stays local, and streams entangle trusted devices with end-to-end encryption. "
+           "You gain the convenience of synced collaboration without surrendering custody or observability."]]]
+        [:details.faq
+         [:summary "What does collaboration look like without a central server?"]
+         [:div
+          [:p
+           "Collaboration flows through entanglement: a lightweight protocol where independent nodes agree on the order of datoms. "
+           "Leadership can rotate instantly, so the stream stays live even as devices appear or disappear. "
+           "The result feels like a living network that adapts instead of waiting on a monolithic authority."]]]
+        [:details.faq
+         [:summary "How is privacy preserved if everything is streaming?"]
+         [:div
+          [:p
+           "Privacy is the default. "
+           "Each datom can bundle access rules, key material, expiration, and audit trails. "
+           "Encryption happens before transmission, so only the peers you authorize can interpret the facts they receive."]]]
+        [:details.faq
+         [:summary "What kinds of experiences can I build?"]
+         [:div
+          [:p
+           "Anything that benefits from shared truth: "
+           "social spaces, marketplaces, automation meshes, IoT telemetry, multiplayer tooling, or AI agents. "
+           "Because streams are universal, the same facts can render as dashboards, maps, spreadsheets, or code triggers—"
+           "all without duplicating data."]]]
+        [:details.faq
+         [:summary "What does Datom.World mean for the future of the web?"]
+         [:div
+          [:p
+           "It aims toward a digital commons—where data lives with people, not platforms. "
+           "Apps cooperate instead of compete, privacy and openness co-exist, and collective intelligence emerges from shared streams. "
+           "Think of it as an internet reborn as an organism: decentralized, adaptive, and deeply human."]]]]]]
+     [:section.section-dark
+      [:div.section-inner
+       [:h2 "Developer deep cuts"]
+       [:p.section-lead
+        "Answering the technical questions builders ask first about the runtime, streams, and tooling."]
+       [:div.faq-grid
+        [:details.faq {:open true}
+         [:summary "What exactly is a datom in implementation terms?"]
+         [:div
+          [:p
+           "A datom is a fixed five-element tuple: [e a v t c] → entity, attribute, value, time, context. "
+           "It is immutable and causally traceable. "
+           "Datoms flow through DaoStreams. Apps consume streams and can materialize datoms into indexes or other structures."]]]
+        [:details.faq
+         [:summary "How should developers interpret “everything is a stream”?"]
+         [:div
+         [:p
+           "Streams are the single I/O abstraction. "
+           "Read, write, transform, and entangle datoms through asynchronous channels instead of bespoke APIs. "
+           "Files, sockets, message queues, and databases collapse into this one primitive, giving apps a shared protocol for collaboration."]]]
+        [:details.faq
+         [:summary "What is entanglement between nodes?"]
+         [:div
+          [:p
+           "Entanglement is a lightweight consensus mechanism. "
+           "Entangled nodes maintain a partially ordered view of a shared stream. "
+           "Temporary leaders serialize events, but leadership can shift on demand—delivering consistency without global locks or blockchains."]]]
+        [:details.faq
+         [:summary "How is data stored and replicated?"]
+         [:div
+          [:p
+           "Datoms flow through DaoStreams. Apps like DaoDB consume streams and materialize what they need. "
+           "DaoDB maintains append-only indexes, merging datoms by timestamp and causal ID. "
+           "Each node can choose what to materialize—some store everything, others keep only recent data or specific attributes."]]]
+        [:details.faq
+         [:summary "How is privacy enforced in a decentralized fabric?"]
+         [:div
+          [:p
+           "Each datom includes metadata for access policies, encryption, and provenance. "
+           "Nodes evaluate those rules locally before sharing, encrypt before transmission, and rely on short-lived capabilities—not central identity servers—to authorize peers."]
+          [:p
+           "Execution safety rides on Yin acting as the universal security container. "
+           "Like Docker, WASM, or the JVM, Yin sandboxes code so untrusted continuations can run on your hardware without escaping. "
+           "The same isolation reassures collaborators: their datoms can execute on your node without you peering into the VM, keeping both compute and data private even when hardware is shared."]]]]]]
+     [:section.section-dark
+      [:div.section-inner
+       [:h2 "Yin-Yang FAQ"]
+       [:p.section-lead
+        "Dive deeper into the universal continuation layer that powers Datom.World’s programmable computation."]
+       [:div.faq-grid
+        [:details.faq {:open true}
+         [:summary "What is Yin-Yang?"]
+         [:div
+          [:p
+           "Yin-Yang is a universal continuation machine and compiler framework that unifies interpretation, compilation, and transformation."]
+          [:p
+           "It pairs Yin—a continuation-centric virtual machine that evaluates map-based ASTs—with the Yang compiler that lowers higher-level languages into that canonical form. "
+           "Together they make computation portable, inspectable, and transformable across networks."]]]
+        [:details.faq
+         [:summary "Why is it called Yin-Yang?"]
+         [:div
+          [:p
+           "Yin represents evaluation—the generative flow of continuations—while Yang embodies compilation—the structural organization of code. "
+           "They continually transform into each other, forming two inseparable halves of a single process."]]]
+        [:details.faq
+         [:summary "What is unique about Yin?"]
+         [:div
+          [:ul.bulleted
+           [:li "Everything is a continuation: functions, closures, and coroutines live in the same model."]
+           [:li "Eval is the virtual machine: the evaluator is the runtime, not a separate layer."]
+           [:li "ASTs stay canonical as EDN maps, never hidden behind bytecode."]
+           [:li "Persistent CESK machine keeps control, environment, store, and continuation immutable yet efficient."]
+           [:li "Opcodes are configurable, so semantics and instruction sets can be tailored per deployment."]]]]
+        [:details.faq
+         [:summary "How does it differ from VMs like the JVM or EVM?"]
+         [:div
+          [:p
+           "Where the JVM hides runtime state behind bytecode, Yin exposes evaluation as data. "
+           "Where the EVM prices computation but limits introspection, Yin reifies continuations—enabling distributed execution, dynamic transformation, and zero-copy migration."]]]
+        [:details.faq
+         [:summary "What is a map-based AST?"]
+         [:div
+          [:p
+           "Programs are immutable maps with explicit keys for operation, arguments, environment, and continuation. "
+           "Everything is addressable, inspectable, and serializable—ideal for distributed or persisted execution."]]]
+        [:details.faq
+         [:summary "What is the Yang compiler?"]
+         [:div
+          [:p
+           "Yang lowers high-level languages (starting with Clojure) into Yin’s universal AST. "
+           "Additional backends for Python, JavaScript, Rust, and beyond bring cross-language continuations into the same runtime."]]]
+        [:details.faq
+         [:summary "What does “everything is a continuation” mean for developers?"]
+         [:div
+          [:p
+           "Control flow, concurrency, and suspension points become data. "
+           "You can capture, transform, serialize, or route continuations across the network—turning distributed computation into composable building blocks."]]]
+        [:details.faq
+         [:summary "What does “everything is a continuation” mean for users?"]
+         [:div
+          [:p
+           "Programs can pause, migrate, or resume anywhere without losing context. "
+           "Your computation travels with you—locally or in the cloud—with the same continuity as your data."]]]
+        [:details.faq
+         [:summary "Can Yin interoperate with other systems?"]
+         [:div
+          [:p
+           "Yes. Yin uses EDN as an interchange format so continuations cross language and network boundaries. "
+           "It integrates with native Rust or C functions and can compile to or from platforms like Gambit Scheme or WebAssembly."]]]
+        [:details.faq
+         [:summary "Why persistent data structures?"]
+         [:div
+          [:p
+           "Persistent structures make it cheap to snapshot and resume whole VM states without mutation or leaks. "
+           "You gain lightweight time travel debugging, safe distributed execution, and resilience without relying on stop-the-world garbage collection."]]]
+        [:details.faq
+         [:summary "What can developers build?"]
+         [:div
+          [:ul.bulleted
+           [:li "Language interpreters and compilers."]
+           [:li "Distributed continuation services."]
+           [:li "Stream-based or reactive runtimes."]
+           [:li "Portable, inspectable computation graphs."]
+           [:li "Reflective or self-modifying research systems."]]]]
+        [:details.faq
+         [:summary "How does Yin-Yang relate to Datom.World?"]
+         [:div
+          [:p
+           "Datom.World handles data as streams. "
+           "Yin-Yang handles computation as continuations. "
+           "Together they form the continuation-aware fabric that powers programmable agents and attention economies."]]]
+        [:details.faq
+         [:summary "What is the long-term vision?"]
+         [:div
+          [:p
+           "To reify computation as data so code, runtime, and transformation merge into one universal fabric—continuations flowing through datom streams."]]]]]]
+     [:section.section-light
+      [:div.section-inner
+       [:h2 "Still curious?"]
+       [:p
+        "Bring your scenario or data model and we will explore it together. "
+        "Intros, architecture reviews, and partner pilots happen weekly."]
+       [:div.callout
+        [:p [:strong "Continuation mindset"] " — the system never loses context."]
+        [:ul.bulleted
+         [:li "User perspective: the web remembers how it flows, so experiences remain seamless, local-first, and privacy-centric."]
+         [:li "Developer perspective: every execution state is a first-class continuation that unifies concurrency, recovery, and distribution."]]]
+       [:div.hero-actions
+        [:a.btn {:href "mailto:hello@datom.world"} "Request a preview session"]
+        [:a.btn.btn-outline {:href "/datomworld.chp"} "Return to the overview"]]]])}
+   template))

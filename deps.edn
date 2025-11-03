@@ -1,0 +1,31 @@
+{:deps {org.clojure/core.async {:mvn/version "1.8.741"}
+        ring/ring {:mvn/version "1.14.1"}
+        com.cognitect/transit-clj {:mvn/version "1.0.333"}
+        com.datomic/peer {:mvn/version "1.0.7364"}
+        org.postgresql/postgresql {:mvn/version "42.7.3"}
+        stigmergy/chp {:mvn/version "0.1.0-SNAPSHOT"
+                       :exclusions [refactor-nrepl/refactor-nrepl]}}
+ :paths ["src/clj" "src/cljc" "src/cljs"]
+ :aliases {:nREPL {:extra-deps {nrepl/nrepl {:mvn/version "1.0.0"}
+                                cider/cider-nrepl {:mvn/version "0.55.7"}}
+                   :main-opts ["-m" "nrepl.cmdline" "--middleware" "[cider.nrepl/cider-middleware]"]}
+           :fmt {:extra-deps {dev.weavejester/cljfmt {:mvn/version "0.13.1"}}
+                 :main-opts  ["-m" "cljfmt.main" "fix"]}
+           :cljs {:extra-deps {thheller/shadow-cljs {:mvn/version "3.1.3"}
+                               reagent/reagent {:mvn/version "1.3.0"}
+                               com.cognitect/transit-cljs {:mvn/version "0.8.280"}}}
+           :dev {:extra-paths ["src/dev"]
+                 :extra-deps {thheller/shadow-cljs {:mvn/version "3.1.3"}
+                              cider/cider-nrepl {:mvn/version "0.55.7"}
+                              reagent/reagent {:mvn/version "1.3.0"}
+                              com.cognitect/transit-cljs {:mvn/version "0.8.280"}}
+                 :jvm-opts ["-Dconfig=config.clj"]}
+           :server {:extra-deps {http-kit/http-kit {:mvn/version "2.8.0"}}
+                    :jvm-opts ["-Dconfig=config.clj"]
+                    :main-opts ["-m" "world.server"]}
+           }
+ }
+
+;; clj -M:nREPL
+;; clj -M:fmt
+;; clj -M:server

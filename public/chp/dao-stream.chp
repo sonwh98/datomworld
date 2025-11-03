@@ -1,0 +1,181 @@
+(let [template (load-file "public/chp/template.chp")]
+  (clojure.walk/postwalk-replace
+   {:template/title "Datom.World — DaoStream"
+    :template/content
+    (list
+     [:section#dao-stream.section-dark
+      [:div.section-inner
+       [:span.status-pill "The substrate of flow"]
+       [:h1 "DaoStream"]
+       [:p.subtitle "The Way That Flows"]
+       [:p.section-lead
+        "In Datom.World, everything begins and ends with the DaoStream — the living current that connects all things."]
+       [:p
+        "The DaoStream is the substrate of flow — an ever-unfolding stream through which datoms flow, carrying interactions, transformations, and continuations across space, time, and device boundaries."]
+       [:p
+        "Like the Dao (道) in Taoist philosophy, it maintains a simple, constant form — the five-element tuple [e a v t c] — yet adapts to infinite contexts. "
+        "The same datom stream flows locally, distributed, offline, or entangled, shaping itself to the environment. "
+        "The DaoStream carries meaning not by dictating interpretation, but by allowing interpreters to emerge around it."]
+       [:p
+        "In Datom.World, the DaoStream replaces countless specialized APIs, message queues, and database protocols with a single, universal, and complete stream API:"]
+       [:p.emphasis [:strong "Everything is a stream."]]
+       [:p
+        "Applications, agents, and nodes do not \"call\" or \"store.\" "
+        "They listen, observe, and append to the DaoStream."]
+       [:div.principle-box
+        [:p "Every event is a datom: " [:code "[e a v t c]"]]
+        [:p "Every stream is a story of becoming."]]
+       [:p
+        "Through the DaoStream, the world of software moves closer to the world of nature — spontaneous, adaptive, and self-organizing."]]]
+     [:section.section-light
+      [:div.section-inner
+       [:h2 "The Stream Protocol"]
+       [:p
+        "DaoStream defines a simple protocol with five operations for stream lifecycle and data flow:"]
+       [:div.code-block
+        [:pre [:code
+"(defprotocol Stream
+  (open [this params]
+    \"Open the stream with params which has only 1 mandatory key
+     :path to a resource in a graph\")
+  (read [this params]
+    \"Read from the stream with params\")
+  (write [this data params]
+    \"Write data to the stream\")
+  (close [this]
+    \"Close the stream.\")
+  (status [this]
+    \"Returns the current status of the stream,
+     e.g., :connecting, :connected\"))"
+        ]]]
+       [:div.feature-grid
+        [:article.feature-card
+         [:h3 [:code "open"]]
+         [:p "Establish a connection to a stream resource. The only mandatory parameter is " [:code ":path"] " which points to a resource in the datom graph."]
+         [:p "Opening a stream prepares it for reading or writing, establishing connections to entangled nodes as needed."]]
+        [:article.feature-card
+         [:h3 [:code "read"]]
+         [:p "Consume datoms from an open stream. Returns a sequence of [e a v t c] tuples."]
+         [:p "Streams are lazy and asynchronous—read only pulls what you need, when you need it."]]
+        [:article.feature-card
+         [:h3 [:code "write"]]
+         [:p "Append datoms to an open stream. Datoms flow through unchanged."]
+         [:p "Whether datoms are ephemeral or persistent depends on consuming apps. Apps like " [:a {:href "/dao-db.chp"} "DaoDB"] " can materialize and persist them."]]
+        [:article.feature-card
+         [:h3 [:code "close"]]
+         [:p "Close the stream and release resources. Properly closing streams ensures clean shutdown and resource cleanup."]]
+        [:article.feature-card
+         [:h3 [:code "status"]]
+         [:p "Query the current state of the stream: " [:code ":connecting"] ", " [:code ":connected"] ", " [:code ":closed"] ", etc."]
+         [:p "Status monitoring enables reactive applications that adapt to network conditions."]]]
+       [:p
+        "This protocol is universal. Every stream in Datom.World—whether it's a chat, a database, a sensor feed, or an API—implements these same five operations. "
+        "No framework-specific APIs, no version sprawl, just streams."]]]
+     [:section.section-dark
+      [:div.section-inner
+       [:h2 "Everything Becomes a Stream"]
+       [:p
+        "When everything speaks the same language, everything composes:"]
+       [:ul.bulleted
+        [:li [:strong "Messages"] " — A chat is a stream of datoms with text attributes"]
+        [:li [:strong "Files"] " — A document is a stream of datoms with content chunks"]
+        [:li [:strong "Databases"] " — Tables are streams of datoms; apps like " [:a {:href "/dao-db.chp"} "DaoDB"] " materialize indexes from them"]
+        [:li [:strong "User interactions"] " — Clicks, scrolls, and inputs flow as datom streams"]
+        [:li [:strong "API calls"] " — Request and response are just datoms in a stream"]
+        [:li [:strong "Sensors and telemetry"] " — IoT devices emit streams of measurements"]
+        [:li [:strong "Analytics"] " — Behavior tracking becomes stream transformation"]]
+       [:p
+        "Because everything is a stream, data flows through your system without translation. "
+        "Read datoms, transform datoms, write datoms. No impedance mismatch between layers."]]]
+     [:section.section-light
+      [:div.section-inner
+       [:h2 "Streams as Infrastructure"]
+       [:p
+        "DaoStream isn't just an API—it's the infrastructure of Datom.World:"]
+       [:div.feature-grid
+        [:article.feature-card
+         [:h3 "Append-only immutability"]
+         [:p "Datoms are never modified or deleted. They flow through streams unchanged. Apps that consume them can build time travel, audit trails, and undo."]]
+        [:article.feature-card
+         [:h3 "Distributed by design"]
+         [:p "Apps can consume the same stream from multiple nodes. Apps like " [:a {:href "/dao-db.chp"} "DaoDB"] " use CRDTs and causal ordering to replicate data across entangled nodes."]]
+        [:article.feature-card
+         [:h3 "Local-first reality"]
+         [:p "Streams flow locally first. Apps can write to local streams and propagate to other nodes when connected. Offline isn't a special case—it's the default."]]]
+       [:p
+        "Every app in Datom.World is a stream interpreter. "
+        [:a {:href "/dao-db.chp"} "DaoDB"]
+        " interprets streams as queryable indexes. "
+        [:a {:href "/dao-flow.chp"} "DaoFlow"]
+        " interprets streams as renderable interfaces. "
+        [:a {:href "/shibi.chp"} "Shibi"]
+        " interprets streams as economic signals. "
+        "Your app interprets streams however your domain requires."]]]
+     [:section.section-dark
+      [:div.section-inner
+       [:h2 "One Truth, Many Perspectives"]
+       [:p
+        "The power of DaoStream comes from separation of data and interpretation. "
+        "Streams carry datoms—[entity attribute value time causality] tuples that represent universal facts. "
+        "Apps decide what those facts mean."]
+       [:p
+        "The same stream can serve many purposes simultaneously:"]
+       [:ul.bulleted
+        [:li "Your email client reads it as communication"]
+        [:li "Your calendar reads it as events"]
+        [:li "Your analytics tool reads it as behavior"]
+        [:li "Your AI agent reads it as training data"]]
+       [:p
+        "No need to duplicate data across different databases. No need to transform data between incompatible schemas. "
+        "Just streams of datoms flowing through time, and interpreters that extract meaning."]
+       [:p
+        "This is schema-on-read taken to its logical conclusion: streams carry datoms, and interpretation happens at consumption time. "
+        "Add new interpreters without migrations. Multiple views of the same flowing truth."]]]
+     [:section.section-light
+      [:div.section-inner
+       [:h2 "Why Streams Instead of APIs?"]
+       [:p
+        "Modern software is drowning in accidental complexity:"]
+       [:ul.bulleted
+        [:li "Every service exposes a different API"]
+        [:li "Every database speaks a different query language"]
+        [:li "Every protocol requires different client libraries"]
+        [:li "REST, GraphQL, gRPC, WebSockets, SQL, NoSQL—each with its own mental model"]]
+       [:p
+        "DaoStream replaces all of this with a single primitive. The benefits compound:"]
+       [:div.feature-grid
+        [:article.feature-card
+         [:h3 "Uniform interface"]
+         [:p "Learn " [:code "read"] " and " [:code "write"] " once, use everywhere. No framework thrash, no API versioning, no integration hell."]]
+        [:article.feature-card
+         [:h3 "Temporal by default"]
+         [:p "Every stream is an immutable log. History is preserved automatically. Replay, debug, and audit without special tooling."]]
+        [:article.feature-card
+         [:h3 "Composable by nature"]
+         [:p "Any stream can feed any other stream. Pipelines emerge naturally. Data flows like water through your system."]]]
+       [:p
+        "When everything is a stream, the distinction between database, API, filesystem, and message queue disappears. "
+        "There are only datoms flowing through time, and you decide which streams to read and write."]]]
+     [:section.section-dark
+      [:div.section-inner
+       [:h2 "The Flow of the Dao"]
+       [:p
+        "In Taoist philosophy, the Dao is the natural order—the way things flow when not forced. "
+        "Water doesn't fight its way downhill; it follows the path of least resistance."]
+       [:p
+        "DaoStream embodies this principle in software architecture:"]
+       [:ul.bulleted
+        [:li [:strong "No central authority"] " — Streams flow between peers, not through gatekeepers"]
+        [:li [:strong "Natural composition"] " — Data flows where it's needed, organically"]
+        [:li [:strong "Effortless distribution"] " — Entanglement propagates changes without orchestration"]
+        [:li [:strong "Emergent behavior"] " — Complex systems arise from simple stream interactions"]]
+       [:p
+        "This is stigmergy applied to data: leaving traces that others can interpret, creating collective intelligence without central control. "
+        "Like ants building colonies through pheromone trails, apps build shared worlds through datom streams."]
+       [:p.next
+        "See how "
+        [:a {:href "/yin.chp"} "Yin"]
+        " agents consume and produce streams, or explore "
+        [:a {:href "/dao-db.chp"} "DaoDB"]
+        " to understand stream interpretation as queryable indexes."]]])}
+   template))

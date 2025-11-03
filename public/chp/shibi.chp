@@ -1,0 +1,157 @@
+(let [template (load-file "public/chp/template.chp")]
+  (clojure.walk/postwalk-replace
+   {:template/title "Datom.World , Shibi"
+    :template/content
+    (list
+     [:section#shibi.section-dark
+      [:div.section-inner
+       [:span.status-pill "Economic primitive"]
+       [:h1 "💩 Shibi (屎币)"]
+       [:p.section-lead
+        "All open networks suffer from spam when they get popular, a classic tragedy of the commons: the open platform is a shared resource, but when anyone can use it without cost, spam makes the platform unusable for everyone. "
+        "Email is the canonical example: spam filters help, but spam still gets through. Inboxes fill with thousands of unread messages, most of them spam, making it impossible to find legitimate messages buried in the noise. "
+        "Classical economics offers two solutions to the tragedy of the commons: central control (government regulation) or privatization (dividing the commons into private property). "
+        "Open networks have tried both: walled gardens impose centralized moderation, spam filters attempt algorithmic control. "
+        "Neither works well. "
+        "The spam problem is real, but censorship is equally problematic: one person's trash is another person's treasure, and centralized gatekeepers can't distinguish between them. "
+        "Shibi offers a third path between censorship and chaos."]
+       [:p
+        "Shibi (屎币) literally means \"shit coin\" in Chinese. The name is intentional. "
+        "This isn't money, and it's not trying to replace money. It's an application of blockchain to control spam, not to create a new currency. "
+        "More importantly, Shibi isn't a single token. It's a system that allows anyone: people, organizations, or autonomous AI agents,to be their own central bank, easily issuing infinitely many utility tokens for different purposes. "
+        "Each token is purpose-specific: one for email attention, another for API rate limiting, another for forum moderation. "
+        "The provocative name \"shit coin\" makes this clear: these aren't speculative assets, they're contextual utilities."]
+       [:p
+        "So how does this third path actually work? "
+        "Shibi draws on two key sources: carbon credit systems that turn pollution into a tradable commodity, and Nobel laureate "
+        [:a {:href "https://evonomics.com/tragedy-of-the-commons-elinor-ostrom/" :target "_blank" :rel "noopener noreferrer"} "Elinor Ostrom"]
+        "'s theoretical framework for governing shared resources."]
+       [:p
+        "The carbon credit inspiration addresses spam as a negative externality. "
+        "Just like pollution, spam imposes costs on others: one party consumes another person's attention without paying for it. "
+        "Carbon credit systems turn pollution,an environmental negative externality,into a tradable commodity, making it costly and creating market incentives for reduction. "
+        "Similarly, Shibi makes spam costly and creates economic pressure for its reduction."]
+       [:p
+        "Ostrom spent her career proving communities can successfully manage shared resources through self-governance without top-down regulation or privatization. "
+        "She identified eight design principles for governing the commons, and Datom.World implements them all:"]
+       [:table.principles-table
+        [:thead
+         [:tr
+          [:th "Principle"]
+          [:th "Ostrom's Definition"]
+          [:th "Datom.World's Implementation"]]]
+        [:tbody
+         [:tr
+          [:td "Clearly defined boundaries"]
+          [:td "Who can use the resource is well-defined."]
+          [:td "Datom.World uses Shibi's cryptographic identity via crypto wallets to determine what communication is allowed."]]
+         [:tr
+          [:td "Rules fit local needs"]
+          [:td "Rules are tailored to context."]
+          [:td "Datom.World allows interpreters to interpret the same datom stream in context-specific ways — one truth, many perspectives."]]
+         [:tr
+          [:td "Collective decision-making"]
+          [:td "Users help make and modify rules."]
+          [:td "Datom.World allows for stigmergy where users and agents can form adhoc entanglement groups."]]
+         [:tr
+          [:td "Monitoring"]
+          [:td "Users or accountable monitors keep track of use."]
+          [:td "Every transaction on Shibi is transparent on-chain."]]
+         [:tr
+          [:td "Graduated sanctions"]
+          [:td "Fair penalties for rule violators."]
+          [:td "Market economics makes spam economically visible and self-correcting."]]
+         [:tr
+          [:td "Conflict resolution"]
+          [:td "Low-cost ways to resolve disputes."]
+          [:td "Dispute resolution can be handled through local smart contracts or market arbitration."]]
+         [:tr
+          [:td "Recognition of rights"]
+          [:td "External authorities recognize local autonomy."]
+          [:td "Datom.World's core principle is local-first autonomy."]]
+         [:tr
+          [:td "Nested enterprises"]
+          [:td "Systems are organized in multiple layers."]
+          [:td "Datom.World is built to enable stigmergy, allowing emergent structures that can be nested, overlapping, or self-organizing."]]]]
+       [:style "
+         .principles-table {
+           width: 100%;
+           border-collapse: collapse;
+           margin: 2rem 0;
+           font-size: 0.95rem;
+         }
+         .principles-table thead {
+           background: rgba(255, 255, 255, 0.05);
+         }
+         .principles-table th {
+           padding: 1rem;
+           text-align: left;
+           font-weight: 600;
+           border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+         }
+         .principles-table td {
+           padding: 1rem;
+           border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+           vertical-align: top;
+         }
+         .principles-table td:first-child {
+           font-weight: 500;
+           width: 35%;
+         }
+         .principles-table tbody tr:hover {
+           background: rgba(255, 255, 255, 0.02);
+         }
+       "]
+       [:p
+        "Datom.World is Ostrom's principles encoded in software, with Shibi as the economic primitive that turns her theoretical framework into a practical tool for managing open platforms as shared resources."]
+       [:p
+        "Shibi works on a simple assumption: people will tolerate spam if they are appropriately compensated. "
+        "The question isn't whether spam should exist, it's who bears the cost. "
+        "Traditional systems make receivers pay (in time and attention) while senders pay nothing. "
+        "Shibi inverts this: senders buy tokens, receivers sell them. If the compensation matches the communication, spam becomes tolerable, even welcome."]
+       [:p
+        "In Datom.World, nothing is blocked. Every message simply carries a price in purpose-specific tokens. "
+        "Instead of censorship, market economics tames spam. "
+        "Shibi turns spam into an economy by making token issuance trivial, letting supply and demand do what moderation cannot: reveal the true cost of communication."]
+       [:p
+        "Shibi tokens also define relationships of trust. "
+        "Users can give their tokens to trusted contacts or systems for free, making communication between them cost-free and transaction-free. "
+        "Trust becomes explicit: when someone gives you their tokens, you can reach them without cost. "
+        "This creates circles of trust within the broader economic layer, where close relationships operate freely while unknown parties must pay for access."]
+       [:p
+        "For everyone else, the platform stays open and shared, but accessing anyone who hasn't given you their tokens requires compensation. "
+        "By attaching a price to each request from unknown parties, attention becomes a measurable commodity. "
+        "Low-value noise gets priced out, while high-value communication flows without cost when users give their Shibi tokens to people they want to hear from. The invisible cost of communication becomes visible, and the market handles the rest."]
+       [:p
+        "Today, the "
+        [:a {:href "/tracking.chp"} "digital tracking industry"]
+        " treats your attention as free real estate, harvesting it through cookies, fingerprinting, and cross-device surveillance to build detailed profiles for sale. "
+        "Shibi inverts that model: instead of your attention being extracted without consent, it becomes a tradable asset you control and price yourself."]
+       [:p
+        "This fundamentally changes the online advertising business model. "
+        "Current advertising is surveillance-based: track users, build profiles, sell access to their eyeballs. "
+        "Advertisers pay platforms (Google, Meta) who extract value from users without compensation. "
+        "With Shibi, advertisers pay users directly for attention. No surveillance needed, no intermediary taking a cut. "
+        "Users become vendors of their own attention, setting prices and choosing which ads to engage with based on offered compensation."]
+       [:p
+        "Set your price, invite trusted contacts, and earn when you engage. If someone wants your attention, they pay for the privilege; if you grant it, you capture the value."]
+       [:div.feature-grid
+        [:article.feature-card
+         [:h3 "Price the ping"]
+         [:p "Post, DM, or API calls carry a configurable Shibi toll. Low-effort blasts grow prohibitively expensive, while meaningful outreach remains affordable."]]
+        [:article.feature-card
+         [:h3 "Recoup your focus"]
+         [:p "Opt in, get paid, and reinvest attention on your own terms. You only subsidize the conversations you actually want."]]
+        [:article.feature-card
+         [:h3 "Programmable gates"]
+         [:p "Let Shibimon agents negotiate terms automatically,pause inbound requests, raise the rate, or whitelist the circles that matter."]]]
+       [:p
+        "You decide who gets through, not a filter you never asked for. Attention stays accountable, and every conversation starts from mutual respect."]
+       [:p.next
+        "Ready to embed Shibi? Pair it with "
+        [:a {:href "/yin.chp"} "Yin"]
+        " agents for programmable attention, then surface the exchange inside "
+        [:a {:href "/dao-flow.chp"} "DaoFlow"]
+        " portals."]]]
+     )}
+   template))
