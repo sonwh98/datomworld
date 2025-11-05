@@ -14,6 +14,14 @@
        [:div.blog-grid
         [:article.blog-card
          [:div.blog-meta
+          [:span "Nov 5, 2025"]
+          [:span "18 min read"]]
+         [:h2 [:a {:href "/blog/unitarity-and-communication-limits.chp"} "Unitarity, π-Calculus, and the Cosmic Speed Limit"]]
+         [:p
+          "Why the universe is a stream-native continuation system. How unitarity + π-calculus prove communication must have finite speed, why quantum collapse is local buffer fragmentation, and how the multiverse emerges from distributed interpreters."]
+         [:a {:href "/blog/unitarity-and-communication-limits.chp"} "Read the article →"]]
+        [:article.blog-card
+         [:div.blog-meta
           [:span "Oct 29, 2025"]
           [:span "10 min read"]]
          [:h2 [:a {:href "/blog/code-entropy-evolution.chp"} "Code as Entropy: Why Good Software Evolves, Not Designed"]]
