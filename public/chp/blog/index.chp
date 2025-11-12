@@ -3,12 +3,6 @@
    {:template/title "Datom.World — Technical Blog"
     :template/content
     (list
-     [:section.blog-hero
-      [:div.section-inner
-       [:h1 "The Datom.World Lab Notes"]
-       [:p
-        "Deep dives on tuple stores, stream-native runtimes, and the Clojure tooling that keeps Datom.World nimble. "
-        "Expect pragmatic guides, architecture walkthroughs, and code you can run locally."]]]
      [:section.blog-list
       [:div.section-inner
        [:div.blog-grid
