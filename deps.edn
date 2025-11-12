@@ -6,7 +6,12 @@
         stigmergy/chp {:mvn/version "0.1.0-SNAPSHOT"
                        :exclusions [refactor-nrepl/refactor-nrepl]}}
  :paths ["src/clj" "src/cljc" "src/cljs"]
- :aliases {:nREPL {:extra-deps {nrepl/nrepl {:mvn/version "1.0.0"}
+ :aliases {:test {:extra-paths ["test"]
+                  :extra-deps {io.github.cognitect-labs/test-runner
+                               {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+                  :main-opts ["-m" "cognitect.test-runner"]
+                  :exec-fn cognitect.test-runner.api/test}
+           :nREPL {:extra-deps {nrepl/nrepl {:mvn/version "1.0.0"}
                                 cider/cider-nrepl {:mvn/version "0.55.7"}}
                    :main-opts ["-m" "nrepl.cmdline" "--middleware" "[cider.nrepl/cider-middleware]"]}
            :fmt {:extra-deps {dev.weavejester/cljfmt {:mvn/version "0.13.1"}}
@@ -29,3 +34,7 @@
 ;; clj -M:nREPL
 ;; clj -M:fmt
 ;; clj -M:server
+;; clj -M:test
+;; clj -M:test -n yin.vm-literal-test
+;; clj -X:test :nses '[yin.vm-literal-test yin.vm-test]'
+;; clj -M:test -v yin.vm-addition-test/test-lambda-with-multiple-operations
