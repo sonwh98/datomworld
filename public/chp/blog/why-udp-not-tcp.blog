@@ -1,0 +1,600 @@
+#:blog{:title
+       "Why TCP Is Too Semantic for Datom.world",
+       :date #inst "2025-12-09T00:00:00.000-00:00",
+       :abstract
+       [:p
+        "TCP forces global ordering and connection state, smuggling in semantics that contradict Datom.world's axioms. UDP provides the "
+        [:strong "raw substrate"]
+        " where causality lives in datom metadata (as entity references), not the wire—enabling mobile continuations, CRDT merges, and interpreter-directed reliability without transport-layer lies."],
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+          [:p
+           "For most distributed systems, the choice between TCP and UDP is straightforward:"]
+          [:ul.bulleted
+           [:li "Need reliability? Use TCP."]
+           [:li "Need speed? Use UDP."]]
+          [:p "For Datom.world, the question is different:"]
+          [:p
+           [:strong
+            "Which substrate preserves Datom.world's semantics with the least distortion?"]]
+          [:p "The answer: UDP, with a custom Datom.world protocol on top."]
+          [:p "Here's why."]
+          [:h2 "TCP Forces a Global Total Order"]
+          [:p
+           "TCP creates the illusion of one linear sequence of bytes, even when the underlying network delivered them out of order."]
+          [:p [:strong "But Datom.world explicitly rejects global order."]]
+          [:p
+           "Datom.world streams are:"]
+          [:ul.bulleted
+           [:li "Append-only"]
+           [:li "Unordered unless interpreted"]
+           [:li "Causality is declared, not enforced"]
+           [:li "Interpretation sits above transport"]]
+          [:p
+           "TCP's ordering machinery is actually a semantic layer pretending to be transport."]
+          [:p
+           "When you use TCP, you're saying: \"These bytes have a canonical order that must be preserved.\" But in Datom.world, order is "
+           [:em "semantic"]
+           ", not mechanical. Different interpreters might view the same stream in different orders based on their local perspective and needs."]
+          [:p
+           "TCP's total order is a lie that becomes truth by enforcement. Datom.world rejects that sleight of hand."]
+          [:h2 "TCP Conflates Interpretation with Transport"]
+          [:p "TCP comes with built-in:"]
+          [:ul.bulleted
+           [:li "ACK logic"]
+           [:li "Retransmission"]
+           [:li "Congestion control"]
+           [:li "Head-of-line blocking"]
+           [:li "Connection state"]]
+          [:p
+           [:strong
+            "All of these are interpretations about how bytes should behave."]]
+          [:p "Datom.world does not allow semantics inside the substrate."]
+          [:p
+           "A fixed-size datom stream wants a raw flow of packets. The "
+           [:em "interpreter"]
+           " decides what \"reliability\" means:"]
+          [:ul.bulleted
+           [:li
+            "A transaction log interpreter might require total reliability"]
+           [:li
+            "A real-time rendering interpreter might tolerate loss"]
+           [:li
+            "A CRDT merge interpreter might need partial ordering only"]
+           [:li
+            "A cache invalidation interpreter might want best-effort delivery"]]
+          [:p
+           "TCP makes these decisions for you. That's the problem."]
+          [:h2 "TCP Is Connection-Oriented; Datom.world Is Stream-Oriented"]
+          [:p
+           "Entanglement in Datom.world uses soft membership, ephemeral nodes, and local views."]
+          [:p "Connections introduce:"]
+          [:ul.bulleted
+           [:li "Unnecessary coupling"]
+           [:li "Global state"]
+           [:li "Tight failure semantics"]
+           [:li "Slow recovery when connections break"]]
+          [:p
+           "UDP gives you pure message passing: no shared state, no handshake, no connection lifecycle."]
+          [:p
+           [:strong
+            "Exactly what continuations want when they migrate across nodes."]]
+          [:p
+           "When an agent migrates from node A to node B, it shouldn't need to tear down a connection and establish a new one. It should just start emitting datoms to a different address. UDP allows this fluidity. TCP fights it."]
+          [:h2 "The Datom Already Encodes Causality"]
+          [:p "A datom in Datom.world is:"]
+          [:pre [:code "[entity attribute value transaction metadata]"]]
+          [:p "The " [:code "metadata"] " field is itself an entity reference that can point to other datoms:"]
+          [:pre
+           [:code
+            ";; metadata is an entity ID pointing to other datoms\n[datom-42 :caused-by datom-12 tx meta]\n[datom-42 :depends-on datom-67 tx meta]"]]
+          [:p [:strong "Causality lives fully inside the datom as entity references."]]
+          [:p "Not in the wire protocol. Not in the stream ordering. Not in the transport semantics."]
+          [:p "This means:"]
+          [:ul.bulleted
+           [:li "Two datoms can arrive out of order"]
+           [:li
+            "The interpreter follows entity references to reconstruct causal relationships"]
+           [:li "No global ordering is required"]
+           [:li "Different interpreters can form different causal views by traversing the reference graph differently"]]
+          [:p
+           "TCP's ordering would be actively misleading. It would impose a false causality based on network arrival time rather than the logical causality declared in the datom metadata."]
+          [:h2 "Does Embedding Causality Violate External Semantics?"]
+          [:p "No. Here's the key distinction:"]
+          [:ol
+           [:li [:strong "Causality metadata lives inside the datom."]
+            ""]
+           [:li
+            [:strong "The meaning of that causality is external."]
+            ""]]
+          [:p
+           "Storing entity references is not the same as storing semantics."]
+          [:p "The datom is a shape, not a meaning."]
+          [:p "Even if a datom references another datom:"]
+          [:pre [:code "[datom-42 :caused-by datom-12 tx meta]"]]
+          [:p "that's still just a reference. It doesn't mean anything until an interpreter assigns meaning."]
+          [:p "Two different interpreters could read the same datom reference and do completely different things:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Interpreter A (transaction log)"]
+            ": Treats "
+            [:code ":caused-by"]
+            " as a temporal ordering constraint"]
+           [:li
+            [:strong "Interpreter B (CRDT)"]
+            ": Treats it as a partial order in a version graph"]
+           [:li
+            [:strong "Interpreter C (visualization)"]
+            ": Draws arrows in a timeline UI"]
+           [:li
+            [:strong "Interpreter D (migration runtime)"]
+            ": Treats it as a continuation reference"]
+           [:li
+            [:strong "Interpreter E (cache)"]
+            ": Ignores it entirely"]]
+          [:p
+           "The datom never forces any semantic interpretation. It only contains data."]
+          [:p
+           [:strong "That's the essence of \"semantics is external.\""]]
+          [:h2 "Why Not QUIC?"]
+          [:p "QUIC is:"]
+          [:ul.bulleted
+           [:li "User-space"]
+           [:li "UDP-based"]
+           [:li "Multiplexed"]
+           [:li "Encrypted"]
+           [:li "Reliable"]
+           [:li "Ordered (per stream)"]]
+          [:p "It's far better than TCP, but still too opinionated."]
+          [:p "The biggest mismatches:"]
+          [:ul.bulleted
+           [:li "QUIC forces reliable, ordered delivery within each stream"]
+           [:li "QUIC requires handshake and global connection state"]
+           [:li "QUIC integrates TLS tightly (not optional)"]
+           [:li
+            "QUIC's recovery mechanisms embed semantics Datom.world wants at the interpreter level"]]
+          [:p
+           "Datom.world could adopt QUIC as an "
+           [:em "optional"]
+           " transport for specific interpreters, but never as the foundation."]
+          [:p
+           "The foundation must be maximally unopinionated. UDP provides that."]
+          [:h2 "The Datom.world Transport Layer: Datom Reliable Datagram Streams (DRDS)"]
+          [:p
+           "Raw UDP is not enough. Datoms need a minimal reliability layer that matches the axioms."]
+          [:p "Enter " [:strong "DRDS"] ": Datom Reliable Datagram Streams."]
+          [:h3 "DRDS Properties"]
+          [:ul.bulleted
+           [:li
+            [:strong "No global order"]
+            ": ordering is per-substream, optional, and interpreter-defined"]
+           [:li
+            [:strong "Appendability without coordination"]
+            ": nodes can append datoms to streams without the transport layer negotiating state"]
+           [:li
+            [:strong "Local observation"]
+            ": retransmission is scoped to the local observer's window"]
+           [:li
+            [:strong "Causality is declared"]
+            ": references between datoms carry meaning; transport doesn't enforce causality"]
+           [:li
+            [:strong "No global state"]
+            ": endpoints maintain only ephemeral local buffers, not \"connections\""]]
+          [:h3 "DRDS Features"]
+          [:ul.bulleted
+           [:li "Sequence numbers (per substream, not global)"]
+           [:li "Optional ACK vectors"]
+           [:li "Optional reordering"]
+           [:li "Optional retransmission policies"]
+           [:li "Optional flow control"]
+           [:li "Optional forward error correction"]
+           [:li "Encrypted payloads (DTLS or custom symmetric)"]
+           [:li "Multiplexed paths"]
+           [:li "Pluggable congestion algorithms per interpreter"]]
+          [:p "This gives Datom.world:"]
+          [:ul.bulleted
+           [:li "Freedom"]
+           [:li "Symmetry"]
+           [:li "Minimal assumptions"]
+           [:li "Transport-level composability"]]
+          [:p
+           [:strong
+            "TCP gives you one interpretation of a stream. DRDS gives you all possible interpretations selectable by the interpreter."]]
+          [:h2 "The Packet Format"]
+          [:p "A DRDS packet is simple:"]
+          [:pre
+           [:code
+            "[transport-header, encoded-datom[e a v t m]]"]]
+          [:p "The transport header is minimal:"]
+          [:ul.bulleted
+           [:li "Stream/path ID"]
+           [:li "Local sequence number (for this sender/stream)"]
+           [:li "Optional ACKs / windowing"]
+           [:li "Key ID for decryption (optional)"]]
+          [:p "And crucially, " [:strong "never"] ":"]
+          [:ul.bulleted
+           [:li "\"This packet is causally after that one\""]]
+          [:p "That's the datom's job, not the transport's."]
+          [:h2 "The WireGuard Analogy: Architectural Discipline"]
+          [:p
+           "WireGuard, one of the cleanest network protocol designs in modern engineering, provides a perfect model for how Datom.world packets should work."]
+          [:p "WireGuard packets have two defining properties:"]
+          [:ol
+           [:li
+            [:strong "Fixed, simple binary layout"]
+            " (predictable, minimal, rigorous)"]
+           [:li
+            [:strong "All interpretation is outside the packet"]
+            " (the format encodes no semantics or behavior)"]]
+          [:p
+           "A WireGuard packet is just keys, counters, encrypted blobs, and IDs. What the peer "
+           [:em "does"]
+           " with the payload is entirely external to the packet format."]
+          [:p "A Datom.world packet mirrors this philosophy:"]
+          [:pre
+           [:code
+            "[stream-id | ephemeral-key-id | local-seq | encrypted-datom[e a v t m]]"]]
+          [:p
+           "Both systems treat the packet as an inert object, not a semantic instruction."]
+          [:h3 "The Shared Philosophy"]
+          [:p [:strong "WireGuard says:"] ""]
+          [:blockquote
+           [:p
+            [:em
+             "\"This packet is a cryptographically protected blob tied to a peer and a counter. What the peer does with it is external.\""]]]
+          [:p [:strong "Datom.world says:"] ""]
+          [:blockquote
+           [:p
+            [:em
+             "\"This packet is a cryptographically protected datom. What an interpreter does with it is external.\""]]]
+          [:p "Both separate transport from semantics:"]
+          [:table
+           [:thead
+            [:tr [:th "WireGuard separates"] [:th "Datom.world separates"]]]
+           [:tbody
+            [:tr
+             [:td "Identity, routing, semantics, session behavior"]
+             [:td
+              "Storage, interpretation, causality semantics, local ordering, agent behavior"]]]]
+          [:h3 "Where Datom.world Extends the Model"]
+          [:p
+           "WireGuard packets are "
+           [:strong "purely ephemeral transport units"]
+           "."]
+          [:p
+           "Datom packets are "
+           [:strong "persistent interpretable units"]
+           "."]
+          [:p "The key differences:"]
+          [:ul.bulleted
+           [:li
+            [:strong "WireGuard payloads are opaque"]
+            ". Datom payloads have "
+            [:strong "structural invariance"]
+            ", the five-element tuple."]
+           [:li
+            [:strong "WireGuard packets carry no semantics"]
+            ". Datom packets carry "
+            [:strong "potential causal references"]
+            " in metadata, but semantics remain external."]
+           [:li
+            [:strong "WireGuard supports point-to-point tunnels"]
+            ". Datom.world supports partial ordering, multiple interpreters, entangled clusters, continuation migration, and append-only streams."]]
+          [:p
+           "But the foundational purity of WireGuard's protocol is exactly the right inspiration."]
+          [:h3 "Five Shared Principles"]
+          [:p [:strong "1. Small fixed-size header → predictable performance"] ""]
+          [:p "WireGuard uses minimal headers with peer IDs and counters."]
+          [:p "Datom.world uses:"]
+          [:ul.bulleted
+           [:li "Stream ID (nonce-based, like WireGuard peer IDs)"]
+           [:li "Sequence number (like WireGuard counters)"]
+           [:li "Ephemeral key ID"]
+           [:li "Optional capability token"]]
+          [:p "Everything else is encrypted payload."]
+          [:p [:strong "2. Everything meaningful is in the payload"] ""]
+          [:ul.bulleted
+           [:li "WireGuard: encrypted IP packet"]
+           [:li "Datom.world: encrypted datom"]]
+          [:p [:strong "3. No global connection state"] ""]
+          [:ul.bulleted
+           [:li "WireGuard: stateless roaming"]
+           [:li "Datom.world: entanglement with no membership"]]
+          [:p [:strong "4. Minimal moving parts"] ""]
+          [:ul.bulleted
+           [:li "WireGuard: 4 packet types total"]
+           [:li "Datom.world: 1 packet type (a datom)"]
+           [:li "Transport-level state is minimal and ephemeral"]]
+          [:p [:strong "5. Interpretation is ALWAYS outside the transport layer"] ""]
+          [:p "This is the shared philosophical core."]
+          [:p "WireGuard does not tell you what your IP packet means."]
+          [:p "Datom.world does not tell you what a datom means."]
+          [:h3 "Why This Fits Datom.world's Axioms Perfectly"]
+          [:p
+           "WireGuard's success comes precisely from its refusal to do anything except transport securely."]
+          [:p "Datom.world packets behave the same way:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Axiom 1: Stream = append-only sequence"]
+            ". Transport just moves datoms; it does not determine sequence meaning."]
+           [:li
+            [:strong "Axiom 5: Interpretation is external"]
+            ". Metadata "
+            [:code "m"]
+            " is raw data. Semantics come from interpreters."]
+           [:li
+            [:strong "Axiom 6: Causality is referential"]
+            ". Transport is agnostic to causality, exactly how WireGuard treats routing logic."]
+           [:li
+            [:strong "Axiom 7: No global state"]
+            ". WireGuard-like statelessness fits entanglement beautifully."]]
+          [:p
+           "WireGuard is a model of architectural discipline. Datom.world generalizes that philosophy to universal computation."]
+          [:h3 "The Punchline"]
+          [:p "WireGuard says:"]
+          [:blockquote
+           [:p
+            [:em "\"A packet is a cryptographically authenticated blob.\""]]]
+          [:p "Datom.world says:"]
+          [:blockquote
+           [:p
+            [:em
+             "\"A packet is a cryptographically authenticated datom.\""]]]
+          [:p "The structural analogy is deep and correct."]
+          [:h2 "Two Paths: Layering on WireGuard vs. Native Protocol"]
+          [:p
+           "Datom.world can either layer its packets on top of WireGuard or provide VPN-like functionality with its own native protocol. These aren't mutually exclusive choices, they're stages in an evolution."]
+          [:h3 "Path 1: Layer Datom.world on WireGuard (Pragmatic Path)"]
+          [:p "What this looks like:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Underneath"]
+            ": UDP → WireGuard (Noise protocol, key exchange, roaming, NAT traversal)"]
+           [:li
+            [:strong "On top"]
+            ": Datom packet header + encrypted "
+            [:code "[e a v t m]"]]
+           [:li
+            [:strong "To the OS"]
+            ": Just another WireGuard tunnel (TUN/TAP, IP ranges)"]
+           [:li
+            [:strong "To Datom.world"]
+            ": A \"secure datagram channel\" interface"]]
+          [:p "Why this is good for early deployment:"]
+          [:ul.bulleted
+           [:li "Battle-tested crypto and security audits \"for free\""]
+           [:li
+            "NAT traversal, roaming, key rotation without reinventing anything"]
+           [:li "Clean integration with existing OS routing and VPN UX"]
+           [:li
+            "Focus on DaoDB, Yin.VM, agents, and entanglement, not protocol minutiae"]]
+          [:p
+           [:strong
+            "Crucially: Datom.world's design still holds because WireGuard is just a secure pipe."]
+           " The semantics, causality, interpreters, and entanglement all live above it."]
+          [:p "You treat WireGuard as one adapter that implements:"]
+          [:pre
+           [:code
+            "SecureDatagramChannel:\n  send(packet)\n  recv() -> packet"]]
+          [:p "The stack is:"]
+          [:pre
+           [:code
+            "UDP → WireGuard → Datom.packet → DaoDB/Yin/Agents"]]
+          [:h3 "Path 2: Native Datom.world Protocol (Long-Term Vision)"]
+          [:p
+           "This is the \"Datom.world becomes its own mesh/VPN fabric\" path."]
+          [:p "What this would mean:"]
+          [:ul.bulleted
+           [:li
+            "Define a Noise-like handshake and session format directly in the packet header"]
+           [:li "Manage peer identity, key rotation, roaming, NAT traversal directly"]
+           [:li
+            "Define a Datom-native overlay instead of tunneling IP:"
+            [:ul.bulleted
+             [:li "Entanglement = overlay network"]
+             [:li "Stream path hierarchy = DNS + routing"]
+             [:li "Capabilities/keys = address + ACL"]]]]
+          [:p "Why you'd want this eventually:"]
+          [:ul.bulleted
+           [:li
+            "No longer think in terms of \"IP packets in a tunnel\""]
+           [:li
+            "Think in terms of "
+            [:strong "streams of datoms across entangled nodes"]]
+           [:li
+            "Collapse the stack from "
+            [:code "UDP → WireGuard → IP → App → Datom.packet"]
+            " to "
+            [:code "UDP → Datom.sec → Datom.packet"]]
+           [:li
+            "Secure continuations and datoms directly, not virtual interfaces"]
+           [:li
+            "Match the kernel story: crypto-protected memory + crypto-protected streams, same philosophy"]]
+          [:p "But this is a larger surface area:"]
+          [:ul.bulleted
+           [:li "More code to write and maintain"]
+           [:li "More ways to make cryptographic mistakes"]
+           [:li
+            "Needs serious security review and audit if internet-facing"]]
+          [:h3 "The Recommended Approach: Start with WireGuard, Evolve to Native"]
+          [:p "The pragmatic path is not to choose between these options, but to evolve through them:"]
+          [:p [:strong "Near/Mid-term:"] ""]
+          [:ol
+           [:li
+            "Standardize the Datom packet format and a generic "
+            [:code "SecureDatagramChannel"]
+            " trait"]
+           [:li
+            "Implement that trait using WireGuard first"]
+           [:li
+            "Stack: "
+            [:code "UDP → WireGuard → Datom.packet → DaoDB/Yin/Agents"]]]
+          [:p [:strong "Long-term:"] ""]
+          [:ol
+           [:li
+            "Add "
+            [:code "Datom.sec"]
+            ": a native, Noise-style secure transport over UDP"]
+           [:li
+            "Also implements "
+            [:code "SecureDatagramChannel"]]
+           [:li
+            "WireGuard becomes one of several backends (or a compatibility mode for OS-level VPN use)"]]
+          [:p
+           "This way you don't have to choose \"WireGuard vs custom\" as a binary decision:"]
+          [:ul.bulleted
+           [:li "Standardize the datom packet + channel abstraction"]
+           [:li "Start with WireGuard for immediate practical deployment"]
+           [:li
+            "Grow into your own secure transport when the complexity is justified"]]
+          [:p
+           "The abstraction layer ("
+           [:code "SecureDatagramChannel"]
+           ") means the rest of Datom.world (DaoDB, interpreters, agents) doesn't care which backend provides the secure channel. The semantics remain external. The architecture stays clean."]
+          [:h2 "Clean Separation of Concerns"]
+          [:table
+           [:thead
+            [:tr [:th "Layer"] [:th "Knows About"] [:th "Interpreted By"]]]
+           [:tbody
+            [:tr
+             [:td "Datom " [:code "[e a v t m]"]]
+             [:td
+              "Entities, attributes, values, time, causality, provenance"]
+             [:td "DaoDB, query engines, agents, continuations"]]
+            [:tr
+             [:td "Transport envelope (UDP + DRDS)"]
+             [:td
+              "Fragmentation, retransmission, congestion, encryption"]
+             [:td "Networking/runtime layer"]]]]
+          [:p
+           "The transport treats the datom payload as an opaque blob. It never looks inside. It never interprets metadata. It just moves bytes."]
+          [:p
+           "This keeps the seven axioms intact: interpretation is external, causality is referential, no global state."]
+          [:h2 "Mitigations for UDP's Rough Edges"]
+          [:p "UDP is minimal, which means some work shifts to the application:"]
+          [:h3 "Reliability"]
+          [:p
+           "Implement selective retransmits at the DRDS level, keyed on transaction/metadata hashes. Only refetch missing causal prerequisites."]
+          [:p
+           "An interpreter that needs total reliability can request it. An interpreter that tolerates loss doesn't pay the cost."]
+          [:h3 "Congestion"]
+          [:p
+           "Use app-level rate limiting (e.g., tied to Shibi tokens) or lightweight helpers like LEDBAT."]
+          [:p
+           "Congestion control becomes an economic question, not a transport mandate."]
+          [:h3 "NAT Traversal"]
+          [:p
+           "Pair with WebRTC (UDP-based) for NAT traversal and ICE, common in browser/device ecosystems."]
+          [:p
+           "This makes Datom.world practical for peer-to-peer, local-first, mobile-friendly deployments."]
+          [:h3 "Security"]
+          [:p
+           "Encrypt datom payloads (e.g., via Noise Protocol) without relying on transport."]
+          [:p
+           "Security becomes pluggable. Different streams can have different security policies based on interpreter needs."]
+          [:h2 "The Architectural Answer"]
+          [:table
+           [:thead
+            [:tr [:th "Layer"] [:th "Role"]]]
+           [:tbody
+            [:tr
+             [:td [:strong "Base transport: UDP"]]
+             [:td "Stateless, fast, mobile-friendly, continuation-migration-friendly"]]
+            [:tr
+             [:td [:strong "DRDS (Datom.world protocol)"]]
+             [:td
+              "Reliable when needed, loss-tolerant when needed, unordered by default, interpreter-directed"]]
+            [:tr
+             [:td [:strong "TCP (compatibility shim)"]]
+             [:td
+              "For legacy clients and browser environments until WebTransport/WebRTC are integrated"]]]]
+          [:h2 "The Core Insight"]
+          [:p "TCP says:"]
+          [:blockquote
+           [:p [:em "\"I will decide the shape of the stream for you.\""]]]
+          [:p "Datom.world says:"]
+          [:blockquote
+           [:p
+            [:em
+             "\"The shape of the stream is always the datom; everything else is interpretation.\""]]]
+          [:p
+           "UDP gives you the raw substrate where the stream is just packets."]
+          [:p
+           "DRDS gives the minimal structure compatible with Datom.world axioms."]
+          [:p "Interpreters bring the semantics."]
+          [:p [:strong "That separation is the power."]]
+          [:h2 "Why This Matters"]
+          [:p
+           "This isn't academic. The choice between TCP and UDP determines whether Datom.world can:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Support mobile agents"]
+            ": Continuations that migrate between nodes without tearing down connections"]
+           [:li
+            [:strong "Enable local-first computation"]
+            ": Nodes that collaborate opportunistically without central coordination"]
+           [:li
+            [:strong "Allow multiple causal interpretations"]
+            ": Different agents viewing the same stream with different ordering assumptions"]
+           [:li
+            [:strong "Scale to IoT and mesh networks"]
+            ": Ephemeral, low-power, intermittent connectivity scenarios"]
+           [:li
+            [:strong "Preserve semantic clarity"]
+            ": Transport never lies about what it guarantees"]]
+          [:p
+           "TCP would force Datom.world into a client-server, connection-oriented, globally-ordered model. That's the opposite of what the system is designed to be."]
+          [:p
+           "UDP with DRDS keeps the substrate clean and lets interpreters make their own choices about reliability, ordering, and semantics."]
+          [:h2 "Conclusion"]
+          [:p
+           "The choice of UDP over TCP isn't about performance. It's about "
+           [:strong "philosophical alignment"]
+           "."]
+          [:p "TCP embeds semantics that Datom.world rejects:"]
+          [:ul.bulleted
+           [:li "Global order"]
+           [:li "Mandatory reliability"]
+           [:li "Connection state"]
+           [:li "Transport-level causality"]]
+          [:p "UDP provides a clean slate:"]
+          [:ul.bulleted
+           [:li "No assumptions"]
+           [:li "No hidden semantics"]
+           [:li "No global state"]
+           [:li "Just raw packet delivery"]]
+          [:p
+           "DRDS adds the minimal structure needed to make datom streams practical while preserving their fundamental nature."]
+          [:p
+           [:strong
+            "Causality lives in the datom. Semantics live in the interpreter. Transport is just transport."]]
+          [:p "That's how it should be."]
+          [:p [:strong "Learn more:"]]
+          [:ul.bulleted
+           [:li
+            [:a
+             {:href "/blog/structure-vs-interpretation.blog"}
+             "Structure vs Interpretation"]
+            " (why semantics must be external)"]
+           [:li
+            [:a
+             {:href "/blog/power-of-restriction-datom-tuple.blog"}
+             "The Power of Restriction"]
+            " (why the five-element tuple enables freedom)"]
+           [:li
+            [:a
+             {:href "/blog/continuations-universal-semantic-kernel.blog"}
+             "Continuations as Universal Semantic Kernel"]
+            " (why continuations is rich enough to represent semantics of all languages)"]
+           [:li
+            [:a
+             {:href "/blog/computation-moves-data-stays.blog"}
+             "Computation Moves, Data Stays: The Yin.vm Continuation Model"]
+            " (how continuations become lightweight enough to migrate)"]
+           [:li
+            [:a {:href "/dao-db.chp"} "DaoDB"]
+            " (the stream database powering Datom.world)"]]]]]}

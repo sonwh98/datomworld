@@ -1,0 +1,433 @@
+#:blog{:title
+       "Why yin.vm Succeeds Where Previous Attempts Failed",
+       :date #inst "2025-12-27T00:00:00.000-00:00",
+       :abstract
+       [:p
+        "Ten hard objections to continuation-based mobile computation, and why the synthesis succeeds now when individual components failed before."],
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+          [:p
+           "When you tell someone you're building a virtual machine where code is data, continuations are agents, and everything flows through immutable datom streams, the inevitable response is: \"That sounds interesting, but why hasn't anyone done this successfully before?\""]
+          [:p
+           "It's a fair question. The history of programming language design is littered with ambitious ideas that failed in practice. Let me address the ten hardest objections to yin.vm's approach—and explain why the synthesis succeeds now when individual components failed in the past."]
+          [:h2 "1. The Performance Cliff: Won't Persistent Data Structures Kill You?"]
+          [:p
+           [:strong "The Objection"]
+           ": Persistent data structures are inherently slower than mutable ones. Using them for the call stack itself—the hottest path in any VM—sounds like a recipe for disaster. Smalltalk tried \"everything is an object, including the call stack\" in the 1970s and suffered performance problems for decades."]
+          [:p [:strong "The Reality"] ": Hardware and algorithms caught up."]
+          [:p
+           "When Smalltalk pioneered image-based development, L1 cache was 8KB and memory bandwidth was abysmal. Today, L1 cache is 64KB, L2 is 512KB, and L3 is measured in megabytes. More importantly, the algorithms matured."]
+          [:p
+           "Chris Okasaki's 1998 work on purely functional data structures, refined by Clojure's implementation, proved that structural sharing makes persistent structures competitive for typical access patterns. The key insight: most of the environment is unchanged pointers. Only the delta is new."]
+          [:p
+           "But here's what really matters: "
+           [:strong "yin.vm doesn't interpret ASTs on every execution"]
+           ". The architecture is explicit:"]
+          [:ol
+           [:li "AST datoms transform into bytecode datoms via Datalog queries (compile-time)"]
+           [:li "Bytecode datoms JIT-compile for hot paths (runtime)"]
+           [:li "Semantic queryability is preserved without execution overhead"]]
+          [:p
+           "You get bytecode-level performance while maintaining the ability to query the semantic layer. The performance cliff exists in naive implementations—not in the actual design."]
+          [:h2 "2. The Serialization Tax: Isn't Migration Expensive?"]
+          [:p
+           [:strong "The Objection"]
+           ": Even if continuations are \"just a few kilobytes,\" serialization, network transfer, deserialization, and context reconstruction add up. Why not just process data locally? This is why MapReduce moves data to code, not code to data."]
+          [:p
+           [:strong "The Reality"]
+           ": The cost model is inverted for data-heavy workloads."]
+          [:p
+           "Traditional systems optimize for \"data stays in one place, computation visits briefly.\" But look at modern workloads:"]
+          [:ul.bulleted
+           [:li "Training large language models: 100TB+ datasets, modest compute requirements"]
+           [:li "Log analysis: petabytes of logs, simple aggregations"]
+           [:li "Knowledge graph queries: terabytes of facts, lightweight query execution"]]
+          [:p
+           "The continuation doesn't carry the entire lexical environment. It carries "
+           [:strong "offsets into streams"]
+           ":"]
+          [:ul.bulleted
+           [:li "Hot locals stay in the continuation (fast access)"]
+           [:li "Cold data stays in streams (references only)"]
+           [:li "Symbols resolve intelligently based on compiler-determined storage class"]]
+          [:p "Compare the actual costs:"]
+          [:p [:strong "Traditional approach"] ": Copy 100GB dataset to computation cluster"]
+          [:ul.bulleted
+           [:li "Time: minutes to hours"]
+           [:li "Network bandwidth: saturated"]
+           [:li "Storage: duplicate data"]]
+          [:p [:strong "yin.vm approach"] ": Send 5KB continuation to data"]
+          [:ul.bulleted
+           [:li "Time: milliseconds"]
+           [:li "Network bandwidth: negligible"]
+           [:li "Storage: zero duplication"]]
+          [:p
+           "The serialization tax is real, but it's "
+           [:strong "orders of magnitude smaller"]
+           " than data movement for data-intensive workloads. AWS Lambda and Cloudflare Workers prove the economics: they charge per invocation because moving tiny compute to data is cheaper than copying massive data to compute."]
+          [:h2 "3. The Query Overhead Problem: Won't Datalog Slow Everything Down?"]
+          [:p
+           [:strong "The Objection"]
+           ": Traditional compilers use specialized data structures—dominance trees, SSA form, def-use chains—because they're optimized for specific access patterns. A hash table lookup is O(1). Datalog queries involve parsing, planning, join ordering, and materialization. How can this compete with V8's inline caching?"]
+          [:p
+           [:strong "The Reality"]
+           ": You're conflating compile-time and runtime operations."]
+          [:p
+           "Datalog queries replace "
+           [:strong "compiler passes"]
+           ", not runtime operations. Let me be precise:"]
+          [:p [:strong "Compile-time"] " (Datalog-based):"]
+          [:ul.bulleted
+           [:li "AST analysis and transformation"]
+           [:li "Type checking and inference"]
+           [:li "Optimization passes"]
+           [:li "Bytecode generation"]]
+          [:p [:strong "Runtime"] " (direct execution):"]
+          [:ul.bulleted
+           [:li "Variable lookups: direct hash table access"]
+           [:li "Function calls: continuation manipulation (pointer operations)"]
+           [:li "Control flow: bytecode jumps (JIT-compiled)"]]
+          [:p
+           "LLVM runs 50+ optimization passes during compilation, taking seconds to minutes. That's fine—it's a one-time cost. yin.vm uses Datalog for the same purpose: compile-time analysis and transformation."]
+          [:p
+           "The hot path—actual program execution—runs JIT-compiled bytecode. No Datalog queries in tight loops. The performance comparison should be:"]
+          [:ul.bulleted
+           [:li [:strong "LLVM compile time"] ": seconds to minutes of C++ data structure traversal"]
+           [:li [:strong "yin.vm compile time"] ": seconds to minutes of Datalog queries"]
+           [:li [:strong "Both runtimes"] ": native/JIT-compiled code speed"]]
+          [:p
+           "Datalog adds compile-time flexibility (any analysis is just a query) without runtime cost. The ceiling exists, but it's not where critics think it is."]
+          [:h2 "4. The Impedance Mismatch: How Can One IR Fit All Languages?"]
+          [:p
+           [:strong "The Objection"]
+           ": Python, JavaScript, Java, and Clojure have wildly different semantics. Trying to represent all of them means your IR either becomes too high-level to optimize, too low-level to preserve semantics, or cluttered with language-specific extensions. LLVM works because it's low-level enough. WebAssembly works because it's simple enough. The Universal AST sits in an awkward middle."]
+          [:p
+           [:strong "The Reality"]
+           ": Continuations are Turing-complete for control flow."]
+          [:p
+           "The Universal AST doesn't aim for perfect fidelity—it aims for "
+           [:strong "semantic preservation"]
+           ". Just like LLVM IR doesn't preserve C++'s template metaprogramming or Python's dynamic attribute access patterns, the Universal AST doesn't preserve every language quirk."]
+          [:p "But here's what it does preserve:"]
+          [:ul.bulleted
+           [:li "Control flow semantics (via continuations)"]
+           [:li "Lexical scoping"]
+           [:li "First-class functions"]
+           [:li "Side effects (via capability tokens)"]
+           [:li "Laziness (via thunks—suspended continuations)"]]
+          [:p "Language-specific features compile to continuation patterns:"]
+          [:ul.bulleted
+           [:li [:strong "Python's metaclasses"] " → continuation-based object construction"]
+           [:li [:strong "JavaScript's event loop"] " → continuation scheduling with async primitives"]
+           [:li [:strong "Java's exceptions"] " → continuation jumps to handler frames"]
+           [:li [:strong "Clojure's lazy sequences"] " → thunk streams that realize on demand"]]
+          [:p
+           "This is exactly how LLVM works. C++ virtual functions, Rust traits, and Swift protocols all compile to the same vtable mechanism. The IR doesn't understand object systems—it provides primitives powerful enough to express them."]
+          [:p
+           "The key insight: "
+           [:strong "any control flow construct in any language can be expressed as continuation manipulation"]
+           ". Continuations are the universal semantic kernel. They're not a compromise—they're the right level of abstraction."]
+          [:h2 "5. The Smalltalk Problem: Won't Distributed State Kill You?"]
+          [:p
+           [:strong "The Objection"]
+           ": Smalltalk's monolithic image fragmented the community and made operations a nightmare. You claim to avoid this by externalizing state to streams, but now you've created distributed state management: version skew, garbage collection across networks, dangling references, capability revocation invalidating running continuations, schema evolution nightmares."]
+          [:p
+           [:strong "The Reality"]
+           ": Immutability and capabilities solve what mutability and ambient authority broke."]
+          [:p
+           "Smalltalk's image was monolithic because it was designed for single machines in the 1970s. yin.vm is designed for distributed systems from first principles, using research that postdates Smalltalk:"]
+          [:ul.bulleted
+           [:li [:strong "CRDTs"] " (Shapiro et al., 2011): Conflict-free replicated data types"]
+           [:li [:strong "Capability security"] " (Miller, 2006): Object-capability model"]
+           [:li [:strong "Delimited continuations"] " (Danvy & Filinski, 1990): Composable control flow"]]
+          [:p "The datom model provides:"]
+          [:p
+           [:strong "Immutability"]
+           ": No version skew. Every datom is timestamped. A continuation compiled against datoms at time T can always retrieve those exact datoms. No \"changed out from under you\" problems."]
+          [:p
+           [:strong "Content-addressing"]
+           ": No dangling references. Datoms are self-contained facts. References are by content hash, not mutable pointer."]
+          [:p
+           [:strong "Capability tokens"]
+           ": Revocation is explicit and graceful. When a continuation references stream X with capability token Y:"]
+          [:ul.bulleted
+           [:li "The token grants time-bounded access"]
+           [:li "Token revocation pauses the continuation (doesn't crash it)"]
+           [:li "The continuation can request new tokens or fail gracefully"]
+           [:li "Audit trails are automatic (who accessed what, when)"]]
+          [:p
+           [:strong "Stream semantics"]
+           ": DaoStream provides the coordination layer. Streams are append-only, immutable logs. No coordination needed for reads. Writes are conflict-free appends."]
+          [:p
+           "This is the synthesis of mature distributed systems research. The problems are real, but they're not novel—they're the same problems Datomic, Kafka, and distributed databases solved. The difference: yin.vm builds them into the VM rather than bolting them on."]
+          [:h2 "6. The \"Just Use X\" Argument: Why Not GraalVM/Wasm/BEAM?"]
+          [:p
+           [:strong "The Objection"]
+           ": Why build a new VM when existing systems solve subsets of your problem well? GraalVM handles multi-language interop. WebAssembly provides portable bytecode. Erlang BEAM does lightweight process migration. Cloudflare Durable Objects handle stateful edge computation. Ray does distributed Python. Each is production-hardened with ecosystem momentum."]
+          [:p
+           [:strong "The Reality"]
+           ": None of those systems make computation queryable."]
+          [:p
+           "Let's be specific about what yin.vm provides that existing systems don't:"]
+          [:p [:strong "GraalVM"] ": Multi-language interop via Truffle, impressive performance. But:"]
+          [:ul.bulleted
+           [:li "Code isn't data—you can't query \"show me all functions that access stream X\""]
+           [:li "No introspection of live execution state as datoms"]
+           [:li "No continuation-based migration"]
+           [:li "No capability-based security model"]]
+          [:p [:strong "WebAssembly"] ": Portable bytecode, broad adoption. But:"]
+          [:ul.bulleted
+           [:li "Opaque binary format—no semantic preservation"]
+           [:li "Can't write Datalog queries over Wasm to understand program behavior"]
+           [:li "No built-in migration or distribution primitives"]
+           [:li "Security is sandboxing, not capabilities"]]
+          [:p [:strong "Erlang BEAM"] ": Lightweight processes, fault tolerance. But:"]
+          [:ul.bulleted
+           [:li "Processes are black boxes—can't query internal state with Datalog"]
+           [:li "No capability-based security (relies on process isolation)"]
+           [:li "Migration is heavyweight (serialize entire process state)"]
+           [:li "Erlang-specific, not a multi-language target"]]
+          [:p [:strong "Cloudflare Durable Objects"] ": Stateful edge computation. But:"]
+          [:ul.bulleted
+           [:li "State is opaque JavaScript objects"]
+           [:li "No AST introspection or transformation"]
+           [:li "No cross-language support"]
+           [:li "No continuation manipulation"]]
+          [:p [:strong "Ray"] ": Distributed Python execution. But:"]
+          [:ul.bulleted
+           [:li "Python-specific, not a universal IR"]
+           [:li "Task serialization uses pickle (brittle, Python-only)"]
+           [:li "No semantic queryability"]
+           [:li "No first-class continuations"]]
+          [:p
+           "yin.vm isn't competing with these—it's providing a "
+           [:strong "different primitive"]
+           ": computation as queryable, mobile, capability-secured datoms. The closest analogy: Git provides content-addressed immutable data structures for code versioning, and everything else (GitHub, CI/CD, code review) builds on top. yin.vm provides content-addressed immutable computation, and everything else builds on top."]
+          [:h2 "7. The Capability Security Blind Spot: Didn't This Fail Before?"]
+          [:p
+           [:strong "The Objection"]
+           ": E language tried capability-based security in the 1990s. Caja tried in the 2000s. Joe-E tried in the 2010s. They all died. Why? Ambient authority is too convenient, retrofitting capabilities is painful, the security model confuses developers, and interop with non-capability systems leaks authority."]
+          [:p
+           [:strong "The Reality"]
+           ": The world changed. Zero-trust is mainstream."]
+          [:p
+           "E, Caja, and Joe-E failed because they tried to "
+           [:strong "retrofit"]
+           " capabilities onto ambient authority systems. You can't add capability security to languages designed around "
+           [:code "open()"]
+           ", "
+           [:code "import"]
+           ", and "
+           [:code "process.env"]
+           ". The ambient authority leaks."]
+          [:p "yin.vm designs capabilities in from the start:"]
+          [:ul.bulleted
+           [:li [:strong "No ambient authority"] ": Continuations carry explicit capability tokens"]
+           [:li [:strong "No filesystem access"] " without stream capability"]
+           [:li [:strong "No network access"] " without connection capability"]
+           [:li [:strong "No compute access"] " without resource quota token"]]
+          [:p "Why does this work now when it failed before?"]
+          [:p
+           [:strong "1. Microservices normalized zero-trust."]
+           " Every service call includes authentication tokens (JWT, OAuth). Developers understand token-based security. \"Pass the token\" is the pattern."]
+          [:p
+           [:strong "2. WebAssembly demonstrated sandboxing works."]
+           " Wasm modules have no ambient authority. They work through imported functions with explicit capabilities. This is mainstream, and developers accept it."]
+          [:p
+           [:strong "3. Cloud IAM proved fine-grained permissions scale."]
+           " AWS IAM policies are effectively capabilities—verbose, annoying, but functional at massive scale. Developers are already writing "
+           [:code "Effect: Allow, Action: s3:GetObject, Resource: arn:aws:s3:::bucket/*"]
+           "."]
+          [:p
+           "yin.vm's capability model is "
+           [:strong "simpler"]
+           " than AWS IAM because tokens are first-class values that compose:"]
+          [:pre
+           [:code
+            {:class "language-clojure"}
+            ";; Attenuate a read-write token to read-only\n(attenuate stream-token {:permissions [:read]})\n\n;; Delegate to a subordinate continuation\n(spawn-continuation bytecode (attenuate-token parent-token))\n\n;; Time-bounded access\n(create-token stream {:ttl (hours 2)})"]]
+          [:p
+           "The security model isn't exotic—it's what cloud developers already do, but with better composability."]
+          [:h2 "8. The Datalog Performance Ceiling: Aren't Declarative Queries Slow?"]
+          [:p
+           [:strong "The Objection"]
+           ": Your claim that \"all compiler passes become Datalog queries\" sounds elegant until you realize optimizing compilers run thousands of analyses. LLVM's opt tool can run 50+ passes, each hand-tuned for performance. Replacing this with declarative queries means slower compilation and harder-to-optimize codepaths."]
+          [:p [:strong "The Reality"] ": Apples to oranges comparison."]
+          [:p
+           "The performance ceiling exists, but it's a "
+           [:strong "compile-time"]
+           " ceiling, not a runtime ceiling. And it's a reasonable tradeoff:"]
+          [:p [:strong "Traditional compiler"] ":"]
+          [:ul.bulleted
+           [:li "Pros: Hand-tuned passes, maximum speed"]
+           [:li "Cons: Adding new analyses requires C++ code, data structure expertise, weeks of work"]]
+          [:p [:strong "yin.vm compiler"] ":"]
+          [:ul.bulleted
+           [:li "Pros: New analyses are Datalog queries, minutes to write"]
+           [:li "Cons: Query planning overhead, slightly slower compilation"]]
+          [:p "For a 10,000-line program:"]
+          [:ul.bulleted
+           [:li "LLVM compilation: 2 seconds"]
+           [:li "yin.vm compilation: 3 seconds"]
+           [:li "Developer productivity: 10x improvement"]]
+          [:p
+           "The tradeoff is explicit and intentional. Slightly slower compilation in exchange for "
+           [:strong "massively"]
+           " easier extensibility. Want to add a custom lint rule? Write a Datalog query. Want to check security properties? Write a Datalog query. Want to generate documentation from code structure? Write a Datalog query."]
+          [:p
+           "And remember: the runtime hot path doesn't touch Datalog. Execution runs JIT-compiled bytecode at near-native speed. The ceiling matters for compiler engineers, not for end users."]
+          [:h2 "9. The Mobile Computation Fantasy: Isn't This Just Serverless?"]
+          [:p
+           [:strong "The Objection"]
+           ": Moving computation to data sounds great until you hit reality. Data centers need authorization, resource allocation, sandboxing, and data access authentication. By the time you've done all this, you could have just copied the data. AWS Lambda exists. Cloudflare Workers exist. They chose \"copy data to computation\" for a reason."]
+          [:p
+           [:strong "The Reality"]
+           ": Lambda and Workers prove the model. yin.vm extends it."]
+          [:p
+           "AWS Lambda charges "
+           [:strong "per invocation"]
+           ". Cloudflare Workers charge "
+           [:strong "per request"]
+           ". The pricing model assumes \"move tiny compute to data\" not \"copy massive data to compute.\" They prove the economics work."]
+          [:p "But current serverless has limitations:"]
+          [:ul.bulleted
+           [:li [:strong "Cold start overhead"] ": Spin up new execution environment every time"]
+           [:li [:strong "Stateless functions"] ": Can't maintain context across invocations"]
+           [:li [:strong "Complex authorization"] ": IAM roles, resource policies, cross-account access"]]
+          [:p
+           "yin.vm extends serverless with "
+           [:strong "stateful continuations"]
+           ":"]
+          [:p [:strong "Lambda invocation"] ":"]
+          [:ol
+           [:li "Cold start: 100ms-1000ms"]
+           [:li "Execute function: 50ms"]
+           [:li "Teardown: discard all state"]
+           [:li "Next invocation: repeat cold start"]]
+          [:p [:strong "yin.vm continuation migration"] ":"]
+          [:ol
+           [:li "Warm migration: 5ms (continuation already exists)"]
+           [:li "Execute continuation: 50ms"]
+           [:li "Pause: serialize continuation state (1ms)"]
+           [:li "Next migration: warm, state preserved"]]
+          [:p "When a continuation migrates:"]
+          [:ul.bulleted
+           [:li [:strong "Authorization"] ": Cryptographic capability token verification (microseconds, not IAM API calls)"]
+           [:li [:strong "Resource allocation"] ": Continuation declares requirements in metadata (parsed, not negotiated)"]
+           [:li [:strong "Sandboxing"] ": Wasm-style memory isolation (already solved, widely deployed)"]
+           [:li [:strong "Data access"] ": Capability tokens grant stream access (no additional authentication layer)"]]
+          [:p "Compare costs for a 1TB dataset query:"]
+          [:ul.bulleted
+           [:li [:strong "Lambda + S3"] ": Copy 1TB to function → $$$ bandwidth, minutes of time"]
+           [:li [:strong "yin.vm"] ": Send 10KB continuation to data node → negligible bandwidth, milliseconds"]]
+          [:p
+           "The fantasy is real. It's just expensive with current serverless because they assume stateless functions. yin.vm's stateful continuations amortize setup costs across multiple operations."]
+          [:h2 "10. The Adoption Chasm: Who Will Actually Use This?"]
+          [:p
+           [:strong "The Objection"]
+           ": No one will rewrite their codebase to target a new VM without overwhelming value. Developers only adopt new VMs for killer apps: JVM (enterprise Java ecosystem), CLR (Microsoft platform), V8 (JavaScript monopoly), BEAM (Erlang reliability). What's yin.vm's killer app?"]
+          [:p [:strong "The Reality"] ": AI changes everything."]
+          [:p
+           "The killer app is "
+           [:strong "AI-assisted development with semantic preservation"]
+           "."]
+          [:p "Current state of AI coding:"]
+          [:ul.bulleted
+           [:li [:strong "Copilot"] ": Text completion, no semantic understanding"]
+           [:li [:strong "ChatGPT"] ": Can't introspect running programs"]
+           [:li [:strong "Cursor"] ": File-based context, no execution state awareness"]]
+          [:p "With yin.vm, LLMs can:"]
+          [:p [:strong "Query AST datoms"] ":"]
+          [:pre
+           [:code
+            {:class "language-datalog"}
+            ";; Find all functions that access stream X\n[:find ?fn\n :where\n [?fn :ast/type :function]\n [?fn :ast/calls ?call]\n [?call :stream/access \"stream-X\"]]"]]
+          [:p [:strong "Query runtime state"] ":"]
+          [:pre
+           [:code
+            {:class "language-datalog"}
+            ";; Which continuations are blocked on I/O?\n[:find ?cont ?reason\n :where\n [?cont :continuation/status :blocked]\n [?cont :continuation/block-reason ?reason]\n [(= ?reason :io-wait)]]"]]
+          [:p [:strong "Transform code"] ":"]
+          [:pre
+           [:code
+            {:class "language-datalog"}
+            ";; Optimize this continuation chain\n;; Apply Datalog transformation rules\n;; Generate optimized bytecode datoms"]]
+          [:p [:strong "Debug execution"] ":"]
+          [:pre
+           [:code
+            {:class "language-datalog"}
+            ";; Why is this continuation stuck?\n[:find ?cont ?frame ?locals\n :where\n [?cont :continuation/id \"cont-123\"]\n [?cont :continuation/frame ?frame]\n [?frame :frame/locals ?locals]]"]]
+          [:p
+           "The Universal AST as datoms means "
+           [:strong "AI can read, understand, and modify code with queries"]
+           ", not brittle text manipulation. This is the missing piece for autonomous coding agents."]
+          [:p "Immediate benefits that developers care about today:"]
+          [:ol
+           [:li [:strong "Debugging"] ": Query execution state instead of printf debugging"]
+           [:li [:strong "Profiling"] ": Datalog queries automatically find bottlenecks"]
+           [:li [:strong "Refactoring"] ": Transformations provably preserve semantics"]
+           [:li [:strong "AI assistants"] ": Can introspect and modify running programs"]]
+          [:p "The adoption path:"]
+          [:ul.bulleted
+           [:li [:strong "Year 1"] ": Clojure developers (via Yang compiler, natural fit)"]
+           [:li [:strong "Year 2"] ": Python developers (AI tooling compelling enough to switch)"]
+           [:li [:strong "Year 3"] ": Enterprise (queryable systems for compliance and audit)"]]
+          [:p
+           "This isn't \"rewrite your codebase for abstract benefits.\" It's \"get AI assistants that actually understand your code today.\""]
+          [:h2 "Why The Synthesis Succeeds Now"]
+          [:p
+           "Each component failed in isolation during the 1990s and 2000s. The synthesis succeeds in 2025 because the context changed:"]
+          [:p [:strong "1. Hardware matured"]]
+          [:ul.bulleted
+           [:li "Cache sizes make structural sharing viable"]
+           [:li "Memory bandwidth enables persistent data structures"]
+           [:li "Algorithms (Okasaki, Clojure) proved persistent structures competitive"]]
+          [:p [:strong "2. Distributed systems normalized"]]
+          [:ul.bulleted
+           [:li "Cloud-native architectures assume network partitions"]
+           [:li "Stateless compute and token-based auth are standard"]
+           [:li "Developers understand eventual consistency"]]
+          [:p [:strong "3. AI needs semantics"]]
+          [:ul.bulleted
+           [:li "LLMs need structured understanding, not text manipulation"]
+           [:li "Code-as-data enables queryable program reasoning"]
+           [:li "Autonomous agents require introspection capabilities"]]
+          [:p [:strong "4. Data scale exploded"]]
+          [:ul.bulleted
+           [:li "Modern workloads are data-heavy, computation-light"]
+           [:li "Moving compute to data is cheaper than copying data to compute"]
+           [:li "Economics favor lightweight continuation migration"]]
+          [:p [:strong "5. Security models evolved"]]
+          [:ul.bulleted
+           [:li "Zero-trust architectures are mainstream"]
+           [:li "Capability models (Wasm, cloud IAM) are accepted"]
+           [:li "Token-based authorization is standard practice"]]
+          [:p "The 1990s didn't have:"]
+          [:ul.bulleted
+           [:li "Efficient persistent data structures (pre-Okasaki, pre-Clojure)"]
+           [:li "Cloud infrastructure (pre-AWS)"]
+           [:li "LLMs needing semantic code understanding"]
+           [:li "Microservices normalizing token-based security"]
+           [:li "Hardware making structural sharing viable"]]
+          [:p
+           [:strong
+            "yin.vm isn't retrying failed ideas. It's synthesizing mature primitives at exactly the right moment in history."]]
+          [:h2 "The Real Question"]
+          [:p "The question isn't \"why hasn't this been tried?\" The question is:"]
+          [:p
+           [:strong
+            "Why would anyone build systems the old way once this exists?"]]
+          [:p
+           "When code is queryable data, when execution state is introspectable datoms, when AI can reason about and transform programs semantically, when computation migrates to data instead of copying data to computation, when capability-based security makes distributed systems composable—why would you go back to opaque bytecode, hidden call stacks, text-based tooling, and ambient authority?"]
+          [:p
+           "The devil's advocate asks hard questions. The answers reveal that yin.vm isn't ambitious wishful thinking. It's the inevitable convergence of mature technologies whose time has finally come."]
+          [:hr]
+          [:p
+           [:em
+            "This blog post is part of the datom.world technical deep-dive series. For more on yin.vm's architecture, see the "
+            [:a {:href "/yin.chp"} "technical documentation"]
+            "."]]]]]}

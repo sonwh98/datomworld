@@ -1,0 +1,325 @@
+#:blog{:title
+       "The Fatal Mix: When Databases Store Semantics Instead of Syntax",
+       :date #inst "2025-12-10T00:00:00.000-00:00",
+       :abstract
+       [:p
+        "Object databases failed because "
+        [:strong "storing objects stores semantics"]
+        ". Language-specific layouts decay when languages evolve. Datom.world stores pure syntax, keeping semantics external."],
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+          [:p
+           "Object-oriented databases (OODBs) really were the future for a brief moment, especially in the late 1980s and early 1990s. They promised a world where the gap between the programming language and the database would disappear. No more ORM. No more impedance mismatch. Just store your objects directly."]
+          [:p "Then the hype vanished."]
+          [:p
+           "The reasons are surprisingly deep, and understanding them shows why Datom.world's fixed datom model avoids the same traps."]
+          [:p
+           "Here's what actually happened to OODBs, without nostalgia or marketing spin."]
+          [:h2 "1. Objects Seemed Universal, But Were Not Universal Enough"]
+          [:p
+           "Each programming language invented its own idea of an \"object\":"]
+          [:ul.bulleted
+           [:li "Smalltalk objects are not C++ objects"]
+           [:li "C++ objects are not Java objects"]
+           [:li "Java objects are not Python objects"]]
+          [:p
+           "An OODB stores language-specific object layouts and method assumptions."]
+          [:p [:strong "That means the data is not portable across languages."]]
+          [:p
+           "Data locked to a language is not data in the long-term archival sense. It is a memory snapshot of a specific runtime."]
+          [:p
+           "When languages evolve, or die, your data becomes unreadable."]
+          [:h3 "The Achilles Heel"]
+          [:p
+           [:strong "Storing objects stores semantics, not just structure."]
+           " And those semantics decay."]
+          [:p
+           "An object isn't just fields. It's a package of assumptions about inheritance, method dispatch, type hierarchies, memory layouts, and runtime conventions. All of that becomes frozen into the persisted representation."]
+          [:p
+           "Five years later, when the language has evolved or your team has switched to a different language, that frozen semantic contract is broken. The data becomes archaeological, not operational."]
+          [:h2 "2. Schemas Changed Too Often Because Objects Change Too Often"]
+          [:p
+           "Developers refactor their object models constantly. Every little refactor becomes a schema migration in an OODB."]
+          [:ul.bulleted
+           [:li "Your front-end team changes a field? Your deployment breaks."]
+           [:li
+            "Your back-end team renames a method? Your stored data can no longer be interpreted."]]
+          [:p [:strong "Objects change at developer speed."]]
+          [:p [:strong "Databases need to change at geological speed."]]
+          [:p "Those two rates are incompatible."]
+          [:p
+           "Relational databases survive because their schemas are deliberately simple and change infrequently. OODBs coupled the database schema directly to the application's object model, which meant every code refactor triggered a data migration. In practice, this was intolerable."]
+          [:h2 "3. Methods Are Not Data (But OODBs Tried to Store Both)"]
+          [:p "OODBs didn't store just fields."]
+          [:p
+           "They tried to store methods, inheritance structures, polymorphic dispatch rules, vtables, and more."]
+          [:p [:strong "This was fatal."]]
+          [:p
+           "Because methods contain "
+           [:em "code"]
+           ", not "
+           [:em "meaning"]
+           ". They depend on the compiler, runtime, memory model, calling convention, and libraries."]
+          [:p
+           "Persisting code was far harder than persistently storing pure data."]
+          [:p
+           "OODBs dragged in the entire programming environment. They became VM snapshots disguised as databases."]
+          [:p
+           "This tight coupling meant that OODBs couldn't be separated from their host runtime. You couldn't query an OODB from a different language, a different platform, or even a significantly different version of the same system. The \"database\" wasn't a data store anymore. It was an extension of the application process."]
+          [:h2 "4. Querying Objects Turned Out to Be Harder Than Querying Relations"]
+          [:p
+           "The relational model survives because it is brutally simple:"]
+          [:ul.bulleted
+           [:li "A table"]
+           [:li "Rows"]
+           [:li "Columns"]
+           [:li "A few operations with strong algebraic laws"]]
+          [:p "OODBs had none of that algebraic clarity. They had pointer graphs."]
+          [:p
+           "Pointer chasing is intuitive for programmers, but disastrous for:"]
+          [:ul.bulleted
+           [:li "Optimization"]
+           [:li "Indexing"]
+           [:li "Distributed execution"]
+           [:li "Partial reads"]
+           [:li "Declarative queries"]]
+          [:p [:strong "Without an algebra, you can't plan queries."]]
+          [:p [:strong "Without an algebra, you can't scale."]]
+          [:p
+           "SQL's success is not accidental. Its declarative nature allows query planners to optimize execution paths. Pointer-based object navigation is inherently imperative. You follow the pointers in the order the programmer wrote them. There's no way to reorganize execution for efficiency without breaking semantics."]
+          [:h2 "5. Object Identity Is Brittle Across Versions, Processes, and Machines"]
+          [:p
+           "The idea of an \"object identity\" that lives forever turned out to be ill-defined."]
+          [:p "Is identity the memory address? The object ID? A hash? Some runtime value?"]
+          [:p "Different OODBs invented different answers."]
+          [:ul.bulleted
+           [:li "Distributed systems broke them."]
+           [:li "Upgrades broke them."]
+           [:li "Snapshots broke them."]]
+          [:p
+           [:strong
+            "The lack of a simple, stable, universal identity model killed interoperability."]]
+          [:p
+           "Relational databases use primary keys: simple, stable, portable. OODBs tried to use object references, which are fundamentally tied to a specific process's memory space. Making those references durable and portable required complex machinery that never quite worked reliably across all scenarios."]
+          [:h2 "6. The Web Exploded (And OODBs Were Not Built for the Web)"]
+          [:p "The web forced:"]
+          [:ul.bulleted
+           [:li "Language-agnostic APIs"]
+           [:li "Stateless servers"]
+           [:li "Long-lived backend data"]
+           [:li "Multiple concurrent clients"]
+           [:li "Simple serialization formats"]]
+          [:p "Object persistence made the opposite assumptions:"]
+          [:ul.bulleted
+           [:li "Stateful servers"]
+           [:li "One language"]
+           [:li "One runtime"]
+           [:li "Tightly coupled application/data layers"]]
+          [:p
+           "OODBs were not compatible with the web's architecture. The web won. OODBs lost."]
+          [:p
+           "By the mid-1990s, it became clear that data needed to outlive applications, cross language boundaries, and survive server restarts. OODBs couldn't adapt to this reality. Relational databases with REST APIs could. The choice was obvious."]
+          [:h2 "7. Developers Discovered the Cost of Hiding Complexity"]
+          [:p
+           "OODBs promised: \"Just store objects, we'll take care of the rest.\""]
+          [:p "But hiding complexity is dangerous when the complexity is essential."]
+          [:p
+           "ORMs later made the same promise and suffered many of the same problems."]
+          [:p
+           [:strong "A magical abstraction layer eventually leaks."]
+           " When it leaks in the database layer, failure is catastrophic."]
+          [:p
+           "OODBs tried to make persistence invisible. Systems need visibility."]
+          [:p
+           "Developers need to understand when data is loaded, how queries are executed, what triggers I/O. Transparent persistence sounds appealing until a single navigation step triggers 10,000 lazy loads and brings down production."]
+          [:h2 "Why Datom.world Avoids These Failures"]
+          [:p
+           "This is where the contrast becomes sharp, and relevant for modern systems."]
+          [:table
+           [:thead
+            [:tr
+             [:th "Object Databases"]
+             [:th "Datom.world"]]]
+           [:tbody
+            [:tr
+             [:td "Objects as data"]
+             [:td "Datoms as pure facts"]]
+            [:tr
+             [:td "Meaning embedded in stored value"]
+             [:td "Structure fixed, semantics external"]]
+            [:tr
+             [:td "Methods stored with data"]
+             [:td "No methods stored, only facts"]]
+            [:tr
+             [:td "Language-dependent"]
+             [:td "Language-independent"]]
+            [:tr
+             [:td "Runtime-dependent"]
+             [:td "Runtime-independent"]]
+            [:tr
+             [:td "Complex object graphs"]
+             [:td "Simple five-tuple streams"]]
+            [:tr
+             [:td "Pointer-based navigation"]
+             [:td "Datalog queries"]]
+            [:tr
+             [:td "Brittle identity"]
+             [:td "Stable entity references"]]]]
+          [:h3 "Datoms Do Not Change When the Application Changes"]
+          [:p
+           "A datom is "
+           [:code "[entity attribute value transaction metadata]"]
+           ". That structure never changes."]
+          [:p
+           "Datoms do not encode the semantics of a language or an inheritance hierarchy. They are closer to atoms of information than snapshots of objects."]
+          [:p
+           [:strong
+            "This is why the system remains stable over decades, not releases."]]
+          [:h3 "Interpretation Is Pluggable"]
+          [:p
+           "Because semantics are external (see "
+           [:a
+            {:href "/blog/structure-vs-interpretation.blog"}
+            "Structure vs Interpretation"]
+           "), interpreters can be swapped, composed, upgraded, or layered without touching the data."]
+          [:p
+           "Your application logic evolves. Your data does not. Interpreters read the same datoms and extract new meanings as requirements change."]
+          [:h3 "No Object Graphs, No Pointer Chasing"]
+          [:p
+           "Datom.world uses Datalog for queries. Datalog has a formal algebra. Queries can be optimized, distributed, and executed incrementally."]
+          [:p
+           "You don't navigate pointers. You declare patterns and let the query engine find them."]
+          [:h3 "Identity Is Simple and Stable"]
+          [:p
+           "Entities are represented by stable identifiers. Those identifiers are not memory addresses. They're logical references that work across processes, machines, and time."]
+          [:p
+           "The same entity can be referenced from any interpreter, any node, any moment in the stream's history."]
+          [:h3 "Built for Distribution"]
+          [:p
+           "Datom.world assumes distribution from the start. Streams are append-only. Interpreters are mobile. There's no central runtime to couple to."]
+          [:p
+           "This is the opposite of OODBs, which assumed a monolithic, stateful, single-language runtime."]
+          [:h2 "The Deeper Lesson"]
+          [:p
+           "Object databases failed because "
+           [:strong "they stored too much"]
+           "."]
+          [:p
+           "They tried to store:"]
+          [:ul.bulleted
+           [:li "Data"]
+           [:li "Structure"]
+           [:li "Behavior"]
+           [:li "Semantics"]
+           [:li "Runtime assumptions"]
+           [:li "Language conventions"]]
+          [:p
+           "That entire package decayed. The more you store, the more brittle the system becomes."]
+          [:p
+           "Datom.world succeeds because "
+           [:strong "it stores almost nothing"]
+           "."]
+          [:p "Just five positions:"]
+          [:ul.bulleted
+           [:li [:code "entity"] " (who)"]
+           [:li [:code "attribute"] " (what aspect)"]
+           [:li [:code "value"] " (the value)"]
+           [:li [:code "transaction"] " (when)"]
+           [:li [:code "metadata"] " (context)"]]
+          [:p "Everything else is interpretation."]
+          [:p
+           "By restricting the substrate to a minimal, stable form, Datom.world creates space for maximum semantic flexibility."]
+          [:p
+           "Objects pretended to be universal but carried hidden dependencies. Datoms actually are universal because they carry nothing but position and reference."]
+          [:h2 "Historical Context: The OODB Vendors"]
+          [:p
+           "For those curious about the actual systems, here were the major players:"]
+          [:ul.bulleted
+           [:li
+            [:strong "ObjectStore"]
+            " (1988): Early C++ OODB, fast but tightly coupled to C++ runtime"]
+           [:li
+            [:strong "Versant"]
+            " (1988): Multi-language support, but struggled with schema evolution"]
+           [:li
+            [:strong "O2"]
+            " (1991): French research system, elegant but impractical"]
+           [:li
+            [:strong "GemStone"]
+            " (1987): Smalltalk-based, survived by pivoting to app server"]
+           [:li
+            [:strong "Poet"]
+            " (1991): Embedded OODB, disappeared with its niche"]]
+          [:p
+           "Most are gone or pivoted to entirely different markets. The ones that survived did so by abandoning the pure OODB vision."]
+          [:p
+           "GemStone, for instance, still exists but evolved into a distributed caching and application platform, not a pure object database."]
+          [:h2 "What About Datomic and Triple Stores?"]
+          [:p
+           "Some might ask: aren't Datomic and RDF triple stores similar to Datom.world?"]
+          [:p "Yes and no."]
+          [:p
+           [:strong "Datomic"]
+           " uses a similar datom structure "
+           [:code "[entity attribute value transaction]"]
+           " but is primarily a database, not a distributed computation fabric. Datom.world extends the model to support mobile interpreters, continuations, and process migration."]
+          [:p
+           [:strong "RDF triple stores"]
+           " use "
+           [:code "[subject predicate object]"]
+           " triples, which are similar but lack the temporal and metadata dimensions that datoms provide. More importantly, RDF systems often encode ontologies into the data itself (OWL, RDFS), reintroducing the brittleness that Datom.world avoids by keeping semantics external."]
+          [:h2 "Conclusion"]
+          [:p
+           "Object databases failed because they conflated data with code, structure with behavior, persistence with execution."]
+          [:p "The lessons are clear:"]
+          [:ol
+           [:li
+            [:strong "Data must outlive applications"]
+            " (don't couple data to runtime)"]
+           [:li
+            [:strong "Semantics must be external"]
+            " (don't freeze meaning into storage)"]
+           [:li
+            [:strong "Structure must be simple"]
+            " (complexity should live in interpreters, not substrate)"]
+           [:li
+            [:strong "Identity must be portable"]
+            " (don't tie references to memory addresses)"]
+           [:li
+            [:strong "Queries need algebra"]
+            " (declarative beats imperative for scale)"]
+           [:li
+            [:strong "Distribution must be native"]
+            " (design for many runtimes, not one)"]
+           [:li
+            [:strong "Transparency is not always a virtue"]
+            " (visibility prevents catastrophic leaks)"]]
+          [:p
+           "Datom.world internalizes all these lessons. Its five-element tuple is not a limitation. It is the distilled essence of what data must be to survive, compose, and scale."]
+          [:p
+           [:strong
+            "Object databases stored too much and died. Datom.world stores almost nothing and thrives."]]
+          [:p [:strong "Learn more:"]]
+          [:ul.bulleted
+           [:li
+            [:a
+             {:href "/blog/power-of-restriction-datom-tuple.blog"}
+             "The Power of Restriction: Why a Smaller Tuple Opens a Larger World"]
+            " (why constraints create capability)"]
+           [:li
+            [:a
+             {:href "/blog/structure-vs-interpretation.blog"}
+             "Structure vs Interpretation"]
+            " (why semantics must be external)"]
+           [:li
+            [:a
+             {:href "/blog/semantic-impedance-mismatch.blog"}
+             "The Semantic Impedance Mismatch"]
+            " (how to translate across languages)"]
+           [:li
+            [:a {:href "/dao-db.chp"} "DaoDB"]
+            " (the Datalog database powering datom streams)"]]]]]}

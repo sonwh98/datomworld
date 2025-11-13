@@ -1,0 +1,256 @@
+#:blog{:title
+       "The Babashka Path: Why I Switched Yin.VM from Rust to Clojure",
+       :date #inst "2025-12-28T00:00:00.000-00:00",
+       :abstract
+       [:p
+        "I started Yin.VM in Rust and progress stalled. Switching to Clojure and Datascript changed everything. The right foundation matters more than building from zero."],
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+          [:h2 "The Rust Mistake"]
+          [:p
+           "I started Yin.VM in Rust. The reasoning seemed sound: building a high-performance virtual machine requires low-level control, memory safety, speed, and cross-platform portability. Rust offered all four. The problem? I'm not a Rust expert."]
+          [:p
+           "What followed was predictable: months spent fighting the borrow checker, struggling with lifetimes, reimplementing basic data structures, and learning a language while simultaneously trying to build a novel VM architecture. Progress crawled. The vision was clear, but the foundation was quicksand."]
+          [:p
+           "Meanwhile, Clojure—a language I'm actually competent in—sat unused. The persistent data structures, powerful macros, and excellent REPL-driven development workflow were all available. But the assumption held: \"serious systems need low-level languages.\""]
+          [:p "That assumption was wrong."]
+          [:h2 "The Babashka Lesson"]
+          [:p
+           "Babashka is a fast-starting Clojure scripting environment built by Michiel Borkent. At its core is "
+           [:a {:href "https://github.com/babashka/sci"} "SCI (Small Clojure Interpreter)"]
+           "—a Clojure interpreter written in Clojure that runs on the JVM."]
+          [:p
+           "On the surface, this seems circular: why implement Clojure in Clojure? Why not write the interpreter in C or Rust for maximum performance?"]
+          [:p "Because Babashka didn't need maximum performance. It needed:"]
+          [:ul.bulleted
+           [:li [:strong "Fast iteration"] " - REPL-driven development beats compile cycles"]
+           [:li [:strong "Rich ecosystem"] " - Leverage existing Clojure libraries"]
+           [:li [:strong "Maintainability"] " - Write in a language the author knows deeply"]
+           [:li [:strong "Focus"] " - Spend time on novel features, not reinventing wheels"]]
+          [:p
+           "By standing on the JVM's shoulders and writing in Clojure, Babashka achieved something remarkable: a production-ready tool with fast startup times, extensive library support, and a tiny, maintainable codebase. The constraint—using a \"slower\" language—led to "
+           [:em "better"]
+           " design decisions."]
+          [:h2 "The LuxLang Parallel"]
+          [:p
+           "LuxLang took the same path. It's a Lisp that compiles to multiple targets (JVM, JavaScript, Python, Ruby, Lua). Instead of building a custom runtime from scratch, it started by bootstrapping on the JVM."]
+          [:p "The result:"]
+          [:ul.bulleted
+           [:li "Self-hosted compiler (Lux compiles itself)"]
+           [:li "Multiple backend targets without rewriting the frontend"]
+           [:li "Fast development velocity from day one"]
+           [:li "Production-ready within a reasonable timeframe"]]
+          [:p
+           "LuxLang proved that ambitious language projects don't need to start from bare metal. They need to start from "
+           [:em "solid ground"]
+           "."]
+          [:h2 "My Pivot"]
+          [:p
+           "After months of slow progress in Rust, the decision became clear: switch to Clojure and follow the Babashka path."]
+          [:p "The new architecture:"]
+          [:ul.bulleted
+           [:li [:strong "Implement Yin.VM in Clojure"] " - Leverage my actual expertise"]
+           [:li [:strong "Use Datascript for AST persistence"] " - A mature datalog database instead of building DaoDB from scratch"]
+           [:li [:strong "Bootstrap from the JVM"] " - Get a working system quickly"]
+           [:li [:strong "Progressive enhancement"] " - Self-host later, once the core is proven"]]
+          [:p "This isn't admitting defeat. It's admitting "
+           [:em "reality"]
+           "."]
+          [:h2 "Why This Matters"]
+          [:h3 "1. Competence Beats Performance"]
+          [:p
+           "A working system in a \"slower\" language I know beats a non-existent system in a \"faster\" language I don't."]
+          [:p
+           "Rust's performance advantage is meaningless if I spend 80% of my time debugging lifetime errors instead of implementing features. Clojure's slower execution speed is irrelevant when the REPL enables 10x faster iteration."]
+          [:p "The bottleneck wasn't the language's runtime. It was my expertise."]
+          [:h3 "2. Datascript Removes Uncertainty Cheaply"]
+          [:p
+           "The core hypothesis of Yin.VM—that ASTs can be stored as queryable datoms—is unproven. Building DaoDB from scratch in Rust meant months of work "
+           [:em "before"]
+           " validating the idea."]
+          [:p
+           "Datascript changes the equation. It's a mature, battle-tested datalog database implemented in ClojureScript. It can:"]
+          [:ul.bulleted
+           [:li "Store AST nodes as entities with relationships"]
+           [:li "Query with datalog (the same query language I'm planning for DaoDB)"]
+           [:li "Run in-memory for fast iteration"]
+           [:li "Provide a compatibility target if I eventually build DaoDB"]]
+          [:p "Within "
+           [:em "hours"]
+           ", not months, I can test the viability of \"AST as datoms\":"]
+          [:pre
+           [:code
+            {:class "language-clojure"}
+            "(require '[datascript.core :as d])\n\n;; Define AST schema\n(def ast-schema\n  {:node/id        {:db/unique :db.unique/identity}\n   :node/type      {}\n   :node/parent    {:db/valueType :db.type/ref}\n   :node/children  {:db/valueType :db.type/ref\n                    :db/cardinality :db.cardinality/many}})\n\n;; Create AST database\n(def conn (d/create-conn ast-schema))\n\n;; Store a function AST\n(d/transact! conn\n  [{:node/id \"factorial\"\n    :node/type :lambda\n    :node/params [{:node/type :param :node/name \"n\"}]\n    :node/body {:node/type :if\n                :node/condition {:node/type :call\n                                :node/fn \"=\"\n                                :node/args [\"n\" 0]}}}])\n\n;; Query for all function calls\n(d/q '[:find ?call ?fn-name\n       :where\n       [?call :node/type :call]\n       [?call :node/fn ?fn-name]]\n     @conn)"]]
+          [:p
+           "If it works, I keep building. If it doesn't, I pivot quickly. Either way, discovery happens in days, not months."]
+          [:h3 "3. Focus on What's Actually Novel"]
+          [:p "Yin.VM's innovation isn't:"]
+          [:ul.bulleted
+           [:li "A datalog database (Datomic, Datascript, and others exist)"]
+           [:li "Persistent data structures (Clojure has these)"]
+           [:li "A runtime (the JVM is mature and battle-tested)"]]
+          [:p "The novel parts are:"]
+          [:ul.bulleted
+           [:li [:strong "Universal AST as the execution substrate"] " - Code across languages shares a semantic foundation"]
+           [:li [:strong "Continuations as mobile agents"] " - Computation moves to data"]
+           [:li [:strong "Queryable runtime state"] " - Datalog introspection of live execution"]]
+          [:p
+           "By using Clojure and Datascript, I can focus 100% of my effort on these novel aspects instead of reimplementing infrastructure that already exists."]
+          [:h3 "4. Self-Hosting Becomes Tractable"]
+          [:p
+           "The path to self-hosting is the same regardless of implementation language. But getting there faster matters."]
+          [:p
+           "In Clojure, the self-hosting roadmap is straightforward:"]
+          [:ol
+           [:li [:strong "Phase 1"] ": Implement Yin.VM in Clojure, running on the JVM"]
+           [:li [:strong "Phase 2"] ": Implement the Yang compiler (Clojure → Universal AST)"]
+           [:li [:strong "Phase 3"] ": Use Yang to compile Yin.VM's own source code to Universal AST"]
+           [:li [:strong "Phase 4"] ": Yin.VM interprets/compiles its own Universal AST representation"]
+           [:li [:strong "Phase 5"] ": Bootstrap complete—Yin.VM runs itself"]]
+          [:p
+           "This is exactly how LuxLang achieved self-hosting. Start on a mature platform, build the compiler, then use the compiler to compile itself."]
+          [:h2 "The Experimental Validation Plan"]
+          [:p
+           "The Clojure + Datascript approach enables rapid experimentation. Here's my plan:"]
+          [:h3 "Phase 1: Validate Core Hypothesis (Weeks 1-4)"]
+          [:p [:strong "Experiment 1: Storage Overhead"]]
+          [:p
+           "Measure memory overhead of representing ASTs as datoms vs traditional tree structures. Use real-world code samples (Python stdlib, JavaScript libraries). Is 3x overhead acceptable? Where's the breaking point?"]
+          [:pre
+           [:code
+            {:class "language-clojure"}
+            "(defn compare-representations [ast]\n  (let [tree-size (count (pr-str ast))\n        datom-db (ast->datascript ast)\n        datom-size (count (pr-str @datom-db))]\n    {:tree tree-size\n     :datom datom-size\n     :ratio (/ datom-size tree-size)}))"]]
+          [:p [:strong "Experiment 2: Query Expressiveness"]]
+          [:p "Can I naturally express compiler analyses as datalog queries?"]
+          [:pre
+           [:code
+            {:class "language-clojure"}
+            ";; Dead code detection\n(d/q '[:find ?node\n       :where\n       [?node :node/type :lambda]\n       (not [?call :node/target ?node])]\n     @conn)\n\n;; Inline opportunities\n(d/q '[:find ?fn\n       :where\n       [?fn :node/type :lambda]\n       [?fn :node/size ?size]\n       [(< ?size 10)]\n       (single-use ?fn)]\n     @conn)"]]
+          [:p "If these queries feel awkward or perform poorly, that's critical feedback."]
+          [:p [:strong "Experiment 3: Incremental Compilation"]]
+          [:p "Can I express optimization passes as declarative rules?"]
+          [:pre
+           [:code
+            {:class "language-clojure"}
+            "(def constant-folding-rules\n  '[[(constant-foldable ?node ?result)\n     [?node :node/type :call]\n     [?node :node/fn ?op]\n     [(contains? #{+ - * /} ?op)]\n     [?node :node/args ?args]\n     (all-literal ?args)\n     (compute ?op ?args ?result)]])"]]
+          [:h3 "Phase 2: Build a Working System (Weeks 5-12)"]
+          [:p "Implement a minimal language (simple Lisp/Python subset) that:"]
+          [:ul.bulleted
+           [:li "Parses to Universal AST"]
+           [:li "Stores in Datascript"]
+           [:li "Renders to multiple syntaxes"]
+           [:li "Evaluates directly from AST"]
+           [:li "Supports lightweight continuations"]]
+          [:h3 "Phase 3: Decide on DaoDB"]
+          [:p "After validation, the data will show whether I need DaoDB:"]
+          [:p [:strong "Build DaoDB if"] ":"]
+          [:ul.bulleted
+           [:li "Storage overhead >5x becomes problematic"]
+           [:li "Query performance is a bottleneck"]
+           [:li "Distributed persistence is required (Datascript is in-memory only)"]
+           [:li "Append-only immutable history (like Datomic) is essential"]]
+          [:p [:strong "Stick with Datascript if"] ":"]
+          [:ul.bulleted
+           [:li "Overhead is acceptable"]
+           [:li "Performance is sufficient"]
+           [:li "In-memory storage works for my use cases"]
+           [:li "Maturity and community support matter more than custom optimization"]]
+          [:p
+           "If I build DaoDB later, Datascript becomes my compatibility baseline. The API will be compatible, making migration straightforward."]
+          [:h2 "The Hard Lesson"]
+          [:p "Here's what the Rust experience taught me:"]
+          [:p
+           [:strong "Ambitious projects fail not because the vision is wrong, but because the foundation is unsuitable."]
+           ""]
+          [:p
+           "My vision for Yin.VM was always solid: a VM where ASTs are queryable data, where continuations are mobile agents, where code is a universal semantic substrate. That vision didn't change."]
+          [:p
+           "What changed was accepting that building it in Rust—a language I'm not expert in—was slowing everything down. The \"right\" choice on paper (low-level control, performance) was the wrong choice in practice (unfamiliarity, slow iteration)."]
+          [:p
+           "Switching to Clojure wasn't giving up on performance. It was prioritizing "
+           [:em "progress"]
+           ". And here's the surprising part: I might never need to rewrite in Rust."]
+          [:p
+           "LuxLang proved this. It started in Clojure on the JVM, achieved self-hosting, and now compiles to multiple targets—all without ever rewriting the compiler in a lower-level language. The Clojure implementation "
+           [:em "is"]
+           " the production implementation."]
+          [:p
+           "Could I circle back to Rust later? Maybe. But LuxLang demonstrates it might not even be necessary. Self-hosting from a Clojure base is entirely viable."]
+          [:h2 "Why Babashka and LuxLang Got It Right"]
+          [:p "Both projects understood something fundamental:"]
+          [:p
+           [:strong "The goal isn't to build everything from scratch. The goal is to build what's novel on top of what's proven."]
+           ""]
+          [:ul.bulleted
+           [:li
+            [:strong "Babashka"]
+            " didn't reimplement the JVM. It leveraged GraalVM's native-image and focused on fast-starting Clojure scripts."]
+           [:li
+            [:strong "LuxLang"]
+            " didn't build a custom runtime. It compiled to existing platforms (JVM, JavaScript) and focused on the language design."]
+           [:li
+            [:strong "Yin.VM"]
+            " doesn't need a custom datalog database yet. I can use Datascript and focus on AST execution semantics."]]
+          [:p
+           "This isn't compromise. It's "
+           [:em "focus"]
+           ". Babashka is production-ready. LuxLang is self-hosted "
+           [:em "and"]
+           " still implemented in Clojure. Both achieved their goals by building on mature foundations—and neither needed to rewrite in C or Rust to be successful."]
+          [:h2 "The Path Forward"]
+          [:p "My immediate work:"]
+          [:ul.bulleted
+           [:li "Implement Yin.VM core in Clojure"]
+           [:li "Store ASTs in Datascript with a clean abstraction layer"]
+           [:li "Build the Yang compiler (Clojure → Universal AST)"]
+           [:li "Validate the core hypothesis with real code samples"]
+           [:li "Measure everything: overhead, query performance, developer ergonomics"]]
+          [:p
+           "Within a month, I'll know if \"AST as datoms\" is viable. Within three months, I'll have a working prototype. Within six months, self-hosting becomes possible."]
+          [:p
+           "And then? The system might stay in Clojure indefinitely, like LuxLang. Or I might eventually port performance-critical components to Rust once I understand exactly where the bottlenecks are. The difference: I'll make that decision based on data from a working system, not speculation about what might be needed."]
+          [:p
+           "If I'd continued the Rust path? None of these milestones would be realistic. I'd still be fighting the borrow checker instead of implementing features."]
+          [:h2 "The Meta-Lesson"]
+          [:p
+           [:strong
+            "Use the tools you know. Stand on platforms that work. Build only what's truly novel."]
+           ""]
+          [:p
+           "The temptation with visionary projects is to build everything from first principles. \"If I'm building something revolutionary, shouldn't I use revolutionary tools?\""]
+          [:p "No."]
+          [:p
+           "Revolutionary "
+           [:em "ideas"]
+           " are hard enough. Implementing them with unfamiliar tools makes an already-difficult problem impossible."]
+          [:p
+           "Babashka used Clojure. LuxLang used the JVM. Yin.VM uses Clojure and Datascript. None of these choices diminish the novelty of what they're building. They "
+           [:em "enable"]
+           " it."]
+          [:p
+           "The fastest path to innovation isn't starting from zero. It's standing on the shoulders of giants and focusing your novel work on the pieces that truly need to be novel."]
+          [:p
+           "For Yin.VM, that means the Universal AST execution model, mobile continuations, and queryable runtime state. Everything else? Use what works."]
+          [:p [:strong "Learn more:"]]
+          [:ul.bulleted
+           [:li
+            [:a
+             {:href "/blog/ast-datom-streams-bytecode-performance.blog"}
+             "AST Datom Streams: Bytecode Performance with Semantic Preservation"]
+            " (how AST datoms achieve bytecode-like performance)"]
+           [:li
+            [:a
+             {:href "/blog/devils-advocate.blog"}
+             "Why yin.vm Succeeds Where Previous Attempts Failed"]
+            " (addressing skeptical objections to this architecture)"]
+           [:li
+            [:a {:href "/dao-db.chp"} "DaoDB"]
+            " (the eventual production database, built after validation)"]
+           [:li
+            [:a {:href "/yin.chp"} "Yin VM Documentation"]
+            " (technical deep dive)"]]]]]}

@@ -1,0 +1,735 @@
+#:blog{:title
+       "DaoStream: Inspired by Plan 9, Simpler Than 9P",
+       :date #inst "2025-12-29T00:00:00.000-00:00",
+       :abstract
+       [:p
+        "Plan 9's 9P required 13 message types to maintain POSIX semantics. DaoStream admits what communication actually is: datom passing. One packet type. Stateless routing. Interpreters at the edges."],
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+          [:h2 "The Plan 9 Dream"]
+          [:p
+           "In the late 1980s, the creators of Unix at Bell Labs asked themselves: what if we took \"everything is a file\" seriously? "
+           [:em "Really"]
+           " seriously?"]
+          [:p "The result was Plan 9, an operating system where:"]
+          [:ul.bulleted
+           [:li "Network connections are files you " [:code "read()"] " and " [:code "write()"]]
+           [:li "Process control is writing commands to " [:code "/proc/123/ctl"]]
+           [:li "Graphics are drawing commands written to " [:code "/dev/draw/data"]]
+           [:li "Even window management is file operations"]]
+          [:p
+           "One API—" [:code "open()"] ", " [:code "read()"] ", " [:code "write()"] ", " [:code "close()"] "—for everything."]
+          [:p "It was beautiful. It was elegant. It almost worked."]
+
+          [:h2 "The Problem: 9P Had to Pretend Everything Was a File"]
+          [:p
+           "To make \"everything is a file\" work over networks, Plan 9 invented the "
+           [:strong "9P protocol"]
+           ". And 9P is... complicated."]
+          [:p "It has " [:strong "13 message types"] ":"]
+          [:ul.bulleted
+           [:li [:code "Tversion"] "/" [:code "Rversion"] " - negotiate protocol versions"]
+           [:li [:code "Tattach"] "/" [:code "Rattach"] " - attach to a file tree"]
+           [:li [:code "Twalk"] "/" [:code "Rwalk"] " - navigate directory hierarchies (with multi-hop path resolution!)"]
+           [:li [:code "Topen"] "/" [:code "Ropen"] " - open files"]
+           [:li [:code "Tread"] "/" [:code "Rread"] ", " [:code "Twrite"] "/" [:code "Rwrite"] " - actual data transfer"]
+           [:li [:code "Tstat"] "/" [:code "Rstat"] ", " [:code "Twstat"] "/" [:code "Rwstat"] " - get/set file metadata"]
+           [:li [:code "Tcreate"] "/" [:code "Rcreate"] ", " [:code "Tremove"] "/" [:code "Rremove"] " - create/delete files"]
+           [:li [:code "Tclunk"] "/" [:code "Rclunk"] " - close files"]
+           [:li [:code "Tflush"] "/" [:code "Rflush"] " - cancel pending operations"]]
+          [:p
+           "Why so complex? Because "
+           [:strong "9P had to maintain the illusion that remote resources were files"]
+           ":"]
+          [:ul.bulleted
+           [:li "Files have hierarchical paths → need " [:code "Twalk"] " to navigate " [:code "/net/tcp/clone"]]
+           [:li "Files have permissions and owners → need " [:code "Tstat"] "/" [:code "Twstat"] " for metadata"]
+           [:li "Files have handles (fids) → need server-side state management"]
+           [:li "Files can be created/deleted → need " [:code "Tcreate"] "/" [:code "Tremove"]]]
+          [:p
+           "9P tried to make the network transparent by making everything look like POSIX files. "
+           "This was both its genius and its burden."]
+
+          [:h2 "What if We Don't Pretend?"]
+          [:p
+           "At Datom.world, we're building a distributed system inspired by Plan 9's philosophy, but we asked a different question:"]
+          [:p
+           [:strong
+            "What if we didn't have the burden of files?"]]
+          [:p
+           "What if we embraced what communication actually is—"
+           [:strong "message passing"]
+           "—instead of pretending it's filesystem operations?"]
+          [:p
+           "Files are wonderful for persistent, randomly-accessible storage. But communication isn't that. "
+           "Communication is temporal, flowing, directional. It creates dynamic topologies, not static hierarchies. "
+           "It needs different concerns: handling out-of-order delivery, timestamp-based ordering, subscriber backpressure—not seek positions and fids."]
+          [:p
+           "9P's complexity comes from forcing one metaphor (files) onto a different reality (network communication). "
+           "What if we just admitted what streams actually are?"]
+          [:p
+           "The result is "
+           [:strong "DaoStream"]
+           ", which takes Plan 9's elegant API ("
+           [:code "open/read/write/close"]
+           ") but throws away the burden of pretending streams are files."]
+
+          [:h2 "The Datom: A Self-Contained Packet"]
+          [:p
+           "In DaoStream, the fundamental unit is a "
+           [:strong "datom"]
+           "—a 5-tuple:"]
+          [:div.code-block
+           [:pre
+            [:code
+             "[e a v t m]\n"
+             "  e: entity (what this is about)\n"
+             "  a: attribute (what property)\n"
+             "  v: value (the actual data)\n"
+             "  t: timestamp (when)\n"
+             "  m: metadata (context)"]]]
+          [:p
+           "A datom is "
+           [:strong "self-contained"]
+           ". It carries everything needed to understand it:"]
+          [:ul.bulleted
+           [:li "What it's about (entity)"]
+           [:li "What it means (attribute)"]
+           [:li "The actual payload (value)"]
+           [:li "When it happened (timestamp)"]
+           [:li "Any additional context (metadata)"]]
+          [:p
+           "Unlike a byte stream that needs framing, or a message that needs headers, "
+           [:strong "a datom IS the protocol unit."]]
+
+          [:h2 "The Protocol: Just Route Datoms"]
+          [:p "Here's the entire DaoStream wire protocol:"]
+          [:div.code-block
+           [:pre
+            [:code
+             "┌─────────────────────────────────────────┐\n"
+             "│ Stream ID (8 bytes)                     │\n"
+             "│ Sequence Number (8 bytes)               │\n"
+             "│ Flags (1 byte)                          │\n"
+             "├─────────────────────────────────────────┤\n"
+             "│ Datom: [e a v t m]                      │\n"
+             "└─────────────────────────────────────────┘"]]]
+          [:p "That's it."]
+          [:ul.bulleted
+           [:li [:strong "No " [:code "Twalk"]] " to navigate paths. Stream IDs are flat hashes."]
+           [:li [:strong "No " [:code "Tstat"]] " for metadata. It's in the " [:code "m"] " field of the datom."]
+           [:li [:strong "No " [:code "Tattach"]] " for authentication. Authentication and encryption happen at the transport layer (WireGuard-style), orthogonal to the datom protocol."]
+           [:li [:strong "No " [:code "Tclunk"]] " to manage server state. The protocol is stateless."]]
+          [:p "The network layer just forwards datoms to streams. Nothing more."]
+
+          [:h3 "UDP-Based: Ordering is in the Interpreter"]
+          [:p
+           "DaoStream runs over "
+           [:strong "UDP"]
+           ", not TCP. This is a deliberate choice. "
+           "For a deep dive into why TCP's semantics contradict Datom.world's axioms, see "
+           [:a {:href "/blog/why-udp-not-tcp.blog"} "Why TCP Is Too Semantic for Datom.world"] "."]
+          [:p
+           "TCP provides ordered, reliable delivery—but at a cost. TCP maintains connection state, "
+           "requires handshakes, blocks on packet loss, and ties you to a single network path. "
+           "This doesn't work for mobile agents, mesh networks, or intermittent connectivity."]
+          [:p
+           "UDP is stateless and unreliable—which sounds terrible, until you realize "
+           [:strong "the datom already contains everything needed to handle disorder"]
+           ":"]
+          [:ul.bulleted
+           [:li
+            [:strong "Timestamp (t)"]
+            " — Every datom has a logical timestamp. Interpreters can sort by " [:code "t"] " to establish causal order."]
+           [:li
+            [:strong "Sequence number"]
+            " — The packet header has a sequence number. Interpreters detect gaps and request retransmission if needed."]
+           [:li
+            [:strong "Metadata (m)"]
+            " — Context like " [:code "{:reply-to ...}"] " or " [:code "{:version ...}"] " helps interpreters handle duplicates or reorderings."]]
+          [:p
+           [:strong "Ordering is not a protocol concern. It's an interpreter concern."]]
+          [:p
+           "Some interpreters need strict ordering (e.g., a database log). They sort by timestamp and buffer out-of-order packets. "
+           "Other interpreters don't care about order (e.g., sensor readings where latest value wins). They just process whatever arrives."]
+          [:p
+           "By pushing ordering to the edges, DaoStream stays simple and works naturally over:"]
+          [:ul.bulleted
+           [:li "BLE mesh networks (lossy, connectionless)"]
+           [:li "Agent migration (changing IP addresses mid-stream)"]
+           [:li "Offline operation (no connection at all, sync later)"]
+           [:li "Multi-path routing (packets arrive via different routes)"]]
+          [:p
+           "TCP would force a single, stable connection. UDP lets datoms flow wherever they can reach, "
+           "and interpreters reconstruct meaning from whatever arrives."]
+
+          [:h2 "Everything Through Datoms"]
+          [:p [:strong "Want to subscribe to a stream?"] " Send a datom:"]
+          [:div.code-block
+           [:pre [:code "[:agent-123 :subscribe [:sensors :temp] (now) {:from 0}]"]]]
+          [:p [:strong "Want to publish data?"] " Send a datom:"]
+          [:div.code-block
+           [:pre [:code "[:sensor-42 :temperature 23.5 (now) {:location \"room-5\"}]"]]]
+          [:p [:strong "Want to discover streams?"] " Send a datom:"]
+          [:div.code-block
+           [:pre [:code "[:agent-123 :list [:food :**] (now) {}]"]]]
+          [:p "Get response datoms back:"]
+          [:div.code-block
+           [:pre [:code "[:responder :streams [[:food-trail] ...] (now) {}]"]]]
+          [:p [:strong "Want to unsubscribe?"] " Send a datom:"]
+          [:div.code-block
+           [:pre [:code "[:agent-123 :unsubscribe stream-id (now) {}]"]]]
+          [:p "Control operations are datoms. Data is datoms. " [:strong "Everything is datoms."]]
+
+          [:h2 "Stateless Protocol, Stateful Interpreters"]
+          [:p "Here's the key insight that lets us avoid 9P's complexity:"]
+          [:p
+           [:strong
+            "State doesn't live in the network protocol. It lives in interpreters at the edges."]]
+          [:p "The network layer just forwards datoms to streams:"]
+          [:div.code-block
+           [:pre
+            [:code
+             "(defn forward-datoms []\n"
+             "  (loop []\n"
+             "    (let [packet (udp-recv)\n"
+             "          stream-id (:stream-id packet)\n"
+             "          datom (:datom packet)]\n"
+             "      ;; Just append the datom to the stream\n"
+             "      (append-to-stream stream-id datom))\n"
+             "    (recur)))"]]]
+          [:p "Interpreters open streams, read datoms, and process them:"]
+          [:div.code-block
+           [:pre
+            [:code
+             "(ns interpreter.monitor\n"
+             "  (:require [daostream.core :as stream]))\n\n"
+             "(defrecord TemperatureMonitor [alert-threshold])\n\n"
+             "(defn run [monitor stream-path]\n"
+             "  ;; Open the stream\n"
+             "  (let [s (stream/open stream-path)]\n"
+             "    ;; Read datoms from the stream\n"
+             "    (doseq [datom (stream/read s)]\n"
+             "      (let [[e a v t m] datom]\n"
+             "        ;; Process each datom\n"
+             "        (when (= a :temperature)\n"
+             "          (when (> v (:alert-threshold monitor))\n"
+             "            (log-alert! \"High temp\" v t)))))))\n\n"
+             ";; The interpreter reads from the stream\n"
+             ";; The stream is just a flow of datoms"]]]
+          [:p
+           "The protocol layer doesn't know about subscriptions, buffers, or replay. Those are interpreter concerns."]
+          [:p
+           "This is the "
+           [:strong "end-to-end principle"]
+           ": intelligence at the edges, simple forwarding in the middle."]
+
+          [:h2 "The Fundamental Difference: Protocol-Defined State vs Interpreter-Defined State"]
+          [:p
+           "The most important architectural difference between 9P and DaoStream isn't the number of message types or the wire format. "
+           "It's "
+           [:strong "who defines state transition semantics"]
+           "."]
+
+          [:h3 "9P: Protocol Defines State Transitions"]
+          [:p
+           "9P "
+           [:strong "bakes state transition semantics into the protocol"]
+           ". The protocol specifies exactly how servers must maintain state about every client connection:"]
+          [:ul.bulleted
+           [:li
+            [:strong "File identifiers (fids)"]
+            " — When a client opens " [:code "/proc/123/status"] ", the server allocates a fid (file ID) "
+            "and tracks which client owns it. The fid is just a number; the server must remember what it refers to."]
+           [:li
+            [:strong "Seek positions"]
+            " — If a client reads 100 bytes, then reads again, the server must remember the offset. "
+            "The client doesn't tell the server \"read from byte 100.\" It says \"read next,\" and the server maintains cursor state."]
+           [:li
+            [:strong "Open file table"]
+            " — The server tracks which files each client has open, their read/write modes, and their access permissions."]
+           [:li
+            [:strong "Authentication context"]
+            " — After " [:code "Tauth"] "/" [:code "Tattach"] ", the server remembers who the client is "
+            "and what they're allowed to access."]]
+          [:p
+           [:strong "The protocol defines expected state transition semantics"]
+           ". "
+           "Clients send " [:code "Twalk"] ", " [:code "Topen"] ", " [:code "Tread"] " messages expecting the server to maintain fids, offsets, and authentication context. "
+           "A server could ignore these semantics, but then it breaks client expectations—clients won't work correctly. "
+           "If the server crashes, all client state is lost. "
+           "If a client migrates to a different network, it can't resume—it must re-authenticate, re-open files, and re-establish position."]
+          [:p
+           "To meet client expectations, 9P servers implement explicit lifecycle management:"]
+          [:ul.bulleted
+           [:li [:code "Tclunk"] " messages to close files and free fids"]
+           [:li "Timeouts to detect dead clients and clean up their state"]
+           [:li "Reference counting to prevent resource leaks"]
+           [:li [:code "Tflush"] " to cancel operations and clean up partial state"]]
+          [:p
+           [:strong "The protocol embeds state transition semantics in the message types"]
+           ". "
+           "Even if you're building a synthetic filesystem with different semantics, "
+           "clients sending 9P messages expect fid-based state management, offset tracking, and lifecycle operations. "
+           "You cannot choose different state transition semantics without breaking compatibility with 9P clients."]
+
+          [:h3 "DaoStream: No Protocol-Level State Semantics"]
+          [:p
+           "DaoStream takes a radically different approach: "
+           [:strong "the protocol has no state transition semantics"]
+           ". "
+           "It just forwards datoms to streams. "
+           [:strong "Interpreters at the edges define their own state models"]
+           "."]
+          [:p "Here's how it works:"]
+          [:p [:strong "The network layer just forwards datoms to streams:"]]
+          [:div.code-block
+           [:pre
+            [:code
+             ";; The network has NO state about clients\n"
+             "(defn forward-datom [packet]\n"
+             "  (let [stream-id (:stream-id packet)\n"
+             "        datom (:datom packet)]\n"
+             "    ;; Just append to the stream\n"
+             "    (append-to-stream stream-id datom)))\n\n"
+             ";; No fids. No authentication context. No seek positions.\n"
+             ";; Just: \"Here's a datom for stream X. Forward it.\""]]]
+          [:p
+           "The network doesn't know or care who sent the datom, whether there are subscribers, or what position they're at. "
+           "It just forwards datoms to streams."]
+          [:p [:strong "The interpreter opens a stream and processes datoms:"]]
+          [:div.code-block
+           [:pre
+            [:code
+             "(ns interpreter.database\n"
+             "  (:require [daostream.core :as stream]\n"
+             "            [datomic.api :as d]))\n\n"
+             "(defrecord DatabaseLogger [conn])\n\n"
+             "(defn run [logger stream-path]\n"
+             "  (let [s (stream/open stream-path)]\n"
+             "    ;; Read datoms from the stream\n"
+             "    (doseq [datom (stream/read s)]\n"
+             "      (let [[entity attr value time metadata] datom]\n"
+             "        ;; Interpreter chooses how to handle each datom\n"
+             "        (case attr\n"
+             "          :temperature\n"
+             "          (d/transact! (:conn logger)\n"
+             "                       [{:db/id entity\n"
+             "                         :sensor/temperature value\n"
+             "                         :sensor/timestamp time\n"
+             "                         :sensor/location (:location metadata)}])\n\n"
+             "          :pressure\n"
+             "          (d/transact! (:conn logger)\n"
+             "                       [{:db/id entity\n"
+             "                         :sensor/pressure value\n"
+             "                         :sensor/timestamp time}]))))))\n\n"
+             ";; State lives HERE, in the interpreter, not in the protocol\n"
+             ";; The interpreter opens, reads, and processes"]]]
+          [:p "This is a profound difference:"]
+          [:ul.bulleted
+           [:li
+            [:strong "No protocol-mandated state transitions"]
+            " — The protocol doesn't say \"you must track subscribers\" or \"you must maintain positions.\" "
+            "The interpreter "
+            [:em "chooses"]
+            " to track these because it's useful for this use case. "
+            "A different interpreter might not."]
+           [:li
+            [:strong "State model is interpreter-specific"]
+            " — When a client sends "
+            [:code "[:client :subscribe stream-id (now) {:from 1000}]"]
+            ", the "
+            [:code "{:from 1000}"]
+            " is just metadata. "
+            "The interpreter decides what it means. One interpreter might replay from position 1000. "
+            "Another might ignore it and send only new datoms. The protocol doesn't care."]
+           [:li
+            [:strong "No protocol-level handles"]
+            " — There are no fids that the protocol tracks. "
+            "Stream IDs are content-addressed hashes, but they're just routing keys. "
+            "The network layer doesn't maintain any association between clients and streams."]
+           [:li
+            [:strong "Cleanup is interpreter concern"]
+            " — There's no " [:code "Tclunk"] " equivalent. "
+            "If an interpreter wants to time out inactive subscriptions, it can. If another interpreter wants to keep them forever, it can. "
+            "The protocol doesn't mandate lifecycle management."]]
+
+          [:h3 "Why This Matters"]
+          [:p
+           [:strong "9P's protocol-defined state creates fundamental constraints:"]]
+          [:ul.bulleted
+           [:li
+            [:strong "Single state model"]
+            " — Every 9P server must implement the same state semantics: fids, offsets, authentication. "
+            "You can't choose a different model better suited to your use case."]
+           [:li
+            [:strong "Protocol complexity bleeds everywhere"]
+            " — Because the protocol mandates state transitions, every implementation must handle "
+            [:code "Tclunk"]
+            ", "
+            [:code "Tflush"]
+            ", timeouts, reference counting. This complexity is unavoidable."]
+           [:li
+            [:strong "Hard to evolve"]
+            " — Want different semantics? You need a new protocol version or extension. "
+            "The state machine is baked into the wire format."]
+           [:li
+            [:strong "Centralization pressure"]
+            " — Because the protocol defines client-server state relationships, "
+            "it naturally leads to centralized servers. Peer-to-peer or mesh topologies are awkward."]]
+          [:p
+           [:strong "DaoStream's interpreter-defined state provides freedom:"]]
+          [:ul.bulleted
+           [:li
+            [:strong "Multiple state models coexist"]
+            " — One interpreter tracks subscribers and replays history. "
+            "Another is stateless and just forwards. "
+            "A third implements CRDT merge semantics. "
+            "They all use the same protocol."]
+           [:li
+            [:strong "Protocol stays simple"]
+            " — No " [:code "Tclunk"] ", no " [:code "Tflush"] ", no mandatory lifecycle. "
+            "Just: forward datoms to streams. Interpreters handle complexity appropriate to their needs."]
+           [:li
+            [:strong "Easy to evolve"]
+            " — Want new semantics? Write a new interpreter. "
+            "The protocol doesn't change. Old interpreters keep working."]
+           [:li
+            [:strong "Natural distribution"]
+            " — Because the protocol doesn't assume client-server state, "
+            "peer-to-peer, mesh networks, and mobile agents work naturally. "
+            "Interpreters can run anywhere."]]
+
+          [:h2 "Why This Works Better"]
+          [:h3 "9P's Challenge"]
+          [:p "Beyond the stateful protocol burden, 9P had to emulate POSIX semantics:"]
+          [:ul.bulleted
+           [:li "Hierarchical paths → complex " [:code "Twalk"] " with multiple hops"]
+           [:li "File handles (fids) → server must track open files per client"]
+           [:li "Seek positions → server maintains offset state"]
+           [:li "Permissions → authentication and authorization in protocol"]
+           [:li "Cleanup → explicit " [:code "Tclunk"] ", timeout handling"]]
+          [:p "All this state management made 9P servers complex and added failure modes."]
+
+          [:h3 "DaoStream's Simplicity"]
+          [:p "DaoStream datoms are self-contained:"]
+          [:ul.bulleted
+           [:li [:strong "Stream addressing"] " → flat hash, simple lookup"]
+           [:li [:strong "No handles"] " → datoms flow, no server-side tracking needed"]
+           [:li [:strong "Position in metadata"] " → client says " [:code "{:from 1000}"] ", interpreter handles it"]
+           [:li [:strong "Auth/encryption at transport"] " → WireGuard-style security layer, orthogonal to datom protocol, no protocol overhead"]
+           [:li [:strong "Cleanup"] " → stateless, no explicit teardown needed"]]
+          [:p "The protocol stays simple. Complexity moves to interpreters, where it can be:"]
+          [:ul.bulleted
+           [:li [:strong "Pluggable"] " (different interpreters for different needs)"]
+           [:li [:strong "Testable"] " (no network state to mock)"]
+           [:li [:strong "Evolvable"] " (update interpreters without changing protocol)"]]
+
+          [:h2 "Reliability, Ordering, and Persistence as Libraries"]
+          [:p
+           "Here's where DaoStream's approach becomes truly elegant: "
+           [:strong "reliability, ordering, and persistence are not protocol concerns—they're composable libraries"]
+           ". "
+           "This is only possible because DaoStream runs over UDP, not TCP. "
+           "For why TCP's baked-in semantics would prevent this design, see "
+           [:a {:href "/blog/why-udp-not-tcp.blog"} "Why TCP Is Too Semantic for Datom.world"] "."]
+          [:p
+           "In TCP, reliability is baked into the protocol. You can't opt out. "
+           "In 9P, ordering and fid management are protocol requirements. Every implementation must handle them."]
+          [:p
+           "DaoStream pushes these concerns outside the protocol and into "
+           [:strong "libraries that interpreters can choose to use"]
+           ". And because these libraries themselves expose the stream interface, they compose naturally:"]
+          [:div.code-block
+           [:pre
+            [:code
+             "(ns app.reliable-sensor\n"
+             "  (:require [daostream.core :as stream]\n"
+             "            [daostream.reliable :as reliable]\n"
+             "            [daostream.ordered :as ordered]\n"
+             "            [daostream.persistent :as persistent]))\n\n"
+             ";; Open the raw stream\n"
+             "(def raw-stream (stream/open [:sensors :temperature]))\n\n"
+             ";; Wrap it with reliability (handles retransmission)\n"
+             "(def reliable-stream (reliable/wrap raw-stream {:ack-timeout 500}))\n\n"
+             ";; Wrap with ordering (buffers out-of-order packets)\n"
+             "(def ordered-stream (ordered/wrap reliable-stream {:buffer-size 100}))\n\n"
+             ";; Wrap with persistence (writes to disk)\n"
+             "(def persistent-stream (persistent/wrap ordered-stream {:path \"/data/sensors\"}))\n\n"
+             ";; Now read from the composed stream\n"
+             "(doseq [datom (stream/read persistent-stream)]\n"
+             "  (process-datom datom))"]]]
+          [:p
+           "Each library is just a stream transformer: it takes a stream, adds behavior, and returns a stream. "
+           "The application code doesn't change—it's still " [:code "open/read/write/close"] "."]
+          [:p [:strong "The key insight:"] " these are " [:em "optional"] " and " [:em "composable"] ":"]
+          [:ul.bulleted
+           [:li
+            [:strong "Sensor readings"]
+            " might skip reliability entirely—latest value wins, dropped packets don't matter"]
+           [:li
+            [:strong "Chat messages"]
+            " might use reliability + ordering, but skip persistence—messages are ephemeral"]
+           [:li
+            [:strong "Database logs"]
+            " might use all three—reliability, ordering, and persistence are critical"]
+           [:li
+            [:strong "Video streams"]
+            " might use ordered delivery but not reliability—better to skip a frame than wait for retransmission"]]
+          [:p
+           "Because these are libraries, not protocol features, you can mix and match. "
+           "You can write your own reliability layer with different semantics (e.g., forward error correction instead of retransmission). "
+           "You can implement CRDT-based eventual consistency instead of ordered delivery. "
+           [:strong "The protocol doesn't care—it just forwards datoms."]]
+          [:p
+           "This is fundamentally different from TCP or 9P, where protocol features are mandatory. "
+           "In DaoStream, every interpreter chooses the guarantees it needs, and composes libraries to get them. "
+           "The protocol stays simple. The power comes from composition at the edges."]
+
+          [:h2 "The Beautiful Parallel"]
+          [:table
+           [:thead
+            [:tr
+             [:th "Aspect"]
+             [:th "Plan 9"]
+             [:th "DaoStream"]]]
+           [:tbody
+            [:tr
+             [:td [:strong "Philosophy"]]
+             [:td "Everything is a file"]
+             [:td "Everything is a stream"]]
+            [:tr
+             [:td [:strong "API"]]
+             [:td "open/read/write/close"]
+             [:td "open/read/write/close"]]
+            [:tr
+             [:td [:strong "Protocol"]]
+             [:td "9P (13 message types)"]
+             [:td "Datom streaming (1 packet type)"]]
+            [:tr
+             [:td [:strong "State Semantics"]]
+             [:td "Protocol-defined (must implement fids, offsets)"]
+             [:td "Interpreter-defined (protocol agnostic)"]]
+            [:tr
+             [:td [:strong "Navigation"]]
+             [:td "Hierarchical (Twalk)"]
+             [:td "Flat (hash addressing)"]]
+            [:tr
+             [:td [:strong "Metadata"]]
+             [:td "In protocol (Tstat)"]
+             [:td "In datom (m field)"]]
+            [:tr
+             [:td [:strong "Auth/Encryption"]]
+             [:td "In protocol (Tauth)"]
+             [:td "Transport layer (WireGuard-style), orthogonal to protocol"]]
+            [:tr
+             [:td [:strong "Mobility"]]
+             [:td "Mount remote filesystems"]
+             [:td "Stream names as values (π-calculus)"]]]]
+          [:p
+           "We kept the elegant API, but we didn't force network communication to look like filesystem operations."]
+
+          [:h2 "Real-World Example: Stigmergy"]
+          [:p
+           "In our ant-inspired stigmergy system, ants coordinate by modifying their environment. "
+           "Here's how it works with datoms:"]
+          [:p [:strong "Ant discovers food:"]]
+          [:div.code-block
+           [:pre
+            [:code
+             "(ns stigmergy.ant\n"
+             "  (:require [daostream.core :as stream]))\n\n"
+             "(defn ant-discovers-food [ant-id location]\n"
+             "  ;; Open the pheromone trail stream\n"
+             "  (let [s (stream/open [:food-trail])]\n\n"
+             "    ;; Write pheromone datoms to the stream\n"
+             "    (stream/write s\n"
+             "                  [[ant-id :pheromone 0.9 (now)\n"
+             "                    {:location location\n"
+             "                     :food-direction :north}]])\n\n"
+             "    (stream/close s)))"]]]
+          [:p [:strong "Other ants sense and follow:"]]
+          [:div.code-block
+           [:pre
+            [:code
+             "(defn ant-listen-for-discoveries [self-id]\n"
+             "  ;; Open the food trail stream\n"
+             "  (let [s (stream/open [:food-trail])]\n\n"
+             "    ;; Read datoms from the stream\n"
+             "    (doseq [datom (stream/read s)]\n"
+             "      (let [[e a v t m] datom]\n"
+             "        (when (= a :pheromone)\n"
+             "          ;; Found a pheromone!\n"
+             "          (when (> v 0.5)  ;; strength threshold\n"
+             "            (move-toward (:location m))\n"
+             "            \n"
+             "            ;; Leave our own pheromone\n"
+             "            (let [my-stream (stream/open [:food-trail])]\n"
+             "              (stream/write my-stream\n"
+             "                            [[self-id :pheromone (* v 0.9) (now)\n"
+             "                              {:location (current-location)\n"
+             "                               :food-direction (:food-direction m)}]])\n"
+             "              (stream/close my-stream))))))))"]]]
+          [:p
+           "This is "
+           [:strong "π-calculus mobility"]
+           ": channels (streams) as first-class values that can be passed in messages. "
+           "It's what makes dynamic topology possible."]
+          [:p
+           "This is π-calculus in action: "
+           [:strong "the very topology of communication evolves at runtime"]
+           ". Agents don't need to know all possible streams at start time—they discover streams dynamically through communication itself. "
+           "When an ant finds food, it doesn't just send data about the food—it implicitly shares the "
+           [:code "[:food-trail]"]
+           " stream by writing to it, and other ants discover this stream by observing pheromone datoms. "
+           "The network topology adapts organically as agents learn about new communication channels from the messages themselves."]
+          [:p
+           "Try doing this cleanly in 9P. It's awkward—9P wasn't designed for mobile channel references."]
+
+          [:h2 "A More Complete Example"]
+          [:p "Here's how you might use DaoStream's API in Clojure:"]
+          [:div.code-block
+           [:pre
+            [:code
+             "(ns datom.examples\n"
+             "  (:require [daostream.core :as stream]))\n\n"
+             ";; Simple publisher\n"
+             "(defn temperature-sensor []\n"
+             "  (with-open [h (stream/open [:sensors :temperature]\n"
+             "                             :write\n"
+             "                             {:create true})]\n"
+             "    (loop [temp 20.0]\n"
+             "      (stream/write h [[:sensor-1 :temperature temp (now)\n"
+             "                        {:unit \"celsius\" :location \"lab\"}]])\n"
+             "      (Thread/sleep 1000)\n"
+             "      (recur (+ temp (- (rand) 0.5))))))\n\n"
+             ";; Simple subscriber\n"
+             "(defn temperature-monitor []\n"
+             "  (with-open [h (stream/open [:sensors :temperature]\n"
+             "                             :read\n"
+             "                             {:from 0 :subscribe true})]\n"
+             "    (doseq [datom (stream/seq h)]\n"
+             "      (let [[e a v t m] datom]\n"
+             "        (println \"Temperature:\" v \"°C at\" (:location m))\n"
+             "        (when (> v 30.0)\n"
+             "          (alert! \"High temperature!\"))))))\n\n"
+             ";; Discovery and dynamic subscription\n"
+             "(defn sensor-aggregator []\n"
+             "  ;; Find all sensor streams\n"
+             "  (let [sensor-streams (stream/list [:sensors :**])]\n"
+             "    (println \"Found sensors:\" sensor-streams)\n\n"
+             "    ;; Subscribe to each one\n"
+             "    (doseq [stream-path sensor-streams]\n"
+             "      (future\n"
+             "        (with-open [h (stream/open stream-path :read {:subscribe true})]\n"
+             "          (doseq [datom (stream/seq h)]\n"
+             "            (store-to-database! datom)))))))\n\n"
+             ";; Stream name passing (π-calculus mobility)\n"
+             "(defn share-stream [announcer-id private-stream]\n"
+             "  ;; Open announcement channel\n"
+             "  (with-open [h (stream/open [:announcements] :write {})]\n"
+             "    ;; Send stream name as VALUE\n"
+             "    (stream/write h [[announcer-id :new-stream private-stream (now)\n"
+             "                      {:description \"Private sensor data\"}]])))\n\n"
+             "(defn listen-for-announcements [listener-id]\n"
+             "  (with-open [h (stream/open [:announcements] :read {:subscribe true})]\n"
+             "    (doseq [[e a v t m] (stream/seq h)]\n"
+             "      (when (= a :new-stream)\n"
+             "        (println \"Discovered new stream:\" v)\n"
+             "        ;; Now subscribe to the stream we just learned about!\n"
+             "        (future\n"
+             "          (with-open [h2 (stream/open v :read {:subscribe true})]\n"
+             "            (doseq [datom (stream/seq h2)]\n"
+             "              (process-private-data datom))))))))\n\n"
+             ";; Pheromone interpreter\n"
+             "(defn pheromone-interpreter []\n"
+             "  (let [subscribers (atom #{})\n"
+             "        pheromone-map (atom {})]\n"
+             "    (reify StreamInterpreter\n"
+             "      (process [_ datom]\n"
+             "        (let [[e a v t m] datom]\n"
+             "          (case a\n"
+             "            :subscribe\n"
+             "            (do\n"
+             "              (swap! subscribers conj e)\n"
+             "              (doseq [[location strength] @pheromone-map]\n"
+             "                (send-to e [location :pheromone strength (now) {}])))\n\n"
+             "            :pheromone\n"
+             "            (let [location (:location m)]\n"
+             "              (swap! pheromone-map assoc location v)\n"
+             "              (future\n"
+             "                (Thread/sleep 5000)\n"
+             "                (swap! pheromone-map update location * 0.8))\n"
+             "              (doseq [sub @subscribers]\n"
+             "                (send-to sub datom)))\n\n"
+             "            :unsubscribe\n"
+             "            (swap! subscribers disj e)))))))"]]]
+
+          [:h2 "When Simplicity Wins"]
+          [:p "We're building DaoStream for:"]
+          [:ul.bulleted
+           [:li [:strong "BLE mesh networks"] " (intermittent connectivity, low power)"]
+           [:li [:strong "Agent migration"] " (processes moving between devices)"]
+           [:li [:strong "Distributed stigmergy"] " (emergent coordination through environment)"]
+           [:li [:strong "Local-first systems"] " (works offline, syncs when online)"]]
+          [:p "In these environments, 9P's complexity would be a liability:"]
+          [:ul.bulleted
+           [:li "Connection state doesn't survive device migration"]
+           [:li "Hierarchical paths are awkward for flat hash addressing in mesh networks"]
+           [:li "Authentication handshakes waste precious BLE radio time"]
+           [:li "Complex cleanup is fragile when nodes crash or disconnect"]]
+          [:p "DaoStream's stateless, datom-based approach is robust by simplicity."]
+
+          [:h2 "The Lesson"]
+          [:p
+           "Plan 9 taught us that "
+           [:strong "universal interfaces are powerful"]
+           ". One API for everything is beautiful."]
+          [:p
+           "But Plan 9 also taught us that "
+           [:strong "forcing everything into one metaphor has costs"]
+           ". 9P's complexity comes from pretending network operations are filesystem operations."]
+          [:p
+           "DaoStream takes Plan 9's lesson and asks: "
+           [:strong "what if we just admit what communication actually is?"]]
+          [:ul.bulleted
+           [:li "Communication is message passing, not file I/O"]
+           [:li "Communication creates dynamic topologies, not static trees"]
+           [:li "Communication is temporal (datoms have timestamps), not just spatial"]
+           [:li "Communication needs different QoS levels, not one-size-fits-all"]]
+          [:p "By embracing these truths instead of hiding them, we get a protocol that's:"]
+          [:ul.bulleted
+           [:li [:strong "Simpler than 9P"] " (one packet type vs. 13 messages)"]
+           [:li [:strong "More capable than 9P"] " (π-calculus mobility built-in)"]
+           [:li [:strong "More robust than 9P"] " (stateless, survives disconnection)"]]
+
+          [:h2 "Everything is a Stream—Interpretation at the Edges"]
+          [:p
+           "Files are persistent, randomly accessible, hierarchically organized resources."]
+          [:p
+           "Streams are temporal, forward-progressing, dynamically discovered channels."]
+          [:p "They're different—and that's okay."]
+          [:p
+           "But here's the beauty of Datom.World: "
+           [:strong "streams can be interpreted as files if you need them to be"]
+           ". The protocol doesn't force file semantics, but it doesn't forbid them either. "
+           "An interpreter can implement seek, hierarchical navigation, and random access—all on top of the simple datom stream."]
+          [:p
+           "This is the power of "
+           [:strong "interpretation pushed to the edges"]
+           ". 9P bakes file semantics into the protocol, making it complex for everyone. "
+           "DaoStream keeps the protocol simple—just forwarding datoms—and lets interpreters add file-like behavior "
+           [:em "only where it makes sense"]
+           "."]
+          [:p
+           "Want POSIX-like file operations? Write an interpreter that maintains offsets and implements seek. "
+           "Want a time-series database? Write an interpreter that materializes aggregates in real-time—windowed averages, percentiles, rates of change. "
+           "Want stigmergic coordination? Write an interpreter that tracks pheromone trails and emergent patterns. "
+           [:strong "The protocol stays simple. The semantics emerge from interpretation."]]
+          [:p [:strong "Plan 9 showed us the power of universal interfaces."]]
+          [:p
+           [:strong "DaoStream shows us we don't need to bake semantics into protocols to achieve them."]]]]]}

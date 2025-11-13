@@ -1,0 +1,917 @@
+#:blog{:title "The Trillion-Dollar Glitch: Why Software Architecture Fails",
+       :date #inst "2025-12-18T00:00:00.000-00:00",
+       :abstract
+       [:p
+        "Software fails because it has no source of truth. "
+        [:strong "Structural decoherence"]
+        " across databases, APIs, and frontends creates a translation tax. Until we enforce architectural constraints at the execution layer, entropy wins."],
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+
+          [:p
+           "A "
+           [:a {:href "https://spectrum.ieee.org/it-management-software-failures"} "recent report by IEEE Spectrum"]
+           ", echoing a seminal 2005 investigation, highlights a staggering reality: "
+           "the global economy is losing trillions of dollars to failed IT projects. The report identifies the usual suspects: unrealistic "
+           "expectations, willful ignorance by executives, and \"bad requirements.\" It describes a \"Groundhog Day\" scenario where, "
+           "despite twenty years of better tools, we keep making the same mistakes."]
+
+          [:p
+           "But these are " [:strong "symptoms, not causes"] ". The IEEE report is descriptive. It catalogs what is failing, but "
+           "it does not explain " [:em "why"] " these patterns persist across decades, organizations, and technologies."]
+
+          [:p
+           "If unrealistic expectations were the root cause, better project management tools would have solved the problem. "
+           "If bad requirements were the issue, clearer documentation would have fixed it. "
+           "Yet the trillion-dollar leak continues."]
+
+          [:p
+           "What if \"bad management\" is downstream of a deeper structural problem? "
+           "What if the reason we cannot manage software projects is that "
+           [:strong "the fundamental physics of how we build them is broken"]
+           "?"]
+
+          [:p
+           "The issue isn't communication or discipline. "
+           "The core problem is that modern software has "
+           [:strong "no source of truth"] "."]
+
+          [:h2 "The missing wave function"]
+
+          [:p
+           "In quantum mechanics, the wave function (Ψ) describes the entire state of a system. "
+           "If you know the function, you know the probability of every measurement."]
+
+          [:p
+           "In software, we have no system wave function. Instead, we have "
+           [:strong "structural decoherence"]
+           ": multiple independent representations of reality that drift apart over time."]
+
+          [:p "Consider a standard \"User\" entity:"]
+
+          [:ul.bulleted
+           [:li [:strong "In the database:"] " It is a row in a normalized SQL table"]
+           [:li [:strong "In the API:"] " It is a JSON object"]
+           [:li [:strong "In the backend:"] " It is a Java class or Rust struct"]
+           [:li [:strong "In the frontend:"] " It is a TypeScript interface or Redux store"]]
+
+          [:p
+           "These are not four views of the same truth. They are "
+           [:strong "four independent definitions of reality"]
+           " that we manually try to glue together with ORMs, serializers, and adapters."]
+
+          [:p
+           "The \"trillion-dollar leak\" described by IEEE comes from the "
+           [:strong "translation tax"] ". Every time we move data across these boundaries, we risk losing the truth. "
+           "When the business rule changes (e.g., \"Users must have two emails\"), we have to update the logic in four different places. "
+           "If we miss one, the system fractures."]
+
+          [:p
+           "This is a profound architectural insight that cuts deeper than \"bad management.\" "
+           [:strong
+            "If the system doesn't know what is true (or worse, has multiple conflicting versions of the truth), failure isn't just a risk; it's a mathematical certainty"]
+           "."]
+
+          [:h3 "The organizational fracture: where truth fragments"]
+
+          [:p
+           "The User entity example shows the " [:em "technical"]
+           " manifestation of structural decoherence: multiple runtime representations that must stay synchronized. "
+           "But the problem extends beyond technical layers into organizational ones. "
+           "The IEEE article's failures map precisely to three distinct domains where truth fragments:"]
+
+          [:h4 "1. The data layer (state integrity)"]
+
+          [:p
+           "As systems move toward microservices and distributed architectures, we shatter the single source of truth."]
+
+          [:p
+           [:strong "The problem:"]
+           " When data replicates across caches, read-replicas, and client-side stores, where is the truth? "
+           "Is it in the Postgres database? The Redis cache? The Redux store on the user's browser?"]
+
+          [:p
+           [:strong "The failure:"]
+           " Bugs arise from state desynchronization. A user sees one balance on their phone and another on the web. "
+           "The system makes decisions based on stale data. The complexity of keeping these \"truths\" aligned (cache "
+           "invalidation, eventual consistency) consumes massive engineering effort and is a primary source of the "
+           "\"glitches\" the IEEE report describes."]
+
+          [:h4 "2. The logic layer (business rules)"]
+
+          [:p "Where do the rules of the system live?"]
+
+          [:p
+           [:strong "The problem:"]
+           " Business logic is smeared across the stack. A validation rule (e.g., \"User must be 18\") might exist "
+           "in the SQL constraint, the backend API code, and the frontend JavaScript form validation."]
+
+          [:p
+           [:strong "The failure:"]
+           " When the rule changes (e.g., \"User must be 21\"), it gets updated in two places but forgotten in the third. "
+           "The \"truth\" of the business rule is now contradictory, leading to security holes or corrupted data."]
+
+          [:h4 "3. The definition layer (requirements vs. reality)"]
+
+          [:p "This connects to the management failures the IEEE report identifies."]
+
+          [:p
+           [:strong "The problem:"]
+           " The requirements document is treated as the source of truth for what the software should do. "
+           "But documents go stale the moment coding starts."]
+
+          [:p
+           [:strong "The failure:"]
+           " The code becomes the de facto truth of how the system works, but no one reads the code except developers. "
+           "Stakeholders continue making decisions based on the \"Paper Truth\" (the outdated spec), while developers "
+           "build against the \"Code Truth.\" The software fails not because it crashed, but because it solved a problem "
+           "that no longer existed or worked in a way no one expected."]
+
+          [:p
+           "The requirements didn't fail. The physics of state propagation failed."]
+
+          [:h2 "A new physics: Datom.World"]
+
+          [:p
+           "To solve this, we don't need better Jira tickets or smarter project managers. We need a "
+           [:strong "unified source of truth"]
+           " that transcends runtime boundaries. We need to move from "
+           [:strong "place-oriented programming"]
+           " (data lives in mutable variables) to "
+           [:strong "value-oriented programming"]
+           " (data is a flow of immutable facts)."]
+
+          [:p
+           "This is what "
+           [:a {:href "/datomworld.chp"} "Datom.World"]
+           " provides: a platform where structural decoherence becomes physically impossible."]
+
+          [:p
+           "How does Datom.World make structural decoherence physically impossible? "
+           "By introducing a single source of truth that all systems read from: the datom stream."]
+
+          [:h2 "The datom stream is the wave function"]
+
+          [:p
+           "The wave function is the complete description of a system's state. "
+           "It's a single source from which all measurements derive."]
+
+          [:p
+           "In Datom.World, "
+           [:strong "the immutable datom stream is the system wave function"]
+           ". It is the complete, canonical description of all facts that have ever existed in the system."]
+
+          [:p "As the system's wave function, the datom stream has unique properties:"]
+
+          [:ul.bulleted
+           [:li
+            [:strong "Complete history:"]
+            " Every datom ever appended is preserved. The stream contains not just the current state, but "
+            "the entire causal history of how that state came to be."]
+           [:li
+            [:strong "Deterministic measurement:"]
+            " Any \"measurement\" (query) of the system state is a pure function of the stream. "
+            "Given the same stream, you always get the same result."]
+           [:li
+            [:strong "No hidden state:"]
+            " There is no information about the system that exists outside the stream. No cached values, "
+            "no replica inconsistencies, no \"unknown unknowns.\""]
+           [:li
+            [:strong "Queryable at any point:"]
+            " The datom stream can be queried for any fact, at any time, from any perspective."]]
+
+          [:p
+           "The four-layer problem (database, API, backend, frontend) can now dissolve. "
+           "Instead of four independent sources of truth that must be kept synchronized, there is "
+           [:strong "one source of truth"]
+           " (the datom stream) and four "
+           [:strong "interpreters"]
+           " that transform it into different views. We'll see exactly how this works below."]
+
+          [:p
+           "This is not a metaphor. It is a precise structural correspondence:"]
+
+          [:table
+           [:thead
+            [:tr
+             [:th "Quantum Mechanics"]
+             [:th "Datom.World"]]]
+           [:tbody
+            [:tr
+             [:td "Wave function Ψ"]
+             [:td "Datom stream"]]
+            [:tr
+             [:td "Complete state description"]
+             [:td "All facts ever asserted"]]
+            [:tr
+             [:td "Measurement operator"]
+             [:td "Interpreter (query, transducer, continuation)"]]
+            [:tr
+             [:td "Collapse to observable"]
+             [:td "Materialized view (any transformation of the stream)"]]
+            [:tr
+             [:td "Multiple observers"]
+             [:td "Multiple interpreters (DaoDB, frontend, backend, analytics)"]]
+            [:tr
+             [:td "Observer-independent reality"]
+             [:td "Immutable facts independent of interpretation"]]]]
+
+          [:p
+           "When an interpreter consumes the datom stream, it is performing a measurement. The interpreter transforms "
+           "the complete history into a specific view: a database index, a UI component, an API response, an execution trace. "
+           "Interpretation produces a particular observable structure, but the stream itself remains unchanged and complete."]
+
+          [:p
+           "DaoDB is just one such interpreter. It materializes queryable indexes from the stream, and then Datalog queries "
+           "run against those indexes. But the frontend (DaoFlow), the backend (Yin.VM continuations), and analytics pipelines "
+           "are all equally valid interpreters, each transforming the same stream into their own specialized data structures."]
+
+          [:h3 "1. Everything is a stream"]
+
+          [:p
+           "The foundational axiom: "
+           [:strong "everything is a stream of datoms"]
+           ". A datom is an immutable fact represented as "
+           [:code "[e a v t m]"]
+           " (entity, attribute, value, time, metadata)."]
+
+          [:p
+           "Instead of overwriting a database row (destroying history), we append a datom. "
+           "The \"database\" is no longer a bucket; it is a log. This provides the \"physics\" of the universe: an "
+           "immutable record of everything that has ever happened."]
+
+          [:p
+           "Code, data, state changes, execution traces: all are append-only logs of datoms. "
+           "This gives us total auditability (nothing deleted, perfect history), time travel (query any past state), "
+           "and a unified data model. Everything (messages, files, databases, APIs) collapses into a single primitive: the stream."]
+
+          [:p
+           [:strong "This solves structural decoherence"]
+           ": there are no longer four independent definitions of a User across database, API, backend, and frontend. "
+           "There is only one definition: the stream of datoms about that User entity. Each layer is merely an "
+           [:em "interpreter"]
+           " of the same immutable facts."]
+
+          [:h4 "The power of restriction"]
+
+          [:p
+           "Fixing all information into a five-element tuple eliminates the translation tax entirely. "
+           "When every system agrees on the same structural shape, there is no negotiation, no schema discovery, "
+           "no version-specific adapters. The uniform structure makes composition effortless and semantic evolution natural."]
+
+          [:p
+           [:a {:href "/blog/power-of-restriction-datom-tuple.blog"} "Restriction becomes power"]
+           ": a smaller tuple opens a larger world."]
+
+          [:h3 "2. Everything is a continuation"]
+
+          [:p
+           "If streams are how data flows, continuations are how computation flows. Every running process is a "
+           [:strong "continuation"]
+           ": a serializable snapshot that can pause, migrate, and resume anywhere."]
+
+          [:p
+           "The backend, the frontend, and the analytics engine are simply "
+           [:strong "continuations"]
+           " running over the same datom stream. They consume the same datoms and \"collapse\" them into the state they need "
+           "(a UI view, an invoice, a report). Because they all derive state from the same immutable stream using "
+           "deterministic functions, they cannot be out of sync."]
+
+          [:p
+           "Built on "
+           [:a {:href "/yin.chp"} "Yin.VM"]
+           ", a CESK machine (Control, Environment, Store, Continuation), your code becomes portable and secure. "
+           "Start on your phone, continue on an edge server, finish on a GPU cluster. "
+           "In a standard runtime (like the JVM), the state is hidden in registers and heaps. "
+           "In a CESK machine, the state is a visible, immutable data structure."]
+
+          [:h3 "3. Interpretation creates meaning"]
+
+          [:p
+           [:strong "Meaning only emerges through interpretation"]
+           ". Data is just syntax; semantics are created when an interpreter observes and acts on it."]
+
+          [:p
+           "This separation of structure from semantics is what enables the datom model to work. "
+           "Because all interpreters consume the same uniform stream, they can evolve independently without coordination. "
+           "This enables semantic evolution (new interpreters don't break old ones), multiple perspectives "
+           "(different teams interpret the same stream differently), and AI collaboration (agents evolve their "
+           "understanding without rigid schemas)."]
+
+          [:h3 "4. The universal AST is canonical code"]
+
+          [:p
+           "The "
+           [:strong "Universal Abstract Syntax Tree (AST) is the canonical representation of code"]
+           ". But unlike traditional ASTs stored as tree structures scattered across the heap, "
+           [:strong "the AST itself is expressed as datoms"]
+           ". Code and data are literally the same thing: streams of datoms."]
+
+          [:p
+           "This means the entire system (from database schema to frontend rendering to program execution) is expressed "
+           "in a single, uniform, queryable fabric. Syntax becomes a rendering preference, compilation becomes a query, "
+           "and the translation tax disappears even at the code level."]
+
+          [:p
+           "Learn more: "
+           [:a {:href "/blog/universal-ast-vs-assembly.blog"} "Universal AST vs Assembly"]
+           ", "
+           [:a {:href "/blog/ast-datom-streams-bytecode-performance.blog"} "AST Datom Streams"]
+           ", and "
+           [:a {:href "/blog/datalog-compiler-infrastructure.blog"} "Datalog as Compiler Infrastructure"]
+           "."]
+
+          [:p
+           "These four concepts work together to eliminate the runtime fragmentation we diagnosed earlier. "
+           "Let's see concretely how the User entity problem is solved."]
+
+          [:h2 "Solving the runtime fragmentation problem"]
+
+          [:p "Recall the User entity scattered across multiple runtime representations (database, API, backend, frontend). In the Datom.World model:"]
+
+          [:ol
+           [:li
+            [:strong "The stream contains the facts:"]
+            " "
+            [:code "[user-123 :user/email \"alice@example.com\" tx-1 {}]"]
+            ", "
+            [:code "[user-123 :user/name \"Alice\" tx-1 {}]"]]
+           [:li
+            [:strong "DaoDB materializes an index:"]
+            " The database is just a queryable view over the stream, built by "
+            [:a {:href "/dao-db.chp"} "DaoDB"]
+            ". It doesn't \"store\" the user. It indexes datoms for fast queries."]
+           [:li
+            [:strong "The API streams datoms:"]
+            " Instead of serializing to JSON, the API uses "
+            [:a {:href "/dao-stream.chp"} "DaoStream"]
+            " to send the raw datom stream. No translation layer."]
+           [:li
+            [:strong "The backend is a continuation:"]
+            " Business logic runs as a continuation in Yin.VM, consuming datoms and producing new datoms. "
+            "Its state is explicit and serializable."]
+           [:li
+            [:strong "The frontend is also a continuation:"]
+            " Using "
+            [:a {:href "/dao-flow.chp"} "DaoFlow"]
+            ", the UI renders by interpreting the datom stream as a continuation that can pause and resume. "
+            "You can use React with Reagent, or any rendering approach. The frontend consumes the stream and materializes views. "
+            "No separate TypeScript interface, just interpreters over the stream."]]
+
+          [:p
+           "When requirements evolve, you don't migrate the data. You evolve the interpreters. "
+           "If \"Users must have two emails\" changes to \"Users can have many emails,\" the schema shifts from "
+           "a scalar attribute to a one-to-many relationship. Old interpreters ignore the new relationship datoms. "
+           "New interpreters understand them. "
+           [:strong "Interpreters themselves can be upgraded like data by asserting AST datoms"]
+           ". You insert code (as datoms) into the stream that teaches old interpreters the new schema. "
+           "No migration scripts. No API versioning. No coordinated deploys. "
+           "The stream accumulates both facts and the code to interpret them."]
+
+          [:p
+           [:strong "The translation tax disappears"]
+           " because there is nothing to translate. The runtime representations don't have separate definitions. They "
+           "have separate " [:em "interpretations"] " of the same immutable facts."]
+
+          [:p
+           "Runtime fragmentation solved. But recall the organizational fracture: "
+           "the three domains where truth fragments at the process level (data, logic, definition). "
+           "The same interpreter model solves these as well."]
+
+          [:h2 "Solving the organizational fracture"]
+
+          [:p "The organizational domains where truth fragments also collapse into interpreters:"]
+
+          [:h4 "1. Data layer (state integrity)"]
+
+          [:p
+           [:strong "The problem solved:"]
+           " The data layer itself is a datom stream. "
+           "All state (Postgres cache, Redis replica, Redux store) becomes "
+           [:em "interpreters"]
+           " materializing views of the same underlying stream of facts."]
+
+          [:p
+           "When DaoDB indexes the stream and the frontend queries it, they cannot be out of sync. They're "
+           "both pure functions of the same append-only log. Cache invalidation becomes trivial: re-query the stream."]
+
+          [:h4 "2. Logic layer (business rules)"]
+
+          [:p
+           [:strong "The problem solved:"]
+           " Business logic runs as continuations, and continuations themselves are expressed as datom streams. "
+           "A validation rule is a continuation that consumes datoms, produces new datoms, and whose execution state is itself datoms."]
+
+          [:p
+           "When the rule changes from \"User must be 18\" to \"User must be 21,\" you don't update SQL constraints, "
+           "backend code, and frontend validation separately. You assert new AST datoms that define the updated continuation. "
+           "The rule exists in one place: as datoms in the stream."]
+
+          [:h4 "3. Definition layer (requirements vs. reality)"]
+
+          [:p
+           [:strong "The problem partially addressed:"]
+           " Because code is expressed as datoms (the Universal AST), the implementation itself becomes queryable. "
+           "Stakeholders can query what the system actually does, not just what documentation says it should do."]
+
+          [:p
+           "Translating prose requirements into executable code remains a human activity. But the "
+           [:a {:href "/blog/power-of-restriction-datom-tuple.blog"} "restriction principle"]
+           " suggests that translating requirements into AST datoms is fundamentally easier than translating into Java, Python, or JavaScript."]
+
+          [:p "Why? Because the target is smaller:"]
+
+          [:ul.bulleted
+           [:li
+            [:strong "Fixed structure:"]
+            " Every AST node is expressed as "
+            [:code "[entity attribute value time metadata]"]
+            ". An LLM generating datoms searches a constrained space, not the vast syntactic surface of traditional languages."]
+           [:li
+            [:strong "No syntactic variation:"]
+            " The same semantic intent always maps to the same datom structure. "
+            "The LLM doesn't need to choose between "
+            [:code "for (int i = 0; i < n; i++)"]
+            " vs "
+            [:code "for i in range(n):"]
+            " vs "
+            [:code "(0..n).each"]
+            ". Restriction eliminates ambiguity."]
+           [:li
+            [:strong "Compositional guarantees:"]
+            " Malformed AST compositions are structurally impossible. You can't have dangling references in a well-formed datom graph. "
+            "The five-element constraint enforces well-formedness."]
+           [:li
+            [:strong "Semantic focus:"]
+            " When generating Python, an LLM must simultaneously handle indentation, syntax rules, library APIs, idioms, and edge cases. "
+            "When generating AST datoms, it focuses purely on semantic relationships expressed through entity-attribute-value triples."]]
+
+          [:p
+           "The requirements vs. reality gap doesn't disappear, but it "
+           [:strong "narrows"]
+           " because LLMs can more accurately translate natural language requirements into datoms than into Java or Python. "
+           "The restricted target means fewer translation errors, not easier human review."]
+
+          [:p
+           "What Datom.World provides is a queryable, auditable record of what the code actually implements. "
+           "The same data available to interpreters and compilers at runtime is available to humans through Datalog queries. "
+           "This makes the gap visible rather than hidden, "
+           [:em "and"]
+           " the restricted target representation makes LLM-assisted translation from requirements more tractable."]
+
+          [:h2 "Time travel debugging by default"]
+
+          [:p
+           "The most expensive part of software failure is the \"unknown unknown\": the bug that cannot be reproduced."]
+
+          [:p
+           "In the IEEE report, failures are often catastrophic and mysterious. Engineers dig through logs, "
+           "trying to reconstruct what happened from incomplete traces. It's detective work: piecing together "
+           "clues from fragments."]
+
+          [:p
+           "In the Yin.VM/Datom model, failures are deterministic. Because the system is a pure function of "
+           "the datom stream, every execution is perfectly reproducible."]
+
+          [:p
+           "If the system crashes at step 1,000,000:"]
+
+          [:ol
+           [:li "We rewind the stream to any previous point"]
+           [:li "We replay the CESK transition function deterministically"]
+           [:li "We query the exact state difference between step 999,999 and step 1,000,000"]
+           [:li "We see precisely which invariant broke and why"]]
+
+          [:p
+           "We don't guess from logs. We don't reconstruct from memory dumps. We "
+           [:strong "rewind and replay"]
+           " the exact sequence of immutable facts that led to the failure. "
+           "The datom stream is a complete recording of everything that happened."]
+
+          [:h2 "Entropy is not a bug, it is a law"]
+
+          [:p
+           "The datom stream solves structural decoherence: the translation tax that causes the trillion-dollar leak. "
+           "But solving the physics of state propagation doesn't eliminate all architectural challenges."]
+
+          [:p
+           "Even with the right physics, architectural constraints still face a fundamental challenge: "
+           [:strong "pressure always finds the cheapest path"] "."]
+
+          [:p "As code evolves:"]
+
+          [:ul.bulleted
+           [:li "requirements change"]
+           [:li "teams grow and rotate"]
+           [:li "timelines compress"]
+           [:li "knowledge fragments"]]
+
+          [:p
+           "Entropy increases not because of bad intent, but because "
+           [:strong "change has a cost"] "."]
+
+          [:p "The question is not whether entropy increases, but " [:strong "where"] " it increases."]
+
+          [:p
+           "Just as biological systems maintain internal order while increasing entropy in their environment, "
+           [:a {:href "/blog/code-entropy-evolution.blog"} "good code distributes complexity outward"]
+           " (more modules, more nodes) while keeping each module internally coherent. "
+           "System-level entropy increases (more parts, more distribution), but module-level entropy stays low (each piece remains organized)."]
+
+          [:p
+           "Bad architectures concentrate entropy internally: tangled coupling, shared mutable state, unpredictable interactions. "
+           "The result is rigidity. Changes cascade unpredictably because the disorder lives "
+           [:em "inside"]
+           " the components."]
+
+          [:p
+           "Good architectures push entropy to the boundaries: more distributed nodes, explicit message passing, immutable streams. "
+           "The system topology becomes more complex (higher system entropy), but each node stays simple (lower local entropy). "
+           "The result is malleability. Changes are local because the disorder lives in the "
+           [:em "structure"]
+           " of the network, not within the nodes."]
+
+          [:p
+           "No developer writes bad code on purpose. But the path to high-entropy code is easier than the path to low-entropy code. "
+           "Without structural constraints, systems naturally drift toward disorder simply because there are more ways to be disorganized than organized."]
+
+          [:p
+           "Architectures that survive long-term are not those that " [:em "ask"]
+           " developers to take the harder path, but those that "
+           [:strong "make the correct path the easiest path"] "."]
+
+          [:p "This is the distinction that matters."]
+
+          [:h2 "Case study: Why Polylith will decay"]
+
+          [:p
+           "To illustrate the difference between physics-enforced and policy-enforced constraints, "
+           "consider Polylith: a well-designed architectural pattern that nonetheless faces the same "
+           "entropy problem as traditional layered architectures."]
+
+          [:p
+           "Polylith is a good idea. It exists for the same reason many architectural patterns exist: "
+           "to slow the natural accumulation of entropy in growing codebases."]
+
+          [:p
+           "But slowing entropy is not the same as stopping it. "
+           "And Polylith cannot stop it because it cannot be " [:em "enforced"] "."]
+
+          [:h3 "What Polylith gets right"]
+
+          [:p "Polylith recognizes several truths that many architectures ignore:"]
+
+          [:ul.bulleted
+           [:li "Unbounded coupling is the fastest path to entropy"]
+           [:li "Reuse must not imply shared ownership"]
+           [:li "Composition should be explicit"]
+           [:li "Dependencies should be directional"]]
+
+          [:p "By separating:"]
+
+          [:ul.bulleted
+           [:li [:em "components"] " (reusable units)"]
+           [:li [:em "bases"] " (applications)"]
+           [:li [:em "projects"] " (shared contexts)"]]
+
+          [:p
+           "Polylith attempts to " [:strong "localize change"]
+           " and prevent global entanglement."]
+
+          [:p "At the conceptual level, this is correct."]
+
+          [:h3 "Where Polylith fails: three fundamental problems"]
+
+          [:p
+           "Beyond the enforcement problem, Polylith faces three structural challenges that reveal why "
+           "policy-based constraints cannot match physics-based ones. Each represents a domain where Polylith "
+           "adds complexity to manage problems that stream-based systems eliminate entirely."]
+
+          [:h4 "1. The problem of coupling (interfaces vs. interpreters)"]
+
+          [:p
+           [:strong "Polylith's approach:"]
+           " Polylith fights coupling by enforcing strict interfaces. Brick A cannot talk to Brick B unless it goes through "
+           [:code "interface.clj"]
+           ". This is " [:em "syntactic decoupling"] ". You are still mentally binding \"Caller\" to \"Callee.\""]
+
+          [:p
+           [:strong "Datom.World's simplification:"]
+           " It introduces " [:em "semantic decoupling"] ". You don't call a function; you emit a datom stream."]
+
+          [:p
+           "Instead of "
+           [:code "UserComponent"]
+           " calling "
+           [:code "EmailComponent.send()"]
+           ", the "
+           [:code "UserComponent"]
+           " emits a fact: "
+           [:code "[:user/registered \"bob\"]"]
+           "."]
+
+          [:p
+           "The "
+           [:code "EmailInterpreter"]
+           " (which might live in a Polylith component) observes the stream, sees the fact, and interprets it as a command to send an email."]
+
+          [:p
+           [:strong "Result:"]
+           " The \"Caller\" doesn't know the \"Interpreter\" exists. The coupling is strictly to the "
+           [:em "data schema"]
+           ", not the "
+           [:em "code signature"]
+           "."]
+
+          [:h4 "2. The problem of boundaries (microservices vs. continuations)"]
+
+          [:p
+           [:strong "Polylith's approach:"]
+           " Polylith spends significant energy defining \"Bases\" to wrap code into artifacts (JARs, Lambdas) to create network boundaries. "
+           "It assumes the network is a cliff you have to build bridges over."]
+
+          [:p
+           [:strong "Datom.World's simplification:"]
+           " It uses continuations. Since the computing model is \"Interpreters processing streams,\" the code state is portable."]
+
+          [:p
+           "A stream of datoms can flow from a client (Interpreter A) to a server (Interpreter B) transparently. "
+           "You don't need complex Polylith logic to \"expose\" a component over HTTP. The stream "
+           [:em "is"]
+           " the API."]
+
+          [:p
+           [:strong "Result:"]
+           " The boundary dissolves because the data flow is uniform regardless of location. "
+           "Network topology becomes a deployment detail, not an architectural constraint."]
+
+          [:h4 "3. The problem of logic (functions vs. rules)"]
+
+          [:p
+           [:strong "Polylith's approach:"]
+           " Inside a Polylith brick, you typically write standard imperative or functional code (A calls B calls C). "
+           "As logic grows, the call graph gets messy, requiring more Polylith bricks to split it up."]
+
+          [:p
+           [:strong "Datom.World's simplification:"]
+           " Computation is framed as interpretation."]
+
+          [:p
+           "You don't write a sprawling "
+           [:code "process-order"]
+           " function. You write an interpreter (perhaps using Datalog rules or transducers) that transforms a stream of "
+           [:code "[:order/placed]"]
+           " datoms into "
+           [:code "[:inventory/reserved]"]
+           " datoms."]
+
+          [:p
+           [:strong "Result:"]
+           " The logic is flattened. It's just \"Data In → Interpreter → Data Out\". This removes the cyclomatic complexity "
+           "that necessitates Polylith's extreme modularity in the first place."]
+
+          [:h3 "Coexistence: Polylith as an interpreter container"]
+
+          [:p
+           "This analysis doesn't mean Polylith is incompatible with Datom.World. You can validly use Polylith to "
+           [:em "house"]
+           " your Datom.World interpreters:"]
+
+          [:ul.bulleted
+           [:li
+            [:code "bases/"]
+            ": Defines the runtime nodes (e.g., a Browser Node, a Server Node)"]
+           [:li
+            [:code "components/"]
+            ": Defines the interpreters"
+            [:ul.bulleted
+             [:li
+              [:code "components/order-interpreter"]
+              ": Reacts to order streams"]
+             [:li
+              [:code "components/ui-interpreter"]
+              ": Reacts to state streams to render HTML (DaoFlow)"]]]]
+
+          [:p
+           "The simplification: If you use Datom.World, your Polylith structure becomes incredibly boring. "
+           "You don't need complex interface hierarchies or dependency injection frameworks. You just have a collection "
+           "of interpreters listening to the same \"World\" of streams."]
+
+          [:p
+           "The overhead of Polylith (the tooling, the structure, the interface definitions) vanishes because the "
+           "complexity of coordination has been moved out of the file structure and into the stream. "
+           "Polylith becomes a simple organizational convention rather than a load-bearing architectural framework."]
+
+          [:h3 "Where Polylith fails: enforcement"]
+
+          [:p
+           "But even when used to organize interpreters, Polylith's fundamental weakness remains. "
+           "It enforces its constraints through:"]
+
+          [:ul.bulleted
+           [:li "directory layout"]
+           [:li "tooling checks"]
+           [:li "conventions"]
+           [:li "team discipline"]]
+
+          [:p "These are " [:strong "social constraints"] "."]
+
+          [:p "Social constraints decay."]
+
+          [:p
+           "Not immediately. "
+           "Not catastrophically. "
+           "But inevitably."]
+
+          [:p "Why?"]
+
+          [:p "Because under pressure:"]
+
+          [:ul.bulleted
+           [:li "violating the rule is cheaper than maintaining it"]
+           [:li "exceptions feel justified"]
+           [:li "\"temporary\" shortcuts become permanent"]]
+
+          [:p "If a constraint can be bypassed, it eventually will be."]
+
+          [:h3 "The predictable decay pattern"]
+
+          [:p "Polylith systems tend to follow a familiar trajectory:"]
+
+          [:p [:strong "1. Early phase"]]
+          [:p "Clean components, strict boundaries, architectural clarity."]
+
+          [:p [:strong "2. Growth phase"]]
+          [:p "Shared utilities emerge, small violations appear, tooling warnings get ignored."]
+
+          [:p [:strong "3. Pressure phase"]]
+          [:p "Deadlines dominate, cross-component access becomes \"necessary\", boundaries soften."]
+
+          [:p [:strong "4. Late phase"]]
+          [:p "The Polylith structure remains, but the entropy has re-centralized."]
+
+          [:p
+           "The architecture survives symbolically. "
+           "The constraints do not."]
+
+          [:h2 "Policy vs physics"]
+
+          [:p "This is the core mistake."]
+
+          [:p "Polylith encodes " [:strong "physics as policy"] "."]
+
+          [:p "It says:"]
+
+          [:blockquote
+           [:p "\"Components should not know about each other arbitrarily\""]]
+
+          [:p "But it does not make that " [:em "physically impossible"] "."]
+
+          [:p "The system relies on developers to continually choose the harder path."]
+
+          [:p "Under entropy, the harder path always loses."]
+
+          [:h2 "Streams: the same constraint, enforced at the right layer"]
+
+          [:p
+           "In stream-based systems (such as "
+           [:a {:href "/dao-stream.chp"} "Datom.World"]
+           "), the same architectural rule exists:"]
+
+          [:ul.bulleted
+           [:li "dependencies are directional"]
+           [:li "components cannot arbitrarily know about each other"]]
+
+          [:p "But the enforcement is different."]
+
+          [:p
+           "An agent does not depend on another agent. "
+           "It subscribes to a stream."]
+
+          [:ul.bulleted
+           [:li "no identity coupling"]
+           [:li "no backchannel"]
+           [:li "no shared state"]
+           [:li "no reverse flow"]]
+
+          [:p
+           "Directionality is not a rule. "
+           "It is a law."]
+
+          [:p "You cannot violate it without breaking causality."]
+
+          [:h2 "Why streams do not decay the same way"]
+
+          [:p "Because there is no cheaper shortcut."]
+
+          [:p "You cannot:"]
+
+          [:ul.bulleted
+           [:li "\"just this once\" reach into another component"]
+           [:li "share state for convenience"]
+           [:li "bypass the model under pressure"]]
+
+          [:p "The only way to interact is through the stream."]
+
+          [:p "The cheapest path is the correct path."]
+
+          [:p
+           "This is the difference between " [:strong "discipline"]
+           " and " [:strong "physics"] "."]
+
+          [:h2 "A general law of architecture"]
+
+          [:p "This leads to a simple rule:"]
+
+          [:blockquote
+           [:p
+            "Any architectural constraint that is not enforced by the execution model "
+            "will decay over time."]]
+
+          [:p
+           "Polylith slows internal entropy through discipline. "
+           "Streams redirect entropy to the topology through physics."]
+
+          [:p
+           "One requires vigilance. "
+           "The other requires nothing."]
+
+          [:h2 "What Polylith really is"]
+
+          [:p "Polylith is not wrong."]
+
+          [:p
+           "It is a " [:strong "human-scale approximation"]
+           " of a deeper principle:"]
+
+          [:ul.bulleted
+           [:li "localize change"]
+           [:li "make dependencies explicit"]
+           [:li "prevent uncontrolled coupling"]]
+
+          [:p "It works — temporarily."]
+
+          [:p
+           "But it cannot survive long-term pressure, because it lives above the layer "
+           "where enforcement must happen."]
+
+          [:h2 "Conclusion"]
+
+          [:p
+           "The IEEE Spectrum report is a phenomenological description of a system in entropy. "
+           "It blames the people trying to manage the chaos."]
+
+          [:p
+           "But you cannot manage chaos. You must structure it."]
+
+          [:p
+           "Until we adopt an architecture where the source of truth is mathematically defined (a system wave function) "
+           "and structurally enforced (CESK/datoms), we will continue to burn trillions of dollars building towers of Babel "
+           "that collapse under their own complexity."]
+
+          [:p
+           "Entropy is not fought with rules. "
+           "It is fought with constraints that cannot be bypassed."]
+
+          [:p
+           "Polylith asks developers to behave well. "
+           "Stream-based systems make bad behavior impossible."]
+
+          [:p
+           "One will decay. "
+           "The other will evolve."]
+
+          [:p
+           "That difference is not about taste. "
+           "It is about physics."]
+
+          [:p
+           "The industry is waiting for better management. "
+           "It should be waiting for better physics."]
+
+          [:p [:strong "Learn more:"]]
+
+          [:p [:em "Core concepts:"]]
+          [:ul.bulleted
+           [:li [:a {:href "/datomworld.chp"} "Datom.World"] ": Platform overview"]
+           [:li [:a {:href "/blog/power-of-restriction-datom-tuple.blog"} "The Power of Restriction"] ": Why a fixed tuple eliminates structural negotiation"]
+           [:li [:a {:href "/blog/datoms-as-streams.blog"} "Streaming Datoms with Transducers"] ": Everything is a stream"]
+           [:li [:a {:href "/blog/structure-vs-interpretation.blog"} "Structure vs Interpretation"] ": Interpretation creates meaning"]
+           [:li [:a {:href "/blog/yin-vm-ast-chinese-characters.blog"} "Yin.vm: Chinese Characters for Programming Languages"] ": The universal AST"]
+           [:li [:a {:href "/blog/ast-datom-streams-bytecode-performance.blog"} "AST Datom Streams: Bytecode Performance with Semantic Preservation"] ": Even the AST is expressed as datoms"]]
+
+          [:p [:em "Architecture components:"]]
+          [:ul.bulleted
+           [:li [:a {:href "/yin.chp"} "Yin.VM"] ": The CESK continuation machine"]
+           [:li [:a {:href "/dao-stream.chp"} "DaoStream"] ": Universal streaming API"]
+           [:li [:a {:href "/dao-db.chp"} "DaoDB"] ": Materialized views from streams"]
+           [:li [:a {:href "/dao-flow.chp"} "DaoFlow"] ": Reactive UI interpretation"]]
+
+          [:p [:em "Related:"]]
+          [:ul.bulleted
+           [:li [:a {:href "/blog/all-money-is-monopoly-money.blog"} "All Money Is Monopoly Money"] ": On entropy and flow"]
+           [:li [:a {:href "/blog/datalog-compiler-infrastructure.blog"} "Datalog as Compiler Infrastructure"] ": Queryable compilation"]]]]]}

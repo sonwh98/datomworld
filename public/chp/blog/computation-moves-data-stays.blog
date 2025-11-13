@@ -1,0 +1,263 @@
+#:blog{:title
+       "Computation Moves, Data Stays: The Yin.vm Continuation Model",
+       :date #inst "2025-12-11T00:00:00.000-00:00",
+       :abstract
+       [:p
+        "Yin.vm inverts traditional execution: continuations become "
+        [:strong "thin control objects"]
+        " that migrate to where data lives, not containers dragging gigabytes of heap. By externalizing state into streams and intelligently resolving symbols, computation becomes mobile—making distributed computing feel local without pretending everything is."],
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+          [:p
+           "In most programming languages, a continuation is a snapshot of "
+           [:em "everything"]
+           ": the control state, the environment, the stack, and often the entire graph of data those things reference."]
+          [:p
+           "This is why continuations are rarely mobile. They are simply too heavy."]
+          [:p
+           "A continuation that carries megabytes of heap or deeply nested closures is not something you can cheaply send across threads, CPU cores, processes, network boundaries, or language runtimes."]
+          [:p
+           "Smalltalk's image-based persistence is the canonical example. When you save a Smalltalk image, you snapshot the "
+           [:em "entire VM state"]
+           ": every object, every class definition, every method, the full heap. The result is a self-contained world, but one that weighs hundreds of megabytes and is fundamentally immobile. You cannot send a Smalltalk continuation to another process or machine without sending the entire universe it inhabits."]
+          [:p
+           "Yet Smalltalk's vision was correct. The ability to save and restore the entire computational state is powerful. The problem is not the goal, but the implementation. Smalltalk was designed in the era of local computing when the internet was just a research project. Yin.vm is designed for the era of distributed computing when the internet is global over high-speed broadband networks."]
+          [:p
+           "This architectural difference changes everything."]
+          [:p
+           "Because Yin.vm unifies continuations, functions, and closures, and because eval "
+           [:em "is"]
+           " the VM itself, saving computational state becomes straightforward. A continuation in Yin captures control flow. The environment lives in streams. The heap lives in streams. To save the world, you save the streams and the continuation references into them."]
+          [:p
+           "When you restore, the continuation resumes with the same stream positions. The data was never copied into the continuation. It was always external. This means you can save state, migrate it, fork it, or replay it without the monolithic weight of a Smalltalk image."]
+          [:p
+           "More importantly, because streams can be distributed across the network, continuations can migrate to where the data lives. This inverts the traditional model. In most systems, data moves to where the code is. But data can be many orders of magnitude larger than code. It makes far more sense to move the computation to where the data is than to move the data to where the computation is."]
+          [:p
+           "Smalltalk's image must stay monolithic. Yin's continuations can be decomposed, distributed, and reassembled wherever computation needs to happen."]
+          [:h2 "The Naive Objection: Doesn't This Make Every Access Expensive?"]
+          [:p
+           "This raises a natural question. If a continuation becomes thin by externalizing its state into streams, doesn't that make every access expensive?"]
+          [:p
+           "If you write something as simple as "
+           [:code "(+ x 1)"]
+           " and the symbol "
+           [:code "x"]
+           " is backed by a stream somewhere on the network, does that mean every addition incurs latency?"]
+          [:p [:strong "Only if your VM is naïve."]]
+          [:p "Yin.vm isn't."]
+          [:h2 "Symbols Resolve Intelligently"]
+          [:p
+           "The key idea is that "
+           [:strong "symbols resolve intelligently"]
+           "."]
+          [:p
+           "In the AST that the Yang compiler produces, and in the IR that Yin interprets or compiles, a symbol is not just a name. It is "
+           [:strong "annotated with storage semantics"]
+           "."]
+          [:p
+           "The interpreter knows whether "
+           [:code "x"]
+           " is a value or a reference to a stream, and it uses the right strategy accordingly."]
+          [:p
+           "The expression "
+           [:code "(+ x 1)"]
+           " therefore does not blindly fetch from a stream. Instead, the IR contains a specialized operation:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Either"]
+            ": \"load a local value from slot 3\""]
+           [:li
+            [:strong "Or"]
+            ": \"load a stream-backed value from slot 3\""]]
+          [:p [:strong "The choice is not made at runtime."]]
+          [:p
+           "It is made during lowering of the AST. The resolution of a symbol becomes a "
+           [:em "static fact"]
+           " embedded in the program representation."]
+          [:h2 "Separation of Concerns: AST vs. IR"]
+          [:p
+           "This separation is crucial:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Symbols in the high-level AST"]
+            " remain semantic objects"]
+           [:li
+            [:strong "Their storage class is tracked in the IR"]]]
+          [:p
+           "This lets Yin.vm do something that stack-based VMs or conventional CESK machines cannot:"]
+          [:p
+           [:strong
+            "Yin can treat the continuation as pure control state while treating the environment and heap as distributions."]]
+          [:p
+           "A continuation migrates cheaply because it carries only what cannot be reconstructed elsewhere:"]
+          [:ul.bulleted
+           [:li "The code ID"]
+           [:li "The program counter"]
+           [:li "A small set of hot locals"]]
+          [:p
+           "Everything else stays behind as cursor references into streams."]
+          [:h2 "Avoiding the Worst Case"]
+          [:p
+           "This avoids the worst case where every variable access is a network lookup."]
+          [:ul.bulleted
+           [:li [:strong "Hot locals stay local"]]
+           [:li [:strong "Cold or large data lives in streams"]]]
+          [:p
+           "The VM and compiler decide which category a binding belongs to:"]
+          [:ul.bulleted
+           [:li "Sometimes the programmer leaves a hint"]
+           [:li "Sometimes the optimizer decides after observing usage patterns"]
+           [:li
+            "Sometimes the JIT specializes multiple versions of a function: one for local values, one for stream-backed values"]]
+          [:h2 "A New Relationship Between Computation and Storage"]
+          [:p "What emerges is a fundamental inversion:"]
+          [:p [:strong "Traditional systems:"]]
+          [:blockquote
+           [:p
+            [:em
+             "Storage chooses the cost model and computation inherits it."]]]
+          [:p [:strong "Yin.vm:"]]
+          [:blockquote
+           [:p
+            [:em
+             "Computation chooses the cost model and storage adapts to it."]]]
+          [:p
+           "The AST you write remains pure and mathematical. The bytecode that Yin executes understands the physical structure of the system, deciding when to touch a stream and when to operate on a register."]
+          [:h2 "Structural Laziness"]
+          [:p
+           "This is not laziness bolted on as an afterthought. Yin's lazy state model is "
+           [:strong "structural"]
+           "."]
+          [:p "The environment itself can be viewed as:"]
+          [:ul.bulleted
+           [:li "A stream of bindings"]
+           [:li "The heap as a stream of objects"]
+           [:li "The stack as a stream of frames"]]
+          [:p
+           [:strong
+            "A continuation is a collection of offsets into these streams."]]
+          [:p "When migrated:"]
+          [:ul.bulleted
+           [:li "The continuation moves"]
+           [:li "The streams do not"]]
+          [:p "When resumed:"]
+          [:ul.bulleted
+           [:li "Yin hydrates only what must be touched"]
+           [:li "Memoizes when appropriate"]
+           [:li
+            "Leaves the majority of state undisturbed and un-copied"]]
+          [:h2 "Values as Presence"]
+          [:p "Yin.vm treats:"]
+          [:ul.bulleted
+           [:li [:strong "Values"] " as immediate presence"]
+           [:li [:strong "Streams"] " as deferred presence"]]
+          [:p
+           "They share the same interface, so the evaluation algorithm remains simple, but they diverge in cost."]
+          [:p
+           [:strong
+            "This is how Yin makes distributed computing feel local without pretending that everything is local."]]
+          [:p
+           "By annotating the boundary, the VM preserves the illusion of immediacy while keeping the architecture honest."]
+          [:h2 "Everything Is a Continuation"]
+          [:p
+           "The deeper consequence is that Yin.vm no longer thinks of functions, closures, or continuations as opaque runtime entities."]
+          [:p [:strong "They are all just continuations."]]
+          [:p
+           "And continuations are just "
+           [:strong "structured references into streams"]
+           "."]
+          [:p "The architecture becomes:"]
+          [:ul.bulleted
+           [:li
+            [:strong "The VM"]
+            " acts as the scheduler of these control flows"]
+           [:li
+            [:strong "DaoDB and DaoStream"]
+            " act as the long-term memory"]
+           [:li
+            [:strong "The Yin-Yang stack"]
+            " becomes a fabric where programs are not objects running in memory, but "
+            [:em "processes weaving across streams"]
+            ", attaching themselves to data rather than dragging data with them"]]
+          [:h2 "The Cost Model"]
+          [:p
+           "This is how a continuation becomes lightweight without compromise:"]
+          [:ul.bulleted
+           [:li
+            [:strong "The cost of mobility"]
+            " becomes the cost of moving a handful of registers and a program counter"]
+           [:li
+            [:strong "The cost of recomputing state"]
+            " becomes proportional to how much of the state you actually use"]]
+          [:p
+           "And the entire system begins to look less like a virtual machine and more like "
+           [:strong
+            "an organism whose parts live at different temperatures"]
+           ", adapting to how information flows through it."]
+          [:h2 "Intelligence at Every Layer"]
+          [:p "Yin.vm turns:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Symbol resolution"]
+            " into intelligence"]
+           [:li
+            [:strong "The environment"]
+            " into a distributed stream"]
+           [:li
+            [:strong "Continuations"]
+            " into portable centers of gravity that migrate toward data instead of dragging data toward themselves"]]
+          [:p
+           "And it does all this while preserving the mathematical purity of the AST."]
+          [:h2 "The Core Principle"]
+          [:p "This is the heart of Yin's design:"]
+          [:blockquote
+           [:p
+            [:strong "Computation moves. Data stays. Resolution adapts."]]]
+          [:p
+           "Continuations are not heavy because they don't need to be. They carry only control, not context. Context lives in streams. Streams are addressed, not copied. Resolution is static, not dynamic. Hot paths stay fast. Cold paths stay lazy. The boundary between local and distributed is annotated in the IR, not discovered at runtime."]
+          [:p
+           "This is what makes Yin.vm different from every other continuation-based VM. It doesn't just "
+           [:em "support"]
+           " continuations. It builds the entire execution model "
+           [:em "around"]
+           " the idea that continuations should be lightweight, mobile, and stream-aware from the ground up."]
+          [:p
+           "Traditional VMs optimize for locality by pulling data toward computation. Yin optimizes for mobility by pushing computation toward data."]
+          [:p "The difference is fundamental."]
+          [:p [:strong "Learn more:"]]
+          [:ul.bulleted
+           [:li
+            [:a
+             {:href "/blog/continuations-universal-semantic-kernel.blog"}
+             "Continuations as Universal Semantic Kernel"]
+            " (why continuations are the foundation)"]
+           [:li
+            [:a
+             {:href "/blog/ast-higher-dimensional-datom-streams.blog"}
+             "AST as Higher Dimensional Construction of Datom Streams"]
+            " (how ASTs map to streams)"]
+           [:li
+            [:a
+             {:href "/blog/datoms-as-streams.blog"}
+             "Datoms as Streams"]
+            " (the stream abstraction)"]
+           [:li
+            [:a
+             {:href "/blog/why-udp-not-tcp.blog"}
+             "Why TCP Is Too Semantic for Datom.world"]
+            " (why lightweight continuations enable mobile computation)"]
+           [:li
+            [:a
+             {:href "/blog/devils-advocate.blog"}
+             "Why yin.vm Succeeds Where Previous Attempts Failed"]
+            " (addressing skeptical objections to continuation-based mobile computation)"]
+           [:li
+            [:a {:href "/yin.chp"} "Yin VM Documentation"]
+            " (technical deep dive)"]
+           [:li
+            [:a {:href "/dao-db.chp"} "DaoDB"]
+            " (the stream database)"]]]]]}

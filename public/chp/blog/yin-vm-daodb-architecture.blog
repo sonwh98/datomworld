@@ -1,0 +1,441 @@
+#:blog{:title "Yin.VM and DaoDB: How Persistent ASTs Make Self-Modification Practical",
+       :date #inst "2025-12-19T00:00:00.000-00:00",
+       :abstract
+       [:p
+        "Yin.VM keeps the complete program structure as queryable datoms. Systems can inspect and modify their own code through Datalog."],
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+
+          [:p
+           "Every runtime makes a fundamental choice about what to preserve and what to discard. "
+           "The JVM erases type parameters after compilation. JavaScript engines discard AST details after parsing. "
+           "Even Smalltalk images, which preserve everything, don't make the program structure "
+           [:em "queryable"]
+           " in the way a database is queryable."]
+
+          [:p
+           [:a {:href "/yin.chp"} "Yin.VM"]
+           " makes a different choice. It preserves the complete Abstract Syntax Tree as datoms and makes it queryable via Datalog. "
+           "This single decision... keeping the AST as first-class, queryable data... unlocks capabilities that seem impossible "
+           "in traditional runtimes."]
+
+          [:h2 "What gets erased: a comparison"]
+
+          [:p "To understand what Yin.VM preserves, we must first see what other systems discard:"]
+
+          [:table
+           [:thead
+            [:tr
+             [:th "System Aspect"]
+             [:th "Static Type Systems (Java, Go, Rust)"]
+             [:th "Dynamic Type Systems (JavaScript, Python)"]
+             [:th "Yin.VM + DaoDB"]]]
+           [:tbody
+            [:tr
+             [:td [:strong "Type Information"]]
+             [:td "Compile-time only; erased at runtime"]
+             [:td "Runtime values only; not structurally queryable"]
+             [:td "Persistent datoms; queryable at any point in history"]]
+            [:tr
+             [:td [:strong "AST Structure"]]
+             [:td "Discarded after bytecode generation"]
+             [:td "Discarded after initial parsing"]
+             [:td "Preserved as indexed datom stream"]]
+            [:tr
+             [:td [:strong "Execution State"]]
+             [:td "Ephemeral stack/heap"]
+             [:td "Ephemeral stack/heap"]
+             [:td "Serializable continuation (also datoms)"]]
+            [:tr
+             [:td [:strong "Historical Changes"]]
+             [:td "No record (unless versioned externally)"]
+             [:td "No record (unless versioned externally)"]
+             [:td "Complete append-only log"]]
+            [:tr
+             [:td [:strong "Queryability"]]
+             [:td "Reflection only (limited)"]
+             [:td "Introspection only (object-local)"]
+             [:td "Full Datalog over entire program structure"]]]]
+
+          [:p
+           "In traditional systems, the compiler or interpreter is a "
+           [:strong "destructive transformation"]
+           ". High-level structure is consumed to produce low-level execution artifacts. "
+           "In Yin.VM, the transformation is "
+           [:strong "constructive"]
+           ". Structure is never destroyed... only augmented with execution state."]
+
+          [:h2 "The architecture: DaoDB as the indexer"]
+
+          [:p "The key to making this practical is the division of labor between two components:"]
+
+          [:h3 "DaoDB: the specialized indexer"]
+
+          [:p
+           [:a {:href "/dao-db.chp"} "DaoDB"]
+           " is an interpreter that subscribes to the datom stream and continuously builds efficient query structures. "
+           "It's responsible for:"]
+
+          [:ul.bulleted
+           [:li "Ingesting the append-only stream of datoms"]
+           [:li "Building and maintaining indexes optimized for Datalog queries"]
+           [:li "Providing snapshot isolation for consistent reads"]
+           [:li "Handling both local and distributed/P2P deployments"]
+           [:li "Managing storage tiers (hot in RAM, cold on disk)"]]
+
+          [:p
+           "DaoDB is like Datomic but can run locally, distributed, or peer-to-peer. It can even split responsibilities... "
+           "one instance handles transactions, another handles queries, a third handles storage... all coordinating over the same stream."]
+
+          [:h3 "Yin.VM: the execution engine"]
+
+          [:p
+           "Yin.VM is the interpreter that executes code. It's a CESK machine (Control, Environment, Store, Continuation) "
+           "that operates on AST datoms. It's responsible for:"]
+
+          [:ul.bulleted
+           [:li "Querying DaoDB for AST nodes at execution time"]
+           [:li "Caching hot execution paths for performance"]
+           [:li "Maintaining continuations (serializable execution state)"]
+           [:li "Appending new datoms to record execution traces or state changes"]
+           [:li "Subscribing to DaoDB for notifications when cached AST becomes stale"]]
+
+          [:p
+           "Critically, Yin.VM doesn't build its own data structures to represent the AST. "
+           "It works directly with DaoDB's indexed view of the datom stream."]
+
+          [:h2 "The synchronization dance"]
+
+          [:p "The relationship between DaoDB and Yin.VM creates an elegant synchronization pattern:"]
+
+          [:h3 "Query for execution"]
+
+          [:p
+           "When Yin.VM needs to execute code, it queries DaoDB for the relevant AST nodes. "
+           "This query can target:"]
+
+          [:ul.bulleted
+           [:li "The latest snapshot (normal execution)"]
+           [:li "A specific point in time (debugging historical behavior)"]
+           [:li "A range of time (analyzing how code evolved)"]
+           [:li "A filtered view (only certain attributes or entities)"]]
+
+          [:p
+           "The query returns datoms that represent the AST structure. Yin.VM can cache these locally for hot paths, "
+           "avoiding repeated queries for the same code."]
+
+          [:h3 "Subscribe for updates"]
+
+          [:p
+           "Yin.VM registers with DaoDB to receive notifications when relevant datoms change. "
+           "A predicate can be provided to filter notifications:"]
+
+          [:pre
+           [:code
+            ";; Only notify about changes to function definitions in namespace 'core'\n"
+            "(subscribe db\n"
+            "  [:where\n"
+            "   [?e :ast/type :ast.type/function]\n"
+            "   [?e :ast/namespace \"core\"]])"]]
+
+          [:p
+           "When new datoms arrive that match the predicate, Yin.VM invalidates its cache and re-queries. "
+           "This enables live updates... code can be modified while running, and the interpreter adapts."]
+
+          [:h3 "Append for effects"]
+
+          [:p
+           "When Yin.VM executes code that produces side effects... writing to application state, logging events, "
+           "or even modifying the AST itself... it appends new datoms to the stream. These flow back through DaoDB, "
+           "are indexed, and become immediately queryable."]
+
+          [:p "This creates a feedback loop:"]
+
+          [:ol
+           [:li "Yin.VM queries AST datoms from DaoDB"]
+           [:li "Executes code, producing new datoms"]
+           [:li "Appends datoms to the stream"]
+           [:li "DaoDB indexes the new datoms"]
+           [:li "Yin.VM receives notification of changes"]
+           [:li "Cycle continues"]]
+
+          [:h2 "Types as queryable structure"]
+
+          [:p
+           "One of the most powerful implications of this architecture is that "
+           [:strong "type information never disappears"]
+           "."]
+
+          [:p
+           "In Java, generic type parameters like "
+           [:code "List<String>"]
+           " are erased at runtime for backward compatibility. The JVM only sees "
+           [:code "List"]
+           ". In Python, type hints are ignored by the interpreter entirely."]
+
+          [:p
+           "In Yin.VM, type declarations are datoms in the stream:"]
+
+          [:pre
+           [:code
+            "[fn-123 :fn/name \"process-user\" tx-1 {}]\n"
+            "[fn-123 :fn/param param-1 tx-1 {}]\n"
+            "[param-1 :param/name \"user\" tx-1 {}]\n"
+            "[param-1 :param/type type-user tx-1 {}]\n"
+            "[type-user :type/name \"User\" tx-1 {}]\n"
+            "[fn-123 :fn/return-type type-result tx-1 {}]"]]
+
+          [:p "This enables queries that are impossible in traditional systems:"]
+
+          [:pre
+           [:code
+            ";; Find all functions that accept User and return types defined today\n"
+            "[:find ?fn-name ?return-type\n"
+            " :where\n"
+            " [?fn :fn/param ?param]\n"
+            " [?param :param/type ?user-type]\n"
+            " [?user-type :type/name \"User\"]\n"
+            " [?fn :fn/name ?fn-name]\n"
+            " [?fn :fn/return-type ?return-type]\n"
+            " [?return-type :type/defined-at ?time]\n"
+            " [(> ?time today-start)]]"]]
+
+          [:p "Or:"]
+
+          [:pre
+           [:code
+            ";; Find all call sites that might be affected by changing User's fields\n"
+            "[:find ?call-site ?line\n"
+            " :where\n"
+            " [?call :ast/type :ast.type/call]\n"
+            " [?call :ast/function ?fn]\n"
+            " [?fn :fn/param ?param]\n"
+            " [?param :param/type ?type]\n"
+            " [?type :type/name \"User\"]\n"
+            " [?call :ast/location ?call-site]\n"
+            " [?call :ast/line ?line]]"]]
+
+          [:p
+           "These aren't hypothetical queries. They're practical tools for understanding code impact, "
+           "planning refactors, and building AI assistants that can reason about program structure."]
+
+          [:h2 "Self-modification through streams"]
+
+          [:p
+           "The most profound capability enabled by persistent ASTs is "
+           [:strong "safe self-modification"]
+           "."]
+
+          [:p
+           "In traditional systems, self-modifying code is dangerous. It's hidden side effects, difficult to debug, "
+           "and often a security vulnerability. But when the AST is explicit, versioned, and queryable, "
+           "self-modification becomes just another kind of data transformation."]
+
+          [:p "Consider an optimization agent that observes execution patterns:"]
+
+          [:ol
+           [:li
+            [:strong "Observation:"]
+            " Yin.VM executes code, recording performance traces as datoms"]
+           [:li
+            [:strong "Analysis:"]
+            " An optimization agent queries DaoDB for hot paths and identifies an inefficiency"]
+           [:li
+            [:strong "Proposal:"]
+            " The agent generates new AST datoms representing an optimized version"]
+           [:li
+            [:strong "Evaluation:"]
+            " Another agent or human reviews the proposal by querying differences between ASTs"]
+           [:li
+            [:strong "Application:"]
+            " If approved, the new AST datoms are appended to the stream"]
+           [:li
+            [:strong "Notification:"]
+            " Yin.VM receives notification, invalidates cache, and begins using optimized code"]]
+
+          [:p
+           "The entire process is auditable. At any point, you can query: \"Why did this function's implementation change?\" "
+           "and trace back through the datom history to see the performance observations, the agent's analysis, and the approval."]
+
+          [:h2 "Making Git obsolete"]
+
+          [:p
+           "This architecture suggests that traditional version control might be unnecessary within the system's domain. "
+           "Git tracks changes to files as snapshots. The datom stream tracks changes to "
+           [:em "facts"]
+           " in continuous time."]
+
+          [:table
+           [:thead
+            [:tr
+             [:th "Capability"]
+             [:th "Git (File-Based)"]
+             [:th "Datom Stream (Fact-Based)"]]]
+           [:tbody
+            [:tr
+             [:td [:strong "Unit of Change"]]
+             [:td "Files (blobs)"]
+             [:td "Facts (datoms)"]]
+            [:tr
+             [:td [:strong "History Model"]]
+             [:td "Snapshots at commits"]
+             [:td "Continuous append-only log"]]
+            [:tr
+             [:td [:strong "Branching"]]
+             [:td "Explicit operation; merge conflicts"]
+             [:td "Implicit via stream forks; facts integrate naturally"]]
+            [:tr
+             [:td [:strong "Blame"]]
+             [:td [:code "git blame"] " shows line-level history"]
+             [:td "Datalog query shows fact-level history with full context"]]
+            [:tr
+             [:td [:strong "Diff"]]
+             [:td "Line-by-line text comparison"]
+             [:td "Semantic diff via queries (what facts changed, not what lines)"]]]]
+
+          [:p
+           "Within Datom.World, you don't need Git to track code changes. The stream "
+           [:em "is"]
+           " the version control system. You can query any historical state, compare semantic differences, "
+           "and trace the complete provenance of any fact."]
+
+          [:p
+           "Git remains useful for interoperating with the existing ecosystem... exporting code for traditional repositories, "
+           "or importing external dependencies. But within the system, it's redundant."]
+
+          [:h2 "The engineering trade-offs"]
+
+          [:p "This architecture is practical, but it involves deliberate trade-offs:"]
+
+          [:h3 "Performance: the query cost"]
+
+          [:p
+           "Querying DaoDB for AST nodes adds latency compared to direct pointer access in traditional VMs. "
+           "This is mitigated through:"]
+
+          [:ul.bulleted
+           [:li [:strong "Caching:"] " Hot execution paths are cached locally in Yin.VM"]
+           [:li [:strong "Indexing:"] " DaoDB uses specialized structures (like HISA) for fast queries"]
+           [:li [:strong "Locality:"] " Queries fetch only the AST subtrees needed, not the entire program"]]
+
+          [:p
+           "The result is that the \"query overhead\" only applies at boundaries... when entering a new function, "
+           "invalidating cache after an update, or doing historical analysis. Within hot loops, execution speed "
+           "approaches traditional interpreters."]
+
+          [:h3 "Storage: the append-only cost"]
+
+          [:p
+           "Never deleting anything means storage grows continuously. This is addressed through:"]
+
+          [:ul.bulleted
+           [:li [:strong "Compression:"] " Immutable logs compress extremely well"]
+           [:li [:strong "Tiering:"] " Hot data in RAM, warm on SSD, cold on cheap archival storage"]
+           [:li [:strong "Garbage collection:"] " DaoDB can prune obsolete indexes while preserving the log"]]
+
+          [:p
+           "The trade-off is deliberate: storage is cheap and getting cheaper. "
+           "Lost history... the ability to debug past failures, understand evolution, or replay for compliance... is priceless."]
+
+          [:h3 "Complexity: the mental model"]
+
+          [:p
+           "The biggest barrier is not technical... it's conceptual. Developers must learn to think in:"]
+
+          [:ul.bulleted
+           [:li [:strong "Streams:"] " not request/response"]
+           [:li [:strong "Interpreters:"] " not services"]
+           [:li [:strong "Queries:"] " not call stacks"]
+           [:li [:strong "Temporal reasoning:"] " not just current state"]]
+
+          [:p
+           "This is a paradigm shift comparable to moving from imperative to functional programming. "
+           "It requires new tools, new debugging techniques, and new intuitions about how programs work."]
+
+          [:p "But the payoff is systems that can:"]
+
+          [:ul.bulleted
+           [:li "Evolve themselves based on observed behavior"]
+           [:li "Provide perfect auditability for compliance and debugging"]
+           [:li "Collaborate seamlessly across distributed nodes"]
+           [:li "Time-travel to any historical state for analysis"]
+           [:li "Integrate AI agents that reason about code structure"]]
+
+          [:h2 "The recursive property"]
+
+          [:p "The ultimate implication of this architecture is that it's "
+           [:strong "turtles all the way down"]
+           "."]
+
+          [:p
+           "The datom stream contains application data. It also contains the AST of the application code. "
+           "It also contains the AST of DaoDB itself. And the AST of Yin.VM. Everything is datoms observing datoms."]
+
+          [:p
+           "This creates a self-describing system where the boundary between \"system\" and \"application\" blurs. "
+           "An AI agent can query not just your application's structure, but the structure of the runtime itself. "
+           "Optimizations can apply to any layer. Debugging tools work the same way whether you're inspecting user data, "
+           "application logic, or VM internals."]
+
+          [:p "This is homoiconicity taken to its logical conclusion. Not just code-as-data, but "
+           [:strong "everything-as-datoms"]
+           "."]
+
+          [:h2 "When this architecture wins"]
+
+          [:p "This model is not universally optimal. It makes sense when:"]
+
+          [:ul.bulleted
+           [:li [:strong "Auditability matters:"] " Compliance, debugging, understanding system evolution"]
+           [:li [:strong "Collaboration is key:"] " Multiple agents or humans working on the same system"]
+           [:li [:strong "Evolution is expected:"] " Requirements will change in unpredictable ways"]
+           [:li [:strong "User sovereignty matters:"] " Data and code should be user-owned, not platform-owned"]
+           [:li [:strong "AI integration is planned:"] " Agents need to reason about and modify code"]]
+
+          [:p "It's less suitable when:"]
+
+          [:ul.bulleted
+           [:li "Microsecond latency is critical (high-frequency trading, real-time graphics)"]
+           [:li "The problem domain is fully understood and stable"]
+           [:li "Hardware resources are severely constrained"]
+           [:li "The team cannot adopt a new paradigm"]]
+
+          [:h2 "Conclusion: persistence as power"]
+
+          [:p
+           "The key innovation of Yin.VM and DaoDB is making program structure "
+           [:strong "persistent and queryable"]
+           ". This single decision cascades into capabilities that seem magical from a traditional perspective:"]
+
+          [:ul.bulleted
+           [:li "Types that survive runtime and can be queried"]
+           [:li "Self-modification that's auditable and safe"]
+           [:li "Time travel debugging by default"]
+           [:li "Agents that understand code structure"]
+           [:li "Version control as a natural property of the system"]]
+
+          [:p
+           "These aren't bolted-on features. They're emergent properties of treating the AST as data and data as first-class."]
+
+          [:p
+           "The cost is complexity... a new mental model, new tooling, and careful attention to performance. "
+           "The benefit is software that can evolve, adapt, and explain itself."]
+
+          [:p
+           "For systems where evolution and understanding matter more than raw speed, "
+           "persistence is not a cost... it's the foundation of power."]
+
+          [:p [:strong "Learn more:"]]
+
+          [:ul.bulleted
+           [:li [:a {:href "/yin.chp"} "Yin.VM"] " : the CESK continuation machine"]
+           [:li [:a {:href "/dao-db.chp"} "DaoDB"] " : materialized views from streams"]
+           [:li [:a {:href "/datomworld.chp"} "Datom.World"] " : platform overview"]
+           [:li [:a {:href "/blog/stream-vs-interface-architecture.blog"} "Beyond Interfaces"] " : why streams mirror evolution"]
+           [:li [:a {:href "/blog/universal-ast-vs-assembly.blog"} "Universal AST vs Assembly"] " : code representation"]
+           [:li [:a {:href "/blog/datalog-compiler-infrastructure.blog"} "Datalog as Compiler Infrastructure"] " : queryable compilation"]
+           [:li [:a {:href "/blog/structure-vs-interpretation.blog"} "Structure vs Interpretation"] " : meaning through observation"]]]]]}

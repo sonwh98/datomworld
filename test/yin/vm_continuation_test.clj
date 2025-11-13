@@ -13,7 +13,7 @@
                           :body {:type :application
                                  :operator {:type :variable :name '+}
                                  :operands [{:type :variable :name 'x}
-                                           {:type :literal :value 1}]}}
+                                            {:type :literal :value 1}]}}
                :operands [{:type :literal :value 5}]}
           result (vm/run (make-state {'+ add-fn}) ast)]
       (is (= 6 (:value result))
@@ -28,7 +28,7 @@
                           :body {:type :application
                                  :operator {:type :variable :name '+}
                                  :operands [{:type :variable :name 'x}
-                                           {:type :literal :value 1}]}}
+                                            {:type :literal :value 1}]}}
                :operands [{:type :literal :value 5}]}
           initial-state (assoc (make-state {'+ add-fn}) :control ast)
           step-count (loop [state initial-state
@@ -48,7 +48,7 @@
                           :body {:type :application
                                  :operator {:type :variable :name '+}
                                  :operands [{:type :variable :name 'x}
-                                           {:type :literal :value 1}]}}
+                                            {:type :literal :value 1}]}}
                :operands [{:type :literal :value 5}]}
           initial-state (assoc (make-state {'+ add-fn}) :control ast)
           ;; Collect all states during execution
@@ -88,8 +88,8 @@
                                  :operands [{:type :application
                                              :operator {:type :variable :name '+}
                                              :operands [{:type :variable :name 'x}
-                                                       {:type :literal :value 1}]}
-                                           {:type :literal :value 1}]}}
+                                                        {:type :literal :value 1}]}
+                                            {:type :literal :value 1}]}}
                :operands [{:type :literal :value 10}]}
           result (vm/run (make-state {'+ add-fn}) ast)]
       (is (= 12 (:value result))
@@ -105,7 +105,7 @@
                                       :body {:type :application
                                              :operator {:type :variable :name '+}
                                              :operands [{:type :variable :name 'x}
-                                                       {:type :literal :value 1}]}}
+                                                        {:type :literal :value 1}]}}
                            :operands [{:type :literal :value n}]})]
 
       (is (= 1 (:value (vm/run (make-state {'+ add-fn}) (increment-ast 0))))
@@ -126,7 +126,7 @@
                           :body {:type :application
                                  :operator {:type :variable :name '+}
                                  :operands [{:type :variable :name 'x}
-                                           {:type :literal :value 1}]}}
+                                            {:type :literal :value 1}]}}
                :operands [{:type :literal :value 5}]}
           initial-state (assoc (make-state {'+ add-fn}) :control ast)
           ;; Collect continuation types during execution

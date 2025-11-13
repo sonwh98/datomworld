@@ -1,0 +1,448 @@
+#:blog{:title
+       "Beyond π-calculus: How Datom.world Unifies Streams and Continuations as First-Class Values",
+       :date #inst "2025-12-30T00:00:00.000-00:00",
+       :abstract
+       [:p
+        "Datom.world treats streams and continuations as data structures, unifying information mobility, channel mobility, and code mobility in a single model."],
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+          [:h2 "The Problem with Distributed Systems Today"]
+          [:p "Modern distributed systems are stuck in a conceptual trap. We have:"]
+          [:ul.bulleted
+           [:li "Message passing systems (Kafka, NATS) that move data efficiently"]
+           [:li "Remote procedure call systems (gRPC, HTTP/REST) that invoke code remotely"]
+           [:li "Container orchestration (Kubernetes) that migrates entire processes"]]
+          [:p
+           "But these are three separate mechanisms for three separate concerns. Want to build a system where agents coordinate, migrate between devices, and share both information and behavior? You'll need to stitch together multiple paradigms, each with its own assumptions and limitations."]
+          [:p "What if there was a single, unified model that handled all three naturally?"]
+
+          [:h2 "Enter π-calculus: The Theory of Mobile Channels"]
+          [:p
+           "In 1989, Robin Milner introduced π-calculus, a formal model for concurrent computation. Its key innovation was channel mobility - the ability to pass communication channels as values:"]
+          [:div.code-block
+           [:pre
+            [:code
+             "x̄⟨y⟩.P  |  x(z).Q\n\n"
+             "Process 1: Send channel y over channel x\n"
+             "Process 2: Receive a channel (call it z) from x, then use z"]]]
+          [:p
+           "This simple idea enabled something profound: dynamic communication topology. Processes could learn about new communication channels at runtime, share them with others, and reconfigure the network on the fly."]
+          [:p
+           "π-calculus became the theoretical foundation for languages like Erlang, systems like Occam, and influenced everything from actors to cloud computing."]
+          [:p
+           "But π-calculus has a limitation: "
+           [:strong "processes themselves are not first-class values"]
+           ". You can send channel names, but not the code that runs on those channels."]
+
+          [:h2 "The Missing Piece: Code Mobility"]
+          [:p "Several extensions tried to add code mobility:"]
+          [:ul.bulleted
+           [:li [:strong "Higher-Order π-calculus (1992)"] " - processes as values, but separate type from channels"]
+           [:li [:strong "Mobile Ambients (1998)"] " - processes migrate between locations"]
+           [:li [:strong "Join Calculus (1996)"] " - sophisticated synchronization patterns"]]
+          [:p
+           "Each added code mobility, but maintained a type distinction between data, channels, and processes. These are treated as fundamentally different kinds of things, with different transmission mechanisms and different handling."]
+          [:p "This matters in practice. When you want to build a system where:"]
+          [:ul.bulleted
+           [:li "Agents discover new communication channels (channel mobility)"]
+           [:li "Agents share successful behaviors (code mobility)"]
+           [:li "Agents migrate between devices carrying both channels and code"]
+           [:li "All of this happens through the same uniform mechanism"]]
+          [:p
+           "...you hit conceptual walls. The type systems fight you. The protocols diverge. The implementation becomes a maze of special cases."]
+
+          [:h2 "Datom.world: Everything is Data"]
+          [:p "Datom.world takes a radically different approach, grounded in a simple observation:"]
+          [:p
+           [:strong
+            "Streams don't have to be objects. Continuations don't have to be runtime entities. Both can be data."]]
+
+          [:h3 "Streams as Data Structures"]
+          [:p "In Datom.world, a stream isn't a file handle or socket connection. It's a data structure:"]
+          [:div.code-block
+           [:pre
+            [:code
+             "{:id #uuid \"550e8400-e29b-41d4-a716-446655440000\"\n"
+             " :name \"stream://sensors/temp\"\n"
+             " :metadata {:storage :persistent\n"
+             "            :retention {:days 30}\n"
+             "            :created-at 1734567890000}\n"
+             " :buffer [[:sensor-1 :temperature 23.5 1734567890001 {}]\n"
+             "          [:sensor-1 :temperature 24.1 1734567890002 {}]]\n"
+             " :subscribers #{:agent-1 :agent-2}}"]]]
+          [:p
+           "Just data. You can serialize it, send it, store it, inspect it. An interpreter materializes the actual I/O when needed."]
+
+          [:h3 "Continuations as Data Structures"]
+          [:p "Similarly, a continuation isn't a call stack or thread state. It's a data structure:"]
+          [:div.code-block
+           [:pre
+            [:code
+             "{:code (fn [state streams]\n"
+             "         (let [datom (first (pull (first streams) 0 1))]\n"
+             "           (process-datom state datom)))\n"
+             " :state {:position [10 20]\n"
+             "         :energy 100\n"
+             "         :counter 42}\n"
+             " :streams [#uuid \"stream-1-id\" #uuid \"stream-2-id\"]}"]]]
+          [:p "Just data. You can serialize it, send it, store it. An interpreter executes it when needed."]
+
+          [:h3 "The Universal Container: The Datom"]
+          [:p "Both flow through the same mechanism - the datom, a 5-tuple:"]
+          [:div.code-block
+           [:pre
+            [:code
+             "[entity attribute value timestamp metadata]\n\n"
+             ";; Examples where value is different types:\n"
+             "[:sensor-1 :temperature 42 1734567890000 {}]\n"
+             "[:agent-1 :discovered \"stream://food\" 1734567890001 {}]\n"
+             "[:agent-1 :stream-def {:id #uuid \"...\" :name \"...\" ...} 1734567890002 {}]\n"
+             "[:agent-1 :behavior (fn [state] ...) 1734567890003 {}]"]]]
+          [:p "One type. One transmission mechanism. One storage format."]
+
+          [:h2 "The Power of Unification"]
+          [:p
+           "This seemingly simple move - treating streams and continuations as data - unlocks capabilities that are awkward or impossible in traditional process calculi."]
+
+          [:h3 "1. Self-Contained Migration"]
+          [:p "An agent can migrate between devices carrying everything it needs:"]
+          [:div.code-block
+           [:pre
+            [:code
+             ";; Agent packages itself\n"
+             "(def agent-package\n"
+             "  {:id :agent-42\n"
+             "   :continuation \n"
+             "   {:code (fn [state streams]\n"
+             "            (let [pheromones (pull (first streams) 0 10)]\n"
+             "              (follow-trail pheromones state)))\n"
+             "    :state {:position [10 20]\n"
+             "            :energy 100}\n"
+             "    :pc 42}\n"
+             "   :streams \n"
+             "   [{:id #uuid \"a1b2c3d4-...\"\n"
+             "     :name \"stream://pheromones/trail-1\"\n"
+             "     :metadata {:storage :ephemeral\n"
+             "                :created-at 1734567890000}\n"
+             "     :buffer [[:ant-1 :pheromone 0.9 1734567890001 {:location [10 20]}]\n"
+             "              [:ant-1 :pheromone 0.8 1734567890002 {:location [11 21]}]]\n"
+             "     :subscribers #{:agent-42}}\n"
+             "    {:id #uuid \"e5f6g7h8-...\"\n"
+             "     :name \"stream://food/locations\"\n"
+             "     :metadata {:storage :persistent}\n"
+             "     :buffer [[:scout :food-found [50 60] 1734567890003 {}]]\n"
+             "     :subscribers #{:agent-42}}]})\n\n"
+             ";; Send entire package as one datom\n"
+             "(publish \"stream://migration/device-b\"\n"
+             "         [:migration :agent agent-package (now) {}])"]]]
+          [:p
+           "The agent carries not just references to streams, but the complete stream definitions. No global registry needed. No name resolution required. Self-contained."]
+
+          [:h3 "2. Behavioral Evolution Through Transmission"]
+          [:p "Successful behaviors spread like information:"]
+          [:div.code-block
+           [:pre
+            [:code
+             ";; Ant discovers efficient foraging strategy\n"
+             "(def smart-behavior\n"
+             "  (fn [state]\n"
+             "    (let [pheromones (sense-environment state)]\n"
+             "      (if (strong-pheromone? pheromones)\n"
+             "        (follow-gradient pheromones state)\n"
+             "        (explore-efficiently state)))))\n\n"
+             ";; Share behavior as a value\n"
+             "(publish \"stream://behaviors\"\n"
+             "         [:ant-1 :strategy smart-behavior (now)\n"
+             "          {:success-rate 0.85\n"
+             "           :generation 5}])\n\n"
+             ";; Other ants receive and adopt\n"
+             "(subscribe \"stream://behaviors\"\n"
+             "           (fn [[entity _ behavior _ meta]]\n"
+             "             (when (> (:success-rate meta) @my-success-rate)\n"
+             "               ;; Adopt the better behavior\n"
+             "               (reset! my-behavior behavior)\n"
+             "               (println \"Adopted behavior from\" entity))))"]]]
+          [:p
+           "Code propagates through the same channels as data. No separate deployment mechanism. No distinction between \"sending information about food\" and \"sending how to find food.\""]
+
+          [:h3 "3. Stigmergic Programming"]
+          [:p "Perhaps most striking: code can be deposited in the environment like pheromones:"]
+          [:div.code-block
+           [:pre
+            [:code
+             ";; Leave behavior in environment\n"
+             "(defn leave-code-trail [location behavior]\n"
+             "  (publish (str \"stream://env/\" location \"/behaviors\")\n"
+             "           [:code :trail behavior (now)\n"
+             "            {:strength 1.0\n"
+             "             :decay-rate 0.95\n"
+             "             :deposited-at location}]))\n\n"
+             ";; Agents encounter and execute environmental code\n"
+             "(defn ant-explore [location]\n"
+             "  (let [behaviors (pull (str \"stream://env/\" location \"/behaviors\") \n"
+             "                        0 10)]\n"
+             "    ;; Execute behaviors found in environment\n"
+             "    (doseq [[_ _ behavior _ meta] behaviors]\n"
+             "      (when (> (:strength meta) 0.5)\n"
+             "        ;; Execute code found in environment!\n"
+             "        (try\n"
+             "          (behavior @my-state)\n"
+             "          (catch Exception e\n"
+             "            (println \"Behavior failed:\" (.getMessage e))))))))\n\n"
+             ";; Example: Leave \"return to nest\" behavior near food\n"
+             "(when (found-food? @state)\n"
+             "  (leave-code-trail \n"
+             "    (:position @state)\n"
+             "    (fn [state]\n"
+             "      (assoc state :mode :returning-home\n"
+             "                   :target nest-location))))"]]]
+          [:p
+           "The environment contains not just data but executable behavior. Agents program each other indirectly by leaving code in shared spaces. This is stigmergic computation - coordination through environmental modification extended to code itself."]
+
+          [:h3 "4. Complete System Introspection"]
+          [:p "Since everything is data, the system can examine itself completely:"]
+          [:div.code-block
+           [:pre
+            [:code
+             ";; System snapshot\n"
+             "(defn introspect-system []\n"
+             "  {:agents (vec (map (fn [agent]\n"
+             "                       {:id (:id agent)\n"
+             "                        :continuation (serialize-continuation (:cont agent))\n"
+             "                        :streams (:streams agent)})\n"
+             "                     @active-agents))\n"
+             "   :streams (vec (vals @stream-registry))\n"
+             "   :topology (build-topology-graph @active-agents)\n"
+             "   :timestamp (now)})\n\n"
+             ";; Serialize entire system to disk\n"
+             "(spit \"system-snapshot.edn\" \n"
+             "      (pr-str (introspect-system)))\n\n"
+             ";; Later, restore exact state\n"
+             "(defn restore-system [snapshot-path]\n"
+             "  (let [snapshot (read-string (slurp snapshot-path))]\n"
+             "    (doseq [agent-data (:agents snapshot)]\n"
+             "      (spawn-agent agent-data))\n"
+             "    (doseq [stream-data (:streams snapshot)]\n"
+             "      (restore-stream stream-data))))"]]]
+          [:p
+           "No special introspection APIs. No debugger protocols. The system's state is data, so it's introspectable by definition."]
+
+          [:h3 "5. Protocol Evolution Without Downtime"]
+          [:p "Streams can evolve by sending new definitions:"]
+          [:div.code-block
+           [:pre
+            [:code
+             ";; Stream v1\n"
+             "(def stream-v1\n"
+             "  {:id #uuid \"550e8400-...\"\n"
+             "   :name \"stream://sensors/temp\"\n"
+             "   :metadata {:version 1\n"
+             "              :schema {:v :number}}})\n\n"
+             ";; Stream v2 with richer data and migration function\n"
+             "(def stream-v2\n"
+             "  {:id #uuid \"550e8400-...\"  ; Same ID\n"
+             "   :name \"stream://sensors/temp\"\n"
+             "   :metadata {:version 2\n"
+             "              :schema {:v {:temp :number \n"
+             "                          :humidity :number}}\n"
+             "              :migrate-from-v1 \n"
+             "              (fn [old-datom]\n"
+             "                (let [[e a v t m] old-datom]\n"
+             "                  [e a {:temp v :humidity nil} t \n"
+             "                   (assoc m :migrated true)]))}})\n\n"
+             ";; Publish upgrade\n"
+             "(publish \"stream://system/updates\"\n"
+             "         [:system :stream-upgrade stream-v2 (now) {}])\n\n"
+             ";; Agents upgrade themselves\n"
+             "(subscribe \"stream://system/updates\"\n"
+             "           (fn [[_ _ new-stream-def _ _]]\n"
+             "             (when (= (:id new-stream-def) \n"
+             "                      (:id @my-stream))\n"
+             "               (upgrade-stream! new-stream-def)\n"
+             "               (println \"Upgraded to version\" \n"
+             "                       (get-in new-stream-def [:metadata :version])))))"]]]
+          [:p "No restart required. No coordination protocol. Just send the new definition as data."]
+
+          [:h2 "The Theoretical Implication"]
+          [:p
+           "What Datom.world has created is, to our knowledge, "
+           [:strong "the first process calculus with complete unification of channels and processes as values"]
+           "."]
+          [:p "The formal system would look like:"]
+          [:div.code-block
+           [:pre
+            [:code
+             "Syntax:\n"
+             "  P ::= 0                          (nil)\n"
+             "      | x̄⟨d⟩.P                     (output datom)\n"
+             "      | x(d).P                     (input datom)\n"
+             "      | P | Q                      (parallel)\n"
+             "      | (νx)P                      (new stream)\n"
+             "      | !P                         (replication)\n\n"
+             "where:\n"
+             "  d = [e, a, v, t, m]              (datom)\n"
+             "  v ∈ {data, stream-data, continuation-data, nested}\n\n"
+             "Key properties:\n"
+             "  - No type distinction between values\n"
+             "  - Same transmission mechanism for all\n"
+             "  - Interpreters materialize meaning\n"
+             "  - System is reflexive (can represent itself)"]]]
+          [:p
+           "This could be called "
+           [:strong "Uniform π-calculus"]
+           " or "
+           [:strong "Datom calculus"]
+           " - a process calculus where the distinction between data, channels, and processes collapses into interpreted data structures."]
+
+          [:h2 "Why Interpreters Make This Possible"]
+          [:p "The crucial insight that enables unification is this:"]
+          [:p
+           [:strong
+            "Don't reify abstractions into runtime objects. Keep everything as data. Let interpreters give meaning contextually."]]
+          [:p "Traditional systems:"]
+          [:div.code-block
+           [:pre
+            [:code
+             "// Stream = Object with methods\n"
+             "class Stream {\n"
+             "    private Socket socket;\n"
+             "    public void write(byte[] data) { ... }\n"
+             "}\n\n"
+             "// Process = Thread\n"
+             "Thread thread = new Thread(() -> { ... });\n\n"
+             "// Problem: Can't serialize objects, can't transmit threads"]]]
+          [:p "Datom.world:"]
+          [:div.code-block
+           [:pre
+            [:code
+             ";; Stream = Data structure\n"
+             "{:id #uuid \"...\" \n"
+             " :name \"stream://x\" \n"
+             " :metadata {...}}\n\n"
+             ";; Continuation = Data structure  \n"
+             "{:code (fn [s] ...) \n"
+             " :state {...}}\n\n"
+             ";; Interpreters materialize meaning\n"
+             "(defn materialize-stream [stream-data]\n"
+             "  (case (get-in stream-data [:metadata :storage])\n"
+             "    :tcp (tcp-connect (:host stream-data) (:port stream-data))\n"
+             "    :file (io/file (:path stream-data))\n"
+             "    :memory (atom (:buffer stream-data))))\n\n"
+             "(defn execute-continuation [cont-data]\n"
+             "  (let [{:keys [code state streams]} cont-data]\n"
+             "    (code state streams)))"]]]
+          [:p
+           "The stream data structure is passive until an interpreter materializes it as an actual connection. The continuation data structure is inert until an interpreter executes it."]
+          [:p
+           [:strong "Meaning emerges from interpretation, not from inherent object identity."]]
+          [:p
+           "This is similar to Lisp's homoiconicity (code as data), but applied to distributed systems: everything the system manipulates - data, channels, code - is represented uniformly as data structures."]
+
+          [:h2 "Practical Implications"]
+          [:p "This isn't just theoretical elegance. The unification enables:"]
+          [:p [:strong "For Mobile Agent Systems:"]]
+          [:ul.bulleted
+           [:li "Agents migrate between devices fully self-contained"]
+           [:li "No need for global name registries"]
+           [:li "Automatic adaptation to new environments"]]
+          [:p [:strong "For Swarm Coordination:"]]
+          [:ul.bulleted
+           [:li "Behaviors evolve and spread organically"]
+           [:li "Successful strategies propagate naturally"]
+           [:li "System learns through code transmission"]]
+          [:p [:strong "For IoT/Edge Computing:"]]
+          [:ul.bulleted
+           [:li "Processes migrate to where data is"]
+           [:li "Computation follows opportunity"]
+           [:li "Network topology reconfigures dynamically"]]
+          [:p [:strong "For Distributed Debugging:"]]
+          [:ul.bulleted
+           [:li "Complete system state is inspectable"]
+           [:li "Snapshots capture everything"]
+           [:li "Time-travel debugging is natural"]]
+          [:p [:strong "For Organic System Evolution:"]]
+          [:ul.bulleted
+           [:li "Protocols upgrade without coordination"]
+           [:li "New behaviors can be injected"]
+           [:li "System programs itself"]]
+
+          [:h2 "A Complete Example: Ant Swarm Evolution"]
+          [:p "Let's see how this all comes together in a practical example:"]
+          [:div.code-block
+           [:pre
+            [:code
+             ";; Generation 1: Simple wandering ant\n"
+             "(def gen1-behavior\n"
+             "  (fn [state]\n"
+             "    (if (see-food? state)\n"
+             "      (collect-food state)\n"
+             "      (random-walk state))))\n\n"
+             ";; Ant uses this behavior, succeeds 40% of time\n"
+             "(def ant-1\n"
+             "  {:id :ant-1\n"
+             "   :behavior gen1-behavior\n"
+             "   :success-rate (atom 0.4)\n"
+             "   :streams [{:id #uuid \"env-1-...\" \n"
+             "              :name \"stream://environment/sector-1\"}]})\n\n"
+             ";; Generation 2: Ant improves behavior\n"
+             "(def gen2-behavior\n"
+             "  (fn [state]\n"
+             "    (let [pheromones (sense-pheromones state)]\n"
+             "      (if (strong-pheromone? pheromones)\n"
+             "        (follow-gradient pheromones state)\n"
+             "        (gen1-behavior state)))))  ; Incorporates previous!\n\n"
+             ";; Ant-2 discovers this works better (70% success)\n"
+             ";; Shares the improved behavior\n"
+             "(when (> @(:success-rate ant-2) 0.6)\n"
+             "  (publish \"stream://swarm/behaviors\"\n"
+             "           [:ant-2 :improved-strategy gen2-behavior (now)\n"
+             "            {:success-rate @(:success-rate ant-2)\n"
+             "             :parent-behavior :gen1\n"
+             "             :innovation \"pheromone-following\"}]))\n\n"
+             ";; Other ants adopt successful behaviors\n"
+             "(subscribe \"stream://swarm/behaviors\"\n"
+             "           (fn [[entity _ new-behavior _ meta]]\n"
+             "             (when (> (:success-rate meta) @my-success-rate)\n"
+             "               (println \"Ant\" @my-id \"adopting behavior from\" entity)\n"
+             "               (reset! my-behavior new-behavior)\n"
+             "               \n"
+             "               ;; Mutate and share further improvements\n"
+             "               (future\n"
+             "                 (Thread/sleep 60000)\n"
+             "                 (when (improved? @my-success-rate)\n"
+             "                   (let [mutated (add-random-exploration new-behavior)]\n"
+             "                     (publish \"stream://swarm/behaviors\"\n"
+             "                              [@my-id :mutation mutated (now)\n"
+             "                               {:success-rate @my-success-rate\n"
+             "                                :parent entity}])))))))\n\n"
+             ";; Generation 3: System evolves organically\n"
+             ";; Best behaviors spread, bad ones die out\n"
+             ";; No central coordination needed\n"
+             ";; Code literally evolves through transmission"]]]
+
+          [:h2 "The Road Ahead"]
+          [:p
+           "Datom.world is being built for real-world applications - ant-inspired swarm coordination, agent-based systems, and distributed computation on mesh networks. But the theoretical foundation suggests something broader: a new way of thinking about distributed systems where the boundaries between data, communication, and computation blur into a unified whole."]
+          [:p "The key moves:"]
+          [:ol
+           [:li "Streams as data structures (not objects)"]
+           [:li "Continuations as data structures (not runtime entities)"]
+           [:li "Uniform transmission (same mechanism for all)"]
+           [:li "Interpretation materializes meaning (context-dependent)"]
+           [:li "System is reflexive (can represent itself completely)"]]
+          [:p
+           "By treating everything as data and using interpreters to materialize meaning, we achieve what process calculi have been reaching toward for decades: true unification of information mobility, channel mobility, and code mobility."]
+          [:p
+           "The future of distributed systems may not be about better type systems or more sophisticated protocols, but about collapsing these distinctions entirely - recognizing that at the deepest level, it's all just data flowing through interpreted structures."]
+
+          [:h2 "Learn More"]
+          [:p
+           "Datom.world is being developed as an open platform for distributed, stigmergic computation. The project combines:"]
+          [:ul.bulleted
+           [:li [:strong "DaoStream:"] " The streaming protocol with unified values"]
+           [:li [:strong "Yin.VM:"] " Continuation-based virtual machine with migration"]
+           [:li [:strong "Stigmergic coordination:"] " Ant-inspired swarm intelligence"]]]]]}

@@ -207,15 +207,15 @@
 
     (testing "Nested let bindings"
       (let [ast (yang/compile '(let [x 1]
-                                  (let [y 2]
-                                    (+ x y))))
+                                 (let [y 2]
+                                   (+ x y))))
             result (vm/run (make-state vm/primitives) ast)]
         (is (= 3 (:value result)))))
 
     (testing "Complex expression"
       (let [ast (yang/compile '(let [double (fn [x] (* x 2))
                                      triple (fn [x] (* x 3))]
-                                  (+ (double 5) (triple 4))))
+                                 (+ (double 5) (triple 4))))
             result (vm/run (make-state vm/primitives) ast)]
         (is (= 22 (:value result)))))))
 

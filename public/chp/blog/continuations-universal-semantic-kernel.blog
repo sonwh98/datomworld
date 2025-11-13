@@ -1,0 +1,325 @@
+#:blog{:title
+       "Why Continuations Are the Universal Semantic Kernel",
+       :date #inst "2025-12-08T00:00:00.000-00:00",
+       :abstract
+       [:p
+        "Continuations aren't just control flow—they're the "
+        [:strong "universal semantic kernel"]
+        ". As first-class datoms in Yin.vm, they unify exceptions, async/await, generators, coroutines, backtracking, effects, and distributed computation, making nearly every language feature a special case of manipulating continuations."],
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+          [:h2 "What Is a Continuation?"]
+          [:p
+           "A continuation is "
+           [:strong "\"the rest of the computation from this point onward.\""]
+           " It represents the future of a program—everything that will happen next."]
+          [:p "If your VM can:"]
+          [:ul.bulleted
+           [:li [:strong "Capture"] " the continuation (save the future)"]
+           [:li [:strong "Resume"] " it (jump back to saved future)"]
+           [:li [:strong "Pass it as a value"] " (like a function)"]
+           [:li [:strong "Store it"] " (even persistently)"]
+           [:li [:strong "Transfer it across machines"]]]
+          [:p
+           "…then almost every language feature becomes a "
+           [:strong "special case of manipulating continuations"]
+           "."]
+          [:h2 "Continuations as a Universal Encoding"]
+          [:p
+           "Here's the key insight: "
+           [:strong "continuations can encode the semantics of nearly every programming language feature"]
+           ". Let's see how."]
+          [:h3 "a. Exceptions"]
+          [:p "An exception is:"]
+          [:pre
+           [:code
+            "\"Jump to a continuation representing the nearest handler.\""]]
+          [:p
+           "When you "
+           [:code "throw"]
+           ", you abandon the current continuation and resume a saved continuation (the catch block)."]
+          [:h3 "b. Async/Await"]
+          [:p "An await is:"]
+          [:pre
+           [:code
+            "\"Suspend the continuation; resume later when value arrives.\""]]
+          [:p
+           "The async runtime saves your continuation, does other work, then restores it when the promise resolves."]
+          [:h3 "c. Generators / Iterators"]
+          [:p "A generator is:"]
+          [:pre
+           [:code
+            "\"A function that yields by suspending its continuation, then resumes from that point.\""]]
+          [:p
+           "Each "
+           [:code "yield"]
+           " saves the continuation. Each "
+           [:code "next()"]
+           " restores it."]
+          [:h3 "d. Coroutines"]
+          [:p
+           "Same idea, except the continuation is passed explicitly between peers."]
+          [:h3 "e. Backtracking (Prolog)"]
+          [:p "A choice point is:"]
+          [:pre
+           [:code
+            "\"A saved continuation of the entire search state.\""]]
+          [:p
+           "Prolog saves continuations at every decision point. Backtracking = restoring an earlier continuation."]
+          [:h3 "f. Delimited Control / Effect Handlers"]
+          [:p "Effects are:"]
+          [:pre
+           [:code
+            "\"Intercept the continuation, wrap it, resume it with transformed context.\""]]
+          [:p
+           "Effect handlers capture the continuation up to a delimiter, transform it, and resume it with new context."]
+          [:h3 "g. Tail-Call Optimization"]
+          [:p "A tail call is:"]
+          [:pre
+           [:code "\"Replace current continuation with another one.\""]]
+          [:p
+           "Instead of pushing a new frame, you replace the continuation entirely."]
+          [:h3 "h. Actor-Style Concurrency (Erlang)"]
+          [:p "Actor mailbox processing is:"]
+          [:pre
+           [:code "\"A loop of message-triggered continuations.\""]]
+          [:p
+           "Each message handler is a continuation that processes one message and yields the next continuation."]
+          [:h3 "i. Green Threads / Lightweight Processes"]
+          [:p "A thread is:"]
+          [:pre
+           [:code
+            "\"A continuation stored in the scheduler, resumed by cooperative scheduling.\""]]
+          [:p
+           "The scheduler maintains a queue of continuations and switches between them."]
+          [:h3 "j. Checkpointing / Migration"]
+          [:p "A checkpoint is:"]
+          [:pre
+           [:code "\"A continuation serialized and moved.\""]]
+          [:p
+           "Serialize the continuation, send it to another machine, deserialize, resume."]
+          [:h2 "Everything Is Just Continuation Manipulation"]
+          [:p "Everything above can be implemented without adding new primitives—just using:"]
+          [:ul.bulleted
+           [:li "Continuation capture"]
+           [:li "Continuation resume"]
+           [:li "A small amount of state"]]
+          [:p
+           "This is why languages like Scheme and SML/NJ with "
+           [:code "call/cc"]
+           " were considered insanely expressive."]
+          [:h2 "Why Yin Can Encode All This Directly"]
+          [:p "Because Yin makes continuations:"]
+          [:ul.bulleted
+           [:li [:strong "First-class"] " — they are values you can pass around"]
+           [:li
+            [:strong "Serializable"]
+            " — they can be saved to disk or sent over the network"]
+           [:li [:strong "Datoms"] " — they are facts in the database"]
+           [:li
+            [:strong "Network-transferable"]
+            " — they can migrate between machines"]
+           [:li
+            [:strong "Persistent"]
+            " — they survive process restarts"]]
+          [:p [:strong "This is NOT the case for:"] " JVM, WASM, LLVM, BEAM, or most other IRs."]
+          [:p
+           "In Yin, a continuation is literally just data in "
+           [:a {:href "/dao-db.chp"} "DaoDB"]
+           ":"]
+          [:pre
+           [:code
+            "[:cont/id 1234\n :cont/op :apply\n :cont/env {...}\n :cont/next 5678]"]]
+          [:p "Because it's data:"]
+          [:ul.bulleted
+           [:li "Languages can " [:strong "construct"] " continuations"]
+           [:li [:strong "Modify"] " them"]
+           [:li [:strong "Store"] " them"]
+           [:li [:strong "Send them across processes"]]
+           [:li [:strong "Reify them for debugging"]]
+           [:li [:strong "Query them using Datalog"]]
+           [:li [:strong "Patch them using LLMs"]]]
+          [:p
+           "Yin is a "
+           [:strong "continuation machine at its foundation"]
+           " (a CESK machine)."]
+          [:h2 "Why Don't Other IRs Support Continuations?"]
+          [:p
+           "Because "
+           [:strong
+            "full first-class continuations make optimizing compilers and runtimes much harder"]
+           "."]
+          [:p "This is the key point."]
+          [:h3 "Reason 1: Hard for Stack-Based VMs"]
+          [:p [:strong "JVM, WASM, Lua VM, CPython"] ":"]
+          [:ul.bulleted
+           [:li "Use stacks and frames"]
+           [:li "Continuations require capturing the full stack"]
+           [:li "But stacks were not designed to be copied or mutated"]
+           [:li
+            "JVM stack frames contain return addresses, local variables, polymorphic registers—too tied to runtime layout"]]
+          [:p "So they " [:strong "intentionally avoid"] " supporting continuations."]
+          [:h3 "Reason 2: Hard for SSA-Based IRs (LLVM)"]
+          [:p "LLVM uses Static Single Assignment (SSA):"]
+          [:ul.bulleted
+           [:li "Continuations require non-local control flow"]
+           [:li "Captured continuations introduce φ-node explosion"]
+           [:li "The CFG (control flow graph) becomes extremely complex"]
+           [:li
+            "Optimization passes (inlining, LICM, GVN, SROA) break under dynamic control flow"]]
+          [:p "LLVM designers explicitly forbade continuations because:"]
+          [:blockquote
+           [:p
+            [:strong
+             "They make optimizing dataflow IRs extremely difficult."]]]
+          [:h3 "Reason 3: Most Languages Didn't Need Them"]
+          [:p "Most mainstream languages choose simpler models:"]
+          [:ul.bulleted
+           [:li [:strong "Java"] ": exceptions, threads, no coroutines"]
+           [:li [:strong "Go"] ": goroutines but no first-class continuations"]
+           [:li [:strong "Rust"] ": async state machines, not continuations"]
+           [:li
+            [:strong "JavaScript"]
+            ": async/await with hidden continuation-passing but no access to the raw continuation"]]
+          [:p
+           "Exposing real continuations would expose too much of the runtime's guts."]
+          [:h3 "Reason 4: Security and Portability Concerns"]
+          [:p "Continuation capture:"]
+          [:ul.bulleted
+           [:li "Freezes dynamic environment"]
+           [:li
+            "Often includes references to runtime internals or sensitive state"]
+           [:li "Makes sandboxing difficult in JVM/WASM"]]
+          [:p "Yin doesn't have this problem because:"]
+          [:ul.bulleted
+           [:li "Continuations are just EDN/datom structures"]
+           [:li "They contain only what your VM defines"]
+           [:li
+            "They are designed from the start to be serializable and capability-safe"]]
+          [:h3 "Reason 5: Distributed Computation Was Not the Goal"]
+          [:p "None of those IRs were designed for:"]
+          [:ul.bulleted
+           [:li "Migrating computations across nodes"]
+           [:li "Pausing/resuming a process on another machine"]
+           [:li "Storing active execution in a database"]
+           [:li "Composing computations symbolically"]]
+          [:p
+           [:strong "Continuation capture + datoms is PERFECT for this."]
+           " JVM/WASM/LLVM aren't trying to solve that domain."]
+          [:h2 "What Makes Yin Unique?"]
+          [:h3 "A. Continuations Are the Universal Semantics Kernel"]
+          [:p "Instead of:"]
+          [:blockquote
+           [:p
+            "Building separate primitives for exceptions, threads, async, streams, coroutines, actors, generators, backtracking…"]]
+          [:p "Yin uses:"]
+          [:blockquote [:p [:strong "One core thing: continuation."]]]
+          [:p
+           "This drastically simplifies the VM core and maximizes expressive power."]
+          [:h3 "B. Continuations Are Data"]
+          [:p "Unlike all other IRs:"]
+          [:ul.bulleted
+           [:li "Yin stores continuations as datoms"]
+           [:li
+            "The continuation graph is literally a "
+            [:strong "knowledge graph"]]
+           [:li "You can query continuations with Datalog"]
+           [:li "You can patch them"]
+           [:li "You can migrate them"]
+           [:li "You can approximate or explain them using LLMs"]]
+          [:p [:strong "No other VM in history does this."]]
+          [:h3 "C. Continuations Unify Computation and Representation"]
+          [:p "Because continuations are AST segments:"]
+          [:blockquote
+           [:p [:code "code = data = execution state"]]]
+          [:p "There is no gap between \"program\" and \"process.\""]
+          [:p "The same DaoDB holds:"]
+          [:ul.bulleted
+           [:li "AST nodes"]
+           [:li "Continuation nodes"]
+           [:li "Type/ontology nodes"]
+           [:li "Runtime facts"]]
+          [:p "This is why the system is so cohesive."]
+          [:h2 "The Justification: Why Continuations?"]
+          [:p
+           "Continuations allow representing many different language semantics directly because:"]
+          [:ol
+           [:li
+            [:strong "Continuations generalize all control-flow constructs"]
+            " — everything from exceptions to coroutines to async is just a continuation transform."]
+           [:li
+            [:strong "They give a uniform encoding for effects"]
+            " — Monad, async, generator, actor = continuation pattern."]
+           [:li
+            [:strong "They allow languages to embed arbitrary execution models"]
+            " — laziness (thunks), logic programming (choice points), concurrency (green threads), backtracking (saved states), delimited control."]
+           [:li
+            [:strong "They allow a small universal kernel"]
+            " — Many surface-level details of languages collapse into just a few continuation ops."]
+           [:li
+            [:strong "Continuations are composable and serializable in Yin"]
+            " — unlike JVM/WASM/LLVM stacks or SSA CFGs."]]
+          [:p
+           "Other IRs avoided continuations "
+           [:strong "not because they are weak"]
+           ", but because they are "
+           [:strong "too powerful"]
+           " and break their optimization/security model."]
+          [:h2 "Yin Flips the Design"]
+          [:p "Yin makes a different choice:"]
+          [:ul.bulleted
+           [:li [:strong "Power is the goal"]]
+           [:li [:strong "Optimization is local-first"]]
+           [:li [:strong "Security is capability-based"]]
+           [:li [:strong "Semantic clarity > CFG-based speed"]]]
+          [:h2 "TLDR"]
+          [:p
+           [:strong
+            "Continuations are powerful enough to encode the semantics of nearly any programming language directly."]]
+          [:p "Other IRs don't support them because:"]
+          [:ul.bulleted
+           [:li
+            "Their architectures (stacks, SSA, CFGs) make continuations difficult or impossible to handle"]
+           [:li
+            "Full continuations complicate optimization and security"]
+           [:li
+            "They weren't designed for distributed, reflective computation"]]
+          [:p "Yin is unique because:"]
+          [:ul.bulleted
+           [:li "Continuations are first-class"]
+           [:li "Continuations are datoms"]
+           [:li "Continuations are portable"]
+           [:li "Continuations are serializable"]
+           [:li
+            "Continuations unify AST, execution, effects, and distribution"]]
+          [:p
+           "This is why Yin can serve as a "
+           [:strong "universal intermediate representation"]
+           " for programming languages. Continuations are the semantic kernel. Everything else is just a pattern."]
+          [:p [:strong "Learn more:"]]
+          [:ul.bulleted
+           [:li
+            [:a
+             {:href "/blog/ast-higher-dimensional-datom-streams.blog"}
+             "AST as Higher Dimensional Construction of Datom Streams"]
+            " (how ASTs are materialized views over datom streams)"]
+           [:li
+            [:a
+             {:href "/blog/yin-vm-ast-chinese-characters.blog"}
+             "Yin.vm: Chinese Characters for Programming Languages"]
+            " (how the Universal AST enables cross-language interoperability)"]
+           [:li
+            [:a
+             {:href "/blog/devils-advocate.blog"}
+             "Why yin.vm Succeeds Where Previous Attempts Failed"]
+            " (addressing skeptical objections to continuation-based mobile computation)"]
+           [:li
+            [:a {:href "/dao-db.chp"} "DaoDB"]
+            " (the Datalog database powering datom streams)"]
+           [:li
+            [:a {:href "/yin.chp"} "Yin VM Documentation"]
+            " (technical deep dive)"]]]]]}

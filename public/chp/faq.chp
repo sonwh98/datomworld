@@ -13,8 +13,9 @@
           [:p
            "Datom.World is a platform for building local-first, stream-native software. "
            "Streams of datoms flow between devices, and apps interpret those streams according to their domain. "
-           "The platform includes Yin (continuation VM), Yang (compiler), and built-in apps like DaoDB (tuple store), DaoFlow (rendering engine), and Shibi (economic primitive). "
-           "All apps work the same way: they consume datom streams and interpret them—DaoDB interprets them as queryable indexes, DaoFlow interprets them as renderable interfaces, Shibi interprets them as economic signals."]]]
+           "The platform includes Yin (continuation VM), Yang (compiler), and built-in apps like DaoDB (datom stream interpreter), DaoFlow (rendering engine), and Shibi (economic primitive). "
+           "All apps work the same way: they consume datom streams and interpret them—DaoDB interprets them as queryable indexes, DaoFlow interprets them as renderable interfaces, Shibi interprets them as economic signals. "
+           "Its most innovative aspect is the radical unification of code, data, and computation into a single primitive: the datom stream, making programs queryable, mobile, and highly evolvable."]]]
         [:details.faq
          [:summary "Why the metaphor of ant colonies and stigmergy?"]
          [:div
@@ -24,15 +25,16 @@
            "and the collective behavior emerges from local actions. "
            "It is self-organizing intelligence without command-and-control."]]]
         [:details.faq
-         [:summary "What does “everything is a stream” actually mean?"]
-        [:div
+         [:summary "What does \"everything is a stream\" actually mean?"]
+         [:div
           [:p
            "In Datom.World, data never freezes in silos. "
            "Every fact lives in an append-only stream that can be read, transformed, or extended. "
            "Streams become the common language for messages, automations, analytics, or agents—"
-           "a single primitive that replaces piles of bespoke stacks. There's only two API: reaad and write"]]]
+           "a single primitive that replaces piles of bespoke stacks. "
+           "The stream protocol provides four operations: open, read, write, and close."]]]
         [:details.faq
-         [:summary "What does “everything is a continuation” mean for me?"]
+         [:summary "What does \"everything is a continuation\" mean for me?"]
          [:div
           [:p
            "Imagine pausing a story midway and later resuming at the exact sentence you left. "
@@ -41,8 +43,7 @@
           [:ul.bulleted
            [:li "Your data, apps, and flows persist across time without depending on a single vendor’s session."]
            [:li "Switching devices feels natural because your context lives in the shared world, not on one machine."]
-           [:li "Collaboration stays fluid—others can pick up where you paused, continuing the same thread securely."]]]
-        ]
+           [:li "Collaboration stays fluid—others can pick up where you paused, continuing the same thread securely."]]]]
         [:details.faq
          [:summary "Who owns the data flowing through these streams?"]
          [:div
@@ -54,7 +55,10 @@
          [:summary "What is a datom, exactly?"]
          [:div
           [:p
-           "A datom is a tuple [e a v t c]—entity, attribute, value, time, context. "
+           "A datom is a tuple [e a v t m]—entity, attribute, value, transaction ID, metadata entity ID. "
+           "The 't' is monotonic within its stream (not globally ordered). "
+           "The metadata field 'm' references an entity containing causal relationships, encryption context, or other meta-information—and is used to determine causality across different streams, since 't' has no meaning outside its originating stream. "
+           "When you transact a map, it automatically decomposes into datoms. "
            "Just as atoms assemble into matter, datoms assemble into any data structure. "
            "See " [:a {:href "/dao-db.chp#the-five-element-tuple"} "DaoDB"] " for the detailed structure."]]]
         [:details.faq
@@ -87,6 +91,13 @@
            "Because streams are universal, the same facts can render as dashboards, maps, spreadsheets, or code triggers—"
            "all without duplicating data."]]]
         [:details.faq
+         [:summary "What is Shibi and how does it enable trust?"]
+         [:div
+          [:p
+           "Shibi is the economic primitive and capability token system that coordinates access and resources across Datom.World. "
+           "Beyond spam prevention and attention markets, Shibi tokens grant capabilities: stream access control, computational resource metering, agent migration credentials, API rate limiting, and cross-agent communication. "
+           "Shibi implements Elinor Ostrom's principles for governing digital commons, enabling delegation, attenuation, and auditable resource sharing without central authorities."]]]
+        [:details.faq
          [:summary "What does Datom.World mean for the future of the web?"]
          [:div
           [:p
@@ -103,13 +114,13 @@
          [:summary "What exactly is a datom in implementation terms?"]
          [:div
           [:p
-           "A datom is a fixed five-element tuple: [e a v t c] → entity, attribute, value, time, context. "
-           "It is immutable and causally traceable. "
+           "A datom is a fixed five-element tuple: [e a v t m] → entity, attribute, value, transaction ID (stream-local), metadata. "
+           "It is immutable and causally traceable. Transaction IDs are monotonic within a stream but have no meaning across streams—cross-stream causality is established via metadata. "
            "Datoms flow through DaoStreams. Apps consume streams and can materialize datoms into indexes or other structures."]]]
         [:details.faq
-         [:summary "How should developers interpret “everything is a stream”?"]
+         [:summary "How should developers interpret \"everything is a stream\"?"]
          [:div
-         [:p
+          [:p
            "Streams are the single I/O abstraction. "
            "Read, write, transform, and entangle datoms through asynchronous channels instead of bespoke APIs. "
            "Files, sockets, message queues, and databases collapse into this one primitive, giving apps a shared protocol for collaboration."]]]
@@ -118,8 +129,10 @@
          [:div
           [:p
            "Entanglement is a lightweight consensus mechanism. "
+           "When streams entangle, one leader establishes event ordering, imposing a single monotonic sequence across the entangled streams. "
            "Entangled nodes maintain a partially ordered view of a shared stream. "
-           "Temporary leaders serialize events, but leadership can shift on demand—delivering consistency without global locks or blockchains."]]]
+           "Temporary leaders serialize events, but leadership can shift on demand—delivering consistency without global locks or blockchains. "
+           "Importantly, transaction IDs remain stream-scoped even when entangled—cross-stream causality is always determined via metadata."]]]
         [:details.faq
          [:summary "How is data stored and replicated?"]
          [:div
@@ -163,7 +176,7 @@
           [:ul.bulleted
            [:li "Everything is a continuation: functions, closures, and coroutines live in the same model."]
            [:li "Eval is the virtual machine: the evaluator is the runtime, not a separate layer."]
-           [:li "ASTs stay canonical as EDN maps, never hidden behind bytecode."]
+           [:li "ASTs stay canonical as datoms, never disgarded after bytecode has been generated."]
            [:li "Persistent CESK machine keeps control, environment, store, and continuation immutable yet efficient."]
            [:li "Opcodes are configurable, so semantics and instruction sets can be tailored per deployment."]]]]
         [:details.faq
@@ -179,23 +192,40 @@
            "Programs are immutable maps with explicit keys for operation, arguments, environment, and continuation. "
            "Everything is addressable, inspectable, and serializable—ideal for distributed or persisted execution."]]]
         [:details.faq
+         [:summary "How does the Universal AST relate to datoms?"]
+         [:div
+          [:p
+           "The Universal AST is a construction from datoms—not a separate representation. "
+           "Programs are stored as datom streams, and the AST is materialized by querying those streams. "
+           "This means your code is queryable data: you can search for all functions calling a specific API, trace dependencies, or transform programs using the same tools that query databases. "
+           "This radical approach enables unprecedented capabilities for reflection, transformation, and AI-driven programming where code itself is a fluid, introspectable dataset. "
+           "The datom is always the source of truth."]]]
+        [:details.faq
          [:summary "What is the Yang compiler?"]
          [:div
           [:p
            "Yang lowers high-level languages (starting with Clojure) into Yin’s universal AST. "
            "Additional backends for Python, JavaScript, Rust, and beyond bring cross-language continuations into the same runtime."]]]
         [:details.faq
-         [:summary "What does “everything is a continuation” mean for developers?"]
+         [:summary "What does \"everything is a continuation\" mean for developers?"]
          [:div
           [:p
            "Control flow, concurrency, and suspension points become data. "
            "You can capture, transform, serialize, or route continuations across the network—turning distributed computation into composable building blocks."]]]
         [:details.faq
-         [:summary "What does “everything is a continuation” mean for users?"]
+         [:summary "What does \"everything is a continuation\" mean for users?"]
          [:div
           [:p
            "Programs can pause, migrate, or resume anywhere without losing context. "
            "Your computation travels with you—locally or in the cloud—with the same continuity as your data."]]]
+        [:details.faq
+         [:summary "Are agents just programs that use continuations?"]
+         [:div
+          [:p
+           "No—agents " [:em "are"] " continuations. "
+           "In Yin, there is no distinction between an agent and a continuation. "
+           "Every agent is a serializable execution state that can pause, migrate across devices, resume on different hardware, and maintain its full context. "
+           "This unification means mobility, security, and computation merge into a single primitive."]]]
         [:details.faq
          [:summary "Can Yin interoperate with other systems?"]
          [:div

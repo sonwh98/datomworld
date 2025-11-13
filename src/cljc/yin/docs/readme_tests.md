@@ -1,29 +1,42 @@
 # Yin VM - Quick Test Guide
 
-## Run All Tests (Easiest)
+## Requirements
+
+- [Clojure CLI tools](https://clojure.org/guides/install_clojure) (`clj`)
+
+**Note:** All `clj` commands should be run from the root of the `datomworld` directory where [deps.edn](../../../../deps.edn) is located.
+
+## Run All Tests
 
 ```bash
-./run_tests.sh
+clj -M:test
 ```
 
-## Run Individual Tests with `clj`
+Or from the REPL:
 
-### Test 1: Lambda Addition
+```clojure
+(require '[clojure.test :refer [run-tests]])
+(require 'yin.vm-test)
+(run-tests 'yin.vm-test)
+```
+
+## Run Individual Test Namespaces from shell
+
+### Run specific test namespace
 ```bash
-clj test_add.clj
+clj -M:test -n yin.vm-literal-test
+clj -M:test -n yin.vm-continuation-test
 ```
-Tests:
-- ✅ `(+ 10 20)` → `30`
-- ✅ `((lambda (x y) (+ x y)) 3 5)` → `8`
 
-### Test 2: Continuation Stepping
+### Run specific test function
 ```bash
-clj test_simple_continuation.clj
+clj -M:test -v yin.vm-addition-test/test-lambda-with-multiple-operations
 ```
-Tests:
-- ✅ `((lambda (x) (+ x 1)) 5)` → `6`
-- Shows all 17 execution steps
-- Displays Control, Continuation, and Value at each step
+
+### Run multiple specific namespaces
+```bash
+clj -X:test :nses '[yin.vm-literal-test yin.vm-test]'
+```
 
 ## What Gets Tested
 
@@ -42,15 +55,10 @@ All tests validate the CESK (Control, Environment, Store, Continuation) architec
 - **Store** - Immutable memory (for future use)
 - **Continuation** - Where to return after evaluation
 
-## Requirements
+### Implementation
 
-- Clojure CLI tools (`clj`)
-- `deps.edn` is already configured
-
-## Implementation
-
-- **VM:** [src/cljc/yin/vm.cljc](vm.cljc)
-- **Full Test Suite:** [test/yin/vm_test.cljc](../../../test/yin/vm_test.cljc)
+- **VM:** [`vm.cljc`](/src/cljc/yin/vm.cljc)
+- **Full Test Suite:** [`vm_test.cljc`](/test/yin/vm_test.cljc)
 - **Documentation:** [yin_vm_tests.md](yin_vm_tests.md)
 
 ## Specification

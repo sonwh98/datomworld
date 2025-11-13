@@ -1,0 +1,74 @@
+#:blog{:title "Language as Geometry"
+       :date #inst "2026-01-07T00:00:00.000-00:00"
+       :abstract [:p "We lift language out of the Flatland of probability tables into the high-dimensional space of vectors, where we can finally move freely between ideas."]
+       :content [:section.blog-article
+                 [:div.section-inner
+                  [:article
+                   :$blog-title
+                   :$blog-date
+
+                   [:p "The central question: Why does language—a discrete, symbolic system of words—map so effectively onto continuous vector geometry? Why does a mathematical operation like " [:code "King - Man + Woman"] " result in " [:code "Queen"] "?"]
+
+                   [:p "To understand why this is possible, we have to leave the world of text and enter the world of dimensions."]
+
+                   [:p "Imagine being a Circle trapped inside a Square jail in Flatland. You slide along the 2D plane, but the walls are impenetrable. There is no escape. Then you dream of a third dimension—and suddenly you rise above the plane, look down, and simply step over the walls. What was an inescapable prison is now just lines on the floor."]
+
+                   [:p "This is the key insight: problems that are impossible to solve in a lower dimension become trivial in a higher one. The Circle could never escape in 2D—the walls were impassable. But by lifting into 3D, the impossible becomes easy. The higher dimension offers degrees of freedom that simply do not exist below."]
+
+                   [:p "Mathematicians call this kind of structure-preserving lift a " [:em "homomorphism"] ". The relationships that existed in 2D are preserved in 3D—the Circle is still a Circle, the Square jail still has the same shape—but now there is room to move in ways that were previously impossible."]
+
+                   [:p "This is exactly what we do to language. But what is the Flatland we are escaping, and how do we construct the lift?"]
+
+                   [:h2 "The Ground Truth: Bayesian Probability"]
+
+                   [:p "The Flatland of language is Bayesian Probability. It is the statistical reality of natural language—a massive, fixed space defined by how humans actually speak. In this world, words are discrete symbols trapped in probability tables, and relationships are defined by rigid conditional ratios:"]
+
+                   [:ul
+                    [:li "How likely is \"bank\" to appear given the context \"river\"? " [:code "P(bank | river)"]]
+                    [:li "How likely is \"bank\" to appear given the context \"money\"? " [:code "P(bank | money)"]]]
+
+                   [:p "In this flat world, you cannot subtract \"Man\" from \"King.\" The word \"King\" is just a symbol in a table, unable to mathematically interact with other words."]
+
+                   [:h2 "The Lift: Embedding into Vector Space"]
+
+                   [:p "The higher dimension we escape into is Vector Space. By embedding words into high-dimensional space—often thousands of dimensions" [:sup "1"] "—we give them freedom of movement. The word \"King\" becomes a point in space, a Vector. Now you have room to perform complex movements: physically move the concept of \"King,\" subtract the \"Man\" component, and float over to the exact coordinates of \"Queen.\""]
+
+                   [:p "We solve problems in geometry because the higher dimensional space offers symmetries and operations that are impossible in the lower dimensional space of discrete symbols."]
+
+                   [:h2 "The Bridge: The Logarithmic Homomorphism"]
+
+                   [:p "But the lift alone is not enough. We need a " [:em "homomorphism"] "—a structure-preserving map—that translates the rules of the Probability World into the rules of the Vector World. We demand that the Dot Product (our measure of vector similarity) aligns with the Logarithm of the Probability:"]
+
+                   [:pre [:code "u · v ≈ log(P(context | word))"]]
+
+                   [:p "This is why the vector arithmetic works:"]
+
+                   [:ul
+                    [:li [:strong "In Probability (Flatland):"] " Relationships are ratios " [:code "(B / A)"]]
+                    [:li [:strong "In Geometry (Vector Space):"] " Relationships are distances " [:code "(A - B)"]]
+                    [:li [:strong "The Homomorphism:"] " The Logarithm converts ratios into subtraction"]]
+
+                   [:pre [:code "log(B / A) = log(B) - log(A)"]]
+
+                   [:h2 "The Mechanism: Cross-Entropy Forcing"]
+
+                   [:p "This geometric structure isn't magic; it is forced. The vectors don't start out knowing this map. We have to teach them."]
+
+                   [:p "We use " [:strong "Cross-Entropy Loss"] " as the objective function—the \"judge\"—that trains the model. The training process works like a pressure cooker:"]
+
+                   [:ol
+                    [:li [:strong "The Guess:"] " The model calculates a dot product."]
+                    [:li [:strong "The Check:"] " It compares that guess to the actual probability of the next word in the text."]
+                    [:li [:strong "The Force:"] " If the guess is wrong, Cross-Entropy penalizes the model."]]
+
+                   [:p "To minimize this penalty, the model has no choice but to adjust its vectors until their dot products perfectly mirror the log-likelihoods of the text."]
+
+                   [:p "So why does " [:code "King - Man + Woman = Queen"] "? Because the logarithm turns probability ratios into vector subtraction. The relationship between \"King\" and \"Man\" exists as a ratio in Bayesian space; in vector space, that same relationship becomes a direction you can subtract and add."]
+
+                   [:p "We treat language as geometry not because words are actually shapes, but because we have mathematically coerced the vector space to behave like a logarithmic map of the Bayesian territory. We lift the data out of Flatland and into a space where we can finally move freely between ideas."]
+
+                   [:p.learn-more "This dimensional lift is an instance of a more general pattern. See " [:a {:href "/blog/computation-dimensional-expansion-compression.blog"} "Computation as Dimensional Expansion and Compression"] " for how this principle applies beyond language models."]
+
+                   [:hr]
+
+                   [:p.footnote [:sup "1"] " " [:em "Dimensions"] " and " [:em "parameters"] " are different. Dimensions are the size of each word's vector—\"King\" might be a list of 4,096 numbers. Parameters count every trainable number in the entire model. A 4,096-dimensional embedding for 50,000 words is already 200 million parameters, before counting anything else. Models have billions of parameters; the space words move through has thousands of dimensions."]]]]}

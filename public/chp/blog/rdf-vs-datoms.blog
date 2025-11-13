@@ -1,0 +1,258 @@
+#:blog{:title "RDF Triples vs Datoms"
+       :date #inst "2026-01-01T01:00:00.000-00:00"
+       :abstract [:p "RDF triples lack crucial dimensions for applications. Datom.world extends to five-tuples: entity, attribute, value, time, metadata."]
+       :content [:section.blog-article
+                 [:div.section-inner
+                  [:article
+                   :$blog-title
+                   :$blog-date
+
+                   [:h2 "The RDF Foundation"]
+                   [:p "The Resource Description Framework (RDF) models knowledge as triples: "
+                    [:code "(subject predicate object)"]
+                    ". The " [:em "concept"] " is elegant. But RDF has many serialization formats: RDF/XML, JSON-LD, Turtle, N-Triples, N-Quads, TriG, RDF/JSON. Here's the same fact in JSON-LD:"]
+                   [:pre [:code "{\n  \"@context\": \"http://xmlns.com/foaf/0.1/\",\n  \"@id\": \"http://example.org/person/alice\",\n  \"knows\": {\n    \"@id\": \"http://example.org/person/bob\"\n  }\n}"]]
+                   [:p "RDF defines multiple standard serialization formats, each optimized for different contexts: RDF/XML for traditional XML tooling, JSON-LD for web APIs, Turtle for human readability, N-Triples for streaming."]
+
+                   [:p "The triple " [:em "concept"] " is elegant: it's compositional, enables powerful graph queries and inference. The semantic web was built on this foundation, and for good reason."]
+
+                   [:p "But wouldn't it be simpler if an RDF triple could be as straightforward as this?"]
+                   [:pre [:code "[alice :knows bob]"]]
+                   [:p "A literal vector with subject, predicate, object. No XML tags, no JSON context negotiation. Just data."]
+
+                   [:h2 "Enter the Datom: [e a v t m]"]
+                   [:p [:a {:href "https://www.datomic.com/"} "Datomic"] " extended the RDF triple model to make time a first-class dimension, introducing the datom as a five-tuple " [:code "[e a v t op]"] ". The fourth element " [:code "t"] " is transaction time, and the fifth element " [:code "op"] " is a boolean indicating whether the datom is an assertion (add) or retraction. Datom.world extends this model further, replacing the boolean with " [:code "m"] ", a metadata entity:"]
+                   [:ul
+                    [:li [:code "e"] ": entity (like RDF's subject)"]
+                    [:li [:code "a"] ": attribute (like RDF's predicate)"]
+                    [:li [:code "v"] ": value or entity reference (like RDF's object)"]
+                    [:li [:code "t"] ": transaction time"]
+                    [:li [:code "m"] ": metadata entity (not a boolean, but an entity reference for extensible context)"]]
+
+                   [:p "This isn't just \"RDF plus timestamp.\" It's a recognition that " [:strong "time and provenance are first-class dimensions"] " of data, not afterthoughts. The metadata entity " [:code "m"] " allows arbitrary context to be attached to each datom, going beyond Datomic's simple add/retract distinction."]
+
+                   [:h2 "What RDF Gets Right"]
+                   [:ul
+                    [:li [:strong "Universality"] ": Any fact can be expressed as subject-predicate-object"]
+                    [:li [:strong "Composability"] ": Triples can be composed into graphs"]]
+
+                   [:p "RDF triples are " [:em "data about data"] ". They describe relationships without prescribing storage, execution, or inference models."]
+
+                   [:h2 "What RDF Got Wrong"]
+                   [:p "Despite the elegance of the triple model, RDF never achieved widespread adoption outside of specialized domains like academic research, libraries, and government data. Why?"]
+
+                   [:h3 "1. Serialization Complexity"]
+                   [:p "RDF's original serialization format was RDF/XML, which was notoriously verbose. While later formats (JSON-LD, Turtle, N-Triples) improved readability, they're still verbose compared to the simplicity of the underlying triple concept. Each format requires its own parser, validator, and tooling."]
+
+                   [:p "More critically, " [:strong "the serialization format is not the data model"] ". A triple is a conceptual structure. RDF/XML, JSON-LD, and Turtle are different " [:em "representations"] " of that structure. You negotiate which format to use, then parse it into an internal representation (often... integers for performance, as we'll see)."]
+
+                   [:p "Datoms take the opposite approach: " [:strong "the serialization format is the data model"] ". A datom is a five-element vector. That's not a representation of a datom, that " [:em "is"] " a datom. There's no parsing step where you transform from one structure to another. The vector literal " [:code "[42 :person/name \"Alice\" 1001 nil]"] " is what gets indexed, what gets queried, what gets sent over the wire as raw EDN or encoded with Transit or other encoding formats. The format is the data."]
+
+                   [:h3 "2. The Consensus Bottleneck"]
+                   [:p "The semantic web vision required " [:strong "universal agreement"] " on ontologies before applications could interoperate. While you could technically build an application with your own private ontology, doing so removed the main benefit: automatic data integration across systems. But agreement is expensive."]
+
+                   [:p "For a software agent to book a flight and hotel by reading data from different websites, both the airline and hotel needed to describe " [:code "price"] ", " [:code "date"] ", and " [:code "booking"] " using shared vocabularies. If American Airlines used " [:code "vocab:cost"] " and Hilton used " [:code "vocab:price"] ", machine integration would fail. Achieving this agreement across industries proved incredibly slow and political."]
+
+                   [:p "Organizations had immediate problems to solve and couldn't wait for W3C committees to standardize vocabularies. It was infinitely cheaper and faster for two engineers to agree on a JSON format: " [:code "{\"id\": 123, \"cost\": 99.99}"] ". They didn't need the whole world to agree, just the two systems talking to each other. The industry voted with its feet: relational databases and JSON APIs won."]
+
+                   [:h3 "3. No Answer to Execution"]
+                   [:p "RDF correctly focuses on data representation, not execution. But the Semantic Web vision required " [:em "some"] " answer to: who runs the code? How do agents process data? How does computation happen?"]
+
+                   [:p "The vision had no cohesive answer. Think of the difference between a PDF and a web browser:"]
+                   [:ul
+                    [:li [:strong "RDF is like a PDF"] ": It perfectly preserves information. But a PDF cannot do anything. It can't calculate, it can't update itself, it can't act. You need an external program to view it and a human to interpret it."]
+                    [:li [:strong "The Semantic Web dream"] ": Autonomous agents that navigate, learn, and act on their own. But because RDF has no execution model, you can't send RDF to a server and have it \"run.\""]]
+
+                   [:p "Developers filled the execution gap with traditional application stacks:"]
+                   [:ul
+                    [:li "Pull RDF from a triple store"]
+                    [:li "Parse it into application objects (Java, Python, Go)"]
+                    [:li "Run imperative logic outside the data model"]
+                    [:li "Save results back as static RDF"]]
+
+                   [:p "The intelligence isn't in the Semantic Web. It's locked inside the private code of the engineers who wrote the application. RDF became the hard drive, not the operating system."]
+
+                   [:p "RDF found its niche in specialized domains: academic research, library catalogs, government open data initiatives. When semantic interoperability matters more than immediate execution, and when you control both ends of the exchange, RDF's shared vocabularies provide value. But for most data exchange, the industry chose simpler formats: CSV for tabular data, JSON for APIs. RDF is passive data, not autonomous computation."]
+
+                   [:p "Datom.world provides an answer: " [:strong "agents are yin.vm continuations"] ". Because yin.vm unifies functions and continuations as the same thing, agents are simply functions that consume streams of datoms and can migrate across nodes. Execution is first-class, not an afterthought."]
+
+                   [:h3 "4. Conflation of Identity and Performance"]
+                   [:p "RDF uses global URIs (" [:code "http://example.org/alice"] ") for entity identity. This conflates two distinct concerns: " [:strong "semantic identity"] " (who is this person?) and " [:strong "internal references"] " (efficient database indexing)."]
+
+                   [:p "In practice, RDF implementations work around URI performance costs by hashing URIs to integers or using dictionary encoding (mapping URIs to sequential IDs). But this creates a new problem: the model says entities " [:em "are"] " URIs, but the implementation uses integers. You've now split identity across two layers:"]
+                   [:ul
+                    [:li "The conceptual model (URIs as first-class entities)"]
+                    [:li "The implementation reality (hashed integers for performance)"]]
+
+                   [:p "This mismatch means developers must think in URIs but optimize for integers. Query planning, caching strategies, and distributed coordination all depend on understanding both representations. The global URI identifier, meant to simplify identity, instead adds a translation layer."]
+
+                   [:p "Datoms don't have this problem. Entity IDs " [:em "are"] " integers in both the model and the implementation. There's no translation layer. What you see in the datom tuple " [:code "[42 :person/name \"Alice\"]"] " is what's stored in the index. The model and implementation are aligned."]
+
+                   [:p "RDF was designed for knowledge representation, not for building applications. When you need to:"]
+                   [:ul
+                    [:li "Track when facts became true"]
+                    [:li "Handle conflicting assertions from different sources"]
+                    [:li "Retract or update information"]
+                    [:li "Audit who asserted what"]
+                    [:li "Reason about causality and time"]]
+                   [:p "...you find yourself encoding these concerns " [:em "on top of"] " triples, usually through:"]
+                   [:ul
+                    [:li "Named graphs (quads: subject-predicate-object-graph)"]
+                    [:li "Reification (turning statements into subjects)"]
+                    [:li "Provenance vocabularies (PROV-O, etc.)"]
+                    [:li "Temporal extensions (custom predicates for time)"]]
+
+                   [:p "These solutions work, but they're " [:strong "interpretive layers"] " rather than native dimensions. Time becomes a predicate you query. Provenance becomes metadata you attach."]
+
+                   [:h2 "How Datoms Avoid These Problems"]
+
+                   [:h3 "How Datoms Avoid the Consensus Trap"]
+                   [:p "The datom model avoids RDF's \"universal agreement\" problem by shifting from " [:strong "global specification"] " (everyone agreeing on what data means) to " [:strong "local interpretation"] " (systems deciding how to use data):"]
+                   [:ul
+                    [:li [:strong "Local IDs, Late-Binding Identity"] ": Entity IDs are stream-local integers requiring zero consensus. When systems need to correlate data, they use shared unique attributes (" [:code ":person/email"] ") at query time, not during storage. This moves the \"agreement\" cost from the storage layer (hard, upfront) to the query layer (flexible, as-needed)."]
+                    [:li [:strong "Agents Replace Ontologies"] ": Instead of passive dictionaries requiring industry-wide agreement, datom.world uses executable agents that process data. Meaning is defined by what the agent " [:em "does"] ", not what a specification " [:em "says"] ". You don't wait for a standards committee to define " [:code "standard:invoice"] ". You write an agent that processes your invoice datoms. Integration happens through interpreter adaptation, not specification consensus."]
+                    [:li [:strong "Fixed Structure, No Meta-Agreement"] ": The five-tuple structure is non-negotiable. Time and provenance are built-in dimensions, not interpretive layers requiring additional agreement on how to track history (Named Graphs? Reification? PROV-O?). Systems don't need to agree on " [:em "how"] " to handle change, they just replay the append-only log."]]
+
+                   [:p "Datoms solve the local problem first: a high-performance, immutable database that works immediately for your application. Integration with other systems is a separate, downstream task handled by query logic and agent interpretation, not an upfront barrier to entry."]
+
+                   [:h2 "Entity Identity: Internal References vs Semantic Identity"]
+                   [:p "In RDF, entities are URIs: globally unique, dereferenceable identifiers. " [:code "http://example.org/person/alice"] " is meant to refer to the same entity everywhere. This enables the semantic web's vision of linking data across the internet."]
+
+                   [:p "But global entity IDs conflate two distinct concerns:"]
+                   [:ul
+                    [:li [:strong "Performance"] ": efficient indexing and storage"]
+                    [:li [:strong "Identity"] ": correlation across databases or streams"]]
+
+                   [:p "In datom.world, these concerns are separated:"]
+
+                   [:h3 "Entity IDs: Local Sequential Integers"]
+                   [:p "Entity IDs are " [:strong "internal references"] " within a DaoDB instance. They are 64-bit sequential integers, assigned locally:"]
+                   [:pre [:code "[42 :person/name \"Alice\"]"]]
+
+                   [:p "Why not UUIDs or sequential UUIDs (squuids)?"]
+                   [:ul
+                    [:li [:strong "Index efficiency"] ": 64-bit integers are faster to compare (single CPU instruction vs two for 128-bit UUIDs). In sorted index segments, binary search over 8-byte keys is more cache-friendly than 16-byte keys. UUIDs can't be packed into dense vectors even when sequential, because 80 bits remain random, requiring full 128-bit comparisons."]
+                    [:li [:strong "Storage density"] ": Every datom and every index entry stores an entity ID. 8 bytes vs 16 bytes matters at scale. Smaller keys mean more entries fit in memory, reducing disk I/O."]
+                    [:li [:strong "Privacy"] ": Sequential UUIDs (squuids) leak creation timestamps. Anyone with the UUID can extract when and potentially where an entity was created, enabling cross-stream correlation attacks. Local IDs reveal nothing."]
+                    [:li [:strong "Simplicity"] ": Local sequential assignment requires no coordination, no timestamp embedding, no randomness generation."]]
+
+                   [:h3 "Semantic Identity: Unique Attributes"]
+                   [:p "Identity is not a property of entity IDs. It's a " [:strong "semantic property"] " expressed through unique attributes. When you need to correlate entities across DaoDBs or streams, you use unique identity attributes:"]
+                   [:pre [:code ";; DaoDB-A: Personal database\n[1 :person/name \"Alice\"]\n[1 :person/uuid #uuid \"550e8400-...\"]\n[1 :person/email \"alice@example.com\"]\n\n;; DaoDB-B: Work database\n[7 :person/uuid #uuid \"550e8400-...\"]  ;; Same UUID\n[7 :person/department \"Engineering\"]"]]
+
+                   [:p "Different entity IDs (" [:code "1"] " vs " [:code "7"] "), but the same person. Correlation happens through the shared " [:code ":person/uuid"] " attribute, not the entity ID."]
+
+                   [:p "Attributes marked as " [:code ":db.unique/identity"] " enable:"]
+                   [:ul
+                    [:li [:strong "Lookup refs"] ": " [:code "[:person/email \"alice@example.com\"]"] " resolves to the local entity ID"]
+                    [:li [:strong "Upsert semantics"] ": facts added to a unique attribute find or create the entity"]
+                    [:li [:strong "Cross-DaoDB queries"] ": join on shared unique values"]]
+
+                   [:h3 "Flexible Identity Strategies"]
+                   [:p "Different entities can use different identity schemes:"]
+                   [:ul
+                    [:li [:code ":person/uuid"] " for globally unique entities"]
+                    [:li [:code ":person/email"] " for natural identity"]
+                    [:li [:code ":document/sha256"] " for content-addressed identity"]
+                    [:li "No unique attributes for private, non-correlatable entities"]]
+
+                   [:p "Identity emerges from interpretation. Agents independently create entities with local IDs. Correlation happens at query time through unique attributes. No pre-coordination required. Privacy by default: only entities with unique attributes are correlatable."]
+
+                   [:p "This separation of concerns aligns with the principle that streams are interpretation boundaries. Entity IDs are internal. Identity is semantic. Correlation is explicit."]
+
+                   [:h3 "Time (t): Causality as Structure"]
+                   [:p "In RDF, to track when Alice started knowing Bob, you need reification: turning the triple itself into an entity so you can make statements about it. Here's the JSON-LD:"]
+                   [:pre [:code
+                          "{
+  \"@context\": {
+    \"foaf\": \"http://xmlns.com/foaf/0.1/\",
+    \"dc\": \"http://purl.org/dc/terms/\"
+  },
+  \"@id\": \"http://example.org/statement/1\",
+  \"@type\": \"rdf:Statement\",
+  \"rdf:subject\": {\"@id\": \"http://example.org/person/alice\"},
+  \"rdf:predicate\": {\"@id\": \"foaf:knows\"},
+  \"rdf:object\": {\"@id\": \"http://example.org/person/bob\"},
+  \"dc:created\": \"2025-01-01T00:00:00Z\"
+}"]]
+                   [:p "This nested map expands to five separate RDF triples. You need four triples to " [:em "identify which triple"] " you're talking about (the subject, predicate, object, and type), plus one for the timestamp. The original semantic triple is now embedded in a meta-structure."]
+
+                   [:p "In datom.world, you " [:em "could"] " model this as an entity (like RDF's reified statement), but you don't need to. Time is intrinsic:"]
+                   [:pre [:code "[alice :knows bob 1001 nil]"]]
+                   [:p "Transaction " [:code "1001"] " is a stream-local monotonic identifier. Every fact exists " [:em "at"] " a transaction within its stream. You can query as-of any point in time without creating statement entities. The timestamp is built into the data model, not added as metadata on top."]
+
+                   [:h3 "Metadata (m): Extensible Context and Cross-Stream Causality"]
+                   [:p "The fifth element, " [:code "m"] ", is an entity ID used for metadata about the datom itself. This enables:"]
+                   [:ul
+                    [:li "Provenance (who asserted this?)"]
+                    [:li "Confidence scores"]
+                    [:li "Access control tokens"]
+                    [:li "Capability references"]
+                    [:li [:strong "Cross-stream causality"] ": since " [:code "t"] " is stream-local, determining causality across different streams requires interpreting the metadata graph via " [:code "m"]]]
+
+                   [:p "Instead of creating parallel vocabularies, you extend the model itself. Metadata is " [:em "data"] ", queryable through the same mechanisms. Crucially, " [:code "m"] " is how you establish causal relationships between facts from different streams, since transaction IDs have no meaning outside their originating stream."]
+
+                   [:h2 "Restrictions as Features"]
+                   [:p "Datoms are more restrictive than RDF:"]
+                   [:ul
+                    [:li "Attributes are namespaced keywords, not arbitrary URIs"]
+                    [:li "Entities are opaque IDs (stream-local, not globally dereferenceable)"]
+                    [:li "Time is monotonic and append-only " [:em "within each stream"] " (not globally)"]
+                    [:li "Values must be ground (no variables in storage)"]]
+
+                   [:p "These restrictions enable:"]
+                   [:ul
+                    [:li [:strong "Efficient indexing"] ": EAVT, AEVT, AVET, VAET covering indexes"]
+                    [:li [:strong "Immutability"] ": datoms never change, simplifying caching and distribution"]
+                    [:li [:strong "Consistent reads"] ": as-of queries are trivial"]
+                    [:li [:strong "Clear semantics"] ": no ambiguity about what a fact means"]]
+
+                   [:p "For a deeper exploration of how these restrictions enable powerful capabilities, see " [:a {:href "/chp/blog/power-of-restriction-datom-tuple.blog"} "The Power of Restriction: Why Datom Tuples Work"] "."]
+
+                   [:h2 "The Interpreter Problem: Ontologies as Consensus"]
+                   [:p "Here's the fundamental issue: " [:strong "RDF without an interpreter is just syntax"] "."]
+
+                   [:p "When you write a triple expressing that Alice knows Bob, what does " [:code "foaf:knows"] " actually " [:em "mean"] "? The triple itself doesn't know. You need an " [:strong "ontology"] ": a shared vocabulary that defines what predicates mean, what inference rules apply, what constraints exist."]
+
+                   [:p "But ontologies don't execute. They're " [:strong "specifications by consensus"] ". FOAF (Friend of a Friend), Dublin Core, SKOS: these are agreements about what URIs should mean. Developers still need to write application code that uses the ontology to interpret the triples. You're writing an interpreter to use an interpreter to interpret the data."]
+
+                   [:p "RDF's flexibility comes at a cost: " [:strong "no native execution model"] ". There are no agents. No continuations. No explicit notion of who runs what code when. Interpretation happens " [:em "outside"] " the data model, in SPARQL engines, reasoners, and application code."]
+
+                   [:h3 "Datom.world: Interpreters as First-Class"]
+                   [:p "In datom.world, " [:strong "agents are interpreters"] ", and they're first-class. Agents are continuations in yin.vm (datom.world's execution environment), which unifies functions, closures, and continuations. This means any language with functions can be compiled to run as agents. The Universal AST serves as the compilation target, preserving semantics across languages."]
+
+                   [:p [:strong "Continuations exist as datoms"] ". It's datoms all the way down. The execution state (control, environment, store, continuation) is stored as datoms in DaoDB. This means agents can be serialized, migrated across nodes, and resumed from any point. Code and runtime state share the same representation."]
+
+                   [:p "Agent characteristics:"]
+                   [:ul
+                    [:li "Agents consume streams of datoms"]
+                    [:li "Agents can migrate across nodes"]
+                    [:li "Agents read and write streams"]
+                    [:li "Interpretation is explicit, not assumed from vocabulary"]]
+
+                   [:p "Instead of relying on consensus about what a predicate means, you have " [:strong "executable agents"] " that process datoms according to explicit rules. The meaning isn't in the ontology: it's in the agent's behavior."]
+
+                   [:h2 "Graphs: Constructed, Not Assumed"]
+                   [:p "Another crucial difference: RDF " [:em "is"] " a graph model. Datoms are tuples from which graphs " [:em "may be constructed"] "."]
+
+                   [:p "In datom.world:"]
+                   [:ul
+                    [:li "Tuples are the primitive"]
+                    [:li "Graphs are constructed by following entity references in queries"]
+                    [:li "Relationships are explicit, not assumed from predicate semantics"]
+                    [:li "Graph structure emerges from interpretation, not from syntax"]]
+
+                   [:p "Don't assume structure. Don't rely on consensus vocabularies to define meaning. Make interpretation explicit through executable code."]
+
+                   [:h2 "Conclusion: Everything Is Data"]
+                   [:p "RDF triples proved that knowledge can be decomposed into atomic facts. Datoms extend this insight: " [:em "applications need time and context as native dimensions"] "."]
+
+                   [:p "In datom.world:"]
+                   [:ul
+                    [:li "Time isn't metadata: it's part of the datom itself"]
+                    [:li "Provenance isn't annotation: it's intrinsic via the metadata dimension"]
+                    [:li "Graphs aren't assumed: they're constructed from tuples"]
+                    [:li "Everything is data, including the context in which data exists, even code and its runtime state in the form of datoms"]]
+
+                   [:p "Five dimensions. No hidden state. Explicit causality."]
+                   [:p "This is how we build systems where " [:strong "everything is data"] "."]]]]}

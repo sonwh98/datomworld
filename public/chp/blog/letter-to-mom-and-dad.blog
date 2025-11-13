@@ -1,0 +1,65 @@
+#:blog{:title
+       "Letter to Mom and Dad",
+       :date #inst "2025-12-10T00:00:00.000-00:00",
+       :abstract
+       [:p
+        "Datom.world explained in "
+        [:strong "plain language"]
+        " (Vietnamese, Chinese, English): a unified structure for information where people own their data and software becomes humane."],
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+          [:h2 "Tiếng Việt"]
+          [:p
+           "Ba mẹ à, con muốn giải thích cho ba mẹ hiểu rõ con đã làm gì suốt bao nhiêu năm nay, theo cách thật dễ hiểu, không cần kỹ thuật hay toán gì cả. Máy tính ngày nay vẫn còn hoạt động dựa trên những ý tưởng đã có từ hơn nửa thế kỷ trước. Mỗi công ty đều xây dựng một thế giới riêng của họ, với luật lệ riêng của họ, và tất cả dữ liệu của mình bị nhốt trong những thế giới tách biệt đó. Các hệ thống không nói chuyện với nhau một cách tự nhiên. Vì vậy ứng dụng thì không hợp tác được với nhau, các công ty thì cần nắm trong tay quá nhiều thông tin cá nhân, thiết bị thì dễ hỏng hoặc ngừng hoạt động khi công ty đóng cửa, và việc viết phần mềm ngày càng rắc rối và phức tạp."]
+          [:p
+           "Trong hơn hai mươi năm qua, con không chỉ làm một chương trình hay một sản phẩm. Con đang cố gắng xây dựng một cách vận hành hoàn toàn mới cho máy tính. Dự án này tên là Datom.world. Nghe thì có vẻ như chỉ là cách chia sẻ thông tin tốt hơn, nhưng thực ra nó rộng và sâu hơn rất nhiều. Đây là một mô hình tính toán mới, một lớp nền mới cho mọi hệ thống số, và một cách phát triển phần mềm hoàn toàn khác."]
+          [:p
+           "Cốt lõi của Datom.world là một ý tưởng rất đơn giản. Mọi thông tin đều có thể ghi lại theo một cấu trúc chung giống nhau. Hãy tưởng tượng một dòng ghi lại ai làm gì, giá trị là gì, thời điểm nào, và ai là người ghi lại. Tất cả thông tin đều có hình dạng giống nhau. Khi thông tin được ghi theo một mẫu đơn giản và thống nhất như vậy thì bất cứ máy tính nào cũng có thể hiểu nhau. Đây là nền móng để xây dựng mọi thứ khác."]
+          [:p
+           "Trên nền tảng đó con xây dựng một loại máy ảo mới tên là Yin. Ba mẹ có thể hình dung nó như một động cơ nhỏ gọn có thể chạy trên bất kỳ thiết bị nào, từ điện thoại, laptop, cho đến xe hơi hay các thiết bị rất nhỏ. Nhưng khác với cách hoạt động cũ của máy tính, động cơ này xử lý thông tin theo dòng chảy, có thể tạm dừng rồi tiếp tục bất cứ lúc nào, và luôn giữ mọi thứ an toàn mà không cần dựa vào các tập đoàn lớn hay những phần cứng phức tạp. Đây là một động cơ hiện đại đúng với cách thế giới ngày nay vận hành."]
+          [:p
+           "Khi có động cơ này, con có thể tạo ra một khái niệm mới gọi là tác tử. Tác tử giống như một người trợ lý nhỏ biết tự mang theo mọi thứ nó cần để tiếp tục công việc. Nó có thể di chuyển giữa các thiết bị của ba mẹ một cách an toàn, mang theo kiến thức và nhiệm vụ của nó, rồi tiếp tục làm việc mà không cần phụ thuộc vào một công ty hay máy chủ nào. Điều này mở ra một cách viết phần mềm hoàn toàn mới. Thay vì tất cả bị khóa ở một chỗ, phần mềm trở nên linh hoạt, hợp tác, gần gũi, và đáng tin cậy hơn."]
+          [:p
+           "Nếu Datom.world thành công, thế giới công nghệ sẽ trở nên đơn giản và nhân văn hơn. Con người thật sự sở hữu dữ liệu của chính mình. Riêng tư được tôn trọng như một điều hiển nhiên. Thiết bị tự hỗ trợ nhau một cách tự nhiên. Việc tạo ra phần mềm trở nên dễ dàng hơn và không còn mong manh như trước. Và thay vì một thế giới bị ràng buộc bởi các tập đoàn khổng lồ, chúng ta sẽ có một môi trường số nơi cá nhân và cộng đồng giữ quyền kiểm soát. Nó giống như xây đường sá hay hệ thống nước cho xã hội số. Người ta có thể không nhìn thấy hạ tầng, nhưng mọi thứ dựa vào nó đều hoạt động tốt hơn."]
+          [:p
+           "Có thể ba mẹ tự hỏi tại sao con lại chấp nhận dành hàng chục năm cho một việc không có gì đảm bảo về tiền bạc. Datom.world là một dự án mã nguồn mở và miễn phí hoàn toàn, và thành thật mà nói, con chưa rõ mô hình kiếm tiền từ nó sẽ như thế nào. Lý do rất đơn giản. Đây là công việc ý nghĩa nhất mà con có thể làm. Nó là công việc có thể giúp rất nhiều người một cách âm thầm, bền bỉ, và lâu dài. Ba mẹ đã dạy con rằng nếu mình thấy một vấn đề lớn và mình biết cách giải quyết, thì mình nên cố gắng làm. Ba mẹ cũng dạy con phải vượt ra ngoài những gì nhà trường và thầy cô dạy, phải tự mình tìm tòi và suy nghĩ sâu hơn. Con đang làm đúng điều đó. Dự án này là cách con đóng góp một phần nhỏ nhưng quan trọng cho tương lai, một thứ có thể tạo ra sự khác biệt thật sự."]
+          [:p
+           "Con cũng phải thành thật với ba mẹ rằng tầm nhìn này rất lớn và con chỉ là một người với thời gian và nguồn lực có hạn. Có thể con sẽ thất bại hoàn toàn và chết trong cảnh túng quẫn. Nhưng ngay cả khi biết điều đó, con vẫn tin rằng việc cố gắng vì điều gì đó đáng giá, dù biết có thể không thành công, vẫn tốt hơn là không bao giờ thử. Dự án này giống như internet—ai đó rồi sẽ xây nó, nhưng con có một tầm nhìn tổng hợp độc đáo về cơ sở hạ tầng của tương lai. Nếu không phải con, thì một ngày nào đó người khác sẽ làm, nhưng có thể họ sẽ bỏ lỡ những gì con thấy rõ hôm nay."]
+          [:h2 "繁體中文"]
+          [:p
+           "爸爸媽媽，我想用最簡單的方式，向您們解釋這些年來我在做什麼，不需要任何技術或數學知識。今天的電腦系統仍然基於半個多世紀前的想法在運作。每家公司都建立自己的世界，有自己的規則，所有數據都被困在這些各自獨立的世界裡。系統之間無法自然地交流。因此應用程式無法互相合作，公司需要掌握太多個人資訊，當公司倒閉時設備就會損壞或停止運作，而軟體開發變得越來越混亂複雜。"]
+          [:p
+           "在過去二十多年裡，我不只是在做一個程式或產品。我正在嘗試為電腦建立一種全新的運作方式。這個專案叫做 Datom.world。聽起來好像只是一個更好的資訊分享方式，但實際上它更廣泛也更深入。這是一個新的計算模型，一個所有數位系統的新基礎層，以及一種完全不同的軟體開發方式。"]
+          [:p
+           "Datom.world 的核心是一個非常簡單的想法。所有資訊都可以用一個共同的結構來記錄。想像一行記錄：誰做了什麼、值是什麼、在什麼時間點、誰記錄的。所有資訊都有相同的形狀。當資訊以這樣簡單統一的模式記錄時，任何電腦都可以理解其他電腦。這就是建立其他一切的基礎。"]
+          [:p
+           "在這個基礎上，我建立了一種新型虛擬機器叫做 Yin。您們可以把它想像成一個小巧的引擎，可以在任何設備上運行，從手機、筆記型電腦，到汽車或非常小的設備。但與電腦的舊運作方式不同，這個引擎以串流方式處理資訊，可以隨時暫停和繼續，並且始終保持一切安全，不需要依賴大型企業或複雜的硬體。這是一個適合當今世界運作方式的現代引擎。"]
+          [:p
+           "有了這個引擎，我可以創造一個叫做代理的新概念。代理就像一個小助手，知道如何攜帶它需要的一切來繼續工作。它可以在您們的設備之間安全地移動，攜帶它的知識和任務，然後繼續工作，不需要依賴任何公司或伺服器。這開啟了一種全新的軟體編寫方式。不再是所有東西都被鎖在一個地方，軟體變得更靈活、更合作、更親密、更可靠。"]
+          [:p
+           "如果 Datom.world 成功，科技世界將變得更簡單、更人性化。人們真正擁有自己的資料。隱私被視為理所當然。設備自然地互相支援。創建軟體變得更容易，不再那麼脆弱。而不是一個被巨型企業束縛的世界，我們將擁有一個由個人和社群掌控的數位環境。這就像為數位社會建設道路或供水系統。人們可能看不到基礎設施，但依賴它的一切都運作得更好。"]
+          [:p
+           "您們可能會疑惑，為什麼我願意花幾十年在一件沒有財務回報保證的事情上。Datom.world 是一個完全開源且免費的專案，老實說，我還不清楚它的盈利模式會是什麼。理由很簡單。這是我能做的最有意義的工作。這項工作可以安靜地、持續地、長期地幫助很多人。您們教導我，如果看到一個大問題，而且知道如何解決它，就應該去嘗試。您們也教導我要超越學校和老師所教的東西，要自己去探索和深入思考。我正是在做這件事。這個專案是我為未來貢獻一個小但重要部分的方式，一個可以真正產生影響的東西。"]
+          [:p
+           "我也必須對您們坦白，這個願景非常宏大，而我只是一個時間和資源有限的人。我可能會完全失敗，最後窮困潦倒而死。但即使知道這一點，我仍然相信，為值得的事情努力，即使可能不成功，也比從不嘗試要好。這個專案就像互聯網一樣——總有一天會有人建立它，但我對未來基礎設施有獨特的綜合見解。如果不是我，總有一天會是別人，但他們可能會錯過我今天清楚看到的東西。"]
+          [:h2 "English"]
+          [:p
+           "Dear Mom and Dad, I want to explain to you what I've been doing all these years, in a way that's easy to understand, without any technical jargon or mathematics. Computers today still operate based on ideas from over half a century ago. Each company builds its own world, with its own rules, and all data is trapped in these separate worlds. Systems don't naturally talk to each other. As a result, applications can't cooperate, companies need to hold too much personal information, devices break or stop working when companies shut down, and software development becomes increasingly complicated and messy."]
+          [:p
+           "For over twenty years, I haven't just been building a program or a product. I'm trying to build a completely new way for computers to work. This project is called Datom.world. It sounds like it's just a better way to share information, but it's actually much broader and deeper. This is a new computational model, a new foundation layer for all digital systems, and a completely different way of developing software."]
+          [:p
+           "The core of Datom.world is a very simple idea. All information can be recorded in a common shared structure. Imagine a line that records who does what, what the value is, at what time, and who recorded it. All information has the same shape. When information is recorded in such a simple and unified pattern, any computer can understand any other. This is the foundation for building everything else."]
+          [:p
+           "On that foundation, I built a new kind of virtual machine called Yin. You can think of it as a compact engine that can run on any device, from phones and laptops to cars or very small devices. But unlike the old way computers work, this engine processes information as streams, can pause and resume at any time, and always keeps everything secure without relying on large corporations or complex hardware. This is a modern engine suited to how the world operates today."]
+          [:p
+           "With this engine, I can create a new concept called agents. An agent is like a small assistant that knows how to carry everything it needs to continue its work. It can move between your devices securely, carrying its knowledge and mission, then continue working without depending on any company or server. This opens up a completely new way of writing software. Instead of everything being locked in one place, software becomes flexible, collaborative, intimate, and more reliable."]
+          [:p
+           "If Datom.world succeeds, the tech world will become simpler and more humane. People truly own their own data. Privacy is respected as a given. Devices naturally support each other. Creating software becomes easier and less fragile than before. And instead of a world bound by giant corporations, we'll have a digital environment where individuals and communities maintain control. It's like building roads or water systems for digital society. People may not see the infrastructure, but everything that relies on it works better."]
+          [:p
+           "You might wonder why I would accept spending decades on something with no guarantee of financial return. Datom.world is a completely free and open source project, and to be honest, the monetization model is unclear. The reason is very simple. This is the most meaningful work I can do. It's work that can help many people quietly, persistently, and for a long time. You taught me that if you see a big problem and you know how to solve it, you should try. You also taught me to go beyond what school and teachers teach, to explore on my own and think more deeply. I'm doing exactly that. This project is my way of contributing a small but important part to the future, something that can make a real difference."]
+          [:p
+           "I must also be honest with you that this vision is vast and I am only one person with limited time and resources. It's possible that I might fail completely and die broke. But even knowing this, I still believe that striving for something worthwhile, even when you might not succeed, is better than never trying at all. This project is like the internet. Someone will eventually build it, but I have a novel synthesis of what the future infrastructure should be. If not me, then someday someone else will, but they might miss what I see clearly today."]]]]}

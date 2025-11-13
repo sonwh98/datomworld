@@ -1,6 +1,4 @@
 (ns yin.vm-test
-  "Comprehensive tests for the Yin VM.
-  Converted from manual test functions to clojure.test format."
   (:require [yin.vm :as vm]
             [yin.test-util :refer [make-state]]
             #?(:clj [clojure.test :refer [deftest is testing]]
@@ -59,7 +57,7 @@
           ast {:type :application
                :operator {:type :literal :value add-fn}
                :operands [{:type :literal :value 10}
-                         {:type :literal :value 20}]}
+                          {:type :literal :value 20}]}
           result (vm/run (make-state {}) ast)]
       (is (= 30 (:value result))
           "Direct call to + primitive: 10 + 20 = 30"))))
@@ -74,9 +72,9 @@
                           :body {:type :application
                                  :operator {:type :variable :name '+}
                                  :operands [{:type :variable :name 'x}
-                                           {:type :variable :name 'y}]}}
+                                            {:type :variable :name 'y}]}}
                :operands [{:type :literal :value 3}
-                         {:type :literal :value 5}]}
+                          {:type :literal :value 5}]}
           result (vm/run (make-state {'+ add-fn}) ast)]
       (is (= 8 (:value result))
           "Lambda application: ((lambda (x y) (+ x y)) 3 5) = 8"))))
@@ -91,7 +89,7 @@
                           :body {:type :application
                                  :operator {:type :variable :name '+}
                                  :operands [{:type :variable :name 'x}
-                                           {:type :literal :value 1}]}}
+                                            {:type :literal :value 1}]}}
                :operands [{:type :literal :value 5}]}
           initial-state (assoc (make-state {'+ add-fn}) :control ast)]
 
@@ -148,7 +146,7 @@
                 :body {:type :application
                        :operator {:type :variable :name '+}
                        :operands [{:type :variable :name 'x}
-                                 {:type :variable :name 'y}]}}
+                                  {:type :variable :name 'y}]}}
      :operands [{:type :literal :value 3}
-               {:type :literal :value 5}]})
+                {:type :literal :value 5}]})
   (vm/run (make-state {'+ add-fn}) add-lambda-ast))

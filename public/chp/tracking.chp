@@ -47,7 +47,7 @@
        [:h2 "The Correlation Toolkit: How They Link Everything Together"]
        [:p
         "Your data is scattered across hundreds of companies and thousands of devices. "
-         "So how do they connect it all? Through a sophisticated set of techniques that act like digital detective work."]
+        "So how do they connect it all? Through a sophisticated set of techniques that act like digital detective work."]
        [:h3 "1. Universal Identifiers: The Holy Grail"]
        [:p [:strong "Email Addresses (Hashed)"] " — When you log into a store with you@gmail.com and then log into a news site with the same email, "
         "trackers can link those activities. They don't even need to see your actual email address. "

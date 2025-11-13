@@ -1,33 +1,78 @@
-(let [template (load-file "public/chp/template.chp")]
+(require '[clojure.java.io :as io]
+         '[clojure.string :as str])
+
+(let [template (load-file "public/chp/template.chp")
+      blog-dir (io/file "public/chp/blog")
+      blog-files (->> (file-seq blog-dir)
+                      (filter #(.endsWith (.getName %) ".blog"))
+                      (map (fn [file]
+                             (assoc (read-string (slurp file))
+                                    :blog/file (.getName file))))
+                      (sort-by :blog/date #(compare %2 %1)))]
   (clojure.walk/postwalk-replace
    {:template/title "Datom.World — Technical Blog"
     :template/content
     (list
      [:section.blog-list
       [:div.section-inner
-       [:div.blog-grid
-        [:article.blog-card
-         [:div.blog-meta
-          [:span "Nov 5, 2025"]
-          [:span "18 min read"]]
-         [:h2 [:a {:href "/blog/unitarity-and-communication-limits.chp"} "Unitarity, π-Calculus, and the Cosmic Speed Limit"]]
-         [:p
-          "Why the universe is a stream-native continuation system. How unitarity + π-calculus prove communication must have finite speed, why quantum collapse is local buffer fragmentation, and how the multiverse emerges from distributed interpreters."]
-         [:a {:href "/blog/unitarity-and-communication-limits.chp"} "Read the article →"]]
-        [:article.blog-card
-         [:div.blog-meta
-          [:span "Oct 29, 2025"]
-          [:span "10 min read"]]
-         [:h2 [:a {:href "/blog/code-entropy-evolution.chp"} "Code as Entropy: Why Good Software Evolves, Not Designed"]]
-         [:p
-          "Good code isn't designed—it evolves toward low-entropy structures. On cohesion, coupling, test-induced brittleness, and why all documentation decays."]
-         [:a {:href "/blog/code-entropy-evolution.chp"} "Read the article →"]]
-        [:article.blog-card
-         [:div.blog-meta
-          [:span "Dec 3, 2024"]
-          [:span "6 min read"]]
-         [:h2 [:a {:href "/blog/datoms-as-streams.chp"} "Streaming Datoms with Transducers"]]
-         [:p
-          "How we combine datom streams with transducers to build resilient, composable dataflows across the network edge."]
-         [:a {:href "/blog/datoms-as-streams.chp"} "Read the article →"]]]]])}
+       [:div.blog-search
+        [:input {:type "text"
+                 :id "blog-search"
+                 :placeholder "Search blogs (regex supported)..."
+                 :class "search-input"}]]
+       [:div.blog-grid {:id "blog-grid"}
+        (for [blog blog-files
+              :let [chp-file (str/replace (:blog/file blog) #"\.blog$" ".chp")
+                    link (str "/blog/" chp-file)
+                    date-inst (:blog/date blog)
+                    date-str (if date-inst
+                               (.format (java.text.SimpleDateFormat. "MMM d, yyyy")
+                                        date-inst)
+                               "Unknown date")]]
+          [:article.blog-card
+           {:data-title (:blog/title blog)
+            :data-abstract (pr-str (second (:blog/abstract blog)))
+            :data-date date-str}
+           [:div.blog-meta
+            [:span date-str]]
+           [:h2 [:a {:href link}
+                 (:blog/title blog)]]
+           (:blog/abstract blog)
+           [:a {:href link}
+            "Read the article →"]])]]]
+     [:script {:type "text/javascript"}
+      "
+      document.getElementById('blog-search').addEventListener('input', function(e) {
+        const searchTerm = e.target.value;
+        const cards = document.querySelectorAll('.blog-card');
+
+        cards.forEach(card => {
+          if (!searchTerm) {
+            card.style.display = '';
+            return;
+          }
+
+          try {
+            const regex = new RegExp(searchTerm, 'i');
+            const title = card.dataset.title || '';
+            const abstract = card.dataset.abstract || '';
+            const date = card.dataset.date || '';
+
+            const matches = regex.test(title) || regex.test(abstract) || regex.test(date);
+            card.style.display = matches ? '' : 'none';
+          } catch (e) {
+            // Invalid regex, fall back to simple text search
+            const searchLower = searchTerm.toLowerCase();
+            const title = (card.dataset.title || '').toLowerCase();
+            const abstract = (card.dataset.abstract || '').toLowerCase();
+            const date = (card.dataset.date || '').toLowerCase();
+
+            const matches = title.includes(searchLower) ||
+                          abstract.includes(searchLower) ||
+                          date.includes(searchLower);
+            card.style.display = matches ? '' : 'none';
+          }
+        });
+      });
+      "])}
    template))

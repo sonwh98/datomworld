@@ -173,8 +173,8 @@
          (let [[params & body] operands
                ;; Handle multi-expression body with implicit do
                body-expr (if (= 1 (count body))
-                          (first body)
-                          (cons 'do body))]
+                           (first body)
+                           (cons 'do body))]
            (compile-lambda params body-expr env))
 
          ;; Conditional: (if test consequent alternate?)
@@ -187,8 +187,8 @@
          (let [[bindings & body] operands
                ;; Handle multi-expression body with implicit do
                body-expr (if (= 1 (count body))
-                          (first body)
-                          (cons 'do body))]
+                           (first body)
+                           (cons 'do body))]
            (compile-let bindings body-expr env))
 
          ;; Do block: (do expr1 expr2 ...)

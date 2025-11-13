@@ -8,28 +8,41 @@
        [:span.status-pill "Economic primitive"]
        [:h1 "💩 Shibi (屎币)"]
        [:p.section-lead
-        "All open networks suffer from spam when they get popular, a classic tragedy of the commons: the open platform is a shared resource, but when anyone can use it without cost, spam makes the platform unusable for everyone. "
-        "Email is the canonical example: spam filters help, but spam still gets through. Inboxes fill with thousands of unread messages, most of them spam, making it impossible to find legitimate messages buried in the noise. "
+        "Shibi is Datom.World's capability token system—a general-purpose economic primitive for managing shared resources and agent authority. "
+        "While spam control demonstrates its power (solving the tragedy of the commons through market economics), "
+        "Shibi's true scope extends to all forms of resource access: stream permissions, computational budgets, agent migration credentials, and API rate limits. "
+        "Anyone can issue infinitely many purpose-specific tokens, making Shibi the foundation for both human attention markets and autonomous agent coordination."]
+       [:p
+        "All open networks suffer from spam when they get popular, a classic tragedy of the commons. The open platform is a shared resource, but when anyone can use it without cost, spam makes the platform unusable for everyone. "
+        "Email is the canonical example. Spam filters help, but spam still gets through. Inboxes fill with thousands of unread messages, most of them spam, making it impossible to find legitimate messages buried in the noise. "
         "Classical economics offers two solutions to the tragedy of the commons: central control (government regulation) or privatization (dividing the commons into private property). "
         "Open networks have tried both: walled gardens impose centralized moderation, spam filters attempt algorithmic control. "
         "Neither works well. "
         "The spam problem is real, but censorship is equally problematic: one person's trash is another person's treasure, and centralized gatekeepers can't distinguish between them. "
-        "Shibi offers a third path between censorship and chaos."]
+        "Shibi offers a third path between censorship and chaos, a design that directly addresses the " [:a {:href "/blog/attention-market-critiques.blog"} "fundamental critiques of attention markets"] "."]
        [:p
         "Shibi (屎币) literally means \"shit coin\" in Chinese. The name is intentional. "
-        "This isn't money, and it's not trying to replace money. It's an application of blockchain to control spam, not to create a new currency. "
-        "More importantly, Shibi isn't a single token. It's a system that allows anyone: people, organizations, or autonomous AI agents,to be their own central bank, easily issuing infinitely many utility tokens for different purposes. "
+        "This isn't money, and it's not trying to replace money. "
+        "For a deep dive into why Shibi deliberately avoids being money-like, see "
+        [:a {:href "/blog/shibi-as-money.blog"} "Why Shibi Cannot Be Like Money"]
+        ". "
+        "While spam control is its most visible application, Shibi's capability model applies to any shared resource that needs economic coordination. "
+        "More importantly, Shibi isn't a single token. It's a system that allows anyone: people, organizations, or autonomous AI agents, to be their own central bank, easily issuing infinitely many utility tokens for different purposes. "
         "Each token is purpose-specific: one for email attention, another for API rate limiting, another for forum moderation. "
         "The provocative name \"shit coin\" makes this clear: these aren't speculative assets, they're contextual utilities."]
        [:p
         "So how does this third path actually work? "
-        "Shibi draws on two key sources: carbon credit systems that turn pollution into a tradable commodity, and Nobel laureate "
+        "Shibi draws on three key sources: biological cell membranes, carbon credit systems that turn pollution into a tradable commodity, and Nobel laureate "
         [:a {:href "https://evonomics.com/tragedy-of-the-commons-elinor-ostrom/" :target "_blank" :rel "noopener noreferrer"} "Elinor Ostrom"]
         "'s theoretical framework for governing shared resources."]
        [:p
+        "The biological inspiration comes from cell membranes, which have solved the spam filtering problem for 3.5 billion years. "
+        "Cells maintain open boundaries without being overwhelmed by noise through capability-based filtering: specific receptors, energy costs, and rate limiting. "
+        "These evolved mechanisms prove that open systems can remain functional by making communication costly and specific, not by blocking everything."]
+       [:p
         "The carbon credit inspiration addresses spam as a negative externality. "
         "Just like pollution, spam imposes costs on others: one party consumes another person's attention without paying for it. "
-        "Carbon credit systems turn pollution,an environmental negative externality,into a tradable commodity, making it costly and creating market incentives for reduction. "
+        "Carbon credit systems turn pollution, an environmental negative externality, into a tradable commodity, making it costly and creating market incentives for reduction. "
         "Similarly, Shibi makes spam costly and creates economic pressure for its reduction."]
        [:p
         "Ostrom spent her career proving communities can successfully manage shared resources through self-governance without top-down regulation or privatization. "
@@ -44,7 +57,7 @@
          [:tr
           [:td "Clearly defined boundaries"]
           [:td "Who can use the resource is well-defined."]
-          [:td "Datom.World uses Shibi's cryptographic identity via crypto wallets to determine what communication is allowed."]]
+          [:td "Capability tokens define access boundaries: possession of a token proves authorization. Tokens are issued to cryptographic identities (wallets) but authority derives from token possession, not identity."]]
          [:tr
           [:td "Rules fit local needs"]
           [:td "Rules are tailored to context."]
@@ -104,7 +117,129 @@
        "]
        [:p
         "Datom.World is Ostrom's principles encoded in software, with Shibi as the economic primitive that turns her theoretical framework into a practical tool for managing open platforms as shared resources."]
+       [:h3 "Biological Systems: 3.5 Billion Years of Proven Design"]
        [:p
+        "Let's examine the biological inspiration in detail. "
+        "Shibi isn't inventing a new solution to spam; it's implementing mechanisms that biological cells have used for billions of years. "
+        "Cells face the exact same problem as any information processing system: " [:strong "how do you prevent spam signals from overwhelming the membrane?"] " "
+        "Cell membranes are constantly bombarded with noise, false signals, and malicious molecules. Nature evolved proven solutions:"]
+       [:ul
+        [:li [:strong "Energy cost as filter"] ": Producing and sending signaling molecules requires ATP. Just like Shibi makes communication cost tokens, biology makes signaling cost energy. Spam is metabolically expensive."]
+        [:li [:strong "Receptor specificity"] ": Each receptor only binds to specific molecular shapes, like capability tokens that only grant specific access. Random noise doesn't have the right shape."]
+        [:li [:strong "Signal threshold requirements"] ": Weak signals don't trigger responses. Receptors require minimum concentrations or binding durations, filtering out noise."]
+        [:li [:strong "Receptor desensitization"] ": After activation, receptors temporarily shut down or internalize, preventing repeated triggering. This is biological rate limiting."]
+        [:li [:strong "Signal degradation"] ": Enzymes quickly break down signaling molecules, preventing buildup. Messages have a short lifetime."]
+        [:li [:strong "Competitive inhibition"] ": Legitimate signals compete with spam for receptor binding sites. The cell membrane is a marketplace."]
+        [:li [:strong "Immune response"] ": The immune system detects and eliminates malicious signals (pathogens, toxins), like a spam filter that learns and adapts."]]
+       [:p
+        "These biological mechanisms map directly to Shibi's design:"]
+       [:table.principles-table
+        [:thead
+         [:tr
+          [:th "Biological Mechanism"]
+          [:th "Shibi Implementation"]]]
+        [:tbody
+         [:tr
+          [:td "Energy cost (ATP)"]
+          [:td "Capability tokens"]]
+         [:tr
+          [:td "Receptor specificity"]
+          [:td "Capability-based access control"]]
+         [:tr
+          [:td "Signal thresholds"]
+          [:td "Economic viability requirements"]]
+         [:tr
+          [:td "Receptor desensitization"]
+          [:td "Rate limiting"]]
+         [:tr
+          [:td "Signal degradation"]
+          [:td "Token expiration"]]
+         [:tr
+          [:td "Competitive inhibition"]
+          [:td "Market dynamics"]]
+         [:tr
+          [:td "Immune response"]
+          [:td "Reputation and filtering systems"]]]]
+       [:p
+        "The cell membrane proved that you can have an open, interpretive boundary without being overwhelmed by noise. "
+        "The cost is energy. In Datom.world, the cost is capability tokens. "
+        "Life has been running this experiment for 3.5 billion years. It works."]
+       [:h3 "Shibi as Capability Tokens for Agents"]
+       [:p
+        "While spam control demonstrates Shibi's power, the capability token model extends far beyond attention markets. "
+        "Shibi tokens are general-purpose capabilities that define what actions agents can perform, making them the foundation for agent authority and resource control in Datom.World."]
+       [:p
+        "In Datom.World, agents are implemented as " [:a {:href "/yin.chp"} "continuations running on Yin.VM"] ". "
+        "These agents are mobile—they migrate across nodes, pause and resume execution, and carry their computational state with them. "
+        "Shibi capability tokens travel with these continuations, defining what the agent is authorized to do at each location."]
+       [:p
+        [:strong "Capability tokens define authority, not identity."]
+        " An agent doesn't prove who it is; it proves what it can do by possessing the right tokens. "
+        "This follows the object capability security model: possession of a valid token is necessary and sufficient for authorization—though as we'll see, authorization doesn't automatically imply trust."]
+       [:h4 "Beyond Spam: Agent Use Cases"]
+       [:p "Shibi tokens enable multiple forms of agent coordination and resource control:"]
+       [:ul
+        [:li [:strong "Stream access control"] ": Tokens grant read or write access to specific datom streams. An agent carrying a stream-read token can observe that stream; without it, the stream is invisible."]
+        [:li [:strong "Computational resource metering"] ": Different token classes for CPU cycles, memory allocation, storage capacity, and network bandwidth. Agents pay for resources they consume."]
+        [:li [:strong "Agent migration credentials"] ": When a continuation migrates to a new node, it carries capability tokens proving its authority to execute there. The destination node validates tokens before resuming execution."]
+        [:li [:strong "API rate limiting"] ": Each API endpoint issues its own tokens. Agents must spend tokens to invoke functions, preventing resource exhaustion."]
+        [:li [:strong "Delegation and attenuation"] ": Agents can delegate subsets of their capabilities to other agents. A token granting full stream write access can be attenuated to grant only append access, then passed to a subordinate agent."]
+        [:li [:strong "Cross-agent communication"] ": Agents use tokens to establish communication channels. Possessing a channel token grants the right to send messages through that channel."]
+        [:li [:strong "Stigmergic coordination"] ": Agents leave capability tokens in shared spaces as signals to other agents, enabling self-organizing behavior without central coordination."]]
+       [:h4 "Continuations + Capabilities = Mobile Authority"]
+       [:p
+        "The combination of Yin.VM's mobile continuations and Shibi's capability tokens creates a powerful primitive: "
+        [:strong "portable authority"] ". Traditional systems tie permissions to identity and location. Datom.World ties permissions to possession."]
+       [:p "Consider an agent migration scenario:"]
+       [:ol
+        [:li "Agent A runs on Node 1, holding tokens for stream S and resource R"]
+        [:li "Agent A pauses execution, serializing its continuation state"]
+        [:li "The continuation (including token references) migrates to Node 2"]
+        [:li "Node 2 validates the tokens before resuming execution"]
+        [:li "Agent A continues running with the same capabilities, now on different hardware"]]
+       [:p
+        "The tokens move with the computation. Authority becomes intrinsic to the continuation itself, not bound to the node where it executes."]
+       [:h4 "Trust is Contextual and Revocable"]
+       [:p
+        "Importantly, "
+        [:strong "possession of a capability is necessary but not sufficient for trust"]
+        ". Having a valid token proves you can perform an action, but doesn't mean the system trusts you unconditionally:"]
+       [:ul
+        [:li [:strong "Tokens expire"] ": Time-limited authority prevents stale permissions"]
+        [:li [:strong "Tokens can be revoked"] ": Issuers can invalidate tokens if behavior changes"]
+        [:li [:strong "Tokens are context-specific"] ": A token valid on one stream may be worthless on another"]
+        [:li [:strong "Trust must be earned"] ": Initial token grants may be minimal, expanding as the agent demonstrates value"]]
+       [:p
+        "This creates an economic feedback loop where token issuers decide distribution mechanisms—selling tokens, gifting them to trusted parties, or rewarding valuable behavior. "
+        "Agents that provide value are more likely to receive tokens from issuers, expanding their capabilities. "
+        "Agents that spam, waste resources, or behave maliciously find their tokens revoked or are unable to acquire new ones."]
+       [:h4 "Why Not Identity-Based Access Control?"]
+       [:p
+        "Traditional systems use identity (\"who are you?\") to determine permissions. "
+        "Capability-based systems use possession (\"what can you do?\"). "
+        "For mobile agents running as continuations, capability tokens provide critical advantages:"]
+       [:ul
+        [:li [:strong "No global identity registry"] ": Agents don't need to authenticate against a central authority. Possession is proof."]
+        [:li [:strong "Fine-grained delegation"] ": An agent can delegate a subset of its capabilities without sharing its identity credentials."]
+        [:li [:strong "Revocation is local"] ": Token issuers can revoke without coordinating with a global permissions database."]
+        [:li [:strong "Migration-friendly"] ": When a continuation moves to a new node, it doesn't need to re-authenticate its identity—it just presents its tokens."]]
+       [:h4 "Interpreters All the Way Down"]
+       [:p
+        "Like everything in Datom.World, Shibi tokens are subject to interpretation. "
+        "The same token can mean different things to different interpreters:"]
+       [:ul
+        [:li "A spam filter interprets tokens as attention cost"]
+        [:li "A resource manager interprets tokens as computational budget"]
+        [:li "A stream gateway interprets tokens as access permissions"]
+        [:li "A migration coordinator interprets tokens as execution authority"]]
+       [:p
+        "This flexibility emerges from Datom.World's core principle: "
+        [:strong "interpretation over abstraction"]
+        ". Shibi provides the substrate—purpose-specific utility tokens—and interpreters provide the semantics. "
+        "One token substrate, infinitely many interpretations."]
+       [:h3 "Attention Markets: Spam as Economic Signal"]
+       [:p
+        "Having established Shibi's general capability model, let's return to the attention market use case—the most immediate application most users will encounter. "
         "Shibi works on a simple assumption: people will tolerate spam if they are appropriately compensated. "
         "The question isn't whether spam should exist, it's who bears the cost. "
         "Traditional systems make receivers pay (in time and attention) while senders pay nothing. "
@@ -144,7 +279,7 @@
          [:p "Opt in, get paid, and reinvest attention on your own terms. You only subsidize the conversations you actually want."]]
         [:article.feature-card
          [:h3 "Programmable gates"]
-         [:p "Let Shibimon agents negotiate terms automatically,pause inbound requests, raise the rate, or whitelist the circles that matter."]]]
+         [:p "Let Shibimon agents negotiate terms automatically, pause inbound requests, raise the rate, or whitelist the circles that matter."]]]
        [:p
         "You decide who gets through, not a filter you never asked for. Attention stays accountable, and every conversation starts from mutual respect."]
        [:p.next
@@ -152,6 +287,5 @@
         [:a {:href "/yin.chp"} "Yin"]
         " agents for programmable attention, then surface the exchange inside "
         [:a {:href "/dao-flow.chp"} "DaoFlow"]
-        " portals."]]]
-     )}
+        " portals."]]])}
    template))

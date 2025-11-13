@@ -85,7 +85,7 @@
                           :body {:type :application
                                  :operator {:type :variable :name '+}
                                  :operands [{:type :variable :name 'x}
-                                           {:type :literal :value 1}]}}
+                                            {:type :literal :value 1}]}}
                :operands [{:type :literal :value 5}]}
           initial-state (assoc (make-state {'+ add-fn}) :control ast)
 
@@ -126,7 +126,7 @@
                           :body {:type :application
                                  :operator {:type :variable :name '+}
                                  :operands [{:type :variable :name 'x}
-                                           {:type :literal :value 1}]}}
+                                            {:type :literal :value 1}]}}
                :operands [{:type :literal :value 5}]}
           initial-state (assoc (make-state {'+ add-fn}) :control ast)
 
@@ -136,8 +136,8 @@
                        (if (or (:control state) (:continuation state))
                          (let [cont-type (:type (:continuation state))
                                new-types (if cont-type
-                                          (conj types cont-type)
-                                          types)]
+                                           (conj types cont-type)
+                                           types)]
                            (recur (vm/eval state nil) new-types))
                          types))]
 
@@ -152,7 +152,7 @@
           ast {:type :application
                :operator {:type :variable :name '+}
                :operands [{:type :literal :value 10}
-                         {:type :literal :value 20}]}
+                          {:type :literal :value 20}]}
           state (assoc (make-state {'+ add-fn}) :control ast)]
 
       (testing "State captures control"
@@ -179,7 +179,7 @@
                           :body {:type :application
                                  :operator {:type :variable :name '+}
                                  :operands [{:type :variable :name 'x}
-                                           {:type :literal :value 1}]}}
+                                            {:type :literal :value 1}]}}
                :operands [{:type :literal :value 5}]}
           initial-state (assoc (make-state {'+ add-fn}) :control ast)
 
@@ -210,7 +210,7 @@
                      (conj collected state)))
 
           state-with-x (some #(when (contains? (:environment %) 'x) %)
-                            states)]
+                             states)]
 
       (is (some? state-with-x)
           "Should find a state with x in environment")

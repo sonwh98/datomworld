@@ -1,14 +1,35 @@
 (ns world.server
   (:require
    [bidi.ring :as bidi] :reload
+   [clojure.java.io :as io]
    [clojure.pprint :as pp :refer :all]
+   [clojure.string :as str]
    [org.httpkit.server :as httpkit]
    [ring.middleware.file]
    [ring.middleware.params]
    [ring.middleware.multipart-params]
    [ring.middleware.content-type]
+   [ring.util.response :as response]
    [stigmergy.chp]
-   [stigmergy.config :as c]))
+   [stigmergy.config :as c]
+   [world.blog]))
+
+(defn redirect-missing-chp [handler]
+  (fn [req]
+    (let [uri (:uri req)]
+      (if (and uri (str/ends-with? uri ".chp"))
+        (let [chp-path (io/file (str "public/chp" uri))]
+          (if (.exists chp-path)
+            (handler req)
+            (let [blog-uri (str (subs uri 0 (- (count uri) 4)) ".blog")
+                  blog-path (io/file (str "public/chp" blog-uri))]
+              (if (.exists blog-path)
+                (let [target (if-let [qs (:query-string req)]
+                               (str blog-uri "?" qs)
+                               blog-uri)]
+                  (response/redirect target 302))
+                (handler req)))))
+        (handler req)))))
 
 (defn create-app []
   (let [routes (c/config :bidi-routes)
@@ -20,9 +41,10 @@
                 (ring.middleware.file/wrap-file "public")
                 ring.middleware.params/wrap-params
                 ring.middleware.multipart-params/wrap-multipart-params
-                (ring.middleware.content-type/wrap-content-type {:mime-types mime-types}))]
+                (ring.middleware.content-type/wrap-content-type {:mime-types mime-types}))
+        redirecting-app (redirect-missing-chp app)]
     (fn [req]
-      (app req))))
+      (redirecting-app req))))
 
 (defonce server (atom nil))
 
@@ -52,4 +74,3 @@
                                                   {:min-level :debug
                                                    :level :debug
                                                    :ns-filter {:allow #{"world.core"}}})}}))
-

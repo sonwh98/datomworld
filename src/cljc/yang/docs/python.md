@@ -400,7 +400,7 @@ These differences mean some Python features may not map directly to Universal AS
 src/cljc/yang/
 ├── python.cljc        # Python compiler (450+ lines)
 └── docs/
-    └── PYTHON.md      # This file
+    └── python.md      # This file
 
 test/yang/
 └── python_test.clj    # Comprehensive tests (250+ lines)
@@ -410,7 +410,7 @@ demo_python.clj        # Demo script (100+ lines)
 
 ## See Also
 
-- [Yang Architecture](ARCHITECTURE.md) - Multi-language compiler design
+- [Yang Architecture](architecture.md) - Multi-language compiler design
 - [Yang Clojure Compiler](README.md) - Sister compiler
 - [Yin VM Documentation](../../yin/docs/documentation_index.md) - Execution engine
 - [Universal AST Specification](../../yin/docs/ast.md) - AST format details
