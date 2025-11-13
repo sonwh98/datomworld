@@ -54,5 +54,182 @@
            " to watch emitted continuations shape living interfaces."]
           [:li
            [:a {:href "/shibi.chp"} "Study Shibi"]
-           " to combine economic signaling with generated agents."]]]]]])}
+           " to combine economic signaling with generated agents."]]]]]
+     [:section.section-light
+      [:div.section-inner
+       [:h2 "Multi-language compiler collection"]
+       [:p
+        "Yang is not a single compiler—it's a " [:strong "collection of compilers"]
+        " that transform code from different programming languages into the same Universal AST format. "
+        "Each language compiler understands its source syntax and semantics, then produces the common intermediate representation that Yin executes."]
+       [:p
+        "Currently implemented:"]
+       [:ul.bulleted
+        [:li [:strong "yang.clojure"] " — Compiles Clojure s-expressions to Universal AST"]
+        [:li [:strong "yang.python"] " — Compiles Python syntax to Universal AST"]]
+       [:p
+        "This architecture enables " [:strong "true language interoperability"]
+        "—Python functions can call Clojure functions and vice versa, because both compile to the same Universal AST that Yin understands."]]]
+     [:section.section-dark
+      [:div.section-inner
+       [:h2 "The Clojure compiler"]
+       [:p
+        "The " [:code "yang.clojure"] " compiler transforms Clojure s-expressions into Universal AST. "
+        "Written in " [:code ".cljc"] " format, it runs identically on both JVM and Node.js."]
+       [:h3 "Compilation pipeline"]
+       [:ul.bulleted
+        [:li [:strong "Input:"] " Clojure forms as data (s-expressions)"]
+        [:li [:strong "Dispatch:"] " Pattern matching on form structure (literal, symbol, list, special form)"]
+        [:li [:strong "Transform:"] " Map Clojure semantics to Universal AST nodes"]
+        [:li [:strong "Output:"] " Universal AST maps ready for Yin execution"]]
+       [:h3 "Supported features"]
+       [:ul.bulleted
+        [:li "Literals (numbers, strings, booleans, collections)"]
+        [:li "Variables (symbol lookup)"]
+        [:li "Lambda expressions " [:code "(fn [x] (* x 2))"] " → " [:code "{:type :lambda ...}"]]
+        [:li "Function application " [:code "(+ 1 2)"] " → " [:code "{:type :application ...}"]]
+        [:li "Conditionals " [:code "(if test then else)"] " → " [:code "{:type :if ...}"]]
+        [:li "Let bindings (desugared to nested lambda applications)"]
+        [:li "Do blocks (sequential execution via lambdas)"]]
+       [:h3 "Smart desugaring"]
+       [:p
+        "The Clojure compiler transforms high-level constructs into simpler primitives:"]
+       [:pre [:code
+              "(let [x 1 y 2] (+ x y))\n"
+              ";; Desugars to:\n"
+              "((fn [x] ((fn [y] (+ x y)) 2)) 1)"]]
+       [:p
+        "This transformation eliminates the need for a separate " [:code "let"]
+        " construct in the Universal AST—everything becomes lambdas and applications."]]]
+     [:section.section-light
+      [:div.section-inner
+       [:h2 "The Python compiler"]
+       [:p
+        "The " [:code "yang.python"] " compiler parses Python source text and compiles it to Universal AST. "
+        "Unlike the Clojure compiler, which operates on already-parsed s-expressions, the Python compiler includes "
+        [:strong "a complete tokenizer and recursive-descent parser"] "."]
+       [:h3 "Three-stage compilation"]
+       [:ul.bulleted
+        [:li [:strong "Tokenize:"] " Python source → token stream"]
+        [:li [:strong "Parse:"] " Tokens → Python-specific AST (with operator precedence)"]
+        [:li [:strong "Compile:"] " Python AST → Universal AST"]]
+       [:h3 "Tokenizer"]
+       [:p
+        "The tokenizer breaks Python source into meaningful tokens using regex patterns:"]
+       [:pre [:code
+              "\"lambda x: x * 2\"\n"
+              ";; Tokenizes to:\n"
+              "[[:keyword \"lambda\"]\n"
+              " [:identifier \"x\"]\n"
+              " [:colon \":\"]\n"
+              " [:identifier \"x\"]\n"
+              " [:operator \"*\"]\n"
+              " [:number \"2\"]]"]]
+       [:h3 "Parser"]
+       [:p
+        "The recursive-descent parser constructs a Python-specific AST with proper operator precedence:"]
+       [:table.comparison-table
+        [:thead
+         [:tr
+          [:th "Python"]
+          [:th "Python AST"]]]
+        [:tbody
+         [:tr
+          [:td [:code "2 + 3 * 4"]]
+          [:td [:code "{:py-type :binop, :op +, :left 2, :right {:py-type :binop, :op *, ...}}"]]]]]
+       [:p
+        "Operator precedence ensures " [:code "3 * 4"] " evaluates before " [:code "+ 2"] "."]
+       [:h3 "Supported Python features"]
+       [:ul.bulleted
+        [:li "Literals: " [:code "42"] ", " [:code "\"hello\""] ", " [:code "True"] ", " [:code "None"]]
+        [:li "Variables: " [:code "x"] ", " [:code "my_var"]]
+        [:li "Lambda expressions: " [:code "lambda x, y: x + y"]]
+        [:li "Function definitions: " [:code "def double(x): return x * 2"]]
+        [:li "Function calls: " [:code "f(1, 2)"] ", " [:code "(lambda x: x * 2)(21)"]]
+        [:li "Binary operators with precedence: " [:code "+"] ", " [:code "-"] ", " [:code "*"] ", " [:code "/"] ", " [:code "=="] ", " [:code "<"] ", " [:code ">"]]
+        [:li "If expressions: " [:code "10 if x > 5 else 20"]]
+        [:li "Higher-order functions: " [:code "(lambda f: f(5))(lambda x: x * 2)"]]
+        ]]]
+     [:section.section-dark
+      [:div.section-inner
+       [:h2 "Language interoperability"]
+       [:p
+        "Because both compilers produce the same Universal AST format, "
+        [:strong "Python and Clojure code can be composed together"] ":"]
+       [:pre [:code
+              ";; Define a function in Python\n"
+              "(def py-triple\n"
+              "  (yang.python/compile \"lambda x: x * 3\"))\n"
+              "\n"
+              ";; Define a function in Clojure\n"
+              "(def clj-add10\n"
+              "  (yang.clojure/compile '(fn [x] (+ x 10))))\n"
+              "\n"
+              ";; Compose them!\n"
+              "(def composed\n"
+              "  {:type :application\n"
+              "   :operator clj-add10\n"
+              "   :operands [{:type :application\n"
+              "               :operator py-triple\n"
+              "               :operands [{:type :literal :value 5}]}]})\n"
+              "\n"
+              ";; Execute: add10(triple(5)) = add10(15) = 25\n"
+              "(vm/run initial-state composed)\n"
+              ";; => {:value 25}"]]
+       [:p
+        "The Python " [:code "lambda x: x * 3"] " and Clojure " [:code "(fn [x] (+ x 10))"]
+        " compile to identical Universal AST structures (both are " [:code ":lambda"] " nodes), "
+        "so Yin can execute them interchangeably."]]]
+     [:section.section-light
+      [:div.section-inner
+       [:h2 "Universal AST as lingua franca"]
+       [:p
+        "The Universal AST serves as the " [:strong "common language"] " between all source languages and the Yin VM:"]
+       [:table.comparison-table
+        [:thead
+         [:tr
+          [:th "Source"]
+          [:th "Language"]
+          [:th "Universal AST"]]]
+        [:tbody
+         [:tr
+          [:td [:code "lambda x: x * 2"]]
+          [:td "Python"]
+          [:td [:code "{:type :lambda, :params [x], :body {...}}"]]]
+         [:tr
+          [:td [:code "(fn [x] (* x 2))"]]
+          [:td "Clojure"]
+          [:td [:code "{:type :lambda, :params [x], :body {...}}"]]]
+         [:tr
+          [:td [:code "x => x * 2"]]
+          [:td "JavaScript (future)"]
+          [:td [:code "{:type :lambda, :params [x], :body {...}}"]]]]
+        ]
+       [:p
+        "All three languages compile to the " [:em "same"] " Universal AST, "
+        "enabling seamless cross-language function calls and data sharing."]]]
+     [:section.section-dark
+      [:div.section-inner
+       [:h2 "Cross-platform architecture"]
+       [:p
+        "Both compilers are written in " [:code ".cljc"] " format—"
+        [:strong "single source code that runs on both JVM and Node.js"] ":"]
+       [:ul.bulleted
+        [:li [:strong "JVM:"] " Full Clojure environment with Java interop"]
+        [:li [:strong "Node.js:"] " ClojureScript compilation to JavaScript"]
+        [:li [:strong "Browser:"] " (Future) In-browser compilation"]]
+       [:p
+        "The compilers use only portable Clojure/ClojureScript features—"
+        "no platform-specific dependencies in the core logic. "
+        "Platform-specific I/O (file reading) is isolated in separate " [:code "yang.io"] " modules."]]]
+     [:section.section-light
+      [:div.section-inner
+       [:h2 "Documentation & Source"]
+       [:p "Explore the Yang compiler implementation in depth:"]
+       [:ul.bulleted
+        [:li [:a {:href "https://github.com/sonwh98/datomworld/blob/master/src/cljc/yang/clojure.cljc" :target "_blank"} "Clojure Compiler Source"] " — 226 lines of portable code"]
+        [:li [:a {:href "https://github.com/sonwh98/datomworld/blob/master/src/cljc/yang/python.cljc" :target "_blank"} "Python Compiler Source"] " — 450+ lines including tokenizer and parser"]
+        [:li [:a {:href "https://github.com/sonwh98/datomworld/blob/master/src/cljc/yang/docs/README.md" :target "_blank"} "Clojure Compiler Documentation"] " — Usage examples and implementation details"]
+        [:li [:a {:href "https://github.com/sonwh98/datomworld/blob/master/src/cljc/yang/docs/PYTHON.md" :target "_blank"} "Python Compiler Documentation"] " — Tokenizer, parser, and compiler architecture"]
+        [:li [:a {:href "https://github.com/sonwh98/datomworld/blob/master/src/cljc/yang/docs/ARCHITECTURE.md" :target "_blank"} "Multi-Language Architecture"] " — How Yang enables cross-language composition"]]]]])}
    template))
