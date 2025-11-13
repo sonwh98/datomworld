@@ -39,9 +39,11 @@
                 fn-value (:value state)
                 updated-frame (assoc frame
                                      :operator-evaluated? true
-                                     :fn-value fn-value)]
+                                     :fn-value fn-value)
+                saved-env (:environment continuation)]
             (assoc state
                    :control updated-frame
+                   :environment (or saved-env environment)
                    :continuation (:parent continuation)
                    :value nil))
 
@@ -50,18 +52,22 @@
                 operand-value (:value state)
                 evaluated-operands (conj (or (:evaluated-operands frame) [])
                                         operand-value)
-                updated-frame (assoc frame :evaluated-operands evaluated-operands)]
+                updated-frame (assoc frame :evaluated-operands evaluated-operands)
+                saved-env (:environment continuation)]
             (assoc state
                    :control updated-frame
+                   :environment (or saved-env environment)
                    :continuation (:parent continuation)
                    :value nil))
 
           :eval-test
           (let [frame (:frame continuation)
-                test-value (:value state)]
+                test-value (:value state)
+                saved-env (:environment continuation)]
             (assoc state
                    :control (assoc frame :evaluated-test? true)
                    :value test-value
+                   :environment (or saved-env environment)
                    :continuation (:parent continuation)))
 
           (throw (ex-info "Unknown continuation type"
@@ -127,6 +133,7 @@
                    :control next-operand
                    :continuation {:frame node
                                   :parent continuation
+                                  :environment environment
                                   :type :eval-operand}))
 
           ;; Evaluate operator first
@@ -135,6 +142,7 @@
                  :control operator
                  :continuation {:frame node
                                 :parent continuation
+                                :environment environment
                                 :type :eval-operator})))
 
       ;; Conditional
@@ -150,6 +158,7 @@
                  :control test
                  :continuation {:frame node
                                 :parent continuation
+                                :environment environment
                                 :type :eval-test})))
 
       ;; Unknown node type
