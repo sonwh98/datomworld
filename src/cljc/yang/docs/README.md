@@ -1,22 +1,27 @@
-# Yang Compiler
+# Yang Clojure Compiler
 
-The Yang compiler transforms Clojure code into the Universal AST format that the Yin VM can execute.
+The Yang Clojure compiler transforms Clojure code into the Universal AST format that the Yin VM can execute.
 
 ## Overview
 
-Yang is the generative counterpart to Yin. Together they form a dual system:
+Yang is a collection of compilers that generate Universal AST for the Yin VM. This is the **Clojure compiler**, the first in the Yang compiler collection.
+
+Together, Yin and Yang form a dual system:
 - **Yin** - The continuation execution engine (passive, runtime)
 - **Yang** - The continuation generation engine (active, compile-time)
+  - `yang.clojure` - Compiles Clojure to Universal AST
+  - `yang.python` - (Future) Compiles Python to Universal AST
+  - `yang.javascript` - (Future) Compiles JavaScript to Universal AST
 
-Yang compiles high-level Clojure code into the Universal AST (U-AST), a language-agnostic, map-based structure that Yin can execute.
+The Clojure compiler transforms Clojure s-expressions into the Universal AST (U-AST), a language-agnostic, map-based structure that Yin can execute.
 
 ## Architecture
 
 The Yang compiler consists of three main components:
 
-### 1. Core Compiler (`yang.core`)
+### 1. Core Compiler (`yang.clojure`)
 
-Platform-agnostic compiler written in `.cljc` format that runs on both JVM and Node.js.
+Platform-agnostic Clojure compiler written in `.cljc` format that runs on both JVM and Node.js.
 
 **Key Functions:**
 - `compile` - Main entry point, compiles a Clojure form to Universal AST
@@ -119,7 +124,7 @@ The Yang compiler produces Universal AST nodes that conform to the Yin VM specif
 ### Basic Compilation
 
 ```clojure
-(require '[yang.core :as yang])
+(require '[yang.clojure :as yang])
 
 ;; Compile a literal
 (yang/compile 42)
@@ -142,7 +147,7 @@ The Yang compiler produces Universal AST nodes that conform to the Yin VM specif
 ### End-to-End: Compile and Execute
 
 ```clojure
-(require '[yang.core :as yang])
+(require '[yang.clojure :as yang])
 (require '[yin.vm :as vm])
 
 ;; Compile Clojure code to AST
@@ -278,8 +283,8 @@ Comprehensive test suite covering:
 
 Run tests:
 ```bash
-# Yang compiler tests
-clj -M:test -n yang.core-test
+# Yang Clojure compiler tests
+clj -M:test -n yang.clojure-test
 
 # Yin VM tests (to verify VM changes)
 clj -M:test -n yin.vm-basic-test
@@ -290,7 +295,7 @@ clj -M:test -n yin.vm-basic-test
 ```
 src/
 ├── cljc/yang/
-│   ├── core.cljc          # Core compiler (portable)
+│   ├── clojure.cljc       # Clojure compiler (portable)
 │   └── docs/
 │       └── README.md       # This file
 ├── clj/yang/
@@ -299,7 +304,7 @@ src/
     └── io.cljs            # Node.js file I/O
 
 test/yang/
-└── core_test.clj          # Comprehensive tests
+└── clojure_test.clj       # Comprehensive tests
 ```
 
 ## Future Enhancements

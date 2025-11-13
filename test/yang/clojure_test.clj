@@ -1,6 +1,6 @@
-(ns yang.core-test
+(ns yang.clojure-test
   (:require [clojure.test :refer :all]
-            [yang.core :as yang]
+            [yang.clojure :as yang]
             [yin.vm :as vm]))
 
 (defn make-state

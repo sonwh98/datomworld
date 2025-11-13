@@ -2,7 +2,7 @@
   "Platform-specific I/O for Yang compiler on Node.js.
 
   Provides functions to compile Clojure source files to Universal AST."
-  (:require [yang.core :as yang]
+  (:require [yang.clojure :as yang]
             [cljs.reader :as reader]))
 
 (def fs (js/require "fs"))

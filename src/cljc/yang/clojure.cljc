@@ -1,8 +1,9 @@
-(ns yang.core
-  "Yang compiler - Compiles Clojure code into Yin VM Universal AST.
+(ns yang.clojure
+  "Yang Clojure compiler - Compiles Clojure code into Yin VM Universal AST.
 
-  The Yang compiler transforms Clojure s-expressions into the Universal AST
-  format that the Yin VM can execute. It handles:
+  This is the Clojure-specific compiler in the Yang compiler collection.
+  It transforms Clojure s-expressions into the Universal AST format that
+  the Yin VM can execute. It handles:
   - Literals (numbers, strings, booleans, nil, collections)
   - Variables (symbols)
   - Lambda expressions (fn)
