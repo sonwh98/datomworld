@@ -111,7 +111,7 @@
 
         [:h2 "The DNA-Ribosome Bootstrap"]
         [:p
-         "But wait—if interpreters are always required, how do they originate? This seems circular: "
+         "If interpreters are always required, how do they originate? This seems circular: "
          "you need an interpreter to create meaning, but interpreters themselves are structures that need interpretation. "
          "How does the first interpreter come to exist? Biology shows us the answer."]
         [:p
