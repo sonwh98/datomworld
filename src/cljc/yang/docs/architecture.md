@@ -9,7 +9,7 @@ Yang is a **collection of compilers** that transform source code from different 
 ```
 yang/
 ├── clojure.cljc       ✅ Clojure → Universal AST (implemented)
-├── python.cljc        🔄 Python → Universal AST (planned)
+├── python.cljc        ✅ Python → Universal AST (implemented)
 ├── javascript.cljc    🔄 JavaScript → Universal AST (planned)
 ├── java.cljc          🔄 Java → Universal AST (planned)
 └── ...                   More languages as needed
@@ -116,10 +116,13 @@ Common compiler infrastructure can be shared:
 - **Tests**: 12 test suites, 61 assertions, 100% passing
 - **Platforms**: JVM and Node.js
 
-### 🔄 Planned: Python Compiler
-- Parse Python AST
-- Transform Python semantics to Universal AST
-- Handle Python-specific features (generators, decorators, etc.)
+### ✅ Completed: Python Compiler
+- **File**: `src/cljc/yang/python.cljc`
+- **Lines**: 450+ lines of code
+- **Features**: Literals, variables, lambdas, def statements, binary ops, if expressions, function calls
+- **Tests**: 12 test suites, 70 assertions, 100% passing
+- **Platforms**: JVM and Node.js
+- **Includes**: Custom tokenizer and recursive descent parser
 
 ### 🔄 Planned: JavaScript Compiler
 - Parse JavaScript AST

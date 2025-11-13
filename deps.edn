@@ -37,5 +37,6 @@
 ;; clj -M:test
 ;; clj -M:test -n yin.vm-literal-test
 ;; clj -M:test -n yin.vm-continuation-test
+;; clj -M:test -n yang.python-test
 ;; clj -X:test :nses '[yin.vm-literal-test yin.vm-test]'
 ;; clj -M:test -v yin.vm-addition-test/test-lambda-with-multiple-operations
