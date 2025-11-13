@@ -86,5 +86,12 @@
        [:p
         "Ready to emit new continuations? Explore "
         [:a {:href "/yang.chp"} "the Yang compiler"]
-        " to see how Clojure code becomes Universal ASTs and enters the Yin runtime."]]])}
+        " to see how Clojure code becomes Universal ASTs and enters the Yin runtime."]]]
+     [:section.section-dark
+      [:div.section-inner
+       [:h2 "Documentation & Source"]
+       [:p "Dive deeper into the Yin VM implementation:"]
+       [:ul.bulleted
+        [:li [:a {:href "https://github.com/sonwh98/datomworld/blob/master/src/cljc/yin/docs/documentation_index.md" :target "_blank"} "Complete Documentation"] " — AST specification, CESK state machine, and implementation details"]
+        [:li [:a {:href "https://github.com/sonwh98/datomworld/blob/master/src/cljc/yin/vm.cljc" :target "_blank"} "Source Code"] " — Browse the ClojureScript implementation on GitHub"]]]])}
    template))
