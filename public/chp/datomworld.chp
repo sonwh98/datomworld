@@ -82,6 +82,42 @@
         "Datom.World reimagines software as a digital ecosystem: self-organizing, adaptive, and free."]]]
      [:section.section-dark
       [:div.section-inner
+       [:h2 "The Seven Axioms"]
+       [:p
+        "Datom.World is built on seven foundational axioms that define how data flows, how causality works, and how meaning emerges in a distributed system. "
+        "These principles are not implementation details—they are the invariants that make stream-native software possible."]
+       [:div.axiom-list
+        [:article.axiom
+         [:h3 "1. Stream Existence"]
+         [:p "A stream is an append-only, observable sequence of datoms."]]
+        [:article.axiom
+         [:h3 "2. Datom Structure"]
+         [:p "Each datom is a fixed 5-tuple " [:code "[e a v t c]"] " representing entity, attribute, value, time, context/metadata."]]
+        [:article.axiom
+         [:h3 "3. Appendability"]
+         [:p "Any process may append datoms to a stream without global coordination."]]
+        [:article.axiom
+         [:h3 "4. Local Observation"]
+         [:p "Each node observes only a finite, local subset of any stream. No node sees the entire global history."]]
+        [:article.axiom
+         [:h3 "5. Interpretation Is External"]
+         [:p "A stream carries no semantics. Meaning arises only from an interpreter that reads the stream."]]
+        [:article.axiom
+         [:h3 "6. Causality Is Referential"]
+         [:p "Causality is declared explicitly through references in datoms, not enforced by the system."]]
+        [:article.axiom
+         [:h3 "7. No Global State Exists"]
+         [:p "There is no global time, no global membership, and no shared global state. Only local interpretations of locally observed datoms."]]]
+       [:p
+        "These axioms ensure that Datom.World remains decentralized, local-first, and free from the coordination bottlenecks that plague traditional distributed systems. "
+        "They transform constraints into affordances: because there is no global state, systems can scale infinitely; "
+        "because interpretation is external, the same streams can serve infinite purposes; "
+        "because causality is referential, collaboration emerges from explicit connections rather than implicit dependencies."]
+       [:div.hero-actions
+        [:a.btn {:href "/dao-stream.chp"} "Understand Streams"]
+        [:a.btn.btn-outline {:href "/yin.chp"} "Explore Yin VM"]]]]
+     [:section.section-light
+      [:div.section-inner
        [:h2 "Recomposing the Web"]
        [:p
         "Datom.World can be thought of as a decomposition of the modern web browser into its elemental technologies, then recomposed around a new philosophy to build a new world wide web: everything is a stream, and everything is a continuation."]

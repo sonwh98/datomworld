@@ -12,49 +12,7 @@
         "Together they form a dual system—Yin for execution, reception, and introspection; Yang for generation, expression, and emission."]
        [:p
         "Yang transforms high-level intents into continuations that Yin can execute. "
-        "It shapes the Universal AST (U-AST), seeds migrations, and ensures every emitted agent carries context for the runtime to honor."]
-       [:div.relationship-grid
-        [:article.relationship-card
-         [:h3 "Conceptual relationship"]
-         [:table.relationship-table
-          [:thead
-           [:tr
-            [:th "Axis"]
-            [:th "Yin"]
-            [:th "Yang compiler"]]]
-          [:tbody
-           [:tr
-            [:td "Modality"]
-            [:td "Passive — receives and executes continuations"]
-            [:td "Active — generates and emits continuations"]]
-           [:tr
-            [:td "Lifecycle"]
-            [:td "Runtime"]
-            [:td "Compile-time"]]
-           [:tr
-            [:td "Focus"]
-            [:td "Continuation execution"]
-            [:td "Continuation construction"]]
-           [:tr
-            [:td "U-AST role"]
-            [:td "Consumes the Universal AST (U-AST)"]
-            [:td "Produces the Universal AST (U-AST)"]]
-           [:tr
-            [:td "Metaphor"]
-            [:td "Represents potential realized"]
-            [:td "Represents potential becoming"]]]]]
-        [:article.relationship-card
-         [:h3 "Where to go next"]
-         [:ul.bulleted
-          [:li
-           [:a {:href "/yin.chp"} "Revisit Yin"]
-           " to see how continuations are scheduled and migrated."]
-          [:li
-           [:a {:href "/dao-flow.chp"} "Explore DaoFlow"]
-           " to watch emitted continuations shape living interfaces."]
-          [:li
-           [:a {:href "/shibi.chp"} "Study Shibi"]
-           " to combine economic signaling with generated agents."]]]]]
+        "It shapes the Universal AST (U-AST), seeds migrations, and ensures every emitted agent carries context for the runtime to honor."]]
      [:section.section-light
       [:div.section-inner
        [:h2 "Multi-language compiler collection"]
@@ -231,5 +189,18 @@
         [:li [:a {:href "https://github.com/sonwh98/datomworld/blob/master/src/cljc/yang/python.cljc" :target "_blank"} "Python Compiler Source"] " — 450+ lines including tokenizer and parser"]
         [:li [:a {:href "https://github.com/sonwh98/datomworld/blob/master/src/cljc/yang/docs/README.md" :target "_blank"} "Clojure Compiler Documentation"] " — Usage examples and implementation details"]
         [:li [:a {:href "https://github.com/sonwh98/datomworld/blob/master/src/cljc/yang/docs/python.md" :target "_blank"} "Python Compiler Documentation"] " — Tokenizer, parser, and compiler architecture"]
-        [:li [:a {:href "https://github.com/sonwh98/datomworld/blob/master/src/cljc/yang/docs/architecture.md" :target "_blank"} "Multi-Language Architecture"] " — How Yang enables cross-language composition"]]]]])}
+        [:li [:a {:href "https://github.com/sonwh98/datomworld/blob/master/src/cljc/yang/docs/architecture.md" :target "_blank"} "Multi-Language Architecture"] " — How Yang enables cross-language composition"]]]]
+     [:section.section-dark
+      [:div.section-inner
+       [:h2 "Where to go next"]
+       [:ul.bulleted
+        [:li
+         [:a {:href "/yin.chp"} "Revisit Yin"]
+         " to see how continuations are scheduled and migrated."]
+        [:li
+         [:a {:href "/dao-flow.chp"} "Explore DaoFlow"]
+         " to watch emitted continuations shape living interfaces."]
+        [:li
+         [:a {:href "/shibi.chp"} "Study Shibi"]
+         " to combine economic signaling with generated agents."]]]]])}
    template))
