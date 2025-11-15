@@ -202,7 +202,7 @@
 
         [:p [:strong "Multi-Agent Ecosystem"]]
         [:p
-         "Because semantics is external (Axiom 5), multiple agents can observe the same stream and "
+         "Because semantics is external (" [:a {:href "/datomworld.chp#axiom-5"} "Axiom 5"] "), multiple agents can observe the same stream and "
          "extract different meanings. Essential when AI agents, humans, and systems collaborate. "
          "No single interpretation needs to dominate."]
 
@@ -211,7 +211,7 @@
         [:p
          "Built on π-calculus + continuations + streams. Dynamic topology. Programs are agents that move, "
          "observe, emit datoms. Distributed computation is native. Every process can append without coordination "
-         "(Axiom 3), enabling entangled nodes, migratable agents, and interpretation-as-flow."]
+         "(" [:a {:href "/datomworld.chp#axiom-3"} "Axiom 3"] "), enabling entangled nodes, migratable agents, and interpretation-as-flow."]
         [:p
          "This is a true concurrent model where semantics can run at multiple boundaries: kernel, network, "
          "WASM, yin.vm, or app layer. No static system can match this dynamism."]
