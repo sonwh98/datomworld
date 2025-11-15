@@ -66,11 +66,24 @@
         [:p
          "The same principle applies to type systems. The industry treats static vs dynamic typing as a binary choice: either types are known at compile-time (C++, Java) or discovered at runtime (Python, JavaScript). But " [:strong "this is a false dichotomy"] "."]
         [:p
-         "Type information exists on a " [:strong "continuum of certainty"] ":"]
+         "Type information exists on a " [:strong "continuum of certainty"] ". Certainty measures " [:strong "how confident we are"] " that a value has a particular type:"]
         [:pre [:code
-"Declared → Inferred → Partially Known → Runtime Discovered → Unknown"]]
+"High Certainty ←―――――――――――――――――――→ Low Certainty
+
+Declared    →  Inferred  →  Runtime     →  Unknown
+(programmer)   (analysis)   (discovered)   (no idea)
+:static        :static      :dynamic       :unknown"]]
         [:p
-         "Yin.vm unifies static and dynamic types by representing type information as " [:strong "metadata on AST nodes"] " with a certainty dimension. A " [:code "map"] " operation has the same semantics whether it's in Python (dynamic) or C++ (static). The type system is a property of the node, not a fundamental change to its meaning."]
+         "Examples:"]
+        [:ul.bulleted
+         [:li [:strong "High certainty"] ": " [:code "def add(x: int) → int"] " — programmer declared it, compiler enforces it"]
+         [:li [:strong "Medium certainty"] ": " [:code "result = []"] " — type inferred from usage through analysis"]
+         [:li [:strong "Low certainty"] ": " [:code "data = json.loads(input)"] " — type only known when code runs"]
+         [:li [:strong "No certainty"] ": " [:code "eval(user_input)"] " — could be anything"]]
+        [:p
+         "Yin.vm unifies static and dynamic types by representing certainty as " [:strong "metadata on AST nodes"] ". A " [:code "map"] " operation has the same semantics whether it's in Python (low certainty) or C++ (high certainty). The certainty level is a property of the node, not a fundamental change to its meaning."]
+        [:p
+         "Here's the key: " [:strong "when the AST is canonical code, types become metadata"] ". The AST node represents the semantic operation. The type information annotates how certain we are about it. This " [:strong "blurs the line between static and dynamic"] "—they're not different kinds of code, just different levels of certainty about the same code."]
         [:p
          "This reveals that " [:strong "the line between static and dynamic was always artificial"] ". Types are facts about certainty, not categories of languages."]
         [:p
@@ -87,7 +100,7 @@
          [:li "A " [:strong "continuation"] " is a transaction of datoms capturing execution state"]
          [:li [:strong "Transformations"] " between languages are datom transactions with lineage preserved"]]
         [:p
-         "The entire system is a " [:strong "Datalog database"] ". You can query across languages, across time, across execution states:"]
+         "The entire system is a " [:strong [:a {:href "/dao-db.chp"} "Datalog database"]] ". You can query across languages, across time, across execution states:"]
         [:ul.bulleted
          [:li "\"Show me all functions that touch network input and access the file system\""]
          [:li "\"Trace the full lineage of this PaymentInfo object across all languages in the system\""]
