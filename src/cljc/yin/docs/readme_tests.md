@@ -4,7 +4,7 @@
 
 - [Clojure CLI tools](https://clojure.org/guides/install_clojure) (`clj`)
 
-**Note:** All `clj` commands should be run from the root of the `datomworld` directory where [deps.edn](../../../deps.edn) is located.
+**Note:** All `clj` commands should be run from the root of the `datomworld` directory where [deps.edn](../../../../deps.edn) is located.
 
 ## Run All Tests
 
