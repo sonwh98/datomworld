@@ -14,7 +14,7 @@ Or from the REPL:
 (run-tests 'yin.vm-test)
 ```
 
-## Run Individual Test Namespaces
+## Run Individual Test Namespaces from shell
 
 ### Run specific test namespace
 ```bash
