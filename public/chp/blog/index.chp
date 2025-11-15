@@ -8,6 +8,22 @@
        [:div.blog-grid
         [:article.blog-card
          [:div.blog-meta
+          [:span "Nov 15, 2025"]
+          [:span "12 min read"]]
+         [:h2 [:a {:href "/blog/ast-higher-dimensional-datom-streams.chp"} "AST as Higher Dimensional Construction of Datom Streams"]]
+         [:p
+          "Beyond trees: how ASTs become multidimensional streams of datoms flowing through structure, time, types, languages, and execution states. Why continuations are transactions, how to query across dimensions, and what it means for code to be a living stream of facts."]
+         [:a {:href "/blog/ast-higher-dimensional-datom-streams.chp"} "Read the article →"]]
+        [:article.blog-card
+         [:div.blog-meta
+          [:span "Nov 15, 2025"]
+          [:span "15 min read"]]
+         [:h2 [:a {:href "/blog/yin-vm-ast-chinese-characters.chp"} "Yin.vm: Chinese Characters for Programming Languages"]]
+         [:p
+          "How Chinese characters inspired a universal semantic AST. Just as 水 means \"water\" in both Mandarin and Cantonese despite different pronunciations, Yin.vm's canonical AST preserves semantics across Python, C++, and Clojure—enabling bijective translation, mobile code, and queryable meaning."]
+         [:a {:href "/blog/yin-vm-ast-chinese-characters.chp"} "Read the article →"]]
+        [:article.blog-card
+         [:div.blog-meta
           [:span "Nov 14, 2025"]
           [:span "22 min read"]]
          [:h2 [:a {:href "/blog/structure-vs-interpretation.chp"} "Structure vs Interpretation: Why Schemas/Ontologies Are Secret Interpreters"]]

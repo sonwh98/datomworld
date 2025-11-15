@@ -1,0 +1,272 @@
+(let [template (load-file "public/chp/template.chp")]
+  (clojure.walk/postwalk-replace
+   {:template/title "AST as Higher Dimensional Construction of Datom Streams - Datom.World"
+    :template/content
+    (list
+     [:section.blog-article
+      [:div.section-inner
+       [:article
+        [:h1 "AST as Higher Dimensional Construction of Datom Streams"]
+        [:div.blog-article-meta "Published Nov 15, 2025 · 12 minute read"]
+
+        [:h2 "Beyond Trees: ASTs as Multidimensional Streams"]
+        [:p
+         "Traditional Abstract Syntax Trees (ASTs) are trees. Static snapshots of code structure frozen in time. But what if we reconceive the AST not as a tree, but as a " [:strong "higher dimensional construction of datom streams"] "? What if every node, every type annotation, every transformation is a fact flowing through time, queryable across multiple dimensions simultaneously?"]
+        [:p
+         "This reconception is the foundation of Yin.vm's universal semantic representation. It transforms ASTs from spatial structures into " [:strong "streams of immutable facts"] " flowing through five orthogonal dimensions."]
+
+        [:h2 "The Five Dimensions of AST Datoms"]
+        [:p "When you represent an AST as datoms, you unlock five fundamental dimensions:"]
+
+        [:h3 "1. Spatial Dimension: Structure"]
+        [:p "The traditional tree structure—parent-child relationships—becomes a graph of datoms:"]
+        [:pre [:code
+"[node-1 :ast/type :function-call]
+[node-1 :ast/name \"calculateTotal\"]
+[node-1 :ast/parent node-0]
+[node-1 :ast/children [node-2 node-3]]
+[node-2 :ast/type :variable]
+[node-2 :ast/name \"price\"]
+[node-3 :ast/type :literal]
+[node-3 :ast/value 42]"]]
+        [:p "Each node is an entity. Relationships are facts. The entire tree is queryable."]
+
+        [:h3 "2. Temporal Dimension: Evolution"]
+        [:p
+         "Every transformation of the AST is a transaction. The entire history is preserved:"]
+        [:pre [:code
+"; Transaction 100: Original parse
+[node-1 :ast/type :variable :tx 100]
+[node-1 :ast/name \"x\" :tx 100]
+
+; Transaction 101: Type inference
+[node-1 :type/inferred :string :tx 101]
+
+; Transaction 102: Scope analysis
+[node-1 :scope/binding scope-5 :tx 102]
+
+; Transaction 103: Runtime evaluation
+[node-1 :exec/value \"hello\" :tx 103]"]]
+        [:p "You can query: " [:em "\"Show me how this node changed from parse to execution.\""]]
+
+        [:h3 "3. Type Dimension: Static to Dynamic"]
+        [:p
+         "The industry treats static vs dynamic typing as a binary choice. But type information actually exists on a " [:strong "continuum of certainty"] ":"]
+        [:pre [:code
+"[node-7 :type/declared :int :tx 100]        ; Programmer annotation
+[node-7 :type/inferred :number :tx 101]      ; Type checker inference
+[node-7 :type/runtime java.lang.Integer :tx 102]  ; Actual runtime type
+[node-7 :type/certainty :static :tx 100]     ; High confidence"]]
+        [:p
+         "Yin.vm " [:strong "unifies static and dynamic types"] " by treating certainty as a property, not a language category. A " [:code "map"] " operation has the same semantics whether it's in Python (dynamic) or C++ (static). The type system becomes metadata on nodes."]
+        [:p
+         "This reveals that " [:strong "the line between static and dynamic was always artificial"] ". Types are facts about certainty, not fundamental differences in semantics. Both coexist as datom streams in the same AST."]
+
+        [:h3 "4. Language Dimension: Cross-Language Transformations"]
+        [:p
+         "When you translate code between languages, the datom stream preserves the transformation lineage:"]
+        [:pre [:code
+"; Original Python AST node
+[node-42 :ast/source-lang \"Python\" :tx 200]
+[node-42 :ast/syntax \"list_comprehension\" :tx 200]
+
+; Transformed to C++
+[node-43 :ast/source-lang \"C++\" :tx 201]
+[node-43 :ast/syntax \"range_for_loop\" :tx 201]
+[node-43 :ast/transformed-from node-42 :tx 201]
+
+; Semantic equivalence preserved
+[node-42 :ast/semantics \"map_operation\" :tx 200]
+[node-43 :ast/semantics \"map_operation\" :tx 201]"]]
+        [:p
+         "You can query: " [:em "\"Find all Python comprehensions that became C++ loops.\""]]
+
+        [:h3 "5. Execution Dimension: Code to Continuation"]
+        [:p
+         "As code executes, runtime state becomes part of the datom stream:"]
+        [:pre [:code
+"; Function definition (static)
+[fn-1 :ast/type :function :tx 100]
+[fn-1 :ast/params [param-1 param-2] :tx 100]
+
+; First invocation (runtime)
+[call-1 :exec/function fn-1 :tx 300]
+[call-1 :exec/args [\"alice\" 25] :tx 300]
+[call-1 :exec/stack-frame frame-1 :tx 300]
+
+; Paused as continuation
+[call-1 :exec/continuation cont-1 :tx 301]
+[cont-1 :exec/state :suspended :tx 301]
+[cont-1 :exec/instruction-pointer 15 :tx 301]
+
+; Migrated to another machine
+[cont-1 :exec/migrated-to \"host-2\" :tx 302]
+[cont-1 :exec/state :resumed :tx 303]"]]
+        [:p
+         "The entire execution trace is a stream of facts. Continuations are queryable data."]
+
+        [:h2 "The Critical Insight: Streams, Not Snapshots"]
+        [:p
+         "Traditional ASTs are static snapshots. Datom-based ASTs are " [:strong "living streams of facts"] " flowing through five orthogonal dimensions:"]
+        [:ul.bulleted
+         [:li [:strong "Structure"] " (spatial): graph topology of nodes and edges"]
+         [:li [:strong "Time"] " (temporal): transactions capturing evolution"]
+         [:li [:strong "Types"] " (certainty): metadata flowing from static to dynamic"]
+         [:li [:strong "Language"] " (translation): transformations preserving semantics across syntax"]
+         [:li [:strong "Execution"] " (runtime): state merging with compile-time structure"]]
+        [:p
+         "Because these dimensions are orthogonal, you can " [:strong "query any slice"] ". You can ask questions that span multiple dimensions simultaneously."]
+
+        [:h2 "Querying Across Dimensions"]
+        [:p
+         "Here's where the power emerges:"]
+
+        [:h3 "Example 1: Security Auditing Across Type Boundaries"]
+        [:p
+         "Because Yin.vm unifies static and dynamic types, you can query " [:strong "across the certainty boundary"] ". Find all code paths where dynamically-typed data enters statically-typed functions without validation:"]
+        [:pre [:code
+"[:find ?fn ?call ?arg
+ :where
+ ;; Find function with static type requirement
+ [?fn :ast/type :function]
+ [?param :ast/parent ?fn]
+ [?param :type/declared ?static-type]
+ [?param :type/certainty :static]
+
+ ;; Find call site with dynamic argument
+ [?call :exec/function ?fn]
+ [?arg :exec/parent ?call]
+ [?arg :type/runtime ?runtime-type]
+ [?arg :type/certainty :dynamic]
+
+ ;; No validation step exists
+ (not [?validation :ast/validates ?arg])]"]]
+        [:p
+         "This query is " [:strong "impossible in traditional VMs"] " because they don't preserve the type certainty dimension. Static languages erase types at runtime. Dynamic languages don't track static expectations. But when types are unified as datom metadata, this critical security question becomes queryable."]
+
+        [:h3 "Example 2: Cross-Language Migration Analysis"]
+        [:p "Trace how a Python function became C++ code and identify performance-critical transformations:"]
+        [:pre [:code
+"[:find ?original ?transformed ?perf-impact
+ :where
+ [?original :ast/source-lang \"Python\"]
+ [?transformed :ast/transformed-from ?original]
+ [?transformed :ast/source-lang \"C++\"]
+
+ ;; Find performance-critical transformations
+ [?original :ast/complexity ?orig-complexity]
+ [?transformed :ast/complexity ?new-complexity]
+ [(< ?new-complexity ?orig-complexity)]
+ [(- ?orig-complexity ?new-complexity) ?perf-impact]
+ [(> ?perf-impact 10)]]"]]
+
+        [:h3 "Example 3: Time-Travel Debugging"]
+        [:p "See the exact state of an AST node at transaction 500:"]
+        [:pre [:code
+"[:find ?attr ?value
+ :where
+ [?node :ast/id \"node-42\"]
+ [?node ?attr ?value ?tx]
+ [(<= ?tx 500)]]"]]
+        [:p "This enables " [:strong "perfect reproducibility"] "—you can replay any point in the program's semantic evolution."]
+
+        [:h2 "Continuations as Datom Transactions"]
+        [:p
+         "In Yin.vm, a continuation is not bytecode—it's a " [:strong "transaction of datoms"] " representing the complete computational state."]
+
+        [:h3 "What Gets Captured"]
+        [:pre [:code
+"; Continuation entity
+[cont-1 :continuation/id \"cont-abc-123\"]
+[cont-1 :continuation/created-at #inst \"2025-11-15\"]
+
+; Call stack as datoms
+[cont-1 :exec/stack [frame-1 frame-2 frame-3]]
+[frame-1 :stack/function fn-42]
+[frame-1 :stack/locals {\"x\" 10, \"y\" 20}]
+[frame-1 :stack/instruction-pointer 25]
+
+; Closure bindings
+[frame-1 :closure/captures {\"threshold\" 100}]
+
+; Pending computations
+[frame-1 :exec/awaiting promise-1]
+[promise-1 :promise/state :pending]"]]
+
+        [:h3 "Migration as Serialization"]
+        [:p
+         "Because continuations are datoms, migration becomes trivial:"]
+        [:ol
+         [:li "Serialize the continuation transaction as EDN or Transit"]
+         [:li "Transmit over WireGuard VPN"]
+         [:li "Receiving VM validates cryptographic signature"]
+         [:li "Transact datoms into receiving VM's database"]
+         [:li "Resume execution from the reconstituted state"]]
+        [:p
+         "The continuation can even change languages during migration—Python to C++—because the " [:strong "semantic meaning is preserved in the datoms"] ", not in language-specific bytecode."]
+
+        [:h2 "Implementation: The Schema"]
+        [:p "Moving from concept to practice, here's what an AST datom schema looks like:"]
+        [:pre [:code
+"{;; ========== Core Structure ==========
+ :ast/id           {:db/unique :db.unique/identity}
+ :ast/type         {:db/valueType :db.type/keyword}    ; :function :lambda :literal
+ :ast/parent       {:db/valueType :db.type/ref}
+ :ast/children     {:db/valueType :db.type/ref
+                    :db/cardinality :db.cardinality/many
+                    :db/isComponent true}
+ :ast/source-lang  {:db/valueType :db.type/string}     ; \"Python\" \"C++\" \"Clojure\"
+
+ ;; ========== Type Dimension ==========
+ :type/declared    {:db/valueType :db.type/keyword}
+ :type/inferred    {:db/valueType :db.type/keyword}
+ :type/runtime     {:db/valueType :db.type/string}
+ :type/certainty   {:db/valueType :db.type/keyword}    ; :static :dynamic :unknown
+
+ ;; ========== Temporal/Transformation ==========
+ :ast/transformed-from {:db/valueType :db.type/ref}
+ :ast/lang-target      {:db/valueType :db.type/string}
+
+ ;; ========== Execution Dimension ==========
+ :exec/continuation    {:db/valueType :db.type/ref}
+ :exec/bindings        {:db/valueType :db.type/ref
+                        :db/cardinality :db.cardinality/many}
+ :exec/stack           {:db/valueType :db.type/ref
+                        :db/cardinality :db.cardinality/many
+                        :db/isComponent true}
+ :exec/state           {:db/valueType :db.type/keyword}  ; :running :suspended :migrated
+
+ ;; ========== Provenance ==========
+ :ast/parsed-from      {:db/valueType :db.type/string}  ; Source code location
+ :ast/line             {:db/valueType :db.type/long}
+ :ast/column           {:db/valueType :db.type/long}}"]]
+        [:p
+         "This schema captures all five dimensions. Structure through " [:code ":ast/parent"] " and " [:code ":ast/children"] ". Time through transaction IDs. Types through " [:code ":type/*"] " attributes. Language through " [:code ":ast/source-lang"] " and " [:code ":ast/transformed-from"] ". Execution through " [:code ":exec/*"] " attributes."]
+
+        [:h2 "In Practice: Yin.vm Implementation"]
+        [:p
+         "This is not theoretical. The Yin.vm prototype implements AST datoms using Datascript (an in-memory Datalog database). The Yang compiler parses Clojure code and emits datom transactions. The result is a queryable, portable, time-aware AST that can be executed, migrated, and introspected."]
+        [:p
+         "The next step is extending this to other languages—Python, C++, Rust—proving that the universal semantic layer works across the full spectrum of programming paradigms."]
+
+        [:h2 "Conclusion: From Static to Living Code"]
+        [:p
+         "Traditional ASTs are frozen snapshots in a single dimension: structure. By reconceiving them as " [:strong "streams of datoms flowing through five orthogonal dimensions"] ", we unlock fundamentally new capabilities:"]
+        [:ul.bulleted
+         [:li "Code that remembers its entire evolution (temporal dimension)"]
+         [:li "Programs that can migrate between languages without loss (language dimension)"]
+         [:li "Unified type systems where static and dynamic coexist as certainty metadata (type dimension)"]
+         [:li "Execution states that can pause, travel, and resume (execution dimension)"]
+         [:li "Security and analysis that query across type boundaries and languages (queryability)"]]
+        [:p
+         "This isn't just a better data structure. It's a shift from viewing code as " [:strong "static text"] " to viewing it as " [:strong "living semantic entities"] " that evolve, migrate, and compose across languages, time, and machines."]
+        [:p
+         "This is the foundation that makes Yin.vm's universal semantic virtual machine possible."]
+
+        [:p [:strong "Learn more:"]]
+        [:ul.bulleted
+         [:li [:a {:href "/blog/yin-vm-ast-chinese-characters.chp"} "Yin.vm: A Universal Semantic VM for Mobile Agents"] " — The vision behind datom.world"]
+         [:li [:a {:href "/yin.chp"} "Yin VM Documentation"] " — Technical deep dive"]
+         [:li [:a {:href "/yang.chp"} "Yang Compiler"] " — How Clojure becomes AST datoms"]
+         [:li [:a {:href "https://github.com/sonwh98/datomworld"} "GitHub Repository"] " — Explore the implementation"]]]]])}
+   template))
