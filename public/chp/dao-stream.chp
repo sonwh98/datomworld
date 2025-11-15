@@ -34,7 +34,7 @@
         "DaoStream defines a simple protocol with five operations for stream lifecycle and data flow:"]
        [:div.code-block
         [:pre [:code
-"(defprotocol Stream
+               "(defprotocol Stream
   (open [this params]
     \"Open the stream with params which has only 1 mandatory key
      :path to a resource in a graph\")
@@ -46,8 +46,7 @@
     \"Close the stream.\")
   (status [this]
     \"Returns the current status of the stream,
-     e.g., :connecting, :connected\"))"
-        ]]]
+     e.g., :connecting, :connected\"))"]]]
        [:div.feature-grid
         [:article.feature-card
          [:h3 [:code "open"]]

@@ -39,7 +39,7 @@
           ast {:type :application
                :operator {:type :literal :value add-fn}
                :operands [{:type :literal :value 10}
-                         {:type :literal :value 20}]}
+                          {:type :literal :value 20}]}
           result (vm/run (make-state {}) ast)]
       (is (= 30 (:value result))
           "10 + 20 should equal 30"))))
@@ -54,9 +54,9 @@
                           :body {:type :application
                                  :operator {:type :variable :name '+}
                                  :operands [{:type :variable :name 'x}
-                                           {:type :variable :name 'y}]}}
+                                            {:type :variable :name 'y}]}}
                :operands [{:type :literal :value 3}
-                         {:type :literal :value 5}]}
+                          {:type :literal :value 5}]}
           result (vm/run (make-state {'+ add-fn}) ast)]
       (is (= 8 (:value result))
           "Lambda addition of 3 and 5 should equal 8"))))
@@ -71,7 +71,7 @@
                           :body {:type :application
                                  :operator {:type :variable :name '+}
                                  :operands [{:type :variable :name 'x}
-                                           {:type :literal :value 1}]}}
+                                            {:type :literal :value 1}]}}
                :operands [{:type :literal :value 5}]}
           result (vm/run (make-state {'+ add-fn}) ast)]
       (is (= 6 (:value result))
@@ -85,7 +85,7 @@
                           {:type :application
                            :operator {:type :literal :value op-fn}
                            :operands [{:type :literal :value a}
-                                     {:type :literal :value b}]}))]
+                                      {:type :literal :value b}]}))]
 
       (is (= 30 (:value (vm/run state (literal-ast '+ 10 20))))
           "Addition: 10 + 20 = 30")
@@ -104,7 +104,7 @@
                           {:type :application
                            :operator {:type :literal :value op-fn}
                            :operands [{:type :literal :value a}
-                                     {:type :literal :value b}]}))]
+                                      {:type :literal :value b}]}))]
 
       (is (true? (:value (vm/run state (literal-ast '= 5 5))))
           "Equality: 5 = 5")
@@ -115,7 +115,4 @@
       (is (true? (:value (vm/run state (literal-ast '> 10 5))))
           "Greater than: 10 > 5"))))
 
-
-(comment
-
-  )
+(comment)

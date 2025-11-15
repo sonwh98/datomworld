@@ -71,7 +71,7 @@
          "But " [:strong "type systems are formal logical systems, and logical systems require interpreters"] "."]
         [:p
          "Through the " [:a {:href "https://en.wikipedia.org/wiki/Curry%E2%80%93Howard_correspondence"}
-          "Curry–Howard correspondence"] ", we know that types correspond to logical propositions, "
+                         "Curry–Howard correspondence"] ", we know that types correspond to logical propositions, "
          "and type checking corresponds to proof verification. A type system expresses constraints as logical predicates:"]
         [:ul.bulleted
          [:li [:code "isInteger(x)"] " (a logical constraint about " [:code "x"] ")"]
@@ -105,7 +105,7 @@
          "The reasoner interprets these logical constraints to derive semantic conclusions. Same mechanism, different syntax."]
         [:p
          "There is no escape. " [:strong "Any time you say \"we just need a shared schema/ontology,\" "
-         "you've secretly signed up to write a logical interpreter"] " (even if you don't call it that). "
+                                 "you've secretly signed up to write a logical interpreter"] " (even if you don't call it that). "
          "The interpreter might run in a type checker, a reasoner, a validator, or in the mind of "
          "a human reader. But it's always there, performing the act of interpretation that creates meaning."]
 
@@ -123,7 +123,7 @@
          "one accidentally amplified the other."]
         [:p
          [:strong "Structure and interpreter evolved independently, but by coincidence, an interpreter "
-         "happened to be able to make use of an existing structure to encode itself"] "."]
+          "happened to be able to make use of an existing structure to encode itself"] "."]
         [:p
          "Once that feedback loop formed, semantics became real. Codons \"mean\" amino acids. "
          "Sequences \"mean\" proteins. But that meaning is not intrinsic to the molecules. "
@@ -314,7 +314,7 @@
          [:li "Economics (currency + participants)"]]
         [:p
          "Everywhere, " [:strong "causation is stable correlation that persists through time, "
-         "and meaning is interpretation of that persistent correlation"] "."]
+                         "and meaning is interpretation of that persistent correlation"] "."]
 
         [:h2 "Practical Implications"]
         [:p
@@ -410,8 +410,8 @@
          "truth is the only foundation that holds."]
         [:p
          [:strong "Because ultimately: causation is stable correlation that persists through time. "
-         "Meaning is interpretation of that persistent correlation by an agent that can exploit it. "
-         "Life and computation are what happen when these correlations stabilize and interpreters emerge."]]
+          "Meaning is interpretation of that persistent correlation by an agent that can exploit it. "
+          "Life and computation are what happen when these correlations stabilize and interpreters emerge."]]
 
         [:hr]
         [:p.footnote {:id "footnote-dna"}

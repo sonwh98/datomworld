@@ -51,7 +51,7 @@
           (let [frame (:frame continuation)
                 operand-value (:value state)
                 evaluated-operands (conj (or (:evaluated-operands frame) [])
-                                        operand-value)
+                                         operand-value)
                 updated-frame (assoc frame :evaluated-operands evaluated-operands)
                 saved-env (:environment continuation)]
             (assoc state
@@ -77,94 +77,94 @@
       ;; Otherwise handle the node type
       (case type
       ;; Literals evaluate to themselves
-      :literal
-      (let [{:keys [value]} node]
+        :literal
+        (let [{:keys [value]} node]
         ;; Always just return the value, let continuation handling happen in default case
-        (assoc state :value value :control nil))
+          (assoc state :value value :control nil))
 
       ;; Variable lookup
-      :variable
-      (let [{:keys [name]} node
-            value (get environment name)]
+        :variable
+        (let [{:keys [name]} node
+              value (get environment name)]
         ;; Always just return the value, let continuation handling happen in default case
-        (assoc state :value value :control nil))
+          (assoc state :value value :control nil))
 
       ;; Lambda creates a closure
-      :lambda
-      (let [{:keys [params body]} node
-            closure {:type :closure
-                     :params params
-                     :body body
-                     :environment environment}]
+        :lambda
+        (let [{:keys [params body]} node
+              closure {:type :closure
+                       :params params
+                       :body body
+                       :environment environment}]
         ;; Always just return the closure, let continuation handling happen in default case
-        (assoc state :value closure :control nil))
+          (assoc state :value closure :control nil))
 
       ;; Function application
-      :application
-      (let [{:keys [operator operands evaluated-operands fn-value operator-evaluated?]} node
-            evaluated-operands (or evaluated-operands [])]
-        (cond
-          ;; All evaluated - apply function
-          (and operator-evaluated?
-               (= (count evaluated-operands) (count operands)))
+        :application
+        (let [{:keys [operator operands evaluated-operands fn-value operator-evaluated?]} node
+              evaluated-operands (or evaluated-operands [])]
           (cond
+          ;; All evaluated - apply function
+            (and operator-evaluated?
+                 (= (count evaluated-operands) (count operands)))
+            (cond
             ;; Primitive function
-            (fn? fn-value)
-            (let [result (apply fn-value evaluated-operands)]
-              (assoc state :value result :control nil))
+              (fn? fn-value)
+              (let [result (apply fn-value evaluated-operands)]
+                (assoc state :value result :control nil))
 
             ;; User-defined closure
-            (= :closure (:type fn-value))
-            (let [{:keys [params body environment]} fn-value
-                  extended-env (merge environment (zipmap params evaluated-operands))]
-              (assoc state
-                     :control body
-                     :environment extended-env
-                     :continuation continuation))
+              (= :closure (:type fn-value))
+              (let [{:keys [params body environment]} fn-value
+                    extended-env (merge environment (zipmap params evaluated-operands))]
+                (assoc state
+                       :control body
+                       :environment extended-env
+                       :continuation continuation))
 
-            :else
-            (throw (ex-info "Cannot apply non-function"
-                            {:fn-value fn-value})))
+              :else
+              (throw (ex-info "Cannot apply non-function"
+                              {:fn-value fn-value})))
 
           ;; Evaluate operands one by one
-          operator-evaluated?
-          (let [next-operand (nth operands (count evaluated-operands))]
+            operator-evaluated?
+            (let [next-operand (nth operands (count evaluated-operands))]
+              (assoc state
+                     :control next-operand
+                     :continuation {:frame node
+                                    :parent continuation
+                                    :environment environment
+                                    :type :eval-operand}))
+
+          ;; Evaluate operator first
+            :else
             (assoc state
-                   :control next-operand
+                   :control operator
                    :continuation {:frame node
                                   :parent continuation
                                   :environment environment
-                                  :type :eval-operand}))
-
-          ;; Evaluate operator first
-          :else
-          (assoc state
-                 :control operator
-                 :continuation {:frame node
-                                :parent continuation
-                                :environment environment
-                                :type :eval-operator})))
+                                  :type :eval-operator})))
 
       ;; Conditional
-      :if
-      (let [{:keys [test consequent alternate]} node]
-        (if (:evaluated-test? node)
+        :if
+        (let [{:keys [test consequent alternate]} node]
+          (if (:evaluated-test? node)
           ;; Test evaluated, choose branch
-          (let [test-value (:value state)
-                branch (if test-value consequent alternate)]
-            (assoc state :control branch))
+            (let [test-value (:value state)
+                  branch (if test-value consequent alternate)]
+              (assoc state :control branch))
           ;; Evaluate test first
-          (assoc state
-                 :control test
-                 :continuation {:frame node
-                                :parent continuation
-                                :environment environment
-                                :type :eval-test})))
+            (assoc state
+                   :control test
+                   :continuation {:frame node
+                                  :parent continuation
+                                  :environment environment
+                                  :type :eval-test})))
 
       ;; Unknown node type
-      (throw (ex-info "Unknown AST node type"
-                      {:type type
-                       :node node}))))))
+        (throw (ex-info "Unknown AST node type"
+                        {:type type
+                         :node node}))))))
 
 ;; Helper function to step the VM until completion
 (defn run

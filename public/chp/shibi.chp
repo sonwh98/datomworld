@@ -152,6 +152,5 @@
         [:a {:href "/yin.chp"} "Yin"]
         " agents for programmable attention, then surface the exchange inside "
         [:a {:href "/dao-flow.chp"} "DaoFlow"]
-        " portals."]]]
-     )}
+        " portals."]]])}
    template))

@@ -25,7 +25,7 @@
            "It is self-organizing intelligence without command-and-control."]]]
         [:details.faq
          [:summary "What does “everything is a stream” actually mean?"]
-        [:div
+         [:div
           [:p
            "In Datom.World, data never freezes in silos. "
            "Every fact lives in an append-only stream that can be read, transformed, or extended. "
@@ -41,8 +41,7 @@
           [:ul.bulleted
            [:li "Your data, apps, and flows persist across time without depending on a single vendor’s session."]
            [:li "Switching devices feels natural because your context lives in the shared world, not on one machine."]
-           [:li "Collaboration stays fluid—others can pick up where you paused, continuing the same thread securely."]]]
-        ]
+           [:li "Collaboration stays fluid—others can pick up where you paused, continuing the same thread securely."]]]]
         [:details.faq
          [:summary "Who owns the data flowing through these streams?"]
          [:div
@@ -109,7 +108,7 @@
         [:details.faq
          [:summary "How should developers interpret “everything is a stream”?"]
          [:div
-         [:p
+          [:p
            "Streams are the single I/O abstraction. "
            "Read, write, transform, and entangle datoms through asynchronous channels instead of bespoke APIs. "
            "Files, sockets, message queues, and databases collapse into this one primitive, giving apps a shared protocol for collaboration."]]]

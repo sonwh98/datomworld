@@ -20,10 +20,10 @@
        [:h2 "Main ideas"]
        [:ul.bulleted
         [:li [:strong "Universal AST"] " — designed as a compiler target, these immutable maps capture syntax, semantics, and metadata across languages."]
-       [:li [:strong "Persistent CESK"] " — control, environment, store, and continuation reuse structure for speed."]
+        [:li [:strong "Persistent CESK"] " — control, environment, store, and continuation reuse structure for speed."]
         [:li [:strong "First-class continuations"] " — computation pauses, migrates, and resumes anywhere, even across network boundaries."]
         [:li [:strong "Unified call constructs"] " — functions, closures, and continuations are the same reified execution context."]
-       [:li [:strong "Eval as VM"] " — stepping eval drives the machine with no hidden interpreter."]
+        [:li [:strong "Eval as VM"] " — stepping eval drives the machine with no hidden interpreter."]
         [:li [:strong "Runtime macros & distribution"] " — ASTs transform themselves locally or across nodes."]]]]
      [:section.section-dark
       [:div.section-inner

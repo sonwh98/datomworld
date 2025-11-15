@@ -23,7 +23,7 @@
          "Transducers let us chain pure steps over that stream without creating intermediate collections."]
         [:pre
          [:code {:class "language-clojure"}
-"(ns datomworld.blog.streams
+          "(ns datomworld.blog.streams
   (:require [clojure.core.reducers :as r]
             [clojure.set :as set]))
 
@@ -57,7 +57,7 @@
          "Here is a practical sequence that derives entity metadata while counting assertions in a single pass."]
         [:pre
          [:code {:class "language-clojure"}
-"(def datoms
+          "(def datoms
   [{:e 1 :a :entity/type :v :person :tx 1001 :c :alpha}
    {:e 1 :a :person/name :v \"Ada\" :tx 1001 :c :alpha}
    {:e 2 :a :entity/type :v :device :tx 1002 :c :beta}

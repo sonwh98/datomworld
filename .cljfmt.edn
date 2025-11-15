@@ -1,2 +1,2 @@
 {:file-types {"chp" :edn}
- :file-extensions ["clj" "cljs" "cljc" "edn" "chp"]}
+ :paths ["src" "test" "public/chp"]}

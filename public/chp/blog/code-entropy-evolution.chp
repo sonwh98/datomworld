@@ -139,7 +139,7 @@
          "rather than being imposed prematurely."]
         [:pre
          [:code {:class "language-clojure"}
-";; Phase 1: Everything in one namespace
+          ";; Phase 1: Everything in one namespace
 (ns myapp.core)
 
 (defn fetch-user [id] ...)
@@ -173,7 +173,7 @@
          "This is adaptive evolution, not waterfall planning."]
         [:pre
          [:code {:class "language-clojure"}
-";; In the REPL: experiment
+          ";; In the REPL: experiment
 (comment
   (let [user {:email \"invalid\"}]
     (validate-email (:email user)))
@@ -214,7 +214,7 @@
          "from a testing perspective."]
         [:pre
          [:code {:class "language-clojure"}
-";; Bad: Testing internals creates brittleness
+          ";; Bad: Testing internals creates brittleness
 (deftest test-internal-parser
   (is (= [:token \"foo\"] (internal-parse-token \"foo\"))))
 
@@ -282,7 +282,7 @@
          "."]
         [:pre
          [:code {:class "language-clojure"}
-"(defn- parse-tokens
+          "(defn- parse-tokens
   \"Internal: splits input into tokens. Handles empty input gracefully.\"
   [input]
   (if (empty? input)
@@ -440,18 +440,17 @@
         [:p [:strong "Further reading:"]]
         [:ul.bulleted
          [:li [:a {:href "https://www.infoq.com/news/2022/10/beck-design-human-relationships/"}
-          "Kent Beck: Software Design is an Exercise in Human Relationships"]
+               "Kent Beck: Software Design is an Exercise in Human Relationships"]
           " , InfoQ , he spent 17 years learning how to explain cohesion in software design"]
          [:li [:a {:href "https://www.infoq.com/presentations/Simple-Made-Easy/"}
-          "Simple Made Easy"]
+               "Simple Made Easy"]
           " , Rich Hickey's foundational talk on simplicity and complexity"]
          [:li [:a {:href "https://www.quantamagazine.org/a-new-thermodynamics-theory-of-the-origin-of-life-20140122/"}
-          "A New Thermodynamics Theory of the Origin of Life"]
+               "A New Thermodynamics Theory of the Origin of Life"]
           " , Quanta Magazine , on how systems maintain low entropy by increasing entropy in their environment"]
          [:li [:a {:href "https://lambdakids.stigmergy.systems/2024/5/26/good-code.blog"} "What is Good Code?"]
           " , the statistical mechanics argument and dependency graphs"]
          [:li [:a {:href "https://lambdakids.stigmergy.systems/2022/10/1/locality-cohesion-coupling-entropy-software.blog"}
-          "Locality, Cohesion, Coupling, Entropy, and Evolution in Software"]
-          " , the original essays this post synthesizes"]]
-        ]]])}
+               "Locality, Cohesion, Coupling, Entropy, and Evolution in Software"]
+          " , the original essays this post synthesizes"]]]]])}
    template))
