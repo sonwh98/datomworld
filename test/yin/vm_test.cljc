@@ -1,6 +1,4 @@
 (ns yin.vm-test
-  "Comprehensive tests for the Yin VM.
-  Converted from manual test functions to clojure.test format."
   (:require [yin.vm :as vm]
             [yin.test-util :refer [make-state]]
             #?(:clj [clojure.test :refer [deftest is testing]]
