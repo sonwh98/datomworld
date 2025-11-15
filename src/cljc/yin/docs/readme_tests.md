@@ -1,5 +1,9 @@
 # Yin VM - Quick Test Guide
 
+## Requirements
+
+- [Clojure CLI tools](https://clojure.org/guides/install_clojure) (`clj`)
+
 ## Run All Tests
 
 ```bash
@@ -48,11 +52,6 @@ All tests validate the CESK (Control, Environment, Store, Continuation) architec
 - **Environment** - Lexical scope bindings
 - **Store** - Immutable memory (for future use)
 - **Continuation** - Where to return after evaluation
-
-## Requirements
-
-- Clojure CLI tools (`clj`)
-- `deps.edn` is already configured
 
 ## Implementation
 
