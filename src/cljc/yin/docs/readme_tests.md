@@ -55,10 +55,10 @@ All tests validate the CESK (Control, Environment, Store, Continuation) architec
 - **Store** - Immutable memory (for future use)
 - **Continuation** - Where to return after evaluation
 
-## Implementation
+### Implementation
 
-- **VM:** [src/cljc/yin/vm.cljc](vm.cljc)
-- **Full Test Suite:** [test/yin/vm_test.cljc](../../../test/yin/vm_test.cljc)
+- **VM:** [`vm.cljc`](/src/cljc/yin/vm.cljc)
+- **Full Test Suite:** [`vm_test.cljc`](/test/yin/vm_test.cljc)
 - **Documentation:** [yin_vm_tests.md](yin_vm_tests.md)
 
 ## Specification
