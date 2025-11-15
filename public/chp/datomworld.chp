@@ -109,10 +109,7 @@
         "These axioms ensure that Datom.World remains decentralized, local-first, and free from the coordination bottlenecks that plague traditional distributed systems. "
         "They transform constraints into affordances: because there is no global state, systems can scale infinitely; "
         "because interpretation is external, the same streams can serve infinite purposes; "
-        "because causality is referential, collaboration emerges from explicit connections rather than implicit dependencies."]
-       [:div.hero-actions
-        [:a.btn {:href "/dao-stream.chp"} "Understand Streams"]
-        [:a.btn.btn-outline {:href "/yin.chp"} "Explore Yin VM"]]]]
+        "because causality is referential, collaboration emerges from explicit connections rather than implicit dependencies."]]]
      [:section.section-light
       [:div.section-inner
        [:h2 "Recomposing the Web"]

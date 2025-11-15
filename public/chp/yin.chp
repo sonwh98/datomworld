@@ -12,11 +12,9 @@
         "It is a continuation virtual machine where the universal, map-based AST stays canonical, eval is the machine, "
         "and persistent data structures keep continuations fast, mobile, and immutable."]
        [:p
-        "Together with the Yang compiler, Yin forms a dual system: Yang generates and emits continuations from Clojure code, "
-        "while Yin receives, introspects, and executes them."]
-       [:div.hero-actions
-        [:a.btn {:href "/yang.chp"} "Meet the Yang compiler"]
-        [:a.btn.btn-outline {:href "/"} "Return to overview"]]]]
+        "Together with the " [:a {:href "/yang.chp"} "Yang compiler"]
+        " Yin forms a dual system: Yang generates and emits continuations from Clojure code, "
+        "while Yin receives, introspects, and executes them."]]]
      [:section.section-light
       [:div.section-inner
        [:h2 "Main ideas"]
