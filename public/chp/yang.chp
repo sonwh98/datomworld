@@ -5,7 +5,7 @@
     (list
      [:section#yang.section-dark
       [:div.section-inner
-       [:span.status-pill "Generative counterpart"]
+       [:span.status-pill "Compiler"]
        [:h1 "Yang Compiler — The generative half of Yin"]
        [:p.section-lead
         "If Yin is the continuation engine, the Yang compiler is its expression engine. "

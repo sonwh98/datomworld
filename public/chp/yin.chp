@@ -5,7 +5,7 @@
     (list
      [:section#yin-vm.section-dark
       [:div.section-inner
-       [:span.status-pill "Deep dive"]
+       [:span.status-pill "Continuation VM"]
        [:h1 "Yin VM"]
        [:p.section-lead
         "Yin is what happens when Clojure and Smalltalk got together and had a baby."
