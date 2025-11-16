@@ -74,9 +74,49 @@
         "No Meta Pixel watching what you buy. No Google Analytics profiling your browsing. "
         "No probabilistic matching linking your devices without consent. Just facts you own, shared on your terms."]
        [:p
-        "Streams of datoms flow between trusted peers, creating an internet that is distributed, entangled, and alive—"
-        "where collaboration emerges naturally and privacy is foundational. "
+        "Streams of datoms flow between trusted peers, creating an internet that is distributed, entangled, and alive—where collaboration emerges naturally and privacy is foundational. "
         "Datom.World reimagines software as a digital ecosystem: self-organizing, adaptive, and free."]]]
+     [:section.section-light
+      [:div.section-inner
+       [:h2 "The Core Concepts"]
+       [:p "Datom.World is built on a set of foundational principles that create a new paradigm for computing. These concepts are woven throughout our architecture, from the Yin VM to the DaoDB database. Each concept has links to more detailed articles for deeper exploration."]
+       [:div.concept-grid
+        [:article.concept-card
+         [:h3 "1. Everything is a Datom Stream"]
+         [:p "The foundational axiom of Datom.World is that " [:strong "everything is a stream of datoms"] ". A datom is an immutable, atomic fact represented as a tuple: " [:code "[entity attribute value transaction]"] ". Code, data, state changes, and even execution traces are all represented as append-only logs of these facts."]
+         [:p "This approach provides several profound benefits:"]
+         [:ul
+          [:li [:strong "Total Auditability:"] " Since nothing is ever deleted, you have a perfect, queryable history of the entire system at all times."]
+          [:li [:strong "Time Travel:"] " You can query the state of the system at any point in time by filtering the stream by its transaction ID."]
+          [:li [:strong "Unified Data Model:"] " There is no distinction between code, data, and runtime state. It's all just datoms, making the entire system programmable and introspectible."]]
+         [:p.learn-more "To learn more, read: " [:a {:href "/blog/datoms-as-streams.chp"} "Streaming Datoms with Transducers"] " and " [:a {:href "/blog/ast-higher-dimensional-datom-streams.chp"} "AST as Higher Dimensional Construction of Datom Streams"] "."]]
+        [:article.concept-card
+         [:h3 "2. The Universal AST is Canonical Code"]
+         [:p "In traditional systems, source code (text) is the source of truth. In Datom.World, the " [:strong "Universal Abstract Syntax Tree (AST) is the canonical representation of code"] ". The text you see in your editor is just one possible " [:em "rendering"] " of this AST."]
+         [:p "Inspired by how Chinese characters provide a shared semantic layer for mutually unintelligible dialects, the Universal AST provides a shared semantic layer for different programming languages like Python, C++, and Clojure. This means:"]
+         [:ul
+          [:li [:strong "Bijective Translation:"] " Code can be translated from one language to another and back again with no loss of meaning."]
+          [:li [:strong "Syntax as a Preference:"] " Developers can view and edit the same canonical code using their preferred syntax, just as a Mandarin speaker and a Cantonese speaker can read the same newspaper."]
+          [:li [:strong "No More Parse Errors:"] " Since editing happens on the structure (the AST) itself, it's impossible to create a syntactically invalid program."]]
+         [:p.learn-more "Explore this idea in: " [:a {:href "/blog/yin-vm-ast-chinese-characters.chp"} "Yin.vm: Chinese Characters for Programming Languages"] " and " [:a {:href "/blog/semantic-impedance-mismatch.chp"} "The Semantic Impedance Mismatch"] "."]]
+        [:article.concept-card
+         [:h3 "3. Interpretation Creates Meaning"]
+         [:p "Where does the meaning of data live? Many systems assume meaning is inherent in the data's " [:em "structure"] ", often enforced by schemas or ontologies. Datom.World posits that " [:strong "meaning only emerges through interpretation"] ". Data is just syntax; semantics are created when an " [:em "interpreter"] " observes and acts on it."]
+         [:p "This has critical implications for building adaptable systems:"]
+         [:ul
+          [:li [:strong "Semantic Evolution:"] " As systems evolve, new interpreters can be deployed to understand data in new ways, without breaking old interpreters. This avoids the brittleness of rigid schemas."]
+          [:li [:strong "Multiple Perspectives:"] " Different agents (or teams) can run different interpreters on the same data stream, allowing them to derive different meanings relevant to their context. A sales team and a support team can view the same customer data differently without conflict."]
+          [:li [:strong "AI Collaboration:"] " AI agents can act as powerful, dynamic interpreters, evolving their understanding of data through interaction rather than being constrained by a predefined schema."]]
+         [:p.learn-more "This philosophical foundation is detailed in: " [:a {:href "/blog/structure-vs-interpretation.chp"} "Structure vs Interpretation"] "."]]
+        [:article.concept-card
+         [:h3 "4. Continuations as Mobile Computation"]
+         [:p "In the Yin VM, every running process is a " [:strong "continuation"] "—a serializable snapshot of a computation's state that can be paused, moved, and resumed. Because execution state is just another datom stream, we can treat computation itself as a mobile entity."]
+         [:p "This enables capabilities that are impossible in traditional runtimes:"]
+         [:ul
+          [:li [:strong "True Code Mobility:"] " A process can start on a server in Python, be paused, travel over the network, and resume on a mobile device in C++, with its full execution state intact."]
+          [:li [:strong "Extreme Fault Tolerance:"] " Since any computation can be serialized to a datom stream, its state can be replicated and restored on another node in case of failure."]
+          [:li [:strong "Distributed Computing as a First Principle:"] " The universe itself can be seen as a distributed continuation system. By building our architecture on the same principles, we gain natural causal consistency and scalability."]]
+         [:p.learn-more "Read about the deep implications in: " [:a {:href "/blog/unitarity-and-communication-limits.chp"} "Unitarity, π-Calculus, and the Cosmic Speed Limit"] "."]]]]]
      [:section.section-dark
       [:div.section-inner
        [:h2 "The Seven Axioms"]
