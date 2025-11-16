@@ -9,6 +9,14 @@
         [:article.blog-card
          [:div.blog-meta
           [:span "Nov 16, 2025"]
+          [:span "18 min read"]]
+         [:h2 [:a {:href "/blog/datalog-compiler-infrastructure.chp"} "Datalog as Compiler Infrastructure: Why DaoDB Makes Every Optimization Queryable"]]
+         [:p
+          "Traditional compilers walk ASTs with limited context. But what if the entire program was a queryable database? When ASTs are datoms in DaoDB, every optimization becomes a Datalog query—whole-program reasoning, composable analyses, incremental compilation, and user-programmable optimizations. Compilation as database query."]
+         [:a {:href "/blog/datalog-compiler-infrastructure.chp"} "Read the article →"]]
+        [:article.blog-card
+         [:div.blog-meta
+          [:span "Nov 16, 2025"]
           [:span "14 min read"]]
          [:h2 [:a {:href "/blog/ast-datom-streams-bytecode-performance.chp"} "AST Datom Streams: Bytecode Performance with Semantic Preservation"]]
          [:p

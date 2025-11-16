@@ -1,0 +1,667 @@
+(let [template (load-file "public/chp/template.chp")]
+  (clojure.walk/postwalk-replace
+   {:template/title "Datalog as Compiler Infrastructure: Why DaoDB Makes Every Optimization Queryable - Datom.World"
+    :template/content
+    (list
+     [:section.blog-article
+      [:div.section-inner
+       [:article
+        [:h1 "Datalog as Compiler Infrastructure: Why DaoDB Makes Every Optimization Queryable"]
+        [:div.blog-article-meta "Published Nov 16, 2025 · 18 minute read"]
+
+        [:h2 "The Compiler Writer's Dilemma"]
+        [:p
+         "Traditional compilers operate on " [:strong "limited views"] " of the program. Each optimization pass walks the AST, performs local reasoning, annotates nodes, and passes control to the next stage. Global optimizations require building complex data structures—call graphs, control flow graphs, data flow analysis—each one a custom implementation."]
+        [:p
+         "But what if " [:strong "the entire program was already a queryable database"] "? What if every optimization was just " [:strong "another Datalog query"] "?"]
+        [:p
+         "When you store ASTs as datoms in " [:a {:href "/dao-db.chp"} "DaoDB"] ", compilation transforms from " [:strong "pipeline-based traversal"] " to " [:strong "query-based reasoning"] ". This unlocks optimizations that are impossibly complex with traditional approaches—and makes the compiler itself " [:strong "programmable"] " by users."]
+
+        [:h2 "Traditional Compilation: The Pipeline Model"]
+        [:p
+         "Consider a typical compiler pipeline:"]
+        [:pre [:code
+               "Source Code
+    ↓
+  Parse → AST (in-memory tree)
+    ↓
+  Type Check (walk tree, annotate types)
+    ↓
+  Optimize (constant folding, dead code elimination)
+    ↓
+  Code Generation (emit bytecode/assembly)
+    ↓
+  Output"]]
+        [:p
+         "Each pass has " [:strong "limited context"] ":"]
+        [:ul.bulleted
+         [:li [:strong "Constant folding"] ": Only sees local expressions (can't propagate across functions)"]
+         [:li [:strong "Dead code elimination"] ": Needs explicit call graph construction"]
+         [:li [:strong "Escape analysis"] ": Requires complex pointer analysis"]
+         [:li [:strong "Type inference"] ": Must build constraint systems manually"]]
+        [:p
+         "Every global optimization requires " [:strong "custom infrastructure"] ". Want whole-program analysis? Build a new data structure. Want incremental compilation? Track dependencies manually. Want cross-language optimization? Good luck."]
+
+        [:h2 "Datalog Compilation: The Query Model"]
+        [:p
+         "With DaoDB, compilation becomes:"]
+        [:pre [:code
+               "Source Code
+    ↓
+  Parse → Datoms (stored in DaoDB)
+    ↓
+  Issue Queries:
+    - Type inference query
+    - Optimization queries
+    - Code generation query
+    ↓
+  Apply Transformations (add more datoms)
+    ↓
+  Query Again (incremental, composable)
+    ↓
+  Output"]]
+        [:p
+         "Every optimization is a " [:strong "declarative Datalog query"] ". The entire program is " [:strong "always queryable"] ". Context is " [:strong "unlimited"] "."]
+
+        [:h2 "Novel Optimizations: Trivial with Datalog"]
+        [:p
+         "Let's explore optimizations that are " [:strong "extremely difficult"] " with traditional AST walking but " [:strong "straightforward"] " with Datalog queries."]
+
+        [:h3 "1. Cross-Procedural Constant Propagation"]
+        [:p
+         "Traditional approach: Build call graphs, track data flow across function boundaries, perform iterative fixed-point computation. Hundreds of lines of code."]
+        [:p
+         "Datalog approach: One query."]
+        [:pre [:code {:class "language-clojure"}
+               ";; Find all functions that always return the same literal value
+[:find ?fn ?return-value
+ :where
+ [?fn :ast/type :function]
+ [?fn :ast/body ?body]
+
+ ;; Body is a single literal return
+ [?body :ast/type :literal]
+ [?body :ast/value ?return-value]]
+
+;; Now inline those function calls
+[:find ?call-site ?literal-value
+ :where
+ [?call-site :ast/type :application]
+ [?call-site :ast/operator ?fn]
+ [?fn :ast/always-returns ?literal-value]]
+
+;; Result: Replace call-site with literal-value"]]
+        [:p
+         "The query automatically finds " [:strong "all call sites"] " across the " [:strong "entire codebase"] ". No manual call graph construction. No iterative algorithms. Just declarative logic."]
+
+        [:h3 "2. Dead Code Elimination via Reachability"]
+        [:p
+         "Traditional approach: Build call graph, mark reachable functions, sweep unmarked nodes."]
+        [:p
+         "Datalog approach: Recursive rules."]
+        [:pre [:code {:class "language-clojure"}
+               ";; Define reachability as a recursive rule
+;; Base case: main is reachable
+(defrule reachable-from-main
+  [?fn :ast/name \"main\"]
+  =>
+  [?fn :reachability/from-main true])
+
+;; Recursive case: if A is reachable and calls B, B is reachable
+(defrule transitive-reachability
+  [?caller :reachability/from-main true]
+  [?call :ast/parent-function ?caller]
+  [?call :ast/calls ?callee]
+  =>
+  [?callee :reachability/from-main true])
+
+;; Find all unreachable functions
+[:find ?fn
+ :where
+ [?fn :ast/type :function]
+ (not [?fn :reachability/from-main true])]"]]
+        [:p
+         "Datalog's " [:strong "recursive rules"] " naturally express reachability. The database engine handles fixed-point computation automatically."]
+
+        [:h3 "3. Escape Analysis for Stack Allocation"]
+        [:p
+         "Traditional approach: Complex pointer analysis, track object lifetimes, analyze captures."]
+        [:p
+         "Datalog approach: Query for non-escaping allocations."]
+        [:pre [:code {:class "language-clojure"}
+               ";; Find allocations that never escape their function scope
+[:find ?alloc
+ :where
+ [?alloc :ast/type :allocation]
+ [?alloc :ast/parent-function ?fn]
+
+ ;; Not returned from the function
+ (not [?fn :ast/returns ?alloc])
+
+ ;; Not stored in a closure
+ (not [?capture :closure/captures ?alloc])
+
+ ;; Not passed to a function that could capture it
+ (not-join [?alloc]
+   [?call :ast/args ?args]
+   [(contains? ?args ?alloc)]
+   [?call :ast/operator ?callee]
+   [?callee :closure/captures-args? true])]
+
+;; These allocations can be stack-allocated instead of heap!"]]
+        [:p
+         "The query reasons about " [:strong "the entire program's data flow"] ". It finds allocations that provably don't escape. Traditional compilers need specialized analysis frameworks for this."]
+
+        [:h3 "4. Automatic Parallelization Detection"]
+        [:p
+         "Traditional approach: Complex dependency analysis, loop transformations, conservative assumptions."]
+        [:p
+         "Datalog approach: Query for parallelizable operations."]
+        [:pre [:code {:class "language-clojure"}
+               ";; Find map operations that can be parallelized
+[:find ?map-op
+ :where
+ [?map-op :ast/type :map-operation]
+ [?map-op :ast/function ?fn]
+ [?map-op :ast/collection ?coll]
+
+ ;; The mapped function is pure (no side effects)
+ [?fn :purity/pure true]
+
+ ;; The collection is immutable
+ [?coll :mutability/immutable true]
+
+ ;; No data dependencies between iterations
+ (not [?map-op :data-flow/iteration-dependency true])]
+
+;; Compiler can automatically emit parallel code!"]]
+        [:p
+         "Purity analysis, mutability tracking, and dependency analysis are all " [:strong "queryable properties"] ". Compose them in one query to find parallelization opportunities."]
+
+        [:h3 "5. Purity Analysis via Recursive Rules"]
+        [:p
+         "A function is pure if it has no side effects " [:em "and"] " only calls other pure functions. Traditional compilers need iterative fixed-point algorithms."]
+        [:p
+         "Datalog expresses this naturally:"]
+        [:pre [:code {:class "language-clojure"}
+               ";; Base case: Built-in pure primitives
+[?fn :ast/name \"+\"]
+[?fn :purity/pure true]
+
+[?fn :ast/name \"*\"]
+[?fn :purity/pure true]
+
+;; Recursive case: Pure if no effects and only calls pure functions
+(defrule function-purity
+  [?fn :ast/type :function]
+
+  ;; Doesn't perform IO
+  (not [?fn :effects/performs :io])
+
+  ;; Doesn't mutate state
+  (not [?fn :effects/mutates :global-state])
+
+  ;; All called functions are pure
+  (not-join [?fn]
+    [?call :ast/parent-function ?fn]
+    [?call :ast/calls ?callee]
+    (not [?callee :purity/pure true]))
+  =>
+  [?fn :purity/pure true])"]]
+        [:p
+         "Once computed, pure functions enable " [:strong "aggressive optimization"] ": memoization, common subexpression elimination, reordering for parallelism."]
+
+        [:h3 "6. Type Inference via Constraint Propagation"]
+        [:p
+         "Traditional approach: Build constraint systems, solve with unification algorithms."]
+        [:p
+         "Datalog approach: Types propagate via recursive rules."]
+        [:pre [:code {:class "language-clojure"}
+               ";; Base case: Literals have known types
+[?literal :ast/type :literal]
+[?literal :ast/value 42]
+=>
+[?literal :type/inferred :int]
+
+;; Recursive case: Function application propagates types
+(defrule application-type-inference
+  [?call :ast/type :application]
+  [?call :ast/operator ?fn]
+  [?fn :type/signature ?sig]
+  [?sig :type/return-type ?return-type]
+  =>
+  [?call :type/inferred ?return-type])
+
+;; Variable types from bindings
+(defrule variable-type-from-binding
+  [?var :ast/type :variable]
+  [?var :ast/name ?name]
+  [?binding :scope/binds ?name]
+  [?binding :scope/value ?value]
+  [?value :type/inferred ?type]
+  =>
+  [?var :type/inferred ?type])"]]
+        [:p
+         "Types flow through the program automatically. No manual constraint solving. The Datalog engine handles propagation."]
+
+        [:h3 "7. Security: Taint Tracking"]
+        [:p
+         "Find code paths where untrusted user input reaches sensitive operations (SQL queries, shell commands, file access)."]
+        [:p
+         "Traditional approach: Complex flow analysis, path-sensitive reasoning."]
+        [:p
+         "Datalog approach: Query for dangerous flows."]
+        [:pre [:code {:class "language-clojure"}
+               ";; Find tainted data reaching sensitive operations
+[:find ?sensitive-op ?tainted-value
+ :where
+ ;; Value originates from user input
+ [?source :data-source/origin :user-input]
+ [?source :security/tainted true]
+
+ ;; Reaches a sensitive operation
+ [?sensitive-op :security/sensitive true]
+ [?sensitive-op :ast/type :sql-query]  ; or :shell-command, :file-write
+ [?sensitive-op :ast/args ?args]
+ [(contains? ?args ?value)]
+
+ ;; Data flow from source to value
+ [?source :data-flow/reaches ?value]
+
+ ;; No sanitization in between
+ (not-join [?source ?value]
+   [?sanitizer :security/sanitizes true]
+   [?source :data-flow/reaches ?sanitizer]
+   [?sanitizer :data-flow/reaches ?value])]
+
+;; → Security vulnerability detected!"]]
+        [:p
+         "This query is " [:strong "impossibly complex"] " with traditional AST walking. With Datalog, it's " [:strong "declarative and composable"] "."]
+
+        [:h2 "Composable Optimizations"]
+        [:p
+         "The real power emerges when you " [:strong "compose multiple analyses"] " in a single query."]
+
+        [:h3 "Example: Loop-Invariant Code Hoisting"]
+        [:p
+         "Find pure function calls in hot loops that always receive the same arguments—these can be hoisted outside the loop."]
+        [:pre [:code {:class "language-clojure"}
+               "[:find ?call ?loop ?optimization
+ :where
+ ;; Find a function call
+ [?call :ast/type :application]
+ [?call :ast/operator ?fn]
+
+ ;; The function is pure (analysis 1: purity)
+ [?fn :purity/pure true]
+
+ ;; Call is inside a loop
+ [?loop :ast/type :loop]
+ [?call :ast/ancestor ?loop]
+
+ ;; Loop is a hot path (analysis 2: profiling)
+ [?loop :profiling/hot-path true]
+
+ ;; Arguments are loop-invariant (analysis 3: data flow)
+ [?call :data-flow/constant-args true]
+
+ ;; → Optimization opportunity: Hoist call outside loop
+ [(vector :hoist-invariant ?call ?loop) ?optimization]]"]]
+        [:p
+         "This query " [:strong "composes three separate analyses"] " (purity, profiling, data flow) into one optimization pass. With traditional compilers, you'd need to manually coordinate these phases."]
+
+        [:h2 "Whole-Program Optimizations"]
+        [:p
+         "Because the " [:strong "entire program"] " is in the database, whole-program reasoning is trivial."]
+
+        [:h3 "Automatic Data Structure Selection"]
+        [:pre [:code {:class "language-clojure"}
+               ";; Find collections that should use different data structures
+[:find ?collection ?better-structure
+ :where
+ [?collection :ast/type :list]
+
+ ;; Analyzed usage patterns
+ [?collection :usage-pattern/random-access-ratio ?ratio]
+ [(> ?ratio 0.8)]  ; Mostly random access, not sequential
+
+ ;; Never modified
+ (not [?mutation :ast/mutates ?collection])
+
+ ;; → Suggest using vector (O(1) indexing) instead of list
+ [(str \"Use vector instead of list for \" ?collection) ?better-structure]]"]]
+
+        [:h3 "Cross-Language Optimization"]
+        [:p
+         "Find Python code that would run faster if translated to C++ for a specific hot path."]
+        [:pre [:code {:class "language-clojure"}
+               "[:find ?py-fn ?estimated-speedup
+ :where
+ [?py-fn :ast/source-lang \"Python\"]
+ [?py-fn :profiling/hot-path true]
+
+ ;; Semantically translatable to C++ (no dynamic features)
+ [?py-fn :ast/translatable-to \"C++\"]
+
+ ;; Uses mostly numeric operations (C++ excels here)
+ [?py-fn :ast/operation-types ?ops]
+ [(> (count (filter #{:numeric-op} ?ops)) 0.9)]
+
+ ;; Estimate speedup based on similar migrations
+ [(estimate-speedup ?py-fn \"C++\") ?estimated-speedup]
+ [(> ?estimated-speedup 10.0)]]
+
+;; → Suggest automatic translation for 10x+ speedup"]]
+        [:p
+         "This kind of " [:strong "polyglot optimization"] " is unique to systems with a " [:a {:href "/blog/yin-vm-ast-chinese-characters.chp"} "Universal Semantic AST"] "."]
+
+        [:h2 "Incremental Compilation"]
+        [:p
+         "Because everything is datoms with transaction IDs, " [:strong "incremental compilation is built-in"] "."]
+        [:pre [:code {:class "language-clojure"}
+               ";; Find what needs recompilation
+[:find ?affected-fn
+ :where
+ ;; Functions modified since last compile
+ [?fn :ast/type :function ?tx]
+ [(> ?tx ?last-compile-tx) ?modified]
+
+ ;; OR: Functions that call modified functions
+ (or
+   [(?modified ?fn)]  ; Direct modification
+   (and
+     [?call :ast/calls ?modified-fn]
+     [(?modified ?modified-fn)]
+     [?call :ast/parent-function ?affected-fn]))]
+
+;; Only recompile these functions"]]
+        [:p
+         "Add a datom → Query affected code → Recompile only what changed. Traditional compilers need explicit dependency tracking infrastructure."]
+
+        [:h2 "The Killer Feature: User-Programmable Compilation"]
+        [:p
+         "Users can " [:strong "write their own optimizations and lint rules"] " without modifying the compiler."]
+
+        [:h3 "Custom Lint Rule"]
+        [:pre [:code {:class "language-clojure"}
+               ";; User-defined: Detect nested loops over the same collection
+[:find ?outer-loop ?inner-loop
+ :where
+ [?outer-loop :ast/type :for-loop]
+ [?outer-loop :ast/collection ?coll]
+ [?inner-loop :ast/type :for-loop]
+ [?inner-loop :ast/collection ?coll]
+ [?inner-loop :ast/ancestor ?outer-loop]]
+
+;; → Warning: Nested loops over same collection (O(n²) - consider deduping)"]]
+
+        [:h3 "Custom Optimization"]
+        [:pre [:code {:class "language-clojure"}
+               ";; User-defined: Find string concatenation in loops
+[:find ?concat ?loop
+ :where
+ [?concat :ast/type :string-concatenation]
+ [?loop :ast/type :loop]
+ [?concat :ast/ancestor ?loop]]
+
+;; → Suggest using StringBuilder instead (avoid O(n²) allocations)"]]
+
+        [:h3 "Team-Specific Rules"]
+        [:pre [:code {:class "language-clojure"}
+               ";; Company policy: No file I/O from request handlers
+[:find ?io-call ?handler
+ :where
+ [?handler :ast/type :http-handler]
+ [?io-call :ast/type :file-operation]
+ [?io-call :ast/ancestor ?handler]]
+
+;; → Policy violation: File I/O in request handler (use async worker instead)"]]
+        [:p
+         "The compiler becomes " [:strong "programmable"] ". Anyone who can write Datalog can extend the compiler's reasoning."]
+
+        [:h2 "Historical Optimization Learning"]
+        [:p
+         "Because datoms have " [:strong "transaction timestamps"] ", you can query " [:strong "across time"] "."]
+        [:pre [:code {:class "language-clojure"}
+               ";; Find patterns that were successfully optimized in past versions
+[:find ?current-code ?historical-optimization ?speedup
+ :in $ $history
+ :where
+ ;; In historical database
+ ($history [?old-code :ast/pattern ?pattern])
+ ($history [?old-code :optimization/applied ?optimization])
+ ($history [?optimization :performance/speedup ?speedup])
+ [(> ?speedup 2.0)]  ; At least 2x speedup
+
+ ;; Similar pattern exists in current code
+ [?current-code :ast/similar-to ?pattern]
+ [(?historical-optimization ?optimization ?speedup)]]
+
+;; → Apply optimizations that worked in the past!"]]
+        [:p
+         "The compiler " [:strong "learns from history"] ". Profile-guided optimization becomes queryable across versions."]
+
+        [:h2 "Comparison: Traditional vs Datalog"]
+
+        [:h3 "Traditional Compiler"]
+        [:pre [:code
+               "Pipeline-Based:
+  Parse → Build AST (in-memory tree)
+       → Type Check (annotate nodes)
+       → Build Call Graph (custom data structure)
+       → Build CFG (custom data structure)
+       → Data Flow Analysis (custom algorithm)
+       → Optimize (traverse tree, apply transformations)
+       → Code Gen
+
+Challenges:
+  - Each analysis requires custom infrastructure
+  - Limited context (local reasoning only)
+  - Composing analyses is manual
+  - Incremental compilation needs explicit dependency tracking
+  - Users cannot extend optimization passes"]]
+
+        [:h3 "Datalog Compiler"]
+        [:pre [:code
+               "Query-Based:
+  Parse → Store as Datoms (DaoDB)
+       → Issue Queries:
+         * Type inference (recursive rules)
+         * Purity analysis (recursive rules)
+         * Reachability (recursive rules)
+         * Optimization queries (composition)
+       → Apply Transformations (add datoms)
+       → Query Again (incremental, composable)
+       → Code Gen (query for execution plan)
+
+Advantages:
+  - Every analysis is a Datalog query
+  - Unlimited context (whole-program reasoning)
+  - Composing analyses is natural (join queries)
+  - Incremental compilation built-in (transaction IDs)
+  - Users can write custom queries (programmable compiler)"]]
+
+        [:h2 "The Paradigm Shift"]
+        [:p
+         "Traditional compilation is " [:strong "procedural"] ":"]
+        [:ul.bulleted
+         [:li "Walk the tree"]
+         [:li "Update annotations"]
+         [:li "Build auxiliary data structures"]
+         [:li "Coordinate phases manually"]]
+
+        [:p
+         "Datalog compilation is " [:strong "declarative"] ":"]
+        [:ul.bulleted
+         [:li "Store the program as facts"]
+         [:li "Declare what you want to find"]
+         [:li "Let the query engine handle reasoning"]
+         [:li "Compose analyses via joins"]]
+
+        [:p
+         "This is a " [:strong "fundamental shift"] " in how we think about compilation:"]
+        [:ul.bulleted
+         [:li "From " [:strong "\"traverse and transform\""] " to " [:strong "\"query and derive\""] ""]
+         [:li "From " [:strong "\"custom algorithms\""] " to " [:strong "\"declarative logic\""] ""]
+         [:li "From " [:strong "\"compiler internals\""] " to " [:strong "\"queryable database\""] ""]]
+
+        [:h2 "Why This Changes Everything"]
+
+        [:h3 "1. Optimizations Become Queries"]
+        [:p
+         "Every optimization is just another Datalog query. Want a new optimization? Write a query. Want to disable an optimization? Don't run that query. Want to customize an optimization? Fork the query."]
+
+        [:h3 "2. Composition is Natural"]
+        [:p
+         "Combine multiple analyses with joins. Traditional compilers require careful phase ordering and manual coordination. Datalog queries compose automatically."]
+
+        [:h3 "3. Whole-Program Reasoning is Cheap"]
+        [:p
+         "The entire program is in the database. No need to build call graphs, control flow graphs, or data flow graphs—just query for what you need."]
+
+        [:h3 "4. Incremental Compilation is Free"]
+        [:p
+         "Transaction IDs track changes. Query for affected code. Recompile incrementally. No explicit dependency tracking needed."]
+
+        [:h3 "5. Users Can Extend the Compiler"]
+        [:p
+         "Write custom lint rules, optimizations, analyses—all as Datalog queries. The compiler becomes programmable."]
+
+        [:h3 "6. Cross-Language Optimization"]
+        [:p
+         "With a " [:a {:href "/blog/yin-vm-ast-chinese-characters.chp"} "Universal Semantic AST"] ", you can optimize across language boundaries. Find Python hot paths, translate to C++, inline across languages."]
+
+        [:h3 "7. Learning from History"]
+        [:p
+         "Query past optimizations. What worked? What didn't? Apply successful patterns to new code automatically."]
+
+        [:h2 "The Implementation: DaoDB"]
+        [:p
+         "This vision requires a database designed for code. " [:a {:href "/dao-db.chp"} "DaoDB"] " is built specifically for storing ASTs as datoms:"]
+        [:ul.bulleted
+         [:li [:strong "Immutable datoms"] " — Every fact is permanent, timestamped"]
+         [:li [:strong "Recursive rules"] " — Express transitive properties (reachability, purity, types)"]
+         [:li [:strong "Efficient joins"] " — Compose analyses without performance penalties"]
+         [:li [:strong "Transaction time"] " — Query history, track evolution"]
+         [:li [:strong "Incremental indexing"] " — Fast updates for incremental compilation"]]
+
+        [:p
+         "Traditional Datalog engines (Datomic, Datascript) weren't designed for compilers. DaoDB is optimized for " [:strong "code as data"] ":"]
+        [:ul.bulleted
+         [:li "AST-specific indexes (parent-child, data flow, control flow)"]
+         [:li "Provenance tracking (which transformation created this datom?)"]
+         [:li "Multi-dimensional queries (structure, time, types, execution)"]
+         [:li "Integration with " [:a {:href "/yin.chp"} "Yin.vm"] " execution engine"]]
+
+        [:h2 "Practical Example: End-to-End"]
+        [:p
+         "Let's walk through a complete optimization pipeline."]
+
+        [:h3 "Step 1: Parse and Store"]
+        [:pre [:code {:class "language-clojure"}
+               ";; Source code
+(defn calculate-total [items]
+  (reduce + (map :price items)))
+
+;; Parsed to datoms
+[fn-1 :ast/type :function]
+[fn-1 :ast/name \"calculate-total\"]
+[fn-1 :ast/params [param-1]]
+[fn-1 :ast/body reduce-call]
+[reduce-call :ast/type :application]
+[reduce-call :ast/operator plus-fn]
+[map-call :ast/type :application]
+[map-call :ast/operator map-fn]
+..."]]
+
+        [:h3 "Step 2: Type Inference"]
+        [:pre [:code {:class "language-clojure"}
+               ";; Query: Infer types
+[:find ?expr ?type
+ :where
+ [?expr :ast/type :application]
+ [?expr :ast/operator ?fn]
+ [?fn :ast/name \"map\"]
+ [?fn :type/signature ?sig]
+ [?sig :type/return-type ?type]]
+
+;; Result: map-call has type (Seq Number)"]]
+
+        [:h3 "Step 3: Purity Analysis"]
+        [:pre [:code {:class "language-clojure"}
+               ";; Query: Is calculate-total pure?
+[:find ?fn
+ :where
+ [?fn :ast/name \"calculate-total\"]
+ [?fn :purity/pure true]]
+
+;; Yes! It only calls pure functions (map, reduce, +)"]]
+
+        [:h3 "Step 4: Optimization - Fusion"]
+        [:pre [:code {:class "language-clojure"}
+               ";; Query: Find map-reduce fusion opportunities
+[:find ?map-call ?reduce-call
+ :where
+ [?reduce-call :ast/type :application]
+ [?reduce-call :ast/operator reduce-fn]
+ [?reduce-call :ast/args [?reducing-fn ?map-call]]
+ [?map-call :ast/type :application]
+ [?map-call :ast/operator map-fn]
+
+ ;; Both operations are pure
+ [?reduce-fn :purity/pure true]
+ [?map-fn :purity/pure true]]
+
+;; Optimization: Fuse map and reduce into single pass (transducers)"]]
+
+        [:h3 "Step 5: Code Generation"]
+        [:pre [:code {:class "language-clojure"}
+               ";; Query: Generate optimized execution plan
+[:find ?step ?instruction ?order
+ :where
+ [?fn :ast/name \"calculate-total\"]
+ [?fn :optimization/fused-transducer ?transducer]
+ (execution-plan ?transducer ?step ?instruction ?order)]
+
+;; Generates linear execution stream (bytecode-like)"]]
+
+        [:p
+         "Every step is a query. Every optimization is composable. Every analysis is reusable."]
+
+        [:h2 "Conclusion: Compilation as Database Query"]
+        [:p
+         "For decades, compilers have been " [:strong "procedural programs"] " that walk trees and apply transformations. This model served us well, but it has fundamental limitations:"]
+        [:ul.bulleted
+         [:li "Local reasoning only"]
+         [:li "Custom infrastructure for each analysis"]
+         [:li "Manual coordination of phases"]
+         [:li "Limited extensibility"]]
+
+        [:p
+         "Storing ASTs as datoms in DaoDB transforms compilation into " [:strong "database queries"] ". This unlocks:"]
+        [:ul.bulleted
+         [:li [:strong "Whole-program reasoning"] " — Query the entire codebase"]
+         [:li [:strong "Composable analyses"] " — Join queries naturally"]
+         [:li [:strong "Declarative optimizations"] " — Describe what, not how"]
+         [:li [:strong "Incremental compilation"] " — Built-in via transactions"]
+         [:li [:strong "User-programmable"] " — Anyone can write queries"]
+         [:li [:strong "Cross-language"] " — Optimize across boundaries"]
+         [:li [:strong "Historical learning"] " — Query past optimizations"]]
+
+        [:p
+         "This is not just a better implementation technique. It's a " [:strong "paradigm shift"] ". When the program is a database and optimizations are queries, the line between code and data " [:strong "blurs completely"] "."]
+
+        [:p
+         "Compilers become " [:strong "queryable, programmable, composable"] ". Users gain the power to reason about their code in ways that were previously reserved for compiler internals."]
+
+        [:p
+         "This is the architecture of " [:a {:href "/"} "datom.world"] ". Everything is a datom. Everything is queryable. And compilation is just another dimension of queries."]
+
+        [:p [:strong "Learn more:"]]
+        [:ul.bulleted
+         [:li [:a {:href "/blog/ast-higher-dimensional-datom-streams.chp"} "AST as Higher Dimensional Construction of Datom Streams"] " (the five dimensions of code as datoms)"]
+         [:li [:a {:href "/blog/ast-datom-streams-bytecode-performance.chp"} "AST Datom Streams: Bytecode Performance with Semantic Preservation"] " (execution performance with queryability)"]
+         [:li [:a {:href "/blog/yin-vm-ast-chinese-characters.chp"} "Yin.vm: Chinese Characters for Programming Languages"] " (the Universal Semantic AST)"]
+         [:li [:a {:href "/dao-db.chp"} "DaoDB"] " (the Datalog database powering all of this)"]
+         [:li [:a {:href "/yin.chp"} "Yin VM Documentation"] " (technical implementation)"]]]]])}
+   template))
