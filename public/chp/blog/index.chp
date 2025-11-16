@@ -9,6 +9,14 @@
         [:article.blog-card
          [:div.blog-meta
           [:span "Nov 16, 2025"]
+          [:span "11 min read"]]
+         [:h2 [:a {:href "/blog/many-syntaxes-one-ast.chp"} "Many Syntaxes, One AST: The Non-Deterministic Rendering Problem"]]
+         [:p
+          "A single Universal AST can be rendered as multiple valid syntaxes. List comprehension or for-loop? Lambda or method reference? When the AST is canonical and syntax is a view, how does the renderer choose? Five solutions and a provocative question: is syntax loss a feature, not a bug?"]
+         [:a {:href "/blog/many-syntaxes-one-ast.chp"} "Read the article →"]]
+        [:article.blog-card
+         [:div.blog-meta
+          [:span "Nov 16, 2025"]
           [:span "13 min read"]]
          [:h2 [:a {:href "/blog/universal-ast-vs-assembly.chp"} "Universal AST vs Assembly: High-Level Semantics in Low-Level Form"]]
          [:p
