@@ -8,6 +8,30 @@
        [:div.blog-grid
         [:article.blog-card
          [:div.blog-meta
+          [:span "Nov 16, 2025"]
+          [:span "13 min read"]]
+         [:h2 [:a {:href "/blog/universal-ast-vs-assembly.chp"} "Universal AST vs Assembly: High-Level Semantics in Low-Level Form"]]
+         [:p
+          "The Universal AST as datom streams looks like assembly code. Flat. Verbose. Low-level. But assembly optimizes for execution, while the AST optimizes for semantic preservation. One sits at the bottom of the execution stack. The other sits at the top of the semantic stack. Understanding the inversion."]
+         [:a {:href "/blog/universal-ast-vs-assembly.chp"} "Read the article →"]]
+        [:article.blog-card
+         [:div.blog-meta
+          [:span "Nov 16, 2025"]
+          [:span "16 min read"]]
+         [:h2 [:a {:href "/blog/semantic-impedance-mismatch.chp"} "The Semantic Impedance Mismatch: Can a Universal AST Really Work?"]]
+         [:p
+          "OOP has classes. Functional languages don't. How can they share a common AST? The answer: most differences are encoding, not semantics. Classes are closures. Exceptions are result types. The Universal AST represents the semantic core, not syntactic union. A deep dive into making the impossible possible."]
+         [:a {:href "/blog/semantic-impedance-mismatch.chp"} "Read the article →"]]
+        [:article.blog-card
+         [:div.blog-meta
+          [:span "Nov 16, 2025"]
+          [:span "14 min read"]]
+         [:h2 [:a {:href "/blog/ide-edits-ast-not-text.chp"} "When the IDE Edits AST, Not Text"]]
+         [:p
+          "What happens when you build an IDE where you edit the AST directly and text is just a view? Syntax becomes a preference. Refactoring becomes precise. Time-travel is built in. And code becomes queryable as a database. The implications of AST-native editing."]
+         [:a {:href "/blog/ide-edits-ast-not-text.chp"} "Read the article →"]]
+        [:article.blog-card
+         [:div.blog-meta
           [:span "Nov 15, 2025"]
           [:span "12 min read"]]
          [:h2 [:a {:href "/blog/ast-higher-dimensional-datom-streams.chp"} "AST as Higher Dimensional Construction of Datom Streams"]]
