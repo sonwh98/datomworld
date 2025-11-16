@@ -9,6 +9,14 @@
         [:article.blog-card
          [:div.blog-meta
           [:span "Nov 16, 2025"]
+          [:span "14 min read"]]
+         [:h2 [:a {:href "/blog/ast-datom-streams-bytecode-performance.chp"} "AST Datom Streams: Bytecode Performance with Semantic Preservation"]]
+         [:p
+          "Bytecode is fast but erases semantics. AST interpretation is slow but preserves meaning. This is considered a fundamental trade-off. But what if AST-as-datom-streams blurs the line? Compile AST datoms to execution streams via Datalog—get sequential access performance while preserving full queryability. The false dichotomy revealed."]
+         [:a {:href "/blog/ast-datom-streams-bytecode-performance.chp"} "Read the article →"]]
+        [:article.blog-card
+         [:div.blog-meta
+          [:span "Nov 16, 2025"]
           [:span "11 min read"]]
          [:h2 [:a {:href "/blog/many-syntaxes-one-ast.chp"} "Many Syntaxes, One AST: The Non-Deterministic Rendering Problem"]]
          [:p
