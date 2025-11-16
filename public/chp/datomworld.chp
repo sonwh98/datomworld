@@ -152,36 +152,6 @@
         "because causality is referential, collaboration emerges from explicit connections rather than implicit dependencies."]]]
      [:section.section-light
       [:div.section-inner
-       [:h2 "Recomposing the Web"]
-       [:p
-        "Datom.World can be thought of as a decomposition of the modern web browser into its elemental technologies, then recomposed around a new philosophy to build a new world wide web: everything is a stream, and everything is a continuation."]
-       [:p
-        "In the traditional web stack, the JavaScript VM drives execution, HTTP defines communication, the DOM structures the UI, and local storage keeps data persistent. "
-        "Each of these layers was built to serve a client–server world, where the browser is a consumer of remote computation. "
-        "Datom.World reverses this assumption. Every device, from a phone to a cluster, becomes a sovereign node capable of computation, storage, and visualization."]
-       [:p
-        "Where the JavaScript VM once stood, Datom.World introduces "
-        [:a {:href "/yin.chp"} "Yin"]
-        ", a continuation-based virtual machine that treats computation as an evolving process rather than a sequence of calls. "
-        "HTTP's request–response model dissolves into "
-        [:a {:href "/dao-stream.chp"} "DaoStream"]
-        ", the universal streaming API where data flows continuously between entangled peers through append-only datom streams. "
-        "LocalStorage becomes "
-        [:a {:href "/dao-db.chp"} "DaoDB"]
-        ", an app that materializes queryable indexes from those streams. "
-        "And instead of the DOM, "
-        [:a {:href "/dao-flow.chp"} "DaoFlow"]
-        " interprets streams as renderable interfaces, treating the UI as an emergent view of living data."]
-       [:p
-        "Each component corresponds to its web counterpart, but their composition is entirely different. "
-        "Instead of a client viewing a remote world, every node in Datom.World participates in creating that world. "
-        "The result is not a web of documents or servers, but a web of processes, a distributed organism of computation and collaboration."]
-       [:p
-        "In short, Datom.World is what the Web becomes when it is rebuilt from first principles: local-first, continuation-based, and stream-native. "
-        "Where the old web is limited to HTML, Datom.World interpreters can visualize the same datom streams as anything: 3D video games, traditional web pages, VR environments, or any other form. "
-        "DaoFlow is one such interpreter that renders datoms into living, reactive interfaces."]]]
-     [:section.section-light
-      [:div.section-inner
        [:h2 "Everything is a stream"]
        [:p
         "In Datom.World, everything, messages, files, databases, API calls, user interactions, exists as streams of datoms. "
@@ -258,6 +228,36 @@
         "No orchestrator. No central authority. Just continuations finding their way through the network."]]]
      [:section.section-light
       [:div.section-inner
+       [:h2 "Recomposing the Web"]
+       [:p
+        "Datom.World can be thought of as a decomposition of the modern web browser into its elemental technologies, then recomposed around a new philosophy to build a new world wide web: everything is a stream, and everything is a continuation."]
+       [:p
+        "In the traditional web stack, the JavaScript VM drives execution, HTTP defines communication, the DOM structures the UI, and local storage keeps data persistent. "
+        "Each of these layers was built to serve a client–server world, where the browser is a consumer of remote computation. "
+        "Datom.World reverses this assumption. Every device, from a phone to a cluster, becomes a sovereign node capable of computation, storage, and visualization."]
+       [:p
+        "Where the JavaScript VM once stood, Datom.World introduces "
+        [:a {:href "/yin.chp"} "Yin"]
+        ", a continuation-based virtual machine that treats computation as an evolving process rather than a sequence of calls. "
+        "HTTP's request–response model dissolves into "
+        [:a {:href "/dao-stream.chp"} "DaoStream"]
+        ", the universal streaming API where data flows continuously between entangled peers through append-only datom streams. "
+        "LocalStorage becomes "
+        [:a {:href "/dao-db.chp"} "DaoDB"]
+        ", an app that materializes queryable indexes from those streams. "
+        "And instead of the DOM, "
+        [:a {:href "/dao-flow.chp"} "DaoFlow"]
+        " interprets streams as renderable interfaces, treating the UI as an emergent view of living data."]
+       [:p
+        "Each component corresponds to its web counterpart, but their composition is entirely different. "
+        "Instead of a client viewing a remote world, every node in Datom.World participates in creating that world. "
+        "The result is not a web of documents or servers, but a web of processes, a distributed organism of computation and collaboration."]
+       [:p
+        "In short, Datom.World is what the Web becomes when it is rebuilt from first principles: local-first, continuation-based, and stream-native. "
+        "Where the old web is limited to HTML, Datom.World interpreters can visualize the same datom streams as anything: 3D video games, traditional web pages, VR environments, or any other form. "
+        "DaoFlow is one such interpreter that renders datoms into living, reactive interfaces."]]]
+     [:section.section-light
+      [:div.section-inner
        [:h2 "Streams + Continuations = Living Software"]
        [:p
         "Most software today is either data-centric (databases, APIs) or compute-centric (functions, containers). "
@@ -277,19 +277,5 @@
         ": data and computation flow together, pausing and resuming as resources become available, "
         "collaborating across devices and people without central coordination."]
        [:p
-        "It's the internet reimagined as a living organism: self-organizing, adaptive, and resilient."]]]
-     [:section.section-dark
-      [:div.section-inner
-       [:h2 "Next steps"]
-       [:p
-        "The current internet was built on extraction—your attention harvested, your data profiled, your privacy sold. "
-        "Datom.World offers an alternative: a stream-native fabric where collaboration is additive, not extractive."]
-       [:p
-        "Want to understand how deep the surveillance goes? Explore "
-        [:a {:href "/tracking.chp"} "how the tracking industry works"]
-        ". Ready to help build the alternative? Tell us about your use case."]
-       [:div.hero-actions
-        [:a.btn {:href "mailto:hello@datom.world"} "Request preview access"]
-        [:a.btn.btn-outline {:href "/tracking.chp"} "Learn about tracking"]
-        [:a.btn.btn-outline {:href "/shibi.chp"} "Explore Shibi"]]]])}
+        "It's the internet reimagined as a living organism: self-organizing, adaptive, and resilient."]]])}
    template))

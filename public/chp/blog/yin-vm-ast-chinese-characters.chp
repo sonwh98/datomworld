@@ -68,7 +68,7 @@
         [:p
          "Type information exists on a " [:strong "continuum of certainty"] ". Certainty measures " [:strong "how confident we are"] " that a value has a particular type:"]
         [:pre [:code
-"High Certainty ←―――――――――――――――――――→ Low Certainty
+               "High Certainty ←―――――――――――――――――――→ Low Certainty
 
 Declared    →  Inferred  →  Runtime     →  Unknown
 (programmer)   (analysis)   (discovered)   (no idea)

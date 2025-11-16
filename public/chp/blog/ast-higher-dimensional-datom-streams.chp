@@ -25,7 +25,7 @@
         [:h3 "1. Spatial Dimension: Structure"]
         [:p "The traditional tree structure—parent-child relationships—becomes a graph of datoms:"]
         [:pre [:code
-"[node-1 :ast/type :function-call]
+               "[node-1 :ast/type :function-call]
 [node-1 :ast/name \"calculateTotal\"]
 [node-1 :ast/parent node-0]
 [node-1 :ast/children [node-2 node-3]]
@@ -39,7 +39,7 @@
         [:p
          "Every transformation of the AST is a transaction. The entire history is preserved:"]
         [:pre [:code
-"; Transaction 100: Original parse
+               "; Transaction 100: Original parse
 [node-1 :ast/type :variable :tx 100]
 [node-1 :ast/name \"x\" :tx 100]
 
@@ -57,7 +57,7 @@
         [:p
          "The industry treats static vs dynamic typing as a binary choice. But type information actually exists on a " [:strong "continuum of certainty"] "—how confident we are that a value has a particular type:"]
         [:pre [:code
-"[node-7 :type/declared :int :tx 100]           ; High certainty (declared)
+               "[node-7 :type/declared :int :tx 100]           ; High certainty (declared)
 [node-7 :type/inferred :number :tx 101]         ; Medium certainty (inferred)
 [node-7 :type/runtime java.lang.Integer :tx 102]; Low certainty (discovered)
 [node-7 :type/certainty :static :tx 100]        ; Certainty level"]]
@@ -79,7 +79,7 @@
         [:p
          "When you translate code between languages, the datom stream preserves the transformation lineage:"]
         [:pre [:code
-"; Original Python AST node
+               "; Original Python AST node
 [node-42 :ast/source-lang \"Python\" :tx 200]
 [node-42 :ast/syntax \"list_comprehension\" :tx 200]
 
@@ -98,7 +98,7 @@
         [:p
          "As code executes, runtime state becomes part of the datom stream:"]
         [:pre [:code
-"; Function definition (static)
+               "; Function definition (static)
 [fn-1 :ast/type :function :tx 100]
 [fn-1 :ast/params [param-1 param-2] :tx 100]
 
@@ -146,7 +146,7 @@
 
         [:h3 "Spatial + Temporal: \"How did this node evolve?\""]
         [:pre [:code
-"[:find ?attr ?value ?tx
+               "[:find ?attr ?value ?tx
  :where
  [?node :ast/id \"node-42\"]
  [?node ?attr ?value ?tx]]"]]
@@ -154,7 +154,7 @@
 
         [:h3 "Type + Execution: \"Where do certainty boundaries cross?\""]
         [:pre [:code
-"[:find ?fn ?arg
+               "[:find ?fn ?arg
  :where
  [?fn :type/certainty :static]     ; High certainty function
  [?call :exec/function ?fn]
@@ -165,7 +165,7 @@
 
         [:h3 "Language + Time: \"How did code transform across languages?\""]
         [:pre [:code
-"[:find ?node ?lang ?tx
+               "[:find ?node ?lang ?tx
  :where
  [?node :ast/transformed-from ?previous]
  [?node :ast/source-lang ?lang ?tx]

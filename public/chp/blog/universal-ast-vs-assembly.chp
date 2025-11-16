@@ -13,7 +13,7 @@
         [:p
          "Look at the Universal AST expressed as datom streams:"]
         [:pre [:code
-"[node-1 :ast/type :data-with-operations]
+               "[node-1 :ast/type :data-with-operations]
 [node-1 :ast/name \"Counter\"]
 [node-1 :ast/constructor constructor-1]
 [constructor-1 :ast/type :function]
@@ -24,7 +24,7 @@
         [:p
          "Compare it to assembly code:"]
         [:pre [:code
-"MOV  R1, #0          ; count = 0
+               "MOV  R1, #0          ; count = 0
 ADD  R1, R1, #1      ; count++
 PUSH R1              ; save state
 CALL increment       ; call function
@@ -60,7 +60,7 @@ POP  R1              ; restore state"]]
         [:p
          "Machine assembly is the " [:strong "lowest level before hardware"] ":"]
         [:pre [:code
-"ADD R1, R2, R3    ; Hardware will add two registers"]]
+               "ADD R1, R2, R3    ; Hardware will add two registers"]]
         [:p
          "It abstracts:"]
         [:ul.bulleted
@@ -74,7 +74,7 @@ POP  R1              ; restore state"]]
         [:p
          "The Universal AST is the " [:strong "lowest level before syntax"] ":"]
         [:pre [:code
-"[node-1 :ast/type :map-operation]    ; Semantic operation"]]
+               "[node-1 :ast/type :map-operation]    ; Semantic operation"]]
         [:p
          "It abstracts:"]
         [:ul.bulleted
@@ -90,7 +90,7 @@ POP  R1              ; restore state"]]
 
         [:h3 "Traditional Stack:"]
         [:pre [:code
-"High Level:  Python/Java/C++       (source code)
+               "High Level:  Python/Java/C++       (source code)
              ↓ compile
 Mid Level:   Bytecode/IR            (intermediate)
              ↓ compile
@@ -102,7 +102,7 @@ Hardware:    CPU instructions"]]
 
         [:h3 "Yin.vm Stack:"]
         [:pre [:code
-"Semantic:    Universal AST (datoms) (canonical code)
+               "Semantic:    Universal AST (datoms) (canonical code)
              ↓ render
 Syntax:      Python/Java/C++        (views)
              ↓ compile (optional)
@@ -138,7 +138,7 @@ Execution:   Bytecode/Assembly      (optimization)"]]
         [:p
          "Assembly instructions don't compose well:"]
         [:pre [:code
-"; Adding two numbers
+               "; Adding two numbers
 MOV R1, #5
 MOV R2, #3
 ADD R3, R1, R2
@@ -152,7 +152,7 @@ ADD R6, R4, R5"]]
         [:p
          "Universal AST datoms compose through " [:strong "Datalog"] ":"]
         [:pre [:code
-"; Find all additions
+               "; Find all additions
 [:find ?node
  :where
  [?node :ast/type :addition]]
@@ -195,7 +195,7 @@ ADD R6, R4, R5"]]
         [:p
          "High-level code " [:em "hides"] " details:"]
         [:pre [:code
-"# Python
+               "# Python
 items.sort()
 
 // Java
@@ -213,7 +213,7 @@ Collections.sort(items);
         [:p
          "The Universal AST makes it " [:strong "explicit"] ":"]
         [:pre [:code
-"[node-1 :ast/type :sort-operation]
+               "[node-1 :ast/type :sort-operation]
 [node-1 :ast/collection items]
 [node-1 :ast/comparator default-compare]
 [node-1 :ast/mutates? false]           ; Pure
@@ -232,7 +232,7 @@ Collections.sort(items);
         [:p
          [:strong "No."] " Because you don't read the Universal AST directly. You read the " [:strong "rendered syntax"] ":"]
         [:pre [:code
-"# Python view
+               "# Python view
 items.sort()
 
 // Java view
@@ -251,14 +251,14 @@ Collections.sort(items);
 
         [:h3 "Traditional: Compile Down"]
         [:pre [:code
-"C code → Assembly → Machine code
+               "C code → Assembly → Machine code
 (lose semantics at each step)"]]
         [:p
          "Each step " [:strong "loses information"] ". Assembly doesn't know what a \"struct\" is. Machine code doesn't know what a \"loop\" is. " [:strong "Information flows downward and is lost"] "."]
 
         [:h3 "Yin.vm: Render Up"]
         [:pre [:code
-"Universal AST → Python/Java/C++ syntax
+               "Universal AST → Python/Java/C++ syntax
 (all semantics preserved, only syntax changes)"]]
         [:p
          "No information is lost. The AST contains " [:strong "complete semantics"] ". Syntax is just a display choice. " [:strong "Information is projected upward without loss"] "."]
@@ -285,7 +285,7 @@ Collections.sort(items);
         [:p
          "So where does the Universal AST sit in the abstraction hierarchy?"]
         [:pre [:code
-"Abstraction Level     | Purpose
+               "Abstraction Level     | Purpose
 ─────────────────────────────────────────────
 Universal AST         | Semantic preservation
   (datoms)            | Queryability

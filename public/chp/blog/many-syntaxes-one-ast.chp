@@ -15,7 +15,7 @@
         [:p
          "Consider a simple map operation represented in the Universal AST:"]
         [:pre [:code
-"[node-1 :ast/type :map-operation]
+               "[node-1 :ast/type :map-operation]
 [node-1 :ast/function fn-1]
 [node-1 :ast/collection items]
 [fn-1 :ast/type :lambda]
@@ -27,7 +27,7 @@
         [:p
          "This single AST can be rendered as " [:strong "multiple valid Python syntaxes"] ":"]
         [:pre [:code
-"# Rendering 1: List comprehension
+               "# Rendering 1: List comprehension
 [item * 2 for item in items]
 
 # Rendering 2: map() function
@@ -71,7 +71,7 @@ for item in items:
         [:p
          "The simplest solution: " [:strong "preserve the original syntax as metadata"] "."]
         [:pre [:code
-"[node-1 :ast/type :map-operation]
+               "[node-1 :ast/type :map-operation]
 [node-1 :ast/original-syntax :list-comprehension]  ; Metadata
 [node-1 :ast/source-lang \"Python\"]"]]
         [:p
@@ -95,7 +95,7 @@ for item in items:
         [:p
          "Example configuration:"]
         [:pre [:code
-";; User A's preferences
+               ";; User A's preferences
 {:map-operation :list-comprehension
  :filter-operation :list-comprehension
  :conditional :ternary}
@@ -150,7 +150,7 @@ for item in items:
         [:p
          "The IDE could display:"]
         [:pre [:code
-"# View 1: Comprehension
+               "# View 1: Comprehension
 [item * 2 for item in items]
 
 # View 2: Functional
@@ -179,7 +179,7 @@ for item in items:
         [:p
          "The AST could include " [:strong "semantic hints"] " that guide rendering without dictating syntax."]
         [:pre [:code
-"[node-1 :ast/type :map-operation]
+               "[node-1 :ast/type :map-operation]
 [node-1 :ast/style-hint :concise]     ; Prefer concise syntax
 [node-2 :ast/type :map-operation]
 [node-2 :ast/style-hint :explicit]    ; Prefer explicit syntax"]]
@@ -261,7 +261,7 @@ for item in items:
         [:p
          "The IDE can let users " [:strong "pick different interpreters"] " for rendering the AST datom stream into syntax. This could work like:"]
         [:pre [:code
-"# Status bar dropdown:
+               "# Status bar dropdown:
 \"Python Renderer: Pythonic ▼\"
 
 # Options:
@@ -310,7 +310,7 @@ for item in items:
         [:p
          "AI language models are particularly powerful interpreters of AST datom streams. Instead of rule-based rendering, " [:strong "LLMs can render syntax based on natural language instructions"] ":"]
         [:pre [:code
-"# User prompt to LLM:
+               "# User prompt to LLM:
 \"Render this function in Python, optimized for readability
 by a junior developer who's learning list comprehensions\"
 

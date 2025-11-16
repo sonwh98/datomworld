@@ -59,7 +59,7 @@
         [:p
          "A Java class:"]
         [:pre [:code
-"class Counter {
+               "class Counter {
     private int count = 0;
 
     public void increment() {
@@ -73,7 +73,7 @@
         [:p
          "Translates to the Universal AST as:"]
         [:pre [:code
-";; Universal AST (datoms)
+               ";; Universal AST (datoms)
 [node-1 :ast/type :data-with-operations]
 [node-1 :ast/name \"Counter\"]
 
@@ -108,7 +108,7 @@
         [:p
          "This Universal AST can be " [:strong "rendered"] " as either Java or Clojure:"]
         [:pre [:code
-";; Clojure rendering of the same AST
+               ";; Clojure rendering of the same AST
 (defn make-counter []
   (let [count (atom 0)]
     {:increment (fn [] (swap! count inc))
@@ -122,13 +122,13 @@
         [:p
          "A Haskell higher-order function:"]
         [:pre [:code
-"map :: (a -> b) -> [a] -> [b]
+               "map :: (a -> b) -> [a] -> [b]
 map f [] = []
 map f (x:xs) = f x : map f xs"]]
         [:p
          "Translates to Universal AST:"]
         [:pre [:code
-";; Universal AST (datoms)
+               ";; Universal AST (datoms)
 [node-1 :ast/type :map-operation]
 [node-1 :ast/name \"map\"]
 
@@ -169,7 +169,7 @@ map f (x:xs) = f x : map f xs"]]
         [:p
          "Java has exceptions:"]
         [:pre [:code
-"try {
+               "try {
     riskyOperation();
 } catch (IOException e) {
     handleError(e);
@@ -177,7 +177,7 @@ map f (x:xs) = f x : map f xs"]]
         [:p
          "Rust has Result types:"]
         [:pre [:code
-"match risky_operation() {
+               "match risky_operation() {
     Ok(value) => process(value),
     Err(e) => handle_error(e),
 }"]]
@@ -190,7 +190,7 @@ map f (x:xs) = f x : map f xs"]]
         [:p
          "The Universal AST represents this as:"]
         [:pre [:code
-"[node-1 :ast/type :error-handling]
+               "[node-1 :ast/type :error-handling]
 [node-1 :ast/operation risky-op]
 [node-1 :ast/success-path success-handler]
 [node-1 :ast/failure-path error-handler]
@@ -209,7 +209,7 @@ map f (x:xs) = f x : map f xs"]]
         [:p
          "All are in the " [:strong "\"map over collection\" equivalence class"] ". The Universal AST represents:"]
         [:pre [:code
-"[node-1 :ast/type :map-operation]
+               "[node-1 :ast/type :map-operation]
 [node-1 :ast/function transform]
 [node-1 :ast/collection items]
 [node-1 :ast/encoding :for-loop]  ; or :list-comp, :map-function, :stream"]]
@@ -226,7 +226,7 @@ map f (x:xs) = f x : map f xs"]]
         [:p
          "The Universal AST handles this with " [:strong "annotations"] ":"]
         [:pre [:code
-"[node-1 :ast/type :control-flow]
+               "[node-1 :ast/type :control-flow]
 [node-1 :ast/primitive :goto]
 [node-1 :ast/target label-5]
 [node-1 :ast/translatable? false]
@@ -240,7 +240,7 @@ map f (x:xs) = f x : map f xs"]]
         [:p
          "C++ allows multiple inheritance. Java doesn't. The Universal AST can represent it:"]
         [:pre [:code
-"[class-1 :ast/type :class]
+               "[class-1 :ast/type :class]
 [class-1 :ast/inherits [parent-1 parent-2]]
 [class-1 :ast/multiple-inheritance? true]"]]
         [:p
@@ -294,7 +294,7 @@ map f (x:xs) = f x : map f xs"]]
         [:p
          "The Universal AST represents this in the " [:strong "execution dimension"] ":"]
         [:pre [:code
-"[node-1 :ast/type :function-call]
+               "[node-1 :ast/type :function-call]
 [node-1 :exec/evaluation-strategy :lazy]  ; or :eager
 [node-1 :exec/memoized? true]"]]
         [:p
@@ -310,7 +310,7 @@ map f (x:xs) = f x : map f xs"]]
         [:p
          "The Universal AST tracks this:"]
         [:pre [:code
-"[node-1 :ast/type :binding]
+               "[node-1 :ast/type :binding]
 [node-1 :ast/mutability :immutable]  ; or :mutable, :owned, :borrowed
 [node-1 :ast/ownership-semantics :rust-borrow]"]]
         [:p
@@ -334,7 +334,7 @@ map f (x:xs) = f x : map f xs"]]
         [:p
          "Java:"]
         [:pre [:code
-"class BankAccount {
+               "class BankAccount {
     private double balance;
 
     public BankAccount(double initial) {
@@ -356,7 +356,7 @@ map f (x:xs) = f x : map f xs"]]
         [:p
          "Universal AST (simplified):"]
         [:pre [:code
-"[class-1 :ast/type :data-with-operations]
+               "[class-1 :ast/type :data-with-operations]
 [class-1 :ast/data [balance]]
 [class-1 :ast/operations [deposit withdraw]]
 [class-1 :ast/constructor init-balance]
@@ -365,7 +365,7 @@ map f (x:xs) = f x : map f xs"]]
         [:p
          "Clojure (translated):"]
         [:pre [:code
-"(defn make-bank-account [initial-balance]
+               "(defn make-bank-account [initial-balance]
   (let [balance (atom initial-balance)]
     {:deposit (fn [amount]
                 (swap! balance + amount))

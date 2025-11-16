@@ -34,7 +34,7 @@
         [:p
          "The same function can be rendered as:"]
         [:pre [:code
-"# Python syntax view
+               "# Python syntax view
 def calculate_total(items: list[Item]) -> int:
     return sum(item.price for item in items)
 
@@ -59,7 +59,7 @@ public int calculateTotal(List<Item> items) {
         [:p
          "When you type:"]
         [:pre [:code
-"def calculate"]]
+               "def calculate"]]
         [:p
          "The parser screams. Red squiggles everywhere. The code is syntactically invalid. You can't compile it. Tools break."]
         [:p
@@ -78,7 +78,7 @@ public int calculateTotal(List<Item> items) {
         [:p
          "When you edit the AST directly, refactoring is " [:strong "AST transformation"] ":"]
         [:pre [:code
-";; Rename variable
+               ";; Rename variable
 [:find ?node
  :where
  [?node :ast/type :variable]
@@ -145,7 +145,7 @@ public int calculateTotal(List<Item> items) {
         [:p
          "Instead of \"Find all references,\" you write:"]
         [:pre [:code
-"[:find ?caller
+               "[:find ?caller
  :where
  [?call :ast/type :function-call]
  [?call :ast/function ?target]
@@ -181,7 +181,7 @@ public int calculateTotal(List<Item> items) {
         [:p
          "An AST-native IDE is programmable with " [:strong "AST transformations"] ":"]
         [:pre [:code
-";; Custom refactoring: convert for-loop to map
+               ";; Custom refactoring: convert for-loop to map
 (defn for-loop->map [node]
   (when (= (:ast/type node) :for-loop)
     (let [body (get-body node)
