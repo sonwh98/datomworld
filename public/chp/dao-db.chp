@@ -64,6 +64,11 @@
         "By materializing covered indexes from the stream, DaoDB lets you ask questions about your data: "
         "What entities have a specific attribute? What changed between two points in time? Which datoms share causal relationships?"]
        [:p
+        "DaoDB implements " [:strong "Datomic's syntax of Datalog"] "—a declarative query language built on Horn clauses, fixed-point semantics, and guaranteed termination. "
+        "Queries are expressed as EDN data structures, making them homoiconic (code as data) and composable. "
+        "Learn more about " [:a {:href "/blog/what-makes-datalog-datalog.chp"} "what makes Datalog Datalog"] " and why "
+        [:a {:href "/blog/datalog-compiler-infrastructure.chp"} "Datalog makes every optimization queryable"] "."]
+       [:p
         "Because indexes are materialized from immutable streams, queries naturally support temporal access. "
         "Ask what the world looked like at any point in history. "
         "Track how entities evolved over time. "
