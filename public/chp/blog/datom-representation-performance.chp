@@ -7,7 +7,7 @@
       [:div.section-inner
        [:article
         [:h1 "Datom Representation and the Hidden Performance Cost"]
-        [:div.blog-article-meta "Published Nov 18, 2025 · 8 minute read"]
+        [:div.blog-article-meta "Published Nov 18, 2025 · 10 minute read"]
 
         [:p
          "Datoms are elegantly simple: " [:code "[e a v t c]"] ". Entity, attribute, value, transaction, context. Five elements. Fixed-size tuple. Clean abstraction."]
@@ -236,7 +236,7 @@ Type 255: [variable, variable, variable, variable, variable]"]]
 attributes:  [1, 1, 1, 2, 2, ...]
 values:      [100, 200, 300, 400, ...]
 txs:         [1001, 1001, 1002, 1002, ...]
-causality:   [nil, nil, nil, nil, ...]"]]
+context:     [nil, nil, nil, nil, ...]"]]
         [:p
          "This enables:"]
         [:ul.bulleted
@@ -248,7 +248,7 @@ causality:   [nil, nil, nil, nil, ...]"]]
         [:p
          "What if, instead of one heterogeneous datom stream, you had " [:strong "typed streams per attribute"] "?"]
         [:p
-         "This is the insight behind " [:strong "Go channels"] ": when you create " [:code "chan int64"] ", the runtime knows every element is exactly 8 bytes. No parsing. No type inspection. Just read and go."]
+         "This is the insight behind " [:strong "Go channels"] ". When you create " [:code "chan int64"] ", the type is known—every element is exactly 8 bytes. " [:strong "No parsing. No type inspection. Just read and go."] " Type safety eliminates runtime overhead."]
         [:p
          "Apply this to datoms:"]
         [:pre [:code {:class "language-clojure"}
