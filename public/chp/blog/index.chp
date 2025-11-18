@@ -8,6 +8,14 @@
        [:div.blog-grid
         [:article.blog-card
          [:div.blog-meta
+          [:span "Nov 18, 2025"]
+          [:span "18 min read"]]
+         [:h2 [:a {:href "/blog/pi-calculus-rqm-interaction.chp"} "π-Calculus, RQM, and the Primacy of Interaction"]]
+         [:p
+          "Relational Quantum Mechanics says reality is a network of interactions, not independent facts. The π-calculus says computation is message-passing, not state. Are these the same insight? Yes. State-first vs interaction-first paradigms. Properties emerge from measurement, processes are their communication behavior, datoms record interaction histories. DaoDB implements both π-calculus and RQM—same architecture, different perspectives."]
+         [:a {:href "/blog/pi-calculus-rqm-interaction.chp"} "Read the article →"]]
+        [:article.blog-card
+         [:div.blog-meta
           [:span "Nov 17, 2025"]
           [:span "20 min read"]]
          [:h2 [:a {:href "/blog/datom-world-wave-function-collapse.chp"} "Datom.World and the Collapse of the Wave Function"]]

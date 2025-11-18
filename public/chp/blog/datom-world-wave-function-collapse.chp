@@ -417,6 +417,92 @@ A and B are concurrent on Device1 (5 = 5)"]]
         [:p
          "Vector clocks enforce " [:strong "local causality"] "—the foundation of both relativity and RQM."]
 
+        [:h2 "Bell's Theorem and the Locality Question"]
+        [:p
+         "Here's where skepticism is warranted: " [:strong "Bell's theorem proves that quantum mechanics violates local realism"] ". Experiments confirm quantum correlations that cannot be explained by local hidden variables. So how can RQM claim to be a local theory?"]
+
+        [:h3 "What Bell's Theorem Actually Says"]
+        [:p
+         "Bell's theorem proves that " [:strong "no local hidden variable theory"] " can reproduce quantum mechanical predictions. The key word is " [:em "hidden"] ". Bell assumes:"]
+        [:ol
+         [:li [:strong "Realism"] " — Physical properties exist independently of measurement"]
+         [:li [:strong "Locality"] " — No faster-than-light influence between distant events"]
+         [:li [:strong "Hidden variables"] " — There's some underlying deterministic state we just can't see"]]
+        [:p
+         "Quantum mechanics violates this combination. But " [:strong "which assumption does it violate?"] ""]
+
+        [:h3 "RQM Rejects Realism, Not Locality"]
+        [:p
+         "RQM says: " [:strong "properties do not exist independently of measurement"] ". This is the rejection of " [:em "realism"] ", not locality."]
+        [:p
+         "In RQM:"]
+        [:ul.bulleted
+         [:li "An electron's spin is " [:strong "not determined"] " until an observer measures it"]
+         [:li "The spin exists " [:strong "relative to the observer"] " who measured it"]
+         [:li "Different observers can have " [:strong "incompatible but equally valid"] " descriptions"]
+         [:li "When observers interact, their descriptions " [:strong "correlate locally"] " through physical interaction"]]
+        [:p
+         "There is " [:strong "no spooky action at a distance"] ". When Alice measures her entangled particle's spin, " [:strong "nothing happens to Bob's particle"] ". Alice's measurement creates a definite spin " [:em "relative to Alice"] ". Bob's particle remains in superposition " [:em "relative to Bob"] " until " [:em "he"] " measures it."]
+        [:p
+         "The correlation only becomes manifest when Alice and Bob " [:strong "meet and compare results"] "—a " [:strong "local interaction"] " that happens at or below the speed of light. No information traveled faster than light. No distant influence occurred."]
+
+        [:h3 "The EPR Paradox Revisited"]
+        [:p
+         "The Einstein-Podolsky-Rosen (EPR) thought experiment highlights this:"]
+        [:pre [:code
+               "1. Create entangled particles: |ψ⟩ = (|↑↓⟩ - |↓↑⟩)/√2
+2. Send one to Alice, one to Bob (light-years apart)
+3. Alice measures spin: gets ↑
+4. Bob measures spin: gets ↓ (guaranteed anti-correlation)
+5. How did Bob's particle 'know' what Alice measured?"]]
+        [:p
+         "Traditional answer: Spooky action at a distance! Alice's measurement " [:em "caused"] " Bob's particle to collapse."]
+        [:p
+         "RQM answer: " [:strong "Nothing happened at Bob's location when Alice measured"] ". Alice established a correlation " [:em "relative to herself"] ". Bob's particle is still in superposition " [:em "relative to Bob"] ". When Bob measures, he establishes his own correlation. Only when Alice and Bob " [:strong "later meet and compare"] " (a local event) do they discover the anti-correlation was always encoded in the joint state."]
+        [:p
+         "The correlation was " [:strong "latent in the entangled state"] " from the beginning. No faster-than-light signaling occurred. " [:strong "Locality is preserved."] ""]
+
+        [:h3 "DaoDB's Bell Test"]
+        [:p
+         "In DaoDB, the same pattern emerges:"]
+        [:pre [:code
+               "Device A (offline): [entity-1 :color \"red\" :tx 101]
+Device B (offline): [entity-1 :color \"blue\" :tx 102]
+
+Neither device 'knows' what the other chose.
+Both are correct relative to their local state.
+
+When they sync (local interaction via network):
+  Conflict detected! Apply CRDT merge.
+  Result: [entity-1 :color \"blue\" :tx 103 :merged-from [101 102]]
+
+The correlation emerges through LOCAL interaction,
+not through spooky action at a distance."]]
+        [:p
+         "Device A's write did " [:strong "not cause"] " Device B's state to change. Device B's write did " [:strong "not cause"] " Device A's state to change. Both evolved independently based on " [:strong "local causality"] ". The conflict resolution happens when the causal light cones " [:strong "intersect"] " during sync—a " [:strong "local event"] "."]
+
+        [:h3 "Why Distributed Databases Don't Violate Bell"]
+        [:p
+         "DaoDB doesn't face Bell's theorem because:"]
+        [:ol
+         [:li [:strong "No hidden variables"] " — The state is explicitly represented as datoms, not hidden"]
+         [:li [:strong "No realism"] " — Entities don't have observer-independent properties. " [:code "entity-1.color"] " is only defined " [:em "relative to which device you ask"] ""]
+         [:li [:strong "Locality preserved"] " — Conflicts resolve through network messages (causal, speed-of-light limited), not instantaneous global coordination"]
+         [:li [:strong "Correlations emerge locally"] " — When devices sync, they perform a " [:strong "local computation"] " (CRDT merge) that creates correlation"]]
+        [:p
+         "This is " [:strong "exactly RQM's resolution"] " of the Bell paradox applied to databases."]
+
+        [:h3 "The Key Insight"]
+        [:p
+         "Bell's theorem eliminates " [:strong "local realism"] " (local + hidden variables + pre-existing properties). RQM eliminates " [:strong "realism"] " while preserving " [:strong "locality"] ":"]
+        [:ul.bulleted
+         [:li "❌ " [:strong "Local Realism"] " (Bell proves this is impossible)"]
+         [:li "✓ " [:strong "Local Anti-Realism"] " (RQM: properties are relational, locality preserved)"]
+         [:li "✓ " [:strong "Non-Local Realism"] " (Many-Worlds, Bohmian mechanics: properties exist, but non-local)"]
+         [:li "❌ " [:strong "Non-Local Anti-Realism"] " (pointless—gives up both)"]]
+        [:p
+         "RQM chooses " [:strong "local anti-realism"] ". Properties emerge through interaction. Correlations manifest locally. No faster-than-light influence. " [:strong "Bell's theorem is satisfied because we reject realism, not locality."] ""]
+
         [:h2 "Practical Implications"]
 
         [:h3 "1. Embrace Conflicts, Don't Fight Them"]
@@ -505,9 +591,13 @@ A and B are concurrent on Device1 (5 = 5)"]]
 
         [:h3 "Pi-Calculus and Process Algebra"]
         [:p
-         "The " [:a {:href "/blog/unitarity-and-communication-limits.chp"} "π-calculus models distributed systems as interacting processes"] ". Communication is message-passing, not shared memory."]
+         "The π-calculus models distributed systems as interacting processes. Communication is message-passing, not shared memory."]
         [:p
          "RQM is the quantum version: observers interact via measurement, not shared state. DaoDB implements this with streams and sync."]
+        [:p
+         "Both share the same fundamental insight: " [:strong "reality is interaction, not state"] ". Read "
+         [:a {:href "/blog/pi-calculus-rqm-interaction.chp"} "π-Calculus, RQM, and the Primacy of Interaction"]
+         " to understand how these models are structurally isomorphic."]
 
         [:h3 "Git as a Quantum Database"]
         [:p
@@ -531,7 +621,8 @@ A and B are concurrent on Device1 (5 = 5)"]]
          [:li [:strong "Measurement"] " — Sync triggers conflict detection"]
          [:li [:strong "Entanglement"] " — CRDT merge creates correlated states"]
          [:li [:strong "Retrocausality"] " — Observers reconcile their histories through interaction"]
-         [:li [:strong "Locality"] " — Causality propagates at network speed"]]
+         [:li [:strong "Locality"] " — Causality propagates at network speed"]
+         [:li [:strong "Bell's theorem satisfied"] " — We reject realism (observer-independent properties), not locality"]]
 
         [:p
          "This isn't metaphor. This is " [:strong "isomorphism"] ". The mathematics is the same. The principles are the same. The physical constraints are the same."]
