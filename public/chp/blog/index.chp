@@ -9,6 +9,14 @@
         [:article.blog-card
          [:div.blog-meta
           [:span "Nov 17, 2025"]
+          [:span "20 min read"]]
+         [:h2 [:a {:href "/blog/datom-world-wave-function-collapse.chp"} "Datom.World and the Collapse of the Wave Function"]]
+         [:p
+          "DaoDB is a local-first distributed tuple store. When devices sync, conflicts arise—like wave function collapse in quantum mechanics. Relational Quantum Mechanics says there's no global state, only local states relative to observers. DaoDB implements this: conflicts are superposition, sync is measurement, CRDT merge is entanglement, retrocausality is reconciling histories. Distributed databases are quantum systems."]
+         [:a {:href "/blog/datom-world-wave-function-collapse.chp"} "Read the article →"]]
+        [:article.blog-card
+         [:div.blog-meta
+          [:span "Nov 17, 2025"]
           [:span "16 min read"]]
          [:h2 [:a {:href "/blog/what-makes-datalog-datalog.chp"} "What Makes Datalog Datalog: Semantics, Not Syntax"]]
          [:p

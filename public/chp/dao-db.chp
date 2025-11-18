@@ -40,8 +40,9 @@
       [:div.section-inner
        [:h2 "Local-First, Globally Synced"]
        [:p
-        "DaoDB is fundamentally local-first. Every device maintains its own complete tuple store, so your apps work offline by default. "
-        "When you write a datom, it's immediately available on your device. When you reconnect, entangled sync propagates changes across your mesh of trusted nodes."]
+        "DaoDB is fundamentally local-first. When isolated, each device maintains its own complete tuple store. But when devices " [:strong "entangle"] " into a synchronization group, something profound happens: each device holds only a " [:strong "partial view"] " of the whole state. Together, all devices in the entanglement group collectively maintain the " [:strong "complete database state"] "."]
+       [:p
+        "This is " [:strong "quantum unitarity"] " in a distributed system: the total information is preserved across the system, but no single observer possesses the complete state. Learn more about how " [:a {:href "/blog/datom-world-wave-function-collapse.chp"} "DaoDB implements Relational Quantum Mechanics"] " and why conflicts are wave function collapse."]
        [:p
         "Unlike cloud databases that force you to trust a central server, DaoDB keeps custody of your data locally. "
         "You choose which streams to expose and who can read them. "
