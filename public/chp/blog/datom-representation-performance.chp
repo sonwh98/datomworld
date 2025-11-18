@@ -244,10 +244,88 @@ causality:   [nil, nil, nil, nil, ...]"]]
          [:li "SIMD processing (vectorized operations)"]
          [:li "Skipping columns you don't need (projection pushdown)"]]
 
+        [:h3 "6. Typed Streams: Go Channels for Datoms"]
+        [:p
+         "What if, instead of one heterogeneous datom stream, you had " [:strong "typed streams per attribute"] "?"]
+        [:p
+         "This is the insight behind " [:strong "Go channels"] ": when you create " [:code "chan int64"] ", the runtime knows every element is exactly 8 bytes. No parsing. No type inspection. Just read and go."]
+        [:p
+         "Apply this to datoms:"]
+        [:pre [:code {:class "language-clojure"}
+               ";; Type-erased (current): slow parsing
+stream: [[1 :name \"Alice\" 1001 nil]
+         [2 :age 30 1002 nil]
+         [3 :photo <blob> 1003 nil]]
+
+;; Typed streams (proposed): fast parsing
+:user/name-stream   → chan<u64, str-ref, u64, nil>
+:user/age-stream    → chan<u64, u64, u64, nil>
+:user/photo-stream  → chan<u64, blob-ref, u64, nil>"]]
+        [:p
+         [:strong "Each attribute gets its own typed stream."]]
+        [:p
+         "Why this is powerful:"]
+        [:ul.bulleted
+         [:li [:strong "Fixed-size per stream"] " — Fast parsing, no length prefixes"]
+         [:li [:strong "Natural partitioning"] " — Each attribute is isolated"]
+         [:li [:strong "Columnar automatically"] " — All :user/name values together"]
+         [:li [:strong "Type safety"] " — Compiler can verify at stream creation"]
+         [:li [:strong "SIMD-friendly"] " — Homogeneous data = vectorization"]
+         [:li [:strong "Easy to extend"] " — New attribute = new typed stream"]]
+
+        [:h4 "The AEVT Index Connection"]
+        [:p
+         "This isn't just theoretical—it maps " [:strong "directly to how datom indexes work"] "."]
+        [:p
+         "The " [:strong "AEVT index"] " (attribute, entity, value, transaction) groups datoms by attribute. If you store each attribute's datoms in a typed stream, you get:"]
+        [:pre [:code
+               "AEVT[:user/name] = typed stream of (entity, string-ref, tx, ctx)
+AEVT[:user/age]  = typed stream of (entity, int64, tx, ctx)
+AEVT[:user/photo] = typed stream of (entity, blob-ref, tx, ctx)"]]
+        [:p
+         [:strong "The index IS the typed stream."]]
+        [:p
+         "Benefits:"]
+        [:ul.bulleted
+         [:li "Index scans become " [:strong "sequential reads"] " of typed data"]
+         [:li "No runtime type checking (type known at stream creation)"]
+         [:li "Compression works better (homogeneous values)"]
+         [:li "Can use specialized codecs per attribute type"]]
+
+        [:h4 "Trade-offs"]
+        [:p
+         "Typed streams aren't free:"]
+        [:ul.bulleted
+         [:li [:strong "More streams to manage"] " — One per attribute (but you'd have indexes anyway)"]
+         [:li [:strong "Routing overhead"] " — Must dispatch datoms to correct stream"]
+         [:li [:strong "Schema evolution"] " — Changing types requires migration"]
+         [:li [:strong "Mixed-type attributes"] " — Need union types or multiple streams"]]
+        [:p
+         "But in exchange, you get " [:strong "parsing performance that approaches raw memory bandwidth"] "."]
+
+        [:h4 "Hybrid: Schema-on-Write"]
+        [:p
+         "The best approach: " [:strong "infer types on first write"] ", then use typed streams:"]
+        [:pre [:code {:class "language-clojure"}
+               ";; First write: establish type
+(transact! [[:db/add 1 :user/age 30]])
+;; → Creates typed stream: :user/age → chan<entity, int64, tx, ctx>
+
+;; Subsequent writes: use typed stream (fast!)
+(transact! [[:db/add 2 :user/age 25]])
+;; → Appends to typed stream (no parsing, direct write)
+
+;; Type mismatch: error or coercion
+(transact! [[:db/add 3 :user/age \"thirty\"]])
+;; → Error: Expected int64, got string"]]
+        [:p
+         "This is " [:strong "schema-on-write"] ": the first write defines the type, subsequent writes are validated and optimized."]
+
         [:h2 "DaoDB's Approach"]
         [:p
-         [:a {:href "/dao-db.chp"} "DaoDB"] " uses a " [:strong "hybrid strategy"] ":"]
+         [:a {:href "/dao-db.chp"} "DaoDB"] " combines multiple strategies:"]
         [:ul.bulleted
+         [:li [:strong "Typed attribute streams"] " — Each attribute stored in a typed stream (AEVT index = typed streams)"]
          [:li [:strong "Attribute interning"] " — Attributes are always small integer IDs"]
          [:li [:strong "Inline small values"] " — Integers, small strings, booleans stored directly"]
          [:li [:strong "Reference large values"] " — Blobs and large strings stored separately"]
