@@ -123,6 +123,11 @@
        [:p
         "Datom.World is built on seven foundational axioms that define how data flows, how causality works, and how meaning emerges in a distributed system. "
         "These principles are not implementation details—they are the invariants that make stream-native software possible."]
+       [:p.learn-more
+        "For deeper exploration of how these axioms enable novel compiler optimizations, read "
+        [:a {:href "/blog/datalog-compiler-infrastructure.chp"} "Datalog as Compiler Infrastructure"]
+        ". To understand how distributed databases implement quantum principles, read "
+        [:a {:href "/blog/datom-world-wave-function-collapse.chp"} "Datom.World and the Collapse of the Wave Function"] "."]
        [:div.axiom-list
         [:article.axiom
          [:h3 {:id "axiom-1"} "1. Stream Existence"]

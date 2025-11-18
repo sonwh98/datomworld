@@ -13,12 +13,16 @@
        [:p
         "A stream is a continuous flow of datoms—tuples that represent state, transformation, or intent. "
         "Every pixel, vertex, shader parameter, and event is just another datom in motion. "
-        "DaoFlow doesn't \"run\" code in the traditional sense; it interprets these streams, composing behavior and visuals from the same substrate."]
+        "DaoFlow doesn't \"run\" code in the traditional sense; it " [:strong "interprets"] " these streams, composing behavior and visuals from the same substrate."]
        [:p
         "At its foundation, DaoFlow is written in Rust for safety and performance. "
         "Its higher-level interface uses Yin-Yang, a Clojure dialect also implemented in Rust. "
         "Developers describe systems declaratively in Yin-Yang, while DaoFlow handles the orchestration of GPU and CPU workloads beneath the surface. "
-        "Because the interpreter operates on streams, DaoFlow naturally supports reactive rendering, live state mutation, and distributed execution, all without separate paradigms for logic, data, and graphics."]]]
+        "Because the interpreter operates on streams, DaoFlow naturally supports reactive rendering, live state mutation, and distributed execution, all without separate paradigms for logic, data, and graphics."]
+       [:p.learn-more
+        "DaoFlow is an interpreter of " [:a {:href "/dao-stream.chp"} "DaoStream"] " datoms. "
+        "To understand why interpretation creates meaning while structure alone cannot, read "
+        [:a {:href "/blog/structure-vs-interpretation.chp"} "Structure vs Interpretation"] "."]]]
      [:section.section-light
       [:div.section-inner
        [:h2 "The Philosophy: Yin and Yang"]

@@ -31,11 +31,16 @@
        [:p
         "Every program Yin runs is first expressed as the Universal AST: a language-agnostic, map-based structure "
         "that records syntax, semantics, and metadata in immutable data. Python, JavaScript, Java, and Clojure can all "
-        "compile into this canonical form via the Yang compiler (launching with Clojure support first)."]
+        "compile into this canonical form via the " [:a {:href "/yang.chp"} "Yang compiler"] " (launching with Clojure support first)."]
        [:p
         "Once a program is a Universal AST, Yin can transform, optimize, or execute it uniformly. "
         "The AST persists—bytecode, continuations, and runtime state derive from it, and it is never discarded. "
-        "Every transformation therefore preserves reversibility, provenance, and rich introspection."]]]
+        "Every transformation therefore preserves reversibility, provenance, and rich introspection."]
+       [:p.learn-more
+        "Learn more: " [:a {:href "/blog/yin-vm-ast-chinese-characters.chp"} "Yin.vm: Chinese Characters for Programming Languages"]
+        " explains how the Universal AST enables cross-language semantic preservation, and "
+        [:a {:href "/blog/ast-higher-dimensional-datom-streams.chp"} "AST as Higher Dimensional Construction of Datom Streams"]
+        " reveals how the AST exists across five dimensions simultaneously."]]]
      [:section.section-light
       [:div.section-inner
        [:h2 "CESK machine with persistent data structures"]
@@ -72,7 +77,10 @@
        [:p
         "ASTs are pure data, so transformation work can be distributed across nodes. "
         "Subtrees evaluate or rewrite independently, append results to datom streams, and integrate back into the canonical representation—"
-        "enabling distributed compilation and collaborative code evolution."]]]
+        "enabling distributed compilation and collaborative code evolution."]
+       [:p.learn-more
+        "See how execution achieves bytecode-like performance while preserving full queryability in "
+        [:a {:href "/blog/ast-datom-streams-bytecode-performance.chp"} "AST Datom Streams: Bytecode Performance with Semantic Preservation"] "."]]]
      [:section.section-light
       [:div.section-inner
        [:h2 "In summary"]

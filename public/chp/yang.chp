@@ -163,7 +163,12 @@
            [:td [:code "{:type :lambda, :params [x], :body {...}}"]]]]]
         [:p
          "All three languages compile to the " [:em "same"] " Universal AST, "
-         "enabling seamless cross-language function calls and data sharing."]]]
+         "enabling seamless cross-language function calls and data sharing."]
+        [:p.learn-more
+         "Learn more about how the Universal AST enables cross-language semantic preservation in "
+         [:a {:href "/blog/yin-vm-ast-chinese-characters.chp"} "Yin.vm: Chinese Characters for Programming Languages"]
+         ", and how ASTs are stored as queryable datom streams in "
+         [:a {:href "/blog/ast-higher-dimensional-datom-streams.chp"} "AST as Higher Dimensional Construction of Datom Streams"] "."]]]
       [:section.section-dark
        [:div.section-inner
         [:h2 "Cross-platform architecture"]
