@@ -9,6 +9,22 @@
         [:article.blog-card
          [:div.blog-meta
           [:span "Nov 18, 2025"]
+          [:span "8 min read"]]
+         [:h2 [:a {:href "/blog/datom-representation-performance.chp"} "Datom Representation and the Hidden Performance Cost"]]
+         [:p
+          "Datoms look simple: [e a v t c]. Fixed-size tuple, right? Wrong. The tuple is fixed-size, but its elements aren't. Variable-size entities, attributes, and values create parsing overhead, cache inefficiency, and compression challenges. How DaoDB balances semantic flexibility with execution performance through interning, hybrid storage, and columnar encoding."]
+         [:a {:href "/blog/datom-representation-performance.chp"} "Read the article →"]]
+        [:article.blog-card
+         [:div.blog-meta
+          [:span "Nov 18, 2025"]
+          [:span "12 min read"]]
+         [:h2 [:a {:href "/blog/ai-data-crisis.chp"} "The Coming AI Data Crisis — and Why Datom.world Exists"]]
+         [:p
+          "Andrew Ng highlighted a crisis: AI agents are getting smarter faster than data infrastructure can keep up. SaaS vendors charge thousands for API access to your own data. The problem is structural—silos vs streams. Datom.world solves this with local-first datom streams: you own your data, apps are interpreters, agents become first-class peers. The architecture itself must change."]
+         [:a {:href "/blog/ai-data-crisis.chp"} "Read the article →"]]
+        [:article.blog-card
+         [:div.blog-meta
+          [:span "Nov 18, 2025"]
           [:span "18 min read"]]
          [:h2 [:a {:href "/blog/pi-calculus-rqm-interaction.chp"} "π-Calculus, RQM, and the Primacy of Interaction"]]
          [:p
