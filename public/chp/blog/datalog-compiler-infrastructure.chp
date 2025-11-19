@@ -52,7 +52,42 @@
         [:p
          "Every global optimization requires " [:strong "custom infrastructure"] ". Want whole-program analysis? Build a new data structure. Want incremental compilation? Track dependencies manually. Want cross-language optimization? Good luck."]
         [:p
-         "Fundamentally, " [:strong "the AST isn't queryable"] ". It's just nested objects you must walk by hand."]
+        "Fundamentally, " [:strong "the AST isn't queryable"] ". It's just nested objects you must walk by hand."]
+
+        [:h3 "Essential vs Accidental Complexity"]
+        [:p
+         "This is why traditional ASTs feel \"simple\": they intentionally capture only a transient slice of meaning. The "
+         [:strong "essential complexity"] " of representing full semantics—spanning time, provenance, types, and execution state—"
+         "is discarded as soon as machine code is emitted. Yin/DaoDB keep that complexity in the primary data model because it is "
+         [:strong "inherent to reasoning about code"] "."]
+        [:table
+         [:thead
+          [:tr
+           [:th "Compiler Component"]
+           [:th "Complexity Type"]
+           [:th "Description"]]]
+         [:tbody
+          [:tr
+           [:td "Traditional compiler AST"]
+           [:td "Accidental"]
+           [:td "Lightweight tree optimized for one-time linear traversal; semantics evaporate after codegen."]]
+          [:tr
+           [:td "DaoDB / Universal AST"]
+           [:td "Essential"]
+           [:td "Canonical datom graph that preserves meaning across paradigms, time, and execution so every tool can query it."]]]]
+        [:p
+         "Why avoid the essential model? Historically:"]
+        [:ol
+         [:li
+          [:strong "Execution throughput trumped everything"]
+          " — the mission was \"turn source into binaries fast.\" Any richer data model was treated as accidental complexity that slowed compilation."]
+         [:li
+          [:strong "Abstraction mismatch trade-off"]
+          " — refactoring, static analysis, and debugging were punted to external tools. IDEs re-parse text heuristically, linters rebuild simplified graphs, "
+          "debuggers rely on coarse line-number symbols. Each tool reconstructs its own partial truth, creating massive accidental complexity in the glue."]]
+        [:p
+         "DaoDB instead centralizes the essential complexity once. The Universal AST becomes shared infrastructure for compilers, IDEs, analyzers, and runtimes. "
+         "By absorbing the irreducible semantics upfront, it eliminates the downstream accidental complexity of keeping disparate models in sync."]
 
         [:h2 "Datalog Compilation: The Query Model"]
         [:p
