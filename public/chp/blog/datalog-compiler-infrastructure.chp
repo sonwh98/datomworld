@@ -627,6 +627,68 @@ Fixed point reached! ✓"]]
         [:p
          "The compiler " [:strong "learns from history"] ". Profile-guided optimization becomes queryable across versions."]
 
+        [:h2 "Comparison to State-of-the-Art Systems"]
+        [:p "How does this Datalog-based approach compare to other advanced compilation frameworks like GraalVM/Truffle or static analysis tools like CodeQL?"]
+
+        [:h3 "GraalVM/Truffle"]
+        [:p "GraalVM's Truffle framework also uses a universal AST for polyglot execution, which is a powerful concept. However, its architecture is fundamentally different:"]
+        [:ul.bulleted
+         [:li [:strong "AST Representation:"] " The Truffle AST is a traditional in-memory, pointer-based tree. This leads to pointer-chasing during interpretation and lacks the rich, declarative queryability of a Datalog database."]
+         [:li [:strong "Semantic Erasure:"] " The JIT compiler aggressively optimizes and compiles the AST to machine code, erasing high-level semantics in the process. This makes runtime introspection difficult without separate, limited debugging information."]
+         [:li [:strong "Limited Queryability:"] " You cannot run arbitrary, whole-program Datalog queries on a Truffle AST. Each analysis requires writing a specific visitor or pass in Java."]]
+
+        [:h3 "CodeQL/Glean"]
+        [:p "CodeQL and Glean are closer in spirit, as they represent code as a queryable database for static analysis. But they are designed for a different purpose:"]
+        [:ul.bulleted
+         [:li [:strong "Static Analysis Only:"] " These tools are for analyzing code at rest. They have no concept of execution, runtime state, or performance profiling."]
+         [:li [:strong "No Execution Dimension:"] " You can query the structure of the code, but not its runtime behavior. Queries like \"find all functions that were called more than 1000 times\" are impossible."]
+         [:li [:strong "No Time Dimension:"] " They analyze snapshots of code, not a continuous, versioned stream of datoms. Time-travel queries are not part of their model."]]
+
+        [:h3 "Yin.vm: A Synthesis"]
+        [:p "Yin.vm, powered by DaoDB, synthesizes the strengths of these systems while addressing their limitations:"]
+        [:ul.bulleted
+         [:li "Like " [:strong "GraalVM"] ", it offers polyglot execution via a Universal AST."]
+         [:li "Like " [:strong "CodeQL"] ", it provides deep queryability of program structure via Datalog."]
+         [:li [:strong "Uniquely"] ", it stores the AST, type information, transformation history, and " [:em "runtime execution state"] " in the same queryable datom stream."]
+         [:li [:strong "Plus:"] " It enables capabilities beyond either system, such as true code mobility (serializable continuations), multi-dimensional queries (spanning structure, time, and execution), and a fully programmable compiler that users can extend with simple queries."]]
+
+        [:h3 "Summary of Differences"]
+        [:table
+         [:thead
+          [:tr
+           [:th "Feature"]
+           [:th "GraalVM / Truffle"]
+           [:th "Yin.vm / DaoDB"]]]
+         [:tbody
+          [:tr
+           [:td [:strong "AST Representation"]]
+           [:td "In-memory, pointer-based tree"]
+           [:td "Stream of queryable datoms in a Datalog DB"]]
+          [:tr
+           [:td [:strong "Compiler Model"]]
+           [:td "Procedural pipeline (traverse and transform)"]
+           [:td "Declarative queries (query and derive)"]]
+          [:tr
+           [:td [:strong "Queryability"]]
+           [:td "Limited to specific Java-based passes"]
+           [:td [:strong "Built-in."] " Entire program & execution is a database."]]
+          [:tr
+           [:td [:strong "Runtime Semantics"]]
+           [:td "Erased by JIT for performance"]
+           [:td [:strong "Preserved."] " Hybrid model links execution to AST."]]
+          [:tr
+           [:td [:strong "Typing Model"]]
+           [:td "Supports static and dynamic languages"]
+           [:td [:strong "Unifies"] " static/dynamic as a \"continuum of certainty.\""]]
+          [:tr
+           [:td [:strong "Extensibility"]]
+           [:td "Requires writing compiler passes in Java"]
+           [:td [:strong "Programmable."] " Users write Datalog queries."]]
+          [:tr
+           [:td [:strong "Code Mobility"]]
+           [:td "Not a primary design goal"]
+           [:td [:strong "Core feature."] " Continuations are serializable datoms."]]]]
+
         [:h2 "Comparison: Traditional vs Datalog"]
 
         [:h3 "Traditional Compiler"]

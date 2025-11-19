@@ -260,7 +260,11 @@
        [:p
         "In short, Datom.World is what the Web becomes when it is rebuilt from first principles: local-first, continuation-based, and stream-native. "
         "Where the old web is limited to HTML, Datom.World interpreters can visualize the same datom streams as anything: 3D video games, traditional web pages, VR environments, or any other form. "
-        "DaoFlow is one such interpreter that renders datoms into living, reactive interfaces."]]]
+        "DaoFlow is one such interpreter that renders datoms into living, reactive interfaces."]
+       [:p
+        "And the same recomposition applies beyond browsing. "
+        [:a {:href "/blog/datalog-compiler-infrastructure.chp"} "Compilers and languages"] " themselves are being rebuilt as queryable datom fabrics—Yin.vm expresses programs as Datalog facts, DaoDB turns optimizations into queries, and DaoStream carries execution as continuations. "
+        "Recomposing the web therefore also means recomposing the tools that build it."]]]
      [:section.section-light
       [:div.section-inner
        [:h2 "Streams + Continuations = Living Software"]
