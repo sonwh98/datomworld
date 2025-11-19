@@ -1,0 +1,544 @@
+(let [template (load-file "public/chp/template.chp")]
+  (clojure.walk/postwalk-replace
+   {:template/title "What Can You Build with Datom.world? 18 Use Cases from AI to Edge Computing - Datom.World"
+    :template/content
+    (list
+     [:section.blog-article
+      [:div.section-inner
+       [:article
+        [:h1 "What Can You Build with Datom.world?"]
+        [:div.blog-article-meta "Published Nov 19, 2025 · 16 minute read"]
+
+        [:p
+         "Datom.world isn't a product. It's a " [:strong "substrate"] " - a new foundation for computing where everything is a stream of datoms."]
+        [:p
+         "But what does that actually " [:em "enable"] "? What can you build that wasn't possible before?"]
+        [:p
+         "Here are 18 concrete use cases, drawn from the architecture itself."]
+
+        [:h2 "1. AI Agents That Actually Have Data Access"]
+
+        [:h3 "The Problem"]
+        [:p
+         "Andrew Ng " [:a {:href "https://x.com/AndrewYNg/status/1986500817613169025" :target "_blank"} "recently highlighted"] " a crisis: " [:strong "AI agents are getting smarter faster than our data infrastructure can keep up"] "."]
+        [:p
+         "Agents need to correlate signals across:"]
+        [:ul.bulleted
+         [:li "Email logs"]
+         [:li "Purchase histories"]
+         [:li "Sensor telemetry"]
+         [:li "CRM events"]
+         [:li "Contracts and PDFs"]
+         [:li "Spreadsheets"]
+         [:li "Unstructured knowledge bases"]]
+        [:p
+         "But SaaS vendors charge " [:strong "tens of thousands of dollars"] " just for an API key to your own data."]
+
+        [:h3 "The Datom.world Solution"]
+        [:p
+         "Agents plug into " [:strong "universal datom streams"] ":"]
+        [:pre [:code
+               "Email click event  → [event-1 :email/clicked link-xyz t1 ctx]
+Purchase event     → [event-2 :purchase/total 129.99 t2 ctx]
+Sensor reading     → [sensor-3 :temp/celsius 22.5 t3 ctx]
+CRM interaction    → [user-42 :crm/status :qualified t4 ctx]"]]
+        [:p
+         "Multiple agents observe the " [:strong "same stream"] ", extract different patterns:"]
+        [:ul.bulleted
+         [:li [:strong "Marketing agent"] ": \"User clicked email → purchased within 24h → high intent\""]
+         [:li [:strong "Inventory agent"] ": \"Purchase spike detected → restock triggered\""]
+         [:li [:strong "Analytics agent"] ": \"Conversion rate: 18.3% this week\""]]
+        [:p
+         "No integrations. No API costs. No vendor lock-in. " [:strong "Agents become first-class peers"] " in the computation ecosystem."]
+
+        [:h2 "2. Offline-First Mobile Apps That Actually Work"]
+
+        [:h3 "The Problem"]
+        [:p
+         "Most \"offline\" apps are barely functional without connectivity. Sync is fragile. Conflicts are manual. Central servers are single points of failure."]
+
+        [:h3 "The Datom.world Solution"]
+        [:p
+         [:a {:href "/dao-db.chp"} "DaoDB"] " is " [:strong "local-first by design"] ":"]
+        [:ul.bulleted
+         [:li [:strong "Every device maintains complete local database when isolated"]]
+         [:li [:strong "Partial view when entangled"] ": distributed across devices, total information preserved (quantum unitarity)"]
+         [:li [:strong "Graceful offline operation"] " with eventual sync"]
+         [:li [:strong "No central server dependency"]]
+         [:li [:strong "Sync latency < 15ms"]]]
+        [:p
+         "Use cases:"]
+        [:ul.bulleted
+         [:li "Note-taking apps (like Obsidian, but with structured datoms)"]
+         [:li "Task managers for distributed teams"]
+         [:li "Field service apps (technicians working offline)"]
+         [:li "Healthcare records (clinic → hospital sync)"]
+         [:li "Retail POS systems (local transactions, cloud backup)"]]
+
+        [:h2 "3. Compiler Infrastructure with Queryable Optimizations"]
+
+        [:h3 "The Problem"]
+        [:p
+         "Traditional compilers are " [:strong "procedural programs"] " that walk ASTs with limited context. Every optimization requires custom infrastructure:"]
+        [:ul.bulleted
+         [:li "Build call graphs manually"]
+         [:li "Implement fixed-point iteration"]
+         [:li "Track data flow with complex algorithms"]
+         [:li "Can't compose analyses easily"]]
+
+        [:h3 "The Datom.world Solution"]
+        [:p
+         "Store ASTs as datoms in " [:a {:href "/dao-db.chp"} "DaoDB"] ". " [:strong "Every optimization becomes a Datalog query"] ":"]
+        [:pre [:code {:class "language-clojure"}
+               ";; Dead code elimination: one query
+[:find ?fn
+ :where
+ [?fn :ast/type :function]
+ (not [?_ :ast/calls ?fn])]
+
+;; Cross-procedural constant propagation
+[:find ?call-site ?literal-value
+ :where
+ [?call-site :ast/type :application]
+ [?call-site :ast/operator ?fn]
+ [?fn :ast/always-returns ?literal-value]]"]]
+        [:p
+         "Novel optimizations that are " [:strong "research papers in traditional compilers"] " become " [:strong "one-line queries"] ":"]
+        [:ul.bulleted
+         [:li "Escape analysis for stack allocation"]
+         [:li "Automatic parallelization detection"]
+         [:li "Purity analysis with automatic fixed-point"]
+         [:li "Taint tracking for security vulnerabilities"]
+         [:li "Loop-invariant code hoisting"]]
+        [:p
+         [:strong "Users can write custom optimizations"] " without modifying the compiler. The compiler becomes programmable."]
+
+        [:h2 "4. Code Editors That Edit Meaning, Not Text"]
+
+        [:h3 "The Problem"]
+        [:p
+         "IDEs edit " [:strong "text"] ". This creates:"]
+        [:ul.bulleted
+         [:li "Intermediate syntax errors while typing"]
+         [:li "Refactoring as fragile string manipulation"]
+         [:li "No semantic precision in transformations"]
+         [:li "Parse errors break tooling"]]
+
+        [:h3 "The Datom.world Solution"]
+        [:p
+         "IDE edits the " [:strong "AST directly"] ". Text is a materialized view:"]
+        [:ul.bulleted
+         [:li [:strong "No parse errors"] ": AST is always valid"]
+         [:li [:strong "Refactoring = AST transformation"] " via Datalog queries"]
+         [:li [:strong "Multiple syntax renderings"] ": view same code as Python, Java, or Clojure"]
+         [:li [:strong "Time-travel editing"] ": full version history via transaction IDs"]
+         [:li [:strong "Live collaboration"] " at semantic level (no text merge conflicts)"]]
+        [:p
+         "Example: Rename a variable across 50 files:"]
+        [:pre [:code {:class "language-clojure"}
+               ";; Query: find all references
+[:find ?use
+ :where
+ [?var :ast/name \"old_name\"]
+ [?use :ast/refers-to ?var]]
+
+;; Update: change all references
+(transact!
+  (for [use references]
+    [:db/add use :ast/name \"new_name\"]))"]]
+        [:p
+         [:strong "Precise. Instant. No regex. No missed references."]]
+
+        [:h2 "5. Polyglot Systems with Universal Code Representation"]
+
+        [:h3 "The Problem"]
+        [:p
+         "Cross-language systems require:"]
+        [:ul.bulleted
+         [:li "FFI bindings (fragile)"]
+         [:li "Separate build systems"]
+         [:li "Manual serialization"]
+         [:li "Impedance mismatch at boundaries"]]
+
+        [:h3 "The Datom.world Solution"]
+        [:p
+         [:a {:href "/yang.chp"} "Yang compiler"] " translates multiple languages to " [:strong "Universal AST"] ":"]
+        [:pre [:code
+               "Python code → Universal AST → C++ code (perfect round-trip)
+Clojure code → Universal AST → Java code
+JavaScript → Universal AST → Rust"]]
+        [:p
+         "The Universal AST is like " [:strong "Chinese characters for programming"] ": 水 (water) has the same meaning in Mandarin and Cantonese despite different pronunciations. Similarly, a function definition has the same " [:em "semantic meaning"] " across Python, C++, and Clojure."]
+        [:p
+         "Use cases:"]
+        [:ul.bulleted
+         [:li "Translate Python hot paths to C++ for 10x speedup"]
+         [:li "Generate Java bindings from Clojure libraries"]
+         [:li "Cross-language refactoring"]
+         [:li "Unified code analysis across polyglot codebases"]]
+
+        [:h2 "6. Real-Time Collaboration Without Merge Hell"]
+
+        [:h3 "The Problem"]
+        [:p
+         "Git merge conflicts. \"Resolving\" means picking a side and losing work. Multi-developer editing requires locks or careful coordination."]
+
+        [:h3 "The Datom.world Solution"]
+        [:p
+         "Datom transactions enable " [:strong "CRDT-based semantic conflict resolution"] ":"]
+        [:ul.bulleted
+         [:li [:strong "Editing different functions"] " → no conflict (automatic merge)"]
+         [:li [:strong "Editing same function differently"] " → semantic conflict resolution via merge functions"]
+         [:li [:strong "Complete edit history"] " queryable via Datalog"]
+         [:li [:strong "Branch from any historical point"] " (time-travel versioning)"]]
+        [:p
+         "Multiple developers can edit the same codebase " [:strong "simultaneously"] " with automatic convergence."]
+
+        [:h2 "7. Schema Evolution Without Migrations"]
+
+        [:h3 "The Problem"]
+        [:p
+         "Schema changes break everything:"]
+        [:ul.bulleted
+         [:li "Database migrations required"]
+         [:li "Old code breaks"]
+         [:li "Downtime for large tables"]
+         [:li "Multiple teams blocked on schema coordination"]]
+
+        [:h3 "The Datom.world Solution"]
+        [:p
+         [:strong "Schema-on-read"] ": interpretation happens at consumption, not storage."]
+        [:p
+         "Same customer datom stream, three interpretations:"]
+        [:ul.bulleted
+         [:li [:strong "Sales team"] ": views as leads and conversions"]
+         [:li [:strong "Support team"] ": views as tickets and satisfaction scores"]
+         [:li [:strong "Finance team"] ": views as revenue and churn"]]
+        [:p
+         "Add new attributes without migrations:"]
+        [:pre [:code {:class "language-clojure"}
+               ";; Old code: still works
+[:find ?name
+ :where
+ [?user :user/name ?name]]
+
+;; New code: uses new attribute
+[:find ?name ?tier
+ :where
+ [?user :user/name ?name]
+ [?user :user/subscription-tier ?tier]]  ;; New attribute!
+
+;; Users without :subscription-tier return nil
+;; No migration needed"]]
+
+        [:h2 "8. Distributed Database with Quantum-Like Semantics"]
+
+        [:h3 "The Problem"]
+        [:p
+         "CAP theorem: you can't have consistency, availability, " [:em "and"] " partition tolerance. Pick two."]
+
+        [:h3 "The Datom.world Solution"]
+        [:p
+         "DaoDB implements " [:strong "Relational Quantum Mechanics (RQM)"] ":"]
+        [:ul.bulleted
+         [:li [:strong "Partial states when entangled"] ": no single device holds complete state"]
+         [:li [:strong "Total information preserved"] " across entanglement group (unitarity)"]
+         [:li [:strong "Conflicts = wave function collapse"] " (CRDT merge functions)"]
+         [:li [:strong "Causal ordering"] " (vector clocks) instead of global clocks"]
+         [:li [:strong "Immutable history"] " for auditability"]]
+        [:p
+         "Think of it as " [:strong "RAID for distributed databases"] ": data striped across devices, survives individual failures, total information conserved."]
+
+        [:h2 "9. Mobile Agents That Migrate Between Devices"]
+
+        [:h3 "The Problem"]
+        [:p
+         "Computation is tied to hardware. You can't move a running process from your phone to a server to a GPU cluster."]
+
+        [:h3 "The Datom.world Solution"]
+        [:p
+         [:a {:href "/yin.chp"} "Yin.vm"] " " [:strong "continuations migrate between devices"] ":"]
+        [:pre [:code
+               "Phone: Start image processing (low battery)
+  ↓
+Edge server: Resume processing (faster CPU)
+  ↓
+GPU cluster: Finish ML inference (parallel compute)
+  ↓
+Phone: Display result"]]
+        [:p
+         "Use cases:"]
+        [:ul.bulleted
+         [:li [:strong "Offload heavy computation"] " from mobile to cloud"]
+         [:li [:strong "\"Airbnb for compute\""] ": rent spare cycles on hardware you don't own"]
+         [:li [:strong "Teammates pick up work"] ": serialize continuation, colleague resumes it"]
+         [:li [:strong "Long-running workflows"] ": pause on laptop, resume on desktop"]]
+        [:p
+         "Security: WireGuard tunnels + Yin sandboxing ensure mutual trust (device trusts code won't breach data, code owner trusts device won't steal IP)."]
+
+        [:h2 "10. Privacy-First Data Ownership"]
+
+        [:h3 "The Problem"]
+        [:p
+         "Surveillance capitalism. Third-party cookies. Cross-device tracking. Data monetization without consent."]
+
+        [:h3 "The Datom.world Solution"]
+        [:p
+         [:strong "You own your datoms. Completely."]]
+        [:ul.bulleted
+         [:li "No Meta Pixel, no Google Analytics"]
+         [:li "No probabilistic fingerprinting"]
+         [:li "No data brokers selling your history"]
+         [:li "Services invited " [:strong "on your terms"]]]
+        [:p
+         "Each datom bundles:"]
+        [:ul.bulleted
+         [:li "Access rules (who can read)"]
+         [:li "Encryption keys"]
+         [:li "Expiration policies"]
+         [:li "Audit trails"]]
+        [:p
+         "Share what you choose, when you choose. Privacy by design, not policy."]
+
+        [:h2 "11. IoT Sensor Networks with Edge Intelligence"]
+
+        [:h3 "The Problem"]
+        [:p
+         "IoT devices send all data to cloud. Latency. Bandwidth costs. Privacy concerns. Single point of failure."]
+
+        [:h3 "The Datom.world Solution"]
+        [:p
+         "Sensors emit " [:strong "datom streams"] " locally:"]
+        [:pre [:code
+               "[sensor-1 :temperature/celsius 22.5 t1 ctx]
+[sensor-1 :humidity/percent 65.0 t2 ctx]
+[sensor-2 :motion/detected true t3 ctx]"]]
+        [:ul.bulleted
+         [:li [:strong "Edge devices aggregate locally"] " (no cloud needed for real-time decisions)"]
+         [:li [:strong "Sync with cloud when connected"] " (offline-first)"]
+         [:li [:strong "AI agents analyze patterns"] " on-device or in-cloud"]
+         [:li [:strong "Query sensor history"] " via Datalog"]]
+        [:p
+         "Example: Smart home that works without internet, syncs when online."]
+
+        [:h2 "12. Queryable Execution with Bytecode Performance"]
+
+        [:h3 "The Problem"]
+        [:p
+         "AST interpretation is slow. Bytecode is fast but loses semantic information. You can't have both."]
+
+        [:h3 "The Datom.world Solution"]
+        [:p
+         [:strong "Execution datom streams"] ": bytecode-like performance, full semantics preserved."]
+        [:p
+         "Two-phase compilation:"]
+        [:pre [:code
+               "Phase 1: AST → Execution stream (compile once, slow)
+Phase 2: Execution stream → results (iterate many times, fast)"]]
+        [:p
+         "Benefits:"]
+        [:ul.bulleted
+         [:li [:strong "Sequential memory access"] " (cache-friendly)"]
+         [:li [:strong "Can discard execution stream"] ", recompile on demand"]
+         [:li [:strong "Links to AST preserved"] " for runtime introspection"]
+         [:li [:strong "Query execution history"] " like a database"]]
+        [:p
+         "You get the performance of bytecode with the queryability of an AST."]
+
+        [:h2 "13. Time-Travel Debugging"]
+
+        [:h3 "The Problem"]
+        [:p
+         "Debuggers show " [:strong "current state"] ". But bugs are about " [:strong "how you got there"] ". Reproducing the exact sequence is painful."]
+
+        [:h3 "The Datom.world Solution"]
+        [:p
+         [:strong "Full execution history as queryable datoms"] ":"]
+        [:pre [:code {:class "language-clojure"}
+               ";; Find when variable changed
+[:find ?tx ?value
+ :where
+ [?var :var/name \"counter\"]
+ [?var :var/value ?value ?tx]]
+
+;; Trace value provenance
+[:find ?transformation
+ :where
+ [?value :derived-from ?source]
+ [?transformation :input ?source]
+ [?transformation :output ?value]]"]]
+        [:p
+         "Jump to any point in execution history. Replay. Query causality. Find exactly when the bug was introduced."]
+
+        [:h2 "14. Reactive Visualizations from Datom Streams"]
+
+        [:h3 "The Problem"]
+        [:p
+         "Building dashboards requires custom code for each visualization. Data, UI, and rendering logic tightly coupled."]
+
+        [:h3 "The Datom.world Solution"]
+        [:p
+         [:a {:href "/dao-flow.chp"} "DaoFlow"] " interprets datom streams as renderable interfaces:"]
+        [:ul.bulleted
+         [:li [:strong "3D scenes"] " as datom streams"]
+         [:li [:strong "UI trees"] " as datom streams"]
+         [:li [:strong "Compute graphs"] " as datom streams"]]
+        [:p
+         "Same datom stream, multiple renderers:"]
+        [:ul.bulleted
+         [:li "Dashboard: bar chart"]
+         [:li "Map: geographic heatmap"]
+         [:li "Spreadsheet: tabular view"]
+         [:li "Timeline: temporal sequence"]]
+        [:p
+         "Update the stream → all views update reactively."]
+
+        [:h2 "15. Lint Rules as Datalog Queries"]
+
+        [:h3 "The Problem"]
+        [:p
+         "Linters are hardcoded. Custom rules require forking the tool or writing plugins in specific languages."]
+
+        [:h3 "The Datom.world Solution"]
+        [:p
+         [:strong "User-defined lint rules as Datalog queries"] ":"]
+        [:pre [:code {:class "language-clojure"}
+               ";; Custom rule: detect nested loops over same collection
+[:find ?outer ?inner
+ :where
+ [?outer :ast/type :for-loop]
+ [?outer :ast/collection ?coll]
+ [?inner :ast/type :for-loop]
+ [?inner :ast/collection ?coll]
+ [?inner :ast/ancestor ?outer]]
+
+;; Warning: O(n²) detected
+
+;; Company policy: no file I/O in request handlers
+[:find ?io-call ?handler
+ :where
+ [?handler :ast/type :http-handler]
+ [?io-call :ast/type :file-operation]
+ [?io-call :ast/ancestor ?handler]]
+
+;; Policy violation: file I/O in handler"]]
+        [:p
+         "Teams can define coding standards as queries, not documentation."]
+
+        [:h2 "16. Security: Taint Tracking for Vulnerabilities"]
+
+        [:h3 "The Problem"]
+        [:p
+         "SQL injection. Command injection. XSS. Tainted user input reaches sensitive operations."]
+
+        [:h3 "The Datom.world Solution"]
+        [:p
+         "Datalog query for dangerous data flows:"]
+        [:pre [:code {:class "language-clojure"}
+               ";; Find tainted data reaching SQL queries
+[:find ?sql-query ?tainted-value
+ :where
+ ;; Value from user input
+ [?source :data-source/origin :user-input]
+ [?source :security/tainted true]
+
+ ;; Reaches SQL query
+ [?sql-query :ast/type :sql-query]
+ [?sql-query :ast/args ?args]
+ [(contains? ?args ?value)]
+
+ ;; Data flows from source to value
+ [?source :data-flow/reaches ?value]
+
+ ;; No sanitization in between
+ (not-join [?source ?value]
+   [?sanitizer :security/sanitizes true]
+   [?source :data-flow/reaches ?sanitizer]
+   [?sanitizer :data-flow/reaches ?value])]"]]
+        [:p
+         [:strong "Security vulnerability detected"] " before deployment."]
+
+        [:h2 "17. Historical Optimization Learning"]
+
+        [:h3 "The Problem"]
+        [:p
+         "Compilers forget. You optimize code once, deploy, and the knowledge is lost. Can't learn from past successes."]
+
+        [:h3 "The Datom.world Solution"]
+        [:p
+         "Query " [:strong "across time"] " to find patterns that worked:"]
+        [:pre [:code {:class "language-clojure"}
+               ";; Find optimizations that gave 2x+ speedup
+[:find ?current-code ?optimization ?speedup
+ :in $ $history
+ :where
+ ;; In historical database
+ ($history [?old-code :ast/pattern ?pattern])
+ ($history [?old-code :optimization/applied ?optimization])
+ ($history [?optimization :performance/speedup ?speedup])
+ [(> ?speedup 2.0)]
+
+ ;; Similar pattern in current code
+ [?current-code :ast/similar-to ?pattern]]"]]
+        [:p
+         "Apply optimizations that " [:strong "historically worked"] ". Profile-guided optimization becomes queryable."]
+
+        [:h2 "18. Marketplace & Economic Signaling"]
+
+        [:h3 "The Problem"]
+        [:p
+         "Marketplaces need signaling mechanisms. Trust. Reputation. Attention allocation."]
+
+        [:h3 "The Datom.world Solution"]
+        [:p
+         "Shibi interpreter: economic signaling as datom streams:"]
+        [:ul.bulleted
+         [:li "Reputation scores"]
+         [:li "Attention markets"]
+         [:li "Stake-based filtering"]
+         [:li "Economic coordination"]]
+        [:p
+         "Datoms carry economic metadata alongside technical metadata."]
+
+        [:h2 "The Pattern: Streams → Interpreters → Composability"]
+
+        [:p
+         "All 18 use cases share a common architecture:"]
+        [:div.highlight-box
+         [:ol
+          [:li [:strong "Streams"] ": Everything is datoms: code, data, execution, UI, sensors"]
+          [:li [:strong "Interpreters"] ": Multiple agents read same stream, extract different meanings"]
+          [:li [:strong "Composability"] ": Datalog queries combine streams without coordination"]]]
+
+        [:p
+         "This is " [:strong "not a new product category"] ". It's a new " [:strong "substrate for computing"] "."]
+
+        [:h2 "What Will You Build?"]
+
+        [:p
+         "These 18 use cases are just the beginning. The real question is:"]
+        [:p
+         [:strong "What becomes possible when data, code, execution, and collaboration are all unified as queryable streams?"]]
+
+        [:p
+         "We don't know yet. And that's the point."]
+
+        [:p
+         "The web didn't know it would enable YouTube, Wikipedia, or Airbnb. It just provided " [:strong "hypertext and links"] "."]
+        [:p
+         "Datom.world provides " [:strong "streams and queries"] "."]
+        [:p
+         "What you build on top is up to you."]
+
+        [:h2 "Learn More"]
+        [:ul.bulleted
+         [:li [:a {:href "/dao-db.chp"} "DaoDB"] ": The Datalog database that stores everything as datoms"]
+         [:li [:a {:href "/yin.chp"} "Yin.vm"] ": Mobile continuations and universal execution"]
+         [:li [:a {:href "/yang.chp"} "Yang Compiler"] ": Universal AST for polyglot systems"]
+         [:li [:a {:href "/dao-flow.chp"} "DaoFlow"] ": Reactive rendering from datom streams"]
+         [:li [:a {:href "/blog/ai-data-crisis.chp"} "The Coming AI Data Crisis"] ": Why agents need datom streams"]
+         [:li [:a {:href "/blog/datalog-compiler-infrastructure.chp"} "Datalog as Compiler Infrastructure"] ": Queryable optimizations"]
+         [:li [:a {:href "/blog/ide-edits-ast-not-text.chp"} "When the IDE Edits AST, Not Text"] ": Semantic editing"]
+         [:li [:a {:href "/blog/datom-world-wave-function-collapse.chp"} "Datom.World and Wave Function Collapse"] ": Quantum distributed semantics"]
+         [:li [:a {:href "/"} "Datom.world"] ": Explore the ecosystem"]]]]])}
+   template))

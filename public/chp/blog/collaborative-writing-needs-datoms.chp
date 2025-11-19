@@ -1,0 +1,651 @@
+(let [template (load-file "public/chp/template.chp")]
+  (clojure.walk/postwalk-replace
+   {:template/title "Why Collaborative Writing Tools Need Datoms, Not Documents - Datom.World"
+    :template/content
+    (list
+     [:section.blog-article
+      [:div.section-inner
+       [:article
+        [:h1 "Why Collaborative Writing Tools Need Datoms, Not Documents"]
+        [:div.blog-article-meta "Published Nov 19, 2025 · 16 minute read"]
+
+        [:p "Google Docs revolutionized collaborative writing. But it's fundamentally flawed."]
+        [:p "Not because of features. Not because of UX. But because of " [:strong "architecture"] "."]
+        [:p "Google Docs stores documents. " [:strong "Collaborative writing needs datoms"] "."]
+
+        [:h2 "The Document Model Is Wrong for Collaboration"]
+
+        [:p "Think about how Google Docs works:"]
+        [:ol
+         [:li "You type in a browser"]
+         [:li "Changes stream to Google's servers"]
+         [:li "Server merges your edits with others' edits"]
+         [:li "Server sends merged document back to everyone"]
+         [:li "Your browser re-renders"]]
+
+        [:p "Problems:"]
+        [:ul.bulleted
+         [:li [:strong "Central server required"] " - no offline editing"]
+         [:li [:strong "Operational Transform complexity"] " - fragile merge logic"]
+         [:li [:strong "No true version history"] " - only snapshots"]
+         [:li [:strong "Can't query relationships"] " - comments are UI, not data"]
+         [:li [:strong "Vendor lock-in"] " - your writing lives on Google's servers"]]
+
+        [:p "These aren't bugs. They're " [:strong "inevitable consequences"] " of the document model."]
+
+        [:h2 "Enter Ellipsus: A Better Vision"]
+
+        [:p [:a {:href "https://ellipsus.com" :target "_blank"} "Ellipsus"] " is a collaborative writing tool that gets the philosophy right:"]
+        [:ul.bulleted
+         [:li "\"Your content is YOURS\""]
+         [:li "No generative AI (ever)"]
+         [:li "Multi-device accessibility"]
+         [:li "Draft versioning and merging"]
+         [:li "Comments tied to specific drafts"]
+         [:li "Built for creative writers, not corporate docs"]]
+
+        [:p "The vision is perfect. But can the " [:strong "architecture"] " deliver on the promises?"]
+
+        [:h2 "What Ellipsus Needs (Whether They Know It or Not)"]
+
+        [:h3 "1. Conflict-Free Collaborative Editing with Local History Preservation"]
+
+        [:p "The problem: Alice and Bob both edit paragraph 3 simultaneously."]
+
+        [:p [:strong "Traditional approach (Operational Transform):"]]
+        [:pre [:code "Alice: \"The hero hesitated.\" → \"The protagonist paused.\"
+Bob:   \"The hero hesitated.\" → \"The hero froze.\"
+
+OT Algorithm:
+1. Transform Alice's op relative to Bob's op
+2. Transform Bob's op relative to Alice's op
+3. Apply both in canonical order
+4. Hope nothing breaks
+5. Alice's original edit is LOST in the merge"]]
+
+        [:p "OT is " [:strong "notoriously complex"] ". Google Wave famously failed partly due to OT bugs. Even Google Docs occasionally shows merge artifacts. Worse: " [:strong "your local edits can be overwritten"] " by the merge. What you wrote is gone."]
+
+        [:p [:strong "DaoDB approach: Git-like branching + CRDTs"]]
+
+        [:p "The key insight: " [:strong "local history should never be lost"] ". Every device maintains its own branch. CRDT merges create a new merged branch, but your original edits remain queryable forever."]
+
+        [:pre [:code {:class "language-clojure"} ";; Alice's local branch (her device)
+[para-3 :text/content \"The hero hesitated.\" t1 {:branch \"alice-laptop\"}]
+[para-3 :text/content \"The protagonist paused.\" t2 {:branch \"alice-laptop\"}]
+
+;; Bob's local branch (his device)
+[para-3 :text/content \"The hero froze.\" t3 {:branch \"bob-desktop\"}]
+
+;; CRDT merge creates new branch (preserves parents)
+[para-3 :text/content \"The hero froze.\" t4 {:branch \"merged\"}]
+[para-3 :merge/parents \"alice-laptop\" t4]
+[para-3 :merge/parents \"bob-desktop\" t4]
+[para-3 :merge/strategy :last-write-wins t4]
+
+;; Alice's local history NEVER deleted
+;; She can always query: \"What did I write before the merge?\""]]
+
+        [:p [:strong "Three document views:"]]
+        [:ul.bulleted
+         [:li [:strong "Working View"] " - shows merged state (what everyone sees)"]
+         [:li [:strong "My History"] " - shows your local edits before merge (never lost)"]
+         [:li [:strong "Diff View"] " - shows what changed in merge"]]
+
+        [:pre [:code {:class "language-clojure"} ";; Query: What does Alice see in \"Working View\"?
+(view-merged db para-3)
+;; => \"The hero froze.\" (Bob's edit won)
+
+;; Query: What does Alice see in \"My History\"?
+(view-local-history db para-3 \"alice-laptop\")
+;; => [\"The hero hesitated.\"
+;;     \"The protagonist paused.\"]
+
+;; Query: Did merge change Alice's text?
+(merge-diff db para-3)
+;; => {:mine \"The protagonist paused.\"
+;;     :merged \"The hero froze.\"
+;;     :changed? true}"]]
+
+        [:p [:strong "UI affordances for writers:"]]
+        [:ul.bulleted
+         [:li "Button: \"Show My Edits\" - see your creative process"]
+         [:li "Button: \"Revert to My Version\" - undo merge, keep your text"]
+         [:li "Notification: \"Your text was changed by collaborator\""]
+         [:li "Timeline: \"How did this paragraph evolve?\" (your branch only)"]]
+
+        [:p [:strong "Benefits:"]]
+        [:ul.bulleted
+         [:li "No central server needed"]
+         [:li "Offline editing just works"]
+         [:li "Deterministic merge (same result on all devices)"]
+         [:li "No OT complexity"]
+         [:li [:strong "Local edits never lost"] " - preserved in your branch"]
+         [:li [:strong "Safe collaboration"] " - merge doesn't destroy your work"]
+         [:li [:strong "Undo merges"] " - revert to pre-merge state anytime"]]
+
+        [:h3 "2. True Version History, Not Snapshots"]
+
+        [:p "Google Docs \"version history\" is just periodic snapshots. You can't answer:"]
+        [:ul.bulleted
+         [:li "\"Who wrote this specific sentence?\""]
+         [:li "\"What edits happened between 2pm and 5pm?\""]
+         [:li "\"Show me the evolution of paragraph 7\""]
+         [:li "\"When did Alice and Bob's edits diverge?\""]]
+
+        [:p [:strong "With DaoDB, every edit is preserved:"]]
+        [:pre [:code {:class "language-clojure"} ";; Query all versions of a paragraph
+[:find ?content ?time ?author
+ :where
+ [para-7 :text/content ?content ?tx]
+ [?tx :db/txInstant ?time]
+ [?tx :db/author ?author]]
+
+;; Result: Complete provenance
+\"First draft\" - 2024-11-01 10:23 - Alice
+\"Revised for clarity\" - 2024-11-01 14:15 - Alice
+\"Added emotional depth\" - 2024-11-02 09:30 - Bob
+\"Final version\" - 2024-11-03 16:45 - Alice"]]
+
+        [:p [:strong "Time-travel queries:"]]
+        [:pre [:code {:class "language-clojure"} ";; What did the document look like on Nov 2nd?
+(as-of db #inst \"2024-11-02\")
+
+;; What changed between Nov 1 and Nov 3?
+(diff
+  (as-of db #inst \"2024-11-01\")
+  (as-of db #inst \"2024-11-03\"))"]]
+
+        [:p "This is " [:strong "impossible"] " with the document model. It's " [:strong "trivial"] " with datoms."]
+
+        [:h3 "3. Comments as First-Class Data"]
+
+        [:p "In Google Docs, comments are UI elements. They're not queryable. You can't ask:"]
+        [:ul.bulleted
+         [:li "\"Show all unresolved comments by Bob\""]
+         [:li "\"Which paragraphs have the most discussion?\""]
+         [:li "\"What feedback did Alice give on action scenes?\""]]
+
+        [:p [:strong "With datoms, comments are data:"]]
+        [:pre [:code {:class "language-clojure"} ";; Comments reference paragraphs via entity IDs
+[comment-1 :comment/target para-42]
+[comment-1 :comment/text \"Love this tension!\"]
+[comment-1 :comment/author bob]
+[comment-1 :comment/status :unresolved]
+
+[comment-2 :comment/target para-42]
+[comment-2 :comment/text \"Could use more detail\"]
+[comment-2 :comment/author alice]
+[comment-2 :comment/reply-to comment-1]"]]
+
+        [:p [:strong "Now you can query:"]]
+        [:pre [:code {:class "language-clojure"} ";; All unresolved comments by Bob
+[:find ?text ?target
+ :where
+ [?c :comment/author bob]
+ [?c :comment/status :unresolved]
+ [?c :comment/text ?text]
+ [?c :comment/target ?target]]
+
+;; Paragraphs with most discussion
+[:find ?para (count ?comment)
+ :where
+ [?comment :comment/target ?para]
+ :group-by ?para
+ :order-by (desc (count ?comment))]
+
+;; Threaded discussions
+[:find ?thread
+ :where
+ [?root :comment/target para-42]
+ (not [?root :comment/reply-to _])
+ [?reply :comment/reply-to ?root]
+ [(vector ?root ?reply) ?thread]]"]]
+
+        [:p [:strong "Comments survive text edits:"]]
+        [:pre [:code {:class "language-clojure"} ";; Paragraph content changes
+[para-42 :text/content \"The hero hesitated...\" t1]
+[comment-1 :comment/target para-42 t2]  ;; Attached
+[para-42 :text/content \"The protagonist paused...\" t3]
+;; comment-1 still attached to para-42 (entity ID stable)"]]
+
+        [:h3 "4. Draft Branching and Merging"]
+
+        [:p "Ellipsus advertises \"draft merging.\" This is a " [:strong "version control problem"] "."]
+
+        [:p "Git works for code because code is " [:strong "line-oriented text"] ". Prose isn't. Sentence breaks, paragraph flow, narrative structure - these don't map to line diffs."]
+
+        [:p [:strong "With datoms, merging is semantic:"]]
+        [:pre [:code {:class "language-clojure"} ";; Create alternate draft
+(branch! main-draft alternate-draft)
+
+;; Alice works on main-draft
+[para-1 :text/content \"Opening scene\" t1 main-draft]
+[para-2 :text/content \"Rising action\" t2 main-draft]
+
+;; Bob works on alternate-draft
+[para-1 :text/content \"Different opening\" t1 alternate-draft]
+[para-3 :text/content \"New subplot\" t3 alternate-draft]
+
+;; Find differences
+[:find ?para ?main-content ?alt-content
+ :where
+ [?para :draft/parent main-draft]
+ [?para :text/content ?main-content]
+ [?para-alt :draft/parent alternate-draft]
+ [?para-alt :paragraph/position ?pos]
+ [?para :paragraph/position ?pos]
+ [?para-alt :text/content ?alt-content]
+ [(not= ?main-content ?alt-content)]]
+
+;; Merge: User chooses which version to keep
+(merge-drafts! main-draft alternate-draft
+  {:para-1 :keep-alternate  ;; Use Bob's opening
+   :para-2 :keep-main        ;; Keep Alice's rising action
+   :para-3 :keep-alternate}) ;; Add Bob's subplot"]]
+
+        [:p "This is " [:strong "semantic version control"] ", not text diffs."]
+
+        [:h3 "5. Branching Architecture: The Context Field"]
+
+        [:p "The secret to never losing local history is in the datom structure itself: " [:code "[e a v t c]"] "."]
+
+        [:p "The " [:code "c"] " field (context) becomes the " [:strong "branch identifier"] ":"]
+
+        [:pre [:code {:class "language-clojure"} ";; Every datom knows which branch it belongs to
+[para-42 :text/content \"Draft 1\" t1 {:branch \"alice-laptop-local\"}]
+[para-42 :text/content \"Draft 2\" t2 {:branch \"alice-laptop-local\"}]
+
+;; After CRDT merge
+[para-42 :text/content \"Merged\" t3 {:branch \"merged\"
+                                      :parents [\"alice-laptop-local\"
+                                                \"bob-desktop-local\"]}]"]]
+
+        [:p [:strong "Workflow: Local editing never touches merged branch"]]
+
+        [:pre [:code {:class "language-clojure"} ";; 1. Alice writes offline
+[para-1 :text/content \"Chapter 1 draft\" t1 {:branch \"alice-laptop-local\"}]
+[para-1 :text/content \"Chapter 1 revised\" t2 {:branch \"alice-laptop-local\"}]
+
+;; 2. Bob writes offline (different device)
+[para-1 :text/content \"Alternative opening\" t3 {:branch \"bob-desktop-local\"}]
+
+;; 3. Devices sync: CRDT merge creates NEW branch
+[para-1 :text/content \"Alternative opening\" t4 {:branch \"merged\"}]
+[para-1 :merge/parents \"alice-laptop-local\" t4]
+[para-1 :merge/parents \"bob-desktop-local\" t4]
+[para-1 :merge/winner \"bob-desktop-local\" t4]  ;; Bob's timestamp later
+
+;; 4. Alice's local branch UNTOUCHED
+;;    Query {:branch \"alice-laptop-local\"} still returns:
+;;      t1: \"Chapter 1 draft\"
+;;      t2: \"Chapter 1 revised\""]]
+
+        [:p [:strong "Experimental branches: safe creative exploration"]]
+
+        [:pre [:code {:class "language-clojure"} ";; Try a radical rewrite without risk
+(branch! \"alice-laptop-local\" \"alice-experimental\")
+
+;; Edit experimental branch
+[para-42 :text/content \"Radical rewrite\" t5 {:branch \"alice-experimental\"}]
+
+;; Original still exists
+[para-42 :text/content \"Original\" t2 {:branch \"alice-laptop-local\"}]
+
+;; Later: merge experimental back (or discard it)
+(merge-branches! \"alice-experimental\" \"alice-laptop-local\")
+
+;; Result: new merged datom, both parents preserved
+[para-42 :text/content \"Final\" t6 {:branch \"alice-laptop-local\"}]
+[para-42 :merge/parents \"alice-experimental\" t6]"]]
+
+        [:p [:strong "Query by branch: time-travel within your creative process"]]
+
+        [:pre [:code {:class "language-clojure"} ";; Show only my edits (before any merges)
+[:find ?content ?time
+ :in $ ?branch
+ :where
+ [para-42 :text/content ?content ?tx {:branch ?branch}]
+ [?tx :db/txInstant ?time]
+ :order-by ?time]
+
+;; Pass \"alice-laptop-local\" → your creative evolution
+;; Pass \"merged\" → converged state with collaborators"]]
+
+        [:p "This is " [:strong "Git for prose"] ", but better: merges are automatic (CRDT), conflicts are impossible, and history is queryable."]
+
+        [:h3 "6. Multi-Device Sync Without Servers"]
+
+        [:p "Ellipsus promises multi-device accessibility. But most tools require a central server."]
+
+        [:p [:strong "DaoDB's distributed architecture:"]]
+        [:ul.bulleted
+         [:li "Each device has complete local database"]
+         [:li "Sync peer-to-peer (or via relay server)"]
+         [:li "Offline-first: write on plane, sync when landed"]
+         [:li "CRDT merge ensures convergence"]
+         [:li "No central authority required"]]
+
+        [:pre [:code "Phone: Edit chapter 3 (offline)
+  [para-15 :text/content \"New scene\" t1 phone-ctx]
+
+Laptop: Edit chapter 5 (offline)
+  [para-23 :text/content \"Climax\" t2 laptop-ctx]
+
+Sync when both online:
+  Phone  ←→ CRDT Merge ←→ Laptop
+
+Result: Both devices have both edits
+  No conflicts, no server, no cloud required"]]
+
+        [:p [:strong "Optional cloud backup:"]]
+        [:pre [:code "Local DaoDB → Encrypted .db file → S3 backup
+(But not required - fully local-first)"]]
+
+        [:h2 "What This Enables That Doesn't Exist Today"]
+
+        [:h3 "1. Never Lose Your Creative Decisions"]
+
+        [:pre [:code {:class "language-clojure"} ";; Your complete creative evolution (your branch only)
+[:find ?content ?time
+ :where
+ [para-7 :text/content ?content ?tx {:branch \"alice-laptop-local\"}]
+ [?tx :db/txInstant ?time]
+ :order-by ?time]
+
+;; Result: Every version you wrote
+10:23 \"The hero hesitated\"
+10:25 \"The protagonist hesitated\"  ;; Revision
+10:27 \"The protagonist paused\"     ;; Refinement
+11:15 \"She paused at the threshold\" ;; Major rewrite
+
+;; Even if CRDT merge chose Bob's version
+;; Your creative process is preserved forever"]]
+
+        [:p "Writers can ask:"]
+        [:ul.bulleted
+         [:li "\"What did I write before the merge overwrote my text?\""]
+         [:li "\"Show me every version of this opening paragraph I tried\""]
+         [:li "\"When did I decide to change from 'hero' to 'protagonist'?\""]
+         [:li "\"Compare my original draft to the merged version\""]]
+
+        [:h3 "2. Queryable Writing Analytics"]
+
+        [:pre [:code {:class "language-clojure"} ";; Word count by author
+[:find ?author (sum ?words)
+ :where
+ [?para :text/author ?author]
+ [?para :text/word-count ?words]]
+
+;; Most-edited paragraphs (revision heat map)
+[:find ?para (count ?edit)
+ :where
+ [?para :text/content _ ?tx]
+ :group-by ?para
+ :order-by (desc (count ?edit))]
+
+;; Writing velocity over time
+[:find ?date (sum ?words-added)
+ :where
+ [?para :text/content ?content ?tx]
+ [?tx :db/txInstant ?instant]
+ [(extract-date ?instant) ?date]
+ [(word-count ?content) ?words-added]
+ :group-by ?date]
+
+;; Collaboration graph
+[:find ?author-a ?author-b (count ?interaction)
+ :where
+ [?para :text/author ?author-a]
+ [?comment :comment/target ?para]
+ [?comment :comment/author ?author-b]
+ [(not= ?author-a ?author-b)]
+ :group-by [?author-a ?author-b]]"]]
+
+        [:h3 "2. Content Provenance"]
+
+        [:pre [:code {:class "language-clojure"} ";; Who wrote this sentence?
+[:find ?author ?time
+ :where
+ [?para :text/content \"It was a dark and stormy night.\" ?tx]
+ [?tx :db/author ?author]
+ [?tx :db/txInstant ?time]]
+
+;; When was this paragraph added?
+[:find (min ?time)
+ :where
+ [para-42 :text/content _ ?tx]
+ [?tx :db/txInstant ?time]]
+
+;; Show me Alice's contributions
+[:find ?content
+ :where
+ [?para :text/author alice]
+ [?para :text/content ?content]]"]]
+
+        [:h3 "3. Structural Queries"]
+
+        [:pre [:code {:class "language-clojure"} ";; Find all dialogue by character
+[:find ?text
+ :where
+ [?para :paragraph/type :dialogue]
+ [?para :dialogue/character \"Sherlock Holmes\"]
+ [?para :text/content ?text]]
+
+;; Chapters with unresolved plot threads
+[:find ?chapter
+ :where
+ [?chapter :chapter/plot-threads ?thread]
+ [?thread :plot/status :unresolved]]
+
+;; Scenes with specific settings
+[:find ?scene ?text
+ :where
+ [?scene :scene/location \"London\"]
+ [?scene :scene/time-period \"Victorian Era\"]
+ [?scene :text/content ?text]]"]]
+
+        [:p "These queries are " [:strong "impossible"] " with traditional document editors. With datoms, they're " [:strong "trivial"] "."]
+
+        [:h2 "The Data Ownership Revolution"]
+
+        [:p "Ellipsus promises: \"Your content is YOURS.\""]
+
+        [:p "But what does that mean in practice?"]
+
+        [:p [:strong "With Google Docs:"]]
+        [:ul.bulleted
+         [:li "Content stored on Google's servers"]
+         [:li "Export as .docx (loses comments, version history)"]
+         [:li "Can't query or script"]
+         [:li "Vendor lock-in"]]
+
+        [:p [:strong "With DaoDB:"]]
+        [:pre [:code "~/Documents/Ellipsus/my-novel.db
+
+SQLite file on YOUR disk
+- Query with SQL
+- Script with nbb-logseq
+- Back up to Git
+- Export as EDN (full fidelity)
+- Switch tools (data portable)"]]
+
+        [:p [:strong "You literally own the database."]]
+
+        [:p "This is the difference between " [:em "claiming"] " data ownership and " [:em "delivering"] " it."]
+
+        [:h2 "Why This Matters for Creative Writers"]
+
+        [:p "Creative writing has unique needs:"]
+
+        [:h3 "Long-Term Projects"]
+        [:p "Novels take years. You need confidence your tool will exist, won't change pricing, won't shut down."]
+        [:p [:strong "Solution:"] " Local-first storage. Even if Ellipsus (or any tool) shuts down, you have the database."]
+
+        [:h3 "Non-Linear Structure"]
+        [:p "Writers jump between chapters, create alternate scenes, experiment with structure."]
+        [:p [:strong "Solution:"] " Branch drafts, query relationships, merge semantically."]
+
+        [:h3 "Collaboration Patterns"]
+        [:p "Co-authors, editors, beta readers - different access levels, different workflows."]
+        [:p [:strong "Solution:"] " Comments as data, queryable feedback, granular provenance."]
+
+        [:h3 "Research and Worldbuilding"]
+        [:p "Writers need to track characters, locations, timelines, plot threads."]
+        [:p [:strong "Solution:"] " Custom attributes via datoms:"]
+        [:pre [:code {:class "language-clojure"} "[character-1 :character/name \"Sherlock Holmes\"]
+[character-1 :character/first-appearance para-42]
+[character-1 :character/relationships [[\"Watson\" :friend]]]
+
+[location-1 :location/name \"221B Baker Street\"]
+[location-1 :location/scenes [scene-1 scene-5 scene-12]]
+
+[timeline-1 :timeline/event \"Watson meets Holmes\"]
+[timeline-1 :timeline/date \"January 1881\"]
+[timeline-1 :timeline/chapter chapter-1]"]]
+
+        [:p "Now you can query:"]
+        [:pre [:code {:class "language-clojure"} ";; Where does Sherlock appear?
+[:find ?scene
+ :where
+ [?char :character/name \"Sherlock Holmes\"]
+ [?scene :scene/characters ?char]]
+
+;; Timeline of events
+[:find ?event ?date
+ :where
+ [?t :timeline/event ?event]
+ [?t :timeline/date ?date]
+ :order-by ?date]
+
+;; Plot holes: characters mentioned but never introduced
+[:find ?name
+ :where
+ [?para :text/content ?content]
+ [(extract-names ?content) ?name]
+ (not [?char :character/name ?name])]"]]
+
+        [:h2 "The Architecture: How It Would Work"]
+
+        [:h3 "Client Application"]
+        [:pre [:code "Ellipsus App (ClojureScript + React)
+  ↓
+DaoDB Client (DataScript in-memory + SQLite persistence)
+  ↓
+Local Filesystem: ~/Documents/Ellipsus/*.db"]]
+
+        [:h3 "Data Model"]
+        [:pre [:code {:class "language-clojure"} ";; Schema (example)
+{:paragraph/content {:type :string}
+ :paragraph/position {:type :number}
+ :paragraph/author {:type :ref}
+ :paragraph/chapter {:type :ref}
+
+ :comment/target {:type :ref}
+ :comment/text {:type :string}
+ :comment/author {:type :ref}
+ :comment/status {:type :enum [:unresolved :resolved]}
+ :comment/reply-to {:type :ref}
+
+ :chapter/title {:type :string}
+ :chapter/position {:type :number}
+ :chapter/draft {:type :ref}
+
+ :draft/name {:type :string}
+ :draft/created {:type :instant}
+ :draft/parent {:type :ref}}"]]
+
+        [:h3 "Sync Protocol"]
+        [:pre [:code "Device A: Makes edits → Datoms with vector clock
+  ↓
+Sync Layer: CRDT merge (deterministic convergence)
+  ↓
+Device B: Receives datoms → Merges into local DB
+  ↓
+Both devices: Identical state (eventually consistent)"]]
+
+        [:h3 "Optional Features"]
+        [:ul.bulleted
+         [:li [:strong "Encrypted sync relay"] ": For devices behind NAT"]
+         [:li [:strong "Cloud backup service"] ": Encrypted .db files in S3"]
+         [:li [:strong "Public sharing"] ": Export to web (static HTML from datoms)"]
+         [:li [:strong "Plugin system"] ": Users write Datalog queries for custom features"]]
+
+        [:h2 "What Ellipsus Could Differentiate On"]
+
+        [:p "With DaoDB as the foundation, Ellipsus could market as:"]
+        [:ul.bulleted
+         [:li [:strong "\"The only writing tool where you own the database\""]]
+         [:li [:strong "\"Works offline, syncs everywhere, zero lock-in\""]]
+         [:li [:strong "\"Query your writing like a database (because it is)\""]]
+         [:li [:strong "\"True version control for prose, not code\""]]
+         [:li [:strong "\"Semantic merge: no more lost edits\""]]
+         [:li [:strong "\"Built on open formats: SQLite + EDN\""]]]
+
+        [:p "These aren't marketing fluff. They're " [:strong "architectural guarantees"] "."]
+
+        [:h2 "The Broader Lesson"]
+
+        [:p "This isn't just about Ellipsus. " [:strong "Every collaborative tool has this problem:"]]
+        [:ul.bulleted
+         [:li "Notion: Documents locked in Notion's servers"]
+         [:li "Figma: Designs locked in Figma's cloud"]
+         [:li "Coda: Data locked in proprietary format"]
+         [:li "Airtable: Databases locked in Airtable's infrastructure"]]
+
+        [:p "The pattern:"]
+        [:ol
+         [:li "Great UX"]
+         [:li "Collaborative features"]
+         [:li "Your data trapped"]
+         [:li "Eventual enshittification (price hikes, forced upgrades, feature removal)"]]
+
+        [:p [:strong "The alternative:"]]
+        [:ol
+         [:li "Local-first storage (you own the .db file)"]
+         [:li "CRDT sync (no central server required)"]
+         [:li "Datoms as universal format (portable, queryable)"]
+         [:li "Apps compete on " [:em "interpretation"] ", not data captivity"]]
+
+        [:p "This is what " [:a {:href "/"} "Datom.world"] " enables."]
+
+        [:h2 "Conclusion: Storage Format Is Destiny"]
+
+        [:p "Google Docs stores " [:strong "documents"] ". So it has:"]
+        [:ul.bulleted
+         [:li "Central server (no offline)"]
+         [:li "Snapshots (no true history)"]
+         [:li "UI-only comments (not queryable)"]
+         [:li "Vendor lock-in (data extraction lossy)"]]
+
+        [:p "If Ellipsus stores " [:strong "datoms with branching"] ", it gets:"]
+        [:ul.bulleted
+         [:li "Local-first (offline works)"]
+         [:li "Full provenance (every edit tracked)"]
+         [:li "Queryable everything (comments, versions, authors)"]
+         [:li "Data ownership (literal .db file on disk)"]
+         [:li [:strong "Local history never lost"] " (your branch preserved forever)"]
+         [:li [:strong "Safe collaboration"] " (merges create new branches, don't overwrite)"]
+         [:li [:strong "Git for prose"] " (branch, merge, revert - but automatic)"]]
+
+        [:p [:strong "Storage format is destiny."]]
+
+        [:p "Documents lose your edits when collaborators merge. Datoms preserve them in branches."]
+
+        [:p "You can't build true collaboration on top of documents. You need " [:strong "streams of immutable facts"] " with " [:strong "branch-aware storage"] "."]
+
+        [:p "That's what datoms with the " [:code "c"] " (context) field enable."]
+
+        [:p "And that's why the future of collaborative writing - and every other collaborative tool - depends on them."]
+
+        [:h2 "Learn More"]
+        [:ul.bulleted
+         [:li [:a {:href "/dao-db.chp"} "DaoDB"] ": Distributed Datalog database for datom storage"]
+         [:li [:a {:href "/blog/logseq-knowledge-graph-markdown-paradox.chp"} "Logseq's Knowledge Graph Paradox"] ": Why Markdown files aren't enough"]
+         [:li [:a {:href "/blog/datoms-as-streams.chp"} "Datoms as Streams"] ": Local-first sync architecture"]
+         [:li [:a {:href "/blog/datom-world-wave-function-collapse.chp"} "Datom.World and Wave Function Collapse"] ": CRDT merge as quantum mechanics"]
+         [:li [:a {:href "/blog/structure-vs-interpretation.chp"} "Structure vs Interpretation"] ": Why storage format matters"]
+         [:li [:a {:href "/"} "Datom.world"] ": The datom-native ecosystem"]]
+
+        [:hr]
+        [:p.meta "Note: This is not a critique of Ellipsus. It's recognition that " [:em "every"] " collaborative writing tool faces these challenges. Ellipsus's philosophy (data ownership, no AI) aligns perfectly with what DaoDB enables. The question isn't whether they " [:em "should"] " use datoms, but when the entire industry realizes documents are the wrong abstraction."]]]])}
+   template))
