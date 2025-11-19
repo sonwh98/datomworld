@@ -760,6 +760,106 @@ Advantages:
         [:p
          "Query past optimizations. What worked? What didn't? Apply successful patterns to new code automatically."]
 
+        [:p
+         "The same database that empowers compiler engineers is also accessible to new kinds of agents. When every optimization, execution trace, and user edit is a datom, even an external assistant—like a large language model—can participate in compilation without bespoke hooks."]
+
+        [:h2 "LLMs as Compiler Optimization Agents"]
+        [:p
+         "Once optimizations, transformations, provenance, and execution traces live as datoms, a large language model no longer needs privileged compiler hooks. It simply becomes another client of DaoDB—one that can " [:strong "query existing knowledge"] ", " [:strong "propose new rules"] ", and " [:strong "verify semantics"] " using the same Datalog interface as the compiler."]
+
+        [:h3 "1. LLM Queries Existing Optimizations"]
+        [:p
+         "Because optimization passes are represented as facts, an LLM can inspect them directly:"]
+        [:pre [:code {:class "language-clojure"}
+               ";; \"How does Yin.vm optimize tail calls?\"
+[:find ?before ?after ?rule
+ :where
+ [?opt :optimization/type :tail-call-elimination]
+ [?opt :optimization/pattern-before ?before]
+ [?opt :optimization/pattern-after ?after]
+ [?opt :optimization/rule ?rule]]"]]
+        [:p
+         "The response returns the actual transformation patterns and rules. The LLM doesn't hallucinate compiler internals—it reads them."]
+
+        [:h3 "2. LLM Proposes and Tests New Optimizations"]
+        [:p
+         "LLMs can mine DaoDB for suspicious IR shapes, emit candidate rules, and immediately verify the impact:"]
+        [:pre [:code {:class "language-clojure"}
+               ";; Detect x + x
+[:find ?expr ?x
+ :where
+ [?expr :ir/op :add]
+ [?expr :ir/lhs ?x]
+ [?expr :ir/rhs ?x]]
+
+;; Proposed transform: x + x → x * 2
+(defn optimize-double-add [db]
+  (doseq [[expr x] (d/q '[:find ?expr ?x
+                          :where
+                          [?expr :ir/op :add]
+                          [?expr :ir/lhs ?x]
+                          [?expr :ir/rhs ?x]]
+                        db)]
+    (transact! db
+      [[:db/retract expr :ir/op :add]
+       [:db/add expr :ir/op :mul]
+       [:db/add expr :ir/rhs 2]])))"]]
+        [:p
+         "After the transaction, the LLM can ask DaoDB if instruction counts dropped, or if semantics still match sample executions. It's the same workflow compiler authors perform manually, but now expressed as data the LLM can manipulate."]
+
+        [:h3 "3. LLM-Driven Transpilation via IR Queries"]
+        [:p
+         "With a Universal AST, language translation becomes a pure query problem:"]
+        [:pre [:code {:class "language-clojure"}
+               ";; Map Python list-comprehension IR to JavaScript equivalent
+[:find ?js-pattern
+ :where
+ [?opt :transpile/from \"Python\"]
+ [?opt :transpile/to \"JavaScript\"]
+ [?opt :transpile/ir-pattern :list-comp]
+ [?opt :transpile/js-equivalent ?js-pattern]]"]]
+        [:p
+         "The LLM doesn't have to invent the translation. It queries previously recorded equivalences, applies them to the AST, and emits target syntax that shares semantic annotations with the source."]
+
+        [:h3 "4. Learning from Historical Optimizations"]
+        [:p
+         "DaoDB already records when an optimization was applied, who authored it, and the measured benefit. LLMs can mine this telemetry to prioritize future suggestions:"]
+        [:pre [:code {:class "language-clojure"}
+               "[:find ?opt (avg ?perf-gain) (count ?application)
+ :where
+ [?application :applied/optimization ?opt]
+ [?application :applied/perf-gain ?perf-gain]
+ :group-by ?opt
+ :order-by (desc (avg ?perf-gain))]"]]
+        [:p
+         "If loop unrolling historically delivers 30% speedups on similar IR, the LLM can recommend it first, or auto-trigger the corresponding rule."]
+
+        [:h3 "5. Automatic Correctness Checks"]
+        [:p
+         "DaoDB already records regression harness results as " [:code ":ir/eval-to"] " facts keyed by specific inputs. Verifying an LLM-proposed change is therefore just another query:"]
+        [:pre [:code {:class "language-clojure"}
+               ";; Ensure optimized IR still returns 25 when x=5
+[:find ?value
+ :where
+ [?expr :ir/id expr-1]
+ [?expr :ir/eval-to ?value {:input {:x 5}}]]"]]
+        [:p
+         "If pre- and post-optimization evaluations match for all sampled inputs, the proposal can be merged automatically or surfaced to a reviewer with proof."]
+
+        [:h3 "6. Feedback Loop from User Edits"]
+        [:p
+         "Developers often hand-tune code. DaoDB can capture those diffs as new optimization patterns, which LLMs then reuse:"]
+        [:pre [:code {:class "language-clojure"}
+               "[pattern-1 :learn/from-user true]
+[pattern-1 :opt/before \"indexed-loop-modify\"]
+[pattern-1 :opt/after \"list-comprehension\"]
+[pattern-1 :opt/perf-gain 1.5]"]]
+        [:p
+         "The next time an indexed loop appears, the LLM can cite this pattern, show the expected speedup, and offer the comprehension rewrite as an automated fix."]
+
+        [:p
+         "Traditional compilers hide optimization logic inside imperative passes. DaoDB makes that logic explicit, queryable, and editable—exactly the substrate LLMs need to become useful co-optimizers rather than documentation parrots."]
+
         [:h2 "The Implementation: DaoDB"]
         [:p
          "This vision requires a database designed for code. " [:a {:href "/dao-db.chp"} "DaoDB"] " is built specifically for storing ASTs as datoms:"]
