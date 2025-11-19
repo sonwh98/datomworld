@@ -1,18 +1,18 @@
 (let [template (load-file "public/chp/template.chp")]
   (clojure.walk/postwalk-replace
-   {:template/title "The Coming AI Data Crisis — and Why Datom.world Exists - Datom.World"
+   {:template/title "The Coming AI Data Crisis - and Why Datom.world Exists - Datom.World"
     :template/content
     (list
      [:section.blog-article
       [:div.section-inner
        [:article
-        [:h1 "The Coming AI Data Crisis — and Why Datom.world Exists"]
+        [:h1 "The Coming AI Data Crisis - and Why Datom.world Exists"]
         [:div.blog-article-meta "Published Nov 18, 2025 · 12 minute read"]
 
         [:p
          [:a {:href "https://x.com/AndrewYNg/status/1986500817613169025" :target "_blank"} "Andrew Ng recently highlighted"] " a problem that every serious AI practitioner is running into: " [:strong "AI agents are getting smarter faster than our data infrastructure can keep up"] "."]
         [:p
-         "As agents become capable of correlating signals across email logs, purchase histories, sensors, CRM events, contracts, PDFs, spreadsheets, and unstructured knowledge bases, the value of cross-system interpretation grows. But the cost of accessing that data—because of SaaS vendors—is rising even faster."]
+         "As agents become capable of correlating signals across email logs, purchase histories, sensors, CRM events, contracts, PDFs, spreadsheets, and unstructured knowledge bases, the value of cross-system interpretation grows. But the cost of accessing that data - because of SaaS vendors - is rising even faster."]
         [:p
          [:strong "Some vendors now charge tens of thousands of dollars just for an API key to your own data."]]
 
@@ -40,7 +40,7 @@
          [:p "Agents thrive in " [:strong "open systems"] "."]
          [:p "SaaS thrives on " [:strong "closed systems"] "."]]
         [:p
-         "Every API paywall, export fee, rate limit, or opaque schema is friction that prevents agents from doing what they're good at—building connections you didn't know to look for."]
+         "Every API paywall, export fee, rate limit, or opaque schema is friction that prevents agents from doing what they're good at - building connections you didn't know to look for."]
         [:p
          "Andrew Ng's core argument is simple:"]
         [:blockquote
@@ -55,7 +55,7 @@
 
         [:h3 "1. You Own Your Data. Absolutely. Locally. Physically."]
         [:p
-         [:strong "SaaS vendors should be hired to operate on your data—not own it."]]
+         [:strong "SaaS vendors should be hired to operate on your data - not own it."]]
         [:p
          "In Datom.world, data is not stored on someone else's servers behind an API. It lives as " [:strong "local, append-only streams of datoms"] ": " [:code "[e a v t c]"] "."]
         [:ul.bulleted
@@ -99,7 +99,7 @@
         [:p
          "Each with its own schema, dashboard, locked UI, and monetization model."]
         [:p
-         [:strong "Datom.world collapses all of this into a single substrate"] "—a tuple-space where every event is just a datom in a global stream."]
+         [:strong "Datom.world collapses all of this into a single substrate"] " - a tuple-space where every event is just a datom in a global stream."]
         [:p
          "This removes the very concept of a silo:"]
         [:pre [:code
@@ -147,7 +147,7 @@ LLM output             → datoms"]]
 
         [:h2 "AI Agents Aren't the Future Without Data Freedom"]
         [:p
-         "AI agents will reshape nearly every business process. But the real constraint is not their intelligence—it is the " [:strong "accessibility of the data they need"] "."]
+         "AI agents will reshape nearly every business process. But the real constraint is not their intelligence - it is the " [:strong "accessibility of the data they need"] "."]
         [:p
          "SaaS vendors will not voluntarily open their silos. " [:strong "The architecture itself must change."]]
         [:p
@@ -167,7 +167,7 @@ LLM output             → datoms"]]
 
         [:div.highlight-box
          [:p [:strong "This is not a new product category."]]
-         [:p [:strong "It is a new substrate for computing"] "—one designed for a world where " [:strong "agents, not vendors"] ", orchestrate workflows."]]
+         [:p [:strong "It is a new substrate for computing"] " - one designed for a world where " [:strong "agents, not vendors"] ", orchestrate workflows."]]
 
         [:h2 "The AI Future Belongs to Whoever Controls Their Own Data"]
         [:p
@@ -182,11 +182,11 @@ LLM output             → datoms"]]
 
         [:h2 "Learn More"]
         [:ul.bulleted
-         [:li [:a {:href "/dao-db.chp"} "DaoDB"] " — The Datalog database that stores everything as datoms"]
-         [:li [:a {:href "/blog/datoms-as-streams.chp"} "Datoms as Streams"] " — Local-first data architecture"]
-         [:li [:a {:href "/blog/yin-vm-ast-chinese-characters.chp"} "Yin.vm: Universal Semantic AST"] " — How code itself becomes datoms"]
-         [:li [:a {:href "/blog/structure-vs-interpretation.chp"} "Structure vs Interpretation"] " — Why ownership matters"]
-         [:li [:a {:href "/"} "Datom.world"] " — The future of computing"]]
+         [:li [:a {:href "/dao-db.chp"} "DaoDB"] ": The Datalog database that stores everything as datoms"]
+         [:li [:a {:href "/blog/datoms-as-streams.chp"} "Datoms as Streams"] ": Local-first data architecture"]
+         [:li [:a {:href "/blog/yin-vm-ast-chinese-characters.chp"} "Yin.vm: Universal Semantic AST"] ": How code itself becomes datoms"]
+         [:li [:a {:href "/blog/structure-vs-interpretation.chp"} "Structure vs Interpretation"] ": Why ownership matters"]
+         [:li [:a {:href "/"} "Datom.world"] ": The future of computing"]]
 
         [:hr]
         [:p.meta

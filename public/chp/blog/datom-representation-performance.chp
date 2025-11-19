@@ -215,7 +215,7 @@ Blob store:   {v_ref → actual_large_value}"]]
 [1 47 \"alice@example.com\" 1001 nil]  ;; 47 = :user/email
 [2 47 \"bob@example.com\" 1002 nil]"]]
         [:p
-         "Attributes especially benefit from interning—there are typically " [:strong "far fewer unique attributes than entities"] "."]
+         "Attributes especially benefit from interning - there are typically " [:strong "far fewer unique attributes than entities"] "."]
 
         [:h3 "4. Fixed-Width Encoding for Common Cases"]
         [:p
@@ -248,7 +248,7 @@ context:     [nil, nil, nil, nil, ...]"]]
         [:p
          "What if, instead of one heterogeneous datom stream, you had " [:strong "typed streams per attribute"] "?"]
         [:p
-         "This is the insight behind " [:strong "Go channels"] ". When you create " [:code "chan int64"] ", the type is known—every element is exactly 8 bytes. " [:strong "No parsing. No type inspection. Just read and go."] " Type safety eliminates runtime overhead."]
+         "This is the insight behind " [:strong "Go channels"] ". When you create " [:code "chan int64"] ", the type is known - every element is exactly 8 bytes. " [:strong "No parsing. No type inspection. Just read and go."] " Type safety eliminates runtime overhead."]
         [:p
          "Apply this to datoms:"]
         [:pre [:code {:class "language-clojure"}
@@ -266,16 +266,16 @@ stream: [[1 :name \"Alice\" 1001 nil]
         [:p
          "Why this is powerful:"]
         [:ul.bulleted
-         [:li [:strong "Fixed-size per stream"] " — Fast parsing, no length prefixes"]
-         [:li [:strong "Natural partitioning"] " — Each attribute is isolated"]
-         [:li [:strong "Columnar automatically"] " — All :user/name values together"]
-         [:li [:strong "Type safety"] " — Compiler can verify at stream creation"]
-         [:li [:strong "SIMD-friendly"] " — Homogeneous data = vectorization"]
-         [:li [:strong "Easy to extend"] " — New attribute = new typed stream"]]
+         [:li [:strong "Fixed-size per stream"] ": Fast parsing, no length prefixes"]
+         [:li [:strong "Natural partitioning"] ": Each attribute is isolated"]
+         [:li [:strong "Columnar automatically"] ": All :user/name values together"]
+         [:li [:strong "Type safety"] ": Compiler can verify at stream creation"]
+         [:li [:strong "SIMD-friendly"] ": Homogeneous data = vectorization"]
+         [:li [:strong "Easy to extend"] ": New attribute = new typed stream"]]
 
         [:h4 "The AEVT Index Connection"]
         [:p
-         "This isn't just theoretical—it maps " [:strong "directly to how datom indexes work"] "."]
+         "This isn't just theoretical - it maps " [:strong "directly to how datom indexes work"] "."]
         [:p
          "The " [:strong "AEVT index"] " (attribute, entity, value, transaction) groups datoms by attribute. If you store each attribute's datoms in a typed stream, you get:"]
         [:pre [:code
@@ -296,10 +296,10 @@ AEVT[:user/photo] = typed stream of (entity, blob-ref, tx, ctx)"]]
         [:p
          "Typed streams aren't free:"]
         [:ul.bulleted
-         [:li [:strong "More streams to manage"] " — One per attribute (but you'd have indexes anyway)"]
-         [:li [:strong "Routing overhead"] " — Must dispatch datoms to correct stream"]
-         [:li [:strong "Schema evolution"] " — Changing types requires migration"]
-         [:li [:strong "Mixed-type attributes"] " — Need union types or multiple streams"]]
+         [:li [:strong "More streams to manage"] ": One per attribute (but you'd have indexes anyway)"]
+         [:li [:strong "Routing overhead"] ": Must dispatch datoms to correct stream"]
+         [:li [:strong "Schema evolution"] ": Changing types requires migration"]
+         [:li [:strong "Mixed-type attributes"] ": Need union types or multiple streams"]]
         [:p
          "But in exchange, you get " [:strong "parsing performance that approaches raw memory bandwidth"] "."]
 
@@ -325,12 +325,12 @@ AEVT[:user/photo] = typed stream of (entity, blob-ref, tx, ctx)"]]
         [:p
          [:a {:href "/dao-db.chp"} "DaoDB"] " combines multiple strategies:"]
         [:ul.bulleted
-         [:li [:strong "Typed attribute streams"] " — Each attribute stored in a typed stream (AEVT index = typed streams)"]
-         [:li [:strong "Attribute interning"] " — Attributes are always small integer IDs"]
-         [:li [:strong "Inline small values"] " — Integers, small strings, booleans stored directly"]
-         [:li [:strong "Reference large values"] " — Blobs and large strings stored separately"]
-         [:li [:strong "Columnar indexes"] " — EAVT/AEVT/AVET indexes use columnar encoding"]
-         [:li [:strong "Type-tagged encoding"] " — Common datom shapes use optimized fixed-width encodings"]]
+         [:li [:strong "Typed attribute streams"] ": Each attribute stored in a typed stream (AEVT index = typed streams)"]
+         [:li [:strong "Attribute interning"] ": Attributes are always small integer IDs"]
+         [:li [:strong "Inline small values"] ": Integers, small strings, booleans stored directly"]
+         [:li [:strong "Reference large values"] ": Blobs and large strings stored separately"]
+         [:li [:strong "Columnar indexes"] ": EAVT/AEVT/AVET indexes use columnar encoding"]
+         [:li [:strong "Type-tagged encoding"] ": Common datom shapes use optimized fixed-width encodings"]]
         [:p
          "This balances:"]
         [:ul.bulleted
@@ -346,7 +346,7 @@ AEVT[:user/photo] = typed stream of (entity, blob-ref, tx, ctx)"]]
          [:p [:strong "Semantic flexibility vs execution performance"]]
          [:p "Universal representation vs specialized encoding"]]
         [:p
-         "Datoms are " [:strong "semantically universal"] "—they can represent any fact. But universality has a cost."]
+         "Datoms are " [:strong "semantically universal"] " - they can represent any fact. But universality has a cost."]
         [:p
          "The art is in finding encodings that:"]
         [:ul.bulleted
@@ -374,7 +374,7 @@ AEVT[:user/photo] = typed stream of (entity, blob-ref, tx, ctx)"]]
          [:li "Cache inefficiency"]
          [:li "Compression challenges"]]
         [:p
-         "The solution isn't to abandon the abstraction—it's to " [:strong "recognize the implementation space beneath it"] "."]
+         "The solution isn't to abandon the abstraction - it's to " [:strong "recognize the implementation space beneath it"] "."]
         [:p
          "Datoms are the " [:strong "semantic model"] ". Interning, referencing, columnar encoding, and type tagging are the " [:strong "performance model"] "."]
         [:p
@@ -384,8 +384,8 @@ AEVT[:user/photo] = typed stream of (entity, blob-ref, tx, ctx)"]]
 
         [:h2 "Learn More"]
         [:ul.bulleted
-         [:li [:a {:href "/dao-db.chp"} "DaoDB"] " — How the datom database optimizes representation"]
-         [:li [:a {:href "/blog/datoms-as-streams.chp"} "Datoms as Streams"] " — Streaming performance considerations"]
-         [:li [:a {:href "/blog/ast-datom-streams-bytecode-performance.chp"} "AST Datom Streams: Bytecode Performance with Semantic Preservation"] " — Similar trade-offs in code representation"]
-         [:li [:a {:href "/blog/structure-vs-interpretation.chp"} "Structure vs Interpretation"] " — The deeper philosophical tension"]]]]])}
+         [:li [:a {:href "/dao-db.chp"} "DaoDB"] ": How the datom database optimizes representation"]
+         [:li [:a {:href "/blog/datoms-as-streams.chp"} "Datoms as Streams"] ": Streaming performance considerations"]
+         [:li [:a {:href "/blog/ast-datom-streams-bytecode-performance.chp"} "AST Datom Streams: Bytecode Performance with Semantic Preservation"] ": Similar trade-offs in code representation"]
+         [:li [:a {:href "/blog/structure-vs-interpretation.chp"} "Structure vs Interpretation"] ": The deeper philosophical tension"]]]]])}
    template))

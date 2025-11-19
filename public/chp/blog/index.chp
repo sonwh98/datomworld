@@ -8,6 +8,30 @@
        [:div.blog-grid
         [:article.blog-card
          [:div.blog-meta
+          [:span "Nov 19, 2025"]
+          [:span "16 min read"]]
+         [:h2 [:a {:href "/blog/collaborative-writing-needs-datoms.chp"} "Why Collaborative Writing Tools Need Datoms, Not Documents"]]
+         [:p
+          "Google Docs stores documents. Collaborative writing needs datoms. Why? Conflict-free editing (CRDTs not OT), true version history (not snapshots), comments as queryable data, semantic draft merging, multi-device sync without servers. Ellipsus promises data ownership - DaoDB delivers it. Local SQLite database you own, query writing analytics, content provenance, structural queries. The broader lesson: storage format is destiny. Documents trap data in vendors' servers. Datoms enable local-first, queryable, portable collaboration. Every collaborative tool has this problem."]
+         [:a {:href "/blog/collaborative-writing-needs-datoms.chp"} "Read the article →"]]
+        [:article.blog-card
+         [:div.blog-meta
+          [:span "Nov 19, 2025"]
+          [:span "14 min read"]]
+         [:h2 [:a {:href "/blog/logseq-knowledge-graph-markdown-paradox.chp"} "Logseq's Knowledge Graph Paradox: Why Markdown Files Aren't Datoms"]]
+         [:p
+          "Logseq is beautiful—built with Clojure/ClojureScript, uses DataScript, claims to be a knowledge graph. But there's a fundamental tension: it stores data as Markdown files, not datoms. Semantics trapped in text. Relationships lost in parsing. Brittle queries. The DB version (SQLite + DataScript) is moving toward datoms, but loses plain-text portability and requires cloud sync. The lesson: storage format is destiny. You can't build a true knowledge graph on text files. Datoms first, everything else is a view."]
+         [:a {:href "/blog/logseq-knowledge-graph-markdown-paradox.chp"} "Read the article →"]]
+        [:article.blog-card
+         [:div.blog-meta
+          [:span "Nov 19, 2025"]
+          [:span "16 min read"]]
+         [:h2 [:a {:href "/blog/use-cases-datom-world.chp"} "What Can You Build with Datom.world? 18 Use Cases from AI to Edge Computing"]]
+         [:p
+          "Datom.world isn't a product—it's a substrate. But what can you actually build? AI agents with universal data access, offline-first mobile apps, compilers with queryable optimizations, code editors that edit meaning not text, polyglot systems with universal AST, real-time collaboration, schema-less evolution, distributed databases with quantum semantics, mobile agents that migrate, privacy-first data ownership, IoT sensor networks, time-travel debugging, reactive visualizations, custom lint rules, security taint tracking, historical optimization learning, and marketplace signaling. 18 concrete use cases."]
+         [:a {:href "/blog/use-cases-datom-world.chp"} "Read the article →"]]
+        [:article.blog-card
+         [:div.blog-meta
           [:span "Nov 18, 2025"]
           [:span "10 min read"]]
          [:h2 [:a {:href "/blog/datom-representation-performance.chp"} "Datom Representation and the Hidden Performance Cost"]]
