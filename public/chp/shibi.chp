@@ -18,7 +18,7 @@
        [:p
         "Shibi (屎币) literally means \"shit coin\" in Chinese. The name is intentional. "
         "This isn't money, and it's not trying to replace money. It's an application of blockchain to control spam, not to create a new currency. "
-        "More importantly, Shibi isn't a single token. It's a system that allows anyone: people, organizations, or autonomous AI agents,to be their own central bank, easily issuing infinitely many utility tokens for different purposes. "
+        "More importantly, Shibi isn't a single token. It's a system that allows anyone: people, organizations, or autonomous AI agents, to be their own central bank, easily issuing infinitely many utility tokens for different purposes. "
         "Each token is purpose-specific: one for email attention, another for API rate limiting, another for forum moderation. "
         "The provocative name \"shit coin\" makes this clear: these aren't speculative assets, they're contextual utilities."]
        [:p
@@ -29,7 +29,7 @@
        [:p
         "The carbon credit inspiration addresses spam as a negative externality. "
         "Just like pollution, spam imposes costs on others: one party consumes another person's attention without paying for it. "
-        "Carbon credit systems turn pollution,an environmental negative externality,into a tradable commodity, making it costly and creating market incentives for reduction. "
+        "Carbon credit systems turn pollution, an environmental negative externality, into a tradable commodity, making it costly and creating market incentives for reduction. "
         "Similarly, Shibi makes spam costly and creates economic pressure for its reduction."]
        [:p
         "Ostrom spent her career proving communities can successfully manage shared resources through self-governance without top-down regulation or privatization. "
@@ -104,6 +104,52 @@
        "]
        [:p
         "Datom.World is Ostrom's principles encoded in software, with Shibi as the economic primitive that turns her theoretical framework into a practical tool for managing open platforms as shared resources."]
+       [:h3 "Biological Systems Prove the Model"]
+       [:p
+        "Shibi isn't inventing a new solution to spam; it's implementing mechanisms that biological cells have used for billions of years. "
+        "Cells face the exact same problem as any information processing system: " [:strong "how do you prevent spam signals from overwhelming the membrane?"] " "
+        "Cell membranes are constantly bombarded with noise, false signals, and malicious molecules. Nature evolved proven solutions:"]
+       [:ul
+        [:li [:strong "Energy cost as filter"] ": Producing and sending signaling molecules requires ATP. Just like Shibi makes communication cost tokens, biology makes signaling cost energy. Spam is metabolically expensive."]
+        [:li [:strong "Receptor specificity"] ": Each receptor only binds to specific molecular shapes, like capability tokens that only grant specific access. Random noise doesn't have the right shape."]
+        [:li [:strong "Signal threshold requirements"] ": Weak signals don't trigger responses. Receptors require minimum concentrations or binding durations, filtering out noise."]
+        [:li [:strong "Receptor desensitization"] ": After activation, receptors temporarily shut down or internalize, preventing repeated triggering. This is biological rate limiting."]
+        [:li [:strong "Signal degradation"] ": Enzymes quickly break down signaling molecules, preventing buildup. Messages have a short lifetime."]
+        [:li [:strong "Competitive inhibition"] ": Legitimate signals compete with spam for receptor binding sites. The cell membrane is a marketplace."]
+        [:li [:strong "Immune response"] ": The immune system detects and eliminates malicious signals (pathogens, toxins), like a spam filter that learns and adapts."]]
+       [:p
+        "These biological mechanisms map directly to Shibi's design:"]
+       [:table.principles-table
+        [:thead
+         [:tr
+          [:th "Biological Mechanism"]
+          [:th "Shibi Implementation"]]]
+        [:tbody
+         [:tr
+          [:td "Energy cost (ATP)"]
+          [:td "Capability tokens"]]
+         [:tr
+          [:td "Receptor specificity"]
+          [:td "Capability-based access control"]]
+         [:tr
+          [:td "Signal thresholds"]
+          [:td "Economic viability requirements"]]
+         [:tr
+          [:td "Receptor desensitization"]
+          [:td "Rate limiting"]]
+         [:tr
+          [:td "Signal degradation"]
+          [:td "Token expiration"]]
+         [:tr
+          [:td "Competitive inhibition"]
+          [:td "Market dynamics"]]
+         [:tr
+          [:td "Immune response"]
+          [:td "Reputation and filtering systems"]]]]
+       [:p
+        "The cell membrane proved that you can have an open, interpretive boundary without being overwhelmed by noise. "
+        "The cost is energy. In Datom.world, the cost is capability tokens. "
+        "Life has been running this experiment for 3.5 billion years. It works."]
        [:p
         "Shibi works on a simple assumption: people will tolerate spam if they are appropriately compensated. "
         "The question isn't whether spam should exist, it's who bears the cost. "
@@ -144,7 +190,7 @@
          [:p "Opt in, get paid, and reinvest attention on your own terms. You only subsidize the conversations you actually want."]]
         [:article.feature-card
          [:h3 "Programmable gates"]
-         [:p "Let Shibimon agents negotiate terms automatically,pause inbound requests, raise the rate, or whitelist the circles that matter."]]]
+         [:p "Let Shibimon agents negotiate terms automatically, pause inbound requests, raise the rate, or whitelist the circles that matter."]]]
        [:p
         "You decide who gets through, not a filter you never asked for. Attention stays accountable, and every conversation starts from mutual respect."]
        [:p.next

@@ -9,6 +9,14 @@
         [:article.blog-card
          [:div.blog-meta
           [:span "Dec 20, 2025"]
+          [:span "18 min read"]]
+         [:h2 [:a {:href "/blog/maxwells-demon-economic-value.chp"} "Maxwell's Demon and Economic Value: How Interpreters Unlock Wealth from Information"]]
+         [:p
+          "Maxwell's demon releases physical energy by interpreting information. Datom.world agents release economic wealth by interpreting shared datoms. The demon finds structure in noise—patterns invisible to the bulk system. Interpreters on Datom.world do the same: spot correlations, find relationships, transform raw datoms into models and predictions. No new data required. Value emerges from interpretation. Economic value equals local entropy reduction. When you remove silos and give agents access to shared streams, you create an economy of Maxwell demons—each extracting value through interpretation, each paying the thermodynamic cost of insight. This is an information economy built on physical principles."]
+         [:a {:href "/blog/maxwells-demon-economic-value.chp"} "Read the article →"]]
+        [:article.blog-card
+         [:div.blog-meta
+          [:span "Dec 20, 2025"]
           [:span "30 min read"]]
          [:h2 [:a {:href "/blog/datomworld-as-kernel-os.chp"} "Datom.World as an Operating System: A Kernel Built From Streams, Interpreters, and Yin.vm Isolation"]]
          [:p
