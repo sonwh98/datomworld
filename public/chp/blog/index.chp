@@ -8,7 +8,7 @@
        [:div.blog-grid
         [:article.blog-card
          [:div.blog-meta
-          [:span "Dec 20, 2025"]
+          [:span "Nov 20, 2025"]
           [:span "22 min read"]]
          [:h2 [:a {:href "/blog/maxwells-demon-economic-value.chp"} "Maxwell's Demon and Economic Value: How Interpreters Unlock Wealth from Information"]]
          [:p
@@ -16,8 +16,8 @@
          [:a {:href "/blog/maxwells-demon-economic-value.chp"} "Read the article →"]]
         [:article.blog-card
          [:div.blog-meta
-          [:span "Dec 20, 2025"]
-          [:span "30 min read"]]
+          [:span "Nov 20, 2025"]
+          [:span "25 min read"]]
          [:h2 [:a {:href "/blog/datomworld-as-kernel-os.chp"} "Datom.World as an Operating System: A Kernel Built From Streams, Interpreters, and Yin.vm Isolation"]]
          [:p
           "The traditional OS enforces a strict kernel/user boundary. Datom.world erases it. Everything is a stream. Everything is an interpreter. Continuations provide isolation without privilege rings. The kernel becomes a set of stream paths, not a privileged layer. Includes deep comparisons to microkernels and unikernels, plus technical feasibility analysis: yes, this can be built. Phase 1: hosted on Linux. Phase 2: unikernel. Phase 3: native boot. 5-8 years to production. Not science fiction—ambitious but achievable. The kernel is dead. Long live the stream."]
