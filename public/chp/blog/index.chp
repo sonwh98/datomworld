@@ -9,6 +9,14 @@
         [:article.blog-card
          [:div.blog-meta
           [:span "Nov 20, 2025"]
+          [:span "20 min read"]]
+         [:h2 [:a {:href "/blog/shibi-as-money.chp"} "Why Shibi Cannot Be Like Money"]]
+         [:p
+          "Ryan Fugger's 2004 Ripple was a web-of-trust credit network where payments rippled across chains of personal IOUs. ShiBi is a subjective value coordination protocol based on local interpretation. At first glance, Ripple seems like a natural fit. But adopting Ripple's architecture would force ShiBi to centralize. The trust path problem reduces to NP-hard routing, pushing users toward hub-and-spoke topologies. Ripple requires global coordination of credit flows. ShiBi requires local coordination without global constraints. Ripple is a network. ShiBi is an economy of local interpretations. ShiBi can learn from Ripple's ideals, but cannot implement its architecture without becoming the centralized system it seeks to avoid."]
+         [:a {:href "/blog/shibi-as-money.chp"} "Read the article →"]]
+        [:article.blog-card
+         [:div.blog-meta
+          [:span "Nov 20, 2025"]
           [:span "22 min read"]]
          [:h2 [:a {:href "/blog/maxwells-demon-economic-value.chp"} "Maxwell's Demon and Economic Value: How Interpreters Unlock Wealth from Information"]]
          [:p
