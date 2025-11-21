@@ -79,44 +79,6 @@
          [:p.learn-more "Learn more: " [:a {:href "/blog/yin-vm-ast-chinese-characters.chp"} "Yin.vm: Chinese Characters for Programming Languages"] " and " [:a {:href "/blog/semantic-impedance-mismatch.chp"} "The Semantic Impedance Mismatch"] "."]]]]]
      [:section.section-dark
       [:div.section-inner
-       [:h2 "The Seven Axioms"]
-       [:p
-        "Datom.World is built on seven foundational axioms that define how data flows, how causality works, and how meaning emerges in a distributed system. "
-        "These principles are not implementation details; they are the invariants that make stream-native software possible."]
-       [:p.learn-more
-        "For deeper exploration of how these axioms enable novel compiler optimizations, read "
-        [:a {:href "/blog/datalog-compiler-infrastructure.chp"} "Datalog as Compiler Infrastructure"]
-        ". To understand how distributed databases implement quantum principles, read "
-        [:a {:href "/blog/datom-world-wave-function-collapse.chp"} "Datom.World and the Collapse of the Wave Function"] "."]
-       [:div.axiom-list
-        [:article.axiom
-         [:h3 {:id "axiom-1"} "1. Stream Existence"]
-         [:p "A stream is an append-only, observable sequence of datoms."]]
-        [:article.axiom
-         [:h3 {:id "axiom-2"} "2. Datom Structure"]
-         [:p "Each datom is a fixed 5-tuple " [:code "[e a v t c]"] " representing entity, attribute, value, time, context/metadata."]]
-        [:article.axiom
-         [:h3 {:id "axiom-3"} "3. Appendability"]
-         [:p "Any process may append datoms to a stream without global coordination."]]
-        [:article.axiom
-         [:h3 {:id "axiom-4"} "4. Local Observation"]
-         [:p "Each node observes only a finite, local subset of any stream. No node sees the entire global history."]]
-        [:article.axiom
-         [:h3 {:id "axiom-5"} "5. Interpretation Is External"]
-         [:p "A stream carries no semantics. Meaning arises only from an interpreter that reads the stream."]]
-        [:article.axiom
-         [:h3 {:id "axiom-6"} "6. Causality Is Referential"]
-         [:p "Causality is declared explicitly through references in datoms, not enforced by the system."]]
-        [:article.axiom
-         [:h3 {:id "axiom-7"} "7. No Global State Exists"]
-         [:p "There is no global time, no global membership, and no shared global state. Only local interpretations of locally observed datoms."]]]
-       [:p
-        "These axioms ensure that Datom.World remains decentralized, local-first, and free from the coordination bottlenecks that plague traditional distributed systems. "
-        "They transform constraints into affordances: because there is no global state, systems can scale infinitely; "
-        "because interpretation is external, the same streams can serve infinite purposes; "
-        "because causality is referential, collaboration emerges from explicit connections rather than implicit dependencies."]]]
-     [:section.section-dark
-      [:div.section-inner
        [:h2 "Keeping Open Networks Open"]
        [:p
         "Open networks face an inevitable challenge: as they grow, spam threatens to make them unusable. "
