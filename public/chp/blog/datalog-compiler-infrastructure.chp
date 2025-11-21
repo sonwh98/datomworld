@@ -52,7 +52,7 @@
         [:p
          "Every global optimization requires " [:strong "custom infrastructure"] ". Want whole-program analysis? Build a new data structure. Want incremental compilation? Track dependencies manually. Want cross-language optimization? Good luck."]
         [:p
-        "Fundamentally, " [:strong "the AST isn't queryable"] ". It's just nested objects you must walk by hand."]
+         "Fundamentally, " [:strong "the AST isn't queryable"] ". It's just nested objects you must walk by hand."]
 
         [:h3 "Essential vs Accidental Complexity"]
         [:p

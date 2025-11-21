@@ -18,23 +18,7 @@
          ", monetize your attention, and lock your data behind their walls. "
          "Datom.World imagines something different: a stream-native fabric where you keep custody of your information, "
          "invite services on your terms, and tap into collective compute the way you might book a spare room on Airbnb. "
-         "Services interpret the streams you expose, making collaboration additive instead of extractive."]
-        [:div.hero-metrics
-         [:div.metric
-          [:span.label "API surface"]
-          [:span.value "5 functions"]]
-         [:div.metric
-          [:span.label "Transport"]
-          [:span.value "WireGuard"]]
-         [:div.metric
-          [:span.label "Isolation"]
-          [:span.value "Yin sandbox"]]
-         [:div.metric
-          [:span.label "Sync latency"]
-          [:span.value "< 15ms"]]
-         [:div.metric
-          [:span.label "Core primitive"]
-          [:span.value "[e a v t c]"]]]]]]
+         "Services interpret the streams you expose, making collaboration additive instead of extractive."]]]]
      [:section.section-light
       [:div.section-inner
        [:h2 "What is Datom.World?"]
