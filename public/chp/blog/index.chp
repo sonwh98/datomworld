@@ -8,6 +8,14 @@
        [:div.blog-grid
         [:article.blog-card
          [:div.blog-meta
+          [:span "Nov 22, 2025"]
+          [:span "15 min read"]]
+         [:h2 [:a {:href "/blog/semantics-structure-interpretation.chp"} "Semantics is Structure Through Interpretation"]]
+         [:p
+          "Is semantics in the structure or does it emerge from interpretation? Both. Structure provides regularities (patterns, constraints, associations) while interpretation turns those regularities into meaning. Chinese characters demonstrate this perfectly: the radical narrows the semantic field, the phonetic component creates similarity classes, and the reader brings interpretive machinery. A character is compressed graph that an interpreter unfolds into meaning. Yin VM AST works the same way: map structure × evaluator = semantics. Neither structure alone nor interpretation alone is sufficient. Together, they create semantics. This resolves the apparent contradiction between structure-based and interpretation-based views of meaning."]
+         [:a {:href "/blog/semantics-structure-interpretation.chp"} "Read the article →"]]
+        [:article.blog-card
+         [:div.blog-meta
           [:span "Nov 20, 2025"]
           [:span "20 min read"]]
          [:h2 [:a {:href "/blog/shibi-as-money.chp"} "Why Shibi Cannot Be Like Money"]]
