@@ -22,7 +22,7 @@
        [:p.learn-more
         "DaoFlow is an interpreter of " [:a {:href "/dao-stream.chp"} "DaoStream"] " datoms. "
         "To understand why interpretation creates meaning while structure alone cannot, read "
-        [:a {:href "/blog/structure-vs-interpretation.chp"} "Structure vs Interpretation"] "."]]]
+        [:a {:href "/blog/structure-vs-interpretation.blog"} "Structure vs Interpretation"] "."]]]
      [:section.section-light
       [:div.section-inner
        [:h2 "The Philosophy: Yin and Yang"]

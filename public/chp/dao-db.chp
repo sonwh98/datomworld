@@ -42,7 +42,7 @@
        [:p
         "DaoDB is fundamentally local-first. When isolated, each device maintains its own complete tuple store. But when devices " [:strong "entangle"] " into a synchronization group, something profound happens: each device holds only a " [:strong "partial view"] " of the whole state. Together, all devices in the entanglement group collectively maintain the " [:strong "complete database state"] "."]
        [:p
-        "This is " [:strong "quantum unitarity"] " in a distributed system: the total information is preserved across the system, but no single observer possesses the complete state. Learn more about how " [:a {:href "/blog/datom-world-wave-function-collapse.chp"} "DaoDB implements Relational Quantum Mechanics"] " and why conflicts are wave function collapse."]
+        "This is " [:strong "quantum unitarity"] " in a distributed system: the total information is preserved across the system, but no single observer possesses the complete state. Learn more about how " [:a {:href "/blog/datom-world-wave-function-collapse.blog"} "DaoDB implements Relational Quantum Mechanics"] " and why conflicts are wave function collapse."]
        [:p
         "Unlike cloud databases that force you to trust a central server, DaoDB keeps custody of your data locally. "
         "You choose which streams to expose and who can read them. "
@@ -67,8 +67,8 @@
        [:p
         "DaoDB implements " [:strong "Datomic's syntax of Datalog"] "—a declarative query language built on Horn clauses, fixed-point semantics, and guaranteed termination. "
         "Queries are expressed as EDN data structures, making them homoiconic (code as data) and composable. "
-        "Learn more about " [:a {:href "/blog/what-makes-datalog-datalog.chp"} "what makes Datalog Datalog"] " and why "
-        [:a {:href "/blog/datalog-compiler-infrastructure.chp"} "Datalog makes every optimization queryable"] "."]
+        "Learn more about " [:a {:href "/blog/what-makes-datalog-datalog.blog"} "what makes Datalog Datalog"] " and why "
+        [:a {:href "/blog/datalog-compiler-infrastructure.blog"} "Datalog makes every optimization queryable"] "."]
        [:p
         "Because indexes are materialized from immutable streams, queries naturally support temporal access. "
         "Ask what the world looked like at any point in history. "

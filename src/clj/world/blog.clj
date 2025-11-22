@@ -10,15 +10,6 @@
   "Render a blog post from .blog data using template"
   (let [template (load-file "public/chp/template.chp")
         content (:blog/content blog-data)
-        ;; Unwrap content if it's wrapped in (list ...)
-        ;; Content is like: (list [:section ...])
-        unwrapped-content (if (and (seq? content)
-                                   (= 'list (first content))
-                                   (= 2 (count content)))
-                            (second content)
-                            (if (and (seq? content) (= 1 (count content)))
-                              (first content)
-                              content))
         ;; Format the date
         date-inst (:blog/date blog-data)
         date-str (if date-inst
@@ -28,8 +19,8 @@
         replaced-content (clojure.walk/postwalk-replace
                           {:$blog-title [:h1 (:blog/title blog-data)]
                            :$blog-date [:p.blog-article-meta
-                                        (str "Published " date-str " · TODO min read")]}
-                          unwrapped-content)]
+                                        (str "Published " date-str)]}
+                          content)]
     ;; Replace in template
     (clojure.walk/postwalk-replace
      {:template/title (:blog/title blog-data)

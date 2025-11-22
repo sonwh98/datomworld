@@ -6,440 +6,437 @@
         [:code "[e a v t c]"]
         ". Entity, attribute, value, transaction, context. Five elements. Fixed-size tuple. Clean abstraction."],
        :content
-       (list
-        [:section.blog-article
-         [:div.section-inner
-          [:article
-           [:h1 "Datom Representation and the Hidden Performance Cost"]
-           [:div.blog-article-meta
-            "Published Nov 18, 2025 · 10 minute read"]
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          [:h1 "Datom Representation and the Hidden Performance Cost"]
+          [:div.blog-article-meta
+           "Published Nov 18, 2025"]
+          [:p
+           "Datoms are elegantly simple: "
+           [:code "[e a v t c]"]
+           ". Entity, attribute, value, transaction, context. Five elements. Fixed-size tuple. Clean abstraction."]
+          [:p
+           "But there's a performance trap hiding in this simplicity."]
+          [:h2 "The Abstraction vs The Reality"]
+          [:p
+           "In theory, a datom is a "
+           [:strong "fixed-size tuple"]
+           ". Five elements. That should mean:"]
+          [:ul.bulleted
+           [:li "Predictable memory layout"]
+           [:li "Fast sequential access"]
+           [:li "Efficient parsing"]
+           [:li "Cache-friendly data structures"]]
+          [:p
+           "But in practice, "
+           [:strong
+            "the tuple is fixed-size, but its elements are not"]
+           "."]
+          [:h2 "The Variable-Size Problem"]
+          [:p "Consider what each element actually contains:"]
+          [:pre
+           [:code
+            "e  — Entity ID (could be UUID, integer, or reference)\na  — Attribute (could be keyword, string, or symbol)\nv  — Value (could be anything: string, number, blob, reference)\nt  — Transaction ID (typically integer or timestamp)\nc  — Context metadata (could be node ID, vector clock, hash, or composite)"]]
+          [:p
+           [:strong "None of these are guaranteed to be fixed-size."]]
+          [:h3 "Entity IDs"]
+          [:ul.bulleted
+           [:li "Small integers: 1-8 bytes"]
+           [:li "UUIDs: 16 bytes"]
+           [:li "Content-addressed hashes: 32+ bytes"]
+           [:li "Composite keys: variable length"]]
+          [:h3 "Attributes"]
+          [:ul.bulleted
+           [:li
+            "Short keywords: "
+            [:code ":name"]
+            " (4 bytes + overhead)"]
+           [:li
+            "Namespaced keywords: "
+            [:code ":user/email-address"]
+            " (20+ bytes)"]
+           [:li
+            "Fully qualified: "
+            [:code ":com.example.domain/attribute"]
+            " (30+ bytes)"]]
+          [:h3 "Values"]
+          [:ul.bulleted
+           [:li "Booleans: 1 byte"]
+           [:li "Small integers: 1-8 bytes"]
+           [:li "Short strings: 10-50 bytes"]
+           [:li "Long strings: kilobytes"]
+           [:li "Blobs: megabytes"]
+           [:li "References: size of entity ID"]]
+          [:h3 "Transaction IDs"]
+          [:ul.bulleted
+           [:li "Sequential integers: 4-8 bytes"]
+           [:li "Timestamps: 8 bytes"]
+           [:li "Distributed transaction IDs: 16+ bytes"]]
+          [:h3 "Context Metadata"]
+          [:ul.bulleted
+           [:li "Null (no context): 0 bytes"]
+           [:li "Node ID: 4-16 bytes"]
+           [:li "Vector clock: 8 bytes × node count"]
+           [:li "Hash-based provenance: 32 bytes"]
+           [:li "Composite metadata: variable"]]
+          [:h2 "Why This Matters: Parsing Performance"]
+          [:p
+           "When you store datoms on disk or send them over the network, you need to "
+           [:strong "serialize and deserialize"]
+           " them."]
+          [:p
+           "With "
+           [:strong "fixed-size elements"]
+           ", parsing is trivial:"]
+          [:pre
+           [:code
+            {:class "language-c"}
+            "// Fixed-size parsing (fast)\nstruct Datom {\n    uint64_t entity;      // 8 bytes\n    uint64_t attribute;   // 8 bytes\n    uint64_t value;       // 8 bytes\n    uint64_t tx;          // 8 bytes\n    uint64_t context;     // 8 bytes\n};\n\n// Total: 40 bytes, perfectly aligned\n// Parsing: memcpy the whole thing"]]
+          [:p "This is " [:strong "blazingly fast"] ":"]
+          [:ul.bulleted
+           [:li "Sequential memory access (cache-friendly)"]
+           [:li "No branching (CPU-friendly)"]
+           [:li
+            "SIMD-friendly (can parse multiple datoms in parallel)"]
+           [:li "Direct memory mapping (zero-copy possible)"]]
+          [:p
+           "But with "
+           [:strong "variable-size elements"]
+           ", parsing becomes complex:"]
+          [:pre
+           [:code
+            {:class "language-c"}
+            "// Variable-size parsing (slow)\nstruct Datom {\n    uint32_t e_len;       // Length prefix\n    uint8_t* e_data;      // Entity bytes\n    uint32_t a_len;       // Length prefix\n    uint8_t* a_data;      // Attribute bytes\n    uint32_t v_len;       // Length prefix\n    uint8_t* v_data;      // Value bytes (could be huge!)\n    uint32_t t_len;       // Length prefix\n    uint8_t* t_data;      // Transaction bytes\n    uint32_t c_len;       // Length prefix\n    uint8_t* c_data;      // Context metadata bytes\n};\n\n// Parsing requires:\n// 1. Read length prefix\n// 2. Allocate/copy bytes\n// 3. Repeat for each field\n// 4. Handle variable offsets"]]
+          [:h2 "The Performance Implications"]
+          [:h3 "1. Slower Sequential Scans"]
+          [:p "Fixed-size datoms can be scanned at memory bandwidth:"]
+          [:pre
+           [:code
+            "Read 40 bytes → Parse datom → Next datom (40 bytes away)"]]
+          [:p "Variable-size datoms require tracking offsets:"]
+          [:pre
+           [:code
+            "Read 4 bytes (e_len) → Read e_len bytes →\nRead 4 bytes (a_len) → Read a_len bytes →\nRead 4 bytes (v_len) → Read v_len bytes → ..."]]
+          [:p
+           "This introduces "
+           [:strong "branch mispredictions"]
+           " and "
+           [:strong "variable memory jumps"]
+           "."]
+          [:h3 "2. Index Bloat"]
+          [:p
+           "Indexes (EAVT, AEVT, AVET, VAET) store datom references. With fixed-size datoms:"]
+          [:pre
+           [:code
+            "Index entry: [sort-key, offset]\nOffset = datom_index × 40 bytes  (simple multiplication)"]]
+          [:p "With variable-size datoms:"]
+          [:pre
+           [:code
+            "Index entry: [sort-key, offset]\nOffset = sum of all previous datom sizes  (requires offset table)"]]
+          [:p
+           "You need an "
+           [:strong "auxiliary offset index"]
+           " just to find datoms, adding memory overhead and indirection."]
+          [:h3 "3. Cache Inefficiency"]
+          [:p
+           "Fixed-size datoms pack predictably into cache lines (64 bytes):"]
+          [:pre
+           [:code
+            "Cache line 1: [datom1 (40 bytes), partial datom2 (24 bytes)]\nCache line 2: [rest of datom2 (16 bytes), datom3 (40 bytes), ...]"]]
+          [:p "Variable-size datoms fragment cache utilization:"]
+          [:pre
+           [:code
+            "Cache line 1: [small datom (20 bytes), padding, next offset (4 bytes), ...]\nCache line 2: [huge value blob (5000 bytes spanning 78 cache lines)]\nCache line 80: [next small datom (25 bytes), ...]"]]
+          [:p
+           "Large values "
+           [:strong "evict useful data from cache"]
+           ", thrashing performance."]
+          [:h3 "4. Compression Challenges"]
+          [:p
+           "Fixed-size datoms compress well with columnar encoding:"]
+          [:pre
+           [:code
+            "All entities:     [1, 2, 3, 4, 5, ...] → delta encoding\nAll attributes:   [1, 1, 1, 2, 2, ...] → run-length encoding\nAll values:       [100, 101, 105, ...] → delta + dictionary"]]
+          [:p
+           "Variable-size elements resist simple compression because:"]
+          [:ul.bulleted
+           [:li "Length prefixes add entropy"]
+           [:li "Value sizes vary unpredictably"]
+           [:li "Pointers/offsets break columnar patterns"]]
+          [:h2 "Solutions: Trading Off Flexibility and Performance"]
+          [:h3
+           "1. Hybrid Representation: Inline Small, Reference Large"]
+          [:p "Store small values inline, large values out-of-line:"]
+          [:pre
+           [:code
+            {:class "language-clojure"}
+            ";; Small value (inline)\n[42 :name \"Alice\" 1001 nil]\n\n;; Large value (reference)\n[42 :photo [:ref blob-store-id-xyz] 1001 nil]"]]
+          [:p
+           "This keeps "
+           [:strong "most datoms fixed-size"]
+           " while allowing large values without bloat."]
+          [:h3 "2. Separate Storage for Large Values"]
+          [:p
+           "Store the datom index separately from large value blobs:"]
+          [:pre
+           [:code
+            "Datom index:  [e a v_ref t c]  (fixed size)\nBlob store:   {v_ref → actual_large_value}"]]
+          [:p
+           "Index scans remain fast. Blob retrieval is explicit and rare."]
+          [:h3 "3. Intern Common Values"]
+          [:p
+           "Replace repeated strings/keywords with small integer IDs:"]
+          [:pre
+           [:code
+            {:class "language-clojure"}
+            ";; Before interning\n[1 :user/email \"alice@example.com\" 1001 nil]\n[2 :user/email \"bob@example.com\" 1002 nil]\n\n;; After interning\n[1 47 \"alice@example.com\" 1001 nil]  ;; 47 = :user/email\n[2 47 \"bob@example.com\" 1002 nil]"]]
+          [:p
+           "Attributes especially benefit from interning - there are typically "
+           [:strong "far fewer unique attributes than entities"]
+           "."]
+          [:h3 "4. Fixed-Width Encoding for Common Cases"]
+          [:p
+           "Use fixed-width encoding for the most common datom shapes:"]
+          [:pre
+           [:code
+            "Type 0: [u64 entity, u16 attr_id, u64 int_value, u64 tx, nil]\nType 1: [u64 entity, u16 attr_id, u32 str_ref, u64 tx, nil]\nType 2: [u64 entity, u16 attr_id, u64 ref_entity, u64 tx, nil]\nType 255: [variable, variable, variable, variable, variable]"]]
+          [:p
+           "Most datoms fit "
+           [:strong "common patterns"]
+           ". Reserve variable encoding for edge cases."]
+          [:h3 "5. Columnar Storage"]
+          [:p "Store datoms in columnar format instead of row format:"]
+          [:pre
+           [:code
+            "entities:    [1, 2, 3, 4, 5, ...]\nattributes:  [1, 1, 1, 2, 2, ...]\nvalues:      [100, 200, 300, 400, ...]\ntxs:         [1001, 1001, 1002, 1002, ...]\ncontext:     [nil, nil, nil, nil, ...]"]]
+          [:p "This enables:"]
+          [:ul.bulleted
+           [:li "Better compression (similar values group together)"]
+           [:li "SIMD processing (vectorized operations)"]
+           [:li
+            "Skipping columns you don't need (projection pushdown)"]]
+          [:h3 "6. Typed Streams: Go Channels for Datoms"]
+          [:p
+           "What if, instead of one heterogeneous datom stream, you had "
+           [:strong "typed streams per attribute"]
+           "?"]
+          [:p
+           "This is the insight behind "
+           [:strong "Go channels"]
+           ". When you create "
+           [:code "chan int64"]
+           ", the type is known - every element is exactly 8 bytes. "
+           [:strong
+            "No parsing. No type inspection. Just read and go."]
+           " Type safety eliminates runtime overhead."]
+          [:p "Apply this to datoms:"]
+          [:pre
+           [:code
+            {:class "language-clojure"}
+            ";; Type-erased (current): slow parsing\nstream: [[1 :name \"Alice\" 1001 nil]\n         [2 :age 30 1002 nil]\n         [3 :photo <blob> 1003 nil]]\n\n;; Typed streams (proposed): fast parsing\n:user/name-stream   → chan<u64, str-ref, u64, nil>\n:user/age-stream    → chan<u64, u64, u64, nil>\n:user/photo-stream  → chan<u64, blob-ref, u64, nil>"]]
+          [:p [:strong "Each attribute gets its own typed stream."]]
+          [:p "Why this is powerful:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Fixed-size per stream"]
+            ": Fast parsing, no length prefixes"]
+           [:li
+            [:strong "Natural partitioning"]
+            ": Each attribute is isolated"]
+           [:li
+            [:strong "Columnar automatically"]
+            ": All :user/name values together"]
+           [:li
+            [:strong "Type safety"]
+            ": Compiler can verify at stream creation"]
+           [:li
+            [:strong "SIMD-friendly"]
+            ": Homogeneous data = vectorization"]
+           [:li
+            [:strong "Easy to extend"]
+            ": New attribute = new typed stream"]]
+          [:h4 "The AEVT Index Connection"]
+          [:p
+           "This isn't just theoretical - it maps "
+           [:strong "directly to how datom indexes work"]
+           "."]
+          [:p
+           "The "
+           [:strong "AEVT index"]
+           " (attribute, entity, value, transaction) groups datoms by attribute. If you store each attribute's datoms in a typed stream, you get:"]
+          [:pre
+           [:code
+            "AEVT[:user/name] = typed stream of (entity, string-ref, tx, ctx)\nAEVT[:user/age]  = typed stream of (entity, int64, tx, ctx)\nAEVT[:user/photo] = typed stream of (entity, blob-ref, tx, ctx)"]]
+          [:p [:strong "The index IS the typed stream."]]
+          [:p "Benefits:"]
+          [:ul.bulleted
+           [:li
+            "Index scans become "
+            [:strong "sequential reads"]
+            " of typed data"]
+           [:li
+            "No runtime type checking (type known at stream creation)"]
+           [:li "Compression works better (homogeneous values)"]
+           [:li "Can use specialized codecs per attribute type"]]
+          [:h4 "Trade-offs"]
+          [:p "Typed streams aren't free:"]
+          [:ul.bulleted
+           [:li
+            [:strong "More streams to manage"]
+            ": One per attribute (but you'd have indexes anyway)"]
+           [:li
+            [:strong "Routing overhead"]
+            ": Must dispatch datoms to correct stream"]
+           [:li
+            [:strong "Schema evolution"]
+            ": Changing types requires migration"]
+           [:li
+            [:strong "Mixed-type attributes"]
+            ": Need union types or multiple streams"]]
+          [:p
+           "But in exchange, you get "
+           [:strong
+            "parsing performance that approaches raw memory bandwidth"]
+           "."]
+          [:h4 "Hybrid: Schema-on-Write"]
+          [:p
+           "The best approach: "
+           [:strong "infer types on first write"]
+           ", then use typed streams:"]
+          [:pre
+           [:code
+            {:class "language-clojure"}
+            ";; First write: establish type\n(transact! [[:db/add 1 :user/age 30]])\n;; → Creates typed stream: :user/age → chan<entity, int64, tx, ctx>\n\n;; Subsequent writes: use typed stream (fast!)\n(transact! [[:db/add 2 :user/age 25]])\n;; → Appends to typed stream (no parsing, direct write)\n\n;; Type mismatch: error or coercion\n(transact! [[:db/add 3 :user/age \"thirty\"]])\n;; → Error: Expected int64, got string"]]
+          [:p
+           "This is "
+           [:strong "schema-on-write"]
+           ": the first write defines the type, subsequent writes are validated and optimized."]
+          [:h2 "DaoDB's Approach"]
+          [:p
+           [:a {:href "/dao-db.chp"} "DaoDB"]
+           " combines multiple strategies:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Typed attribute streams"]
+            ": Each attribute stored in a typed stream (AEVT index = typed streams)"]
+           [:li
+            [:strong "Attribute interning"]
+            ": Attributes are always small integer IDs"]
+           [:li
+            [:strong "Inline small values"]
+            ": Integers, small strings, booleans stored directly"]
+           [:li
+            [:strong "Reference large values"]
+            ": Blobs and large strings stored separately"]
+           [:li
+            [:strong "Columnar indexes"]
+            ": EAVT/AEVT/AVET indexes use columnar encoding"]
+           [:li
+            [:strong "Type-tagged encoding"]
+            ": Common datom shapes use optimized fixed-width encodings"]]
+          [:p "This balances:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Fast index scans"]
+            " (fixed-width common case)"]
+           [:li
+            [:strong "Flexible value types"]
+            " (variable-width escape hatch)"]
+           [:li
+            [:strong "Low memory overhead"]
+            " (interning and references)"]
+           [:li
+            [:strong "Good compression"]
+            " (columnar + type tagging)"]]
+          [:h2 "The Fundamental Tension"]
+          [:p
+           "This is a microcosm of a deeper trade-off in "
+           [:a {:href "/"} "datom.world"]
+           ":"]
+          [:div.highlight-box
            [:p
-            "Datoms are elegantly simple: "
-            [:code "[e a v t c]"]
-            ". Entity, attribute, value, transaction, context. Five elements. Fixed-size tuple. Clean abstraction."]
-           [:p
-            "But there's a performance trap hiding in this simplicity."]
-           [:h2 "The Abstraction vs The Reality"]
-           [:p
-            "In theory, a datom is a "
-            [:strong "fixed-size tuple"]
-            ". Five elements. That should mean:"]
-           [:ul.bulleted
-            [:li "Predictable memory layout"]
-            [:li "Fast sequential access"]
-            [:li "Efficient parsing"]
-            [:li "Cache-friendly data structures"]]
-           [:p
-            "But in practice, "
-            [:strong
-             "the tuple is fixed-size, but its elements are not"]
-            "."]
-           [:h2 "The Variable-Size Problem"]
-           [:p "Consider what each element actually contains:"]
-           [:pre
-            [:code
-             "e  — Entity ID (could be UUID, integer, or reference)\na  — Attribute (could be keyword, string, or symbol)\nv  — Value (could be anything: string, number, blob, reference)\nt  — Transaction ID (typically integer or timestamp)\nc  — Context metadata (could be node ID, vector clock, hash, or composite)"]]
-           [:p
-            [:strong "None of these are guaranteed to be fixed-size."]]
-           [:h3 "Entity IDs"]
-           [:ul.bulleted
-            [:li "Small integers: 1-8 bytes"]
-            [:li "UUIDs: 16 bytes"]
-            [:li "Content-addressed hashes: 32+ bytes"]
-            [:li "Composite keys: variable length"]]
-           [:h3 "Attributes"]
-           [:ul.bulleted
-            [:li
-             "Short keywords: "
-             [:code ":name"]
-             " (4 bytes + overhead)"]
-            [:li
-             "Namespaced keywords: "
-             [:code ":user/email-address"]
-             " (20+ bytes)"]
-            [:li
-             "Fully qualified: "
-             [:code ":com.example.domain/attribute"]
-             " (30+ bytes)"]]
-           [:h3 "Values"]
-           [:ul.bulleted
-            [:li "Booleans: 1 byte"]
-            [:li "Small integers: 1-8 bytes"]
-            [:li "Short strings: 10-50 bytes"]
-            [:li "Long strings: kilobytes"]
-            [:li "Blobs: megabytes"]
-            [:li "References: size of entity ID"]]
-           [:h3 "Transaction IDs"]
-           [:ul.bulleted
-            [:li "Sequential integers: 4-8 bytes"]
-            [:li "Timestamps: 8 bytes"]
-            [:li "Distributed transaction IDs: 16+ bytes"]]
-           [:h3 "Context Metadata"]
-           [:ul.bulleted
-            [:li "Null (no context): 0 bytes"]
-            [:li "Node ID: 4-16 bytes"]
-            [:li "Vector clock: 8 bytes × node count"]
-            [:li "Hash-based provenance: 32 bytes"]
-            [:li "Composite metadata: variable"]]
-           [:h2 "Why This Matters: Parsing Performance"]
-           [:p
-            "When you store datoms on disk or send them over the network, you need to "
-            [:strong "serialize and deserialize"]
-            " them."]
-           [:p
-            "With "
-            [:strong "fixed-size elements"]
-            ", parsing is trivial:"]
-           [:pre
-            [:code
-             {:class "language-c"}
-             "// Fixed-size parsing (fast)\nstruct Datom {\n    uint64_t entity;      // 8 bytes\n    uint64_t attribute;   // 8 bytes\n    uint64_t value;       // 8 bytes\n    uint64_t tx;          // 8 bytes\n    uint64_t context;     // 8 bytes\n};\n\n// Total: 40 bytes, perfectly aligned\n// Parsing: memcpy the whole thing"]]
-           [:p "This is " [:strong "blazingly fast"] ":"]
-           [:ul.bulleted
-            [:li "Sequential memory access (cache-friendly)"]
-            [:li "No branching (CPU-friendly)"]
-            [:li
-             "SIMD-friendly (can parse multiple datoms in parallel)"]
-            [:li "Direct memory mapping (zero-copy possible)"]]
-           [:p
-            "But with "
-            [:strong "variable-size elements"]
-            ", parsing becomes complex:"]
-           [:pre
-            [:code
-             {:class "language-c"}
-             "// Variable-size parsing (slow)\nstruct Datom {\n    uint32_t e_len;       // Length prefix\n    uint8_t* e_data;      // Entity bytes\n    uint32_t a_len;       // Length prefix\n    uint8_t* a_data;      // Attribute bytes\n    uint32_t v_len;       // Length prefix\n    uint8_t* v_data;      // Value bytes (could be huge!)\n    uint32_t t_len;       // Length prefix\n    uint8_t* t_data;      // Transaction bytes\n    uint32_t c_len;       // Length prefix\n    uint8_t* c_data;      // Context metadata bytes\n};\n\n// Parsing requires:\n// 1. Read length prefix\n// 2. Allocate/copy bytes\n// 3. Repeat for each field\n// 4. Handle variable offsets"]]
-           [:h2 "The Performance Implications"]
-           [:h3 "1. Slower Sequential Scans"]
-           [:p "Fixed-size datoms can be scanned at memory bandwidth:"]
-           [:pre
-            [:code
-             "Read 40 bytes → Parse datom → Next datom (40 bytes away)"]]
-           [:p "Variable-size datoms require tracking offsets:"]
-           [:pre
-            [:code
-             "Read 4 bytes (e_len) → Read e_len bytes →\nRead 4 bytes (a_len) → Read a_len bytes →\nRead 4 bytes (v_len) → Read v_len bytes → ..."]]
-           [:p
-            "This introduces "
-            [:strong "branch mispredictions"]
-            " and "
-            [:strong "variable memory jumps"]
-            "."]
-           [:h3 "2. Index Bloat"]
-           [:p
-            "Indexes (EAVT, AEVT, AVET, VAET) store datom references. With fixed-size datoms:"]
-           [:pre
-            [:code
-             "Index entry: [sort-key, offset]\nOffset = datom_index × 40 bytes  (simple multiplication)"]]
-           [:p "With variable-size datoms:"]
-           [:pre
-            [:code
-             "Index entry: [sort-key, offset]\nOffset = sum of all previous datom sizes  (requires offset table)"]]
-           [:p
-            "You need an "
-            [:strong "auxiliary offset index"]
-            " just to find datoms, adding memory overhead and indirection."]
-           [:h3 "3. Cache Inefficiency"]
-           [:p
-            "Fixed-size datoms pack predictably into cache lines (64 bytes):"]
-           [:pre
-            [:code
-             "Cache line 1: [datom1 (40 bytes), partial datom2 (24 bytes)]\nCache line 2: [rest of datom2 (16 bytes), datom3 (40 bytes), ...]"]]
-           [:p "Variable-size datoms fragment cache utilization:"]
-           [:pre
-            [:code
-             "Cache line 1: [small datom (20 bytes), padding, next offset (4 bytes), ...]\nCache line 2: [huge value blob (5000 bytes spanning 78 cache lines)]\nCache line 80: [next small datom (25 bytes), ...]"]]
-           [:p
-            "Large values "
-            [:strong "evict useful data from cache"]
-            ", thrashing performance."]
-           [:h3 "4. Compression Challenges"]
-           [:p
-            "Fixed-size datoms compress well with columnar encoding:"]
-           [:pre
-            [:code
-             "All entities:     [1, 2, 3, 4, 5, ...] → delta encoding\nAll attributes:   [1, 1, 1, 2, 2, ...] → run-length encoding\nAll values:       [100, 101, 105, ...] → delta + dictionary"]]
-           [:p
-            "Variable-size elements resist simple compression because:"]
-           [:ul.bulleted
-            [:li "Length prefixes add entropy"]
-            [:li "Value sizes vary unpredictably"]
-            [:li "Pointers/offsets break columnar patterns"]]
-           [:h2 "Solutions: Trading Off Flexibility and Performance"]
-           [:h3
-            "1. Hybrid Representation: Inline Small, Reference Large"]
-           [:p "Store small values inline, large values out-of-line:"]
-           [:pre
-            [:code
-             {:class "language-clojure"}
-             ";; Small value (inline)\n[42 :name \"Alice\" 1001 nil]\n\n;; Large value (reference)\n[42 :photo [:ref blob-store-id-xyz] 1001 nil]"]]
-           [:p
-            "This keeps "
-            [:strong "most datoms fixed-size"]
-            " while allowing large values without bloat."]
-           [:h3 "2. Separate Storage for Large Values"]
-           [:p
-            "Store the datom index separately from large value blobs:"]
-           [:pre
-            [:code
-             "Datom index:  [e a v_ref t c]  (fixed size)\nBlob store:   {v_ref → actual_large_value}"]]
-           [:p
-            "Index scans remain fast. Blob retrieval is explicit and rare."]
-           [:h3 "3. Intern Common Values"]
-           [:p
-            "Replace repeated strings/keywords with small integer IDs:"]
-           [:pre
-            [:code
-             {:class "language-clojure"}
-             ";; Before interning\n[1 :user/email \"alice@example.com\" 1001 nil]\n[2 :user/email \"bob@example.com\" 1002 nil]\n\n;; After interning\n[1 47 \"alice@example.com\" 1001 nil]  ;; 47 = :user/email\n[2 47 \"bob@example.com\" 1002 nil]"]]
-           [:p
-            "Attributes especially benefit from interning - there are typically "
-            [:strong "far fewer unique attributes than entities"]
-            "."]
-           [:h3 "4. Fixed-Width Encoding for Common Cases"]
-           [:p
-            "Use fixed-width encoding for the most common datom shapes:"]
-           [:pre
-            [:code
-             "Type 0: [u64 entity, u16 attr_id, u64 int_value, u64 tx, nil]\nType 1: [u64 entity, u16 attr_id, u32 str_ref, u64 tx, nil]\nType 2: [u64 entity, u16 attr_id, u64 ref_entity, u64 tx, nil]\nType 255: [variable, variable, variable, variable, variable]"]]
-           [:p
-            "Most datoms fit "
-            [:strong "common patterns"]
-            ". Reserve variable encoding for edge cases."]
-           [:h3 "5. Columnar Storage"]
-           [:p
-            "Store datoms in columnar format instead of row format:"]
-           [:pre
-            [:code
-             "entities:    [1, 2, 3, 4, 5, ...]\nattributes:  [1, 1, 1, 2, 2, ...]\nvalues:      [100, 200, 300, 400, ...]\ntxs:         [1001, 1001, 1002, 1002, ...]\ncontext:     [nil, nil, nil, nil, ...]"]]
-           [:p "This enables:"]
-           [:ul.bulleted
-            [:li "Better compression (similar values group together)"]
-            [:li "SIMD processing (vectorized operations)"]
-            [:li
-             "Skipping columns you don't need (projection pushdown)"]]
-           [:h3 "6. Typed Streams: Go Channels for Datoms"]
-           [:p
-            "What if, instead of one heterogeneous datom stream, you had "
-            [:strong "typed streams per attribute"]
-            "?"]
-           [:p
-            "This is the insight behind "
-            [:strong "Go channels"]
-            ". When you create "
-            [:code "chan int64"]
-            ", the type is known - every element is exactly 8 bytes. "
-            [:strong
-             "No parsing. No type inspection. Just read and go."]
-            " Type safety eliminates runtime overhead."]
-           [:p "Apply this to datoms:"]
-           [:pre
-            [:code
-             {:class "language-clojure"}
-             ";; Type-erased (current): slow parsing\nstream: [[1 :name \"Alice\" 1001 nil]\n         [2 :age 30 1002 nil]\n         [3 :photo <blob> 1003 nil]]\n\n;; Typed streams (proposed): fast parsing\n:user/name-stream   → chan<u64, str-ref, u64, nil>\n:user/age-stream    → chan<u64, u64, u64, nil>\n:user/photo-stream  → chan<u64, blob-ref, u64, nil>"]]
-           [:p [:strong "Each attribute gets its own typed stream."]]
-           [:p "Why this is powerful:"]
-           [:ul.bulleted
-            [:li
-             [:strong "Fixed-size per stream"]
-             ": Fast parsing, no length prefixes"]
-            [:li
-             [:strong "Natural partitioning"]
-             ": Each attribute is isolated"]
-            [:li
-             [:strong "Columnar automatically"]
-             ": All :user/name values together"]
-            [:li
-             [:strong "Type safety"]
-             ": Compiler can verify at stream creation"]
-            [:li
-             [:strong "SIMD-friendly"]
-             ": Homogeneous data = vectorization"]
-            [:li
-             [:strong "Easy to extend"]
-             ": New attribute = new typed stream"]]
-           [:h4 "The AEVT Index Connection"]
-           [:p
-            "This isn't just theoretical - it maps "
-            [:strong "directly to how datom indexes work"]
-            "."]
-           [:p
-            "The "
-            [:strong "AEVT index"]
-            " (attribute, entity, value, transaction) groups datoms by attribute. If you store each attribute's datoms in a typed stream, you get:"]
-           [:pre
-            [:code
-             "AEVT[:user/name] = typed stream of (entity, string-ref, tx, ctx)\nAEVT[:user/age]  = typed stream of (entity, int64, tx, ctx)\nAEVT[:user/photo] = typed stream of (entity, blob-ref, tx, ctx)"]]
-           [:p [:strong "The index IS the typed stream."]]
-           [:p "Benefits:"]
-           [:ul.bulleted
-            [:li
-             "Index scans become "
-             [:strong "sequential reads"]
-             " of typed data"]
-            [:li
-             "No runtime type checking (type known at stream creation)"]
-            [:li "Compression works better (homogeneous values)"]
-            [:li "Can use specialized codecs per attribute type"]]
-           [:h4 "Trade-offs"]
-           [:p "Typed streams aren't free:"]
-           [:ul.bulleted
-            [:li
-             [:strong "More streams to manage"]
-             ": One per attribute (but you'd have indexes anyway)"]
-            [:li
-             [:strong "Routing overhead"]
-             ": Must dispatch datoms to correct stream"]
-            [:li
-             [:strong "Schema evolution"]
-             ": Changing types requires migration"]
-            [:li
-             [:strong "Mixed-type attributes"]
-             ": Need union types or multiple streams"]]
-           [:p
-            "But in exchange, you get "
-            [:strong
-             "parsing performance that approaches raw memory bandwidth"]
-            "."]
-           [:h4 "Hybrid: Schema-on-Write"]
-           [:p
-            "The best approach: "
-            [:strong "infer types on first write"]
-            ", then use typed streams:"]
-           [:pre
-            [:code
-             {:class "language-clojure"}
-             ";; First write: establish type\n(transact! [[:db/add 1 :user/age 30]])\n;; → Creates typed stream: :user/age → chan<entity, int64, tx, ctx>\n\n;; Subsequent writes: use typed stream (fast!)\n(transact! [[:db/add 2 :user/age 25]])\n;; → Appends to typed stream (no parsing, direct write)\n\n;; Type mismatch: error or coercion\n(transact! [[:db/add 3 :user/age \"thirty\"]])\n;; → Error: Expected int64, got string"]]
-           [:p
-            "This is "
-            [:strong "schema-on-write"]
-            ": the first write defines the type, subsequent writes are validated and optimized."]
-           [:h2 "DaoDB's Approach"]
-           [:p
+            [:strong "Semantic flexibility vs execution performance"]]
+           [:p "Universal representation vs specialized encoding"]]
+          [:p
+           "Datoms are "
+           [:strong "semantically universal"]
+           " - they can represent any fact. But universality has a cost."]
+          [:p "The art is in finding encodings that:"]
+          [:ul.bulleted
+           [:li
+            "Preserve the "
+            [:strong "logical model"]
+            " (everything is a datom)"]
+           [:li
+            "Optimize the "
+            [:strong "physical representation"]
+            " (not everything is encoded the same way)"]]
+          [:p "This is exactly the same pattern as:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Relational algebra"]
+            " (logical) vs "
+            [:strong "B-trees and hash indexes"]
+            " (physical)"]
+           [:li
+            [:strong "Lambda calculus"]
+            " (logical) vs "
+            [:strong "register machines"]
+            " (physical)"]
+           [:li
+            [:strong "HTML/CSS"]
+            " (logical) vs "
+            [:strong "GPU rasterization"]
+            " (physical)"]]
+          [:p
+           "The abstraction is pure. The implementation is pragmatic."]
+          [:h2 "Conclusion: Abstractions Have Weight"]
+          [:p
+           [:code "[e a v t c]"]
+           " looks simple. Five elements. Fixed-size tuple."]
+          [:p
+           "But "
+           [:strong
+            "the moment you serialize it, you encounter reality"]
+           "."]
+          [:p "Variable-size elements mean:"]
+          [:ul.bulleted
+           [:li "Slower parsing"]
+           [:li "More complex indexing"]
+           [:li "Cache inefficiency"]
+           [:li "Compression challenges"]]
+          [:p
+           "The solution isn't to abandon the abstraction - it's to "
+           [:strong "recognize the implementation space beneath it"]
+           "."]
+          [:p
+           "Datoms are the "
+           [:strong "semantic model"]
+           ". Interning, referencing, columnar encoding, and type tagging are the "
+           [:strong "performance model"]
+           "."]
+          [:p "Both are necessary. Neither is sufficient alone."]
+          [:p
+           [:strong
+            "The abstraction gives you composability. The encoding gives you speed."]]
+          [:h2 "Learn More"]
+          [:ul.bulleted
+           [:li
             [:a {:href "/dao-db.chp"} "DaoDB"]
-            " combines multiple strategies:"]
-           [:ul.bulleted
-            [:li
-             [:strong "Typed attribute streams"]
-             ": Each attribute stored in a typed stream (AEVT index = typed streams)"]
-            [:li
-             [:strong "Attribute interning"]
-             ": Attributes are always small integer IDs"]
-            [:li
-             [:strong "Inline small values"]
-             ": Integers, small strings, booleans stored directly"]
-            [:li
-             [:strong "Reference large values"]
-             ": Blobs and large strings stored separately"]
-            [:li
-             [:strong "Columnar indexes"]
-             ": EAVT/AEVT/AVET indexes use columnar encoding"]
-            [:li
-             [:strong "Type-tagged encoding"]
-             ": Common datom shapes use optimized fixed-width encodings"]]
-           [:p "This balances:"]
-           [:ul.bulleted
-            [:li
-             [:strong "Fast index scans"]
-             " (fixed-width common case)"]
-            [:li
-             [:strong "Flexible value types"]
-             " (variable-width escape hatch)"]
-            [:li
-             [:strong "Low memory overhead"]
-             " (interning and references)"]
-            [:li
-             [:strong "Good compression"]
-             " (columnar + type tagging)"]]
-           [:h2 "The Fundamental Tension"]
-           [:p
-            "This is a microcosm of a deeper trade-off in "
-            [:a {:href "/"} "datom.world"]
-            ":"]
-           [:div.highlight-box
-            [:p
-             [:strong "Semantic flexibility vs execution performance"]]
-            [:p "Universal representation vs specialized encoding"]]
-           [:p
-            "Datoms are "
-            [:strong "semantically universal"]
-            " - they can represent any fact. But universality has a cost."]
-           [:p "The art is in finding encodings that:"]
-           [:ul.bulleted
-            [:li
-             "Preserve the "
-             [:strong "logical model"]
-             " (everything is a datom)"]
-            [:li
-             "Optimize the "
-             [:strong "physical representation"]
-             " (not everything is encoded the same way)"]]
-           [:p "This is exactly the same pattern as:"]
-           [:ul.bulleted
-            [:li
-             [:strong "Relational algebra"]
-             " (logical) vs "
-             [:strong "B-trees and hash indexes"]
-             " (physical)"]
-            [:li
-             [:strong "Lambda calculus"]
-             " (logical) vs "
-             [:strong "register machines"]
-             " (physical)"]
-            [:li
-             [:strong "HTML/CSS"]
-             " (logical) vs "
-             [:strong "GPU rasterization"]
-             " (physical)"]]
-           [:p
-            "The abstraction is pure. The implementation is pragmatic."]
-           [:h2 "Conclusion: Abstractions Have Weight"]
-           [:p
-            [:code "[e a v t c]"]
-            " looks simple. Five elements. Fixed-size tuple."]
-           [:p
-            "But "
-            [:strong
-             "the moment you serialize it, you encounter reality"]
-            "."]
-           [:p "Variable-size elements mean:"]
-           [:ul.bulleted
-            [:li "Slower parsing"]
-            [:li "More complex indexing"]
-            [:li "Cache inefficiency"]
-            [:li "Compression challenges"]]
-           [:p
-            "The solution isn't to abandon the abstraction - it's to "
-            [:strong "recognize the implementation space beneath it"]
-            "."]
-           [:p
-            "Datoms are the "
-            [:strong "semantic model"]
-            ". Interning, referencing, columnar encoding, and type tagging are the "
-            [:strong "performance model"]
-            "."]
-           [:p "Both are necessary. Neither is sufficient alone."]
-           [:p
-            [:strong
-             "The abstraction gives you composability. The encoding gives you speed."]]
-           [:h2 "Learn More"]
-           [:ul.bulleted
-            [:li
-             [:a {:href "/dao-db.chp"} "DaoDB"]
-             ": How the datom database optimizes representation"]
-            [:li
-             [:a
-              {:href "/blog/datoms-as-streams.chp"}
-              "Datoms as Streams"]
-             ": Streaming performance considerations"]
-            [:li
-             [:a
-              {:href
-               "/blog/ast-datom-streams-bytecode-performance.chp"}
-              "AST Datom Streams: Bytecode Performance with Semantic Preservation"]
-             ": Similar trade-offs in code representation"]
-            [:li
-             [:a
-              {:href "/blog/structure-vs-interpretation.chp"}
-              "Structure vs Interpretation"]
-             ": The deeper philosophical tension"]]]]])}
+            ": How the datom database optimizes representation"]
+           [:li
+            [:a
+             {:href "/blog/datoms-as-streams.blog"}
+             "Datoms as Streams"]
+            ": Streaming performance considerations"]
+           [:li
+            [:a
+             {:href "/blog/ast-datom-streams-bytecode-performance.blog"}
+             "AST Datom Streams: Bytecode Performance with Semantic Preservation"]
+            ": Similar trade-offs in code representation"]
+           [:li
+            [:a
+             {:href "/blog/structure-vs-interpretation.blog"}
+             "Structure vs Interpretation"]
+            ": The deeper philosophical tension"]]]]]}

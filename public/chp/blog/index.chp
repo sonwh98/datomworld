@@ -16,8 +16,7 @@
      [:div.section-inner
       [:div.blog-grid
        (for [blog blog-files
-             :let [chp-filename (str/replace (:blog/file blog) #"\.blog$" ".chp")
-                   link (:blog/file blog) #_(str "/blog/" chp-filename)
+             :let [link (str "/blog/" (:blog/file blog))
                    date-inst (:blog/date blog)
                    date-str (if date-inst
                               (.format (java.text.SimpleDateFormat. "MMM d, yyyy")

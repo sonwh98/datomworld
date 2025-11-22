@@ -166,9 +166,9 @@
          "enabling seamless cross-language function calls and data sharing."]
         [:p.learn-more
          "Learn more about how the Universal AST enables cross-language semantic preservation in "
-         [:a {:href "/blog/yin-vm-ast-chinese-characters.chp"} "Yin.vm: Chinese Characters for Programming Languages"]
+         [:a {:href "/blog/yin-vm-ast-chinese-characters.blog"} "Yin.vm: Chinese Characters for Programming Languages"]
          ", and how ASTs are stored as queryable datom streams in "
-         [:a {:href "/blog/ast-higher-dimensional-datom-streams.chp"} "AST as Higher Dimensional Construction of Datom Streams"] "."]]]
+         [:a {:href "/blog/ast-higher-dimensional-datom-streams.blog"} "AST as Higher Dimensional Construction of Datom Streams"] "."]]]
       [:section.section-dark
        [:div.section-inner
         [:h2 "Cross-platform architecture"]
