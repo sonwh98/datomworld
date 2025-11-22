@@ -1,0 +1,257 @@
+#:blog{:title "Why Shibi Cannot Be Like Money",
+       :date #inst "2025-11-20T00:00:00.000-00:00",
+       :abstract
+       [:p
+        "Money, in all its forms, shares a core requirement: "
+        [:strong "global transferability"]
+        ". Whether it's gold, dollars, Bitcoin, or credit networks like Ripple, money works because any unit can flow from any person to any other person through exchange, routing, or intermediaries. This transferability requires shared infrastructure: markets, ledgers, trust graphs, or routing algorithms."],
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+          [:p
+           "Money, in all its forms, shares a core requirement: "
+           [:strong "global transferability"]
+           ". Whether it's gold, dollars, Bitcoin, or credit networks like Ripple, money works because any unit can flow from any person to any other person through exchange, routing, or intermediaries. This transferability requires shared infrastructure: markets, ledgers, trust graphs, or routing algorithms."]
+          [:p
+           "ShiBi, by contrast, is a subjective value coordination protocol where agents compensate each other for attention, communication, and curation. It works because interpretation is local and costs are visible. ShiBi's entire philosophy rests on not requiring global schemas, global synchronization, or universal agreement."]
+          [:p
+           [:strong
+            "ShiBi cannot be money because money requires exactly the global coordination mechanisms that ShiBi is designed to avoid."]]
+          [:p
+           "To see why, let's examine Ryan Fugger's 2004 Ripple design. Ripple is the perfect case study because, like ShiBi, "
+           [:strong "it allowed anyone to be their own central bank"]
+           ", issuing personal IOUs and managing trust relationships locally. If even this deeply decentralized, local-first money system forces centralization, then "
+           [:em "any"]
+           " money-like system would do the same to ShiBi."]
+          [:h2
+           "Ripple as a Case Study: The Most Decentralized Money System Still Centralizes"]
+          [:p
+           "Fugger's Ripple had almost nothing in common with today's XRP-based network. It was a web-of-trust credit network, where payments "
+           [:em "rippled"]
+           " across chains of personal IOUs. Anyone could issue credit. Anyone could set their own terms. If Alice trusts Bob, and Bob trusts Carol, then Alice can indirectly pay Carol even though they never met. Value flows through trust, not through a global clearinghouse."]
+          [:p
+           "This sounds remarkably like ShiBi: local issuance, subjective valuation, no central authority. The parallel is striking."]
+          [:p
+           "At first glance, it's tempting to imagine: "
+           [:em
+            "Why not use Fugger-style Ripple as ShiBi's payment substrate?"]
+           " After all, ShiBi already relies on local interpreters and subjective valuations. A trust-based IOU network feels compatible."]
+          [:p
+           "But if ShiBi adopted Ripple's architecture, it would quickly collapse into central hubs and lose its distributed character."]
+          [:p "Here's why."]
+          [:h2
+           "Ripple Works Only When Your Friends Trust Your Friends"]
+          [:p "In the original Ripple:"]
+          [:ul.bulleted
+           [:li
+            "Each user extends credit only to people they personally trust"]
+           [:li
+            "A payment succeeds only if the network can find a trust path between payer and receiver"]
+           [:li
+            "The network needs enough paths that payments don't constantly fail"]]
+          [:p
+           "This works in small communities, where trust overlaps naturally: coworkers, neighbors, local groups."]
+          [:p
+           "ShiBi, however, is designed for global, anonymous, high-traffic spam-tolerant environments:"]
+          [:ul.bulleted
+           [:li "Users don't know each other"]
+           [:li "Trust is not required for the system to function"]
+           [:li
+            "The flow of messages is unpredictable and high-volume"]]
+          [:p
+           "ShiBi "
+           [:em "does"]
+           " support trust circles: you can give your tokens to trusted contacts for free, making communication between friends cost-free. But this is optional. The system doesn't depend on trust paths existing between arbitrary users."]
+          [:p
+           "Ripple-style credit, by contrast, requires dense trust connections just to function. If trust paths don't exist, payments fail. ShiBi deliberately avoids that dependency because it would create a bottleneck. Most pairs of agents would not have direct or second-degree trust connections, so Ripple-style payments would constantly stall."]
+          [:p
+           "To fix that, the network would drift toward a few large trusted hubs."]
+          [:p "And that leads to the deeper issue."]
+          [:h2
+           "The Trust Path Problem Reduces to the Traveling Salesman Problem"]
+          [:p
+           "Payment routing in Ripple is "
+           [:em "find a credit path with sufficient liquidity"]
+           "."]
+          [:p "In a large network, path search is equivalent to:"]
+          [:ul.bulleted
+           [:li
+            "Finding a least-cost path through a weighted trust graph"]
+           [:li "Under liquidity constraints"]
+           [:li "With credit limits on each edge"]
+           [:li "And failure-prone nodes"]]
+          [:p
+           "This isn't simple routing. It's a constraint optimization problem layered on top of a graph traversal problem. In practice, it approaches the computational structure of the Traveling Salesman Problem or multi-commodity flow problems: NP-hard beasts."]
+          [:p "This means:"]
+          [:ul.bulleted
+           [:li
+            "Local search often fails to find valid paths even when they exist"]
+           [:li
+            "Global search is too computationally expensive to run in a decentralized environment"]
+           [:li
+            "Caching pushes the system toward centralized routing providers"]]
+          [:p
+           "Fugger's own writing acknowledged this tension: trust networks only stay decentralized as long as the graph remains small and human-scale. At large scale, routing becomes a computational nightmare."]
+          [:p
+           "To keep Ripple usable at global scale, users begin clustering toward a few nodes that maintain reliable, high-liquidity trust paths."]
+          [:p [:strong "This is the seed of centralization."]]
+          [:h2 "Centralization Emerges as the Only Practical Solution"]
+          [:p "If ShiBi integrated Ripple-style credit chains:"]
+          [:ul.bulleted
+           [:li
+            "Users would choose to trust high-degree nodes (hubs) to maximize successful payment paths"]
+           [:li
+            "Hubs begin to store most credit, because small nodes can't maintain enough inbound/outbound paths"]
+           [:li
+            "These hubs become quasi-banks, simply because they solve the routing problem more efficiently"]]
+          [:p "The same centralization happened historically in:"]
+          [:ul.bulleted
+           [:li "Fugger's original community trials"]
+           [:li "Hawala networks"]
+           [:li "Mutual-credit systems"]
+           [:li "LETS and community currencies"]
+           [:li "Social payment graphs in general"]]
+          [:p
+           [:strong
+            "Decentralized trust graphs naturally compress into hub-and-spoke topologies unless the scale remains tiny."]]
+          [:p
+           "ShiBi's design goal is the opposite: local valuation, no hubs."]
+          [:h2
+           "ShiBi's Core Philosophy Conflicts with Ripple's Architecture"]
+          [:p "ShiBi assumes:"]
+          [:ul.bulleted
+           [:li
+            "Every agent is free to spam, speak, or circulate signals"]
+           [:li
+            "...as long as they pay the subjective cost set by the receiver"]
+           [:li
+            "Aggregation happens emergently, not by global routing"]
+           [:li
+            "No entity determines how value moves between participants"]]
+          [:p "Ripple assumes:"]
+          [:ul.bulleted
+           [:li "A global graph of IOU trust"]
+           [:li "A shared routing algorithm"]
+           [:li "Some nodes accumulate persistent trust paths"]
+           [:li "Credit has to be conserved along the path"]
+           [:li
+            "Payment only succeeds if the network finds a viable chain"]]
+          [:p
+           [:strong
+            "Ripple requires global coordination of credit flows."]
+           [:br]
+           [:strong
+            "ShiBi's value system requires local coordination without global constraints."]]
+          [:p "These two models are not compatible:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Ripple:"]
+            " \"Value must pass through a path.\""]
+           [:li
+            [:strong "ShiBi:"]
+            " \"Value emerges locally and needs no path.\""]]
+          [:p
+           "Ripple is a network. ShiBi is an economy of local interpretations."]
+          [:p
+           "Ripple tries to maintain a global ledger of interpersonal credit. ShiBi treats communication as transactions that require no global ledger at all."]
+          [:h2 "How ShiBi Actually Works Instead"]
+          [:p
+           "If ShiBi doesn't use money-like credit paths, how does value actually transfer?"]
+          [:p "ShiBi is built on capability-based tokens:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Anyone can issue tokens"]
+            " - You become your own central bank, issuing purpose-specific utility tokens (one for email, one for API access, one for forum posts)"]
+           [:li
+            [:strong "Tokens grant access"]
+            " - To reach you, someone needs your tokens. They can acquire them by buying, earning, or receiving them as gifts"]
+           [:li
+            [:strong "No global routing"]
+            " - There's no path-finding algorithm. If you want to contact me and I want compensation, you simply pay the cost I set using my tokens"]
+           [:li
+            [:strong "Local pricing"]
+            " - Each receiver sets their own price. No global market, no shared liquidity pool"]
+           [:li
+            [:strong "Trust circles are optional"]
+            " - You can give tokens to friends for free (zero-cost communication), but the system doesn't depend on this"]]
+          [:p "This is fundamentally different from money:"]
+          [:ul.bulleted
+           [:li
+            "Money: \"Alice pays Bob who pays Carol\" (value flows through intermediaries)"]
+           [:li
+            "ShiBi: \"Alice pays Carol directly with Carol's tokens\" (direct capability transfer)"]]
+          [:p
+           "No credit graph. No trust paths. No routing. Just local capability-based access control with market pricing."]
+          [:p
+           "The tokens themselves can be acquired through various means (direct payment, earning through contribution, gifting), but the acquisition mechanism is separate from the communication mechanism. You don't need a path through the network; you just need the specific capability token for the specific person or resource you want to access."]
+          [:h2
+           "Why ShiBi Would Lose Its Identity If It Tried to Be Money"]
+          [:p
+           "If ShiBi tried to \"add Ripple on top,\" three bad outcomes appear:"]
+          [:h3 "1. Centralization"]
+          [:p
+           "Users drift toward trusting a few large routing hubs, and an oligopoly emerges."]
+          [:h3 "2. Fragility"]
+          [:p
+           "If a hub disappears, entire regions of the trust graph become disconnected."]
+          [:h3 "3. Loss of Subjectiveness"]
+          [:p
+           "Ripple imposes a global requirement for credit-path validity, contradicting ShiBi's subjective valuation model."]
+          [:p
+           "Ripple forces a single interpretation of \"who owes whom.\" ShiBi's value is inherently local, contextual, and deliberately ambiguous."]
+          [:h2 "What ShiBi Should Take From Ripple Instead"]
+          [:p
+           "Ripple and ShiBi share a radical starting point: "
+           [:strong "anyone can be their own central bank"]
+           ". Both reject the idea that value must be issued by a privileged authority. Both embrace local issuance and subjective valuation."]
+          [:p
+           "But Ripple's real lesson for ShiBi is not its architecture but its philosophy:"]
+          [:ul.bulleted
+           [:li "Trust is contextual"]
+           [:li "Value flows where trust and reputation exist"]
+           [:li "Local relationships can coordinate global outcomes"]
+           [:li
+            [:strong
+             "Issuing your own tokens doesn't require global coordination"]]]
+          [:p "ShiBi takes this insight but applies it differently:"]
+          [:ul.bulleted
+           [:li "No global credit graph"]
+           [:li "No path-finding"]
+           [:li "No trust propagation"]
+           [:li "No hubs"]
+           [:li "No global debts"]
+           [:li
+            "Only local compensation for attention and interpretation"]]
+          [:p
+           "Where money needs paths, ShiBi needs clarity of cost."
+           [:br]
+           "Where money needs liquidity, ShiBi needs engagement."
+           [:br]
+           "Where money needs transferability, ShiBi needs purpose-specific capabilities."]
+          [:h2 "Conclusion"]
+          [:p
+           "Money, in all its forms, requires global coordination: transferability, routing, shared ledgers, or trust graphs. Even Ryan Fugger's Ripple, one of the most decentralized money systems ever designed, could not escape the centralization that comes from solving the NP-hard routing problem at scale."]
+          [:p
+           "ShiBi's design avoids this trap entirely by refusing to be money. It doesn't try to create transferable value that flows through intermediaries. Instead, it creates purpose-specific capability tokens that grant direct access without routing."]
+          [:p
+           [:strong
+            "ShiBi is not broken money. It's a different kind of value system entirely."]
+           [:br]
+           [:strong
+            "One that works precisely because it refuses to be globally transferable."]]
+          [:p [:strong "Learn more:"]]
+          [:ul.bulleted
+           [:li
+            [:a {:href "/shibi.chp"} "ShiBi"]
+            " — Datom.world's capability-based economic layer"]
+           [:li
+            [:a
+             {:href "/blog/maxwells-demon-economic-value.blog"}
+             "Maxwell's Demon and Economic Value"]
+            " — How interpreters unlock wealth from information"]
+           [:li
+            [:a {:href "/datomworld.chp"} "Datom.World Overview"]
+            " — The complete vision"]]]]]}

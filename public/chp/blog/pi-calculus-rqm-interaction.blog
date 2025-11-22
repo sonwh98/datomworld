@@ -1,0 +1,517 @@
+#:blog{:title "π-Calculus, RQM, and the Primacy of Interaction",
+       :date #inst "2025-11-18T00:00:00.000-00:00",
+       :abstract
+       [:p
+        "Relational Quantum Mechanics says: "
+        [:strong
+         "\"Reality is a network of interactions, not a collection of independent facts.\""]
+        ""],
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+          [:h2 "The Question"]
+          [:p
+           "Relational Quantum Mechanics says: "
+           [:strong
+            "\"Reality is a network of interactions, not a collection of independent facts.\""]
+           ""]
+          [:p
+           "The π-calculus says: "
+           [:strong
+            "\"Computation is message-passing, not state transformation.\""]
+           ""]
+          [:p
+           "Are these the same insight? "
+           [:strong "Yes."]
+           " And understanding why reveals something profound about DaoDB, quantum mechanics, and the nature of computation itself."]
+          [:h2 "State vs Interaction: Two Paradigms"]
+          [:p
+           "Most systems—databases, programming languages, physics theories—assume "
+           [:strong "state is primary"]
+           ":"]
+          [:ul.bulleted
+           [:li
+            [:strong "Classical mechanics"]
+            ": Particles have definite positions and velocities. Interactions "
+            [:em "change"]
+            " this pre-existing state."]
+           [:li
+            [:strong "Imperative programming"]
+            ": Variables hold values. Functions "
+            [:em "mutate"]
+            " these values."]
+           [:li
+            [:strong "Traditional databases"]
+            ": Tables contain rows. Transactions "
+            [:em "update"]
+            " these rows."]
+           [:li
+            [:strong "Object-oriented design"]
+            ": Objects encapsulate state. Methods "
+            [:em "modify"]
+            " that state."]]
+          [:p
+           "This is the "
+           [:strong "state-first paradigm"]
+           ". State exists independently. Interactions are secondary—they're just operations that transform state."]
+          [:h3 "The Alternative: Interaction-First"]
+          [:p "But there's another way to think:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Relational Quantum Mechanics"]
+            ": Properties don't exist until observers interact. The interaction "
+            [:em "creates"]
+            " the property."]
+           [:li
+            [:strong "π-calculus"]
+            ": Processes don't have internal state. They "
+            [:em "are"]
+            " their communication behavior."]
+           [:li
+            [:strong "DaoDB"]
+            ": Entities don't have independent properties. Properties are "
+            [:em "datoms appended through interaction"]
+            "."]
+           [:li
+            [:strong "Functional programming"]
+            ": Data is immutable. Computation is "
+            [:em "transformation through function application"]
+            "."]]
+          [:p
+           "This is the "
+           [:strong "interaction-first paradigm"]
+           ". Interactions are primary. State—if it exists at all—is "
+           [:em "derived"]
+           " from the history of interactions."]
+          [:h2 "π-Calculus: Computation as Communication"]
+          [:p
+           "The π-calculus (pi-calculus), invented by Robin Milner, is a formal model of concurrent computation. Its core insight: "
+           [:strong "computation IS communication"]
+           "."]
+          [:h3 "The Basic Model"]
+          [:p
+           "In π-calculus, there are no variables, no memory, no state. Only:"]
+          [:ol
+           [:li [:strong "Processes"] " — computational agents"]
+           [:li [:strong "Channels"] " — communication links"]
+           [:li [:strong "Messages"] " — data sent over channels"]]
+          [:p "Example:"]
+          [:pre
+           [:code
+            "Process A sends on channel c: c̄⟨x⟩.P\nProcess B receives on channel c: c(y).Q\n\nWhen they synchronize:\n  A and B interact through channel c\n  Value x flows from A to B\n  B binds it to name y\n  Both processes continue (P and Q)"]]
+          [:p
+           "Notice: "
+           [:strong "nothing 'exists' except the interaction"]
+           ". Process A doesn't have a variable x that it reads. Process B doesn't have a memory location y that it writes. The interaction "
+           [:em "IS"]
+           " the computation."]
+          [:h3 "Mobile Channels: Interaction Creates Structure"]
+          [:p
+           "The genius of π-calculus is "
+           [:strong "mobile channels"]
+           ". A process can send a "
+           [:em "channel name"]
+           " over another channel:"]
+          [:pre
+           [:code
+            "Process A sends channel d over channel c: c̄⟨d⟩.P\nProcess B receives the channel name: c(y).Q\n\nNow B knows about channel d!\nB can now interact with anyone listening on d.\nThe network topology is DYNAMIC, created by interactions."]]
+          [:p
+           "This is profound: "
+           [:strong "structure emerges from interaction"]
+           ". The communication network isn't predefined. It's "
+           [:em "constructed"]
+           " by the act of communicating."]
+          [:h3 "No Hidden State"]
+          [:p
+           "In π-calculus, processes have "
+           [:strong "no internal state"]
+           ". Everything a process \"knows\" is encoded in:"]
+          [:ul.bulleted
+           [:li "The channel names it possesses"]
+           [:li "Its continuation (what it will do next)"]
+           [:li "Its communication behavior"]]
+          [:p
+           "A process is "
+           [:em "defined by its interactions"]
+           ", not by what it contains. If two processes have identical communication behavior on all channels, "
+           [:strong "they are identical"]
+           "—even if you imagine they have different \"internal states.\""]
+          [:p
+           "This is "
+           [:strong "behavioral equivalence"]
+           ". Only observable interactions matter. Internal state—if it exists—is irrelevant."]
+          [:h2 "RQM: Properties as Interactions"]
+          [:p
+           "Now consider Relational Quantum Mechanics. Its core claim: "
+           [:strong
+            "properties don't exist independently of interactions"]
+           "."]
+          [:h3 "The Parallel to π-Calculus"]
+          [:p "In RQM:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Observers"]
+            " are like π-calculus "
+            [:em "processes"]]
+           [:li
+            [:strong "Measurements"]
+            " are like π-calculus "
+            [:em "message-passing"]]
+           [:li
+            [:strong "Properties"]
+            " are like π-calculus "
+            [:em "channel names"]
+            "—they emerge through interaction"]
+           [:li
+            [:strong "Entanglement"]
+            " is like π-calculus "
+            [:em "sharing a channel"]
+            "—observers become correlated"]]
+          [:h3 "Example: Electron Spin"]
+          [:p
+           "Traditional quantum mechanics: An electron is in superposition "
+           [:code "|ψ⟩ = α|↑⟩ + β|↓⟩"]
+           ". When you measure, the wavefunction collapses to "
+           [:code "|↑⟩"]
+           " or "
+           [:code "|↓⟩"]
+           "."]
+          [:p "RQM reframes this:"]
+          [:pre
+           [:code
+            "Before measurement:\n  Electron has no definite spin (no state exists)\n  Observer has no information about electron\n  They are NOT YET INTERACTING\n\nMeasurement = Interaction:\n  Observer sends measurement signal (like π-calculus send)\n  Electron responds with outcome (like π-calculus receive)\n  Observer now has property: \"electron is spin-up relative to me\"\n\nAfter measurement:\n  Observer has definite information\n  But relative to OTHER observers, electron is still in superposition\n  Only when observers interact do they correlate"]]
+          [:p
+           "The spin doesn't exist until the interaction happens. The interaction "
+           [:em "creates"]
+           " the property, just as π-calculus interaction creates communication structure."]
+          [:h3 "Entanglement as Shared Channels"]
+          [:p
+           "Entangled particles in RQM are like processes sharing a channel in π-calculus:"]
+          [:pre
+           [:code
+            "π-calculus:\n  Process A and Process B both know channel c\n  When A sends on c, B receives\n  Their behavior is CORRELATED through c\n  But c doesn't 'store' anything—it's just a correlation\n\nRQM:\n  Particle A and Particle B are entangled\n  When Observer measures A, gets ↑\n  When Observer measures B, gets ↓ (anti-correlated)\n  The particles don't 'store' their spins\n  The correlation exists in the JOINT STATE"]]
+          [:p
+           "In both cases, "
+           [:strong
+            "correlation isn't carried by state—it's encoded in the interaction structure"]
+           "."]
+          [:h2 "DaoDB: Datoms as Interactions"]
+          [:p "Now we can see how DaoDB fits this pattern."]
+          [:h3 "Datoms Are Interaction Records"]
+          [:p
+           "A datom is: "
+           [:code "[entity attribute value transaction causality]"]
+           ""]
+          [:p
+           "This looks like state: \"entity 42 has attribute :name with value 'Alice'.\" But "
+           [:strong "it's actually an interaction record"]
+           ":"]
+          [:ul.bulleted
+           [:li [:code "entity"] " — which process participated"]
+           [:li [:code "attribute"] " — which channel was used"]
+           [:li [:code "value"] " — what message was sent"]
+           [:li
+            [:code "transaction"]
+            " — when the interaction happened"]
+           [:li
+            [:code "causality"]
+            " — what prior interactions enabled this one"]]
+          [:p
+           "A datom isn't \"Alice's name is stored in entity 42.\" It's \""
+           [:strong "an interaction occurred"]
+           " where entity 42 communicated 'Alice' on the :name channel at transaction 100.\""]
+          [:h3 "Properties Emerge from Interaction History"]
+          [:p "In DaoDB, you query:"]
+          [:pre [:code "[:find ?value\n :where\n [?e :name ?value]]"]]
+          [:p
+           "This doesn't retrieve a \"stored property.\" It "
+           [:strong "reconstructs"]
+           " the property by observing the interaction history:"]
+          [:ol
+           [:li "Scan the datom stream"]
+           [:li "Find all interactions on channel :name"]
+           [:li "Filter by entity ?e"]
+           [:li "Return the most recent value (latest interaction)"]]
+          [:p
+           "The entity doesn't \"have\" a name. It has "
+           [:strong "participated in :name interactions"]
+           ". The property is derived."]
+          [:h3 "Sync as π-Calculus Synchronization"]
+          [:p "When two DaoDB devices sync:"]
+          [:pre
+           [:code
+            "Device A: [entity-1 :age 31 :tx 101]\nDevice B: [entity-1 :age 29 :tx 102]\n\nSync = interaction:\n  A sends its datoms to B\n  B sends its datoms to A\n  Both observe: \"conflict on entity-1 :age\"\n  CRDT merge creates new datom:\n    [entity-1 :age 29 :tx 103 :merged-from [101 102]]"]]
+          [:p
+           "This is "
+           [:strong "exactly π-calculus synchronization"]
+           ":"]
+          [:pre
+           [:code
+            "Process A sends on channel sync: sync̄⟨tx-101⟩\nProcess B sends on channel sync: sync̄⟨tx-102⟩\n\nBoth processes synchronize:\n  Observe each other's messages\n  Compute merge (interaction creates new state)\n  Continue with merged history"]]
+          [:p
+           "The conflict resolution isn't "
+           [:em "discovering the true state"]
+           ". It's "
+           [:strong "creating correlation through interaction"]
+           "."]
+          [:h2 "Why Interaction-First Matters"]
+          [:h3 "1. Composability"]
+          [:p
+           "State-first systems compose poorly. When you combine two stateful objects, you must:"]
+          [:ul.bulleted
+           [:li "Merge their states (often impossible)"]
+           [:li "Reconcile conflicting assumptions"]
+           [:li "Manage shared mutable state"]]
+          [:p "Interaction-first systems compose naturally:"]
+          [:ul.bulleted
+           [:li
+            "π-calculus: Parallel composition "
+            [:code "P | Q"]
+            " just means both processes run concurrently"]
+           [:li
+            "RQM: Observers interact—correlation emerges automatically"]
+           [:li
+            "DaoDB: Streams append concurrently—no coordination needed"]]
+          [:h3 "2. Distribution"]
+          [:p "State-first systems struggle with distribution:"]
+          [:ul.bulleted
+           [:li "Which node has the \"true\" state?"]
+           [:li "How do we keep replicas consistent?"]
+           [:li "What happens during network partition?"]]
+          [:p
+           "Interaction-first systems are "
+           [:strong "naturally distributed"]
+           ":"]
+          [:ul.bulleted
+           [:li
+            "π-calculus: Processes are already separate. Communication is the only primitive."]
+           [:li
+            "RQM: Every observer has local reality. No global state to synchronize."]
+           [:li
+            "DaoDB: Every device has its own datom stream. Sync is just interaction."]]
+          [:h3 "3. Causality"]
+          [:p
+           "State-first systems encode causality poorly. If variable x changes, "
+           [:em "why"]
+           " did it change? You must track this separately."]
+          [:p "Interaction-first systems encode causality naturally:"]
+          [:ul.bulleted
+           [:li
+            "π-calculus: Process continuations capture causal dependencies. If P then Q means Q "
+            [:em "causally depends"]
+            " on P."]
+           [:li
+            "RQM: Measurement outcomes depend on prior interactions. Light cones define causal structure."]
+           [:li
+            "DaoDB: The causality dimension of datoms "
+            [:code "[e a v t c]"]
+            " explicitly tracks causal dependencies."]]
+          [:h3 "4. Time Travel and Provenance"]
+          [:p
+           "State-first systems lose history. Once state mutates, the old state is gone."]
+          [:p "Interaction-first systems preserve history:"]
+          [:ul.bulleted
+           [:li "π-calculus: Process traces record all communications"]
+           [:li
+            "RQM: No information is lost (unitarity). All interactions are preserved in the joint state."]
+           [:li
+            "DaoDB: Datom streams are append-only. Query any point in time by filtering transactions."]]
+          [:h2 "The Deep Pattern"]
+          [:p "Here's the unifying insight:"]
+          [:table
+           [:thead
+            [:tr
+             [:th "Domain"]
+             [:th "Interaction-First View"]
+             [:th "State-First View (rejected)"]]]
+           [:tbody
+            [:tr
+             [:td "π-Calculus"]
+             [:td "Processes communicate via channels"]
+             [:td "Processes have internal variables"]]
+            [:tr
+             [:td "RQM"]
+             [:td "Properties emerge from measurement"]
+             [:td "Particles have pre-existing properties"]]
+            [:tr
+             [:td "DaoDB"]
+             [:td "Entities accumulate interaction datoms"]
+             [:td "Entities store mutable attributes"]]
+            [:tr
+             [:td "Functional Programming"]
+             [:td "Functions transform immutable data"]
+             [:td "Functions mutate variables"]]
+            [:tr
+             [:td "Git"]
+             [:td "Commits record changes"]
+             [:td "Files have current content"]]
+            [:tr
+             [:td "Event Sourcing"]
+             [:td "Events are the source of truth"]
+             [:td "Current state is the source of truth"]]]]
+          [:p "In every case, the interaction-first view:"]
+          [:ul.bulleted
+           [:li "Makes causality explicit"]
+           [:li "Preserves history"]
+           [:li "Composes naturally"]
+           [:li "Distributes without coordination"]
+           [:li "Makes time-travel trivial"]
+           [:li "Enables provenance tracking"]]
+          [:h2 "The Philosophical Shift"]
+          [:p
+           "State-first thinking asks: "
+           [:strong "\"What exists?\""]
+           ""]
+          [:p
+           "Interaction-first thinking asks: "
+           [:strong "\"What happened?\""]
+           ""]
+          [:p "This shift transforms how we build systems:"]
+          [:h3 "From Ontology to History"]
+          [:p
+           "State-first: Define what entities exist, what properties they have, what relationships hold."]
+          [:p
+           "Interaction-first: Record what interactions occurred, when, between whom, with what effects."]
+          [:h3 "From Truth to Provenance"]
+          [:p "State-first: The current state is the truth."]
+          [:p
+           "Interaction-first: Truth is the history of how we got here."]
+          [:h3 "From Global to Local"]
+          [:p
+           "State-first: There is one true state everyone must agree on."]
+          [:p
+           "Interaction-first: Each observer has their local interaction history. Correlation emerges when they interact."]
+          [:h2 "Why π-Calculus and RQM Are Isomorphic"]
+          [:p
+           "Now we can answer the original question: Are π-calculus and RQM the same insight?"]
+          [:p [:strong "Yes, structurally."] " Both say:"]
+          [:ol
+           [:li
+            [:strong "No independent state"]
+            " — Properties/behavior don't exist before interaction"]
+           [:li
+            [:strong "Interaction creates structure"]
+            " — Channels/properties emerge through communication/measurement"]
+           [:li
+            [:strong "Correlation without storage"]
+            " — Shared channels/entanglement encode correlation without hidden state"]
+           [:li
+            [:strong "Locality"]
+            " — Interactions propagate at finite speed (network latency / speed of light)"]
+           [:li
+            [:strong "Behavioral equivalence"]
+            " — Only observable interactions matter, not hypothetical internal state"]]
+          [:p
+           "The mathematics is different (process algebra vs quantum mechanics), but the "
+           [:strong "conceptual structure is identical"]
+           "."]
+          [:h3 "DaoDB Implements Both"]
+          [:p "DaoDB is simultaneously:"]
+          [:ul.bulleted
+           [:li
+            [:strong "A π-calculus implementation"]
+            " — Devices are processes, datom streams are channels, sync is message-passing"]
+           [:li
+            [:strong "An RQM implementation"]
+            " — Devices are observers, datoms are measurement outcomes, sync is wave function collapse"]]
+          [:p
+           "These aren't analogies. They're "
+           [:strong
+            "the same architecture viewed from different perspectives"]
+           "."]
+          [:h2 "Practical Implications"]
+          [:h3 "Design Principle: Make Interactions Explicit"]
+          [:p
+           "Don't model systems as objects with state. Model them as processes with interaction histories."]
+          [:pre
+           [:code
+            "Bad (state-first):\n  class User {\n    String name;\n    int age;\n    void setName(String n) { this.name = n; }\n  }\n\nGood (interaction-first):\n  user-stream = append-only log of datoms\n  [user-42 :name \"Alice\" :tx 100]\n  [user-42 :age 30 :tx 100]\n  [user-42 :name \"Alice Smith\" :tx 150]  ; name changed\n\n  Query for current state:\n    SELECT value WHERE entity=user-42 AND attribute=:name\n    ORDER BY transaction DESC LIMIT 1"]]
+          [:h3 "Debugging: Follow Interactions, Not State"]
+          [:p
+           "When debugging state-first systems: \"What is the current value of x?\""]
+          [:p
+           "When debugging interaction-first systems: \"What sequence of interactions led to this outcome?\""]
+          [:p
+           "The interaction history "
+           [:em "IS"]
+           " the explanation. No need for separate logging."]
+          [:h3 "Testing: Verify Interaction Protocols"]
+          [:p "State-first: Assert that state matches expectations."]
+          [:p
+           "Interaction-first: Assert that interaction sequences produce correct outcomes."]
+          [:pre
+           [:code
+            "π-calculus test:\n  Process A sends x on channel c\n  Process B receives y on channel c\n  Assert: x = y\n\nDaoDB test:\n  Device A appends [entity-1 :color \"red\" :tx 101]\n  Device B appends [entity-1 :color \"blue\" :tx 102]\n  Sync()\n  Assert: merged datom preserves both transactions in provenance"]]
+          [:h2 "Conclusion: Computation Is Interaction"]
+          [:p
+           "The insight shared by π-calculus, RQM, and DaoDB is profound:"]
+          [:p
+           [:strong
+            "Reality is not a collection of objects with properties. Reality is a network of interactions."]
+           ""]
+          [:p
+           "In physics: Properties emerge when observers interact (RQM)."]
+          [:p
+           "In computation: Behavior emerges when processes communicate (π-calculus)."]
+          [:p
+           "In databases: State emerges from the history of appended datoms (DaoDB)."]
+          [:p
+           "This isn't metaphor. It's "
+           [:strong "structural correspondence"]
+           ". The same pattern appears because it's "
+           [:strong "fundamental"]
+           ":"]
+          [:ul.bulleted
+           [:li "Interactions are primary"]
+           [:li "State is derived"]
+           [:li "Causality is explicit"]
+           [:li "History is preserved"]
+           [:li "Distribution is natural"]
+           [:li "Locality is enforced"]]
+          [:p
+           "When you build systems this way—whether databases, quantum theories, or distributed processes—you get:"]
+          [:ul.bulleted
+           [:li "Perfect auditability (every interaction is recorded)"]
+           [:li "Time-travel queries (filter by transaction)"]
+           [:li "Natural distribution (no global state to coordinate)"]
+           [:li "Causal consistency (vector clocks = light cones)"]
+           [:li
+            "Conflict resolution (CRDT merge = wave function collapse)"]
+           [:li "Provenance tracking (causality dimension explicit)"]]
+          [:p
+           [:strong
+            "Computation is interaction. State is history. Reality emerges from what happened, not from what exists."]
+           ""]
+          [:p "This is the foundation of datom.world."]
+          [:p [:strong "Learn more:"]]
+          [:ul.bulleted
+           [:li
+            [:a
+             {:href "/blog/datom-world-wave-function-collapse.blog"}
+             "Datom.World and the Collapse of the Wave Function"]
+            " — How DaoDB implements RQM"]
+           [:li
+            [:a
+             {:href "/blog/structure-vs-interpretation.blog"}
+             "Structure vs Interpretation"]
+            " — Why meaning emerges from interaction"]
+           [:li
+            [:a {:href "/dao-stream.chp"} "DaoStream"]
+            " — The interaction substrate"]
+           [:li
+            [:a {:href "/dao-db.chp"} "DaoDB"]
+            " — Query interaction histories with Datalog"]
+           [:li
+            [:a
+             {:href "https://en.wikipedia.org/wiki/Pi-calculus"}
+             "π-Calculus (Wikipedia)"]
+            " — The formal model"]
+           [:li
+            [:a
+             {:href
+              "https://plato.stanford.edu/entries/qm-relational/"}
+             "Relational Quantum Mechanics (Stanford)"]
+            " — Philosophical foundations"]]]]]}

@@ -1,0 +1,726 @@
+#:blog{:title "What Makes Datalog Datalog: Semantics, Not Syntax",
+       :date #inst "2025-11-17T00:00:00.000-00:00",
+       :abstract
+       [:p
+        "Datomic implements Datalog with an EDN-based syntax that looks like structured data. Prolog-style Datalog uses predicates and horn clauses. Souffle uses a C-like syntax. LogicBlox has its own notation. SQL's "
+        [:code "WITH RECURSIVE"]
+        " enables Datalog-style queries."],
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+          [:h2 "The Question"]
+          [:p
+           "Datomic implements Datalog with an EDN-based syntax that looks like structured data. Prolog-style Datalog uses predicates and horn clauses. Souffle uses a C-like syntax. LogicBlox has its own notation. SQL's "
+           [:code "WITH RECURSIVE"]
+           " enables Datalog-style queries."]
+          [:p
+           "Are these all "
+           [:em "actually"]
+           " Datalog? Or are some pretenders?"]
+          [:p
+           "The answer: "
+           [:strong
+            "Datalog is defined by its semantics, not its syntax"]
+           ". If the evaluation model is the same, it's Datalog—no matter what the surface representation looks like."]
+          [:h2 "What Datalog Actually Is"]
+          [:p
+           "Datalog is a "
+           [:strong "restricted subset of first-order logic"]
+           " with a specific evaluation strategy. At its core:"]
+          [:h3 "1. Relational Foundation"]
+          [:p
+           "Data is stored as "
+           [:strong "relations"]
+           "—sets of tuples. Not nested objects. Not trees. Flat tuples."]
+          [:pre
+           [:code
+            "parent(alice, bob)\nparent(bob, charlie)\nparent(charlie, diana)"]]
+          [:p
+           "This is a relation "
+           [:code "parent"]
+           " with two columns. Each row is a fact."]
+          [:h3 "2. Horn Clause Logic"]
+          [:p
+           "Queries are "
+           [:strong "Horn clauses"]
+           "—logical implications of the form:"]
+          [:pre [:code "head :- body₁, body₂, ..., bodyₙ"]]
+          [:p
+           "Read as: \"The head is true "
+           [:strong "if"]
+           " all body clauses are true.\""]
+          [:p "Example:"]
+          [:pre
+           [:code
+            "ancestor(X, Y) :- parent(X, Y).\nancestor(X, Y) :- parent(X, Z), ancestor(Z, Y)."]]
+          [:p "This defines " [:code "ancestor"] " recursively:"]
+          [:ul.bulleted
+           [:li
+            "Base case: If "
+            [:code "parent(X, Y)"]
+            ", then "
+            [:code "ancestor(X, Y)"]
+            ""]
+           [:li
+            "Recursive case: If "
+            [:code "parent(X, Z)"]
+            " and "
+            [:code "ancestor(Z, Y)"]
+            ", then "
+            [:code "ancestor(X, Y)"]
+            ""]]
+          [:h3 "3. Safe Recursion"]
+          [:p
+           "Datalog supports "
+           [:strong "recursive rules"]
+           " with "
+           [:strong "guaranteed termination"]
+           ". This is enforced via:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Range restriction"]
+            " — Every variable in the head must appear in a positive (non-negated) body clause"]
+           [:li
+            [:strong "Stratification"]
+            " — Negation cannot create circular dependencies"]
+           [:li
+            [:strong "No function symbols"]
+            " — Only constants and variables (prevents infinite term generation)"]]
+          [:p "Example of safe recursion:"]
+          [:pre
+           [:code
+            "reachable(X, Y) :- edge(X, Y).\nreachable(X, Y) :- edge(X, Z), reachable(Z, Y)."]]
+          [:p "This terminates because:"]
+          [:ul.bulleted
+           [:li
+            "Variables "
+            [:code "X"]
+            ", "
+            [:code "Y"]
+            ", "
+            [:code "Z"]
+            " are bound by "
+            [:code "edge"]
+            " facts"]
+           [:li
+            "No new nodes are generated (only existing nodes from "
+            [:code "edge"]
+            ")"]
+           [:li
+            "The number of possible "
+            [:code "reachable"]
+            " facts is finite"]]
+          [:h3 "4. Fixed-Point Evaluation"]
+          [:p
+           "Datalog evaluates rules by "
+           [:strong "iterating until a fixed point"]
+           " is reached:"]
+          [:pre
+           [:code
+            "Iteration 0: Base facts (from database)\nIteration 1: Apply rules → derive new facts\nIteration 2: Apply rules → derive more facts\n...\nIteration N: Apply rules → no new facts\nFIXED POINT REACHED ✓"]]
+          [:p
+           "This is called "
+           [:strong "least fixed-point semantics"]
+           ". The result is the "
+           [:strong "smallest set of facts"]
+           " that satisfies all rules."]
+          [:h3 "5. Set Semantics"]
+          [:p
+           "Results are "
+           [:strong "sets"]
+           ", not bags (multisets) or lists:"]
+          [:pre
+           [:code
+            "Result: {(alice, bob), (alice, charlie)}\n\nNOT: [(alice, bob), (alice, bob), (alice, charlie)]  # No duplicates!"]]
+          [:p
+           "Each fact is derived "
+           [:strong "at most once"]
+           ". Adding the same rule multiple times doesn't change the result."]
+          [:h3 "6. Monotonicity"]
+          [:p
+           "Adding facts "
+           [:strong "never removes"]
+           " previously derived conclusions (until you add stratified negation):"]
+          [:pre
+           [:code
+            "If ancestor(alice, bob) was derived,\nAdding more parent() facts won't un-derive it."]]
+          [:p
+           "This property enables "
+           [:strong "incremental evaluation"]
+           ". You can add new facts and recompute only the affected conclusions."]
+          [:h3 "7. Stratified Negation"]
+          [:p
+           "Datalog supports "
+           [:strong "negation"]
+           ", but it must be "
+           [:strong "stratified"]
+           "—no circular dependencies through negation:"]
+          [:pre
+           [:code
+            "unreachable(X, Y) :- node(X), node(Y), not reachable(X, Y)."]]
+          [:p "This is safe because:"]
+          [:ul.bulleted
+           [:li
+            [:code "reachable"]
+            " is fully computed first (stratum 0)"]
+           [:li [:code "unreachable"] " uses the result (stratum 1)"]
+           [:li
+            "No circular dependency: "
+            [:code "unreachable"]
+            " doesn't feed back into "
+            [:code "reachable"]
+            ""]]
+          [:p
+           "Stratification ensures negation is "
+           [:strong "computable and meaningful"]
+           "."]
+          [:h2 "Syntax Is Just Surface Representation"]
+          [:p
+           "Different Datalog implementations use wildly different syntaxes, but they all share the same "
+           [:strong "evaluation model"]
+           ":"]
+          [:h3 "Prolog-Style (Classic)"]
+          [:pre
+           [:code
+            "parent(alice, bob).\nparent(bob, charlie).\n\nancestor(X, Y) :- parent(X, Y).\nancestor(X, Y) :- parent(X, Z), ancestor(Z, Y).\n\n?- ancestor(alice, charlie)."]]
+          [:p
+           "This is the "
+           [:strong "canonical Datalog syntax"]
+           ", borrowed from Prolog."]
+          [:h3 "Datomic/Datascript (EDN/Clojure)"]
+          [:pre
+           [:code
+            {:class "language-clojure"}
+            "[:find ?ancestor ?descendant\n :where\n [?ancestor :parent ?child]\n [?child :parent ?descendant]]"]]
+          [:p
+           "This looks like "
+           [:strong "structured data"]
+           " (EDN—Extensible Data Notation). It's a vector containing keywords and symbols."]
+          [:p
+           "Key insight: This is "
+           [:strong "homoiconic"]
+           ". The query is "
+           [:strong "data"]
+           " that Clojure code can manipulate:"]
+          [:pre
+           [:code
+            {:class "language-clojure"}
+            ";; Compose queries as data\n(def base-query\n  '[:find ?person\n    :where\n    [?person :person/name ?name]])\n\n(def age-filter\n  '[[?person :person/age ?age]\n    [(> ?age 18)]])\n\n;; Programmatically build queries\n(concat base-query [:where] age-filter)"]]
+          [:p
+           "Despite the syntax difference, this is "
+           [:strong "Datalog"]
+           " because:"]
+          [:ul.bulleted
+           [:li
+            "Variables ("
+            [:code "?person"]
+            ", "
+            [:code "?name"]
+            ") unify"]
+           [:li "Clauses are conjunctive (AND semantics)"]
+           [:li "Supports recursion via rules"]
+           [:li "Set semantics (" [:code ":find"] " returns a set)"]
+           [:li
+            "Stratified negation ("
+            [:code "not"]
+            ", "
+            [:code "not-join"]
+            ")"]]
+          [:h3 "Souffle (Research-Oriented)"]
+          [:pre
+           [:code
+            ".decl parent(x: symbol, y: symbol)\n.decl ancestor(x: symbol, y: symbol)\n.input parent\n\nancestor(x, y) :- parent(x, y).\nancestor(x, y) :- parent(x, z), ancestor(z, y).\n\n.output ancestor"]]
+          [:p
+           "Souffle adds "
+           [:strong "type declarations"]
+           " and explicit input/output directives. It compiles to "
+           [:strong "C++"]
+           " for high performance."]
+          [:h3 "LogicBlox (Commercial)"]
+          [:pre
+           [:code
+            "ancestor(x, y) <- parent(x, y).\nancestor(x, y) <- parent(x, z), ancestor(z, y)."]]
+          [:p
+           "Uses "
+           [:code "<-"]
+           " instead of "
+           [:code ":-"]
+           ". Same semantics, different arrow."]
+          [:h3 "SQL WITH RECURSIVE"]
+          [:pre
+           [:code
+            {:class "language-sql"}
+            "WITH RECURSIVE ancestor AS (\n  SELECT parent, child FROM parent_table\n  UNION\n  SELECT p.parent, a.child\n  FROM parent_table p\n  JOIN ancestor a ON p.child = a.parent\n)\nSELECT * FROM ancestor;"]]
+          [:p
+           "SQL's "
+           [:code "WITH RECURSIVE"]
+           " enables Datalog-style recursive queries. Same fixed-point evaluation, SQL syntax."]
+          [:h2 "All Datalog, Different Clothes"]
+          [:p
+           "These are "
+           [:strong "all Datalog"]
+           " because they share the same "
+           [:strong "semantic properties"]
+           ":"]
+          [:ul.bulleted
+           [:li
+            [:strong "Relational model"]
+            " (tuples, not nested terms)"]
+           [:li [:strong "Horn clause logic"] " (if-then rules)"]
+           [:li
+            [:strong "Fixed-point semantics"]
+            " (iterate until stable)"]
+           [:li [:strong "Safe recursion"] " (guaranteed termination)"]
+           [:li [:strong "Stratified negation"] " (safe NOT)"]
+           [:li [:strong "Set semantics"] " (no duplicates)"]
+           [:li
+            [:strong "Monotonicity"]
+            " (adding facts preserves conclusions)"]]
+          [:p
+           "The syntax is irrelevant. Datalog is "
+           [:strong "an evaluation strategy"]
+           ", not a programming language."]
+          [:h2 "What Datalog Is NOT"]
+          [:p "To clarify the boundaries:"]
+          [:h3 "Datalog Is NOT Full Prolog"]
+          [:p "Prolog has:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Function symbols"]
+            " — Terms like "
+            [:code "f(g(h(x)))"]
+            " can nest infinitely"]
+           [:li
+            [:strong "Backtracking search"]
+            " — Explores multiple solutions with chronological backtracking"]
+           [:li
+            [:strong "Cut operator"]
+            " ("
+            [:code "!"]
+            ") — Non-logical control for pruning search"]
+           [:li
+            [:strong "Non-monotonic updates"]
+            " — "
+            [:code "assert"]
+            "/"
+            [:code "retract"]
+            " modify the database"]
+           [:li
+            [:strong "Turing-complete"]
+            " — Can express arbitrary computation (doesn't always terminate)"]]
+          [:p "Datalog restricts:"]
+          [:ul.bulleted
+           [:li
+            [:strong "No function symbols"]
+            " — Only constants and variables (prevents infinite term generation)"]
+           [:li
+            [:strong "No backtracking"]
+            " — Set-based evaluation (all solutions at once)"]
+           [:li
+            [:strong "No cut"]
+            " — Declarative only (no procedural control)"]
+           [:li
+            [:strong "Monotonic reasoning"]
+            " — Facts only accumulate (until stratified negation)"]
+           [:li
+            [:strong "Guaranteed termination"]
+            " — Finite domain + range restriction = always halts"]]
+          [:p
+           "Example of "
+           [:strong "legal Prolog, illegal Datalog"]
+           ":"]
+          [:pre
+           [:code
+            "% Prolog: Function symbols allow infinite nesting\nlist([]).\nlist([H|T]) :- list(T).\nappend([], L, L).\nappend([H|T1], L2, [H|T3]) :- append(T1, L2, T3).\n\n?- append([1,2], [3,4], X).  % Builds X = [1,2,3,4]"]]
+          [:p
+           "This uses "
+           [:strong "function symbols"]
+           " ("
+           [:code "[H|T]"]
+           " is "
+           [:code "cons(H, T)"]
+           "). Datalog cannot express this because:"]
+          [:ul.bulleted
+           [:li
+            "The term "
+            [:code "[1,[2,[3,[4,[]]]]]"]
+            " is a nested function"]
+           [:li
+            "Prolog can generate "
+            [:strong "infinitely many different terms"]
+            ""]
+           [:li "Datalog requires " [:strong "finite domains"] ""]]
+          [:h3 "Datalog Is NOT SQL (But Close)"]
+          [:p "SQL has:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Aggregate functions"]
+            " — "
+            [:code "SUM"]
+            ", "
+            [:code "AVG"]
+            ", "
+            [:code "COUNT"]
+            ", "
+            [:code "GROUP BY"]
+            ""]
+           [:li
+            [:strong "Nulls"]
+            " — Three-valued logic (true/false/unknown)"]
+           [:li
+            [:strong "Order-dependent operations"]
+            " — "
+            [:code "LIMIT"]
+            ", "
+            [:code "OFFSET"]
+            ", "
+            [:code "ORDER BY"]
+            ""]
+           [:li
+            [:strong "Procedural extensions"]
+            " — Stored procedures, triggers"]
+           [:li
+            [:strong "Imperative updates"]
+            " — "
+            [:code "UPDATE"]
+            ", "
+            [:code "DELETE"]
+            ", "
+            [:code "INSERT"]
+            ""]]
+          [:p "Classic Datalog has:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Simple selection/projection/join"]
+            " — No aggregates"]
+           [:li
+            [:strong "No nulls"]
+            " — Closed-world assumption (missing = false)"]
+           [:li
+            [:strong "Order-independent"]
+            " — Set semantics (no ORDER BY)"]
+           [:li [:strong "Declarative rules only"] " — No procedures"]
+           [:li
+            [:strong "Immutable facts"]
+            " — No updates (monotonic reasoning)"]]
+          [:p
+           "Modern Datalog extensions (Datomic, Souffle) add aggregates, but core Datalog is "
+           [:strong "simpler and more restricted than SQL"]
+           "."]
+          [:h2 "Why the Restrictions Matter"]
+          [:p
+           "Datalog's restrictions seem limiting. No function symbols? No loops? No updates? Why bother?"]
+          [:p
+           "Because these restrictions unlock "
+           [:strong "powerful guarantees"]
+           ":"]
+          [:h3 "1. Guaranteed Termination"]
+          [:p
+           "Every Datalog query "
+           [:strong "always terminates"]
+           ". No infinite loops. No non-termination."]
+          [:p
+           "This is why Datalog is perfect for "
+           [:strong "compiler infrastructure"]
+           ". You can run arbitrary user-defined queries without worrying about hanging the compiler."]
+          [:h3 "2. Efficient Evaluation"]
+          [:p "The restrictions enable aggressive optimization:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Join ordering"]
+            " — Query planner chooses optimal join order"]
+           [:li
+            [:strong "Indexing"]
+            " — Multi-dimensional indexes for fast lookup"]
+           [:li
+            [:strong "Semi-naive evaluation"]
+            " — Incremental fixed-point computation"]
+           [:li
+            [:strong "Magic sets"]
+            " — Push down selections for efficiency"]
+           [:li [:strong "Tabling"] " — Memoize intermediate results"]]
+          [:p
+           "These optimizations are "
+           [:strong "impossible in full Prolog"]
+           " (backtracking and function symbols break them)."]
+          [:h3 "3. Parallel Evaluation"]
+          [:p
+           "Datalog rules can be applied "
+           [:strong "in parallel"]
+           ". No shared mutable state. No race conditions."]
+          [:pre
+           [:code
+            "// Apply rules in parallel\nparallel_for_each rule in rules:\n    derive_facts(rule, current_facts)\n\n// Merge results (set union)\nnew_facts = union(all derived facts)"]]
+          [:p
+           "This enables "
+           [:strong "massive parallelism"]
+           " on modern hardware."]
+          [:h3 "4. Incremental Maintenance"]
+          [:p
+           "Monotonicity enables "
+           [:strong "incremental updates"]
+           ":"]
+          [:pre
+           [:code
+            "Add new fact: parent(diana, eve)\n\nRecompute only affected conclusions:\n  ancestor(diana, eve)  ← new\n  ancestor(charlie, eve) ← new (via diana)\n  ancestor(bob, eve)     ← new (via charlie)\n  ancestor(alice, eve)   ← new (via bob)\n\nEverything else unchanged!"]]
+          [:p
+           "Traditional databases must recompute "
+           [:strong "everything"]
+           ". Datalog recomputes only "
+           [:strong "what changed"]
+           "."]
+          [:h3 "5. Declarative Optimization"]
+          [:p
+           "You write "
+           [:strong "what"]
+           " you want, not "
+           [:strong "how"]
+           " to compute it. The query planner chooses the execution strategy."]
+          [:pre
+           [:code
+            ";; User writes this\n[:find ?x ?z\n :where\n [?x :related-to ?y]\n [?y :connected-to ?z]\n [(> ?z 100)]]\n\n;; Engine optimizes:\nOption 1: Filter z > 100 first, then join\nOption 2: Join first, then filter\nOption 3: Use index on :connected-to for z > 100\n\nChooses best based on statistics!"]]
+          [:p
+           "This is why "
+           [:a
+            {:href "/blog/datalog-compiler-infrastructure.blog"}
+            "Datalog as compiler infrastructure"]
+           " is so powerful. Compiler writers express "
+           [:strong "semantic truths"]
+           ", and the engine optimizes automatically."]
+          [:h2 "The Power of 'Just' Datalog"]
+          [:p
+           "Datalog seems simple compared to Prolog or SQL. But this simplicity is "
+           [:strong "intentional"]
+           ":"]
+          [:ul.bulleted
+           [:li
+            [:strong "Expressive enough"]
+            " for complex analyses (reachability, type inference, escape analysis)"]
+           [:li
+            [:strong "Restricted enough"]
+            " for efficiency (guaranteed termination, parallelism, indexing)"]
+           [:li
+            [:strong "Declarative enough"]
+            " for composability (rules are independent)"]
+           [:li
+            [:strong "Safe enough"]
+            " for user-programmable compilers (no hanging queries)"]]
+          [:p
+           "This is the "
+           [:strong "sweet spot"]
+           " for "
+           [:a
+            {:href "/blog/datalog-compiler-infrastructure.blog"}
+            "compiler optimization"]
+           "."]
+          [:h2 "Homoiconicity: Why Datomic's Syntax Matters"]
+          [:p
+           "While syntax doesn't change "
+           [:em "what"]
+           " Datalog is, Datomic's choice to represent queries as "
+           [:strong "data structures"]
+           " (EDN) unlocks unique capabilities:"]
+          [:h3 "Queries as Data"]
+          [:pre
+           [:code
+            {:class "language-clojure"}
+            ";; A query is just a data structure\n(def my-query\n  '[:find ?person ?name\n    :where\n    [?person :person/name ?name]])"]]
+          [:h3 "Programmatic Composition"]
+          [:pre
+           [:code
+            {:class "language-clojure"}
+            ";; Build queries dynamically\n(defn add-age-filter [query min-age]\n  (update query :where conj\n    ['?person :person/age '?age]\n    [list '> '?age min-age]))\n\n(add-age-filter my-query 18)\n;; => [:find ?person ?name\n;;     :where\n;;     [?person :person/name ?name]\n;;     [?person :person/age ?age]\n;;     [(> ?age 18)]]"]]
+          [:h3 "Macro Generation"]
+          [:pre
+           [:code
+            {:class "language-clojure"}
+            ";; Generate queries from specifications\n(defmacro defquery [name spec]\n  `(def ~name\n     ~(compile-spec-to-query spec)))\n\n(defquery ancestors\n  {:entity :person\n   :relation :parent\n   :transitive true})"]]
+          [:h3 "Serialization"]
+          [:pre
+           [:code
+            {:class "language-clojure"}
+            ";; Serialize queries as EDN\n(pr-str my-query)\n;; => \"[:find ?person ?name :where [?person :person/name ?name]]\"\n\n;; Send over network, store in database, etc.\n;; Then read back:\n(read-string query-string)"]]
+          [:p
+           "This "
+           [:strong "homoiconicity"]
+           " (code as data) is why Lisp-family languages excel at metaprogramming. Datomic's EDN syntax makes queries "
+           [:strong "first-class data"]
+           " that can be manipulated, composed, and generated programmatically."]
+          [:h2 "DaoDB's Datalog Design"]
+          [:p
+           "When building "
+           [:a {:href "/dao-db.chp"} "DaoDB"]
+           " for "
+           [:a {:href "/yin.chp"} "Yin.vm"]
+           ", the design choices are clear:"]
+          [:h3 "Syntax: Datomic's EDN-Based Datalog"]
+          [:p
+           [:strong "DaoDB implements Datomic's syntax of Datalog"]
+           "—using Clojure's EDN (Extensible Data Notation) for homoiconic queries:"]
+          [:pre
+           [:code
+            {:class "language-clojure"}
+            "[:find ?fn ?optimization\n :where\n [?fn :ast/type :function]\n [?fn :purity/pure true]\n [?call :ast/calls ?fn]\n [?loop :ast/type :loop]\n [?call :ast/ancestor ?loop]\n [(vector :hoist-call ?call ?loop) ?optimization]]"]]
+          [:h3 "Semantics: Pure Datalog"]
+          [:ul.bulleted
+           [:li
+            [:strong "Horn clauses"]
+            " (rules with heads and bodies)"]
+           [:li
+            [:strong "Fixed-point evaluation"]
+            " (iterate until stable)"]
+           [:li [:strong "Stratified negation"] " (safe NOT)"]
+           [:li
+            [:strong "Range restriction"]
+            " (guaranteed termination)"]
+           [:li [:strong "Set semantics"] " (no duplicates)"]]
+          [:h3 "Extensions: Modern Datalog Features"]
+          [:ul.bulleted
+           [:li
+            [:strong "Aggregates"]
+            " — "
+            [:code "sum"]
+            ", "
+            [:code "count"]
+            ", "
+            [:code "max"]
+            " for optimization metrics"]
+           [:li
+            [:strong "Temporal queries"]
+            " — Query across transaction time (history)"]
+           [:li
+            [:strong "Provenance"]
+            " — Which rule derived this fact? (for debugging)"]
+           [:li
+            [:strong "User-defined predicates"]
+            " — Custom functions in queries"]
+           [:li
+            [:strong "Pull API"]
+            " — Fetch entity graphs (Datomic-style)"]]
+          [:h3 "Optimizations: High-Performance Datalog"]
+          [:ul.bulleted
+           [:li
+            [:strong "Semi-naive evaluation"]
+            " — Incremental fixed-point (only new facts)"]
+           [:li
+            [:strong "Multi-indexed EAVT"]
+            " — Fast lookup on entity/attribute/value/time"]
+           [:li
+            [:strong "Join ordering"]
+            " — Cost-based query planner"]
+           [:li
+            [:strong "Parallel evaluation"]
+            " — Rules applied concurrently"]
+           [:li
+            [:strong "Compilation to execution streams"]
+            " — "
+            [:a
+             {:href "/blog/ast-datom-streams-bytecode-performance.blog"}
+             "Bytecode-like performance"]
+            ""]]
+          [:h2 "The Essence: Evaluation Model, Not Surface Syntax"]
+          [:p "Datalog is not defined by its syntax. It's defined by:"]
+          [:ol
+           [:li [:strong "Relational model"] " — Data is tuples"]
+           [:li
+            [:strong "Horn clause logic"]
+            " — Rules are if-then implications"]
+           [:li
+            [:strong "Fixed-point evaluation"]
+            " — Iterate until no new facts"]
+           [:li [:strong "Safe recursion"] " — Guaranteed termination"]
+           [:li [:strong "Stratified negation"] " — Computable NOT"]
+           [:li [:strong "Set semantics"] " — No duplicates"]
+           [:li [:strong "Monotonicity"] " — Facts accumulate"]]
+          [:p "These properties make Datalog:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Powerful"]
+            " — Recursive queries, transitive closure, fixpoints"]
+           [:li
+            [:strong "Efficient"]
+            " — Indexing, join ordering, parallelism"]
+           [:li
+            [:strong "Safe"]
+            " — Always terminates, no infinite loops"]
+           [:li [:strong "Declarative"] " — Describe what, not how"]
+           [:li [:strong "Composable"] " — Rules are independent"]]
+          [:p
+           "This is why Datalog is the "
+           [:strong "perfect foundation"]
+           " for "
+           [:a
+            {:href "/blog/datalog-compiler-infrastructure.blog"}
+            "compiler infrastructure"]
+           ". It provides:"]
+          [:ul.bulleted
+           [:li "Expressive power for complex analyses"]
+           [:li "Efficiency for whole-program reasoning"]
+           [:li "Safety for user-programmable optimizations"]
+           [:li "Declarative clarity for maintainability"]]
+          [:h2 "Conclusion: Look Beyond the Syntax"]
+          [:p "When you see Datalog queries that look different:"]
+          [:ul.bulleted
+           [:li
+            "Prolog-style: "
+            [:code "ancestor(X,Y) :- parent(X,Y)."]
+            ""]
+           [:li
+            "Datomic-style: "
+            [:code "[:find ?x :where [?x :parent ?y]]"]
+            ""]
+           [:li
+            "SQL-style: "
+            [:code "WITH RECURSIVE ancestor AS ..."]
+            ""]]
+          [:p "Don't be fooled by the surface representation. Ask:"]
+          [:ul.bulleted
+           [:li "Does it use " [:strong "Horn clauses"] "?"]
+           [:li "Does it evaluate via " [:strong "fixed-point"] "?"]
+           [:li "Does it guarantee " [:strong "termination"] "?"]
+           [:li "Does it support " [:strong "safe recursion"] "?"]
+           [:li "Does it have " [:strong "set semantics"] "?"]]
+          [:p
+           "If yes, "
+           [:strong "it's Datalog"]
+           "—no matter what it looks like."]
+          [:p
+           "Syntax is just clothing. "
+           [:strong "Semantics are the soul."]
+           ""]
+          [:p
+           "This is why "
+           [:a {:href "/"} "datom.world"]
+           " chose Datalog as the foundation for "
+           [:a {:href "/dao-db.chp"} "DaoDB"]
+           " and "
+           [:a {:href "/yin.chp"} "Yin.vm"]
+           ". The evaluation model—not the syntax—is what makes Datalog the perfect query language for "
+           [:strong "code as data"]
+           "."]
+          [:p [:strong "Learn more:"]]
+          [:ul.bulleted
+           [:li
+            [:a
+             {:href "/blog/datalog-compiler-infrastructure.blog"}
+             "Datalog as Compiler Infrastructure"]
+            " (why Datalog makes every optimization queryable)"]
+           [:li
+            [:a
+             {:href "/blog/ast-higher-dimensional-datom-streams.blog"}
+             "AST as Higher Dimensional Construction of Datom Streams"]
+            " (code as queryable datoms)"]
+           [:li
+            [:a
+             {:href "/blog/ast-datom-streams-bytecode-performance.blog"}
+             "AST Datom Streams: Bytecode Performance with Semantic Preservation"]
+            " (execution + queries)"]
+           [:li
+            [:a {:href "/dao-db.chp"} "DaoDB Documentation"]
+            " (the Datalog database powering datom.world)"]
+           [:li
+            [:a {:href "/yin.chp"} "Yin VM Documentation"]
+            " (technical implementation)"]]]]]}

@@ -19,7 +19,7 @@
         "Shibi (屎币) literally means \"shit coin\" in Chinese. The name is intentional. "
         "This isn't money, and it's not trying to replace money. "
         "For a deep dive into why Shibi deliberately avoids being money-like, see "
-        [:a {:href "/blog/shibi-as-money.chp"} "Why Shibi Cannot Be Like Money"]
+        [:a {:href "/blog/shibi-as-money.blog"} "Why Shibi Cannot Be Like Money"]
         ". "
         "It's an application of blockchain to control spam, not to create a new currency. "
         "More importantly, Shibi isn't a single token. It's a system that allows anyone: people, organizations, or autonomous AI agents, to be their own central bank, easily issuing infinitely many utility tokens for different purposes. "
