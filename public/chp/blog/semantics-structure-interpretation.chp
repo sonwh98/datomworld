@@ -7,7 +7,7 @@
       [:div.section-inner
        [:article
         [:h1 "Semantics is Structure Through Interpretation"]
-        [:p.blog-article-meta "Published Nov 22, 2025 · 15 minute read"]
+        [:p.blog-article-meta "Published Nov 22, 2025 · 20 minute read"]
 
         [:p "I previously argued in " [:a {:href "/blog/structure-vs-interpretation.chp"} "Structure vs Interpretation"] " that semantics comes from interpretation. Now I find myself arguing that semantics comes from structure, because Chinese characters encode semantics. This appears contradictory. It's not."]
 
@@ -157,15 +157,15 @@
         [:div.highlight
          [:p [:strong "Meaning is structure as seen through an interpreter."]]]
 
-        [:p "This resolves the apparent contradiction. Structure and interpretation are not opposing forces; they are complementary aspects of the same phenomenon. The Chinese character is structured precisely to facilitate interpretation. The interpreter operates on structure precisely to produce meaning."]
+        [:p "This resolves the apparent contradiction. The Chinese character is structured precisely to facilitate interpretation. The interpreter operates on structure precisely to produce meaning."]
 
         [:p "Neither alone is sufficient. Together, they create semantics."]
 
         [:h2 "Yin and Yang: The Taoist View"]
 
-        [:p "This interdependence mirrors the fundamental principle of yin and yang in Taoist philosophy."]
+        [:p "This interdependence has been understood for millennia in Taoist philosophy through the principle of yin and yang."]
 
-        [:p "Yin and yang are not opposing forces that exist independently. They are complementary aspects of a unified whole, each defining and requiring the other. Neither can exist without its counterpart. Light has no meaning without darkness. Form has no meaning without emptiness. Structure has no meaning without interpretation."]
+        [:p "Yin and yang are not opposing forces—they are complementary aspects of a unified whole, each defining and requiring the other. Light has no meaning without darkness. Form has no meaning without emptiness. Structure has no meaning without interpretation."]
 
         [:p "In the Taoist view:"]
 
@@ -188,8 +188,6 @@
          [:li "Pure interpretation without structure is formless chaos—yang without yin"]
          [:li "Semantics emerges from their " [:em "互生"] " (hùshēng, mutual arising)—the dynamic interplay"]]
 
-        [:p "This is not a compromise or middle ground. It's recognizing that the duality itself is false. Structure and interpretation are not two separate things that happen to work together. They are two aspects of the same phenomenon, like the two sides of a coin or the two poles of a magnet."]
-
         [:p "The Chinese character embodies this perfectly. Its physical form (yin/structure) is inseparable from its capacity to evoke meaning in a reader's mind (yang/interpretation). You cannot separate the glyph from its readability, just as you cannot separate wave from particle, or position from momentum."]
 
         [:p "In Datom.world, this means:"]
@@ -197,9 +195,7 @@
         [:div.highlight
          [:p [:code "datom (structure/yin) ⇄ interpreter (interpretation/yang) = meaning"]]]
 
-        [:p "The datom is not meaningful " [:em "until"] " interpreted, but the interpreter cannot operate " [:em "without"] " the datom's structure. They co-arise. They are " [:strong "dependent co-origination"] ", to borrow from Buddhist philosophy (which shares this insight with Taoism)."]
-
-        [:p "This is why the system works: it respects the fundamental nature of meaning itself as the dynamic interplay of complementary forces."]
+        [:p "The datom is not meaningful " [:em "until"] " interpreted, but the interpreter cannot operate " [:em "without"] " the datom's structure. They co-arise. This is " [:strong "dependent co-origination"] " (pratītyasamutpāda), a concept from Buddhist philosophy that shares Taoism's insight into the interdependent nature of all phenomena."]
 
         [:h2 "Practical Implications"]
 
