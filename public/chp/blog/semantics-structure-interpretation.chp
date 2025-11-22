@@ -161,6 +161,46 @@
 
         [:p "Neither alone is sufficient. Together, they create semantics."]
 
+        [:h2 "Yin and Yang: The Taoist View"]
+
+        [:p "This interdependence mirrors the fundamental principle of yin and yang in Taoist philosophy."]
+
+        [:p "Yin and yang are not opposing forces that exist independently. They are complementary aspects of a unified whole, each defining and requiring the other. Neither can exist without its counterpart. Light has no meaning without darkness. Form has no meaning without emptiness. Structure has no meaning without interpretation."]
+
+        [:p "In the Taoist view:"]
+
+        [:div.highlight
+         [:p [:strong "Yin ↔ Yang"] [:br]
+          "Structure ↔ Interpretation" [:br]
+          "Form ↔ Emptiness" [:br]
+          "Symbol ↔ Mind"]]
+
+        [:p "Structure is like yin: it provides constraint, stability, pattern, form. It is the container, the vessel that holds potential."]
+
+        [:p "Interpretation is like yang: it provides action, movement, realization, life. It is the animating force that actualizes potential."]
+
+        [:p "Just as yin contains a seed of yang (the dot in the symbol), structure contains the potential for interpretation. Just as yang contains a seed of yin, interpretation requires structure to operate on."]
+
+        [:p "The Taoist sage recognizes that " [:em "both"] " are necessary:"]
+
+        [:ul.bulleted
+         [:li "Pure structure without interpretation is dead form—yin without yang"]
+         [:li "Pure interpretation without structure is formless chaos—yang without yin"]
+         [:li "Semantics emerges from their " [:em "互生"] " (hùshēng, mutual arising)—the dynamic interplay"]]
+
+        [:p "This is not a compromise or middle ground. It's recognizing that the duality itself is false. Structure and interpretation are not two separate things that happen to work together. They are two aspects of the same phenomenon, like the two sides of a coin or the two poles of a magnet."]
+
+        [:p "The Chinese character embodies this perfectly. Its physical form (yin/structure) is inseparable from its capacity to evoke meaning in a reader's mind (yang/interpretation). You cannot separate the glyph from its readability, just as you cannot separate wave from particle, or position from momentum."]
+
+        [:p "In Datom.world, this means:"]
+
+        [:div.highlight
+         [:p [:code "datom (structure/yin) ⇄ interpreter (interpretation/yang) = meaning"]]]
+
+        [:p "The datom is not meaningful " [:em "until"] " interpreted, but the interpreter cannot operate " [:em "without"] " the datom's structure. They co-arise. They are " [:strong "dependent co-origination"] ", to borrow from Buddhist philosophy (which shares this insight with Taoism)."]
+
+        [:p "This is why the system works: it respects the fundamental nature of meaning itself as the dynamic interplay of complementary forces."]
+
         [:h2 "Practical Implications"]
 
         [:p "This unified view has immediate practical implications for Datom.world:"]
