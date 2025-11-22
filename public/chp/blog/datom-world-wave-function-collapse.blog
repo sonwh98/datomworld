@@ -1,0 +1,937 @@
+#:blog{:title "Datom.World and the Collapse of the Wave Function",
+       :date #inst "2025-11-17T00:00:00.000-00:00",
+       :abstract
+       [:p
+        "DaoDB is a "
+        [:strong "local-first distributed tuple store"]
+        ". When a device operates "
+        [:strong "in isolation"]
+        ", it maintains its own complete database. But when devices "
+        [:strong "entangle"]
+        " into a synchronization group, something profound happens: each device holds only a "
+        [:strong "partial view"]
+        " of the whole state."],
+       :content
+       (list
+        [:section.blog-article
+         [:div.section-inner
+          [:article
+           [:h1 "Datom.World and the Collapse of the Wave Function"]
+           [:div.blog-article-meta
+            "Published Nov 17, 2025 · 20 minute read"]
+           [:h2 "The Observation"]
+           [:p
+            "DaoDB is a "
+            [:strong "local-first distributed tuple store"]
+            ". When a device operates "
+            [:strong "in isolation"]
+            ", it maintains its own complete database. But when devices "
+            [:strong "entangle"]
+            " into a synchronization group, something profound happens: each device holds only a "
+            [:strong "partial view"]
+            " of the whole state."]
+           [:p
+            "No single device in an entanglement group possesses the complete database. "
+            [:strong "Together"]
+            ", all devices collectively maintain the "
+            [:strong "total state"]
+            ". The information is preserved across the system—this is "
+            [:strong "quantum unitarity"]
+            "—but distributed among observers, not concentrated in any one place."]
+           [:p
+            "When devices sync, they encounter "
+            [:strong "conflicting local states"]
+            "—the same entity modified differently by disconnected observers. This sounds like a bug. A design flaw. Something to fix with clever algorithms."]
+           [:p
+            "But what if it's not a bug at all? What if "
+            [:strong "distributed databases are quantum systems"]
+            ", and conflicts are "
+            [:strong "wave function collapse"]
+            "?"]
+           [:p
+            "Relational Quantum Mechanics (RQM) says there is no global state—only "
+            [:strong "local states relative to observers"]
+            ". When two observers interact, their local states "
+            [:strong "entangle"]
+            ". The \"collapse\" is just "
+            [:strong "correlation between observers"]
+            ", not a global event."]
+           [:p
+            "This is "
+            [:em "exactly"]
+            " how DaoDB works. "
+            [:strong "DaoDB is an implementation of RQM"]
+            "."]
+           [:h2 "What Is Relational Quantum Mechanics?"]
+           [:p
+            "Relational Quantum Mechanics (RQM), proposed by Carlo Rovelli, is a radical interpretation of quantum mechanics:"]
+           [:h3 "The Core Claim"]
+           [:p
+            [:strong
+             "There is no observer-independent state of the universe."]
+            ""]
+           [:p
+            "All properties of a system are "
+            [:strong "relative to the observer"]
+            ". What you measure depends on "
+            [:em "your"]
+            " interaction with the system, not some global \"true\" state."]
+           [:p
+            "Example: Schrödinger's cat is neither alive nor dead from an external perspective. From "
+            [:em "your"]
+            " perspective (before you open the box), it's in superposition. From the "
+            [:em "cat's"]
+            " perspective (inside the box), it has a definite state. "
+            [:strong
+             "Both are correct, relative to their own reference frame."]
+            ""]
+           [:h3 "Key Principles"]
+           [:ol
+            [:li
+             [:strong "All systems are quantum"]
+             " — Even macroscopic observers like humans or databases"]
+            [:li
+             [:strong "States are relational"]
+             " — Properties exist only relative to an observer"]
+            [:li
+             [:strong "No global state"]
+             " — There's no \"view from nowhere\""]
+            [:li
+             [:strong "Collapse is correlation"]
+             " — Measurement creates entanglement between observer and system"]
+            [:li
+             [:strong "Locality"]
+             " — Information propagates at finite speed (no spooky action)"]]
+           [:h3 "The Radical Implication"]
+           [:p
+            "Two observers can have "
+            [:strong
+             "different, incompatible views of the same system"]
+            ", and "
+            [:strong "both are correct"]
+            ". There's no contradiction because reality is "
+            [:strong "relational"]
+            ", not absolute."]
+           [:p
+            "Observer A sees the electron spin-up. Observer B sees it spin-down. Both measurements are real "
+            [:strong "relative to each observer"]
+            ". When A and B compare notes (interact), their states "
+            [:strong "entangle"]
+            ", and they agree on a "
+            [:strong "correlated outcome"]
+            "—but there was never a moment when the electron had a global, observer-independent spin."]
+           [:h2 "DaoDB as a Quantum System"]
+           [:p "Now consider DaoDB:"]
+           [:h3 "Unitarity: Partial States, Complete System"]
+           [:p
+            "In quantum mechanics, "
+            [:strong "unitarity"]
+            " means the total information in the system is preserved. The wave function never loses information—it only evolves."]
+           [:p
+            "In DaoDB, when devices form an "
+            [:strong "entanglement group"]
+            " (a sync network), unitarity manifests as distributed partial states—similar to "
+            [:strong "RAID 5"]
+            " storage arrays."]
+           [:h4 "The RAID 5 Analogy"]
+           [:p
+            "In RAID 5, data is "
+            [:strong "striped across multiple disks"]
+            " with parity information:"]
+           [:pre
+            [:code
+             "Disk 1: [A1, A2, _, P4]  ; Holds data blocks + parity\nDisk 2: [B1, _, P3, B4]  ; Different blocks + parity\nDisk 3: [_, C2, C3, C4]  ; Different blocks + parity\n\nNo single disk has complete data.\nBut ANY 2 disks can reconstruct the complete state.\nTotal information = distributed across array (unitary)."]]
+           [:p
+            "No single disk contains the complete data, yet "
+            [:strong "the total information is preserved"]
+            " across the array. Any N-1 disks can reconstruct the whole. This is "
+            [:strong "distributed unitarity"]
+            "."]
+           [:h4 "DaoDB's Distributed Unitarity"]
+           [:p "DaoDB implements the same principle:"]
+           [:pre
+            [:code
+             "Isolated Device A (complete state):\n  [entity-1 :name \"Alice\" :tx 100]\n  [entity-1 :age 30 :tx 100]\n  [entity-2 :name \"Bob\" :tx 100]\n  [entity-2 :age 35 :tx 100]\n\nDevice A joins entanglement group → holds partial state:\n  [entity-1 :name \"Alice\" :tx 100]\n  [entity-1 :age 30 :tx 100]\n  ; entity-2 is now on Device B\n\nDevice B (partial state):\n  [entity-2 :name \"Bob\" :tx 100]\n  [entity-2 :age 35 :tx 100]\n\nTotal system state = Device A + Device B (unitary)"]]
+           [:p
+            [:strong "No single device has the complete picture"]
+            "—just like no single RAID disk has all the data. But the "
+            [:strong "total information is preserved"]
+            " across the entanglement group."]
+           [:h4 "The Critical Difference: No Redundancy"]
+           [:p
+            "Here's where the RAID 5 analogy breaks down. RAID 5 has "
+            [:strong "parity redundancy"]
+            ":"]
+           [:pre
+            [:code
+             "RAID 5 with redundancy:\nDisk 1: A1\nDisk 2: A2\nDisk 3: P (parity = A1 XOR A2)\n\nIf Disk 1 fails → A1 = P XOR A2 (reconstructable)\nInformation is DUPLICATED via parity."]]
+           [:p
+            "But in "
+            [:strong "true quantum unitarity"]
+            ", there is "
+            [:strong "NO redundancy"]
+            ":"]
+           [:pre
+            [:code
+             "Quantum entangled particles:\nParticle A: ↑ or ↓ (maximum uncertainty, 50/50)\nParticle B: ↑ or ↓ (maximum uncertainty, 50/50)\n\nJoint state: |ψ⟩ = (|↑↓⟩ - |↓↑⟩)/√2 (perfectly defined!)\n\nNeither particle contains 'half the information.'\nEach particle is maximally uncertain.\nInformation exists in the CORRELATION, not in copies."]]
+           [:p
+            "This is the "
+            [:strong "no-cloning theorem"]
+            ": quantum information cannot be duplicated. The information exists in the "
+            [:strong "correlations between observers"]
+            ", not in redundant copies."]
+           [:h4 "DaoDB's Two Modes"]
+           [:p "DaoDB can operate in two distinct modes:"]
+           [:p [:strong "Mode 1: Pure Quantum (No Redundancy)"] ""]
+           [:pre
+            [:code
+             "Device A: [entity-1 :name \"Alice\"]\nDevice B: [entity-2 :name \"Bob\"]\nDevice C: [entity-3 :name \"Carol\"]\n\nEach device holds UNIQUE data.\nTotal information = A + B + C\nNo redundancy. Pure unitarity.\nNo fault tolerance—lose a device, lose that data."]]
+           [:p
+            [:strong "Mode 2: CRDT Replication (With Redundancy)"]
+            ""]
+           [:pre
+            [:code
+             "Device A: [entity-1] + [entity-2 replica]\nDevice B: [entity-1 replica] + [entity-2]\n\nCRDTs allow intentional replication.\nFault-tolerant—can lose one device.\nThis is RAID-like, not pure quantum."]]
+           [:p
+            "The quantum analogy is strongest in "
+            [:strong "Mode 1"]
+            ". Each device holds a unique partial state. Information exists in the "
+            [:strong "distributed correlations"]
+            ", not in copies. The total state is preserved (unitary), but there's no redundancy."]
+           [:p
+            "Mode 2 sacrifices pure quantum unitarity for "
+            [:strong "fault tolerance"]
+            ". CRDTs replicate data, creating redundancy. This is more like RAID 5 or traditional distributed databases."]
+           [:p
+            "DaoDB supports both: "
+            [:strong "pure quantum distribution"]
+            " (maximum efficiency, no redundancy) and "
+            [:strong "fault-tolerant replication"]
+            " (redundancy for availability). The choice depends on whether you prioritize "
+            [:em "quantum-like efficiency"]
+            " or "
+            [:em "traditional fault tolerance"]
+            "."]
+           [:p
+            "When isolated: complete local database. When entangled in Mode 1: partial view with no redundancy, information in correlations. When entangled in Mode 2: partial view with CRDT replication for fault tolerance."]
+           [:h3 "Local-First Architecture"]
+           [:p
+            "Each device is an "
+            [:strong "observer"]
+            " maintaining its own "
+            [:strong "local view of reality"]
+            ". There is "
+            [:strong "no central authority"]
+            ". No global state coordinator."]
+           [:pre
+            [:code
+             "Device A (Alice's phone) - partial view:\n  [entity-1 :name \"Alice\" :tx 100]\n  [entity-1 :age 30 :tx 100]\n\nDevice B (Bob's laptop) - partial view:\n  [entity-1 :name \"Alice\" :tx 100]\n  [entity-1 :age 30 :tx 100]\n\nBoth share entity-1. Unitarity: total state distributed."]]
+           [:h3 "Offline Divergence = Superposition"]
+           [:p
+            "Alice goes offline. Bob goes offline. They both modify "
+            [:code "entity-1"]
+            " independently:"]
+           [:pre
+            [:code
+             "Device A (offline):\n  [entity-1 :age 31 :tx 101]  ; Alice's birthday\n\nDevice B (offline):\n  [entity-1 :age 29 :tx 102]  ; Bob corrected a mistake"]]
+           [:p
+            "From a global perspective, "
+            [:code "entity-1"]
+            " is in "
+            [:strong "superposition"]
+            ":"]
+           [:pre
+            [:code
+             "entity-1.age = |30⟩ + |31⟩ + |29⟩\n\nOr more accurately:\nentity-1.age relative to Device A = 31\nentity-1.age relative to Device B = 29"]]
+           [:p
+            "There is "
+            [:strong "no global truth"]
+            ". Each observer (device) has a "
+            [:strong "local state"]
+            " that is real "
+            [:strong "relative to itself"]
+            "."]
+           [:h3 "Sync = Measurement = Wave Function Collapse"]
+           [:p
+            "When Alice and Bob reconnect, their devices sync. This is "
+            [:strong "interaction between observers"]
+            ":"]
+           [:pre
+            [:code
+             "Device A observes Device B's state:\n  [entity-1 :age 29 :tx 102]  ; Bob's version\n\nDevice B observes Device A's state:\n  [entity-1 :age 31 :tx 101]  ; Alice's version\n\nCONFLICT DETECTED!"]]
+           [:p
+            "This is "
+            [:strong "wave function collapse"]
+            ". Two incompatible local states "
+            [:strong "entangle"]
+            ". The system must "
+            [:strong "reconcile"]
+            " into a "
+            [:strong "correlated outcome"]
+            "."]
+           [:h3 "Conflict Resolution = Entanglement"]
+           [:p
+            "DaoDB uses "
+            [:strong "CRDTs"]
+            " (Conflict-free Replicated Data Types) and "
+            [:strong "causal ordering"]
+            " to resolve conflicts. Common strategies:"]
+           [:ol
+            [:li
+             [:strong "Last-Write-Wins (LWW)"]
+             " — Higher transaction ID wins"]
+            [:li
+             [:strong "Multi-Value Register"]
+             " — Keep both values, let application decide"]
+            [:li
+             [:strong "Merge functions"]
+             " — Application-defined reconciliation logic"]]
+           [:p "Example with LWW:"]
+           [:pre
+            [:code
+             "tx 101 vs tx 102 → tx 102 wins\n\nResolved state (both devices agree):\n  [entity-1 :age 29 :tx 102]\n  [entity-1 :age-conflict-from 31 :tx 103]  ; Provenance preserved"]]
+           [:p
+            "After reconciliation, "
+            [:strong "both observers now share a correlated state"]
+            ". They've "
+            [:strong "entangled"]
+            ". Neither state \"collapsed\" to some pre-existing global truth. Instead, they "
+            [:strong
+             "created a new correlated reality through interaction"]
+            "."]
+           [:h2 "The RQM Parallel"]
+           [:p "Let's make the parallels explicit:"]
+           [:h3 "Quantum Mechanics → DaoDB"]
+           [:table
+            [:thead
+             [:tr [:th "RQM Concept"] [:th "DaoDB Implementation"]]]
+            [:tbody
+             [:tr [:td "Observer"] [:td "Device/Database instance"]]
+             [:tr
+              [:td "System being observed"]
+              [:td "Shared entity (e.g., " [:code "entity-1"] ")"]]
+             [:tr
+              [:td "Local state"]
+              [:td "Device's local tuple store"]]
+             [:tr
+              [:td "Superposition"]
+              [:td "Conflicting states across disconnected devices"]]
+             [:tr
+              [:td "Measurement"]
+              [:td "Sync/replication between devices"]]
+             [:tr
+              [:td "Wave function collapse"]
+              [:td "Conflict detection"]]
+             [:tr
+              [:td "Entanglement"]
+              [:td "Conflict resolution (CRDT merge)"]]
+             [:tr
+              [:td "Correlation"]
+              [:td "Agreed-upon state after sync"]]
+             [:tr
+              [:td "No global state"]
+              [:td "No central database; only local replicas"]]
+             [:tr
+              [:td "Locality"]
+              [:td "Changes propagate at network speed"]]]]
+           [:h3 "The \"Collapse\" Is Not Collapse"]
+           [:p
+            "In RQM, wave function collapse is not a physical process. It's "
+            [:strong "correlation between two observers"]
+            "."]
+           [:p "Before measurement:"]
+           [:ul.bulleted
+            [:li "Observer A has state |ψ⟩"]
+            [:li "System has state |φ⟩"]
+            [:li "States are " [:strong "independent"] ""]]
+           [:p "After measurement:"]
+           [:ul.bulleted
+            [:li
+             "Observer A and System are "
+             [:strong "entangled"]
+             ": |ψ⟩⊗|φ⟩ → |ψ'⟩⊗|φ'⟩"]
+            [:li
+             "A now has information "
+             [:strong "correlated"]
+             " with the system"]
+            [:li
+             "But relative to observer B, the system is still in superposition!"]]
+           [:p "In DaoDB:"]
+           [:p "Before sync:"]
+           [:ul.bulleted
+            [:li
+             "Device A has state "
+             [:code "{entity-1: {age: 31}}"]
+             ""]
+            [:li
+             "Device B has state "
+             [:code "{entity-1: {age: 29}}"]
+             ""]
+            [:li
+             "States are "
+             [:strong "independent"]
+             " (no network)"]]
+           [:p "After sync:"]
+           [:ul.bulleted
+            [:li
+             "Devices A and B "
+             [:strong "entangle"]
+             " via CRDT merge"]
+            [:li "Both agree: " [:code "{entity-1: {age: 29}}"] ""]
+            [:li
+             "But relative to Device C (still offline), "
+             [:code "entity-1"]
+             " is still in superposition!"]]
+           [:h2 "Retrocausality: Reconciling Past States"]
+           [:p
+            "Here's where it gets wild: "
+            [:strong "retrocausality"]
+            "."]
+           [:h3 "What Is Retrocausality?"]
+           [:p
+            "Retrocausality is the idea that "
+            [:strong "future events can influence the past"]
+            ". In quantum mechanics, certain interpretations (like the "
+            [:strong "two-state vector formalism"]
+            ") suggest that measurements can \"reach backward in time\" to determine what the state \"was.\""]
+           [:p
+            "RQM reframes this: There is no past state independent of the observer. When you measure now, you're not discovering what the state "
+            [:em "was"]
+            "—you're "
+            [:strong
+             "creating correlation with your current perspective"]
+            "."]
+           [:h3 "Retrocausality in DaoDB"]
+           [:p
+            "When two devices sync and resolve conflicts, they "
+            [:strong "reconcile their histories"]
+            ":"]
+           [:pre
+            [:code
+             "Device A's history:\n  tx 100: [entity-1 :age 30]\n  tx 101: [entity-1 :age 31]\n\nDevice B's history:\n  tx 100: [entity-1 :age 30]\n  tx 102: [entity-1 :age 29]\n\nAfter sync, both devices agree on a merged history:\n  tx 100: [entity-1 :age 30]\n  tx 101: [entity-1 :age 31 :branch-A]\n  tx 102: [entity-1 :age 29 :branch-B]\n  tx 103: [entity-1 :age 29 :merged-from [101 102]]"]]
+           [:p
+            "The key: "
+            [:strong
+             "the \"correct\" history was never determined until the sync happened"]
+            ". Device A believed tx 101 was the future. Device B believed tx 102 was the future. When they interact, they "
+            [:strong "retroactively construct a correlated history"]
+            "."]
+           [:p
+            "This is "
+            [:strong "retrocausality"]
+            ". The sync event (future) influences how we interpret the past states. But there's no "
+            [:em "actual"]
+            " backward-in-time causation—just "
+            [:strong "observers reconciling their local timelines"]
+            "."]
+           [:h3 "Causal Ordering Preserves Locality"]
+           [:p
+            "DaoDB uses "
+            [:strong "causal ordering"]
+            " (via vector clocks or similar mechanisms) to ensure that:"]
+           [:ol
+            [:li
+             "Events that happened-before each other are ordered correctly"]
+            [:li
+             "Concurrent events (no causal relationship) can be reconciled without contradiction"]
+            [:li
+             "No device needs a global clock or central authority"]]
+           [:p
+            "This is "
+            [:strong "local causality"]
+            "—the same principle RQM enforces. Information propagates at finite speed (network latency). No observer can know about a distant event until the causal signal reaches them."]
+           [:h2 "The Multiverse Interpretation"]
+           [:p
+            "In RQM, when two observers have incompatible measurements, we don't say one is \"wrong.\" We say they inhabit "
+            [:strong "different relational states"]
+            "."]
+           [:p "From observer A's perspective: electron is spin-up."]
+           [:p "From observer B's perspective: electron is spin-down."]
+           [:p
+            "Both are true. The universe is "
+            [:strong "multi-perspective"]
+            ", not multi-world. There's one reality, but "
+            [:strong "reality is relational"]
+            ", not absolute."]
+           [:h3 "DaoDB's Multiverse"]
+           [:p
+            "Before sync, DaoDB creates a temporary "
+            [:strong "multiverse"]
+            ":"]
+           [:pre
+            [:code
+             "Universe A (Device A's perspective):\n  entity-1.age = 31\n\nUniverse B (Device B's perspective):\n  entity-1.age = 29"]]
+           [:p
+            "These universes "
+            [:strong "coexist"]
+            ". Neither is \"the truth.\" When devices sync, the universes "
+            [:strong "merge"]
+            ":"]
+           [:pre
+            [:code
+             "Merged Universe (correlated):\n  entity-1.age = 29  (resolved via LWW)\n  entity-1.age-history = [30, 31*, 29]  (* denotes overridden)"]]
+           [:p
+            "The merge is not \"discovering the truth.\" It's "
+            [:strong "creating a new correlated reality"]
+            " through interaction."]
+           [:h2 "Why This Matters: Distributed Systems Are Quantum"]
+           [:p
+            "Traditional distributed systems textbooks treat conflicts as "
+            [:strong "bugs to eliminate"]
+            ". They assume there's a \"correct\" global state, and our job is to approximate it despite network partitions."]
+           [:p
+            "But RQM reveals a deeper truth: "
+            [:strong "there is no global state"]
+            ". Conflicts aren't bugs—they're "
+            [:strong "fundamental features of reality"]
+            "."]
+           [:h3 "CAP Theorem as Uncertainty Principle"]
+           [:p
+            "The CAP theorem says you can't have Consistency, Availability, and Partition-tolerance simultaneously. Pick two."]
+           [:p
+            "RQM reframes this: The CAP theorem is the "
+            [:strong "distributed systems uncertainty principle"]
+            "."]
+           [:ul.bulleted
+            [:li
+             [:strong "Consistency"]
+             " = Global state (impossible in RQM)"]
+            [:li
+             [:strong "Availability"]
+             " = Local state always accessible (RQM guarantee)"]
+            [:li
+             [:strong "Partition-tolerance"]
+             " = Observers can be isolated (locality principle)"]]
+           [:p
+            "You can't have global consistency "
+            [:em "because there is no global state"]
+            ". Each observer maintains local consistency. When observers interact, they correlate."]
+           [:h3 "CRDTs as Quantum Operators"]
+           [:p
+            "CRDTs (Conflict-free Replicated Data Types) ensure that "
+            [:strong
+             "any order of operations converges to the same state"]
+            ". This is "
+            [:strong "commutativity"]
+            ":"]
+           [:pre
+            [:code
+             "A ⊕ B = B ⊕ A\n\nDevice A applies: [op1, op2]\nDevice B applies: [op2, op1]\nBoth converge to the same state."]]
+           [:p
+            "In quantum mechanics, "
+            [:strong "commuting observables"]
+            " can be measured simultaneously without disturbing each other:"]
+           [:pre
+            [:code "[Â, B̂] = 0  →  Measurements of A and B commute"]]
+           [:p
+            "CRDTs are the distributed systems equivalent: operations that commute don't create irreconcilable conflicts. They're compatible observables."]
+           [:h3 "Vector Clocks as Causal Cones"]
+           [:p
+            "Vector clocks track "
+            [:strong "causal relationships"]
+            " between events:"]
+           [:pre
+            [:code
+             "Event A: {Device1: 5, Device2: 3}\nEvent B: {Device1: 5, Device2: 4}\n\nB happened-after A on Device2 (4 > 3)\nA and B are concurrent on Device1 (5 = 5)"]]
+           [:p
+            "This is identical to "
+            [:strong "light cones"]
+            " in relativity:"]
+           [:ul.bulleted
+            [:li "Events inside the light cone are causally related"]
+            [:li
+             "Events outside the light cone are space-like separated (concurrent)"]
+            [:li
+             "No observer can influence events outside their light cone"]]
+           [:p
+            "Vector clocks enforce "
+            [:strong "local causality"]
+            "—the foundation of both relativity and RQM."]
+           [:h2 "Bell's Theorem and the Locality Question"]
+           [:p
+            "Here's where skepticism is warranted: "
+            [:strong
+             "Bell's theorem proves that quantum mechanics violates local realism"]
+            ". Experiments confirm quantum correlations that cannot be explained by local hidden variables. So how can RQM claim to be a local theory?"]
+           [:h3 "What Bell's Theorem Actually Says"]
+           [:p
+            "Bell's theorem proves that "
+            [:strong "no local hidden variable theory"]
+            " can reproduce quantum mechanical predictions. The key word is "
+            [:em "hidden"]
+            ". Bell assumes:"]
+           [:ol
+            [:li
+             [:strong "Realism"]
+             " — Physical properties exist independently of measurement"]
+            [:li
+             [:strong "Locality"]
+             " — No faster-than-light influence between distant events"]
+            [:li
+             [:strong "Hidden variables"]
+             " — There's some underlying deterministic state we just can't see"]]
+           [:p
+            "Quantum mechanics violates this combination. But "
+            [:strong "which assumption does it violate?"]
+            ""]
+           [:h3 "RQM Rejects Realism, Not Locality"]
+           [:p
+            "RQM says: "
+            [:strong
+             "properties do not exist independently of measurement"]
+            ". This is the rejection of "
+            [:em "realism"]
+            ", not locality."]
+           [:p "In RQM:"]
+           [:ul.bulleted
+            [:li
+             "An electron's spin is "
+             [:strong "not determined"]
+             " until an observer measures it"]
+            [:li
+             "The spin exists "
+             [:strong "relative to the observer"]
+             " who measured it"]
+            [:li
+             "Different observers can have "
+             [:strong "incompatible but equally valid"]
+             " descriptions"]
+            [:li
+             "When observers interact, their descriptions "
+             [:strong "correlate locally"]
+             " through physical interaction"]]
+           [:p
+            "There is "
+            [:strong "no spooky action at a distance"]
+            ". When Alice measures her entangled particle's spin, "
+            [:strong "nothing happens to Bob's particle"]
+            ". Alice's measurement creates a definite spin "
+            [:em "relative to Alice"]
+            ". Bob's particle remains in superposition "
+            [:em "relative to Bob"]
+            " until "
+            [:em "he"]
+            " measures it."]
+           [:p
+            "The correlation only becomes manifest when Alice and Bob "
+            [:strong "meet and compare results"]
+            "—a "
+            [:strong "local interaction"]
+            " that happens at or below the speed of light. No information traveled faster than light. No distant influence occurred."]
+           [:h3 "The EPR Paradox Revisited"]
+           [:p
+            "The Einstein-Podolsky-Rosen (EPR) thought experiment highlights this:"]
+           [:pre
+            [:code
+             "1. Create entangled particles: |ψ⟩ = (|↑↓⟩ - |↓↑⟩)/√2\n2. Send one to Alice, one to Bob (light-years apart)\n3. Alice measures spin: gets ↑\n4. Bob measures spin: gets ↓ (guaranteed anti-correlation)\n5. How did Bob's particle 'know' what Alice measured?"]]
+           [:p
+            "Traditional answer: Spooky action at a distance! Alice's measurement "
+            [:em "caused"]
+            " Bob's particle to collapse."]
+           [:p
+            "RQM answer: "
+            [:strong
+             "Nothing happened at Bob's location when Alice measured"]
+            ". Alice established a correlation "
+            [:em "relative to herself"]
+            ". Bob's particle is still in superposition "
+            [:em "relative to Bob"]
+            ". When Bob measures, he establishes his own correlation. Only when Alice and Bob "
+            [:strong "later meet and compare"]
+            " (a local event) do they discover the anti-correlation was always encoded in the joint state."]
+           [:p
+            "The correlation was "
+            [:strong "latent in the entangled state"]
+            " from the beginning. No faster-than-light signaling occurred. "
+            [:strong "Locality is preserved."]
+            ""]
+           [:h3 "DaoDB's Bell Test"]
+           [:p "In DaoDB, the same pattern emerges:"]
+           [:pre
+            [:code
+             "Device A (offline): [entity-1 :color \"red\" :tx 101]\nDevice B (offline): [entity-1 :color \"blue\" :tx 102]\n\nNeither device 'knows' what the other chose.\nBoth are correct relative to their local state.\n\nWhen they sync (local interaction via network):\n  Conflict detected! Apply CRDT merge.\n  Result: [entity-1 :color \"blue\" :tx 103 :merged-from [101 102]]\n\nThe correlation emerges through LOCAL interaction,\nnot through spooky action at a distance."]]
+           [:p
+            "Device A's write did "
+            [:strong "not cause"]
+            " Device B's state to change. Device B's write did "
+            [:strong "not cause"]
+            " Device A's state to change. Both evolved independently based on "
+            [:strong "local causality"]
+            ". The conflict resolution happens when the causal light cones "
+            [:strong "intersect"]
+            " during sync—a "
+            [:strong "local event"]
+            "."]
+           [:h3 "Why Distributed Databases Don't Violate Bell"]
+           [:p "DaoDB doesn't face Bell's theorem because:"]
+           [:ol
+            [:li
+             [:strong "No hidden variables"]
+             " — The state is explicitly represented as datoms, not hidden"]
+            [:li
+             [:strong "No realism"]
+             " — Entities don't have observer-independent properties. "
+             [:code "entity-1.color"]
+             " is only defined "
+             [:em "relative to which device you ask"]
+             ""]
+            [:li
+             [:strong "Locality preserved"]
+             " — Conflicts resolve through network messages (causal, speed-of-light limited), not instantaneous global coordination"]
+            [:li
+             [:strong "Correlations emerge locally"]
+             " — When devices sync, they perform a "
+             [:strong "local computation"]
+             " (CRDT merge) that creates correlation"]]
+           [:p
+            "This is "
+            [:strong "exactly RQM's resolution"]
+            " of the Bell paradox applied to databases."]
+           [:h3 "The Key Insight"]
+           [:p
+            "Bell's theorem eliminates "
+            [:strong "local realism"]
+            " (local + hidden variables + pre-existing properties). RQM eliminates "
+            [:strong "realism"]
+            " while preserving "
+            [:strong "locality"]
+            ":"]
+           [:ul.bulleted
+            [:li
+             "❌ "
+             [:strong "Local Realism"]
+             " (Bell proves this is impossible)"]
+            [:li
+             "✓ "
+             [:strong "Local Anti-Realism"]
+             " (RQM: properties are relational, locality preserved)"]
+            [:li
+             "✓ "
+             [:strong "Non-Local Realism"]
+             " (Many-Worlds, Bohmian mechanics: properties exist, but non-local)"]
+            [:li
+             "❌ "
+             [:strong "Non-Local Anti-Realism"]
+             " (pointless—gives up both)"]]
+           [:p
+            "RQM chooses "
+            [:strong "local anti-realism"]
+            ". Properties emerge through interaction. Correlations manifest locally. No faster-than-light influence. "
+            [:strong
+             "Bell's theorem is satisfied because we reject realism, not locality."]
+            ""]
+           [:h2 "Practical Implications"]
+           [:h3 "1. Embrace Conflicts, Don't Fight Them"]
+           [:p
+            "Traditional databases treat conflicts as failures. DaoDB treats them as "
+            [:strong "expected reality"]
+            "."]
+           [:p
+            "Design CRDT merge semantics that preserve user intent:"]
+           [:ul.bulleted
+            [:li
+             "Shopping cart: Union of items (both users' additions count)"]
+            [:li
+             "Counter: Sum of increments (both users' votes count)"]
+            [:li
+             "Document: Operational transform or merge conflicts explicitly"]]
+           [:p
+            "Don't try to enforce global consistency. "
+            [:strong "There is no global state to enforce."]
+            ""]
+           [:h3 "2. Causality, Not Timestamps"]
+           [:p
+            "Don't rely on wall-clock timestamps for ordering. Clocks drift. Devices lie."]
+           [:p "Use " [:strong "causal ordering"] ":"]
+           [:ul.bulleted
+            [:li "Vector clocks"]
+            [:li "Lamport timestamps"]
+            [:li "Merkle DAGs (like Git)"]]
+           [:p
+            "Causality is "
+            [:strong "local and observable"]
+            ". Timestamps are global and fragile."]
+           [:h3 "3. Provenance Is Essential"]
+           [:p
+            "RQM says measurements create correlations. In DaoDB, every merge creates a new fact with "
+            [:strong "provenance"]
+            ":"]
+           [:pre
+            [:code
+             "[entity-1 :age 29 :tx 103]\n[tx-103 :merged-from [tx-101 tx-102]]\n[tx-103 :resolution-strategy :last-write-wins]\n[tx-103 :timestamp \"2025-11-17T10:30:00Z\"]"]]
+           [:p
+            "Track "
+            [:em "how"]
+            " the state was derived. This enables:"]
+           [:ul.bulleted
+            [:li "Auditing (who decided what?)"]
+            [:li "Debugging (why did this merge happen?)"]
+            [:li
+             "Time-travel (what did the world look like before the merge?)"]]
+           [:h3 "4. Offline-First Is Quantum-First"]
+           [:p
+            "If your app requires a central server, you're assuming "
+            [:strong "global state"]
+            ". This breaks RQM principles."]
+           [:p "DaoDB is " [:strong "offline-first"] ":"]
+           [:ul.bulleted
+            [:li "Every device is a complete observer"]
+            [:li "Local operations always succeed"]
+            [:li "Sync is interaction, not synchronization to truth"]]
+           [:p
+            "This isn't just good UX. It's "
+            [:strong "physically correct"]
+            "."]
+           [:h2 "The Philosophical Insight"]
+           [:p
+            "RQM says: "
+            [:strong
+             "Reality is a network of interactions, not a collection of independent facts."]
+            ""]
+           [:p
+            "An electron doesn't have a spin until you measure it. Not because it's \"hidden\"—but because "
+            [:strong "properties are relational"]
+            ". The spin exists "
+            [:em "relative to your measurement apparatus"]
+            "."]
+           [:p
+            "DaoDB says: "
+            [:strong
+             "Data is a network of interactions, not a collection of independent tuples."]
+            ""]
+           [:p
+            "An entity doesn't have an age until observers sync. Not because it's \"uncertain\"—but because "
+            [:strong "properties are relational"]
+            ". The age exists "
+            [:em "relative to which device you're on"]
+            "."]
+           [:h3 "The Universe Is a Database"]
+           [:p
+            "Or rather: "
+            [:strong "Databases are microcosms of the universe"]
+            "."]
+           [:p
+            "Every distributed system faces the same problems as quantum mechanics:"]
+           [:ul.bulleted
+            [:li "How do local observers maintain consistent views?"]
+            [:li "What happens when observers interact?"]
+            [:li "How do we reconcile incompatible states?"]
+            [:li
+             "Is there a global truth, or only local perspectives?"]]
+           [:p
+            "RQM answers: "
+            [:strong
+             "Local perspectives are all there is. Global truth is an illusion."]
+            ""]
+           [:p
+            "DaoDB implements this: "
+            [:strong
+             "Every device is correct from its own perspective. Sync creates correlation, not convergence to truth."]
+            ""]
+           [:h2 "Connection to Other Work"]
+           [:h3 "CRDT Research"]
+           [:p
+            "CRDTs (Shapiro et al., 2011) formalize conflict-free merge semantics. DaoDB uses CRDTs extensively."]
+           [:p
+            "What RQM adds: CRDTs aren't just "
+            [:em "algorithms"]
+            "—they're "
+            [:strong "physical laws"]
+            " for how observers correlate in a relational universe."]
+           [:h3 "Pi-Calculus and Process Algebra"]
+           [:p
+            "The π-calculus models distributed systems as interacting processes. Communication is message-passing, not shared memory."]
+           [:p
+            "RQM is the quantum version: observers interact via measurement, not shared state. DaoDB implements this with streams and sync."]
+           [:p
+            "Both share the same fundamental insight: "
+            [:strong "reality is interaction, not state"]
+            ". Read "
+            [:a
+             {:href "/blog/pi-calculus-rqm-interaction.chp"}
+             "π-Calculus, RQM, and the Primacy of Interaction"]
+            " to understand how these models are structurally isomorphic."]
+           [:h3 "Git as a Quantum Database"]
+           [:p "Git is a distributed version control system where:"]
+           [:ul.bulleted
+            [:li "Every clone is a complete observer"]
+            [:li "Commits create local histories"]
+            [:li "Merges reconcile divergent histories"]
+            [:li "Conflicts are explicit and preserved"]]
+           [:p
+            "Git is "
+            [:strong "already an RQM implementation"]
+            "—for code instead of data. DaoDB generalizes this to arbitrary tuples."]
+           [:h2 "Conclusion: Local-First Is Physics-First"]
+           [:p
+            "DaoDB isn't just a local-first database. It's an "
+            [:strong "implementation of Relational Quantum Mechanics"]
+            ":"]
+           [:ul.bulleted
+            [:li
+             [:strong "No global state"]
+             " — Every device is an observer with local reality"]
+            [:li
+             [:strong "Unitarity"]
+             " — Total information preserved across entanglement group, but no single device holds complete state"]
+            [:li
+             [:strong "Partial states"]
+             " — When entangled, each device has partial view; together they maintain the whole"]
+            [:li
+             [:strong "Superposition"]
+             " — Conflicting states across disconnected devices"]
+            [:li
+             [:strong "Measurement"]
+             " — Sync triggers conflict detection"]
+            [:li
+             [:strong "Entanglement"]
+             " — CRDT merge creates correlated states"]
+            [:li
+             [:strong "Retrocausality"]
+             " — Observers reconcile their histories through interaction"]
+            [:li
+             [:strong "Locality"]
+             " — Causality propagates at network speed"]
+            [:li
+             [:strong "Bell's theorem satisfied"]
+             " — We reject realism (observer-independent properties), not locality"]]
+           [:p
+            "This isn't metaphor. This is "
+            [:strong "isomorphism"]
+            ". The mathematics is the same. The principles are the same. The physical constraints are the same."]
+           [:p
+            "When devices are isolated, each maintains a complete database. When devices entangle into a sync group, "
+            [:strong "no single observer possesses the complete state"]
+            "—yet the "
+            [:strong "total information is preserved"]
+            " across the system. This is quantum unitarity in distributed form."]
+           [:p
+            "Distributed databases are quantum systems. Conflicts are wave function collapse. Sync is entanglement. Partial states preserve unitarity. And "
+            [:strong "DaoDB embraces this"]
+            " instead of fighting it."]
+           [:p
+            "The universe has no global state. Why should your database?"]
+           [:p [:strong "Learn more:"]]
+           [:ul.bulleted
+            [:li
+             [:a {:href "/dao-db.chp"} "DaoDB Documentation"]
+             " (local-first distributed tuple store)"]
+            [:li
+             [:a
+              {:href "/blog/unitarity-and-communication-limits.chp"}
+              "Unitarity, π-Calculus, and the Cosmic Speed Limit"]
+             " (why communication must have finite speed)"]
+            [:li
+             [:a
+              {:href "/blog/what-makes-datalog-datalog.chp"}
+              "What Makes Datalog Datalog"]
+             " (query semantics for distributed data)"]
+            [:li
+             [:a {:href "/dao-stream.chp"} "DaoStream"]
+             " (the flow through which datoms travel)"]
+            [:li
+             [:a
+              {:href
+               "https://plato.stanford.edu/entries/qm-relational/"}
+              "Stanford Encyclopedia: Relational Quantum Mechanics"]
+             " (philosophical foundations)"]]]]])}

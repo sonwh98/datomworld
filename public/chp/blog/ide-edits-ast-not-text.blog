@@ -1,0 +1,372 @@
+#:blog{:title "When the IDE Edits AST, Not Text",
+       :date #inst "2025-11-16T00:00:00.000-00:00",
+       :abstract
+       [:p
+        "Every IDE today edits text. You type characters. The editor syntax-highlights them. Maybe it runs a parser in the background to help with autocomplete. But the fundamental unit of editing is "
+        [:strong "text"]
+        "."],
+       :content
+       (list
+        [:section.blog-article
+         [:div.section-inner
+          [:article
+           [:h1 "When the IDE Edits AST, Not Text"]
+           [:div.blog-article-meta
+            "Published Nov 16, 2025 · 14 minute read"]
+           [:h2 "The Tyranny of Text"]
+           [:p
+            "Every IDE today edits text. You type characters. The editor syntax-highlights them. Maybe it runs a parser in the background to help with autocomplete. But the fundamental unit of editing is "
+            [:strong "text"]
+            "."]
+           [:p
+            "The AST is a secondary artifact. Derived. Parse the text, get the AST. Edit the text, re-parse, get a new AST. The AST is never canonical. It's always a "
+            [:strong "projection of text"]
+            "."]
+           [:p
+            "But in Yin.vm, "
+            [:strong "the Universal AST is canonical code"]
+            ". Text is just one rendering. What happens when you build an IDE where you edit the AST directly, and text is just a view?"]
+           [:h2 "Editing AST as Code: The Core Idea"]
+           [:p "In an AST-native IDE:"]
+           [:ul.bulleted
+            [:li
+             "The "
+             [:strong "AST is what you edit"]
+             " (the canonical code)"]
+            [:li
+             "Text is a "
+             [:strong "materialized view"]
+             " (one rendering of the AST)"]
+            [:li "Edits modify " [:strong "datoms"] " in the stream"]
+            [:li
+             "The text updates "
+             [:strong "reactively"]
+             " to reflect AST changes"]]
+           [:p
+            "This inverts the traditional model. You're not editing a text file that gets parsed into an AST. You're editing an AST that gets "
+            [:strong "rendered as text"]
+            "."]
+           [:h2 "Implication 1: Syntax Is a Choice, Not a Constraint"]
+           [:p
+            "If the AST is canonical, "
+            [:strong "syntax becomes a user preference"]
+            "."]
+           [:p "The same function can be rendered as:"]
+           [:pre
+            [:code
+             "# Python syntax view\ndef calculate_total(items: list[Item]) -> int:\n    return sum(item.price for item in items)\n\n// Java syntax view\npublic int calculateTotal(List<Item> items) {\n    return items.stream()\n               .mapToInt(Item::getPrice)\n               .sum();\n}\n\n;; Clojure syntax view\n(defn calculate-total [items]\n  (reduce + (map :price items)))"]]
+           [:p
+            [:strong "Same AST. Different renderings."]
+            " You could switch between them with a keystroke. A Python developer and a Java developer could be editing the "
+            [:em "same code"]
+            " while each seeing their preferred syntax."]
+           [:p
+            "Syntax becomes a display preference, like font size or color scheme. The code is the AST underneath."]
+           [:h2 "Implication 2: No More Parse Errors"]
+           [:p
+            "Traditional editors have a fundamental problem: "
+            [:strong "invalid intermediate states"]
+            "."]
+           [:p "When you type:"]
+           [:pre [:code "def calculate"]]
+           [:p
+            "The parser screams. Red squiggles everywhere. The code is syntactically invalid. You can't compile it. Tools break."]
+           [:p
+            "But in an AST-native IDE, "
+            [:strong "you never create invalid AST states"]
+            ". You edit the AST through "
+            [:strong "structured operations"]
+            ":"]
+           [:ul.bulleted
+            [:li "Add a function node"]
+            [:li "Set its name to \"calculate\""]
+            [:li "Add a parameter"]
+            [:li "Set parameter type"]]
+           [:p
+            "At every step, the AST is "
+            [:strong "valid"]
+            ". It might be incomplete (a function with no body), but it's never syntactically broken. The text rendering might show placeholders for missing parts, but the underlying AST is always well-formed."]
+           [:h2 "Implication 3: Refactoring Becomes Trivial"]
+           [:p
+            "Traditional refactoring is "
+            [:strong "string manipulation with extra steps"]
+            ". Find all occurrences of a variable name. Replace them. Hope you didn't miss any. Hope you didn't rename something in a comment by accident."]
+           [:p
+            "When you edit the AST directly, refactoring is "
+            [:strong "AST transformation"]
+            ":"]
+           [:pre
+            [:code
+             ";; Rename variable\n[:find ?node\n :where\n [?node :ast/type :variable]\n [?node :ast/name \"oldName\"]]\n\n;; Update all datoms\n(doseq [node results]\n  (transact! [node :ast/name \"newName\"]))"]]
+           [:p
+            "This is "
+            [:strong "precise"]
+            ". You're not doing string matching. You're querying the semantic structure. A variable named "
+            [:code "user"]
+            " is different from a string containing "
+            [:code "\"user\""]
+            ". The AST knows the difference."]
+           [:p
+            "Extract method? Move the AST subtree. Inline function? Replace call sites with the function's AST body. Change signature? Update parameter nodes. All operations are "
+            [:strong "semantic, not textual"]
+            "."]
+           [:h2 "Implication 4: Multi-Language Editing in One File"]
+           [:p
+            "Because the Universal AST preserves semantics across languages, you could "
+            [:strong
+             "edit different parts of the same codebase in different syntaxes"]
+            "."]
+           [:p "Imagine a file where:"]
+           [:ul.bulleted
+            [:li
+             "The data processing pipeline is shown in Python (readable, high-level)"]
+            [:li
+             "The performance-critical inner loop is shown in C++ (low-level control)"]
+            [:li
+             "The configuration logic is shown in Clojure (concise, declarative)"]]
+           [:p
+            "Same file. Same AST. Different renderings for different sections. Each part shown in the syntax that "
+            [:strong "best expresses its intent"]
+            "."]
+           [:p
+            "This isn't syntax highlighting. It's "
+            [:strong "syntax multiplicity"]
+            ". The canonical code is the AST. The displayed syntax is a rendering choice."]
+           [:h2 "Implication 5: Time-Travel Editing"]
+           [:p
+            "Because the AST is stored as "
+            [:strong "datom streams with transactions"]
+            ", every edit is versioned automatically."]
+           [:p
+            "Traditional undo/redo is a stack. You can go back one step. But in an AST-native IDE:"]
+           [:ul.bulleted
+            [:li
+             "Every edit is a "
+             [:strong "transaction"]
+             " in the datom stream"]
+            [:li "The entire history is queryable"]
+            [:li "You can branch from any point"]
+            [:li
+             "You can "
+             [:strong "diff any two points in time"]
+             ""]]
+           [:p
+            "Want to see what the function looked like 3 hours ago? Query for transaction "
+            [:code "tx < 1500"]
+            ". Want to see how the type signature evolved? Query the temporal dimension. Want to merge changes from two different editing sessions? The datoms have full provenance."]
+           [:p
+            "This is "
+            [:strong "Git built into the editor"]
+            ", but at the semantic level, not the text level."]
+           [:h2 "Implication 6: Live Collaboration Becomes Natural"]
+           [:p
+            "Traditional collaborative editing (Google Docs for code) works at the "
+            [:strong "character level"]
+            ". Operational transforms. CRDTs. Complex conflict resolution."]
+           [:p "But when you edit AST as datoms:"]
+           [:ul.bulleted
+            [:li "Edits are " [:strong "datom transactions"] ""]
+            [:li "Transactions are " [:strong "immutable facts"] ""]
+            [:li
+             "Conflict resolution happens at the "
+             [:strong "semantic level"]
+             ""]]
+           [:p
+            "Two developers editing different functions? No conflict. Two developers editing the same function body? The datom transactions compose. Two developers changing the same line in different ways? The AST structure makes conflicts "
+            [:strong "semantic, not textual"]
+            "."]
+           [:p "Example:"]
+           [:ul.bulleted
+            [:li
+             "Developer A adds a parameter: "
+             [:code "[fn-1 :ast/params [param-1 param-2 param-3]]"]]
+            [:li
+             "Developer B renames the function: "
+             [:code "[fn-1 :ast/name \"calculateTotal\"]"]]
+            [:li
+             "Both transactions succeed. No conflict. Different parts of the AST."]]
+           [:h2 "Implication 7: The IDE Becomes a Database Query UI"]
+           [:p
+            "If code is a "
+            [:a {:href "/dao-db.chp"} "Datalog database"]
+            ", the IDE is a "
+            [:strong "query interface"]
+            "."]
+           [:p "Instead of \"Find all references,\" you write:"]
+           [:pre
+            [:code
+             "[:find ?caller\n :where\n [?call :ast/type :function-call]\n [?call :ast/function ?target]\n [?target :ast/name \"calculateTotal\"]\n [?caller :ast/children ?call]]"]]
+           [:p
+            "Instead of \"Show call hierarchy,\" you write a recursive query. Instead of \"Find unused variables,\" you query for variables with no references."]
+           [:p
+            "Every IDE feature becomes a "
+            [:strong "Datalog query over the AST"]
+            ". And because the AST is queryable across "
+            [:a
+             {:href "/blog/ast-higher-dimensional-datom-streams.chp"}
+             "five dimensions"]
+            ", you can ask questions traditional IDEs can't:"]
+           [:ul.bulleted
+            [:li
+             "\"Show me functions that changed in the last hour and touch network I/O\""]
+            [:li "\"Find Python code that became C++ and got slower\""]
+            [:li
+             "\"Show me where dynamic data enters static functions without validation\""]]
+           [:h2 "Implication 8: Type Certainty as Visual Feedback"]
+           [:p
+            "Because Yin.vm "
+            [:a
+             {:href
+              "/blog/yin-vm-ast-chinese-characters.chp#unifying-static-and-dynamic"}
+             "unifies static and dynamic types as certainty metadata"]
+            ", the IDE can show "
+            [:strong "certainty levels visually"]
+            "."]
+           [:p "Variables could be colored by certainty:"]
+           [:ul.bulleted
+            [:li
+             [:strong "Green"]
+             ": High certainty (declared type, compiler-enforced)"]
+            [:li
+             [:strong "Yellow"]
+             ": Medium certainty (inferred type, analyzed)"]
+            [:li
+             [:strong "Orange"]
+             ": Low certainty (runtime-discovered)"]
+            [:li
+             [:strong "Red"]
+             ": No certainty (unknown, could be anything)"]]
+           [:p
+            "This makes type flow "
+            [:strong "visible"]
+            ". You can see at a glance where high-certainty data becomes low-certainty. You can see the boundaries where validation is needed."]
+           [:p
+            "This isn't just highlighting. It's "
+            [:strong "semantic visualization"]
+            " of the type dimension in the datom stream."]
+           [:h2
+            "Implication 9: The Editor Is Programmable in AST Terms"]
+           [:p
+            "Traditional editors are programmable with macros, plugins, scripts. But they operate on "
+            [:strong "text"]
+            "."]
+           [:p
+            "An AST-native IDE is programmable with "
+            [:strong "AST transformations"]
+            ":"]
+           [:pre
+            [:code
+             ";; Custom refactoring: convert for-loop to map\n(defn for-loop->map [node]\n  (when (= (:ast/type node) :for-loop)\n    (let [body (get-body node)\n          var  (get-loop-var node)\n          coll (get-collection node)]\n      (make-node :map-operation\n                 {:function (make-lambda [var] body)\n                  :collection coll}))))"]]
+           [:p
+            "You write editor extensions that "
+            [:strong "operate on AST semantics"]
+            ", not text patterns. The extensions compose because they all work on the same canonical AST structure."]
+           [:h2 "Implication 10: Execution and Editing Merge"]
+           [:p
+            "Because execution state is "
+            [:strong "part of the datom stream"]
+            " (the execution dimension), the boundary between editing and running blurs."]
+           [:p "You could:"]
+           [:ul.bulleted
+            [:li
+             "See "
+             [:strong "live values"]
+             " next to variable definitions (like Bret Victor's demos)"]
+            [:li
+             "Edit a function "
+             [:strong "while it's paused"]
+             " mid-execution"]
+            [:li
+             "Query execution history: \"Show me all the times this variable was null\""]
+            [:li
+             "Branch execution: \"What if this parameter was 10 instead of 5?\" and see the AST fork"]]
+           [:p
+            "This is "
+            [:strong "REPL-driven development"]
+            " taken to its logical extreme. The code and its execution are the same datom stream. Editing is adding datoms. Executing is adding datoms. They're both transformations of the canonical AST."]
+           [:h2 "The Challenges"]
+           [:p "This vision isn't without challenges:"]
+           [:h3 "1. Discoverability"]
+           [:p
+            "Text is familiar. AST editing requires learning "
+            [:strong "structured operations"]
+            ". How do beginners discover them? How do you make AST editing feel natural?"]
+           [:h3 "2. Muscle Memory"]
+           [:p
+            "Programmers have decades of muscle memory for text editing. Switching to AST editing means "
+            [:strong "unlearning"]
+            " those habits."]
+           [:h3 "3. Rendering Ambiguity"]
+           [:p
+            "Some AST structures don't map cleanly to text. How do you render a partially-evaluated expression? A type-level computation? "
+            [:strong "Not all ASTs have obvious text representations"]
+            "."]
+           [:h3 "4. Performance"]
+           [:p
+            "Querying a datom database on every keystroke could be slow. The IDE needs "
+            [:strong "incremental updates"]
+            " and clever caching to stay responsive."]
+           [:h2
+            "The Precedent: Scratch, Blockly, and Visual Programming"]
+           [:p "We've seen hints of this in visual programming:"]
+           [:ul.bulleted
+            [:li
+             [:strong "Scratch"]
+             " edits a block-based AST, not text"]
+            [:li [:strong "Blockly"] " does the same for web apps"]
+            [:li
+             [:strong "Unreal Engine Blueprints"]
+             " for game logic"]
+            [:li [:strong "LabVIEW"] " for instrumentation"]]
+           [:p
+            "But these are limited to narrow domains. They lack the "
+            [:strong "universal semantic layer"]
+            " that Yin.vm provides. They can't span languages. They can't query across time. They don't preserve execution state."]
+           [:p
+            "An AST-native IDE for Yin.vm would be "
+            [:strong "Scratch for professional programming"]
+            ", but with the full power of a queryable, multi-dimensional datom stream underneath."]
+           [:h2 "Conclusion: Code Is Not Text"]
+           [:p
+            "The fundamental insight: "
+            [:strong "code is not text"]
+            ". Code is a semantic structure. An AST. A stream of immutable facts describing computation."]
+           [:p
+            "Text is just one "
+            [:strong "serialization format"]
+            ". A rendering. A view."]
+           [:p "When the IDE edits the AST directly:"]
+           [:ul.bulleted
+            [:li "Syntax becomes a preference, not a constraint"]
+            [:li "Refactoring becomes precise semantic transformation"]
+            [:li "Collaboration happens at the semantic level"]
+            [:li "Time-travel and branching are built in"]
+            [:li "The entire codebase is queryable as a database"]
+            [:li "Type certainty becomes visible"]
+            [:li "Execution and editing merge"]]
+           [:p
+            "This isn't a better text editor. It's a "
+            [:strong "fundamentally different model of programming"]
+            ". One where the canonical form of code matches how we think about it: as structure, not as characters."]
+           [:p
+            "This is what becomes possible when "
+            [:strong "the Universal AST is canonical code"]
+            "."]
+           [:p [:strong "Learn more:"]]
+           [:ul.bulleted
+            [:li
+             [:a
+              {:href "/blog/ast-higher-dimensional-datom-streams.chp"}
+              "AST as Higher Dimensional Construction of Datom Streams"]
+             " (why ASTs are materialized views)"]
+            [:li
+             [:a
+              {:href "/blog/yin-vm-ast-chinese-characters.chp"}
+              "Yin.vm: Chinese Characters for Programming Languages"]
+             " (the Universal Semantic AST)"]
+            [:li
+             [:a {:href "/dao-db.chp"} "DaoDB"]
+             " (the Datalog database powering queryable ASTs)"]
+            [:li
+             [:a {:href "/yin.chp"} "Yin VM Documentation"]
+             " (technical deep dive)"]]]]])}

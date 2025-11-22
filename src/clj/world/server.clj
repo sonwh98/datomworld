@@ -8,7 +8,8 @@
    [ring.middleware.multipart-params]
    [ring.middleware.content-type]
    [stigmergy.chp]
-   [stigmergy.config :as c]))
+   [stigmergy.config :as c]
+   [world.blog]))
 
 (defn create-app []
   (let [routes (c/config :bidi-routes)

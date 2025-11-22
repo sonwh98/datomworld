@@ -1,0 +1,511 @@
+#:blog{:title
+       "Logseq's Knowledge Graph Paradox: Why Markdown Files Aren't Datoms",
+       :date #inst "2025-11-19T00:00:00.000-00:00",
+       :abstract
+       [:p
+        "Logseq is a beautiful product. Built with Clojure/ClojureScript. Uses DataScript for queries. Claims to be a \"knowledge graph.\" It should be perfect."],
+       :content
+       (list
+        [:section.blog-article
+         [:div.section-inner
+          [:article
+           [:h1
+            "Logseq's Knowledge Graph Paradox: Why Markdown Files Aren't Datoms"]
+           [:div.blog-article-meta
+            "Published Nov 19, 2025 · 14 minute read"]
+           [:p
+            "Logseq is a beautiful product. Built with Clojure/ClojureScript. Uses DataScript for queries. Claims to be a \"knowledge graph.\" It should be perfect."]
+           [:p
+            "But there's a fundamental architectural tension at its core."]
+           [:p
+            [:strong
+             "Logseq tries to be a knowledge graph while storing data as Markdown files."]]
+           [:p
+            "And that tension explains both its strengths and its limitations."]
+           [:h2 "What Logseq Got Right"]
+           [:p "Logseq made excellent technology choices:"]
+           [:ul.bulleted
+            [:li
+             [:strong "ClojureScript"]
+             ": Functional, immutable, Lisp"]
+            [:li [:strong "DataScript"] ": In-memory Datalog database"]
+            [:li
+             [:strong "Block-based outliner"]
+             ": Everything is a block, blocks reference each other"]
+            [:li
+             [:strong "Local-first"]
+             ": Files stored on disk, not in cloud"]
+            [:li
+             [:strong "Privacy-focused"]
+             ": No tracking, no data collection"]]
+           [:p
+            "The vision is clear: "
+            [:strong "your notes as a queryable knowledge graph"]
+            "."]
+           [:p "You write:"]
+           [:pre
+            [:code
+             {:class "language-markdown"}
+             "- Reading [[The Information]] by James Gleick\n  - Core insight: [[Information Theory]] connects to [[Entropy]]\n  - Related: [[Claude Shannon]]'s work on [[Communication]]"]]
+           [:p "Logseq should understand:"]
+           [:ul.bulleted
+            [:li "\"The Information\" is a book"]
+            [:li "\"Information Theory\" is a concept"]
+            [:li "\"Claude Shannon\" is a person"]
+            [:li "These entities are related via semantic links"]]
+           [:p "You should be able to query:"]
+           [:pre
+            [:code
+             {:class "language-clojure"}
+             ";; Find all books related to Information Theory\n[:find ?book\n :where\n [?b :block/content ?book]\n [?b :block/refs ?concept]\n [?concept :block/original-name \"Information Theory\"]]"]]
+           [:p
+            "This is the promise. And "
+            [:strong "it almost works"]
+            "."]
+           [:h2 "The Markdown Impedance Mismatch"]
+           [:h3 "Architecture: Two Worlds Colliding"]
+           [:p "Logseq's original architecture (file-based graphs):"]
+           [:ol
+            [:li [:strong "Storage layer"] ": Markdown files on disk"]
+            [:li
+             [:strong "Parse layer"]
+             ": Read Markdown, extract blocks and links"]
+            [:li
+             [:strong "Database layer"]
+             ": Load parsed data into DataScript (in-memory)"]
+            [:li
+             [:strong "Query layer"]
+             ": Datalog queries over in-memory graph"]
+            [:li
+             [:strong "Write layer"]
+             ": Serialize back to Markdown on disk"]]
+           [:p "The problem:"]
+           [:div.highlight-box
+            [:p
+             [:strong
+              "Markdown is not a data format. It's a text format with conventions."]]
+            [:p "DataScript expects datoms: " [:code "[e a v t]"]]
+            [:p
+             "Markdown gives you: lines of text with "
+             [:code "[[brackets]]"]]]
+           [:h3 "What Gets Lost in Translation"]
+           [:p "When you write:"]
+           [:pre
+            [:code
+             {:class "language-markdown"}
+             "- [[Claude Shannon]] invented [[Information Theory]] in 1948"]]
+           [:p "You " [:em "mean"] ":"]
+           [:pre
+            [:code
+             {:class "language-clojure"}
+             "[claude-shannon :person/invented information-theory]\n[information-theory :concept/year 1948]\n[claude-shannon :entity/type :person]\n[information-theory :entity/type :concept]"]]
+           [:p "But Logseq " [:em "sees"] ":"]
+           [:pre
+            [:code
+             {:class "language-clojure"}
+             "[block-123 :block/content \"[[Claude Shannon]] invented [[Information Theory]] in 1948\"]\n[block-123 :block/refs [page-shannon page-info-theory]]\n[page-shannon :block/original-name \"Claude Shannon\"]\n[page-info-theory :block/original-name \"Information Theory\"]"]]
+           [:p
+            [:strong
+             "The semantic relationship is trapped inside the text."]]
+           [:h3 "Consequences"]
+           [:p
+            "Because semantics live in "
+            [:strong "text"]
+            ", not "
+            [:strong "structure"]
+            ":"]
+           [:h4 "1. Ambiguous Relationships"]
+           [:pre
+            [:code
+             {:class "language-markdown"}
+             "- [[Python]] is influenced by [[Lisp]]\n- [[Python]] (the snake) lives in [[Asia]]"]]
+           [:p
+            "Logseq can't distinguish between Python-the-language and Python-the-snake. Both are pages named \"Python.\" The "
+            [:strong "type"]
+            " of relationship is lost."]
+           [:h4 "2. Lost Metadata"]
+           [:pre
+            [:code
+             {:class "language-markdown"}
+             "- Met with [[Alice]] on 2024-11-15\n  - Discussed [[Project X]]\n  - Action items:\n    - [[TODO]] Follow up with [[Bob]]"]]
+           [:p "This encodes:"]
+           [:ul.bulleted
+            [:li "A meeting event (timestamp, participants)"]
+            [:li "A discussion topic"]
+            [:li "A task (status, assignee, context)"]]
+           [:p
+            "But Logseq just sees "
+            [:strong "blocks with page references"]
+            ". The "
+            [:code ":meeting/participants"]
+            ", "
+            [:code ":task/assignee"]
+            ", and "
+            [:code ":discussion/topics"]
+            " attributes don't exist."]
+           [:h4 "3. Brittle Queries"]
+           [:p "Want to find \"all tasks assigned to Bob\"?"]
+           [:pre
+            [:code
+             {:class "language-clojure"}
+             ";; This doesn't work\n[:find ?task\n :where\n [?task :task/assignee \"Bob\"]]\n\n;; You have to do this (fragile text matching)\n[:find ?block\n :where\n [?block :block/content ?content]\n [(clojure.string/includes? ?content \"TODO\")]\n [?block :block/refs ?person]\n [?person :block/original-name \"Bob\"]]"]]
+           [:p
+            "You're "
+            [:strong "grepping"]
+            ", not querying. The structure is gone."]
+           [:h4 "4. No Schema Evolution"]
+           [:p
+            "What if you decide \"meetings should track duration\"?"]
+           [:p "With datoms:"]
+           [:pre
+            [:code
+             {:class "language-clojure"}
+             ";; Add new attribute\n(transact! [[:db/add meeting-1 :meeting/duration-minutes 30]])"]]
+           [:p "With Markdown:"]
+           [:pre
+            [:code
+             {:class "language-markdown"}
+             "- Met with [[Alice]] on 2024-11-15 (duration: 30 min)\n  ^-- Hope you remember this convention!\n  ^-- Hope you parse it correctly!\n  ^-- Hope it doesn't break old queries!"]]
+           [:p [:strong "Convention, not structure."]]
+           [:h2 "The Database Version: Logseq's Pivot"]
+           [:p
+            "The Logseq team "
+            [:em "knows"]
+            " this is a problem. That's why they built the "
+            [:strong "DB version"]
+            "."]
+           [:h3 "The New Architecture"]
+           [:p "Logseq DB (alpha, as of late 2024):"]
+           [:ul.bulleted
+            [:li
+             [:strong "SQLite + DataScript"]
+             ": Persistent database with in-memory Datalog layer"]
+            [:li
+             [:strong "Schema-first"]
+             ": Built-in properties and classes"]
+            [:li
+             [:strong "Scriptable"]
+             ": nbb-logseq scripts can read/write datoms directly"]
+            [:li
+             [:strong "EDN export"]
+             ": Full graph export as Clojure data structures"]]
+           [:p "This is a " [:strong "fundamental shift"] ":"]
+           [:ul.bulleted
+            [:li "Storage: Markdown → SQLite"]
+            [:li
+             "Schema: Implicit (text conventions) → Explicit (property types)"]
+            [:li "Export: Markdown → EDN (Clojure datoms)"]]
+           [:h3 "Why This Matters"]
+           [:p "With the DB version:"]
+           [:pre
+            [:code
+             {:class "language-clojure"}
+             ";; Define a schema\n{:person/name {:type :string}\n :person/invented {:type :ref :many true}\n :concept/year {:type :number}}\n\n;; Store actual datoms\n(transact!\n  [[:db/add claude-shannon :person/name \"Claude Shannon\"]\n   [:db/add claude-shannon :person/invented info-theory]\n   [:db/add info-theory :concept/year 1948]])"]]
+           [:p
+            "Now queries are "
+            [:strong "structural"]
+            ", not textual:"]
+           [:pre
+            [:code
+             {:class "language-clojure"}
+             ";; Find all concepts invented by people\n[:find ?concept ?year ?inventor\n :where\n [?person :person/invented ?concept]\n [?concept :concept/year ?year]\n [?person :person/name ?inventor]]"]]
+           [:p [:strong "This is what a knowledge graph should be."]]
+           [:h2 "But There's a Trade-Off"]
+           [:p "The DB version gains:"]
+           [:ul.bulleted
+            [:li "✅ True semantic structure"]
+            [:li "✅ Queryable relationships"]
+            [:li "✅ Schema evolution"]
+            [:li "✅ Type safety"]]
+           [:p "But loses:"]
+           [:ul.bulleted
+            [:li "❌ Plain-text interoperability"]
+            [:li "❌ Git-friendly diffs"]
+            [:li "❌ Markdown portability"]
+            [:li "❌ Simple file system browsing"]]
+           [:p "And there's a deeper issue:"]
+           [:h3 "The Sync Problem"]
+           [:p "Logseq DB stores graphs in:"]
+           [:pre [:code "~/logseq/graphs/GRAPH-NAME/db.sqlite"]]
+           [:p
+            "SQLite is "
+            [:strong "not designed for multi-device sync"]
+            ". You can't just Dropbox a .sqlite file and expect it to merge correctly."]
+           [:p
+            "Logseq's solution: "
+            [:strong "Logseq Sync"]
+            " (a paid cloud service)."]
+           [:p
+            "But this reintroduces the problem Logseq was supposed to solve: "
+            [:strong "data ownership"]
+            "."]
+           [:h2 "Why Datom.world Would Solve This"]
+           [:p "The core problem:"]
+           [:div.highlight-box
+            [:p [:strong "Logseq is trying to be two things:"]]
+            [:ol
+             [:li "A plain-text note system (Markdown)"]
+             [:li "A semantic knowledge graph (DataScript)"]]
+            [:p
+             "These are "
+             [:strong "fundamentally incompatible"]
+             "."]]
+           [:p
+            [:a {:href "/"} "Datom.world"]
+            " resolves this by making "
+            [:strong "datoms the storage format"]
+            ":"]
+           [:h3 "1. Datoms Are the Source of Truth"]
+           [:p "Instead of:"]
+           [:pre
+            [:code
+             "Markdown files → Parse → DataScript (in-memory) → Serialize → Markdown"]]
+           [:p "Just:"]
+           [:pre [:code "Datoms → DaoDB → Query"]]
+           [:p
+            "No impedance mismatch. No round-tripping. No lost semantics."]
+           [:h3 "2. Markdown Is a View"]
+           [:p "You can still " [:em "render"] " datoms as Markdown:"]
+           [:pre
+            [:code
+             {:class "language-clojure"}
+             ";; Query for meeting notes\n[:find ?block ?content\n :where\n [?meeting :meeting/date \"2024-11-15\"]\n [?meeting :meeting/participant ?person]\n [?person :person/name \"Alice\"]\n [?meeting :meeting/notes ?block]\n [?block :block/content ?content]]\n\n;; Render as Markdown\n\"- Met with [[Alice]] on 2024-11-15\n  - Discussed [[Project X]]\n  - Action items:\n    - TODO Follow up with [[Bob]]\""]]
+           [:p
+            "Markdown becomes a "
+            [:strong "presentation format"]
+            ", not the storage format."]
+           [:h3 "3. Multi-Device Sync Without Servers"]
+           [:p
+            [:a {:href "/dao-db.chp"} "DaoDB"]
+            " is "
+            [:strong "designed for distributed sync"]
+            ":"]
+           [:ul.bulleted
+            [:li "Append-only datom streams"]
+            [:li "CRDT merge semantics"]
+            [:li "Vector clocks for causality"]
+            [:li "No central server required"]]
+           [:p
+            "Your graph syncs peer-to-peer. No Logseq Sync subscription. No cloud intermediary. "
+            [:strong "Pure local-first"]
+            "."]
+           [:h3 "4. Schema Evolution Is Native"]
+           [:p "Add a new attribute:"]
+           [:pre
+            [:code
+             {:class "language-clojure"}
+             "(transact! [[:db/add meeting-1 :meeting/duration-minutes 30]])"]]
+           [:p
+            "Old queries still work. New queries use the new attribute. "
+            [:strong "No migration"]
+            "."]
+           [:h3 "5. Queryable Provenance"]
+           [:p "Datoms track " [:strong "transaction time"] ":"]
+           [:pre
+            [:code
+             {:class "language-clojure"}
+             ";; Find when I first linked Python to Lisp\n[:find ?tx-time\n :where\n [?python :concept/influenced-by ?lisp ?tx]\n [?tx :db/txInstant ?tx-time]\n [?python :concept/name \"Python\"]\n [?lisp :concept/name \"Lisp\"]]"]]
+           [:p
+            "This is "
+            [:strong "impossible"]
+            " with Markdown. Git history doesn't track "
+            [:em "semantic"]
+            " changes, only text changes."]
+           [:h2 "The Obsidian Parallel"]
+           [:p
+            "Andrew Ng recently praised "
+            [:a
+             {:href "https://obsidian.md", :target "_blank"}
+             "Obsidian"]
+            " for its local-first Markdown storage."]
+           [:p
+            "Obsidian is "
+            [:strong "excellent"]
+            " for what it is: a text editor that understands links."]
+           [:p
+            "But Obsidian "
+            [:em "doesn't claim"]
+            " to be a knowledge graph. It's "
+            [:strong "honestly just Markdown"]
+            "."]
+           [:p
+            "Logseq "
+            [:em "wants"]
+            " to be more. It uses DataScript. It has Datalog queries. It has graph visualization."]
+           [:p [:strong "It deserves datoms, not Markdown."]]
+           [:h2 "What Logseq Could Become"]
+           [:p "Imagine if Logseq:"]
+           [:ul.bulleted
+            [:li
+             "Stored datoms natively (via "
+             [:a {:href "/dao-db.chp"} "DaoDB"]
+             ")"]
+            [:li
+             "Rendered Markdown as a "
+             [:strong "view"]
+             " (editable)"]
+            [:li "Synced via CRDT merge (no cloud)"]
+            [:li
+             "Allowed "
+             [:strong "schema-on-write"]
+             " (first write defines type)"]
+            [:li
+             "Supported "
+             [:a
+              {:href "/blog/ide-edits-ast-not-text.chp"}
+              "AST-level editing"]
+             " (semantic operations)"]]
+           [:p "You'd have:"]
+           [:ol
+            [:li
+             [:strong "True knowledge graph"]
+             ": semantic relationships, not text conventions"]
+            [:li
+             [:strong "Local-first sync"]
+             ": peer-to-peer, no servers"]
+            [:li
+             [:strong "Markdown compatibility"]
+             ": export/import, but not storage"]
+            [:li
+             [:strong "Time-travel queries"]
+             ": full history via transaction IDs"]
+            [:li
+             [:strong "User-defined types"]
+             ": meetings, tasks, concepts, books, people"]]
+           [:p
+            "This would be "
+            [:strong "what Logseq promises but can't fully deliver"]
+            "."]
+           [:h2 "The Lesson: Storage Format Is Destiny"]
+           [:p
+            "Logseq is a testament to Clojure's power. DataScript is elegant. The UI is beautiful. The vision is right."]
+           [:p
+            "But "
+            [:strong
+             "Markdown files fundamentally limit what's possible"]
+            "."]
+           [:div.highlight-box
+            [:p
+             [:strong
+              "You cannot build a true knowledge graph on top of text files."]]
+            [:p
+             "You can "
+             [:em "approximate"]
+             " one. You can "
+             [:em "simulate"]
+             " one. But you can't "
+             [:em "be"]
+             " one."]]
+           [:p "Because:"]
+           [:ul.bulleted
+            [:li "Text has no inherent structure (only conventions)"]
+            [:li "Parsing is lossy (semantics trapped in strings)"]
+            [:li
+             "Round-tripping is fragile (serialize/deserialize introduces drift)"]
+            [:li "Sync is brittle (text diffs aren't semantic diffs)"]]
+           [:p [:strong "Storage format is destiny."]]
+           [:p
+            "If you store Markdown, you get a "
+            [:strong "text editor with links"]
+            "."]
+           [:p
+            "If you store datoms, you get a "
+            [:strong "queryable knowledge graph"]
+            "."]
+           [:h2 "Logseq's Path Forward"]
+           [:p
+            "The DB version shows Logseq understands this. They're moving in the right direction."]
+           [:p "But they're constrained by:"]
+           [:ul.bulleted
+            [:li "Legacy Markdown users"]
+            [:li "SQLite's sync limitations"]
+            [:li "Desire for cloud revenue (Logseq Sync)"]]
+           [:p "A better path:"]
+           [:ol
+            [:li
+             [:strong "Adopt datoms as native storage"]
+             " (via DaoDB or similar)"]
+            [:li
+             [:strong "Keep Markdown as export/import"]
+             " (for portability)"]
+            [:li
+             [:strong "Enable local-first CRDT sync"]
+             " (no servers)"]
+            [:li
+             [:strong "Let users define schemas"]
+             " (schema-on-write)"]
+            [:li
+             [:strong "Expose Datalog as first-class"]
+             " (not hidden behind UI)"]]
+           [:p
+            "This would make Logseq what it "
+            [:em "should"]
+            " be: "
+            [:strong
+             "a true knowledge graph, locally owned, infinitely queryable"]
+            "."]
+           [:h2 "Conclusion: The Right Tool for the Right Job"]
+           [:p "If you want:"]
+           [:ul.bulleted
+            [:li
+             [:strong "Plain-text notes with Git versioning"]
+             " → Obsidian"]
+            [:li
+             [:strong "Block-based outliner with Markdown export"]
+             " → Logseq (file-based)"]
+            [:li
+             [:strong "Queryable knowledge graph with text rendering"]
+             " → Logseq DB (getting there)"]
+            [:li
+             [:strong
+              "True semantic graph, locally synced, datom-native"]
+             " → Datom.world"]]
+           [:p
+            "Logseq is "
+            [:strong "amazing"]
+            " for what it is. But it's trapped between two worlds:"]
+           [:ul.bulleted
+            [:li "The simplicity of Markdown"]
+            [:li "The power of Datalog"]]
+           [:p [:strong "You can't fully have both."]]
+           [:p
+            "Datom.world makes a choice: "
+            [:strong "datoms first"]
+            ". Everything else - text, UI, visualizations - is a view."]
+           [:p
+            "That's the only way to build a "
+            [:strong "real knowledge graph"]
+            "."]
+           [:h2 "Learn More"]
+           [:ul.bulleted
+            [:li
+             [:a {:href "/dao-db.chp"} "DaoDB"]
+             ": Distributed Datalog database for datom storage"]
+            [:li
+             [:a
+              {:href "/blog/structure-vs-interpretation.chp"}
+              "Structure vs Interpretation"]
+             ": Why storage format matters"]
+            [:li
+             [:a
+              {:href "/blog/datoms-as-streams.chp"}
+              "Datoms as Streams"]
+             ": Local-first sync architecture"]
+            [:li
+             [:a
+              {:href "/blog/ide-edits-ast-not-text.chp"}
+              "When the IDE Edits AST, Not Text"]
+             ": Semantic editing principles"]
+            [:li
+             [:a
+              {:href "/blog/ai-data-crisis.chp"}
+              "The Coming AI Data Crisis"]
+             ": Why data ownership matters"]
+            [:li
+             [:a {:href "/"} "Datom.world"]
+             ": The datom-native ecosystem"]]
+           [:hr]
+           [:p.meta
+            "Note: This critique comes from deep respect for Logseq's vision. The DB version is a major step forward. The tension described here is not a flaw - it's the natural consequence of trying to bridge two incompatible paradigms. Logseq's evolution toward database-first storage validates the core thesis: "
+            [:strong "knowledge graphs need datoms, not Markdown"]
+            "."]]]])}

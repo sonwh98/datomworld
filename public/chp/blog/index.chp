@@ -1,201 +1,34 @@
-(let [template (load-file "public/chp/template.chp")]
+(require '[clojure.java.io :as io]
+         '[clojure.string :as str])
+
+(let [template (load-file "public/chp/template.chp")
+      blog-dir (io/file "public/chp/blog")
+      blog-files (->> (file-seq blog-dir)
+                      (filter #(.endsWith (.getName %) ".blog"))
+                      (map (fn [file]
+                             (assoc (read-string (slurp file))
+                                    :blog/file (.getName file))))
+                      (sort-by :blog/date #(compare %2 %1)))]
   (clojure.walk/postwalk-replace
    {:template/title "Datom.World — Technical Blog"
     :template/content
-    (list
-     [:section.blog-list
-      [:div.section-inner
-       [:div.blog-grid
-        [:article.blog-card
-         [:div.blog-meta
-          [:span "Nov 22, 2025"]
-          [:span "15 min read"]]
-         [:h2 [:a {:href "/blog/semantics-structure-interpretation.chp"} "Semantics is Structure Through Interpretation"]]
-         [:p
-          "Is semantics in the structure or does it emerge from interpretation? Both. Structure provides regularities (patterns, constraints, associations) while interpretation turns those regularities into meaning. Chinese characters demonstrate this perfectly: the radical narrows the semantic field, the phonetic component creates similarity classes, and the reader brings interpretive machinery. A character is compressed graph that an interpreter unfolds into meaning. Yin VM AST works the same way: map structure × evaluator = semantics. Neither structure alone nor interpretation alone is sufficient. Together, they create semantics. This resolves the apparent contradiction between structure-based and interpretation-based views of meaning."]
-         [:a {:href "/blog/semantics-structure-interpretation.chp"} "Read the article →"]]
-        [:article.blog-card
-         [:div.blog-meta
-          [:span "Nov 20, 2025"]
-          [:span "20 min read"]]
-         [:h2 [:a {:href "/blog/shibi-as-money.chp"} "Why Shibi Cannot Be Like Money"]]
-         [:p
-          "Ryan Fugger's 2004 Ripple was a web-of-trust credit network where payments rippled across chains of personal IOUs. ShiBi is a subjective value coordination protocol based on local interpretation. At first glance, Ripple seems like a natural fit. But adopting Ripple's architecture would force ShiBi to centralize. The trust path problem reduces to NP-hard routing, pushing users toward hub-and-spoke topologies. Ripple requires global coordination of credit flows. ShiBi requires local coordination without global constraints. Ripple is a network. ShiBi is an economy of local interpretations. ShiBi can learn from Ripple's ideals, but cannot implement its architecture without becoming the centralized system it seeks to avoid."]
-         [:a {:href "/blog/shibi-as-money.chp"} "Read the article →"]]
-        [:article.blog-card
-         [:div.blog-meta
-          [:span "Nov 20, 2025"]
-          [:span "22 min read"]]
-         [:h2 [:a {:href "/blog/maxwells-demon-economic-value.chp"} "Maxwell's Demon and Economic Value: How Interpreters Unlock Wealth from Information"]]
-         [:p
-          "Maxwell's demon releases physical energy by interpreting information. Datom.world agents release economic wealth by interpreting shared datoms. The demon finds structure in noise—patterns invisible to the bulk system. Interpreters on Datom.world do the same: spot correlations, find relationships, transform raw datoms into models and predictions. No new data required. Value emerges from interpretation. Economic value equals local entropy reduction. When you remove silos and give agents access to shared streams, you create an economy of Maxwell demons—each extracting value through interpretation, each paying the thermodynamic cost of insight. This is an information economy built on physical principles."]
-         [:a {:href "/blog/maxwells-demon-economic-value.chp"} "Read the article →"]]
-        [:article.blog-card
-         [:div.blog-meta
-          [:span "Nov 20, 2025"]
-          [:span "25 min read"]]
-         [:h2 [:a {:href "/blog/datomworld-as-kernel-os.chp"} "Datom.World as an Operating System: A Kernel Built From Streams, Interpreters, and Yin.vm Isolation"]]
-         [:p
-          "The traditional OS enforces a strict kernel/user boundary. Datom.world erases it. Everything is a stream. Everything is an interpreter. Continuations provide isolation without privilege rings. The kernel becomes a set of stream paths, not a privileged layer. Includes deep comparisons to microkernels and unikernels, plus technical feasibility analysis: yes, this can be built. Phase 1: hosted on Linux. Phase 2: unikernel. Phase 3: native boot. 5-8 years to production. Not science fiction—ambitious but achievable. The kernel is dead. Long live the stream."]
-         [:a {:href "/blog/datomworld-as-kernel-os.chp"} "Read the article →"]]
-        [:article.blog-card
-         [:div.blog-meta
-          [:span "Nov 19, 2025"]
-          [:span "16 min read"]]
-         [:h2 [:a {:href "/blog/collaborative-writing-needs-datoms.chp"} "Why Collaborative Writing Tools Need Datoms, Not Documents"]]
-         [:p
-          "Google Docs stores documents. Collaborative writing needs datoms. Why? Conflict-free editing (CRDTs not OT), true version history (not snapshots), comments as queryable data, semantic draft merging, multi-device sync without servers. Ellipsus promises data ownership - DaoDB delivers it. Local SQLite database you own, query writing analytics, content provenance, structural queries. The broader lesson: storage format is destiny. Documents trap data in vendors' servers. Datoms enable local-first, queryable, portable collaboration. Every collaborative tool has this problem."]
-         [:a {:href "/blog/collaborative-writing-needs-datoms.chp"} "Read the article →"]]
-        [:article.blog-card
-         [:div.blog-meta
-          [:span "Nov 19, 2025"]
-          [:span "14 min read"]]
-         [:h2 [:a {:href "/blog/logseq-knowledge-graph-markdown-paradox.chp"} "Logseq's Knowledge Graph Paradox: Why Markdown Files Aren't Datoms"]]
-         [:p
-          "Logseq is beautiful—built with Clojure/ClojureScript, uses DataScript, claims to be a knowledge graph. But there's a fundamental tension: it stores data as Markdown files, not datoms. Semantics trapped in text. Relationships lost in parsing. Brittle queries. The DB version (SQLite + DataScript) is moving toward datoms, but loses plain-text portability and requires cloud sync. The lesson: storage format is destiny. You can't build a true knowledge graph on text files. Datoms first, everything else is a view."]
-         [:a {:href "/blog/logseq-knowledge-graph-markdown-paradox.chp"} "Read the article →"]]
-        [:article.blog-card
-         [:div.blog-meta
-          [:span "Nov 19, 2025"]
-          [:span "16 min read"]]
-         [:h2 [:a {:href "/blog/use-cases-datom-world.chp"} "What Can You Build with Datom.world? 18 Use Cases from AI to Edge Computing"]]
-         [:p
-          "Datom.world isn't a product—it's a substrate. But what can you actually build? AI agents with universal data access, offline-first mobile apps, compilers with queryable optimizations, code editors that edit meaning not text, polyglot systems with universal AST, real-time collaboration, schema-less evolution, distributed databases with quantum semantics, mobile agents that migrate, privacy-first data ownership, IoT sensor networks, time-travel debugging, reactive visualizations, custom lint rules, security taint tracking, historical optimization learning, and marketplace signaling. 18 concrete use cases."]
-         [:a {:href "/blog/use-cases-datom-world.chp"} "Read the article →"]]
-        [:article.blog-card
-         [:div.blog-meta
-          [:span "Nov 18, 2025"]
-          [:span "10 min read"]]
-         [:h2 [:a {:href "/blog/datom-representation-performance.chp"} "Datom Representation and the Hidden Performance Cost"]]
-         [:p
-          "Datoms look simple: [e a v t c]. Fixed-size tuple, right? Wrong. The tuple is fixed-size, but its elements aren't. Variable-size creates parsing overhead, cache inefficiency, compression challenges. Solution: typed streams per attribute (Go channels for datoms). The AEVT index becomes typed streams—each attribute gets fixed-size, SIMD-friendly storage. Schema-on-write meets raw memory bandwidth."]
-         [:a {:href "/blog/datom-representation-performance.chp"} "Read the article →"]]
-        [:article.blog-card
-         [:div.blog-meta
-          [:span "Nov 18, 2025"]
-          [:span "12 min read"]]
-         [:h2 [:a {:href "/blog/ai-data-crisis.chp"} "The Coming AI Data Crisis — and Why Datom.world Exists"]]
-         [:p
-          "Andrew Ng highlighted a crisis: AI agents are getting smarter faster than data infrastructure can keep up. SaaS vendors charge thousands for API access to your own data. The problem is structural—silos vs streams. Datom.world solves this with local-first datom streams: you own your data, apps are interpreters, agents become first-class peers. The architecture itself must change."]
-         [:a {:href "/blog/ai-data-crisis.chp"} "Read the article →"]]
-        [:article.blog-card
-         [:div.blog-meta
-          [:span "Nov 18, 2025"]
-          [:span "18 min read"]]
-         [:h2 [:a {:href "/blog/pi-calculus-rqm-interaction.chp"} "π-Calculus, RQM, and the Primacy of Interaction"]]
-         [:p
-          "Relational Quantum Mechanics says reality is a network of interactions, not independent facts. The π-calculus says computation is message-passing, not state. Are these the same insight? Yes. State-first vs interaction-first paradigms. Properties emerge from measurement, processes are their communication behavior, datoms record interaction histories. DaoDB implements both π-calculus and RQM—same architecture, different perspectives."]
-         [:a {:href "/blog/pi-calculus-rqm-interaction.chp"} "Read the article →"]]
-        [:article.blog-card
-         [:div.blog-meta
-          [:span "Nov 17, 2025"]
-          [:span "20 min read"]]
-         [:h2 [:a {:href "/blog/datom-world-wave-function-collapse.chp"} "Datom.World and the Collapse of the Wave Function"]]
-         [:p
-          "DaoDB is a local-first distributed tuple store. When devices sync, conflicts arise—like wave function collapse in quantum mechanics. Relational Quantum Mechanics says there's no global state, only local states relative to observers. DaoDB implements this: conflicts are superposition, sync is measurement, CRDT merge is entanglement, retrocausality is reconciling histories. Distributed databases are quantum systems."]
-         [:a {:href "/blog/datom-world-wave-function-collapse.chp"} "Read the article →"]]
-        [:article.blog-card
-         [:div.blog-meta
-          [:span "Nov 17, 2025"]
-          [:span "16 min read"]]
-         [:h2 [:a {:href "/blog/what-makes-datalog-datalog.chp"} "What Makes Datalog Datalog: Semantics, Not Syntax"]]
-         [:p
-          "Datomic uses EDN syntax. Prolog uses predicates. SQL uses WITH RECURSIVE. Are they all actually Datalog? Yes—because Datalog is defined by its evaluation model, not its surface representation. Horn clauses, fixed-point semantics, guaranteed termination, stratified negation. Syntax is just clothing. Semantics are the soul."]
-         [:a {:href "/blog/what-makes-datalog-datalog.chp"} "Read the article →"]]
-        [:article.blog-card
-         [:div.blog-meta
-          [:span "Nov 16, 2025"]
-          [:span "18 min read"]]
-         [:h2 [:a {:href "/blog/datalog-compiler-infrastructure.chp"} "Datalog as Compiler Infrastructure: Why DaoDB Makes Every Optimization Queryable"]]
-         [:p
-          "Traditional compilers walk ASTs with limited context. But what if the entire program was a queryable database? When ASTs are datoms in DaoDB, every optimization becomes a Datalog query—whole-program reasoning, composable analyses, incremental compilation, and user-programmable optimizations. Compilation as database query."]
-         [:a {:href "/blog/datalog-compiler-infrastructure.chp"} "Read the article →"]]
-        [:article.blog-card
-         [:div.blog-meta
-          [:span "Nov 16, 2025"]
-          [:span "14 min read"]]
-         [:h2 [:a {:href "/blog/ast-datom-streams-bytecode-performance.chp"} "AST Datom Streams: Bytecode Performance with Semantic Preservation"]]
-         [:p
-          "Bytecode is fast but erases semantics. AST interpretation is slow but preserves meaning. This is considered a fundamental trade-off. But what if AST-as-datom-streams blurs the line? Compile AST datoms to execution streams via Datalog—get sequential access performance while preserving full queryability. The false dichotomy revealed."]
-         [:a {:href "/blog/ast-datom-streams-bytecode-performance.chp"} "Read the article →"]]
-        [:article.blog-card
-         [:div.blog-meta
-          [:span "Nov 16, 2025"]
-          [:span "11 min read"]]
-         [:h2 [:a {:href "/blog/many-syntaxes-one-ast.chp"} "Many Syntaxes, One AST: The Non-Deterministic Rendering Problem"]]
-         [:p
-          "A single Universal AST can be rendered as multiple valid syntaxes. List comprehension or for-loop? Lambda or method reference? When the AST is canonical and syntax is a view, how does the renderer choose? Five solutions and a provocative question: is syntax loss a feature, not a bug?"]
-         [:a {:href "/blog/many-syntaxes-one-ast.chp"} "Read the article →"]]
-        [:article.blog-card
-         [:div.blog-meta
-          [:span "Nov 16, 2025"]
-          [:span "13 min read"]]
-         [:h2 [:a {:href "/blog/universal-ast-vs-assembly.chp"} "Universal AST vs Assembly: High-Level Semantics in Low-Level Form"]]
-         [:p
-          "The Universal AST as datom streams looks like assembly code. Flat. Verbose. Low-level. But assembly optimizes for execution, while the AST optimizes for semantic preservation. One sits at the bottom of the execution stack. The other sits at the top of the semantic stack. Understanding the inversion."]
-         [:a {:href "/blog/universal-ast-vs-assembly.chp"} "Read the article →"]]
-        [:article.blog-card
-         [:div.blog-meta
-          [:span "Nov 16, 2025"]
-          [:span "16 min read"]]
-         [:h2 [:a {:href "/blog/semantic-impedance-mismatch.chp"} "The Semantic Impedance Mismatch: Can a Universal AST Really Work?"]]
-         [:p
-          "OOP has classes. Functional languages don't. How can they share a common AST? The answer: most differences are encoding, not semantics. Classes are closures. Exceptions are result types. The Universal AST represents the semantic core, not syntactic union. A deep dive into making the impossible possible."]
-         [:a {:href "/blog/semantic-impedance-mismatch.chp"} "Read the article →"]]
-        [:article.blog-card
-         [:div.blog-meta
-          [:span "Nov 16, 2025"]
-          [:span "14 min read"]]
-         [:h2 [:a {:href "/blog/ide-edits-ast-not-text.chp"} "When the IDE Edits AST, Not Text"]]
-         [:p
-          "What happens when you build an IDE where you edit the AST directly and text is just a view? Syntax becomes a preference. Refactoring becomes precise. Time-travel is built in. And code becomes queryable as a database. The implications of AST-native editing."]
-         [:a {:href "/blog/ide-edits-ast-not-text.chp"} "Read the article →"]]
-        [:article.blog-card
-         [:div.blog-meta
-          [:span "Nov 15, 2025"]
-          [:span "12 min read"]]
-         [:h2 [:a {:href "/blog/ast-higher-dimensional-datom-streams.chp"} "AST as Higher Dimensional Construction of Datom Streams"]]
-         [:p
-          "Beyond trees: how ASTs become multidimensional streams of datoms flowing through structure, time, types, languages, and execution states. Why continuations are transactions, how to query across dimensions, and what it means for code to be a living stream of facts."]
-         [:a {:href "/blog/ast-higher-dimensional-datom-streams.chp"} "Read the article →"]]
-        [:article.blog-card
-         [:div.blog-meta
-          [:span "Nov 15, 2025"]
-          [:span "15 min read"]]
-         [:h2 [:a {:href "/blog/yin-vm-ast-chinese-characters.chp"} "Yin.vm: Chinese Characters for Programming Languages"]]
-         [:p
-          "How Chinese characters inspired a universal semantic AST. Just as 水 means \"water\" in both Mandarin and Cantonese despite different pronunciations, Yin.vm's canonical AST preserves semantics across Python, C++, and Clojure—enabling bijective translation, mobile code, and queryable meaning."]
-         [:a {:href "/blog/yin-vm-ast-chinese-characters.chp"} "Read the article →"]]
-        [:article.blog-card
-         [:div.blog-meta
-          [:span "Nov 14, 2025"]
-          [:span "22 min read"]]
-         [:h2 [:a {:href "/blog/structure-vs-interpretation.chp"} "Structure vs Interpretation: Why Schemas/Ontologies Are Secret Interpreters"]]
-         [:p
-          "Where does meaning live? In data structure or in interpretation? Why schemas are interpreters in disguise, what biology teaches us about bootstrapping semantics, and how correlation becomes causation when systems learn to exploit it."]
-         [:a {:href "/blog/structure-vs-interpretation.chp"} "Read the article →"]]
-        [:article.blog-card
-         [:div.blog-meta
-          [:span "Nov 5, 2025"]
-          [:span "18 min read"]]
-         [:h2 [:a {:href "/blog/unitarity-and-communication-limits.chp"} "Unitarity, π-Calculus, and the Cosmic Speed Limit"]]
-         [:p
-          "Why the universe is a stream-native continuation system. How unitarity + π-calculus prove communication must have finite speed, why quantum collapse is local buffer fragmentation, and how the multiverse emerges from distributed interpreters."]
-         [:a {:href "/blog/unitarity-and-communication-limits.chp"} "Read the article →"]]
-        [:article.blog-card
-         [:div.blog-meta
-          [:span "Oct 29, 2025"]
-          [:span "10 min read"]]
-         [:h2 [:a {:href "/blog/code-entropy-evolution.chp"} "Code as Entropy: Why Good Software Evolves, Not Designed"]]
-         [:p
-          "Good code isn't designed—it evolves toward low-entropy structures. On cohesion, coupling, test-induced brittleness, and why all documentation decays."]
-         [:a {:href "/blog/code-entropy-evolution.chp"} "Read the article →"]]
-        [:article.blog-card
-         [:div.blog-meta
-          [:span "Dec 3, 2024"]
-          [:span "6 min read"]]
-         [:h2 [:a {:href "/blog/datoms-as-streams.chp"} "Streaming Datoms with Transducers"]]
-         [:p
-          "How we combine datom streams with transducers to build resilient, composable dataflows across the network edge."]
-         [:a {:href "/blog/datoms-as-streams.chp"} "Read the article →"]]]]])}
+    [:section.blog-list
+     [:div.section-inner
+      [:div.blog-grid
+       (for [blog blog-files
+             :let [chp-filename (str/replace (:blog/file blog) #"\.blog$" ".chp")
+                   link (:blog/file blog) #_(str "/blog/" chp-filename)
+                   date-inst (:blog/date blog)
+                   date-str (if date-inst
+                              (.format (java.text.SimpleDateFormat. "MMM d, yyyy")
+                                       date-inst)
+                              "Unknown date")]]
+         [:article.blog-card
+          [:div.blog-meta
+           [:span date-str]]
+          [:h2 [:a {:href link}
+                (:blog/title blog)]]
+          (:blog/abstract blog)
+          [:a {:href link}
+           "Read the article →"]])]]]}
    template))

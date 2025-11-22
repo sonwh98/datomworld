@@ -1,0 +1,577 @@
+#:blog{:title "AST Datom Streams: Bytecode Performance with Semantic Preservation",
+       :date #inst "2025-11-16T00:00:00.000-00:00",
+       :abstract [:p
+                  "Bytecode interpreters are fast. AST interpreters are slow. This is considered a fundamental trade-off in language implementation."],
+       :content
+       (list
+        [:section.blog-article
+         [:div.section-inner
+          [:article
+           [:h1
+            "AST Datom Streams: Bytecode Performance with Semantic Preservation"]
+           [:div.blog-article-meta
+            "Published Nov 16, 2025 · 14 minute read"]
+           [:h2 "The Performance Paradox"]
+           [:p
+            "Bytecode interpreters are fast. AST interpreters are slow. This is considered a fundamental trade-off in language implementation."]
+           [:p
+            "But what if this trade-off is an artifact of "
+            [:strong "how we represent programs"]
+            ", not an inherent limitation?"]
+           [:p
+            "In datom.world, we represent ASTs as "
+            [:strong "streams of immutable facts"]
+            ". This seemingly simple change "
+            [:strong
+             "blurs the line between bytecode and AST interpretation"]
+            ", unlocking a hybrid architecture that delivers bytecode-like performance while preserving full semantic queryability."]
+           [:h2 "Why Bytecode is Fast"]
+           [:p
+            "Traditional bytecode interpreters achieve high performance through four key properties:"]
+           [:h3 "1. Sequential Memory Access"]
+           [:p
+            "Bytecode is a linear array. The CPU can predict and prefetch instructions. Cache lines are used efficiently:"]
+           [:pre
+            [:code
+             "; Python bytecode (linear)\nInstruction[0]: LOAD_FAST 0\nInstruction[1]: LOAD_FAST 1\nInstruction[2]: BINARY_ADD\nInstruction[3]: RETURN_VALUE\n\n; Memory layout: [LOAD_FAST][LOAD_FAST][BINARY_ADD][RETURN_VALUE]\n; Cache-friendly: sequential access pattern"]]
+           [:h3 "2. Minimal Indirection"]
+           [:p
+            "The interpreter loop directly indexes into the instruction array. No pointer chasing:"]
+           [:pre
+            [:code
+             {:class "language-clojure"}
+             "(loop [pc 0]\n  (let [instruction (aget bytecode pc)]\n    (execute instruction)\n    (recur (inc pc))))"]]
+           [:h3 "3. Compact Encoding"]
+           [:p
+            "Each instruction is a dense binary representation—often just 1-3 bytes. Thousands of instructions fit in L1 cache."]
+           [:h3 "4. No Pointer Chasing"]
+           [:p
+            "Instructions are stored contiguously. No following pointers to heap-allocated objects."]
+           [:h2 "Why AST Interpretation is Slow"]
+           [:p
+            "Traditional AST interpreters suffer from the opposite characteristics:"]
+           [:h3 "1. Random Memory Access"]
+           [:p
+            "AST nodes are scattered across the heap. Traversing a tree means jumping between distant memory locations:"]
+           [:pre
+            [:code
+             "; AST nodes scattered in heap\nNode A @ 0x1000  →  Node B @ 0x5000  →  Node C @ 0x2000\n                ↓\n             Node D @ 0x8000\n\n; Cache-hostile: each traversal step likely a cache miss"]]
+           [:h3 "2. Pointer Chasing"]
+           [:p
+            "Each parent→child traversal requires dereferencing a pointer. Modern CPUs cannot predict these patterns:"]
+           [:pre
+            [:code
+             {:class "language-clojure"}
+             ";; Traditional AST walk\n(defn eval-ast [node]\n  (case (:type node)\n    :application\n    (let [fn (eval-ast (:operator node))    ; Pointer chase\n          args (map eval-ast (:operands node))] ; More pointer chases\n      (apply fn args))))"]]
+           [:h3 "3. Verbose Structures"]
+           [:p
+            "Each AST node is a full object or map with metadata, type tags, source locations. A simple addition might be 100+ bytes."]
+           [:h3 "4. Recursive Traversal"]
+           [:p
+            "Function call overhead for visiting each node. Stack frames, register spills, return address management."]
+           [:h2 "The Hidden Assumption"]
+           [:p
+            "The bytecode-vs-AST trade-off assumes a fundamental dichotomy:"]
+           [:ul.bulleted
+            [:li
+             [:strong "Bytecode"]
+             ": Fast execution, erased semantics, opaque to introspection"]
+            [:li
+             [:strong "AST"]
+             ": Slow execution, rich semantics, fully queryable"]]
+           [:p
+            "But this assumes "
+            [:strong "bytecode must erase semantics"]
+            " and "
+            [:strong "ASTs must be tree structures"]
+            "."]
+           [:p "What if both assumptions are wrong?"]
+           [:h2 "AST as Datom Stream: The Hybrid Architecture"]
+           [:p
+            "When you represent an AST as a "
+            [:strong "stream of datoms"]
+            ", you unlock a hybrid execution model that combines the best of both worlds."]
+           [:h3 "Two Streams, Not One"]
+           [:p
+            "The key insight: there are "
+            [:strong "two different streams"]
+            " at play:"]
+           [:h4 "Stream 1: AST Structure Stream"]
+           [:p
+            "The datoms that "
+            [:em "describe"]
+            " the program structure:"]
+           [:pre
+            [:code
+             "[node-1 :ast/type :application]\n[node-1 :ast/operator node-2]\n[node-1 :ast/operands [node-3 node-4]]\n[node-2 :ast/type :variable]\n[node-2 :ast/name '+]\n[node-3 :ast/type :literal]\n[node-3 :ast/value 10]\n[node-4 :ast/type :literal]\n[node-4 :ast/value 32]"]]
+           [:p
+            "This is the "
+            [:strong "semantic layer"]
+            ". It preserves:"]
+           [:ul.bulleted
+            [:li "What operations mean (addition, not opcode 23)"]
+            [:li "Variable names and source locations"]
+            [:li "Type information and certainty metadata"]
+            [:li "Transformation lineage across languages"]]
+           [:h4 "Stream 2: Execution Stream"]
+           [:p "The datoms that capture " [:em "what to do next"] ":"]
+           [:pre
+            [:code
+             "[step-1 :exec/instruction :eval-operator]\n[step-1 :exec/node node-1]\n[step-1 :exec/order 0]\n[step-2 :exec/instruction :eval-operand]\n[step-2 :exec/node node-3]\n[step-2 :exec/order 1]\n[step-3 :exec/instruction :eval-operand]\n[step-3 :exec/node node-4]\n[step-3 :exec/order 2]\n[step-4 :exec/instruction :apply]\n[step-4 :exec/function node-2]\n[step-4 :exec/args [node-3 node-4]]\n[step-4 :exec/order 3]"]]
+           [:p "This is the " [:strong "execution layer"] ". It has:"]
+           [:ul.bulleted
+            [:li
+             [:strong "Linear sequence"]
+             " (ordered by "
+             [:code ":exec/order"]
+             ")"]
+            [:li
+             [:strong "Sequential access pattern"]
+             " (iterate by order, cache-friendly)"]
+            [:li
+             [:strong "Links to AST nodes"]
+             " (semantic provenance preserved)"]
+            [:li
+             [:strong "Queryable execution trace"]
+             " (still datoms!)"]]
+           [:h3 "Compilation as Datalog Query"]
+           [:p
+            "Here's where it gets powerful. You "
+            [:strong
+             "compile the AST structure stream into an execution stream"]
+            " using Datalog:"]
+           [:pre
+            [:code
+             {:class "language-clojure"}
+             ";; Datalog query: AST datoms → Execution datoms\n(defn compile-to-execution-stream [db start-node]\n  (d/q '[:find ?step ?instruction ?order\n         :in $ ?start\n         :where\n         ;; Traverse AST and emit execution steps\n         (execution-order ?start ?step ?instruction ?order)]\n       db\n       start-node))"]]
+           [:p "This compilation phase:"]
+           [:ul.bulleted
+            [:li "Traverses the AST structure (once)"]
+            [:li "Generates a linear execution sequence"]
+            [:li "Preserves links back to AST nodes"]
+            [:li "Stores the result as datoms"]]
+           [:div
+            [:h2 "Where Do AST Datoms Come From?"]
+            [:p
+             "Before execution can begin, the program must exist as a stream of AST datoms in the database. There are two primary paths for this to happen:"]
+            [:h3 "1. The Native Path: Structure Editing"]
+            [:p
+             "In the pure Datom.World model, code is not written as text. Instead, a developer uses a "
+             [:em "structure editor"]
+             " that directly manipulates the AST. Every change directly creates, updates, or retracts datoms in the database. In this path, the AST datoms are the direct medium of creation, so no separate decomposition step is needed."]
+            [:h3 "2. The Ingestion Path: The Yang Compiler"]
+            [:p
+             "To bridge with the world of text-based source code, Datom.World provides the "
+             [:strong "Yang compiler"]
+             ". This tool parses traditional source files (like Python or Clojure) and produces an in-memory AST map. This map must then be "
+             [:strong "decomposed"]
+             " into the flat, canonical datom representation for storage in DaoDB."]
+            [:pre
+             [:code
+              "Text Source Code → Yang Compiler → AST Map → Decomposition → AST Datoms in DB"]]
+            [:p
+             "This ingestion path is crucial for interoperability. Regardless of which path is taken, the end result is the same: a canonical, queryable representation of the program as a stream of AST datoms. The following execution model begins from this point."]]
+           [:h2 "The Execution Model"]
+           [:p
+            "With both streams in place, execution becomes a two-phase process:"]
+           [:h3 "Phase 1: Compilation (Slow, Happens Once)"]
+           [:pre
+            [:code
+             "AST Structure Stream (Datoms)\n         ↓\n    Datalog Query\n         ↓\nExecution Stream (Datoms)"]]
+           [:p "This phase:"]
+           [:ul.bulleted
+            [:li "Runs Datalog queries over AST datoms"]
+            [:li "Generates ordered execution steps"]
+            [:li "Preserves semantic links"]
+            [:li "Can be cached/reused"]]
+           [:h3 "Phase 2: Execution (Fast, Bytecode-like)"]
+           [:pre
+            [:code
+             {:class "language-clojure"}
+             ";; Sequential iteration over execution stream\n(defn run-execution-stream [db exec-stream]\n  (reduce\n   (fn [state step]\n     (let [instruction (:exec/instruction step)\n           node (:exec/node step)]\n       (execute-step state instruction node)))\n   initial-state\n   (sort-by :exec/order exec-stream)))"]]
+           [:p "This phase:"]
+           [:ul.bulleted
+            [:li
+             [:strong "Iterates sequentially"]
+             " over execution datoms (cache-friendly)"]
+            [:li
+             [:strong "No pointer chasing"]
+             " (linear traversal by order)"]
+            [:li [:strong "No Datalog overhead"] " (pre-compiled)"]
+            [:li
+             [:strong "Links to AST preserved"]
+             " (can query semantics during execution)"]]
+           [:h2 "The Critical Difference from Traditional Bytecode"]
+           [:p
+            "Traditional bytecode "
+            [:strong "erases semantics"]
+            ":"]
+           [:pre
+            [:code
+             "; Python bytecode\nLOAD_FAST 0    ; What variable? From where?\nLOAD_FAST 1    ; Why these two?\nBINARY_ADD     ; Lost: this was (+ price tax) in the source\nSTORE_FAST 2   ; What am I storing?"]]
+           [:p
+            "Debugging requires external debug symbols. Queries like \"where did this value come from?\" are impossible at runtime."]
+           [:p
+            "Execution datom stream "
+            [:strong "preserves semantics"]
+            ":"]
+           [:pre
+            [:code
+             "[step-1 :exec/instruction :load-var]\n[step-1 :exec/node node-5]           ; Link to AST\n[step-1 :exec/order 0]\n[node-5 :ast/type :variable]         ; Semantic meaning\n[node-5 :ast/name \"price\"]         ; Original name\n[node-5 :ast/source-location [10 5]] ; Source position"]]
+           [:p "You can query " [:em "during execution"] ":"]
+           [:ul.bulleted
+            [:li "\"What AST node created this execution step?\""]
+            [:li "\"Show me the semantic meaning of this operation\""]
+            [:li "\"Trace this value back to source code location\""]
+            [:li
+             "\"Find all execution steps that mutate variable 'count'\""]
+            [:li
+             "\"What was the transformation lineage of this node?\""]]
+           [:h2 "Performance Characteristics"]
+           [:p "How does this compare to traditional approaches?"]
+           [:h3 "Memory Layout"]
+           [:table
+            [:thead
+             [:tr
+              [:th "Approach"]
+              [:th "Cache Behavior"]
+              [:th "Indirection"]]]
+            [:tbody
+             [:tr
+              [:td "Traditional AST"]
+              [:td "Random access (cache-hostile)"]
+              [:td "Pointer chasing every step"]]
+             [:tr
+              [:td "Traditional Bytecode"]
+              [:td "Sequential access (cache-friendly)"]
+              [:td "Direct array indexing"]]
+             [:tr
+              [:td [:strong "Execution Datom Stream"]]
+              [:td [:strong "Sequential access (cache-friendly)"]]
+              [:td [:strong "Linear iteration by order"]]]]]
+           [:h3 "Semantic Preservation"]
+           [:table
+            [:thead
+             [:tr
+              [:th "Approach"]
+              [:th "Queryability"]
+              [:th "Provenance"]]]
+            [:tbody
+             [:tr
+              [:td "Traditional AST"]
+              [:td "Full (slow queries)"]
+              [:td "Complete"]]
+             [:tr
+              [:td "Traditional Bytecode"]
+              [:td "None (erased)"]
+              [:td "Lost"]]
+             [:tr
+              [:td [:strong "Execution Datom Stream"]]
+              [:td [:strong "Full (fast queries)"]]
+              [:td [:strong "Complete via links"]]]]]
+           [:h3 "Compilation Overhead"]
+           [:table
+            [:thead
+             [:tr
+              [:th "Approach"]
+              [:th "Compilation"]
+              [:th "Runtime"]]]
+            [:tbody
+             [:tr
+              [:td "Traditional AST"]
+              [:td "None (interpret directly)"]
+              [:td "Slow (pointer chasing)"]]
+             [:tr
+              [:td "Traditional Bytecode"]
+              [:td "Heavy (semantic erasure)"]
+              [:td "Fast (sequential)"]]
+             [:tr
+              [:td [:strong "Execution Datom Stream"]]
+              [:td [:strong "Medium (Datalog query)"]]
+              [:td [:strong "Fast (sequential + semantic)"]]]]]
+           [:h2 "The Blurred Line"]
+           [:p
+            "The datom stream representation "
+            [:strong "blurs the distinction"]
+            " between bytecode and AST:"]
+           [:h3 "Like Bytecode:"]
+           [:ul.bulleted
+            [:li "Linear execution sequence"]
+            [:li "Sequential memory access"]
+            [:li "Cache-friendly iteration"]
+            [:li "Pre-compiled for performance"]]
+           [:h3 "Like AST:"]
+           [:ul.bulleted
+            [:li "High-level semantic operations"]
+            [:li "Queryable structure"]
+            [:li "Preserves type information"]
+            [:li "Links to source code"]]
+           [:h3 "Unique Properties:"]
+           [:ul.bulleted
+            [:li
+             "Execution steps are "
+             [:strong "facts"]
+             " (queryable)"]
+            [:li
+             "Semantic provenance via "
+             [:strong "links"]
+             " (AST nodes)"]
+            [:li
+             "Time-travel debugging "
+             [:strong "built-in"]
+             " (transaction history)"]
+            [:li
+             "Multi-dimensional queries "
+             [:strong "during execution"]
+             ""]]
+           [:h2 "Execution Modes"]
+           [:p
+            "This architecture supports multiple execution strategies:"]
+           [:h3 "Mode 1: Direct Interpretation"]
+           [:pre
+            [:code
+             "AST Datoms → Walk structure directly via queries\n\nPros: Simple, no compilation\nCons: Slow (Datalog query per step)"]]
+           [:h3 "Mode 2: Compiled Execution"]
+           [:pre
+            [:code
+             "AST Datoms → Compile to Execution Stream → Sequential iteration\n\nPros: Fast (bytecode-like), semantic preservation\nCons: Compilation overhead, two representations in memory"]]
+           [:h3 "Mode 3: JIT-Style Hybrid"]
+           [:pre
+            [:code
+             "Start: Direct interpretation\nDetect: Hot code paths\nCompile: Hot paths to execution streams\nExecute: Mix of interpreted + compiled\n\nPros: Best of both (fast hot paths, no upfront cost)\nCons: Complexity, profile-guided optimization needed"]]
+           [:h2 "Queryability During Execution"]
+           [:p
+            "The killer feature: you can "
+            [:strong "query execution state as it runs"]
+            "."]
+           [:h3 "Example: Find All Steps Touching a Variable"]
+           [:pre
+            [:code
+             "[:find ?step ?instruction ?order\n :where\n [?step :exec/node ?node]\n [?step :exec/instruction ?instruction]\n [?step :exec/order ?order]\n [?node :ast/name \"count\"]]"]]
+           [:p
+            "Returns all execution steps that reference the variable "
+            [:code "count"]
+            ". Impossible with traditional bytecode."]
+           [:h3 "Example: Trace Value Provenance"]
+           [:pre
+            [:code
+             "[:find ?source-node ?transform-step\n :where\n [?current-step :exec/value ?val]\n [?current-step :exec/produced-by ?transform-step]\n [?transform-step :exec/node ?source-node]\n [?source-node :ast/source-location ?loc]]"]]
+           [:p
+            "Traces where a value came from, across transformations, back to source code."]
+           [:h3 "Example: Find Type Certainty Boundaries"]
+           [:pre
+            [:code
+             "[:find ?call-step ?arg-node\n :where\n [?call-step :exec/instruction :apply]\n [?call-step :exec/function ?fn]\n [?fn :type/certainty :static]         ; High certainty function\n [?call-step :exec/args ?args]\n [?args :contains ?arg-node]\n [?arg-node :type/certainty :dynamic]] ; Low certainty data"]]
+           [:p
+            "Finds where dynamically-typed data flows into statically-typed functions. This query is "
+            [:strong
+             "impossible in systems that erase one dimension or the other"]
+            "."]
+           [:h2 "Memory Trade-offs"]
+           [:p "Storing both AST and execution streams has costs:"]
+           [:h3 "Traditional Bytecode"]
+           [:pre
+            [:code
+             "Text Source Code → AST (in-memory, transient) → Bytecode (discards AST)\nMemory: 1x (bytecode only)"]]
+           [:h3 "Datom Stream Hybrid"]
+           [:pre
+            [:code
+             "Canonical AST (datoms) → Execution Stream (datoms, can be cached)\nMemory: 1x (AST only) or 2x (both cached)"]]
+           [:p
+            "But the execution stream can be "
+            [:strong "regenerated from AST datoms"]
+            ". You can discard it and recompile when needed:"]
+           [:pre
+            [:code
+             "Memory-constrained mode:\n  Store: AST datoms only\n  Compile: On-demand to execution stream\n  Discard: Execution stream after use\n\nPerformance mode:\n  Store: Both AST and execution streams\n  Cache: Execution stream indefinitely\n  Query: Both streams simultaneously"]]
+           [:h2 "The Spectrum of Designs"]
+           [:p
+            "Different use cases favor different points on the spectrum:"]
+           [:h3 "Mobile Agents (Datom.World Focus)"]
+           [:ul.bulleted
+            [:li
+             [:strong "Priority"]
+             ": Semantic preservation, queryability, migration"]
+            [:li
+             [:strong "Execution speed"]
+             ": Secondary (network latency dominates)"]
+            [:li
+             [:strong "Design"]
+             ": Store AST datoms, interpret directly or compile on-demand"]
+            [:li
+             [:strong "Memory"]
+             ": Minimize (agents travel light)"]]
+           [:h3 "High-Performance Backend"]
+           [:ul.bulleted
+            [:li [:strong "Priority"] ": Execution speed"]
+            [:li
+             [:strong "Queryability"]
+             ": Nice-to-have (debugging, observability)"]
+            [:li
+             [:strong "Design"]
+             ": Compile to execution stream, keep both in memory"]
+            [:li [:strong "Memory"] ": Abundant (servers have RAM)"]]
+           [:h3 "Live Introspection / Debugger"]
+           [:ul.bulleted
+            [:li
+             [:strong "Priority"]
+             ": Queryability, time-travel debugging"]
+            [:li [:strong "Execution speed"] ": Moderate"]
+            [:li
+             [:strong "Design"]
+             ": Record full execution history as datoms"]
+            [:li
+             [:strong "Memory"]
+             ": Configurable retention (sliding window)"]]
+           [:h2 "Comparison to Existing Systems"]
+           [:h3 "GraalVM/Truffle"]
+           [:p
+            "GraalVM has a Universal AST for polyglot execution. But:"]
+           [:ul.bulleted
+            [:li "AST is tree-structured (pointer chasing)"]
+            [:li "No datom representation (limited queryability)"]
+            [:li "JIT compilation to machine code (erases semantics)"]
+            [:li "Runtime introspection limited"]]
+           [:h3 "CodeQL/Glean"]
+           [:p "CodeQL stores ASTs as queryable databases. But:"]
+           [:ul.bulleted
+            [:li "Static analysis only (no execution)"]
+            [:li "No execution stream (query structure, not runtime)"]
+            [:li "No time dimension (snapshots, not streams)"]]
+           [:h3 "Erlang BEAM"]
+           [:p "BEAM bytecode preserves some semantics:"]
+           [:ul.bulleted
+            [:li "Function names and arities visible"]
+            [:li "Message passing introspectable"]
+            [:li
+             "But: Still bytecode (low-level), limited queryability"]]
+           [:h3 "Datom.World / Yin.vm"]
+           [:p "Combines all three:"]
+           [:ul.bulleted
+            [:li
+             [:strong "GraalVM"]
+             ": Polyglot execution via Universal AST"]
+            [:li
+             [:strong "CodeQL"]
+             ": Queryable program structure via Datalog"]
+            [:li
+             [:strong "BEAM"]
+             ": Live introspection of running systems"]
+            [:li
+             [:strong "Plus"]
+             ": Time-travel, mobile code, multi-dimensional queries"]]
+           [:h2 "The Fundamental Insight"]
+           [:p
+            "The bytecode-vs-AST trade-off is not fundamental. It's an artifact of "
+            [:strong "representation choices"]
+            ":"]
+           [:h3 "Traditional Assumption:"]
+           [:pre
+            [:code
+             "AST = In-memory Tree Structure → Pointer Chasing → Slow\nBytecode = Linear Array → Sequential Access → Fast\nPerformance requires Semantic Erasure"]]
+           [:h3 "Datom Stream Reality:"]
+           [:pre
+            [:code
+             "Canonical AST = Datom Stream (queryable semantic layer)\nExecution Plan = Datom Stream (linear execution sequence)\nCompilation = Datalog Query (AST → Execution Plan)\nPerformance AND Semantics → Both Preserved"]]
+           [:p
+            "The key realization: "
+            [:strong "linearity is orthogonal to semantics"]
+            "."]
+           [:ul.bulleted
+            [:li
+             "You can have a "
+             [:strong "linear representation"]
+             " (fast) "
+             [:strong "with high-level semantics"]
+             " (queryable)"]
+            [:li
+             "You can "
+             [:strong "link execution steps to AST nodes"]
+             " (provenance) "
+             [:strong "without pointer chasing"]
+             " (sequential access)"]
+            [:li
+             "You can "
+             [:strong "compile once"]
+             " (Datalog query) and "
+             [:strong "execute fast"]
+             " (linear iteration)"]
+            [:li
+             "You can "
+             [:strong "preserve both representations"]
+             " (AST + Execution) as "
+             [:strong "queryable datoms"]
+             ""]]
+           [:h2 "Conclusion: The False Dichotomy"]
+           [:p
+            "For decades, language implementers accepted a false choice:"]
+           [:ul.bulleted
+            [:li
+             [:strong "Fast execution"]
+             " OR "
+             [:strong "rich semantics"]]
+            [:li
+             [:strong "Bytecode performance"]
+             " OR "
+             [:strong "AST queryability"]]
+            [:li
+             [:strong "Compact representation"]
+             " OR "
+             [:strong "introspection"]]]
+           [:p
+            "Datom streams reveal this as a "
+            [:strong "false dichotomy"]
+            ". You can have both:"]
+           [:ul.bulleted
+            [:li
+             [:strong "Linear execution"]
+             " (bytecode-like performance)"]
+            [:li
+             [:strong "Semantic preservation"]
+             " (AST-like queryability)"]
+            [:li
+             [:strong "Provenance tracking"]
+             " (execution links to source)"]
+            [:li
+             [:strong "Time-travel"]
+             " (transaction history built-in)"]
+            [:li
+             [:strong "Multi-dimensional queries"]
+             " (structure, time, types, execution)"]]
+           [:p
+            "The secret: "
+            [:strong "compilation as Datalog query"]
+            ". The AST structure stream becomes an execution stream via queries. Both remain datoms. Both remain queryable. Performance comes from sequential iteration. Semantics come from preserved links."]
+           [:p
+            "This is not just a better implementation technique. It's a "
+            [:strong "different computational model"]
+            ". When programs are datom streams and interpreters are queries, the line between data and code, between structure and execution, between compile-time and run-time "
+            [:strong "blurs and recombines"]
+            " into something new."]
+           [:p
+            "This is the architecture of "
+            [:a {:href "/"} "datom.world"]
+            ". Everything is a datom stream. Everything is queryable. And execution is just another dimension."]
+           [:p [:strong "Learn more:"]]
+           [:ul.bulleted
+            [:li
+             [:a
+              {:href "/blog/ast-higher-dimensional-datom-streams.chp"}
+              "AST as Higher Dimensional Construction of Datom Streams"]
+             " (the five dimensions of AST datoms)"]
+            [:li
+             [:a
+              {:href "/blog/universal-ast-vs-assembly.chp"}
+              "Universal AST vs Assembly"]
+             " (why AST is low-level semantics, not low-level execution)"]
+            [:li
+             [:a
+              {:href "/blog/yin-vm-ast-chinese-characters.chp"}
+              "Yin.vm: Chinese Characters for Programming Languages"]
+             " (the Universal Semantic AST)"]
+            [:li
+             [:a {:href "/dao-db.chp"} "DaoDB"]
+             " (the Datalog database powering datom streams)"]
+            [:li
+             [:a {:href "/yin.chp"} "Yin VM Documentation"]
+             " (technical implementation details)"]]]]])}
