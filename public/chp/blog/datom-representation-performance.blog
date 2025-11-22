@@ -9,9 +9,8 @@
        [:section.blog-article
         [:div.section-inner
          [:article
-          [:h1 "Datom Representation and the Hidden Performance Cost"]
-          [:div.blog-article-meta
-           "Published Nov 18, 2025"]
+          :$blog-title
+          :$blog-date
           [:p
            "Datoms are elegantly simple: "
            [:code "[e a v t c]"]

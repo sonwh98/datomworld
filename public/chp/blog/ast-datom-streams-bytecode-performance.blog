@@ -8,10 +8,8 @@
        [:section.blog-article
         [:div.section-inner
          [:article
-          [:h1
-           "AST Datom Streams: Bytecode Performance with Semantic Preservation"]
-          [:div.blog-article-meta
-           "Published Nov 16, 2025"]
+          :$blog-title
+          :$blog-date
           [:h2 "The Performance Paradox"]
           [:p
            "Bytecode interpreters are fast. AST interpreters are slow. This is considered a fundamental trade-off in language implementation."]

@@ -7,9 +7,8 @@
        [:section.blog-article
         [:div.section-inner
          [:article
-          [:h1 "Unitarity, π-Calculus, and the Cosmic Speed Limit"]
-          [:div.blog-article-meta
-           "Published Nov 5, 2025"]
+          :$blog-title
+          :$blog-date
           [:p
            "Can the existence of unitarity, combined with π-calculus, explain why communication has a finite speed—and why the universe itself behaves like a distributed computer?"]
           [:p

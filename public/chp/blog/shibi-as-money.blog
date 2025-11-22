@@ -9,9 +9,8 @@
        [:section.blog-article
         [:div.section-inner
          [:article
-          [:h1 "Why Shibi Cannot Be Like Money"]
-          [:p.blog-article-meta
-           "Published Nov 20, 2025"]
+          :$blog-title
+          :$blog-date
           [:p
            "Money, in all its forms, shares a core requirement: "
            [:strong "global transferability"]

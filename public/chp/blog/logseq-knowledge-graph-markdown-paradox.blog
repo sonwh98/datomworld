@@ -8,10 +8,8 @@
        [:section.blog-article
         [:div.section-inner
          [:article
-          [:h1
-           "Logseq's Knowledge Graph Paradox: Why Markdown Files Aren't Datoms"]
-          [:div.blog-article-meta
-           "Published Nov 19, 2025"]
+          :$blog-title
+          :$blog-date
           [:p
            "Logseq is a beautiful product. Built with Clojure/ClojureScript. Uses DataScript for queries. Claims to be a \"knowledge graph.\" It should be perfect."]
           [:p

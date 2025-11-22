@@ -9,9 +9,8 @@
        [:section.blog-article
         [:div.section-inner
          [:article
-          [:h1 "What Makes Datalog Datalog: Semantics, Not Syntax"]
-          [:div.blog-article-meta
-           "Published Nov 17, 2025"]
+          :$blog-title
+          :$blog-date
           [:h2 "The Question"]
           [:p
            "Datomic implements Datalog with an EDN-based syntax that looks like structured data. Prolog-style Datalog uses predicates and horn clauses. Souffle uses a C-like syntax. LogicBlox has its own notation. SQL's "

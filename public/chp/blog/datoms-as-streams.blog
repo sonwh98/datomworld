@@ -9,9 +9,8 @@
        [:section.blog-article
         [:div.section-inner
          [:article
-          [:h1 "Streaming Datoms with Transducers"]
-          [:div.blog-article-meta
-           "Published Dec 3, 2024"]
+          :$blog-title
+          :$blog-date
           [:p
            "One of the quiet superpowers behind Datom.World is that every fact is a datom in an immutable stream. "
            "Because we model changes as a log of tuples, we can rebuild state anywhere — on a phone, in a WASM runtime, "

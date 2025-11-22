@@ -9,9 +9,8 @@
        [:section.blog-article
         [:div.section-inner
          [:article
-          [:h1 "When the IDE Edits AST, Not Text"]
-          [:div.blog-article-meta
-           "Published Nov 16, 2025"]
+          :$blog-title
+          :$blog-date
           [:h2 "The Tyranny of Text"]
           [:p
            "Every IDE today edits text. You type characters. The editor syntax-highlights them. Maybe it runs a parser in the background to help with autocomplete. But the fundamental unit of editing is "

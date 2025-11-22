@@ -8,10 +8,8 @@
        [:section.blog-article
         [:div.section-inner
          [:article
-          [:h1
-           "Why Collaborative Writing Tools Need Datoms, Not Documents"]
-          [:div.blog-article-meta
-           "Published Nov 19, 2025"]
+          :$blog-title
+          :$blog-date
           [:p
            "Google Docs revolutionized collaborative writing. But it's fundamentally flawed."]
           [:p

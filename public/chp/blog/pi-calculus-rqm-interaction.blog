@@ -10,9 +10,8 @@
        [:section.blog-article
         [:div.section-inner
          [:article
-          [:h1 "π-Calculus, RQM, and the Primacy of Interaction"]
-          [:div.blog-article-meta
-           "Published Nov 18, 2025"]
+          :$blog-title
+          :$blog-date
           [:h2 "The Question"]
           [:p
            "Relational Quantum Mechanics says: "

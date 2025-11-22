@@ -10,10 +10,8 @@
        [:section.blog-article
         [:div.section-inner
          [:article
-          [:h1
-           "Code as Entropy: Why Good Software Evolves, Not Designed"]
-          [:div.blog-article-meta
-           "Published Oct 29, 2025"]
+          :$blog-title
+          :$blog-date
           [:p
            "What makes code \"good\"? A friend once told me he doesn't know but bad code is code that other developers write. "
            "The joke is funny because it's true,and it's true because every developer has a different mental model. "

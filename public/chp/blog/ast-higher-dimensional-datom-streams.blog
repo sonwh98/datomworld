@@ -10,10 +10,8 @@
        [:section.blog-article
         [:div.section-inner
          [:article
-          [:h1
-           "AST as Higher Dimensional Construction of Datom Streams"]
-          [:div.blog-article-meta
-           "Published Nov 15, 2025"]
+          :$blog-title
+          :$blog-date
           [:h2 "Everything Is a Datom Stream"]
           [:p
            "In datom.world, "

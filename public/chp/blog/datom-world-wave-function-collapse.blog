@@ -15,9 +15,8 @@
        [:section.blog-article
         [:div.section-inner
          [:article
-          [:h1 "Datom.World and the Collapse of the Wave Function"]
-          [:div.blog-article-meta
-           "Published Nov 17, 2025"]
+          :$blog-title
+          :$blog-date
           [:h2 "The Observation"]
           [:p
            "DaoDB is a "

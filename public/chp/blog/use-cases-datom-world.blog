@@ -9,9 +9,8 @@
        [:section.blog-article
         [:div.section-inner
          [:article
-          [:h1 "What Can You Build with Datom.world?"]
-          [:div.blog-article-meta
-           "Published Nov 19, 2025"]
+          :$blog-title
+          :$blog-date
           [:p
            "Datom.world isn't a product. It's a "
            [:strong "substrate"]

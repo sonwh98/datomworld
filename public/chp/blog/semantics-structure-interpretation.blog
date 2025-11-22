@@ -11,9 +11,8 @@
        [:section.blog-article
         [:div.section-inner
          [:article
-          [:h1 "Semantics is Structure Through Interpretation"]
-          [:p.blog-article-meta
-           "Published Nov 22, 2025"]
+          :$blog-title
+          :$blog-date
           [:p
            "I previously argued in "
            [:a

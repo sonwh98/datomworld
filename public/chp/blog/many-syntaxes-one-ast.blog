@@ -11,10 +11,8 @@
        [:section.blog-article
         [:div.section-inner
          [:article
-          [:h1
-           "Many Syntaxes, One AST: The Non-Deterministic Rendering Problem"]
-          [:div.blog-article-meta
-           "Published Nov 16, 2025"]
+          :$blog-title
+          :$blog-date
           [:h2 "The Problem"]
           [:p
            "The Universal AST is canonical code. Syntax is a rendering. But here's the challenge: "

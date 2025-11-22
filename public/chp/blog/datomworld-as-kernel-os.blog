@@ -8,10 +8,8 @@
        [:section.blog-article
         [:div.section-inner
          [:article
-          [:h1
-           "Datom.World as an Operating System: A Kernel Built From Streams, Interpreters, and Yin.vm Isolation"]
-          [:p.blog-article-meta
-           "Published Nov 20, 2025"]
+          :$blog-title
+          :$blog-date
           [:p
            "The traditional operating system is organized around a strict boundary: kernel space owns the hardware and the global state, and user space hosts applications that must ask permission to do anything meaningful. This model made sense when hardware was scarce and protection was achieved by preventing accidental or malicious writes to memory."]
           [:p

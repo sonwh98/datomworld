@@ -7,10 +7,8 @@
        [:section.blog-article
         [:div.section-inner
          [:article
-          [:h1
-           "Universal AST vs Assembly: High-Level Semantics in Low-Level Form"]
-          [:div.blog-article-meta
-           "Published Nov 16, 2025"]
+          :$blog-title
+          :$blog-date
           [:h2 "The Observation"]
           [:p "Look at the Universal AST expressed as datom streams:"]
           [:pre

@@ -10,10 +10,8 @@
        [:section.blog-article
         [:div.section-inner
          [:article
-          [:h1
-           "Datalog as Compiler Infrastructure: Why DaoDB Makes Every Optimization Queryable"]
-          [:div.blog-article-meta
-           "Published Nov 16, 2025"]
+          :$blog-title
+          :$blog-date
           [:h2 "The Compiler Writer's Dilemma"]
           [:p
            "Traditional compilers operate on "

@@ -17,10 +17,8 @@
        [:section.blog-article
         [:div.section-inner
          [:article
-          [:h1
-           "Structure vs Interpretation: Why Schemas/Ontologies Are Secret Interpreters"]
-          [:div.blog-article-meta
-           "Published Nov 14, 2025"]
+          :$blog-title
+          :$blog-date
           [:p
            "I met Pete Chapman, CEO of "
            [:a {:href "https://firstcognition.com/"} "FirstCognition"]

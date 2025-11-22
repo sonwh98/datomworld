@@ -8,10 +8,8 @@
        [:section.blog-article
         [:div.section-inner
          [:article
-          [:h1
-           "The Semantic Impedance Mismatch: Can a Universal AST Really Work?"]
-          [:div.blog-article-meta
-           "Published Nov 16, 2025"]
+          :$blog-title
+          :$blog-date
           [:h2 "The Challenge"]
           [:p
            "Object-oriented languages have classes and objects. Functional languages have no such concept. Instead, they have higher-order functions and closures. Procedural languages have goto. Modern languages forbid it. Some languages have exceptions. Others use result types. Some have null. Others make it impossible."]

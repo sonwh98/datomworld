@@ -9,9 +9,8 @@
        [:section.blog-article
         [:div.section-inner
          [:article
-          [:h1 "Yin.vm: Chinese Characters for Programming Languages"]
-          [:div.blog-article-meta
-           "Published Nov 15, 2025"]
+          :$blog-title
+          :$blog-date
           [:h2 "The Chinese Character Insight"]
           [:p
            "There are hundreds of Chinese dialects. Many are mutually unintelligible to the point of being foreign languages to each other. A Mandarin speaker cannot understand Cantonese. A Shanghainese speaker cannot understand Hokkien. Yet all of these are considered "
