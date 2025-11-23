@@ -559,6 +559,34 @@ pre code {
   gap: 1.6rem;
 }
 
+.blog-search {
+  margin-bottom: 2rem;
+}
+
+.blog-search .search-input {
+  width: 100%;
+  max-width: 800px;
+  padding: 1rem 1.5rem;
+  font-size: 1.1rem;
+  font-family: inherit;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--text);
+  transition: all 0.2s ease;
+}
+
+.blog-search .search-input::placeholder {
+  color: var(--muted);
+  opacity: 0.6;
+}
+
+.blog-search .search-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
 .blog-grid {
   display: grid;
   gap: 1.4rem;
