@@ -9,7 +9,7 @@
        [:h1 "💩 Shibi (屎币)"]
        [:p.section-lead
         "All open networks suffer from spam when they get popular, a classic tragedy of the commons. The open platform is a shared resource, but when anyone can use it without cost, spam makes the platform unusable for everyone. "
-        "Email is the canonical example: spam filters help, but spam still gets through. Inboxes fill with thousands of unread messages, most of them spam, making it impossible to find legitimate messages buried in the noise. "
+        "Email is the canonical example. Spam filters help, but spam still gets through. Inboxes fill with thousands of unread messages, most of them spam, making it impossible to find legitimate messages buried in the noise. "
         "Classical economics offers two solutions to the tragedy of the commons: central control (government regulation) or privatization (dividing the commons into private property). "
         "Open networks have tried both: walled gardens impose centralized moderation, spam filters attempt algorithmic control. "
         "Neither works well. "
