@@ -13,7 +13,7 @@
        [:p
         "The DaoStream is the substrate of flow — an ever-unfolding stream through which datoms flow, carrying interactions, transformations, and continuations across space, time, and device boundaries."]
        [:p
-        "Like the Dao (道) in Taoist philosophy, it maintains a simple, constant form — the five-element tuple [e a v t c] — yet adapts to infinite contexts. "
+        "Like the Dao (道) in Taoist philosophy, it maintains a simple, constant form — the five-element tuple [e a v t m] — yet adapts to infinite contexts. "
         "The same datom stream flows locally, distributed, offline, or entangled, shaping itself to the environment. "
         "The DaoStream carries meaning not by dictating interpretation, but by allowing interpreters to emerge around it."]
        [:p
@@ -23,7 +23,7 @@
         "Applications, agents, and nodes do not \"call\" or \"store.\" "
         "They listen, observe, and append to the DaoStream."]
        [:div.principle-box
-        [:p "Every event is a datom: " [:code "[e a v t c]"]]
+        [:p "Every event is a datom: " [:code "[e a v t m]"]]
         [:p "Every stream is a story of becoming."]]
        [:p
         "Through the DaoStream, the world of software moves closer to the world of nature — spontaneous, adaptive, and self-organizing."]]]
@@ -54,7 +54,7 @@
          [:p "Opening a stream prepares it for reading or writing, establishing connections to entangled nodes as needed."]]
         [:article.feature-card
          [:h3 [:code "read"]]
-         [:p "Consume datoms from an open stream. Returns a sequence of [e a v t c] tuples."]
+         [:p "Consume datoms from an open stream. Returns a sequence of [e a v t m] tuples."]
          [:p "Streams are lazy and asynchronous—read only pulls what you need, when you need it."]]
         [:article.feature-card
          [:h3 [:code "write"]]

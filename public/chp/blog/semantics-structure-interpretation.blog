@@ -160,7 +160,7 @@
             "\"Structure carries the potential for semantics.\""]
            [:br]
            "Datoms encode stable patterns: "
-           [:code "[e a v t c]"]
+           [:code "[e a v t m]"]
            ". These patterns become semantic when an interpreter assigns meaning to them."]
           [:p
            "Chinese characters show how simple structural signals can bootstrap rich concepts. Yin VM shows the same thing for computation. Datom.world generalizes it to all meaning-bearing computation."]
@@ -234,7 +234,7 @@
           [:p
            [:strong "Design for interpretability:"]
            " The structure of datoms "
-           [:code "[e a v t c]"]
+           [:code "[e a v t m]"]
            " is not arbitrary. Like Chinese radicals, it provides regularities that enable interpretation. The 5-tuple is semantic scaffolding."]
           [:p
            [:strong "Enable multiple interpretations:"]

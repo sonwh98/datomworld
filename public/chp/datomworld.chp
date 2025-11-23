@@ -45,7 +45,7 @@
        [:div.concept-grid
         [:article.concept-card
          [:h3 "1. Everything is a Stream"]
-         [:p "The foundational axiom: " [:strong "everything is a stream of datoms"] ". A datom is an immutable fact represented as " [:code "[e a v t c]"] " (entity, attribute, value, time, context). Code, data, state changes, execution traces—all are append-only logs of datoms."]
+         [:p "The foundational axiom: " [:strong "everything is a stream of datoms"] ". A datom is an immutable fact represented as " [:code "[e a v t m]"] " (entity, attribute, value, time, metadata). Code, data, state changes, execution traces—all are append-only logs of datoms."]
          [:p "Benefits: total auditability (nothing deleted, perfect history), time travel (query any past state), and a unified data model. Everything—messages, files, databases, APIs—collapses into a single primitive: the stream."]
          [:p.learn-more "Learn more: " [:a {:href "/blog/datoms-as-streams.blog"} "Streaming Datoms with Transducers"] " and " [:a {:href "/blog/ast-higher-dimensional-datom-streams.blog"} "AST as Higher Dimensional Datom Streams"] "."]]
         [:article.concept-card

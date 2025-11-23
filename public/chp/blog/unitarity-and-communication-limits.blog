@@ -44,7 +44,7 @@
             [:tr
              [:td [:strong "Channels → Paths"]]
              [:td
-              "Named data streams that carry datoms—the minimal tuples of meaning [e a v t c]"]]
+              "Named data streams that carry datoms—the minimal tuples of meaning [e a v t m]"]]
             [:tr
              [:td [:strong "Message Passing → Stream Write/Read"]]
              [:td

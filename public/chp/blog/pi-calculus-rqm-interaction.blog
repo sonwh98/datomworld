@@ -307,7 +307,7 @@
             "RQM: Measurement outcomes depend on prior interactions. Light cones define causal structure."]
            [:li
             "DaoDB: The causality dimension of datoms "
-            [:code "[e a v t c]"]
+            [:code "[e a v t m]"]
             " explicitly tracks causal dependencies."]]
           [:h3 "4. Time Travel and Provenance"]
           [:p

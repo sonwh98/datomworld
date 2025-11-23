@@ -72,7 +72,7 @@
            "In Datom.world, data is not stored on someone else's servers behind an API. It lives as "
            [:strong "local, append-only streams of datoms"]
            ": "
-           [:code "[e a v t c]"]
+           [:code "[e a v t m]"]
            "."]
           [:ul.bulleted
            [:li "No proprietary schemas"]

@@ -53,7 +53,7 @@
          [:summary "What is a datom, exactly?"]
          [:div
           [:p
-           "A datom is a tuple [e a v t c]—entity, attribute, value, time, context. "
+           "A datom is a tuple [e a v t m]—entity, attribute, value, time, metadata. "
            "Just as atoms assemble into matter, datoms assemble into any data structure. "
            "See " [:a {:href "/dao-db.chp#the-five-element-tuple"} "DaoDB"] " for the detailed structure."]]]
         [:details.faq
@@ -102,7 +102,7 @@
          [:summary "What exactly is a datom in implementation terms?"]
          [:div
           [:p
-           "A datom is a fixed five-element tuple: [e a v t c] → entity, attribute, value, time, context. "
+           "A datom is a fixed five-element tuple: [e a v t m] → entity, attribute, value, time, metadata. "
            "It is immutable and causally traceable. "
            "Datoms flow through DaoStreams. Apps consume streams and can materialize datoms into indexes or other structures."]]]
         [:details.faq

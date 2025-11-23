@@ -198,7 +198,7 @@
           [:h3 "5. Branching Architecture: The Context Field"]
           [:p
            "The secret to never losing local history is in the datom structure itself: "
-           [:code "[e a v t c]"]
+           [:code "[e a v t m]"]
            "."]
           [:p
            "The "

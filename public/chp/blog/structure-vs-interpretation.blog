@@ -315,7 +315,7 @@
            "It's closer to how biological, economic, and quantum systems actually work. "
            "The wavefunction has no intrinsic meaning. Meaning arises when an observer interacts with it. "
            "A datom "
-           [:code "[e a v t c]"]
+           [:code "[e a v t m]"]
            " has no semantics until an agent observes it and imposes meaning."]
           [:h2 "Convergence: What Both Approaches Can Learn"]
           [:p

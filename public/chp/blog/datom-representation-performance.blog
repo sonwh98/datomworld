@@ -3,8 +3,8 @@
        :abstract
        [:p
         "Datoms are elegantly simple: "
-        [:code "[e a v t c]"]
-        ". Entity, attribute, value, transaction, context. Five elements. Fixed-size tuple. Clean abstraction."],
+        [:code "[e a v t m]"]
+        ". Entity, attribute, value, transaction, metadata. Five elements. Fixed-size tuple. The fifth element (m) is metadata that can be used for anything—causality, context, or other interpreter-specific information."],
        :content
        [:section.blog-article
         [:div.section-inner
@@ -13,8 +13,8 @@
           :$blog-date
           [:p
            "Datoms are elegantly simple: "
-           [:code "[e a v t c]"]
-           ". Entity, attribute, value, transaction, context. Five elements. Fixed-size tuple. Clean abstraction."]
+           [:code "[e a v t m]"]
+           ". Entity, attribute, value, transaction, metadata. Five elements. Fixed-size tuple. The fifth element (m) is metadata that can be used for anything—causality, context, or other interpreter-specific information."]
           [:p
            "But there's a performance trap hiding in this simplicity."]
           [:h2 "The Abstraction vs The Reality"]
@@ -392,7 +392,7 @@
            "The abstraction is pure. The implementation is pragmatic."]
           [:h2 "Conclusion: Abstractions Have Weight"]
           [:p
-           [:code "[e a v t c]"]
+           [:code "[e a v t m]"]
            " looks simple. Five elements. Fixed-size tuple."]
           [:p
            "But "
