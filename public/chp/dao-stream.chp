@@ -115,7 +115,7 @@
        [:h2 "One Truth, Many Perspectives"]
        [:p
         "The power of DaoStream comes from separation of data and interpretation. "
-        "Streams carry datoms—[entity attribute value time causality] tuples that represent universal facts. "
+        "Streams carry datoms—[entity attribute value time metadata] tuples that represent universal facts. "
         "Apps decide what those facts mean."]
        [:p
         "The same stream can serve many purposes simultaneously:"]

@@ -11,7 +11,7 @@
         "DaoDB is a distributed database built on " [:a {:href "/dao-stream.chp"} "DaoStream"] ". "
         "Datoms flow through the stream—some ephemeral, some persistent—and DaoDB selectively consumes them to materialize queryable covered indexes."]
        [:p
-        "DaoStream is the flow through which datoms travel—five-element tuples [e a v t m] representing entity, attribute, value, transaction, and metadata. "
+        "DaoStream is the flow through which datoms travel—five-element tuples [e a v t m] representing entity, attribute, value, time, and metadata. "
         "The stream itself doesn't store datoms; they flow through it, some ephemeral and transient, others consumed by apps like DaoDB that choose to materialize them. "
         "DaoDB taps into this flow and selectively materializes covered indexes from the datoms it observes. "
         "Every piece of data in DaoDB is a materialized covered index derived from the datom stream. "
@@ -30,8 +30,8 @@
         [:li [:strong "e (entity)"] " — The thing being described (a user, a post, a shopping cart)"]
         [:li [:strong "a (attribute)"] " — The property being asserted (name, color, quantity)"]
         [:li [:strong "v (value)"] " — The actual data (\"Alice\", \"red\", 42)"]
-        [:li [:strong "t (transaction)"] " — When this fact was recorded (timestamp/transaction ID)"]
-        [:li [:strong "c (causality)"] " — The causal relationship to other datoms, enabling distributed consistency"]]
+        [:li [:strong "t (time)"] " — When this fact was recorded (timestamp/transaction ID)"]
+        [:li [:strong "m (metadata)"] " — Additional context including causal relationships, encryption info, or interpreter-specific data"]]
        [:p
         "This structure makes every fact self-describing and independently meaningful. "
         "You can query any datom without needing to understand the entire database schema. "
