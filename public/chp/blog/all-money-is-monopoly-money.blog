@@ -121,7 +121,7 @@
            [:li "Generate new entropy gradients for further work"]]
 
           [:p
-           "This is why the inefficiency of the initial spending is less important than the quality of the resulting flow. Because the flow is a recursive, fractal process, what matters is the human capital it encounters. A 'wasteful' $1 that flows through a highly educated and innovative population can create immense real wealth, while a 'well-spent' $1 that hits a dead end creates nothing."]
+           "This is why the inefficiency of the initial spending is less important than the quality of the resulting flow. Because the flow is a recursive, fractal process, what matters is the human capital it encounters. A 'wasteful' $1 that flows through a highly educated and innovative population can create immense real wealth, while a 'well-spent' $1 that hits unskilled and unknowlegable human capital creates nothing."]
 
           [:h3 "Recursive Feedback Loops"]
 
