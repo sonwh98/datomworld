@@ -2,70 +2,31 @@
        :date #inst "2025-11-20T00:00:00.000-00:00",
        :abstract
        [:p
-        "Money, in all its forms, shares a core requirement: "
+        "ShiBi is a local, subjective value coordination protocol. It cannot be money because money demands "
         [:strong "global transferability"]
-        ". Whether it's gold, dollars, Bitcoin, or credit networks like Ripple, money works because any unit can flow from any person to any other person through exchange, routing, or intermediaries. This transferability requires shared infrastructure: markets, ledgers, trust graphs, or routing algorithms."],
+        " and a shared infrastructure for routing and settlement—the very things ShiBi is designed to avoid. "
+        "This post explores why, starting with a core insight: "
+        [:a {:href "/blog/all-money-is-monopoly-money.blog"} "all money is monopoly money"]
+        " whose value derives from flow, not substance."],
        :content
        [:section.blog-article
         [:div.section-inner
          [:article
           :$blog-title
           :$blog-date
-          [:h2 "First: What Is Money, Really?"]
-
+          [:h2 "Money Requires Global Coordination"]
           [:p
-           "Before we can understand why ShiBi cannot be money, we need to understand what money actually is. "
-           "And the answer might surprise you:"]
-
-          [:p
-           [:strong "All money (USD, Bitcoin, gold, Rai stones) is monopoly money."]
-           " Its value comes from "
+           "Before we can understand why ShiBi cannot be money, we must first understand what money is. As explained in "
+           [:a {:href "/blog/all-money-is-monopoly-money.blog"} [:strong "All Money Is Monopoly Money"]]
+           ", money is not a substance but a social coordination protocol whose value comes from "
            [:strong "trust"]
-           ", which enables coordination, not from the material itself."]
-
-          [:h3 "Accounting Assets vs. Real Assets"]
-
+           " and "
+           [:strong "flow"]
+           ". It is a system of accounting claims that only become real when they move through people doing work."]
           [:p
-           "Double-entry bookkeeping creates "
-           [:strong "claims on value"]
-           ", not value itself. Dollars in a bank account, BTC on a ledger: these are accounting artifacts."
-           "They are representations, not resources."]
-
-          [:ul.bulleted
-           [:li "A dollar is a promise."]
-           [:li "A bitcoin is a ledger entry."]
-           [:li "Neither feeds anyone or builds anything by itself."]]
-
-          [:p
-           [:strong "Money turns real only when it flows through people doing work."]
-           " Until then, it's just a number."]
-
-          [:p
-           "The conversion of monopoly money into something of value only happens when it flows through people "
-           "creating goods and services, just like the flow of entropy from low to high only generates work when"
-           "it flows through a turbine."]
-
-          [:p "Without flow, money is static potential energy: stored, inert, idle."]
-
-          [:h3 "Money Requires Flow"]
-
-          [:p
-           [:strong "Money isn't valuable because it's scarce. Money is valuable because it moves."]]
-
-          [:p
-           "Whether it's USD, BTC, or gold, all money requires global coordination mechanisms to enable this flow:"]
-
-          [:ul.bulleted
-           [:li "Markets and exchanges"]
-           [:li "Ledgers and accounting systems"]
-           [:li "Trust graphs and intermediaries"]
-           [:li "Routing algorithms"]
-           [:li "Shared standards of value"]]
-
-          [:p
-           "Money, in all its forms, shares a core requirement: "
+           "This system has one absolute requirement: "
            [:strong "global transferability"]
-           ". Any unit must be able to flow from any person to any other person through exchange, routing, or intermediaries."]
+           ". Money, in all its forms, must be able to flow from anyone to anyone else. This requires a shared infrastructure for routing, exchange, and settlement—markets, ledgers, and trust graphs. Without this global coordination, it ceases to be money."]
 
           [:h3 "ShiBi's Fundamental Difference"]
 
