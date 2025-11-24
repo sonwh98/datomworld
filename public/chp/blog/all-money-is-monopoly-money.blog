@@ -54,13 +54,13 @@
 
           [:ul.bulleted
            [:li "A dollar is an IOU from the US government."]
-           [:li "A Bitcoin is a cryptographically secured entry in a public ledger."]
+           [:li "A Bitcoin is a cryptographically secured entry in a public ledger. While this is true, its fundamental nature, like all money, is that of credit and debit balancing to zero."]
            [:li "Neither feeds anyone or builds anything on its own."]]
 
           [:p
-           "This reveals the iron law of double-entry bookkeeping. For every asset in the system, there is a corresponding liability. "
-           "As the saying goes, " [:strong "one person's debt is another person's asset"] ". Your bank account is your asset, but it is the bank's liability. "
-           "The entire global financial system is a web of these interlocking IOUs, and because " [:code "credit + debit = 0"] ", the net balance is always zero."]
+           "This reveals the iron law of accounting that governs all money: " [:code "credit + debit = 0"] ". "
+           "For every asset in the system, there is a corresponding liability. As the saying goes, " [:strong "one person's debt is another person's asset"] ". "
+           "Your bank account is your asset, but it is the bank's liability. The entire global financial system is a web of these interlocking IOUs, and the net balance is always, and must always be, zero."]
 
           [:p
            [:strong "Money turns real only when it flows through people doing work."]
@@ -113,15 +113,15 @@
            "Government injects low-entropy money at the top. Households and consumers sit near the bottom where "
            "that energy is mostly spent, dissipated, and recycled into price signals."]
 
-          [:p "Even when the initial spending is inefficient, it is the resulting flow that matters most. The effectiveness of that flow in creating new value reduces to the knowledge and education of the human capital it passes through. A strong flow through a skilled population will:"]
+          [:p "When government spends, the flow of that money matters most. Even if the initial spending seems inefficient, the crucial factor is the quality of the human capital it flows through. How educated and knowledgeable are the people who receive and circulate it? A strong flow through a skilled population will:"]
 
           [:ul.bulleted
-           [:li "Trigger further transactions, exchanges, and investments"]
-           [:li "Enable the creation of new goods, services, and knowledge"]
-           [:li "Generate new entropy gradients for further work"]]
+           [:li "Trigger further transactions, exchanges, and investments."]
+           [:li "Enable the creation of new goods, services, and knowledge."]
+           [:li "Produce infinite new entropy gradients, much like the fractal structure of a cell creates vast surfaces for metabolic work."]]
 
           [:p
-           "This is why the inefficiency of the initial spending is less important than the quality of the resulting flow. Because the flow is a recursive, fractal process, what matters is the human capital it encounters. A 'wasteful' $1 that flows through a highly educated and innovative population can create immense real wealth, while a 'well-spent' $1 that hits unskilled and unknowlegable human capital creates nothing."]
+           "Because of this recursive, fractal nature of entropy gradients, the initial spending's efficiency matters less than the flow itself. The human capital that money flows through is the critical factor in creating real wealth. A 'wasteful' $1 that flows through a highly educated and innovative population can create immense real wealth, while a 'well-spent' $1 that hits unskilled and unknowlegable human capital creates nothing."]
 
           [:h3 "Recursive Feedback Loops"]
 
