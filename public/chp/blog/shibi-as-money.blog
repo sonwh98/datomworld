@@ -11,23 +11,82 @@
          [:article
           :$blog-title
           :$blog-date
+          [:h2 "First: What Is Money, Really?"]
+
+          [:p
+           "Before we can understand why ShiBi cannot be money, we need to understand what money actually is. "
+           "And the answer might surprise you:"]
+
+          [:p
+           [:strong "All money (USD, Bitcoin, gold, Rai stones) is monopoly money."]
+           " Its value comes from "
+           [:strong "trust"]
+           ", which enables coordination, not from the material itself."]
+
+          [:h3 "Accounting Assets vs. Real Assets"]
+
+          [:p
+           "Double-entry bookkeeping creates "
+           [:strong "claims on value"]
+           ", not value itself. Dollars in a bank account, BTC on a ledger: these are accounting artifacts."
+           "They are representations, not resources."]
+
+          [:ul.bulleted
+           [:li "A dollar is a promise."]
+           [:li "A bitcoin is a ledger entry."]
+           [:li "Neither feeds anyone or builds anything by itself."]]
+
+          [:p
+           [:strong "Money turns real only when it flows through people doing work."]
+           " Until then, it's just a number."]
+
+          [:p
+           "The conversion of monopoly money into something of value only happens when it flows through people "
+           "creating goods and services, just like the flow of entropy from low to high only generates work when"
+           "it flows through a turbine."]
+
+          [:p "Without flow, money is static potential energy: stored, inert, idle."]
+
+          [:h3 "Money Requires Flow"]
+
+          [:p
+           [:strong "Money isn't valuable because it's scarce. Money is valuable because it moves."]]
+
+          [:p
+           "Whether it's USD, BTC, or gold, all money requires global coordination mechanisms to enable this flow:"]
+
+          [:ul.bulleted
+           [:li "Markets and exchanges"]
+           [:li "Ledgers and accounting systems"]
+           [:li "Trust graphs and intermediaries"]
+           [:li "Routing algorithms"]
+           [:li "Shared standards of value"]]
+
           [:p
            "Money, in all its forms, shares a core requirement: "
            [:strong "global transferability"]
-           ". Whether it's gold, dollars, Bitcoin, or credit networks like Ripple, money works because any unit can flow from any person to any other person through exchange, routing, or intermediaries. This transferability requires shared infrastructure: markets, ledgers, trust graphs, or routing algorithms."]
+           ". Any unit must be able to flow from any person to any other person through exchange, routing, or intermediaries."]
+
+          [:h3 "ShiBi's Fundamental Difference"]
+
           [:p
            "ShiBi, by contrast, is a subjective value coordination protocol where agents compensate each other for attention, communication, and curation. It works because interpretation is local and costs are visible. ShiBi's entire philosophy rests on not requiring global schemas, global synchronization, or universal agreement."]
+
           [:p
            [:strong
             "ShiBi cannot be money because money requires exactly the global coordination mechanisms that ShiBi is designed to avoid."]]
+
           [:p
-           "To see why, let's examine Ryan Fugger's 2004 Ripple design. Ripple is the perfect case study because, like ShiBi, "
+           "To see why this matters, let's examine what happens when a decentralized value system tries to become money."]
+
+          [:h2
+           "Ripple as a Case Study: The Most Decentralized Money System Still Centralizes"]
+          [:p
+           "Ryan Fugger's 2004 Ripple design is the perfect case study because, like ShiBi, "
            [:strong "it allowed anyone to be their own central bank"]
            ", issuing personal IOUs and managing trust relationships locally. If even this deeply decentralized, local-first money system forces centralization, then "
            [:em "any"]
            " money-like system would do the same to ShiBi."]
-          [:h2
-           "Ripple as a Case Study: The Most Decentralized Money System Still Centralizes"]
           [:p
            "Fugger's Ripple had almost nothing in common with today's XRP-based network. It was a web-of-trust credit network, where payments "
            [:em "rippled"]
@@ -231,27 +290,54 @@
            "Where money needs liquidity, ShiBi needs engagement."
            [:br]
            "Where money needs transferability, ShiBi needs purpose-specific capabilities."]
-          [:h2 "Conclusion"]
+          [:h2 "Conclusion: ShiBi Is Not Money, and That's the Point"]
+
           [:p
-           "Money, in all its forms, requires global coordination: transferability, routing, shared ledgers, or trust graphs. Even Ryan Fugger's Ripple, one of the most decentralized money systems ever designed, could not escape the centralization that comes from solving the NP-hard routing problem at scale."]
+           "We started by establishing that all money (USD, Bitcoin, gold) is monopoly money: accounting claims"
+           "that only become real through flow. Money's value comes from "
+           [:strong "trust"]
+           " that enables coordination, not from the material itself."]
+
           [:p
-           "ShiBi's design avoids this trap entirely by refusing to be money. It doesn't try to create transferable value that flows through intermediaries. Instead, it creates purpose-specific capability tokens that grant direct access without routing."]
+           "But money requires global coordination mechanisms: transferability, routing, shared ledgers, or trust graphs. "
+           "Even Ryan Fugger's Ripple, one of the most decentralized money systems ever designed, could not escape the "
+           "centralization that comes from solving the NP-hard routing problem at scale."]
+
+          [:p
+           "ShiBi's design avoids this trap entirely by refusing to be money. It doesn't try to create transferable value "
+           "that flows through intermediaries. Instead, it creates purpose-specific capability tokens that grant direct "
+           "access without routing."]
+
+          [:p
+           [:strong "Where money needs global flow, ShiBi uses local capabilities."]
+           [:br]
+           [:strong "Where money needs routing paths, ShiBi uses direct compensation."]
+           [:br]
+           [:strong "Where money needs transferability, ShiBi uses purpose-specific tokens."]]
+
           [:p
            [:strong
             "ShiBi is not broken money. It's a different kind of value system entirely."]
-           [:br]
-           [:strong
-            "One that works precisely because it refuses to be globally transferable."]]
+           " One that works precisely because it refuses to be globally transferable."]
+
+          [:p
+           "Money is a routing protocol for human effort that requires global coordination. ShiBi is a local "
+           "compensation protocol that deliberately avoids global coordination. Both are valid; they just solve "
+           "different problems."]
           [:p [:strong "Learn more:"]]
           [:ul.bulleted
            [:li
+            [:a {:href "/blog/all-money-is-monopoly-money.blog"}
+             "All Money Is Monopoly Money"]
+            " - Why BTC, USD, and all money is accounting claims that need flow"]
+           [:li
             [:a {:href "/shibi.chp"} "ShiBi"]
-            " — Datom.world's capability-based economic layer"]
+            " - Datom.world's capability-based economic layer"]
            [:li
             [:a
              {:href "/blog/maxwells-demon-economic-value.blog"}
              "Maxwell's Demon and Economic Value"]
-            " — How interpreters unlock wealth from information"]
+            " - How interpreters unlock wealth from information"]
            [:li
             [:a {:href "/datomworld.chp"} "Datom.World Overview"]
-            " — The complete vision"]]]]]}
+            " - The complete vision"]]]]]}

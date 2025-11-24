@@ -5,7 +5,7 @@
         "We often describe computation as symbol manipulation, state transitions, or logic gates. "
         "These descriptions are technically correct but conceptually narrow. If we look across programming languages, "
         "machine learning, human cognition, and distributed systems, a deeper pattern emerges: computation is the "
-        "transformation of structure through three fundamental operations—expansion, compression, and morphism construction."],
+        "transformation of structure through three fundamental operations: expansion, compression, and morphism construction."],
        :content
        [:section.blog-article
         [:div.section-inner
@@ -90,7 +90,7 @@
           [:h2 "2. Compression: Learning Through Dimensional Reduction"]
 
           [:p
-           "If expansion adds structure, compression removes structure—but not arbitrarily."]
+           "If expansion adds structure, compression removes structure, but not arbitrarily."]
 
           [:p "Compression extracts invariants from high-dimensional data:"]
 
@@ -251,7 +251,7 @@
 
           [:p
            "But understanding is something else entirely. Understanding requires seeing how different structures "
-           "relate—which is precisely what morphisms capture."]
+           "relate, which is precisely what morphisms capture."]
 
           [:p
            [:strong "Understanding is the ability to build morphisms"]
@@ -352,7 +352,7 @@
             [:strong "In physics, gauge symmetries"]
             " define equivalence classes of field configurations. Different gauge choices in electromagnetism or "
             "quantum field theory are different mathematical descriptions of the same physical state. Gauge transformations "
-            "are morphisms that reveal which configurations are equivalent—they represent re-labeling due to limitations "
+            "are morphisms that reveal which configurations are equivalent: they represent re-labeling due to limitations"
             "of the observer, not true physical transformations. Physical observables are gauge-invariant because they "
             "must be the same for all members of an equivalence class."]]
 
@@ -477,10 +477,10 @@
            [:li
             [:a {:href "/blog/datom-world-wave-function-collapse.blog"}
              "Datom.World and the Collapse of the Wave Function"]]
-           [:li [:a {:href "/dao-db.chp"} "DaoDB"] " — The dimensional substrate"]
+           [:li [:a {:href "/dao-db.chp"} "DaoDB"] " - The dimensional substrate"]
            [:li
             [:a {:href "/dao-stream.chp"} "DaoStream"]
-            " — Stream-based architecture"]
+            " - Stream-based architecture"]
            [:li
             [:a {:href "/yin.chp"} "Yin"]
-            " — The interpreter engine"]]]]]}
+            " - The interpreter engine"]]]]]}
