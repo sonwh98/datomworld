@@ -45,7 +45,6 @@
            [:li "datoms " [:code "[e a v t c]"]]
            [:li "text"]
            [:li "DNA sequences"]
-           [:li "neural spike trains"]
            [:li "audio waveforms"]]
 
           [:p
