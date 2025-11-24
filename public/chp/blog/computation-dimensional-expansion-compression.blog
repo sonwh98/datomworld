@@ -126,18 +126,18 @@
 
           [:p
            "Interpretation expands a low-dimensional stream into a higher-dimensional semantic space, but "
-           [:strong "much of that dimensionality is arbitrary"]
-           ": scaffolding the interpreter constructs to make sense of the data."]
+           [:strong "much of that dimensionality is basis-dependent"]
+           ": specific to the interpreter's representational choices rather than intrinsic to the semantics."]
 
           [:p
-           [:strong "Compression removes this scaffolding."]
-           " It takes the high-dimensional structure and strips away the arbitrary basis until only the "
-           [:strong "true symmetries"]
+           [:strong "Compression removes this basis-dependence."]
+           " It takes the high-dimensional structure and strips away the representation-specific dimensions until only the "
+           [:strong "basis-free invariants"]
            " remain."]
 
           [:p
-           "A system can compress only because the expanded space contains regularities that survive the "
-           "removal of its artificial dimensions. These symmetries are patterns that repeat, align, fold, "
+           "A system can compress only because the expanded space contains regularities that survive "
+           "changes in representation. These symmetries are patterns that repeat, align, fold, "
            "or map onto themselves when viewed from a higher-order perspective."]
 
           [:p
@@ -152,57 +152,86 @@
            "along which many points behave identically or predictably. The better the symmetry is understood, "
            "the more powerful the compression, and the deeper the generalization."]
 
-          [:h3 "Symmetry Is Basis-Invariant"]
+          [:h3 "True Symmetry vs. Apparent Symmetry"]
 
           [:p
            "When we analyze something through coordinates or basis vectors, it's easy to mistake symmetry as "
-           "a property of the coordinate system. But "
-           [:strong "symmetry is fundamentally basis-invariant"]
-           ". It is a property of the underlying structure itself, not the representation."]
+           "a property of the coordinate system. But not all symmetries are equal:"]
 
           [:p
-           "Changing the basis may transform the appearance of the symmetry, but it cannot create or destroy it."]
+           [:strong "Apparent symmetry"]
+           " can be an artifact of the chosen basis and can disappear when the basis changes. "
+           [:strong "Only true symmetry survives all basis transformations."]]
 
-          [:p "Examples:"]
-
-          [:ul.bulleted
-           [:li
-            "A circle remains a circle under any rotation of the coordinate system. "
-            "The circle's symmetry is intrinsic, not an artifact of the axes."]
-           [:li
-            "A function that is invariant under permutation of its arguments is symmetric even if you "
-            "express it in a coordinate system that hides that symmetry. The symmetry is in the relationship, "
-            "not in the coordinates."]
-           [:li
-            "In linear algebra, a matrix representing a symmetric linear operator changes when you pick a "
-            "different basis, but the operator's symmetry (its invariance under certain transformations) does not."]
-           [:li
-            "In physics, conservation laws come from symmetries that exist regardless of how you choose to "
-            "describe spacetime. Noether's theorem works because symmetry is independent of representation."]]
-
-          [:p [:strong "This is exactly why compression works."]]
+          [:h4 "Apparent Symmetry (Basis-Dependent)"]
 
           [:p
-           "Compression doesn't \"discover symmetries in the coordinate system.\" "
-           "It discovers symmetries in the underlying structure that persist no matter how you choose to represent it."]
+           "This is symmetry that only seems to exist because of the way you chose to slice the space."]
 
-          [:p "The interpreter's expanded high-dimensional space might include:"]
+          [:p "Example:"]
+
+          [:p
+           "A matrix representing a linear transformation might appear diagonal in one basis (revealing apparent "
+           "symmetries in its structure), but become dense and asymmetric when you change to a different basis. "
+           "The diagonal appearance was an artifact of the coordinate choice, not an intrinsic property of the operator."]
+
+          [:p
+           [:strong "The symmetry was not in the object. It was in the coordinate description."]]
+
+          [:p
+           "Many patterns in machine learning, statistics, and neural embeddings fall into this category: "
+           "the \"symmetry\" is really a coordinate alignment. This is why bad embeddings look symmetric "
+           "until you rotate the latent space."]
+
+          [:h4 "True Symmetry (Basis-Free)"]
+
+          [:p
+           "This is symmetry that survives every possible coordinate transformation: rotations, affine changes, "
+           "nonlinear reparameterizations."]
+
+          [:p "Example:"]
+
+          [:p
+           "A sphere is symmetric under all rotations. No matter what basis you use, its underlying symmetry "
+           "group (SO(3)) is unchanged. "
+           [:strong "Basis-free symmetry is an intrinsic property of the object itself."]]
+
+          [:p "This is the symmetry that matters for:"]
 
           [:ul.bulleted
-           [:li "arbitrary axes"]
-           [:li "auxiliary dimensions"]
-           [:li "scaffolding necessary for execution"]
-           [:li "implementation artifacts"]]
+           [:li "physics"]
+           [:li "information theory"]
+           [:li "category theory"]
+           [:li "compression"]
+           [:li "Datom.world semantics"]
+           [:li "learning invariants"]]
 
-          [:p "But the symmetry is what survives every change of basis."]
+          [:p "Because it reflects the structure itself, not the representation."]
 
-          [:p "So:"]
+          [:h4 "Compression Relies Only on Basis-Free Symmetry"]
+
+          [:p
+           "Interpretation creates a high-dimensional space where some dimensions are essential to the semantics "
+           "and others are specific to the representation choice. Compression identifies which is which."]
+
+          [:p [:strong "How does compression know what to remove?"]]
+
+          [:p "It removes anything that fails to survive basis changes."]
+
+          [:p "In other words:"]
 
           [:ul.bulleted
-           [:li "Interpretation creates many dimensions, some necessary, some arbitrary."]
-           [:li "Compression removes the arbitrary dimensions."]
-           [:li
-            "The remaining structure is what is basis-free: the invariants, the equivalences, the symmetries."]]
+           [:li "dimensions tied to specific representational choices can be eliminated"]
+           [:li "basis-free symmetries remain"]
+           [:li "what survives is the invariant structure"]]
+
+          [:p
+           "This is why compression is a form of discovering invariants. "
+           "It answers the question: \"What remains true no matter how I choose to represent this thing?\""]
+
+          [:p
+           [:strong "Only true symmetry survives."]
+           " Compression reveals what is basis-free: the invariants, the equivalences, the true symmetries."]
 
           [:h3 "Thermodynamic Connection"]
 
@@ -220,7 +249,9 @@
           [:p
            "Expansion and compression describe how systems generate and simplify structure."]
 
-          [:p "But understanding is something else entirely."]
+          [:p
+           "But understanding is something else entirely. Understanding requires seeing how different structures "
+           "relate—which is precisely what morphisms capture."]
 
           [:p
            [:strong "Understanding is the ability to build morphisms"]
@@ -248,7 +279,9 @@
            [:li "A human insight connects two structures that were previously separate."]]
 
           [:p
-           "Compression and expansion both rely on morphisms, but morphism construction is more general:"]
+           "Expansion and compression are themselves morphisms: expansion is a morphism from low-dimensional "
+           "stream-space to high-dimensional semantic-space, and compression is a morphism from high-dimensional "
+           "structure to low-dimensional invariants. But morphism construction is more general:"]
 
           [:ul.bulleted
            [:li "It can connect different dimensionalities."]
@@ -257,11 +290,83 @@
            [:li "It can reveal equivalences and symmetries."]]
 
           [:p
-           [:strong "Understanding is not dimensional motion—it is structural alignment."]
-           ""]
+           [:strong "Understanding is not dimensional motion; it is structural alignment."]]
 
           [:p
            "Understanding is discovering the bridges that make multiple structures mutually intelligible."]
+
+          [:h4 "Morphisms Require Basis-Free Symmetry"]
+
+          [:p
+           "A morphism only exists between two structures if their "
+           [:strong "basis-free invariants align"]
+           "."]
+
+          [:p
+           "Two structures may look similar in one basis (superficial symmetry) but become totally different "
+           "when the basis shifts. This means there is no true morphism, only a coordinate coincidence."]
+
+          [:p
+           "Understanding, in this sense, requires identifying structural symmetry that is "
+           [:strong "independent of representation"]
+           "."]
+
+          [:h4 "Morphisms Define Equivalence Classes"]
+
+          [:p
+           "Morphisms are not just bridges between structures. They can be used to "
+           [:strong "define equivalence classes"]
+           ", which further enable compression."]
+
+          [:p
+           "When "
+           [:strong "isomorphisms"]
+           " (bidirectional structure-preserving maps) exist between two structures A and B, we can map "
+           "A → B and B → A while preserving structure. This means A and B are "
+           [:strong "equivalent"]
+           ": they represent the same underlying pattern in different forms."]
+
+          [:p "This creates equivalence classes of structures that:"]
+
+          [:ul.bulleted
+           [:li "Share the same basis-free invariants"]
+           [:li "Can be transformed into each other via structure-preserving maps"]
+           [:li "Represent the same essential information in different forms"]]
+
+          [:p
+           "Compression exploits these equivalence classes: instead of storing every member of a class separately, "
+           "we store "
+           [:strong "one canonical representative"]
+           " and the morphisms needed to recover the others."]
+
+          [:p "Examples:"]
+
+          [:ul.bulleted
+           [:li
+            "In category theory, isomorphic objects form equivalence classes; understanding one is understanding all."]
+           [:li
+            "In machine learning, different embeddings of the same data form an equivalence class under rotation/scaling."]
+           [:li
+            "In programming, α-equivalent expressions (differing only in variable names) represent the same computation."]
+           [:li
+            [:strong "In physics, gauge symmetries"]
+            " define equivalence classes of field configurations. Different gauge choices in electromagnetism or "
+            "quantum field theory are different mathematical descriptions of the same physical state. Gauge transformations "
+            "are morphisms that reveal which configurations are equivalent—they represent re-labeling due to limitations "
+            "of the observer, not true physical transformations. Physical observables are gauge-invariant because they "
+            "must be the same for all members of an equivalence class."]]
+
+          [:p
+           "This is why morphism construction is fundamental to both understanding "
+           [:em "and"]
+           " compression: "
+           "morphisms reveal which structures are truly different and which are merely different representations "
+           "of the same underlying form."]
+
+          [:p
+           "That's why interpretation can create representation-specific dimensions, compression removes them, and "
+           "morphisms identify what's actually there: the equivalence classes of basis-free structure that "
+           "survive all transformations."]
 
           [:h2 "The Unified View: Computation as Structural Transformation"]
 
@@ -270,7 +375,7 @@
           [:pre
            [:code
             {:class "language-text"}
-            "Expansion (create richer structure)\nLow-D ───────────────────────> High-D\n\nCompression (extract invariants, reduce dimension)\nHigh-D <─────────────────────── Low-D\n\nMorphism Construction\n(structure-preserving bridges between spaces)\nSpace A ←──────────────────────> Space B"]]
+            "Expansion (create richer structure)\nLow-D ───────────────────────> High-D\n\nCompression (extract invariants, reduce dimension)\nHigh-D ───────────────────────> Low-D\n\nMorphism Construction\n(structure-preserving bridges between spaces)\nSpace A ←──────────────────────> Space B"]]
 
           [:p "These three operations are the fundamental moves of computation."]
 
