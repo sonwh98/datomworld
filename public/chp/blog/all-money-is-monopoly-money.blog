@@ -53,8 +53,8 @@
            "not physical resources."]
 
           [:ul.bulleted
-           [:li "A dollar is an IOU from the US government."]
-           [:li "A Bitcoin is a cryptographically secured entry in a public ledger. While this is true, its fundamental nature, like all money, is that of credit and debit balancing to zero."]
+           [:li "A dollar is an IOU from the US government (the debtor) to the private sector and other governments (the creditors)."]
+           [:li "A Bitcoin is a cryptographically secured entry in a public ledger. This is its technical implementation, but not its economic essence. Fundamentally, like all forms of money, it represents an accounting relationship: one person's credit is another's debit, always balancing to zero."]
            [:li "Neither feeds anyone or builds anything on its own."]]
 
           [:p
@@ -104,24 +104,13 @@
 
           [:h3 "The Waterfall Analogy"]
 
-          [:p
-           "Government spending has the most \"punch,\" like water at the top of a waterfall. As money flows "
-           "downward through the economy, it loses its ability to do useful work, like water flowing from low "
-           "entropy to high entropy."]
+          [:p "Taxation and spending are the two poles of a battery that powers the economy. Government spending injects potential (money) into the system, and taxation removes it. This differential doesn't just fund services; it creates a fundamental " [:strong "entropy gradient"] " that compels money to flow, enabling economic work to be done, much like a dam creates a pressure gradient for water."]
 
-          [:p
-           "Government injects low-entropy money at the top. Households and consumers sit near the bottom where "
-           "that energy is mostly spent, dissipated, and recycled into price signals."]
-
-          [:p "When government spends, the flow of that money matters most. Even if the initial spending seems inefficient, the crucial factor is the quality of the human capital it flows through. How educated and knowledgeable are the people who receive and circulate it? A strong flow through a skilled population will:"]
-
-          [:ul.bulleted
-           [:li "Trigger further transactions, exchanges, and investments."]
-           [:li "Enable the creation of new goods, services, and knowledge."]
-           [:li "Produce infinite new entropy gradients, much like the fractal structure of a cell creates vast surfaces for metabolic work."]]
-
-          [:p
-           "Because of this recursive, fractal nature of entropy gradients, the initial spending's efficiency matters less than the flow itself. The human capital that money flows through is the critical factor in creating real wealth. A 'wasteful' $1 that flows through a highly educated and innovative population can create immense real wealth, while a 'well-spent' $1 that hits unskilled and unknowlegable human capital creates nothing."]
+          [:p "This is why the " [:strong "flow"] " of government money matters most, often more than the initial spending's perceived efficiency. The ultimate effectiveness of that flow reduces to the quality of the " [:strong "human capital"] " it moves through: how educated and knowledgeable are the people who receive and circulate it?"]
+        
+          [:p "A strong flow through a skilled population creates a recursive feedback loop. An 'inefficiently' spent dollar that enters this cycle can trigger a cascade of transactions and create immense real wealth. This recursive process generates what can be thought of as infinite new entropy gradients for further work, much like the fractal structure of a biological cell creates a vast surface area for metabolic exchange."]
+        
+          [:p "Because of this recursive, fractal effect, the initial spending's efficiency matters far less than the quality of the human network that propagates the flow. The human capital is the critical factor. A 'well-spent' dollar that flows to unskilled and unknowledgable human capital creates nothing, as the productive cycle cannot begin."]
 
           [:h3 "Recursive Feedback Loops"]
 
@@ -157,10 +146,9 @@
 
           [:h3 "The National Debt Paradox"]
           [:p
-           "This framework flips the script on the U.S. national debt. Media reports often frame it as a looming catastrophe. "
-           "But if government spending creates money and taxation destroys it, what does 'paying off the debt' actually mean?"]
+           "This framework flips the script on the U.S. national debt. The media often portrays it as a scary, household-style debt that must be repaid. But this is a fundamental misunderstanding. If government spending creates money and taxation destroys it, what does 'paying off the debt' actually mean?"]
           [:p
-           "It means destroying money. U.S. debt is just the sum of dollars spent into the economy that haven't been taxed back yet. These dollars are held as savings by the private sector and the rest of the world. For the government to pay down its debt, it would have to run a surplus, effectively taxing more money out of existence than it creates. Since the U.S. dollar is the world's primary reserve currency, a massive reduction of dollars would starve the global system, likely triggering a worldwide economic contraction."]
+           "It means destroying U.S. dollars. The national debt is simply the total sum of dollars the government has spent into the economy that it has not yet taxed back. These dollars are held as assets (savings) by the private sector and other countries. For the U.S. to 'pay down its debt,' it would have to tax more dollars out of the economy than it spends in. This would effectively " [:strong "burn USD"] ". Since the dollar is the world's reserve currency, this would drain global liquidity and could cause " [:strong "world trade to crash"] "."]
 
           [:h2 "3. Why Bitcoin Supporters Distrust Fiat"]
 
