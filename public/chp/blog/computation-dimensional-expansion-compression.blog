@@ -27,9 +27,9 @@
           [:p "And there are three fundamental ways this transformation happens:"]
 
           [:ul.bulleted
-           [:li [:strong "Expansion"] " — generating richer structures from simpler ones"]
-           [:li [:strong "Compression"] " — reducing complex structures into simpler invariants"]
-           [:li [:strong "Morphism Construction"] " — building bridges between structures"]]
+           [:li [:strong "Expansion"] ": generating richer structures from simpler ones"]
+           [:li [:strong "Compression"] ": reducing complex structures into simpler invariants"]
+           [:li [:strong "Morphism Construction"] ": building bridges between structures"]]
 
           [:p
            "All computation is some combination of these three operations. "
@@ -116,33 +116,93 @@
            "."]
 
           [:p
-           "Compression is not the opposite of semantics—it is another kind of semantics. "
+           "Compression is not the opposite of semantics; it is another kind of semantics. "
            "It reveals what the data is really about by eliminating what it does not need."]
 
           [:h3 "Compression as Symmetry Discovery"]
 
           [:p
-           "Compression is often explained as removing noise or reducing dimensionality, but that oversimplifies the process. "
-           "True compression works because a high-dimensional structure "
-           [:strong "hides internal symmetries"]
+           "Compression is often explained as removing noise or reducing dimensionality, but that view is incomplete."]
+
+          [:p
+           "Interpretation expands a low-dimensional stream into a higher-dimensional semantic space, but "
+           [:strong "much of that dimensionality is arbitrary"]
+           ": scaffolding the interpreter constructs to make sense of the data."]
+
+          [:p
+           [:strong "Compression removes this scaffolding."]
+           " It takes the high-dimensional structure and strips away the arbitrary basis until only the "
+           [:strong "true symmetries"]
+           " remain."]
+
+          [:p
+           "A system can compress only because the expanded space contains regularities that survive the "
+           "removal of its artificial dimensions. These symmetries are patterns that repeat, align, fold, "
+           "or map onto themselves when viewed from a higher-order perspective."]
+
+          [:p
+           "What remains after compression is not a reduced version of the data, but "
+           [:strong "the underlying invariants that made the data meaningful in the first place"]
            "."]
-
-          [:p
-           "These symmetries are patterns that repeat, align, fold, or map onto themselves when viewed from a "
-           "higher-order perspective. Compression is the act of "
-           [:strong "discovering these symmetries and exploiting them"]
-           " to represent the structure with fewer degrees of freedom."]
-
-          [:p
-           "A dataset compresses well only when the higher-dimensional space contains "
-           [:strong "invariants"]
-           "—axes along which many points behave identically or predictably."]
 
           [:p
            "Learning, therefore, is not \"throwing information away\"; it is "
            [:strong "identifying the underlying symmetries that make the data intelligible"]
-           ". The better the symmetry is understood, the more powerful the compression, "
-           "and the deeper the generalization."]
+           ". A dataset compresses well only when the higher-dimensional space contains such invariants: axes "
+           "along which many points behave identically or predictably. The better the symmetry is understood, "
+           "the more powerful the compression, and the deeper the generalization."]
+
+          [:h3 "Symmetry Is Basis-Invariant"]
+
+          [:p
+           "When we analyze something through coordinates or basis vectors, it's easy to mistake symmetry as "
+           "a property of the coordinate system. But "
+           [:strong "symmetry is fundamentally basis-invariant"]
+           ". It is a property of the underlying structure itself, not the representation."]
+
+          [:p
+           "Changing the basis may transform the appearance of the symmetry, but it cannot create or destroy it."]
+
+          [:p "Examples:"]
+
+          [:ul.bulleted
+           [:li
+            "A circle remains a circle under any rotation of the coordinate system. "
+            "The circle's symmetry is intrinsic, not an artifact of the axes."]
+           [:li
+            "A function that is invariant under permutation of its arguments is symmetric even if you "
+            "express it in a coordinate system that hides that symmetry. The symmetry is in the relationship, "
+            "not in the coordinates."]
+           [:li
+            "In linear algebra, a matrix representing a symmetric linear operator changes when you pick a "
+            "different basis, but the operator's symmetry (its invariance under certain transformations) does not."]
+           [:li
+            "In physics, conservation laws come from symmetries that exist regardless of how you choose to "
+            "describe spacetime. Noether's theorem works because symmetry is independent of representation."]]
+
+          [:p [:strong "This is exactly why compression works."]]
+
+          [:p
+           "Compression doesn't \"discover symmetries in the coordinate system.\" "
+           "It discovers symmetries in the underlying structure that persist no matter how you choose to represent it."]
+
+          [:p "The interpreter's expanded high-dimensional space might include:"]
+
+          [:ul.bulleted
+           [:li "arbitrary axes"]
+           [:li "auxiliary dimensions"]
+           [:li "scaffolding necessary for execution"]
+           [:li "implementation artifacts"]]
+
+          [:p "But the symmetry is what survives every change of basis."]
+
+          [:p "So:"]
+
+          [:ul.bulleted
+           [:li "Interpretation creates many dimensions, some necessary, some arbitrary."]
+           [:li "Compression removes the arbitrary dimensions."]
+           [:li
+            "The remaining structure is what is basis-free: the invariants, the equivalences, the symmetries."]]
 
           [:h3 "Thermodynamic Connection"]
 
@@ -153,7 +213,6 @@
            [:li [:strong "learning"] " = finding lower-entropy structure inside higher-entropy data"]]
 
           [:p
-           "Learning is discovering maps that preserve meaning while reducing dimension. "
            [:strong "The more compressible something is, the more learnable it is."]]
 
           [:h2 "3. Morphism Construction: The Heart of Understanding"]
@@ -165,7 +224,7 @@
 
           [:p
            [:strong "Understanding is the ability to build morphisms"]
-           "—structure-preserving mappings—between different spaces."]
+           " (structure-preserving mappings) between different spaces."]
 
           [:p "A morphism is:"]
 
@@ -295,7 +354,7 @@
            "and the design of Datom.world itself."]
 
           [:p
-           "Everything else—languages, OSes, databases, VMs—is built on top of these three primitive operations."]
+           "Everything else (languages, OSes, databases, VMs) is built on top of these three primitive operations."]
 
           [:p [:strong "Learn more:"]]
           [:ul.bulleted
