@@ -1,0 +1,323 @@
+#:blog{:title "What Is Computation?",
+       :date #inst "2025-11-24T00:00:00.000-00:00",
+       :abstract
+       [:p
+        "We often describe computation as symbol manipulation, state transitions, or logic gates. "
+        "These descriptions are technically correct but conceptually narrow. If we look across programming languages, "
+        "machine learning, human cognition, and distributed systems, a deeper pattern emerges: computation is the "
+        "transformation of structure through three fundamental operations—expansion, compression, and morphism construction."],
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+
+          [:p
+           "We often describe computation as symbol manipulation, state transitions, or logic gates. "
+           "These descriptions are technically correct but conceptually narrow. They explain the mechanics "
+           "but not the deeper structure of what computation actually is."]
+
+          [:p
+           "If we look across programming languages, machine learning, human cognition, and distributed systems, "
+           "a deeper pattern emerges:"]
+
+          [:p [:strong "Computation is the transformation of structure."]]
+
+          [:p "And there are three fundamental ways this transformation happens:"]
+
+          [:ul.bulleted
+           [:li [:strong "Expansion"] " — generating richer structures from simpler ones"]
+           [:li [:strong "Compression"] " — reducing complex structures into simpler invariants"]
+           [:li [:strong "Morphism Construction"] " — building bridges between structures"]]
+
+          [:p
+           "All computation is some combination of these three operations. "
+           "This framework explains interpretation, semantics, learning, understanding, intelligence, "
+           "and even Datom.world's architecture."]
+
+          [:h2 "1. Expansion: Creating Higher-Dimensional Semantics"]
+
+          [:p "All computation begins with a low-dimensional substrate, such as:"]
+
+          [:ul.bulleted
+           [:li "bytecode"]
+           [:li "datoms " [:code "[e a v t c]"]]
+           [:li "text"]
+           [:li "DNA sequences"]
+           [:li "neural spike trains"]
+           [:li "audio waveforms"]]
+
+          [:p
+           "These are "
+           [:strong "streams"]
+           ": flat sequences with no built-in semantics."]
+
+          [:p
+           "An interpreter transforms a stream into a "
+           [:strong "multi-dimensional space of meaning"]
+           "."]
+
+          [:h3 "Example: Bytecode → Execution Semantics"]
+
+          [:p "A linear instruction stream becomes:"]
+
+          [:ul.bulleted
+           [:li "stack depth"]
+           [:li "memory objects"]
+           [:li "control-flow graph"]
+           [:li "environments"]
+           [:li "closures"]
+           [:li "causal order"]
+           [:li "side effects"]]
+
+          [:p
+           "None of these dimensions are in the stream itself. "
+           [:strong "The interpreter creates them."]]
+
+          [:p "This dimensional uplift occurs everywhere:"]
+
+          [:ul.bulleted
+           [:li "DNA folds into proteins"]
+           [:li "Datalog rules expand into logical graphs"]
+           [:li "Text expands into thought"]
+           [:li "Datom streams expand into entity graphs"]
+           [:li "π-calculus channels expand into topologies of processes"]]
+
+          [:p
+           [:strong "Expansion is computation as semantics creation."]
+           " It turns inert symbols into structured meaning."]
+
+          [:h2 "2. Compression: Learning Through Dimensional Reduction"]
+
+          [:p
+           "If expansion adds structure, compression removes structure—but not arbitrarily."]
+
+          [:p "Compression extracts invariants from high-dimensional data:"]
+
+          [:ul.bulleted
+           [:li "models"]
+           [:li "embeddings"]
+           [:li "categories"]
+           [:li "latent spaces"]
+           [:li "patterns"]
+           [:li "summaries"]
+           [:li "rules"]]
+
+          [:p "Machine learning is the most explicit form of this:"]
+
+          [:pre
+           [:code
+            {:class "language-text"}
+            "High-dimensional input space\n  → compress →\nLow-dimensional latent space"]]
+
+          [:p
+           "The system collapses unnecessary degrees of freedom while "
+           [:strong "preserving information that matters"]
+           "."]
+
+          [:p
+           "Compression is not the opposite of semantics—it is another kind of semantics. "
+           "It reveals what the data is really about by eliminating what it does not need."]
+
+          [:h3 "Compression as Symmetry Discovery"]
+
+          [:p
+           "Compression is often explained as removing noise or reducing dimensionality, but that oversimplifies the process. "
+           "True compression works because a high-dimensional structure "
+           [:strong "hides internal symmetries"]
+           "."]
+
+          [:p
+           "These symmetries are patterns that repeat, align, fold, or map onto themselves when viewed from a "
+           "higher-order perspective. Compression is the act of "
+           [:strong "discovering these symmetries and exploiting them"]
+           " to represent the structure with fewer degrees of freedom."]
+
+          [:p
+           "A dataset compresses well only when the higher-dimensional space contains "
+           [:strong "invariants"]
+           "—axes along which many points behave identically or predictably."]
+
+          [:p
+           "Learning, therefore, is not \"throwing information away\"; it is "
+           [:strong "identifying the underlying symmetries that make the data intelligible"]
+           ". The better the symmetry is understood, the more powerful the compression, "
+           "and the deeper the generalization."]
+
+          [:h3 "Thermodynamic Connection"]
+
+          [:p "In thermodynamic terms:"]
+
+          [:ul.bulleted
+           [:li [:strong "entropy"] " = representational cost"]
+           [:li [:strong "learning"] " = finding lower-entropy structure inside higher-entropy data"]]
+
+          [:p
+           "Learning is discovering maps that preserve meaning while reducing dimension. "
+           [:strong "The more compressible something is, the more learnable it is."]]
+
+          [:h2 "3. Morphism Construction: The Heart of Understanding"]
+
+          [:p
+           "Expansion and compression describe how systems generate and simplify structure."]
+
+          [:p "But understanding is something else entirely."]
+
+          [:p
+           [:strong "Understanding is the ability to build morphisms"]
+           "—structure-preserving mappings—between different spaces."]
+
+          [:p "A morphism is:"]
+
+          [:pre
+           [:code
+            {:class "language-text"}
+            "A → B"]]
+
+          [:p "A consistent way one structure relates to another."]
+
+          [:p [:strong "This is where true semantics arises."]]
+
+          [:h3 "Examples of Morphisms"]
+
+          [:ul.bulleted
+           [:li "A metaphor is a morphism between conceptual spaces."]
+           [:li "A scientific theory maps observations → models."]
+           [:li "A compiler maps syntax trees → machine semantics → bytecode."]
+           [:li "A machine learning model maps inputs → latent representations."]
+           [:li "A mathematical proof maps assumptions → conclusions."]
+           [:li "A human insight connects two structures that were previously separate."]]
+
+          [:p
+           "Compression and expansion both rely on morphisms, but morphism construction is more general:"]
+
+          [:ul.bulleted
+           [:li "It can connect different dimensionalities."]
+           [:li "It can unify different representations."]
+           [:li "It can explain relationships without changing data."]
+           [:li "It can reveal equivalences and symmetries."]]
+
+          [:p
+           [:strong "Understanding is not dimensional motion—it is structural alignment."]
+           ""]
+
+          [:p
+           "Understanding is discovering the bridges that make multiple structures mutually intelligible."]
+
+          [:h2 "The Unified View: Computation as Structural Transformation"]
+
+          [:p "We now have a general framework:"]
+
+          [:pre
+           [:code
+            {:class "language-text"}
+            "Expansion (create richer structure)\nLow-D ───────────────────────> High-D\n\nCompression (extract invariants, reduce dimension)\nHigh-D <─────────────────────── Low-D\n\nMorphism Construction\n(structure-preserving bridges between spaces)\nSpace A ←──────────────────────> Space B"]]
+
+          [:p "These three operations are the fundamental moves of computation."]
+
+          [:p
+           [:strong "Everything from CPUs to brains to distributed systems performs these moves."]]
+
+          [:h2 "How This Framework Illuminates Datom.world"]
+
+          [:p "Datom.world is built on the idea that:"]
+
+          [:ul.bulleted
+           [:li "streams are the minimal substrate"]
+           [:li "semantics live in interpreters"]
+           [:li "structure emerges from interpretation"]
+           [:li "learning and compression happen on top"]
+           [:li "agents build morphic bridges across systems"]]
+
+          [:p "This aligns perfectly with the three-part computation model."]
+
+          [:h3 "Expansion in Datom.world"]
+
+          [:ul.bulleted
+           [:li [:strong "DaoDB"] " expands datoms into entity graphs"]
+           [:li [:strong "DaoFlow"] " expands datoms into UI trees"]
+           [:li [:strong "Yin.vm"] " expands datoms into execution semantics"]
+           [:li [:strong "Entangled nodes"] " expand streams into distributed timelines"]]
+
+          [:h3 "Compression in Datom.world"]
+
+          [:ul.bulleted
+           [:li "Datalog queries reduce complex entity graphs"]
+           [:li "Agent learning compresses observations"]
+           [:li "Embeddings compress multimodal datom streams"]
+           [:li "Optimization reduces AST or datom graphs"]]
+
+          [:h3 "Morphism Construction in Datom.world"]
+
+          [:ul.bulleted
+           [:li "Interpreters create morphisms from datoms → meaning"]
+           [:li "Agents create morphisms across streams"]
+           [:li "Continuations create morphisms between computation states"]
+           [:li "Entanglement creates morphisms across nodes"]
+           [:li "UI renderers map semantic graphs → visual surfaces"]
+           [:li "Compiler passes map code → bytecode → datoms"]]
+
+          [:p
+           [:strong "The entire system becomes a fabric of morphisms over a universal stream substrate."]]
+
+          [:p
+           "Datom.world is not just a database, VM, or operating system. "
+           "It is a space where expansion, compression, and morphic alignment coexist."]
+
+          [:h2 "Conclusion"]
+
+          [:p "Computation is not just:"]
+
+          [:ul.bulleted
+           [:li "symbol manipulation"]
+           [:li "logic circuits"]
+           [:li "bytecode execution"]
+           [:li "neural networks"]]
+
+          [:p
+           "Those are "
+           [:em "implementations"]
+           ", not definitions."]
+
+          [:p "A deeper view is:"]
+
+          [:p
+           [:strong
+            "Computation is the transformation of structure through expansion, compression, and morphic alignment."]]
+
+          [:ul.bulleted
+           [:li "Expansion creates new semantic dimensions."]
+           [:li "Compression identifies invariant structure."]
+           [:li "Morphisms connect and unify structures."]]
+
+          [:p
+           "This captures semantics, learning, understanding, interpretation, intelligence, distributed coordination, "
+           "and the design of Datom.world itself."]
+
+          [:p
+           "Everything else—languages, OSes, databases, VMs—is built on top of these three primitive operations."]
+
+          [:p [:strong "Learn more:"]]
+          [:ul.bulleted
+           [:li
+            [:a
+             {:href "/blog/dimensional-gradients-recursive-interpreters.blog"}
+             "Dimensional Gradients, Recursive Interpreters, and the Emergence of Work"]]
+           [:li
+            [:a
+             {:href "/blog/large-cardinals-reflection-pi-calculus-complexity.blog"}
+             "Large Cardinals, Reflection Principles, and the π-Calculus Bridge"]]
+           [:li
+            [:a {:href "/blog/semantics-structure-interpretation.blog"}
+             "Semantics, Structure, and Interpretation"]]
+           [:li
+            [:a {:href "/blog/datom-world-wave-function-collapse.blog"}
+             "Datom.World and the Collapse of the Wave Function"]]
+           [:li [:a {:href "/dao-db.chp"} "DaoDB"] " — The dimensional substrate"]
+           [:li
+            [:a {:href "/dao-stream.chp"} "DaoStream"]
+            " — Stream-based architecture"]
+           [:li
+            [:a {:href "/yin.chp"} "Yin"]
+            " — The interpreter engine"]]]]]}
