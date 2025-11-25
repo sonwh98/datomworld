@@ -194,39 +194,66 @@
 
           [:h2 "4. Savings, Investment, and the Illusion of \"Hard Value\""]
 
-          [:p "All saving is delayed consumption."]
+          [:p "All saving is delayed consumption. You set aside today's purchasing power "
+           "believing others will transform it into real productive value tomorrow. "
+           "This belief is what makes investment possible: you channel your claim on "
+           "present resources into productive enterprise, betting that the flow through "
+           "skilled hands will generate more goods and services than exist today. "
+           "Your delayed consumption becomes a claim on that future abundance."]
 
-          [:p
-           "You store your Monopoly money because you believe other people will turn it into real productive "
-           "value in the future. "
-           [:strong "Investment is delayed consumption"]
-           " because you believe the flow of money through other people has the potential to create more goods "
-           "and services, which you have a claim on because you delayed present consumption."]
+          [:p "In an efficient economy, every dollar saved becomes a dollar invested—all "
+           "stored potential gets channeled into productive flow. Hoarding prevents productive flow "
+           "which is why slight inflation is necessary to prevent hoarding"]
 
           [:h3 "The Problem of Concentration"]
 
-          [:p "If the rich accumulate too much of the flow:"]
+          [:p "When wealth concentrates at the top, the economic engine sputters—not for moral reasons, but for "
+           "structural ones. The problem is simple: " [:strong "the rich are too few to generate the demand needed "
+           "to sustain broad-based production"] "."]
+
+          [:p "A billionaire can only eat so many meals, wear so many clothes, or live in so many houses. "
+           "Their consumption patterns differ fundamentally from the mass market:"]
 
           [:ul.bulleted
-           [:li "money velocity slows"]
-           [:li "production slows"]
-           [:li "innovation slows"]
-           [:li "consumption slows"]]
+           [:li "They spend on luxury goods: yachts, private jets, rare art, custom supercars"]
+           [:li "These purchases employ relatively few people (specialized craftspeople, luxury service workers)"]
+           [:li "They don't drive demand for the everyday goods and services that 80% of the population needs: "
+            "affordable housing, education, healthcare, mass-market consumer goods"]
+           [:li "Most of their wealth sits in financial assets, circulating through investment markets rather than "
+            "the productive economy"]]
 
-          [:p "This is not a moral argument. It's physics. High concentration dampens the gradient."]
+          [:p "When purchasing power concentrates in the few, several things happen simultaneously:"]
 
-          [:p
-           "When buying power is concentrated in the few, the flow of money slows down, which also slows down "
-           "the creation of goods and services and consumption."]
+          [:ul.bulleted
+           [:li [:strong "Money velocity slows"] " - The rich save/invest a much higher percentage of income than the middle class"]
+           [:li [:strong "Demand for mass production weakens"] " - Without broad purchasing power, businesses can't justify scaling production"]
+           [:li [:strong "Innovation stagnates"] " - Companies optimize for luxury niches instead of solving problems for the many"]
+           [:li [:strong "The economic gradient flattens"] " - Money stops flowing through the productive economy"]]
 
-          [:p
-           "To be fair, rich people don't leave their money in cash; they invest it. This is why it's so hard to"
-           "tax rich people: taxation happens only when they transform their assets into cash. If they invest in "
-           "nonproductive assets, all it does is drive up prices."]
+          [:p "This is not a moral argument. It's physics. " [:strong "High concentration creates a stagnant pool"]
+           " instead of the distributed flow gradients that drive economic activity. A thousand middle-class families spending $50,000 each generates vastly "
+           "more economic flow—more transactions, more jobs, more innovation—than one billionaire spending $50 million "
+           "on a yacht. When spending power concentrates on luxury goods, it " [:strong "starves the industries that serve the 80%"]
+           ". The yacht builders thrive while affordable housing, education, and healthcare sectors can't attract capital "
+           "or justify expansion. The economy optimizes for the few, not the many."]
 
-          [:p
-           "Even BTC whales face this: if early holders keep hoarding, Bitcoin cannot circulate enough to become "
-           "a general medium of exchange. The system behaves like a lake with no outflow, not a river."]
+          [:p "The rich don't hoard cash under mattresses, of course. They invest. But if those investments flow into "
+           "nonproductive assets—real estate speculation, stock buybacks, luxury collectibles—all they do is bid up "
+           "prices without creating new goods or services. Capital chases returns, not productivity."]
+
+          [:p "This connects directly to the " [:strong "Cantillon effect"] ": those closest to where new money enters "
+           "the system benefit first and most. When central banks inject liquidity through financial markets, asset "
+           "owners—the wealthy—see their portfolios inflate before the money trickles down to wages and consumer prices. "
+           "By the time new money reaches workers and the middle class, prices have already risen. The result is a "
+           "systematic transfer of purchasing power from those furthest from the money spigot to those nearest it. "
+           "This isn't a bug in the system; it's a feature of how money flows through stratified networks."]
+
+          [:p "Bitcoin faces the same structural problem. Early adopters and whales hold vast amounts of BTC, waiting "
+           "for price appreciation. But if most BTC remains concentrated in cold wallets rather than circulating "
+           "through transactions, it cannot function as a " [:em "medium of exchange"] "—only as a speculative asset. "
+           "The concentration creates the same stagnant pool: high potential value locked up, but insufficient flow "
+           "to power an actual payment economy. A currency needs velocity to be useful. Without it, the system "
+           "behaves like a lake with no outflow, not a river."]
 
           [:h2 "5. BTC and USD Are Both Monopoly Money: Just in Different Games"]
 
