@@ -192,7 +192,7 @@
            [:em "how"]
            " it flows afterward."]
 
-          [:h2 "4. Savings, Investment, and the Illusion of \"Hard Value\""]
+          [:h2 "4. Savings, Investment, and the Problem of Concentration"]
 
           [:p "All saving is delayed consumption. You set aside today's purchasing power "
            "believing others will transform it into real productive value tomorrow. "
@@ -202,12 +202,12 @@
            "Your delayed consumption becomes a claim on that future abundance."]
 
           [:p "In an efficient economy, every dollar saved becomes a dollar invested—all "
-           "stored potential gets channeled into productive flow. Hoarding prevents productive flow "
-           "which is why slight inflation is necessary to prevent hoarding"]
+           "stored potential gets channeled into productive flow. Hoarding prevents productive flow, "
+           "which is why slight inflation is necessary to prevent hoarding."]
 
           [:h3 "The Problem of Concentration"]
 
-          [:p "When wealth concentrates at the top, the economic engine sputters—not for moral reasons, but for "
+          [:p "When wealth concentrates at the top, the economic engine sputters. Not for moral reasons, but for "
            "structural ones. The problem is simple: " [:strong "the rich are too few to generate the demand needed "
            "to sustain broad-based production"] "."]
 
@@ -225,35 +225,49 @@
           [:p "When purchasing power concentrates in the few, several things happen simultaneously:"]
 
           [:ul.bulleted
-           [:li [:strong "Money velocity slows"] " - The rich save/invest a much higher percentage of income than the middle class"]
-           [:li [:strong "Demand for mass production weakens"] " - Without broad purchasing power, businesses can't justify scaling production"]
-           [:li [:strong "Innovation stagnates"] " - Companies optimize for luxury niches instead of solving problems for the many"]
-           [:li [:strong "The economic gradient flattens"] " - Money stops flowing through the productive economy"]]
+           [:li [:strong "Money velocity slows"] ": The rich save/invest a much higher percentage of income than the middle class"]
+           [:li [:strong "Demand for mass production weakens"] ": Without broad purchasing power, businesses can't justify scaling production"]
+           [:li [:strong "Innovation stagnates"] ": Companies optimize for luxury niches instead of solving problems for the many"]
+           [:li [:strong "Flow gradients disappear"] ": Money stops circulating through the productive economy"]]
 
           [:p "This is not a moral argument. It's physics. " [:strong "High concentration creates a stagnant pool"]
            " instead of the distributed flow gradients that drive economic activity. A thousand middle-class families spending $50,000 each generates vastly "
-           "more economic flow—more transactions, more jobs, more innovation—than one billionaire spending $50 million "
+           "more economic flow (more transactions, more jobs, more innovation) than one billionaire spending $50 million "
            "on a yacht. When spending power concentrates on luxury goods, it " [:strong "starves the industries that serve the 80%"]
            ". The yacht builders thrive while affordable housing, education, and healthcare sectors can't attract capital "
            "or justify expansion. The economy optimizes for the few, not the many."]
 
           [:p "The rich don't hoard cash under mattresses, of course. They invest. But if those investments flow into "
-           "nonproductive assets—real estate speculation, stock buybacks, luxury collectibles—all they do is bid up "
+           "nonproductive assets (real estate speculation, stock buybacks, luxury collectibles), all they do is bid up "
            "prices without creating new goods or services. Capital chases returns, not productivity."]
 
-          [:p "This connects directly to the " [:strong "Cantillon effect"] ": those closest to where new money enters "
-           "the system benefit first and most. When central banks inject liquidity through financial markets, asset "
-           "owners—the wealthy—see their portfolios inflate before the money trickles down to wages and consumer prices. "
-           "By the time new money reaches workers and the middle class, prices have already risen. The result is a "
-           "systematic transfer of purchasing power from those furthest from the money spigot to those nearest it. "
-           "This isn't a bug in the system; it's a feature of how money flows through stratified networks."]
+          [:p "The concentration problem is compounded by " [:strong "where new money enters the system"] ". "
+           "This is the " [:strong "Cantillon effect"] ": those closest to the money spigot benefit first and most. "
+           "When central banks inject liquidity (as discussed in Section 2), they typically do so through financial markets: "
+           "buying bonds, lowering interest rates for banks, backstopping asset prices. Asset owners (the wealthy) see their "
+           "portfolios inflate before the new money reaches wages and consumer prices. By the time it trickles down to "
+           "workers and the middle class, prices have already risen. The result is a systematic transfer of purchasing "
+           "power from those furthest from the entry point to those nearest it. Combined with wealth concentration, "
+           "this creates a self-reinforcing cycle: the rich capture both existing wealth " [:em "and"] " new money creation. "
+           "But the damage runs deeper. This cycle " [:strong "kills the very ecosystem that creates real wealth"] ". "
+           "When capital flows to those who don't generate broad demand, the businesses that serve mass markets can't grow. "
+           "Workers get paid less, spend less, demand weakens further, and the productive base atrophies. The economy "
+           "becomes a financial casino disconnected from the real work of producing goods and services that people actually need."]
+
+          [:p "This is why " [:strong "market crashes can be healthy"] ". When speculative bubbles inflate asset prices "
+           "far beyond productive value, prices stop carrying useful information. A stock trading at 100x earnings doesn't "
+           "signal genuine productivity; it signals herd behavior and easy money. The crash " [:strong "restores the information "
+           "value of price signals"] " by forcing prices back toward fundamentals. It's a brutal correction mechanism, but it "
+           "reallocates capital away from speculation and back toward actual production. The pain comes not from the crash "
+           "itself, but from how long the distortion was allowed to build and who bears the cost of the correction."]
 
           [:p "Bitcoin faces the same structural problem. Early adopters and whales hold vast amounts of BTC, waiting "
            "for price appreciation. But if most BTC remains concentrated in cold wallets rather than circulating "
-           "through transactions, it cannot function as a " [:em "medium of exchange"] "—only as a speculative asset. "
+           "through transactions, it cannot function as a " [:em "medium of exchange"] ". Only as a speculative asset. "
            "The concentration creates the same stagnant pool: high potential value locked up, but insufficient flow "
-           "to power an actual payment economy. A currency needs velocity to be useful. Without it, the system "
-           "behaves like a lake with no outflow, not a river."]
+           "to power an actual payment economy. Without velocity, the system behaves like a lake with no outflow, not a river. "
+           "This connects to Bitcoin's deeper flaw: treating money as a commodity rather than a coordination tool "
+           "(explored further in Section 7)."]
 
           [:h2 "5. BTC and USD Are Both Monopoly Money: Just in Different Games"]
 
