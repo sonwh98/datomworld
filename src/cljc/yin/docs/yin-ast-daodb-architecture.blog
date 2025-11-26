@@ -1,0 +1,312 @@
+#:blog{:title "Storing Yin.vm AST as Datom Streams in DaoDB",
+       :date #inst "2025-11-25T00:00:00.000-00:00",
+       :abstract
+       [:p
+        "Yin.vm represents programs as a Universal AST—a map-based structure that transcends any single language. "
+        "But to unlock time-travel debugging, cross-language queries, and mobile code continuations, we need to decompose "
+        "these AST maps into datom streams. This post explores the architecture for storing Yin.vm's AST as flowing facts "
+        "in DaoDB, enabling queryable execution, semantic firewalls, and programs that migrate across machines while preserving "
+        "complete computational context."],
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+          [:p
+           "Imagine querying your running program with Datalog. Not static analysis of source code—queries over "
+           [:em "live execution state"] ". Find all variables named " [:code "count"] " across nested closures. "
+           "Trace how a value flowed from user input to database write. Detect when dynamically-typed data crosses "
+           "into statically-typed functions without validation."]
+          [:p
+           "This isn't theoretical. When you represent Yin.vm's Universal AST as datom streams in DaoDB, "
+           "these capabilities emerge naturally from the architecture. Programs become queryable databases. "
+           "Execution history becomes a timeline you can rewind. Continuations become portable data you can serialize "
+           "and migrate between machines—even across different programming languages."]
+          [:p
+           "This post lays out the complete architecture for storing Yin.vm AST as datom streams, from decomposition "
+           "strategy to query patterns to the five dimensions every program traverses."]
+
+          [:h2 "The Current State: Map-Based AST"]
+          [:p
+           "Yin.vm already implements a Universal AST as Clojure maps. Here's a simple example:"]
+          [:pre
+           [:code
+            {:class "language-clojure"}
+            ";; The expression: ((lambda (x) (+ x 1)) 5)\n{:type :application\n :operator {:type :lambda\n            :params ['x]\n            :body {:type :application\n                   :operator {:type :variable :name '+}\n                   :operands [{:type :variable :name 'x}\n                              {:type :literal :value 1}]}}\n :operands [{:type :literal :value 5}]}"]]
+          [:p
+           "This works beautifully for direct interpretation. The CESK machine walks this structure, "
+           "evaluating expressions and managing continuations. It's elegant, functional, and fully operational."]
+          [:p
+           "But there's a limitation: " [:strong "it's not queryable"] ". You can't ask "
+           "\"show me all lambda expressions that close over variable " [:code "x"] "\" without writing "
+           "custom tree-walking code. You can't time-travel to see how the AST evolved. You can't serialize "
+           "a continuation mid-execution and resume it on another machine."]
+          [:p
+           "To unlock these capabilities, we need to decompose the AST into " [:strong "datom streams"] "."]
+
+          [:h2 "The Target: AST as Datom Stream"]
+          [:p
+           "In DaoDB, everything is a five-element tuple: " [:code "[e a v t m]"] ". "
+           "Each datom represents an atomic fact:"]
+          [:ul.bulleted
+           [:li [:strong "e (entity)"] " — The AST node ID (e.g., " [:code "node-42"] ")"]
+           [:li [:strong "a (attribute)"] " — The property name (e.g., " [:code ":ast/type"] ")"]
+           [:li [:strong "v (value)"] " — The actual data (e.g., " [:code ":lambda"] ")"]
+           [:li [:strong "t (time)"] " — Transaction ID (when this fact was asserted)"]
+           [:li [:strong "m (metadata)"] " — Context: causality, types, source location, etc."]]
+          [:p
+           "When we decompose the map-based AST into datoms, the same " [:code "((lambda (x) (+ x 1)) 5)"] " "
+           "becomes a stream of facts:"]
+          [:pre
+           [:code
+            ";; Root application node\n[node-10 :ast/type :application tx-100 {}]\n[node-10 :ast/operator node-11 tx-100 {}]\n[node-10 :ast/operands [node-16] tx-100 {}]\n\n;; Lambda node\n[node-11 :ast/type :lambda tx-100 {}]\n[node-11 :ast/parent node-10 tx-100 {}]\n[node-11 :ast/params [x] tx-100 {}]\n[node-11 :ast/body node-12 tx-100 {}]\n\n;; Lambda body: (+ x 1)\n[node-12 :ast/type :application tx-100 {}]\n[node-12 :ast/parent node-11 tx-100 {}]\n[node-12 :ast/operator node-13 tx-100 {}]\n[node-12 :ast/operands [node-14 node-15] tx-100 {}]\n\n;; And so on..."]]
+          [:p
+           "Now the AST is queryable. Every relationship is a fact. Every node is an entity. "
+           "The entire program structure is a database you can query with Datalog."]
+
+          [:h2 "Decomposition Strategy: Tree to Graph"]
+          [:p
+           "The decomposition process walks the AST tree recursively, generating unique node IDs "
+           "and emitting datoms for each node's properties and relationships."]
+          [:h3 "Node Types and Their Datoms"]
+          [:p "Each AST node type decomposes differently:"]
+          [:h4 "Literal Node"]
+          [:pre
+           [:code
+            {:class "language-clojure"}
+            ";; Input map\n{:type :literal :value 42}\n\n;; Output datoms\n[node-1 :ast/type :literal tx-100 {}]\n[node-1 :ast/value 42 tx-100 {}]"]]
+          [:h4 "Variable Node"]
+          [:pre
+           [:code
+            {:class "language-clojure"}
+            ";; Input map\n{:type :variable :name 'x}\n\n;; Output datoms\n[node-2 :ast/type :variable tx-100 {}]\n[node-2 :ast/name x tx-100 {}]"]]
+          [:h4 "Lambda Node"]
+          [:pre
+           [:code
+            {:class "language-clojure"}
+            ";; Input map\n{:type :lambda\n :params ['x 'y]\n :body <expr>}\n\n;; Output datoms\n[node-3 :ast/type :lambda tx-100 {}]\n[node-3 :ast/params [x y] tx-100 {}]\n[node-3 :ast/body node-4 tx-100 {}]\n[node-3 :ast/children [node-4] tx-100 {}]"]]
+          [:h4 "Application Node"]
+          [:pre
+           [:code
+            {:class "language-clojure"}
+            ";; Input map\n{:type :application\n :operator <expr>\n :operands [<expr1> <expr2>]}\n\n;; Output datoms\n[node-5 :ast/type :application tx-100 {}]\n[node-5 :ast/operator node-6 tx-100 {}]\n[node-5 :ast/operands [node-7 node-8] tx-100 {}]\n[node-5 :ast/children [node-6 node-7 node-8] tx-100 {}]"]]
+          [:p
+           "Parent-child relationships are bidirectional: children reference their parent via " [:code ":ast/parent"] ", "
+           "and parents list their children via " [:code ":ast/children"] ". This makes traversal efficient in both directions."]
+
+          [:h2 "The Five Dimensions of AST Datoms"]
+          [:p
+           "Once the AST lives as datoms, we unlock five orthogonal dimensions that traditional AST representations collapse:"]
+          [:h3 "1. Spatial Dimension: Structure"]
+          [:p
+           "The traditional tree—parent-child relationships, operator-operand connections—becomes a queryable graph."]
+          [:pre
+           [:code
+            ";; Find all lambda expressions\n[:find ?node ?params\n :where\n [?node :ast/type :lambda]\n [?node :ast/params ?params]]\n\n;; Find children of a specific node\n[:find ?child\n :where\n [node-10 :ast/children ?children]\n [(contains? ?children ?child)]]"]]
+          [:h3 "2. Temporal Dimension: Evolution"]
+          [:p
+           "Every transformation—parsing, type inference, optimization—becomes a transaction. The entire history is preserved."]
+          [:pre
+           [:code
+            ";; Transaction 100: Original parse\n[node-1 :ast/type :variable tx-100 {}]\n[node-1 :ast/name x tx-100 {}]\n\n;; Transaction 101: Type inference added\n[node-1 :type/inferred :int tx-101 {}]\n\n;; Transaction 102: Scope analysis\n[node-1 :scope/binding scope-5 tx-102 {}]\n\n;; Query: How did this node evolve?\n[:find ?attr ?value ?tx\n :where\n [node-1 ?attr ?value ?tx]]"]]
+          [:h3 "3. Type Dimension: Certainty Spectrum"]
+          [:p
+           "Static and dynamic typing aren't binary—they're points on a " [:strong "certainty continuum"] ". "
+           "Datoms let us track how confident we are that a value has a particular type:"]
+          [:pre
+           [:code
+            ";; High certainty (declared)\n[node-7 :type/declared :int tx-100 {}]\n[node-7 :type/certainty :static tx-100 {}]\n\n;; Medium certainty (inferred)\n[node-8 :type/inferred :number tx-100 {}]\n[node-8 :type/certainty :inferred tx-100 {}]\n\n;; Low certainty (runtime only)\n[node-9 :type/runtime java.lang.Integer tx-101 {}]\n[node-9 :type/certainty :dynamic tx-101 {}]\n\n;; Query: Find certainty boundaries\n[:find ?fn ?arg\n :where\n [?fn :type/certainty :static]\n [?call :exec/function ?fn]\n [?arg :exec/parent ?call]\n [?arg :type/certainty :dynamic]]"]]
+          [:p
+           "This query finds where low-certainty data flows into high-certainty functions—exactly where "
+           "runtime type errors might occur. Impossible with traditional bytecode that erases types, "
+           "and difficult with traditional ASTs that don't track certainty."]
+          [:h3 "4. Language Dimension: Cross-Language Transformations"]
+          [:p
+           "When code migrates between languages, datoms preserve the transformation lineage:"]
+          [:pre
+           [:code
+            ";; Original Python list comprehension\n[node-42 :ast/source-lang \"Python\" tx-200 {}]\n[node-42 :ast/syntax \"list_comprehension\" tx-200 {}]\n[node-42 :ast/semantics \"map_operation\" tx-200 {}]\n\n;; Transformed to C++ range-for loop\n[node-43 :ast/source-lang \"C++\" tx-201 {}]\n[node-43 :ast/syntax \"range_for_loop\" tx-201 {}]\n[node-43 :ast/semantics \"map_operation\" tx-201 {}]\n[node-43 :ast/transformed-from node-42 tx-201 {}]\n\n;; Query: Trace transformation lineage\n[:find ?target ?source-lang ?target-lang\n :where\n [?target :ast/transformed-from ?source]\n [?source :ast/source-lang ?source-lang]\n [?target :ast/source-lang ?target-lang]]"]]
+          [:h3 "5. Execution Dimension: CESK State as Datoms"]
+          [:p
+           "This is where it gets powerful. The CESK machine's execution state—control, environment, continuation—"
+           "itself becomes a datom stream:"]
+          [:pre
+           [:code
+            ";; Step 0: Start evaluation\n[step-0 :exec/order 0 tx-300 {}]\n[step-0 :exec/control node-10 tx-300 {}]\n[step-0 :exec/value nil tx-300 {}]\n[step-0 :exec/continuation nil tx-300 {}]\n\n;; Step 1: Evaluate operator (lambda)\n[step-1 :exec/order 1 tx-301 {}]\n[step-1 :exec/control node-11 tx-301 {}]\n[step-1 :exec/continuation cont-1 tx-301 {}]\n[cont-1 :cont/type :eval-operator tx-301 {}]\n[cont-1 :cont/frame node-10 tx-301 {}]\n\n;; Step 2: Lambda produces closure\n[step-2 :exec/order 2 tx-302 {}]\n[step-2 :exec/value closure-1 tx-302 {}]\n[closure-1 :closure/params [x] tx-302 {}]\n[closure-1 :closure/body node-12 tx-302 {}]\n\n;; Query: Trace execution history\n[:find ?step ?control-type ?value\n :where\n [?step :exec/order ?order]\n [?step :exec/control ?control]\n [?control :ast/type ?control-type]\n [?step :exec/value ?value]\n :order-by (asc ?order)]"]]
+          [:p
+           "Every CESK step is a fact. The entire execution trace is queryable. You can time-travel through "
+           "the computation, inspect any intermediate state, and see exactly how the machine arrived at the final result."]
+
+          [:h2 "Materializing Views: From Datoms to Queries"]
+          [:p
+           "The AST map you see in code is just " [:strong "one materialized view"] " of the datom stream. "
+           "The same datoms support many different views:"]
+          [:ul.bulleted
+           [:li [:strong "Spatial view"] " → Traditional tree structure (parent-child relationships)"]
+           [:li [:strong "Temporal view"] " → Evolution history of a specific node"]
+           [:li [:strong "Type view"] " → Certainty graph across the codebase"]
+           [:li [:strong "Language view"] " → Transformation lineage between languages"]
+           [:li [:strong "Execution view"] " → Runtime call graph and control flow"]]
+          [:p
+           "Because dimensions are orthogonal and stored as datoms, you can query " [:strong "any combination"] ". "
+           "Any slice. Any point in time."]
+
+          [:h2 "Example Queries"]
+          [:h3 "Find All Variables Named 'count'"]
+          [:pre
+           [:code
+            "[:find ?node ?parent\n :where\n [?node :ast/type :variable]\n [?node :ast/name count]\n [?node :ast/parent ?parent]]"]]
+          [:h3 "Find Lambda Closures Over Variable 'x'"]
+          [:pre
+           [:code
+            "[:find ?lambda ?body\n :where\n [?lambda :ast/type :lambda]\n [?lambda :ast/body ?body]\n [?var :ast/type :variable]\n [?var :ast/name x]\n [?var :ast/parent+ ?body]]"]]
+          [:h3 "Find AST Nodes That Changed Between Two Transactions"]
+          [:pre
+           [:code
+            "[:find ?node ?attr ?old ?new\n :in $ ?tx1 ?tx2\n :where\n [?node ?attr ?old ?tx1]\n [?node ?attr ?new ?tx2]\n [(!= ?old ?new)]]"]]
+          [:h3 "Trace Execution Steps for a Specific Node"]
+          [:pre
+           [:code
+            "[:find ?step ?order ?value\n :where\n [?step :exec/control node-42]\n [?step :exec/order ?order]\n [?step :exec/value ?value]\n :order-by (asc ?order)]"]]
+
+          [:h2 "Implementation Modules"]
+          [:p "The architecture requires four core modules:"]
+          [:h3 "1. Decomposer: Map AST → Datom Stream"]
+          [:pre
+           [:code
+            {:class "language-clojure"}
+            "(ns yin.datom.decompose)\n\n(defn ast->datoms\n  \"Decomposes an AST map into a stream of datoms.\n   Returns: {:datoms [...], :root-id node-id}\"\n  [ast]\n  (let [node-id (generate-node-id)\n        datoms (node->datoms ast node-id nil)]\n    {:datoms datoms\n     :root-id node-id}))\n\n(defn node->datoms\n  \"Converts a single AST node to datoms.\"\n  [node node-id parent-id]\n  (case (:type node)\n    :literal    (literal->datoms node node-id parent-id)\n    :variable   (variable->datoms node node-id parent-id)\n    :lambda     (lambda->datoms node node-id parent-id)\n    :application (application->datoms node node-id parent-id)\n    :if         (if->datoms node node-id parent-id)))"]]
+          [:h3 "2. Recomposer: Datom Stream → Map AST"]
+          [:pre
+           [:code
+            {:class "language-clojure"}
+            "(ns yin.datom.recompose)\n\n(defn datoms->ast\n  \"Reconstructs an AST map from datoms.\n   Input: datom stream, root node-id\n   Returns: AST map\"\n  [datoms root-id]\n  (let [node-attrs (group-by :e datoms)]\n    (build-node root-id node-attrs)))"]]
+          [:h3 "3. Execution Tracer: CESK Steps → Datoms"]
+          [:pre
+           [:code
+            {:class "language-clojure"}
+            "(ns yin.datom.exec\n  (:require [yin.vm :as vm]))\n\n(defn trace->datoms\n  \"Converts VM execution trace to datom stream.\"\n  [initial-state ast]\n  (loop [state (assoc initial-state :control ast)\n         step-num 0\n         datoms []]\n    (if (or (:control state) (:continuation state))\n      (let [step-datoms (step->datoms step-num state)]\n        (recur (vm/eval state nil)\n               (inc step-num)\n               (into datoms step-datoms)))\n      datoms)))"]]
+          [:h3 "4. Query Helpers: Common Patterns"]
+          [:pre
+           [:code
+            {:class "language-clojure"}
+            "(ns yin.datom.query)\n\n(defn find-all-nodes-of-type [db node-type]\n  (d/q '[:find ?node\n         :in $ ?type\n         :where [?node :ast/type ?type]]\n       db node-type))\n\n(defn find-execution-trace [db root-node-id]\n  (d/q '[:find ?step ?order ?control ?value\n         :where\n         [?step :exec/order ?order]\n         [?step :exec/control ?control]\n         [?step :exec/value ?value]\n         :order-by (asc ?order)]\n       db))"]]
+
+          [:h2 "Two Execution Modes"]
+          [:p "The architecture supports hybrid execution:"]
+          [:h3 "Direct Interpretation (Current)"]
+          [:pre [:code "Map AST → yin.vm/eval → Result"]]
+          [:ul.bulleted
+           [:li "✅ Simple, no overhead"]
+           [:li "✅ Already implemented"]
+           [:li "❌ Not queryable"]
+           [:li "❌ No history"]]
+          [:h3 "Datom Stream Execution (Future)"]
+          [:pre [:code "Map AST → Decompose → Datoms → DaoDB\n              ↓\n      Datalog Query → Execution Plan\n              ↓\n      Sequential Iteration"]]
+          [:ul.bulleted
+           [:li "✅ Fully queryable"]
+           [:li "✅ Complete history"]
+           [:li "✅ Mobile continuations"]
+           [:li "⚠️ Compilation overhead"]]
+          [:h3 "Hybrid Mode (Recommended)"]
+          [:pre [:code "Map AST → Direct interpretation\n       + Background datom recording\n              ↓\n   Fast execution + Complete trace"]]
+          [:p
+           "Execute directly for speed, but emit datoms in the background for queryability. "
+           "Get the best of both worlds."]
+
+          [:h2 "The Metadata Dimension"]
+          [:p
+           "The " [:code "m"] " component in " [:code "[e a v t m]"] " stores rich contextual information:"]
+          [:h3 "Causal Relationships"]
+          [:pre
+           [:code
+            "{:caused-by [node-5 node-7]\n :causes [node-10 node-11]}"]]
+          [:h3 "Source Location"]
+          [:pre
+           [:code
+            "{:source-file \"app.clj\"\n :line 42\n :column 10}"]]
+          [:h3 "Type Certainty"]
+          [:pre
+           [:code
+            "{:type/certainty :static\n :type/inferred-by :flow-analysis\n :type/confidence 0.95}"]]
+          [:h3 "Cross-Language Provenance"]
+          [:pre
+           [:code
+            "{:original-lang \"Python\"\n :transformation \"python->universal-ast\"\n :timestamp #inst \"2025-11-25T10:30:00Z\"}"]]
+          [:h3 "Execution Context"]
+          [:pre
+           [:code
+            "{:execution-id \"exec-42\"\n :host \"node-5.datom.world\"\n :step-number 17}"]]
+
+          [:h2 "Benefits of the Architecture"]
+          [:h3 "Queryability"]
+          [:p
+           "Ask questions impossible in traditional VMs: \"Find all variables named 'count'\", "
+           "\"Trace value provenance from input to output\", \"Detect unvalidated data flowing into sensitive functions\"."]
+          [:h3 "Time-Travel"]
+          [:p
+           "Query any historical state by filtering on transaction ID. Compare two versions of the same AST. "
+           "Implement undo/redo by retracting and asserting datoms."]
+          [:h3 "Mobile Code"]
+          [:p
+           "Serialize continuations as datom transactions. Migrate computation between nodes. "
+           "Resume execution on different machines or in different languages."]
+          [:h3 "Cross-Language"]
+          [:p
+           "Preserve transformation lineage when code migrates from Python to C++. "
+           "Track semantic drift. Query across polyglot codebases with unified Datalog."]
+          [:h3 "Performance"]
+          [:p
+           "Compile once (AST → execution stream via Datalog). Execute fast (sequential iteration). "
+           "Query anytime (AST remains queryable during execution)."]
+
+          [:h2 "What This Enables"]
+          [:p "Once Yin.vm AST lives as datom streams, new capabilities emerge:"]
+          [:ul.bulleted
+           [:li [:strong "Semantic Firewalls"] " — Block execution when dangerous patterns are detected via Datalog queries"]
+           [:li [:strong "Live Introspection"] " — Query running programs as databases"]
+           [:li [:strong "Self-Healing Code"] " — Detect anti-patterns and apply fixes automatically"]
+           [:li [:strong "Mobile Agents"] " — Code that pauses, serializes, travels, and resumes"]
+           [:li [:strong "Collaborative Evolution"] " — Multiple developers editing the same AST stream with CRDT-style merging"]
+           [:li [:strong "Perfect Auditability"] " — Complete provenance of every transformation"]]
+          [:p
+           "None of these require special infrastructure. They're " [:strong "natural consequences"] " "
+           "of representing programs as datom streams."]
+
+          [:h2 "Next Steps"]
+          [:p "The architecture is ready. Implementation proceeds in phases:"]
+          [:ol
+           [:li [:strong "Phase 1: Basic Decomposition"] " — Implement " [:code "ast->datoms"] " for all node types"]
+           [:li [:strong "Phase 2: DaoDB Integration"] " — Define schema, create indexes, test Datalog queries"]
+           [:li [:strong "Phase 3: Execution Tracing"] " — Capture CESK steps as datoms, query execution history"]
+           [:li [:strong "Phase 4: Advanced Features"] " — Mobile continuations, semantic firewalls, time-travel debugging"]]
+          [:p
+           "The foundation is solid. Yin.vm's CESK machine already works. DaoDB already exists. "
+           "All that remains is connecting them through the datom decomposition layer."]
+
+          [:h2 "Conclusion: Programs as Queryable Streams"]
+          [:p
+           "When ASTs become datom streams, the line between code and data disappears. "
+           "Programs become queryable databases. Execution becomes a timeline you can rewind. "
+           "Continuations become portable facts you can serialize and ship across the network."]
+          [:p
+           "This isn't just a better representation. It's a " [:strong "different computational model"] ". "
+           "When everything is a datom stream—structure, time, types, language, execution—the question isn't "
+           "\"what is my program doing?\" but \"what facts does my program assert?\" And once you phrase it "
+           "that way, Datalog gives you the answer."]
+          [:p [:strong "Learn more:"]]
+          [:ul.bulleted
+           [:li
+            [:a {:href "/blog/ast-datom-streams-bytecode-performance.blog"}
+             "AST Datom Streams: Bytecode Performance with Semantic Preservation"]]
+           [:li
+            [:a {:href "/blog/ast-higher-dimensional-datom-streams.blog"}
+             "AST as Higher Dimensional Construction of Datom Streams"]]
+           [:li
+            [:a {:href "/blog/yin-vm-ast-chinese-characters.blog"}
+             "Yin.vm: Chinese Characters for Programming Languages"]]
+           [:li
+            [:a {:href "/dao-db.chp"} "DaoDB: Distributed Database on Immutable Streams"]]
+           [:li
+            [:a {:href "/yin.chp"} "Yin VM Documentation"]]]]]]}
