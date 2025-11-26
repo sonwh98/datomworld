@@ -12,7 +12,8 @@
    [ring.util.response :as response]
    [stigmergy.chp]
    [stigmergy.config :as c]
-   [world.blog]))
+   [world.blog]
+   [world.src-browser]))
 
 (defn redirect-missing-chp [handler]
   (fn [req]
