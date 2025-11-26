@@ -108,7 +108,7 @@
 
           [:p "This is not an argument " [:em "for"] " corruption, but an argument " [:em "about"] " what actually creates economic value. The initial efficiency or even the legality of spending matters far less than whether the flow reaches productive human capital. A system obsessed with preventing every dollar of waste while starving productive networks of liquidity is choosing symbolic purity over actual wealth creation."]
 
-          [:p "This principle mirrors a deep insight from physics: " [:strong "gauge invariance"] ". In gauge theory, the specific choice of gauge (reference frame) is arbitrary—what matters are the gauge transformations that reveal the underlying physical relationships. The electromagnetic field doesn't care whether you measure it from here or there; the physics is in how the field " [:em "changes"] " as you move through it. Similarly, in economics, the specific 'gauge' of how money enters the system—whether through efficient allocation, wasteful spending, or even corruption—is less important than the 'gauge transformation': the flow through productive human capital. " [:strong "It's the economic gradient that generates work, not the arbitrary reference point of the spending mechanism"] ". Obsessing over spending efficiency is like insisting on a particular coordinate system while ignoring the actual electromagnetic field. The gauge itself is arbitrary; the transformation through productive space is what creates measurable economic reality."]
+          [:p "This principle mirrors a deep insight from physics: " [:strong "gauge invariance"] ". In gauge theory, the specific choice of gauge (reference frame or unit of measurement) is arbitrary. What matters are the relationships and transformations that remain constant across different gauges. Consider the economy itself: whether transactions occur in dollars, euros, or Bitcoin, the " [:strong "actual economic output of goods and services remains the same"] ". A skilled engineer builds the same bridge, a farmer grows the same crops, a teacher educates the same students. The real productive work is gauge-invariant. What changes across monetary gauges is merely the " [:em "accounting representation"] " of that work, not the work itself. Similarly, " [:strong "how money enters the system is just a choice of gauge"] ". Whether a dollar flows in through 'efficient' government allocation or 'wasteful' spending or even corruption, the economic reality that matters is " [:em "where that dollar flows afterward"] ": the transformation through productive human capital. The gauge (spending mechanism) is arbitrary; the transformation (flow through skilled networks) is what generates measurable wealth."]
 
           [:h3 "The Paradox of Efficiency: Elon Musk, DOGE, and Flow"]
           [:p "This brings us to a contemporary example of this clash in thinking: the push for a 'Department of Government Efficiency,' an idea championed by figures like Elon Musk. It is intuitively appealing because it stems from a household or business-centric view of finance where waste is bad and cutting it is always good. This perspective sees government spending as a cost to be minimized."]
@@ -166,10 +166,8 @@
            "subsidies that prop up zombie companies, endless consumption without investment. The money flows, but it doesn't create "
            "the productive work that generates real goods and services. Prices rise while productive capacity stagnates or shrinks."]
 
-          [:p "This is why the " [:strong "quality of human capital matters more than the efficiency of initial spending"] " "
-           "(as discussed in Section 2). A dollar flowing through a skilled, educated population creates recursive productive "
-           "loops. The same dollar flowing through a degraded productive base just inflates prices. " [:strong "National debt "
-           "should grow to reflect productivity"] ". When productive capacity expands, the economy needs more money to finance "
+          [:p "This is why the " [:strong "quality of human capital matters more than the efficiency of initial spending"] ". "
+           [:strong "National debt should grow to reflect productivity"] ". When productive capacity expands, the economy needs more money to finance "
            "that activity. Debt becomes destructive only when it finances pure consumption in an economy that can't produce."]
 
           [:h2 "3. Why Bitcoin Supporters Distrust Fiat"]
@@ -199,7 +197,7 @@
 
           [:p "This speculative gradient is not just noise. It serves a specific function: Bitcoin operates as a " [:strong "fiat money transfer protocol"] ". While technologically subpar for this task compared to other blockchains (like Algorand, on which ShiBi is built), Bitcoin's massive speculative gradient gives it a power and reach that technically superior systems lack. This usefulness as a money transfer vehicle, driven by speculation, generates its own native demand, producing a distinct entropy gradient, though this gradient remains fragile, dependent on continued belief and vulnerable to displacement if technically superior blockchains gain comparable momentum."]
 
-          [:p "However, this transfer protocol function requires actual circulation. As wealth concentration increases among Bitcoin holders (a problem explored in Section 4), even this speculative utility diminishes. When most BTC sits in cold wallets rather than moving through exchanges and transactions, it cannot serve as an effective transfer mechanism. The system requires flow to function, but its fixed supply creates structural incentives for hoarding that undermine that very flow."]
+          [:p "However, this transfer protocol function requires actual circulation. As wealth concentration increases among Bitcoin holders (explored in Section 4), even this speculative utility diminishes. The system requires flow to function, but Bitcoin's fixed supply creates structural incentives for hoarding that undermine that very flow."]
 
           [:p "Even with this native demand, Bitcoin remains a derivative system. It must " [:strong "piggyback"] " on the very fiat systems it purports to replace. To be converted into real goods and services, Bitcoin must tap into the economic flows and trust networks that fiat systems, powered by taxation and public spending, have already built. It relies on fiat's river to have any current at all, even as it creates its own channel alongside it."]
 
@@ -325,9 +323,9 @@
            "for price appreciation. But if most BTC remains concentrated in cold wallets rather than circulating "
            "through transactions, it cannot function as a " [:em "medium of exchange"] ". Only as a speculative asset. "
            "The concentration creates the same stagnant pool: high potential value locked up, but insufficient flow "
-           "to power an actual payment economy. " [:strong "Bitcoin's fixed supply makes this worse"] ". With only 21 million "
+           "to power an actual payment economy. " [:strong "Bitcoin's fixed supply amplifies this problem"] ". With only 21 million "
            "coins ever to exist, deflation is baked into the system. If you believe BTC will be worth more tomorrow, why spend "
-           "it today? The fixed supply creates a structural incentive to hoard, which kills velocity. Without velocity, "
+           "it today? Without velocity, "
            "the system behaves like a lake with no outflow, not a river. This connects to Bitcoin's deeper flaw: treating "
            "money as a commodity rather than a coordination tool (explored further in Section 6)."]
 
@@ -364,7 +362,7 @@
           [:p "Bitcoin's only flow gradient is " [:strong "price volatility driven by speculation"] ". When people believe "
            "the price will rise, they hoard. When they believe it will fall, they sell. This creates movement, but it's "
            "the movement of a pendulum, not a river. The speculation gradient can drive tremendous capital flows, which is "
-           "why BTC works as a " [:strong "fiat money transfer protocol"] " (as discussed in Section 2). But without connection "
+           "why BTC works as a " [:strong "fiat money transfer protocol"] " (as discussed earlier in this section). But without connection "
            "to productive economic activity or structural demand, it cannot function as the primary medium of exchange for "
            "an economy."]
 
