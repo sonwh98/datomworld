@@ -1,0 +1,363 @@
+#:blog{:title "How LLM Training Actually Works: From Random Weights to Geometric Understanding",
+       :date #inst "2025-11-28T00:00:00.000-00:00",
+       :abstract
+       [:p
+        "LLM training isn't just statistical clustering or pattern matching. It's a process of learning a geometric "
+        "representation where probability calculations become efficient. Through gradient descent on a prediction task, "
+        "the model discovers that encoding semantic relationships as geometric relationships minimizes loss. The result "
+        "is a space where vector arithmetic mirrors linguistic operations, not by design, but by necessity."],
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+
+          [:p
+           "When people hear that LLMs \"learn from data,\" they often imagine something like clustering algorithms "
+           "grouping similar words together, or statistical correlation finding patterns. But LLM training is "
+           "fundamentally different. It's not about finding similarities. It's about " [:strong "learning a representation "
+           "that makes prediction efficient"] "."]
+
+          [:p
+           "This distinction matters. Clustering would give you groups of similar words. But it wouldn't give you "
+           "the geometric structure where " [:code "E(king) - E(man) + E(woman) ≈ E(queen)"] ". That emerges from "
+           "something deeper: optimizing a probabilistic objective that forces the model to discover compositional structure."]
+
+          [:h2 "1. The Training Objective: Next-Word Prediction"]
+
+          [:p
+           "At its core, LLM training is simple: " [:strong "given some words, predict the next word"] "."]
+
+          [:p "For example, given the sequence " [:code "\"The king sat on his\""] ", the model should predict "
+           [:code "\"throne\""] " with high probability, " [:code "\"chair\""] " with moderate probability, and "
+           [:code "\"bicycle\""] " with very low probability."]
+
+          [:p
+           "Mathematically, the model learns a probability distribution:"]
+
+          [:p [:code "P(next_word | previous_words)"]]
+
+          [:p
+           "The training process adjusts the model's parameters (weights in the neural network) to maximize the "
+           "probability it assigns to the " [:em "actual"] " next word in the training data. This is called "
+           [:a {:href "https://www.youtube.com/watch?v=XepXtl9YKwc"}"maximum likelihood estimation"] "."]
+
+          [:h3 "The Loss Function"]
+
+          [:p
+           "More precisely, the model minimizes " [:strong "cross-entropy loss"] ":"]
+
+          [:p [:code "Loss = -log P(actual_next_word | context)"]]
+
+          [:p
+           "When the model assigns high probability to the correct word, the loss is low (good). When it assigns "
+           "low probability, the loss is high (bad). Training adjusts parameters to reduce this loss across billions "
+           "of examples."]
+
+          [:h2 "2. Why This Creates Geometric Structure"]
+
+          [:p
+           "Here's the key insight: " [:strong "to predict well, the model must discover compositional structure"] "."]
+
+          [:p
+           "Consider these training examples:"]
+
+          [:ul.bulleted
+           [:li "\"The king ruled wisely\""]
+           [:li "\"The queen ruled wisely\""]
+           [:li "\"The emperor ruled wisely\""]
+           [:li "\"The pharaoh ruled wisely\""]]
+
+          [:p
+           "The naive approach: memorize that \"ruled\" follows each of these words individually. But this doesn't "
+           "scale. There are thousands of ruler-related words, and millions of possible continuations."]
+
+          [:p
+           "The efficient approach: " [:strong "learn that there's a category of \"rulers\" that all share certain "
+           "patterns"] ". If the model can represent \"king,\" \"queen,\" \"emperor,\" and \"pharaoh\" as points "
+           "that are geometrically close, it can generalize: anything in that region of space is likely to be followed "
+           "by \"ruled,\" \"commanded,\" \"decreed,\" etc."]
+
+          [:p [:strong "The geometry emerges because it's the efficient way to compress the prediction function."] " "
+           "Instead of learning separate parameters for each word, the model learns a shared structure: a region "
+           "of embedding space corresponds to a type of entity, and proximity in that space means similar predictive "
+           "behavior."]
+
+          [:h2 "3. How Directions Encode Relationships"]
+
+          [:p
+           "Now consider these pairs:"]
+
+          [:ul.bulleted
+           [:li "\"The king and his wife\" / \"The queen and her husband\""]
+           [:li "\"The man walked home\" / \"The woman walked home\""]
+           [:li "\"The boy played games\" / \"The girl played games\""]]
+
+          [:p
+           "The model sees a pattern: certain pairs of words differ in a " [:strong "consistent way"] ". They appear "
+           "in parallel grammatical structures, substitute for each other in gendered contexts, and trigger different "
+           "pronoun agreements."]
+
+          [:p
+           "The efficient way to encode this? " [:strong "Make the vector difference between paired words point in "
+           "the same direction"] ". If:"]
+
+          [:ul.bulleted
+           [:li [:code "E(king) - E(queen) = v_gender"]]
+           [:li [:code "E(man) - E(woman) = v_gender"]]
+           [:li [:code "E(boy) - E(girl) = v_gender"]]]
+
+          [:p
+           "Then the model can learn a " [:em "single"] " parameter set that handles gender agreement for " [:em "all"]
+           " gendered word pairs. The direction " [:code "v_gender"] " becomes a reusable component. This is massively "
+           "more efficient than learning separate rules for each pair."]
+
+          [:p
+           "This is why " [:code "E(king) - E(man) + E(woman) ≈ E(queen)"] " works. It's not a coincidence or a "
+           "clever trick. " [:strong "It's the optimal solution to the prediction task"] ". By arranging these four "
+           "words in a parallelogram:"]
+
+          [:ul.bulleted
+           [:li "king and queen share the \"royalty\" component"]
+           [:li "man and woman share the \"common person\" component"]
+           [:li "king and man share the \"male\" component"]
+           [:li "queen and woman share the \"female\" component"]]
+
+          [:p
+           "The model can now make predictions efficiently: \"If I see 'king,' I should predict similar things to "
+           "'queen' (royalty context) but with male pronouns instead of female ones.\""]
+
+          [:h2 "4. Gradient Descent: How the Geometry Forms"]
+
+          [:p
+           "The model doesn't design this structure. It " [:strong "discovers"] " it through gradient descent."]
+
+          [:p
+           "Initially, the embeddings are random. The model makes terrible predictions. But then:"]
+
+          [:ol
+           [:li [:strong "Compute loss"] ": How wrong were the predictions?"]
+           [:li [:strong "Compute gradients"] ": Which direction should each embedding move to reduce loss?"]
+           [:li [:strong "Update embeddings"] ": Move them slightly in that direction"]
+           [:li "Repeat billions of times"]]
+
+          [:p
+           "After seeing \"The king ruled\" many times, the gradient pushes the embedding for \"king\" closer to "
+           "other words that appear before \"ruled.\" After seeing \"The queen ruled,\" the gradient pushes \"queen\" "
+           "in the same direction."]
+
+          [:p
+           "But the model also sees \"The king and his wife\" and \"The queen and her husband.\" These examples create "
+           "gradients that push \"king\" and \"queen\" " [:em "apart"] " in a specific direction (gender). Meanwhile, "
+           "\"The man and his wife\" and \"The woman and her husband\" create the same directional separation between "
+           "\"man\" and \"woman.\""]
+
+          [:p [:strong "The parallelogram structure emerges because it satisfies both constraints simultaneously."] " "
+           "Gradient descent finds the geometric arrangement that minimizes total loss across all training examples."]
+
+          [:h2 "5. Why Not Just Clustering?"]
+
+          [:p
+           "Clustering algorithms like k-means would group similar words together, but they wouldn't create the "
+           "compositional structure. Here's why:"]
+
+          [:ul.bulleted
+           [:li [:strong "Clustering optimizes for similarity"] ": Put similar items in the same cluster"]
+           [:li [:strong "LLM training optimizes for prediction"] ": Arrange embeddings so probability calculations "
+           "are accurate and efficient"]]
+
+          [:p
+           "Clustering might put \"king\" and \"queen\" near each other (they're similar). But it has no reason to "
+           "ensure that the " [:em "direction"] " from \"man\" to \"woman\" matches the " [:em "direction"] " from "
+           "\"king\" to \"queen.\" That structure only emerges when you're trying to predict next words and you "
+           "discover that reusable directional components reduce loss."]
+
+          [:p
+           "Furthermore, clustering operates on a fixed notion of similarity (usually cosine or Euclidean distance). "
+           "LLM training " [:strong "learns what similarity means"] " by adjusting embeddings to make the prediction "
+           "task easier. The geometry is learned end-to-end, not imposed."]
+
+          [:h2 "6. The Role of Context: Beyond Static Embeddings"]
+
+          [:p
+           "Early word embeddings (Word2Vec, GloVe) assigned one vector per word. But this fails for words with "
+           "multiple meanings:"]
+
+          [:ul.bulleted
+           [:li "\"I went to the " [:strong "bank"] " to deposit money\" (financial institution)"]
+           [:li "\"I sat on the river " [:strong "bank"] "\" (edge of water)"]]
+
+          [:p
+           "Modern LLMs use " [:strong "contextual embeddings"] " where the same word gets different vectors depending "
+           "on surrounding words. This is what the transformer architecture does with its attention mechanism."]
+
+          [:h3 "Attention as Geometric Mixing"]
+
+          [:p
+           "The attention mechanism computes " [:strong "how much each word in the context should influence the "
+           "embedding of the current word"] ". Mathematically:"]
+
+          [:ol
+           [:li "Each word starts with an initial embedding"]
+           [:li "The model computes attention weights: which other words are relevant?"]
+           [:li "The final embedding is a weighted combination of all words' contributions"]
+           [:li "These combined embeddings are used to predict the next word"]]
+
+          [:p
+           "For \"bank\" in a financial context, the model attends to words like \"deposit,\" \"money,\" \"account.\" "
+           "These pull the embedding toward the financial region of space. For \"bank\" in a geographical context, "
+           "words like \"river,\" \"water,\" \"shore\" pull it toward the geographical region."]
+
+          [:p [:strong "Attention is geometric mixing."] " The model learns which directions in embedding space to "
+           "emphasize based on context. The final contextual embedding is a point in space that has been shifted "
+           "according to the semantic environment."]
+
+          [:h2 "7. Why Higher Dimensions?"]
+
+          [:p
+           "You might wonder: why 768 or 1024 dimensions? Why not 10 or 50?"]
+
+          [:p
+           "The answer is " [:strong "capacity"] ". Human language has thousands of overlapping, cross-cutting "
+           "distinctions:"]
+
+          [:ul.bulleted
+           [:li "concrete vs. abstract"]
+           [:li "positive vs. negative sentiment"]
+           [:li "formal vs. informal register"]
+           [:li "animate vs. inanimate"]
+           [:li "past vs. present vs. future"]
+           [:li "agent vs. patient vs. instrument"]
+           [:li "literal vs. metaphorical"]
+           [:li "and thousands more..."]]
+
+          [:p
+           "Each distinction can be thought of as a " [:strong "dimension of meaning"] ". To represent all these "
+           "distinctions simultaneously, you need enough dimensions that they don't interfere with each other."]
+
+          [:p
+           "In low dimensions, you're forced to make trade-offs: represent sentiment accurately but lose temporal "
+           "information, or vice versa. In high dimensions, you can represent everything at once. Each dimension "
+           "can capture a different aspect of meaning, and the geometry becomes rich enough to encode the full "
+           "complexity of language."]
+
+          [:h2 "8. The Homomorphism Emerges"]
+
+          [:p
+           "Recall from " [:a {:href "/blog/language-as-geometry.blog"} "Language as Geometry"] " that training "
+           "creates an approximate homomorphism: linguistic operations map to geometric operations."]
+
+          [:p
+           "This happens because:"]
+
+          [:ol
+           [:li [:strong "The training objective is compositional"] ": Predict words based on combinations of context"]
+           [:li [:strong "Vector spaces are naturally compositional"] ": Vectors combine through addition/subtraction"]
+           [:li [:strong "Gradient descent finds the mapping"] ": Align linguistic composition with vector composition "
+           "to minimize loss"]]
+
+          [:p
+           "The homomorphism isn't perfect. Language has quirks, exceptions, and non-compositional idioms. But "
+           "statistically, across billions of examples, there's enough compositional structure that the geometric "
+           "approach works remarkably well."]
+
+          [:h2 "9. What the Model Learns vs. What It Memorizes"]
+
+          [:p
+           "A common misconception: \"The model just memorizes the training data.\""]
+
+          [:p
+           "This is false. " [:strong "The model learns a compressed representation of the statistical patterns"] ". "
+           "Consider:"]
+
+          [:ul.bulleted
+           [:li "Training data: trillions of tokens"]
+           [:li "Model parameters: billions (much smaller than the data)"]
+           [:li "Embeddings: tens of thousands of words × ~1000 dimensions"]]
+
+          [:p
+           "There's no way to memorize all the data. Instead, the model must " [:strong "compress"] ": extract the "
+           "regularities and discard the noise. The geometric structure is this compression."]
+
+          [:p
+           "When you see " [:code "E(king) - E(man) + E(woman) ≈ E(queen)"] ", you're seeing the model's compressed "
+           "representation of millions of examples where gendered pairs appeared in parallel contexts. The model "
+           "didn't memorize each example. It " [:strong "abstracted the pattern"] " and encoded it as a geometric "
+           "relationship."]
+
+          [:h2 "10. Why This Approach Works for Language"]
+
+          [:p
+           "The success of geometric embeddings reveals something deep about language itself: "
+           [:strong "language has statistical regularities that align with compositional geometry"] "."]
+
+          [:p
+           "This isn't guaranteed. We could imagine a communication system where:"]
+
+          [:ul.bulleted
+           [:li "Every word's meaning depends entirely on arbitrary context"]
+           [:li "No compositional rules exist"]
+           [:li "Relationships don't transfer across examples"]
+           [:li "Past patterns don't predict future usage"]]
+
+          [:p
+           "Such a language would be unlearnable by neural networks (and probably by humans too). The fact that LLMs "
+           "work is evidence that " [:strong "human language is compositional, regular, and geometric"] "."]
+
+          [:p
+           "Linguists have long theorized about compositionality (the principle that the meaning of a phrase is a "
+           "function of the meanings of its parts). LLMs provide empirical confirmation: "
+           [:strong "compositionality isn't just a theoretical ideal, it's statistically real"] ", and it can be "
+           "exploited through geometric representations."]
+
+          [:h2 "11. Limitations and Failure Modes"]
+
+          [:p
+           "This geometric approach has limits:"]
+
+          [:ul.bulleted
+           [:li [:strong "Discrete logic"] ": Concepts like negation, quantification, and formal implication don't "
+           "map cleanly to continuous geometry. The model approximates them, but imperfectly."]
+           [:li [:strong "Counting and arithmetic"] ": These are symbolic operations, not geometric ones. LLMs struggle "
+           "with exact numerical reasoning."]
+           [:li [:strong "Novel combinations"] ": If a concept never appeared in training (even implicitly), there's "
+           "no guarantee the geometric interpolation will make sense."]
+           [:li [:strong "Long-range dependencies"] ": Predictions based on information very far back in context "
+           "degrade because the geometric signal gets diffused across many attention steps."]]
+
+          [:p
+           "These failures reveal the boundary between what geometry can and can't represent. Language is "
+           [:em "mostly"] " compositional and continuous, but it has discrete and symbolic aspects that resist "
+           "geometric encoding."]
+
+          [:h2 "Conclusion: Learning the Geometry of Meaning"]
+
+          [:p
+           "LLM training isn't clustering. It's not pattern matching. It's " [:strong "learning a geometric "
+           "representation that makes probabilistic prediction efficient"] "."]
+
+          [:p
+           "Through billions of gradient descent steps, the model discovers that:"]
+
+          [:ul.bulleted
+           [:li "Semantic similarity should become spatial proximity"]
+           [:li "Consistent relationships should become consistent directions"]
+           [:li "Compositional meaning should emerge from vector arithmetic"]
+           [:li "Context should geometrically shift embeddings toward relevant regions"]]
+
+          [:p
+           "None of this is designed. It " [:strong "emerges"] " from optimizing a simple objective: predict the "
+           "next word. The geometry is the model's solution to that problem."]
+
+          [:p
+           "When you use an LLM, you're querying this learned geometry. You're injecting a prompt into the space, "
+           "letting the model compute geometric transformations through attention layers, and reading out the "
+           "result as a probability distribution over words."]
+
+          [:p [:strong "The map is learned. The territory is language. The geometry is the connection between them."]]
+
+          [:p [:strong "Learn more:"]]
+          [:ul.bulleted
+           [:li [:a {:href "/blog/language-as-geometry.blog"} "Language as Geometry"] " - How embeddings map language to vector space"]
+           [:li [:a {:href "/blog/all-money-is-monopoly-money.blog"} "All Money is Monopoly Money"] " - Another system where abstract structure emerges from optimization"]]]]]}
