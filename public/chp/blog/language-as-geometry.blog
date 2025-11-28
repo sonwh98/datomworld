@@ -34,7 +34,7 @@
           [:p [:code "E(\"queen\") → [0.19, -0.38, 0.91, ..., 0.18]"]]
 
           [:p
-           "These aren't arbitrary numbers. During training, the model learns embeddings such that words with "
+           "These aren't arbitrary numbers. During " [:a {:href "/blog/how-llm-training-works.blog"}"training,"] " the model learns embeddings such that words with "
            "similar meanings end up close together in this vector space, while words with different meanings "
            "are far apart. This is the first geometric insight: " [:strong "semantic similarity becomes spatial proximity"] "."]
 
