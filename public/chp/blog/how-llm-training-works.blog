@@ -55,6 +55,98 @@
            "low probability, the loss is high (bad). Training adjusts parameters to reduce this loss across billions "
            "of examples."]
 
+          [:h3 "The Infinite to Finite Compression"]
+
+          [:p
+           "Here's the fundamental problem: " [:strong "the conditional probability space is infinite, but the "
+           "geometric representation must be finite"] "."]
+
+          [:p
+           "In Bayesian terms, " [:code "P(next_word | previous_words)"] " conditions on " [:em "all possible sequences "
+           "of previous words"] ". For a vocabulary of 50,000 words and contexts of length 10, that's "
+           [:code "50,000^10"] " possible conditioning contexts. For length 100? " [:code "50,000^100"]
+           ". The space of possible contexts is " [:strong "combinatorially infinite"] "."]
+
+          [:p
+           "But the model only has finite parameters: perhaps 7 billion weights, and embeddings in 4096 dimensions. "
+           "How can a finite geometric space represent an infinite conditional probability distribution?"]
+
+          [:p [:strong "The answer: compression through shared structure."] " The model cannot memorize "
+           [:code "P(next | context)"] " for every possible context. Instead, it learns a " [:strong "finite geometric "
+           "mapping"] " that " [:em "approximates"] " the infinite probability distribution by exploiting regularities."]
+
+          [:p
+           "The key insight: " [:strong "most of those infinite contexts produce similar probability distributions"] ". "
+           "Consider:"]
+
+          [:ul.bulleted
+           [:li "\"The king walked to the...\""]
+           [:li "\"The queen walked to the...\""]
+           [:li "\"The emperor walked to the...\""]
+           [:li "\"The pharaoh walked to the...\""]]
+
+          [:p
+           "These are four different contexts in the infinite space, but they all predict similar next words: "
+           "\"throne,\" \"palace,\" \"castle,\" etc. The model doesn't need separate representations for each. "
+           "It can " [:strong "map all four to nearby points in embedding space"] " and compute "
+           [:code "P(next | context)"] " as a function of geometric proximity."]
+
+          [:p
+           "This is " [:strong "lossy compression"] ". The model trades perfect accuracy on every possible context "
+           "for efficient generalization. By embedding contexts into finite-dimensional space, it forces contexts "
+           "with similar predictive distributions to occupy similar geometric regions. The geometry becomes a "
+           [:strong "compressed index"] " into the infinite probability space."]
+
+          [:p
+           "The transformer's attention mechanism is the function that performs this mapping: "
+           [:code "context → finite vector"] ". No matter how long or complex the context, attention compresses it "
+           "into a fixed-size representation (the hidden state). This compression is learned to preserve the "
+           "information most relevant for prediction."]
+
+          [:h3 "Regularities as Symmetries"]
+
+          [:p
+           "In physics and mathematics, regularities are called " [:strong "symmetries"] ". A symmetry is a transformation "
+           "that leaves something unchanged. And " [:strong "symmetries enable compression"] "."]
+
+          [:p
+           "Consider the linguistic symmetry: \"king is to queen as man is to woman.\" This is a " [:em "substitution "
+           "symmetry"] ". If you replace (king, man) with (queen, woman) in certain contexts, the grammatical structure "
+           "and semantic relationships remain valid:"]
+
+          [:ul.bulleted
+           [:li "\"The king/queen ruled the kingdom\""]
+           [:li "\"The man/woman walked home\""]
+           [:li "\"The king/queen and his/her spouse\""]]
+
+          [:p
+           "This symmetry means the model doesn't need to learn separate rules for \"king\" contexts and \"queen\" "
+           "contexts. It can learn " [:strong "one rule parameterized by a direction in embedding space"] " (the gender "
+           "vector). The symmetry compresses two distinct cases into a single geometric transformation."]
+
+          [:p
+           "Language is full of these symmetries:"]
+
+          [:ul.bulleted
+           [:li [:strong "Conjugation symmetry"] ": run/running/ran follow the same pattern as walk/walking/walked"]
+           [:li [:strong "Plural symmetry"] ": cat/cats behaves like dog/dogs"]
+           [:li [:strong "Comparative symmetry"] ": good/better/best parallels bad/worse/worst"]
+           [:li [:strong "Analogy symmetry"] ": Paris:France :: Rome:Italy"]
+           [:li [:strong "Substitution symmetry"] ": Any sentence with \"blue car\" can swap to \"red car\" with "
+           "minimal structural change"]]
+
+          [:p
+           "Each symmetry is a " [:strong "dimension of invariance"] ": a way that contexts can differ while producing "
+           "similar predictions. The embedding space learns to encode these symmetries as geometric transformations "
+           "(rotations, translations, scalings). This is why vector arithmetic works: "
+           [:strong "linguistic symmetries become geometric symmetries"] "."]
+
+          [:p
+           "In physics, Noether's theorem states that every symmetry corresponds to a conservation law. In LLMs, "
+           "every linguistic symmetry corresponds to a " [:strong "reusable geometric structure"] ". The model conserves "
+           "predictive patterns across symmetric transformations, allowing it to generalize from finite training data "
+           "to infinite possible contexts."]
+
           [:h2 "2. Why This Creates Geometric Structure"]
 
           [:p
