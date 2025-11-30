@@ -1,0 +1,311 @@
+#:blog{:title "Language as Geometry: How LLMs Map Meaning to Higher Dimensions",
+       :date #inst "2025-11-28T00:00:00.000-00:00",
+       :abstract
+       [:p
+        "Large Language Models work by treating language as geometry. Embeddings transform words and phrases into "
+        "high-dimensional vectors where semantic relationships become geometric relationships. This mapping works "
+        "because training creates an approximate homomorphism between linguistic operations and vector arithmetic, "
+        "allowing meaning to be computed through spatial transformations in hundreds of dimensions."],
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+
+          [:p
+           "To understand how Large Language Models actually work, you need to abandon the intuitive picture of "
+           "language as sequences of discrete symbols and instead see it as " [:strong "geometry"] "."]
+
+          [:p
+           "This isn't a metaphor. LLMs literally transform language into points in high-dimensional space, where "
+           "meaning becomes distance, analogy becomes vector arithmetic, and understanding emerges from how vectors "
+           "relate to each other: their distances, directions, and relative positions."]
+
+          [:h2 "1. Embeddings: Functions from Language to Vector Space"]
+
+          [:p
+           "At the heart of every LLM is an " [:strong "embedding function"] ": a mathematical transformation that "
+           "maps words, phrases, or entire sentences into high-dimensional vectors. If you have a vocabulary of "
+           "50,000 words, the embedding function " [:code "E"] " takes each word and produces a vector in, say, "
+           "768 dimensions:"]
+
+          [:p [:code "E(\"king\") → [0.23, -0.41, 0.89, ..., 0.15]"]]
+          [:p [:code "E(\"queen\") → [0.19, -0.38, 0.91, ..., 0.18]"]]
+
+          [:p
+           "These aren't arbitrary numbers. During " [:a {:href "/blog/how-llm-training-works.blog"}"training,"] " the model learns embeddings such that words with "
+           "similar meanings end up close together in this vector space, while words with different meanings "
+           "are far apart. This is the first geometric insight: " [:strong "semantic similarity becomes spatial proximity"] "."]
+
+          [:p
+           "The dimension count (768, 1024, 4096, etc.) isn't magical. Higher dimensions provide more capacity "
+           "to encode subtle distinctions. Just as a 3D space can represent more complex shapes than a 2D plane, "
+           "a 768-dimensional space can capture vastly more nuanced semantic relationships than a lower-dimensional one."]
+
+          [:h3 "Why Higher Dimensions?"]
+
+          [:p
+           "You can't faithfully represent the rich structure of human language in just three dimensions. Try to "
+           "plot all the relationships between concepts like \"democracy,\" \"justice,\" \"freedom,\" \"oppression,\" "
+           "\"government,\" \"citizen,\" \"vote,\" \"protest\" in 3D space such that all their semantic relationships "
+           "are preserved as distances. It's geometrically impossible."]
+
+          [:p
+           "But in 768 dimensions? Now you have room. Each dimension can capture a different aspect of meaning: "
+           "one dimension might encode \"political vs. apolitical,\" another \"concrete vs. abstract,\" another "
+           "\"positive vs. negative sentiment,\" and so on. The embedding space becomes a " [:strong "manifold"]
+           " with enough degrees of freedom to represent the actual structure of human concepts."]
+
+          [:h2 "2. Vector Arithmetic Encodes Semantic Operations"]
+
+          [:p
+           "Here's where it gets remarkable. Once language is embedded in vector space, " [:strong "linguistic relationships "
+           "become geometric transformations"] ". The canonical example:"]
+
+          [:p [:code "E(\"king\") - E(\"man\") + E(\"woman\") ≈ E(\"queen\")"]]
+
+          [:p
+           "This isn't a trick. The vector pointing from \"man\" to \"king\" captures the concept of \"royalty + male.\" "
+           "When you subtract \"man\" (removing the male component) and add \"woman\" (adding the female component), "
+           "the resulting vector points to the region of space where \"queen\" lives."]
+
+          [:p
+           "Other examples:"]
+
+          [:ul.bulleted
+           [:li [:code "E(\"Paris\") - E(\"France\") + E(\"Italy\") ≈ E(\"Rome\")"] " (capital city relationship)"]
+           [:li [:code "E(\"running\") - E(\"run\") + E(\"swim\") ≈ E(\"swimming\")"] " (verb conjugation)"]
+           [:li [:code "E(\"better\") - E(\"good\") + E(\"bad\") ≈ E(\"worse\")"] " (comparative forms)"]]
+
+          [:p
+           "These are " [:strong "semantic operations performed as vector arithmetic"] ". Analogy, grammatical transformation, "
+           "conceptual reasoning—all become geometric operations in embedding space."]
+
+          [:h2 "3. The Homomorphism: Why This Works"]
+
+          [:p
+           "The reason vector arithmetic can encode semantic relationships is that training creates an "
+           [:strong "approximate homomorphism"] " between two mathematical structures:"]
+
+          [:ul.bulleted
+           [:li [:strong "The language structure"] ": How words relate through grammar, context, and meaning"]
+           [:li [:strong "The vector space structure"] ": How vectors relate through addition, subtraction, and distance"]]
+
+          [:p
+           "A homomorphism is a structure-preserving map. In this case, the embedding function " [:code "E"]
+           " maps linguistic relationships to geometric relationships such that:"]
+
+          [:p [:code "relationship(A, B) in language ≈ vector_operation(E(A), E(B)) in space"]]
+
+          [:p
+           "This isn't a perfect homomorphism (which would require exact preservation), but an " [:em "approximate"]
+           " one. The training process gradually adjusts embeddings so that words appearing in similar contexts "
+           "end up in similar regions of space. Over billions of training examples, the model discovers a geometric "
+           "arrangement where semantic operations align with vector operations."]
+
+          [:h3 "How Training Creates the Homomorphism"]
+
+          [:p
+           "During training, the model sees sentences like:"]
+
+          [:ul.bulleted
+           [:li "\"The king sat on his throne.\""]
+           [:li "\"The queen addressed her subjects.\""]
+           [:li "\"A man walked down the street.\""]
+           [:li "\"A woman entered the building.\""]]
+
+          [:p
+           "The training objective is simple: " [:strong "predict the next word given the context"] ". To do this "
+           "well, the model must learn that \"king\" and \"queen\" are similar (both are royalty), but differ in "
+           "a specific way (gender). It must learn that this same difference appears between \"man\" and \"woman.\""]
+
+          [:p
+           "Mathematically, the model learns a " [:strong "probability distribution"] " over possible next words "
+           "given the previous words. This distribution is parameterized by the embeddings. As training progresses, "
+           "the embeddings adjust to make the probability distribution match the actual distribution of language "
+           "in the training data."]
+
+          [:p
+           "Crucially, this probability distribution has structure. The probability that \"queen\" follows \"The\" "
+           "is related to the probability that \"king\" follows \"The.\" The model can capture this relationship "
+           "efficiently by encoding it geometrically: if the vectors for \"king\" and \"queen\" differ by a consistent "
+           "direction (the gender vector), then the probability distributions they induce will differ in a consistent way."]
+
+          [:p [:strong "This is the homomorphism emerging:"] " operations in probability space (conditioning, marginalization) "
+           "become operations in vector space (addition, subtraction). The training process discovers that certain "
+           "geometric arrangements make the probability model more efficient and accurate."]
+
+          [:h2 "4. Why Geometry Works for Language"]
+
+          [:p
+           "The fact that language can be embedded in geometric space at all is not obvious. Language evolved for "
+           "communication between humans, not for mathematical manipulation. So why does the geometric approach work?"]
+
+          [:p
+           "The answer lies in " [:strong "compositionality"] ". Human language is built from parts that combine "
+           "systematically. We understand \"blue car\" because we know \"blue\" and \"car\" separately, and we know "
+           "the rule for combining adjectives and nouns. We understand \"king\" is to \"queen\" as \"man\" is to \"woman\" "
+           "because we can decompose these concepts into shared and distinct components."]
+
+          [:p
+           "Vector spaces are " [:em "naturally compositional"] ". Vectors combine through addition. Relationships "
+           "can be encoded as directions (vectors pointing from one concept to another). Magnitude encodes intensity "
+           "or strength. The geometric structure provides exactly the kind of compositional machinery that language needs."]
+
+          [:h3 "The Distributional Hypothesis"]
+
+          [:p
+           "There's a deeper linguistic principle at work: the " [:strong "distributional hypothesis"] ", often "
+           "summarized as \"you shall know a word by the company it keeps.\" Words that appear in similar contexts "
+           "tend to have similar meanings."]
+
+          [:p
+           "This principle is fundamentally geometric. If we represent each word by the set of contexts it appears in, "
+           "words with similar meanings will have overlapping context sets. This overlap can be measured as proximity "
+           "in vector space. The embedding function learns to compress the vast, sparse space of contexts into a "
+           "dense vector space where proximity preserves contextual similarity."]
+
+          [:h3 "Emergent Structure"]
+
+          [:p
+           "What's remarkable is that the geometric structure is " [:strong "discovered, not designed"] ". Nobody "
+           "told the model to arrange \"king,\" \"queen,\" \"man,\" and \"woman\" in a rectangle where opposite corners "
+           "correspond to analogy pairs. The model discovered this arrangement because it efficiently encodes the "
+           "statistical patterns in the training data."]
+
+          [:p
+           "This is similar to how physical laws emerge from symmetries. The model has a built-in symmetry: vector "
+           "addition is commutative and associative. Given this symmetry and the training objective, certain geometric "
+           "arrangements become optimal. The embedding space self-organizes into a structure that mirrors the structure "
+           "of language itself."]
+
+          [:h2 "5. Beyond Words: Contextual Embeddings"]
+
+          [:p
+           "Simple word embeddings (like Word2Vec or GloVe) assign one vector to each word. But modern LLMs use "
+           [:strong "contextual embeddings"] " where the same word gets different vectors depending on context:"]
+
+          [:ul.bulleted
+           [:li "\"I went to the bank to deposit money\" → " [:code "E(\"bank\") = [financial institution vector]"]]
+           [:li "\"I sat on the river bank\" → " [:code "E(\"bank\") = [riverbank vector]"]]]
+
+          [:p
+           "The embedding is now a function not just of the word, but of its entire context: "
+           [:code "E(word, context) → vector"] ". This is what transformers do with their attention mechanism: "
+           "they compute how much each word in the context should influence the embedding of the current word."]
+
+          [:p
+           "Geometrically, this means the embedding space is " [:strong "dynamic"] ". The point representing \"bank\" "
+           "shifts depending on what other words appear nearby. The space itself is responsive to context, allowing "
+           "the model to disambiguate and capture nuance."]
+
+          [:h2 "6. Generation as Geometric Path-Finding"]
+
+          [:p
+           "When an LLM generates text, it's performing a geometric operation: starting from an initial point in "
+           "embedding space (the prompt), it iteratively moves through the space, predicting the next word by finding "
+           "the most probable direction to move."]
+
+          [:p
+           "Each step:"]
+
+          [:ol
+           [:li "Take the current sequence of words"]
+           [:li "Embed them into vectors (contextually)"]
+           [:li "Use the transformer to compute a new vector representing \"what should come next\""]
+           [:li "Find the word whose embedding is closest to this predicted vector"]
+           [:li "Append that word and repeat"]]
+
+          [:p
+           "The transformer's attention mechanism is computing " [:strong "which previous words are geometrically relevant"]
+           " to predicting the next position in space. It's finding the path through embedding space that maximizes "
+           "the probability of the observed sequence."]
+
+          [:h2 "7. The Manifold of Meaning"]
+
+          [:p
+           "The embedding space isn't uniform. Not all regions are equally populated. The actual space of meaningful "
+           "sentences forms a " [:strong "manifold"] "—a lower-dimensional surface embedded in the high-dimensional space."]
+
+          [:p
+           "Random points in 768-dimensional space almost never correspond to coherent English. The vast majority of "
+           "possible vectors are nonsense. Meaningful language occupies a tiny, highly structured subspace. The model "
+           "learns to stay on this manifold, navigating along it rather than wandering into the void."]
+
+          [:p
+           "This is why LLMs can " [:strong "interpolate"] " between concepts. If you find two points on the manifold "
+           "representing different concepts, the path connecting them (staying on the manifold) often corresponds to "
+           "a smooth conceptual transition. Traveling along this path generates text that gradually shifts from one "
+           "idea to another in a semantically coherent way."]
+
+          [:h2 "8. Limitations of the Geometric View"]
+
+          [:p
+           "While powerful, the geometric embedding approach has fundamental limits:"]
+
+          [:ul.bulleted
+           [:li [:strong "Discrete logic is hard"] ": Geometric spaces are continuous, but some logical operations "
+           "are inherently discrete (negation, quantification). The model approximates these through geometry, but "
+           "not perfectly."]
+           [:li [:strong "Compositionality breaks down"] ": Complex nested structures (like deeply recursive grammar) "
+           "strain the geometric representation. The manifold becomes convoluted."]
+           [:li [:strong "Novel concepts are difficult"] ": The embedding space is learned from training data. Truly "
+           "novel concepts that never appeared (even indirectly) have no natural location in the space."]
+           [:li [:strong "Reasoning requires chaining"] ": Multi-step logical reasoning requires traversing the manifold "
+           "step-by-step. Errors accumulate. The geometry doesn't natively encode long chains of inference."]]
+
+          [:p
+           "These limitations explain why LLMs excel at pattern matching, analogy, and style transfer (all geometric "
+           "operations) but struggle with formal logic, arithmetic, and complex planning (operations that require "
+           "discrete symbolic manipulation)."]
+
+          [:h2 "9. The Philosophical Implication"]
+
+          [:p
+           "Treating language as geometry reveals something profound: " [:strong "meaning might be fundamentally spatial"] "."]
+
+          [:p
+           "Human cognition is often described using spatial metaphors. We talk about \"grasping\" concepts, ideas being "
+           "\"close\" or \"distant,\" arguments being \"well-supported\" (structural metaphors). We visualize concepts, "
+           "imagine mental maps, and reason by analogy—all spatial operations."]
+
+          [:p
+           "The success of geometric embeddings suggests these spatial metaphors aren't just convenient figures of speech. "
+           "They might reflect " [:strong "how meaning actually works"] " in the brain. Neuroscience has found that the brain "
+           "represents concepts in high-dimensional neural activation patterns, and semantic relationships correspond to "
+           "geometric relationships between these patterns."]
+
+          [:p
+           "LLMs externalize and formalize this process. By learning embeddings from data, they discover the geometry "
+           "implicit in language. This geometry isn't imposed from outside—it emerges from the statistical structure "
+           "of how humans actually use words."]
+
+          [:p [:strong "Language might be geometry all the way down."]]
+
+          [:h2 "Conclusion: The Map is the Territory"]
+
+          [:p
+           "Embeddings are more than a clever engineering trick. They reveal that language has geometric structure, "
+           "and that this structure can be learned, manipulated, and reasoned about using vector arithmetic."]
+
+          [:p
+           "The approximate homomorphism between linguistic operations and vector operations means that " [:strong "doing "
+           "geometry in embedding space is the same as doing semantics in language space"] ". The map is the territory."]
+
+          [:p
+           "This is how LLMs \"understand\" language: not by building explicit symbolic representations or logical rules, "
+           "but by learning the shape of meaning itself—the manifold on which coherent thoughts live, the directions "
+           "that correspond to semantic transformations, the distances that encode similarity and difference."]
+
+          [:p
+           "When you ask an LLM a question, you're not triggering a database lookup or running a logic program. You're "
+           "injecting a point into a high-dimensional space and watching the geometry evolve, step by step, along the "
+           "manifold of meaning, until it arrives at an answer."]
+
+          [:p "Everything is geometry."]
+
+          [:p [:strong "Learn more:"]]
+          [:ul.bulleted
+           [:li [:a {:href "/blog/all-money-is-monopoly-money.blog"} "All Money is Monopoly Money"] " - Another system where abstract relationships become concrete operations"]
+           [:li [:a {:href "/blog/maxwells-demon-economic-value.blog"} "Maxwell's Demon and Economic Value"] " - How information structure creates value"]]]]]}
