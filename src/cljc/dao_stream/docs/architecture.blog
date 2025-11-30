@@ -1,0 +1,574 @@
+#:blog{:title "DaoStream Architecture: Everything is a Stream",
+       :date #inst "2025-11-30T00:00:00.000-00:00",
+       :abstract
+       [:p
+        "DaoStream embodies 'everything is a stream'—a Plan 9-inspired philosophy where data flows as immutable "
+        "datom sequences [e a v t m] through a universal protocol. Unlike traditional architectures with rigid schemas "
+        "and hierarchical structures, DaoStream provides five simple operations (open, read, write, close, status) over "
+        "append-only streams, enabling schema-on-read interpretation, local-first operation, and distributed synchronization "
+        "through CRDTs. The result is a system where email, calendars, analytics, and AI all consume the same flowing data, "
+        "interpreted differently but never duplicated."],
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+
+          [:p
+           "In Plan 9, everything is a file. Resources, devices, network connections—all exposed through a uniform "
+           "file interface with open, read, write, close. This radical simplicity enabled extraordinary composability. "
+           "DaoStream takes this further: " [:strong "everything is a stream"] "."]
+
+          [:p
+           "Not files. Not objects. Not tables. " [:em "Streams"] "—endless flows of immutable datoms, each carrying "
+           "a five-element tuple " [:code "[entity attribute value time metadata]"] " that preserves complete context "
+           "without ever changing. One stream, many interpreters. No schema migrations. No data duplication. Just flow."]
+
+          [:h2 "1. The Core Abstraction: Datoms as Flow"]
+
+          [:p
+           "At the heart of DaoStream is the " [:strong "datom"] "—an atomic fact that never changes once written:"]
+
+          [:pre
+           [:code
+            "[entity    attribute        value              time                  metadata]\n"
+            "[user/42   :email/subject   \"Meeting Tomorrow\"  2025-11-30T10:00Z    {:origin \"mobile\"}]\n"
+            "[user/42   :email/to        user/99            2025-11-30T10:00Z    {:origin \"mobile\"}]\n"
+            "[user/99   :calendar/event  event/777          2025-11-30T10:01Z    {:synced true}]"]]
+
+          [:p
+           "Each datom is " [:strong "complete"] "—it carries entity identity, attribute type, concrete value, precise "
+           "timestamp, and arbitrary metadata. This isn't a row in a table that requires joins to make sense. It's a "
+           "self-contained fact that flows through the system."]
+
+          [:p
+           "Why five elements?"]
+
+          [:ul.bulleted
+           [:li [:strong "Entity (e)"] ": What thing are we talking about? (user/42, event/777)"]
+           [:li [:strong "Attribute (a)"] ": What aspect of this thing? (:email/subject, :calendar/event)"]
+           [:li [:strong "Value (v)"] ": What is the actual data? (\"Meeting Tomorrow\", event/777)"]
+           [:li [:strong "Time (t)"] ": When did this fact become true? (2025-11-30T10:00Z)"]
+           [:li [:strong "Metadata (m)"] ": What's the context? ({:origin \"mobile\", :synced true})"]]
+
+          [:p
+           "This structure makes every datom " [:strong "auditable"] " (when?), " [:strong "traceable"] " (from where?), "
+           "and " [:strong "immutable"] " (never modified, only appended). The stream becomes a complete historical "
+           "record—not just current state, but " [:em "all states that ever were"] "."]
+
+          [:h2 "2. The Protocol: Five Operations"]
+
+          [:p
+           "Plan 9 had a beautiful interface: open, read, write, close. DaoStream adds one more—" [:code "status"] "—"
+           "for monitoring distributed stream health."]
+
+          [:h3 "open: Establish Connection"]
+
+          [:pre
+           [:code
+            "(stream/open {:path \"/user/42/email\"})\n"
+            ";; => {:stream-id \"abc-123\", :status :connecting}"]]
+
+          [:p
+           "The " [:code ":path"] " parameter identifies which stream to connect to. Paths can be hierarchical "
+           "(" [:code "\"/user/42/email/inbox\""] ") or flat (" [:code "\"global-analytics\""] "). The implementation "
+           "doesn't enforce structure—clients choose their own namespace conventions."]
+
+          [:p
+           [:strong "No schema negotiation"] ". No version handshakes. Just: \"I want to read from this path.\" The "
+           "stream either exists or it doesn't. If it doesn't, " [:code "open"] " can create it (append-only, empty). "
+           "If it does, you get a handle."]
+
+          [:h3 "read: Consume Datoms"]
+
+          [:pre
+           [:code
+            "(stream/read stream-id)\n"
+            ";; => lazy sequence of datoms:\n"
+            ";; ([user/42 :email/subject \"Re: Project\" 2025-11-30T09:00Z {}]\n"
+            ";;  [user/42 :email/to user/99 2025-11-30T09:00Z {}]\n"
+            ";;  ...)"]]
+
+          [:p
+           [:code "read"] " returns a " [:strong "lazy, asynchronous sequence"] ". Datoms arrive as they're appended. "
+           "If you're caught up, " [:code "read"] " blocks until new datoms appear (or returns according to timeout policy)."]
+
+          [:p
+           "This is " [:strong "pull-based streaming"] ". The consumer controls the pace. No backpressure issues—if "
+           "you read slowly, datoms queue. If you read fast, you consume from the log. The stream doesn't care."]
+
+          [:p
+           "Filters and queries happen " [:strong "client-side"] ". Want only emails with subject containing \"urgent\"? "
+           "Filter the sequence:"]
+
+          [:pre
+           [:code
+            "(->> (stream/read stream-id)\n"
+            "     (filter #(and (= (:a %) :email/subject)\n"
+            "                   (str/includes? (:v %) \"urgent\"))))"]]
+
+          [:p
+           "No server-side query language. No indexes to maintain. Just functional sequence operations. The stream "
+           "gives you everything; you take what you need."]
+
+          [:h3 "write: Append Datoms"]
+
+          [:pre
+           [:code
+            "(stream/write stream-id\n"
+            "  [user/42 :email/subject \"New message\" (now) {:origin \"desktop\"}])\n"
+            ";; => {:status :written, :time 2025-11-30T11:00Z}"]]
+
+          [:p
+           [:code "write"] " " [:strong "appends"] ". Never updates. Never deletes. If you want to \"change\" something, "
+           "you write a new datom with a later timestamp. The old datom remains in the stream."]
+
+          [:p
+           "How do you model deletion? Write a " [:strong "retraction datom"] ":"]
+
+          [:pre
+           [:code
+            "[user/42 :email/archived true (now) {:operation :retract}]"]]
+
+          [:p
+           "Or explicitly mark end-of-life:"]
+
+          [:pre
+           [:code
+            "[event/777 :event/cancelled true (now) {}]"]]
+
+          [:p
+           "Readers interpret these as \"this fact is no longer current.\" The stream itself? Still has the original "
+           "datom. You get audit trails for free—every change is a new append, and the full history is always available."]
+
+          [:h3 "close: Release Resources"]
+
+          [:pre
+           [:code
+            "(stream/close stream-id)\n"
+            ";; => {:status :closed}"]]
+
+          [:p
+           "Clean shutdown. Stop consuming. Release file handles, network connections, memory buffers. Simple."]
+
+          [:h3 "status: Monitor Stream State"]
+
+          [:pre
+           [:code
+            "(stream/status stream-id)\n"
+            ";; => {:status :connected,\n"
+            ";;     :position 12847,\n"
+            ";;     :lag 0,\n"
+            ";;     :peers [{:node-id \"node-1\", :last-seen 2025-11-30T11:00Z}]}"]]
+
+          [:p
+           "For distributed streams, " [:code "status"] " reveals:"]
+
+          [:ul.bulleted
+           [:li [:code ":connecting"] " - establishing connection"]
+           [:li [:code ":connected"] " - active, consuming"]
+           [:li [:code ":closed"] " - shut down"]
+           [:li [:code ":position"] " - current offset in the stream"]
+           [:li [:code ":lag"] " - how far behind the latest datom"]
+           [:li [:code ":peers"] " - other nodes consuming this stream"]]
+
+          [:p
+           "This enables " [:strong "observability"] " without breaking the abstraction. The protocol stays simple; "
+           "monitoring is opt-in."]
+
+          [:h2 "3. Universal Interpretation: Schema-on-Read"]
+
+          [:p
+           "Here's where DaoStream diverges from traditional databases: " [:strong "there is no schema enforcement at write time"] "."]
+
+          [:p
+           "You can write " [:em "any"] " datom to " [:em "any"] " stream:"]
+
+          [:pre
+           [:code
+            "(stream/write email-stream [user/42 :favorite/color \"blue\" (now) {}])\n"
+            "(stream/write analytics-stream [purchase/99 :email/subject \"Receipt\" (now) {}])"]]
+
+          [:p
+           "This looks chaotic. Won't you get garbage data? How do applications make sense of it?"]
+
+          [:p
+           [:strong "Schema-on-read"] ". Each consumer decides how to interpret the stream:"]
+
+          [:ul.bulleted
+           [:li [:strong "Email client"] ": Looks for datoms with " [:code ":email/*"] " attributes, assembles them "
+           "into message objects, ignores everything else"]
+           [:li [:strong "Calendar"] ": Filters for " [:code ":calendar/*"] " and " [:code ":event/*"] ", builds "
+           "a timeline view"]
+           [:li [:strong "Analytics"] ": Consumes " [:em "all"] " datoms, extracts behavioral patterns across attributes"]
+           [:li [:strong "AI system"] ": Treats the entire stream as training data, learns correlations between "
+           "entity-attribute patterns"]]
+
+          [:p
+           "The " [:em "same stream"] " serves all these purposes simultaneously. No ETL. No data duplication. Each "
+           "interpreter applies its own lens."]
+
+          [:p
+           "This is " [:strong "polyglot data"] "—multiple schemas coexist in the same stream because the stream "
+           "has no schema. It's just a sequence of facts. Meaning is constructed by the reader."]
+
+          [:h3 "Evolution Without Migration"]
+
+          [:p
+           "Want to add a new field to \"email messages\"? Just start writing datoms with that attribute:"]
+
+          [:pre
+           [:code
+            "[user/42 :email/priority :high (now) {}]"]]
+
+          [:p
+           "Old clients ignore it (they don't know about " [:code ":email/priority"] "). New clients use it. No "
+           "migration script. No downtime. No coordination."]
+
+          [:p
+           "Want to deprecate an attribute? Stop writing it. Old datoms with that attribute remain in the stream "
+           "(immutability), but new writes omit it. Readers handle both gracefully—if they see the attribute, they "
+           "use it; if not, they apply defaults."]
+
+          [:p
+           [:strong "Schema becomes documentation, not enforcement"] ". You can publish a spec that says \"email "
+           "messages should have :email/subject, :email/to, :email/from,\" but the stream doesn't validate it. "
+           "Clients can choose to validate on read if they want strict typing."]
+
+          [:h2 "4. Local-First: Offline by Default"]
+
+          [:p
+           "DaoStream's design assumption: " [:strong "the network is unreliable, and that's fine"] "."]
+
+          [:p
+           "Every node maintains its own local stream storage. When you write a datom on a mobile device with no "
+           "connectivity:"]
+
+          [:ol
+           [:li "Datom appends to local storage immediately (e.g., SQLite, RocksDB)"]
+           [:li "App continues working—reads, writes, queries all function offline"]
+           [:li "When connectivity returns, local datoms propagate to other nodes"]
+           [:li "CRDTs resolve any conflicts (details below)"]]
+
+          [:p
+           "This is " [:strong "optimistic replication"] ". Assume writes succeed locally, sync eventually. No blocking "
+           "on network round-trips. No \"saving...\" spinners."]
+
+          [:h3 "Sync Protocol"]
+
+          [:p
+           "When two nodes reconnect, they exchange datoms:"]
+
+          [:pre
+           [:code
+            "Node A: \"I have datoms up to time T_a\"\n"
+            "Node B: \"I have datoms up to time T_b\"\n"
+            "Node A sends all datoms with time > T_b\n"
+            "Node B sends all datoms with time > T_a"]]
+
+          [:p
+           "Both nodes append the received datoms to their local streams. Now they're consistent (eventually)."]
+
+          [:p
+           "What about conflicts? If both nodes wrote different values for the same entity-attribute at similar times?"]
+
+          [:p
+           [:strong "CRDTs (Conflict-free Replicated Data Types)"] " provide deterministic conflict resolution:"]
+
+          [:ul.bulleted
+           [:li [:strong "Last-write-wins"] ": The datom with the latest timestamp wins"]
+           [:li [:strong "Multi-value register"] ": Keep both values, let the client decide"]
+           [:li [:strong "Set union"] ": Merge sets of values (e.g., tags)"]
+           [:li [:strong "Counter CRDTs"] ": Sum increments/decrements from all nodes"]]
+
+          [:p
+           "The choice of CRDT depends on the attribute. For " [:code ":email/subject"] ", last-write-wins makes sense. "
+           "For " [:code ":document/editors"] " (a set), union is appropriate. DaoStream allows per-attribute CRDT policies."]
+
+          [:h2 "5. Distributed Architecture: Peer Streams"]
+
+          [:p
+           "DaoStream doesn't assume a central server. Any node can consume and produce streams. Common topologies:"]
+
+          [:h3 "Star Topology: Server as Hub"]
+
+          [:pre
+           [:code
+            "Desktop ←→ Server ←→ Mobile\n"
+            "           ↕\n"
+            "         Cloud Storage"]]
+
+          [:p
+           "A server node acts as a durable coordination point. Mobile and desktop sync through it. Useful for "
+           "reliability—server stays online, devices come and go."]
+
+          [:h3 "Peer-to-Peer: Direct Sync"]
+
+          [:pre
+           [:code
+            "Desktop ←→ Mobile\n"
+            "   ↕          ↕\n"
+            " Laptop    Tablet"]]
+
+          [:p
+           "Devices sync directly when on the same local network. No server needed. Faster, more private."]
+
+          [:h3 "Hybrid: Local P2P + Remote Hub"]
+
+          [:pre
+           [:code
+            "Local Network:    Internet:\n"
+            "Desktop ←→ Mobile  Desktop ←→ Cloud\n"
+            "                  Mobile  ←→ Cloud"]]
+
+          [:p
+           "Devices sync locally when possible, fall back to cloud when needed. Best of both worlds."]
+
+          [:h3 "Stream Partitioning"]
+
+          [:p
+           "For large systems, streams can be partitioned by path prefix:"]
+
+          [:ul.bulleted
+           [:li [:code "\"/user/*\""] " - user data on personal devices"]
+           [:li [:code "\"/analytics/*\""] " - aggregated metrics on analytics server"]
+           [:li [:code "\"/global/*\""] " - shared public streams replicated everywhere"]]
+
+          [:p
+           "Nodes subscribe to the paths they care about. A mobile device doesn't need " [:code "\"/analytics/*\""] ". "
+           "An analytics server doesn't need every user's " [:code "\"/user/*/draft-emails\""] "."]
+
+          [:h2 "6. Storage Layer: Immutable Log + Indexes"]
+
+          [:p
+           "Streams are stored as " [:strong "append-only logs"] "—the simplest possible data structure:"]
+
+          [:pre
+           [:code
+            "Offset | Datom\n"
+            "-------|----------------------------------------------------------\n"
+            "0      | [user/42 :email/subject \"Hello\" 2025-11-30T08:00Z {}]\n"
+            "1      | [user/42 :email/to user/99 2025-11-30T08:00Z {}]\n"
+            "2      | [user/99 :calendar/event event/777 2025-11-30T08:01Z {}]\n"
+            "..."]]
+
+          [:p
+           "Writes are " [:strong "O(1)"] "—append to the end. Reads are sequential. But sequential scans are slow for queries."]
+
+          [:h3 "Indexes for Efficient Queries"]
+
+          [:p
+           "DaoStream builds indexes asynchronously from the log:"]
+
+          [:ul.bulleted
+           [:li [:strong "EAVT"] ": Entity-Attribute-Value-Time - \"What are all facts about user/42?\""]
+           [:li [:strong "AEVT"] ": Attribute-Entity-Value-Time - \"Who has :email/subject?\""]
+           [:li [:strong "VAET"] ": Value-Attribute-Entity-Time - \"What entities reference event/777?\""]
+           [:li [:strong "AVET"] ": Attribute-Value-Entity-Time - \"Find all emails with subject 'Urgent'\""]]
+
+          [:p
+           "These are " [:strong "materialized views"] " of the log. They don't change the log—they just make queries fast."]
+
+          [:p
+           "Indexes update asynchronously. You might see a small delay (milliseconds) between writing a datom and "
+           "querying it via an index. For real-time consumers, reading the stream directly guarantees immediate consistency."]
+
+          [:h3 "Time Travel"]
+
+          [:p
+           "Because every datom has a timestamp and the log is immutable, you can query " [:em "past states"] ":"]
+
+          [:pre
+           [:code
+            ";; What was user/42's email subject at 2025-11-30T09:00Z?\n"
+            "(query-at-time\n"
+            "  {:entity user/42\n"
+            "   :attribute :email/subject\n"
+            "   :time #inst \"2025-11-30T09:00Z\"})"]]
+
+          [:p
+           "Just filter the log: take datoms with " [:code "time <= 2025-11-30T09:00Z"] ", apply last-write-wins, "
+           "return the value. The log is a complete audit trail."]
+
+          [:h2 "7. Example: Email, Calendar, Analytics from One Stream"]
+
+          [:p
+           "Imagine user/42 sends an email scheduling a meeting:"]
+
+          [:pre
+           [:code
+            ";; Datoms written to /user/42 stream:\n"
+            "[user/42 :email/subject \"Team Meeting\" (now) {:origin \"desktop\"}]\n"
+            "[user/42 :email/to user/99 (now) {:origin \"desktop\"}]\n"
+            "[user/42 :email/body \"Let's meet Tuesday 3pm\" (now) {:origin \"desktop\"}]\n"
+            "[user/42 :calendar/event event/555 (now) {:origin \"desktop\"}]\n"
+            "[event/555 :event/time #inst \"2025-12-03T15:00Z\" (now) {}]\n"
+            "[event/555 :event/attendees [user/42 user/99] (now) {}]"]]
+
+          [:p
+           [:strong "Email client"] " reads the stream, finds datoms with " [:code ":email/*"] ", assembles them into "
+           "a message object, displays \"Team Meeting\" in the inbox."]
+
+          [:p
+           [:strong "Calendar"] " reads the stream, finds " [:code "[user/42 :calendar/event event/555]"] ", follows "
+           "the reference to " [:code "event/555"] ", reads " [:code ":event/time"] " and " [:code ":event/attendees"] ", "
+           "adds \"Team Meeting\" to Tuesday 3pm."]
+
+          [:p
+           [:strong "Analytics"] " reads the stream, notes that user/42 sent an email at time T and created a calendar "
+           "event at time T+1ms, infers \"this user schedules meetings via email,\" increments the \"email→calendar\" "
+           "correlation metric."]
+
+          [:p
+           [:strong "AI system"] " reads the stream, sees entity-attribute patterns, learns that " [:code ":email/body"]
+           " containing \"meet\" often correlates with " [:code ":calendar/event"] " datoms, uses this to suggest "
+           "\"Create calendar event?\" when similar emails appear."]
+
+          [:p
+           [:strong "One stream. Four interpretations. No duplication. No ETL."] " Each consumer extracts what it needs."]
+
+          [:h2 "8. Implementation Stack"]
+
+          [:p
+           "For a Clojure-based DaoStream implementation:"]
+
+          [:h3 "Language"]
+
+          [:ul.bulleted
+           [:li [:strong "Clojure/ClojureScript"] " - functional, immutable data structures align perfectly with "
+           "append-only datoms"]
+           [:li [:strong "core.async"] " - for async stream consumption and backpressure"]
+           [:li [:strong "Transit"] " - efficient datom serialization over the wire"]]
+
+          [:h3 "Storage"]
+
+          [:ul.bulleted
+           [:li [:strong "Datomic/DataScript pattern"] " - entity-attribute-value model, immutable log, time-aware queries"]
+           [:li [:strong "RocksDB"] " - embedded key-value store for local stream persistence (mobile, desktop)"]
+           [:li [:strong "SQLite"] " - alternative for simpler deployments"]
+           [:li [:strong "PostgreSQL"] " - for server nodes needing SQL querying"]]
+
+          [:h3 "Sync & CRDTs"]
+
+          [:ul.bulleted
+           [:li [:strong "Automerge"] " - mature CRDT library with JSON-like API"]
+           [:li [:strong "y-crdt"] " - high-performance CRDTs, good for text editing"]
+           [:li [:strong "Custom CRDT layer"] " - implement last-write-wins, sets, counters directly on datoms"]]
+
+          [:h3 "Transport"]
+
+          [:ul.bulleted
+           [:li [:strong "WebSocket"] " - bidirectional streaming for browser/server sync"]
+           [:li [:strong "Server-Sent Events (SSE)"] " - simpler, unidirectional push for read-only clients"]
+           [:li [:strong "HTTP/2 streams"] " - multiplexed streams over HTTP"]
+           [:li [:strong "Local IPC"] " - Unix sockets for intra-device communication"]]
+
+          [:h2 "9. Philosophical Grounding: Taoist Flow"]
+
+          [:p
+           "DaoStream's architecture reflects Taoist principles:"]
+
+          [:ul.bulleted
+           [:li [:strong "Wu wei (effortless action)"] " - streams flow naturally; no forced hierarchies or rigid schemas"]
+           [:li [:strong "Simplicity"] " - five operations, one data structure (datom), minimal protocol"]
+           [:li [:strong "Emptiness"] " - streams have no inherent meaning; interpreters give them form"]
+           [:li [:strong "Natural order"] " - time orders datoms; no artificial primary keys or imposed structure"]
+           [:li [:strong "Emergence"] " - complex applications (email, calendar, analytics) emerge from simple "
+           "stream composition, not top-down design"]]
+
+          [:p
+           "In traditional systems, you design the schema first, then fit data into it. In DaoStream, you let data "
+           "flow, and structure emerges from how you read it. The stream is the formless source; applications are "
+           "the formed manifestations."]
+
+          [:h2 "10. Comparison to Other Architectures"]
+
+          [:h3 "vs. REST APIs"]
+
+          [:ul.bulleted
+           [:li [:strong "REST"] ": Request-response, stateless, server-defined resources"]
+           [:li [:strong "DaoStream"] ": Continuous flow, stateful connections, client-defined interpretation"]
+           [:li [:strong "Trade-off"] ": DaoStream requires persistent connections but enables real-time updates "
+           "without polling"]]
+
+          [:h3 "vs. Event Sourcing"]
+
+          [:ul.bulleted
+           [:li [:strong "Event Sourcing"] ": Append-only events, rebuild state from event log"]
+           [:li [:strong "DaoStream"] ": Append-only datoms (facts, not just events), direct queries on current state "
+           "via indexes"]
+           [:li [:strong "Similarity"] ": Both immutable, both time-aware, both support audit trails"]
+           [:li [:strong "Difference"] ": DaoStream doesn't require replaying events to get current state—indexes "
+           "provide materialized views"]]
+
+          [:h3 "vs. Kafka / Pub-Sub"]
+
+          [:ul.bulleted
+           [:li [:strong "Kafka"] ": Topics with messages, offset-based consumption, broker-managed partitions"]
+           [:li [:strong "DaoStream"] ": Streams with datoms, lazy sequence consumption, path-based naming"]
+           [:li [:strong "Similarity"] ": Both append-only, both support multiple consumers, both distributed"]
+           [:li [:strong "Difference"] ": DaoStream emphasizes local-first (Kafka is broker-centric), schema-on-read "
+           "(Kafka often has schema registry), and entity-attribute-value structure (Kafka is opaque bytes)"]]
+
+          [:h3 "vs. Traditional Databases"]
+
+          [:ul.bulleted
+           [:li [:strong "SQL/NoSQL"] ": Mutable records, schema enforcement, query language"]
+           [:li [:strong "DaoStream"] ": Immutable datoms, schema-on-read, lazy sequence operations"]
+           [:li [:strong "Trade-off"] ": DaoStream sacrifices SQL's declarative queries and ACID transactions for "
+           "immutability, distributed sync, and schema flexibility"]]
+
+          [:h2 "11. Use Cases"]
+
+          [:p
+           "Where does DaoStream excel?"]
+
+          [:ul.bulleted
+           [:li [:strong "Personal data systems"] " - email, calendar, notes, tasks all flowing through one stream, "
+           "synced across devices"]
+           [:li [:strong "Collaborative tools"] " - shared documents, comments, edits as datoms; CRDTs handle conflicts"]
+           [:li [:strong "IoT / sensor data"] " - continuous append-only measurements, local buffering, eventual cloud sync"]
+           [:li [:strong "Audit-heavy applications"] " - financial transactions, medical records, legal documents "
+           "where immutability and time-travel are critical"]
+           [:li [:strong "Offline-first apps"] " - mobile apps that work without connectivity, sync when available"]
+           [:li [:strong "Analytics pipelines"] " - raw datom stream feeds multiple analytics consumers without ETL"]]
+
+          [:p
+           "Where does DaoStream struggle?"]
+
+          [:ul.bulleted
+           [:li [:strong "High-frequency trading"] " - append-only log has overhead; in-memory mutable state is faster"]
+           [:li [:strong "Large binary blobs"] " - datoms are for metadata; store large files separately, reference "
+           "them via datoms"]
+           [:li [:strong "Complex joins"] " - no SQL query planner; graph traversal is manual (though doable)"]
+           [:li [:strong "Strict consistency"] " - eventual consistency via CRDTs; not suitable for strong ACID requirements"]]
+
+          [:h2 "Conclusion: Simplicity Through Immutability"]
+
+          [:p
+           "DaoStream takes Plan 9's \"everything is a file\" and extends it: " [:strong "everything is a stream"] ". "
+           "A stream of immutable datoms. Five operations. Schema-on-read. Local-first. Distributed by default."]
+
+          [:p
+           "The architecture emerges from constraints:"]
+
+          [:ul.bulleted
+           [:li "Immutability → append-only log"]
+           [:li "Append-only → audit trails, time-travel"]
+           [:li "Schema-on-read → polyglot data, no migrations"]
+           [:li "Local-first → CRDTs, eventual consistency"]
+           [:li "Five operations → minimal protocol, maximum composability"]]
+
+          [:p
+           "You don't design a DaoStream system top-down. You let streams flow, connect interpreters, and see what "
+           "emerges. Email becomes a view over datoms. Calendar becomes another view. Analytics becomes a third. "
+           "They all consume the same data, but each sees something different."]
+
+          [:p [:strong "The stream is formless. The applications give it form. The architecture is the flow between them."]]
+
+          [:p [:strong "Learn more:"]]
+          [:ul.bulleted
+           [:li [:a {:href "https://datom.world/dao-stream.chp"} "DaoStream Introduction"] " - The vision and philosophy"]
+           [:li "DaoStream Protocol Specification (coming soon) - Formal protocol definition"]
+           [:li "DaoStream Reference Implementation (coming soon) - Clojure/ClojureScript codebase"]]]]]}
