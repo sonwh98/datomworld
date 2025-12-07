@@ -46,7 +46,7 @@
     [:style "
       body {
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        max-width: 1200px;
+        max-width: 100%;
         margin: 0;
         padding: 0;
         line-height: 1.6;
