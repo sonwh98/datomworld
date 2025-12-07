@@ -34,6 +34,66 @@
             (str "📁 " name)
             (str "📄 " name))]])]]))
 
+(defn render-source-page [content]
+  "Wrap source code in a styled HTML page with syntax highlighting"
+  [:html
+   [:head
+    [:meta {:charset "utf-8"}]
+    [:meta {:name "viewport" :content "width=device-width, initial-scale=1"}]
+    [:title "Source Browser"]
+    [:link {:rel "stylesheet"
+            :href "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/night-owl.min.css"}]
+    [:style "
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        max-width: 1200px;
+        margin: 0;
+        padding: 0;
+        line-height: 1.6;
+        color: #333;
+      }
+      .header {
+        background: #0066cc;
+        color: white;
+        padding: 20px 40px;
+        margin-bottom: 0;
+      }
+      .header h1 {
+        margin: 0;
+        font-size: 1.5rem;
+        border: none;
+        padding: 0;
+      }
+      .breadcrumb {
+        margin: 0;
+        padding: 10px 40px;
+        background: #f5f5f5;
+        border-bottom: 1px solid #ddd;
+      }
+      .breadcrumb a {
+        color: #0066cc;
+        text-decoration: none;
+      }
+      .breadcrumb a:hover {
+        text-decoration: underline;
+      }
+      pre {
+        margin: 0;
+        padding: 20px 40px;
+        background: #011627 !important;
+        overflow-x: auto;
+      }
+      pre code {
+        font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+        font-size: 14px;
+        line-height: 1.5;
+      }
+    "]]
+   [:body content
+    [:script {:src "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"}]
+    [:script {:src "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/clojure.min.js"}]
+    [:script "hljs.highlightAll();"]]])
+
 (defn render-directory-page [content]
   "Wrap directory listing in a styled HTML page"
   [:html
@@ -92,6 +152,12 @@
     "]]
    [:body content]])
 
+(defn clojure-file? [uri]
+  "Check if the URI is a Clojure source file"
+  (or (str/ends-with? uri ".clj")
+      (str/ends-with? uri ".cljs")
+      (str/ends-with? uri ".cljc")))
+
 (defn src-handler [req]
   "Handler for /src directory browsing with .blog file support"
   (let [uri (:uri req)
@@ -128,6 +194,24 @@
       (.isDirectory file)
       (let [content (file-listing fs-path (or rel-path "/"))
             html (hiccup/html5 (render-directory-page content))]
+        (-> (response/response html)
+            (response/content-type "text/html; charset=utf-8")))
+
+      ;; Handle Clojure source files with syntax highlighting
+      (and (.exists file) (clojure-file? uri))
+      (let [source-code (slurp file)
+            filename (.getName file)
+            content [:div
+                     [:div.header
+                      [:h1 filename]]
+                     [:nav.breadcrumb
+                      (let [parts (str/split rel-path #"/")
+                            paths (reductions #(str %1 "/" %2) parts)]
+                        (interpose " / "
+                                   (for [[part path] (map vector parts paths)]
+                                     [:a {:href (str "/src" path)} part])))]
+                     [:pre [:code.language-clojure source-code]]]
+            html (hiccup/html5 (render-source-page content))]
         (-> (response/response html)
             (response/content-type "text/html; charset=utf-8")))
 

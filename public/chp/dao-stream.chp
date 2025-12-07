@@ -33,7 +33,7 @@
        [:p
         "DaoStream defines a simple protocol with five operations for stream lifecycle and data flow:"]
        [:div.code-block
-        [:pre [:code
+        [:pre [:code.language-clojure
                "(defprotocol Stream
   (open [this params]
     \"Open the stream with params which has only 1 mandatory key

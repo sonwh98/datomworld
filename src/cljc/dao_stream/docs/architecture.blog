@@ -31,7 +31,7 @@
            "At the heart of DaoStream is the " [:strong "datom"] "—an atomic fact that never changes once written:"]
 
           [:pre
-           [:code
+           [:code.language-clojure
             "[entity    attribute        value              time                  metadata]\n"
             "[user/42   :email/subject   \"Meeting Tomorrow\"  2025-11-30T10:00Z    {:origin \"mobile\"}]\n"
             "[user/42   :email/to        user/99            2025-11-30T10:00Z    {:origin \"mobile\"}]\n"
@@ -66,7 +66,7 @@
           [:h3 "open: Establish Connection"]
 
           [:pre
-           [:code
+           [:code.language-clojure
             "(stream/open {:path \"/user/42/email\"})\n"
             ";; => {:stream-id \"abc-123\", :status :connecting}"]]
 
@@ -83,7 +83,7 @@
           [:h3 "read: Consume Datoms"]
 
           [:pre
-           [:code
+           [:code.language-clojure
             "(stream/read stream-id)\n"
             ";; => lazy sequence of datoms:\n"
             ";; ([user/42 :email/subject \"Re: Project\" 2025-11-30T09:00Z {}]\n"
@@ -103,7 +103,7 @@
            "Filter the sequence:"]
 
           [:pre
-           [:code
+           [:code.language-clojure
             "(->> (stream/read stream-id)\n"
             "     (filter #(and (= (:a %) :email/subject)\n"
             "                   (str/includes? (:v %) \"urgent\"))))"]]
@@ -115,7 +115,7 @@
           [:h3 "write: Append Datoms"]
 
           [:pre
-           [:code
+           [:code.language-clojure
             "(stream/write stream-id\n"
             "  [user/42 :email/subject \"New message\" (now) {:origin \"desktop\"}])\n"
             ";; => {:status :written, :time 2025-11-30T11:00Z}"]]
@@ -128,14 +128,14 @@
            "How do you model deletion? Write a " [:strong "retraction datom"] ":"]
 
           [:pre
-           [:code
+           [:code.language-clojure
             "[user/42 :email/archived true (now) {:operation :retract}]"]]
 
           [:p
            "Or explicitly mark end-of-life:"]
 
           [:pre
-           [:code
+           [:code.language-clojure
             "[event/777 :event/cancelled true (now) {}]"]]
 
           [:p
@@ -145,7 +145,7 @@
           [:h3 "close: Release Resources"]
 
           [:pre
-           [:code
+           [:code.language-clojure
             "(stream/close stream-id)\n"
             ";; => {:status :closed}"]]
 
@@ -155,7 +155,7 @@
           [:h3 "status: Monitor Stream State"]
 
           [:pre
-           [:code
+           [:code.language-clojure
             "(stream/status stream-id)\n"
             ";; => {:status :connected,\n"
             ";;     :position 12847,\n"
@@ -186,7 +186,7 @@
            "You can write " [:em "any"] " datom to " [:em "any"] " stream:"]
 
           [:pre
-           [:code
+           [:code.language-clojure
             "(stream/write email-stream [user/42 :favorite/color \"blue\" (now) {}])\n"
             "(stream/write analytics-stream [purchase/99 :email/subject \"Receipt\" (now) {}])"]]
 
@@ -219,7 +219,7 @@
            "Want to add a new field to \"email messages\"? Just start writing datoms with that attribute:"]
 
           [:pre
-           [:code
+           [:code.language-clojure
             "[user/42 :email/priority :high (now) {}]"]]
 
           [:p
@@ -261,7 +261,7 @@
            "When two nodes reconnect, they exchange datoms:"]
 
           [:pre
-           [:code
+           [:code.language-clojure
             "Node A: \"I have datoms up to time T_a\"\n"
             "Node B: \"I have datoms up to time T_b\"\n"
             "Node A sends all datoms with time > T_b\n"
@@ -294,7 +294,7 @@
           [:h3 "Star Topology: Server as Hub"]
 
           [:pre
-           [:code
+           [:code.language-clojure
             "Desktop ←→ Server ←→ Mobile\n"
             "           ↕\n"
             "         Cloud Storage"]]
@@ -306,7 +306,7 @@
           [:h3 "Peer-to-Peer: Direct Sync"]
 
           [:pre
-           [:code
+           [:code.language-clojure
             "Desktop ←→ Mobile\n"
             "   ↕          ↕\n"
             " Laptop    Tablet"]]
@@ -317,7 +317,7 @@
           [:h3 "Hybrid: Local P2P + Remote Hub"]
 
           [:pre
-           [:code
+           [:code.language-clojure
             "Local Network:    Internet:\n"
             "Desktop ←→ Mobile  Desktop ←→ Cloud\n"
             "                  Mobile  ←→ Cloud"]]
@@ -345,7 +345,7 @@
            "Streams are stored as " [:strong "append-only logs"] "—the simplest possible data structure:"]
 
           [:pre
-           [:code
+           [:code.language-clojure
             "Offset | Datom\n"
             "-------|----------------------------------------------------------\n"
             "0      | [user/42 :email/subject \"Hello\" 2025-11-30T08:00Z {}]\n"
@@ -380,7 +380,7 @@
            "Because every datom has a timestamp and the log is immutable, you can query " [:em "past states"] ":"]
 
           [:pre
-           [:code
+           [:code.language-clojure
             ";; What was user/42's email subject at 2025-11-30T09:00Z?\n"
             "(query-at-time\n"
             "  {:entity user/42\n"
@@ -397,7 +397,7 @@
            "Imagine user/42 sends an email scheduling a meeting:"]
 
           [:pre
-           [:code
+           [:code.language-clojure
             ";; Datoms written to /user/42 stream:\n"
             "[user/42 :email/subject \"Team Meeting\" (now) {:origin \"desktop\"}]\n"
             "[user/42 :email/to user/99 (now) {:origin \"desktop\"}]\n"
