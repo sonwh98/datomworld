@@ -52,27 +52,20 @@
         line-height: 1.6;
         color: #333;
       }
-      .header {
-        background: #0066cc;
-        color: white;
-        padding: 20px 40px;
-        margin-bottom: 0;
-      }
-      .header h1 {
-        margin: 0;
-        font-size: 1.5rem;
-        border: none;
-        padding: 0;
-      }
       .breadcrumb {
         margin: 0;
-        padding: 10px 40px;
-        background: #f5f5f5;
-        border-bottom: 1px solid #ddd;
+        padding: 15px 40px;
+        background: #0066cc;
+        border-bottom: 2px solid #004a99;
+        position: sticky;
+        top: 0;
+        z-index: 100;
+        font-size: 14px;
       }
       .breadcrumb a {
-        color: #0066cc;
+        color: #ffffff;
         text-decoration: none;
+        font-weight: 500;
       }
       .breadcrumb a:hover {
         text-decoration: underline;
@@ -200,10 +193,7 @@
       ;; Handle Clojure source files with syntax highlighting
       (and (.exists file) (clojure-file? uri))
       (let [source-code (slurp file)
-            filename (.getName file)
             content [:div
-                     [:div.header
-                      [:h1 filename]]
                      [:nav.breadcrumb
                       (let [parts (str/split rel-path #"/")
                             paths (reductions #(str %1 "/" %2) parts)]
