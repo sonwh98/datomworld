@@ -75,7 +75,7 @@
             "interpreters executed in a more trusted environment (e.g. physical hardware, firmware, or a constrained container)"]]
           [:p
            "Yin.vm does not need a syscall table because every subsystem—device drivers, services, apps—is just an interpreter over streams."]
-          [:h2 "Yin.VM as a Scheduler: Writing an OS Kernel at the Language Level"]
+          [:h2 "Yin.VM as a Scheduler: Writing an OS Kernel at the Semantic Level"]
           [:p
            "Once you unify functions, closures, and continuations, the VM's role fundamentally shifts. Each continuation becomes a node in a control graph with its own local environment and stacks. The VM becomes the scheduler for these nodes."]
           [:p
@@ -150,13 +150,14 @@
              [:td "Scheduling metadata (priority, fuel, state)"]]]]
           [:p "These match conceptually. The difference:"]
           [:ul.bulleted
-           [:li "Yin's processes are language-level, not OS-level"]
+           [:li "Yin's processes are semantic abstractions—VM-level continuations independent of both OS processes and specific programming languages"]
+           [:li "OS kernels abstract hardware into processes; Yin.VM abstracts computation into continuations using a language-independent map-based AST"]
            [:li "They can be serialized, copied, forked, rolled back"]
            [:li "They don't need hardware context switching"]
            [:li "They are far cheaper to create and destroy"]]
           [:p
            [:strong
-            "Structurally, Yin is designing a kernel at the language level."]]
+            "Structurally, Yin is designing a kernel at the semantic level—abstracting computation independent of hardware."]]
           [:h3 "Why This Is Simpler Than an OS Scheduler"]
           [:p "Because Yin's continuations:"]
           [:ul.bulleted
