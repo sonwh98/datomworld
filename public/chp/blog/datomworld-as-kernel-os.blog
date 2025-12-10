@@ -75,6 +75,138 @@
             "interpreters executed in a more trusted environment (e.g. physical hardware, firmware, or a constrained container)"]]
           [:p
            "Yin.vm does not need a syscall table because every subsystem—device drivers, services, apps—is just an interpreter over streams."]
+          [:h2 "Yin.VM as a Scheduler: Writing an OS Kernel at the Language Level"]
+          [:p
+           "Once you unify functions, closures, and continuations, the VM's role fundamentally shifts. Each continuation becomes a node in a control graph with its own local environment and stacks. The VM becomes the scheduler for these nodes."]
+          [:p
+           [:strong
+            "Writing such a VM is like writing a scheduler for an OS kernel—but at a higher semantic level."]]
+          [:h3 "Continuations as Micro-VMs"]
+          [:p "A continuation in Yin is not just a suspended computation. It is:"]
+          [:ul.bulleted
+           [:li "A micro-VM with its own PC (code-id + instruction offset)"]
+           [:li "An isolated environment with its own locals and lexical bindings"]
+           [:li "A structure with its own heap references"]
+           [:li "A resumable entity that may have pending child continuations"]
+           [:li "A blockable process that may wait on a stream"]
+           [:li "A migratable unit that can move across nodes"]
+           [:li "A replayable computation that can be resumed multiple times"]]
+          [:p
+           "This is exactly what a process or thread has in an OS, but lighter and more structured. Yin continuations are like:"]
+          [:ul.bulleted
+           [:li "Threads in Erlang"]
+           [:li "Green threads in Go"]
+           [:li "Continuation-based processes in Scheme"]
+           [:li "Actors in the actor model"]
+           [:li "Tasks in async runtimes"]]
+          [:h3 "The VM as Scheduler, Not Stack Machine"]
+          [:p "In a typical stack VM, the job is simple:"]
+          [:ul.bulleted
+           [:li "Push stack frame"]
+           [:li "Pop stack frame"]
+           [:li "Execute one active call chain"]]
+          [:p "But in Yin.VM, the job becomes:"]
+          [:ul.bulleted
+           [:li "Maintain a pool of runnable continuations"]
+           [:li "Schedule them fairly or by priority"]
+           [:li "Block/unblock them on I/O (streams)"]
+           [:li "Handle migration if needed"]
+           [:li "Manage resources through budgets (fuel model)"]]
+          [:p
+           [:strong
+            "This is OS scheduling, done inside the runtime."]]
+          [:h3 "Why This Is Not Accidental"]
+          [:p
+           "This shift is not a design choice—it is a consequence of making control flow first-class. In Yin:"]
+          [:ul.bulleted
+           [:li "Any continuation can split into two"]
+           [:li "Any continuation can pause"]
+           [:li "Any continuation can migrate"]
+           [:li "Any continuation can be resumed by another"]]
+          [:p "This makes Yin.VM act simultaneously as:"]
+          [:ul.bulleted
+           [:li "A process scheduler"]
+           [:li "A coroutine manager"]
+           [:li "An actor runtime"]
+           [:li "A distributed mobility framework"]]
+          [:p
+           "Yin's semantics "
+           [:em "force"]
+           " the VM to become a scheduler. There is no other way."]
+          [:h3 "The Structural Equivalence"]
+          [:p "Consider the comparison:"]
+          [:table
+           [:thead
+            [:tr [:th "Linux Process"] [:th "Yin Continuation"]]]
+           [:tbody
+            [:tr [:td "PC (program counter)"] [:td "code-id + offset"]]
+            [:tr [:td "Registers"] [:td "Environment map"]]
+            [:tr
+             [:td "Stack"]
+             [:td "Continuation chain (structural stack)"]]
+            [:tr [:td "Memory map"] [:td "Private heap refs"]]
+            [:tr
+             [:td "Scheduler slot"]
+             [:td "Scheduling metadata (priority, fuel, state)"]]]]
+          [:p "These match conceptually. The difference:"]
+          [:ul.bulleted
+           [:li "Yin's processes are language-level, not OS-level"]
+           [:li "They can be serialized, copied, forked, rolled back"]
+           [:li "They don't need hardware context switching"]
+           [:li "They are far cheaper to create and destroy"]]
+          [:p
+           [:strong
+            "Structurally, Yin is designing a kernel at the language level."]]
+          [:h3 "Why This Is Simpler Than an OS Scheduler"]
+          [:p "Because Yin's continuations:"]
+          [:ul.bulleted
+           [:li "Don't need hardware context switching"]
+           [:li "Don't manage hardware MMUs"]
+           [:li "Don't require interrupt handling (unless explicitly added)"]
+           [:li "Have no shared mutable memory"]
+           [:li "Are pure values (snapshottable)"]
+           [:li "Don't require synchronization primitives like locks"]]
+          [:p "You get:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Cooperative scheduling"]
+            " for free"]
+           [:li
+            [:strong "Preemptive scheduling"]
+            " via fuel counters"]
+           [:li
+            [:strong "Isolation"]
+            " via immutable data + stream boundaries"]
+           [:li
+            [:strong "Zero-copy transfer"]
+            " through EDN shape-defined streams"]
+           [:li
+            [:strong "Replicable execution"]
+            " through deterministic semantics"]
+           [:li [:strong "Deterministic debugging"] " through replay"]]
+          [:p
+           [:em
+            "It is arguably the simplest possible OS—and the most powerful."]]
+          [:h3 "The Complete Mapping"]
+          [:p
+           "The architecture that emerges is not a metaphor. It is the literal structure:"]
+          [:table
+           [:thead
+            [:tr [:th "OS Concept"] [:th "Yin Equivalent"]]]
+           [:tbody
+            [:tr [:td "Process"] [:td "Continuation"]]
+            [:tr [:td "Thread"] [:td "Nested/invoked continuation"]]
+            [:tr [:td "Stack"] [:td "K (structured frames)"]]
+            [:tr [:td "Heap"] [:td "S (store)"]]
+            [:tr [:td "Syscalls"] [:td "Datom streams / VM ops"]]
+            [:tr [:td "Scheduler"] [:td "Yin runtime"]]
+            [:tr [:td "IPC"] [:td "Streams / continuation passing"]]
+            [:tr [:td "Executable"] [:td ":code-id module"]]
+            [:tr [:td "Process migration"] [:td "Continuation serialization"]]]]
+          [:p
+           "This is why Yin.VM isn't just a VM. "
+           [:strong "It's an operating system for interpreters."]
+           " And DaoDB, DaoStream, DaoFlow, and the rest sit above this semantic OS."]
           [:h2 "Kernel Space as a Set of Core Streams"]
           [:p
            "In a Datom.world OS, the kernel is defined structurally, not hierarchically:"]
