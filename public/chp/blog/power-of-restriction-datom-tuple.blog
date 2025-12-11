@@ -130,8 +130,8 @@
             " (how datoms compose into higher-order structures)"]
            [:li
             [:a
-             {:href "/blog/semantics-structure-interpretation.blog"}
-             "Semantics, Structure, and Interpretation"]
+             {:href "/blog/structure-vs-interpretation.blog"}
+             "Structure vs Interpretation"]
             " (why separating structure from meaning matters)"]
            [:li
             [:a

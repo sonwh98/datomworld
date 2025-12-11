@@ -589,7 +589,12 @@
             [:a
              {:href "/blog/continuations-universal-semantic-kernel.blog"}
              "Continuations as Universal Semantic Kernel"]
-            " (how continuations migrate across nodes)"]
+            " (why continuations is rich enough to represent semantics of all languages)"]
+           [:li
+            [:a
+             {:href "/blog/computation-moves-data-stays.blog"}
+             "Computation Moves, Data Stays: The Yin.vm Continuation Model"]
+            " (how continuations become lightweight enough to migrate)"]
            [:li
             [:a {:href "/dao-db.chp"} "DaoDB"]
             " (the stream database powering Datom.world)"]
