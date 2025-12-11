@@ -2,9 +2,9 @@
        :date #inst "2025-11-19T00:00:00.000-00:00",
        :abstract
        [:p
-        "Datom.world isn't a product. It's a "
+        "Datom.world isn't a product—it's a "
         [:strong "substrate"]
-        " - a new foundation for computing where everything is a stream of datoms."],
+        " enabling: AI agents with controlled, permissioned data access (without vendor lock-in), truly collaborative documents, distributed computation migrating to data, versioned databases with time-travel, polyglot code sharing one AST, mobile agents, local-first apps, and programmable compilers. 18 concrete use cases drawn from the architecture itself."],
        :content
        [:section.blog-article
         [:div.section-inner

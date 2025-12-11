@@ -2,11 +2,9 @@
        :date #inst "2025-11-22T00:00:00.000-00:00",
        :abstract
        [:p
-        "I previously argued in "
-        [:a
-         {:href "/blog/structure-vs-interpretation.blog"}
-         "Structure vs Interpretation"]
-        " that semantics comes from interpretation. Now I find myself arguing that semantics comes from structure, because Chinese characters encode semantics. This appears contradictory. It's not."],
+        "Does semantics come from interpretation or structure? Both: "
+        [:strong "Semantics = (structure) × (interpreter)"]
+        ". Chinese characters encode semantic associations (structure), but meaning only emerges when a reader interprets them. Remove either factor and semantics vanishes—this resolves the apparent contradiction."],
        :content
        [:section.blog-article
         [:div.section-inner

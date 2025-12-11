@@ -2,10 +2,9 @@
        :date #inst "2025-11-23T00:00:00.000-00:00",
        :abstract
        [:p
-        "DaoDB is a distributed database that materializes queryable covered indexes from flowing datom streams. "
-        "Unlike traditional databases that store current state, DaoDB stores all states—making time travel, "
-        "audit trails, and undo built-in rather than bolted-on. It's local-first by design, with quantum-inspired "
-        "synchronization that maintains global consistency without surrendering data custody."],
+        "DaoDB stores "
+        [:strong "all states, not just current state"]
+        "—making time travel, audit trails, and undo fundamental capabilities. It's local-first with quantum-inspired synchronization: when entangled, devices hold partial views while collectively maintaining complete state, preserving unitarity without central authority."],
        :content
        [:section.blog-article
         [:div.section-inner

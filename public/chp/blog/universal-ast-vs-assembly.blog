@@ -2,7 +2,10 @@
        "Universal AST vs Assembly: High-Level Semantics in Low-Level Form",
        :date #inst "2025-11-16T00:00:00.000-00:00",
        :abstract
-       [:p "Look at the Universal AST expressed as datom streams:"],
+       [:p
+        "The Universal AST "
+        [:strong "looks like assembly"]
+        "—flat, explicit, verbose datom sequences. But it operates at a fundamentally higher abstraction: assembly manipulates machine state, the Universal AST represents program semantics. It's the difference between \"move register\" and \"function application\"—low-level form, high-level meaning."],
        :content
        [:section.blog-article
         [:div.section-inner

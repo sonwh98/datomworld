@@ -3,10 +3,9 @@
        :date #inst "2025-11-16T00:00:00.000-00:00",
        :abstract
        [:p
-        "The Universal AST is canonical code. Syntax is a rendering. But here's the challenge: "
-        [:strong
-         "there are many ways to map from a Universal AST to a particular language syntax"]
-        "."],
+        "One AST maps to "
+        [:strong "many valid syntaxes"]
+        " (Python's list comprehension vs map() vs explicit loop). The renderer must choose, but the choice is arbitrary. The solution: user preferences, heuristics based on context, and diff-aware rendering that preserves the original syntax when semantics haven't changed."],
        :content
        [:section.blog-article
         [:div.section-inner

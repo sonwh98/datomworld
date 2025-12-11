@@ -2,10 +2,11 @@
        :date #inst "2025-11-18T00:00:00.000-00:00",
        :abstract
        [:p
-        "Relational Quantum Mechanics says: "
-        [:strong
-         "\"Reality is a network of interactions, not a collection of independent facts.\""]
-        ""],
+        "RQM says reality is "
+        [:strong "interactions, not state"]
+        ". π-calculus says computation is "
+        [:strong "message-passing, not mutation"]
+        ". These are the same insight: both reject independent facts/state as primary, making interaction fundamental. DaoDB implements this—distributed observers correlate through sync, not through shared global state."],
        :content
        [:section.blog-article
         [:div.section-inner

@@ -2,10 +2,9 @@
        :date #inst "2025-11-23T00:00:00.000-00:00",
        :abstract
        [:p
-        "Every interpreter adds a dimension to state-space. Crossing between interpretive layers creates "
-        "dimensional gradients, and traversing these gradients requires work. This isn't metaphor—it's "
-        "the fundamental structure of computation. Understanding this reveals why complexity emerges, "
-        "why compression is computation, and why the universe itself might be recursively self-interpreting."],
+        "Every interpreter adds a "
+        [:strong "dimension to state-space"]
+        ". Crossing interpretive layers creates dimensional gradients, and traversing them requires work—this is computation's fundamental structure. It explains why complexity emerges, why compression is computation, and why the universe might be self-interpreting."],
        :content
        [:section.blog-article
         [:div.section-inner

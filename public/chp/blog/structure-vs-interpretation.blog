@@ -3,16 +3,9 @@
        :date #inst "2025-11-14T00:00:00.000-00:00",
        :abstract
        [:p
-        "I met Pete Chapman, CEO of "
-        [:a {:href "https://firstcognition.com/"} "FirstCognition"]
-        ", at "
-        [:a
-         {:href
-          "https://www.thoughtworks.com/about-us/events/xconf/2025/vietnam"}
-         "Thoughtworks XConf Vietnam 2025"]
-        ". What struck me was how aligned our visions are. Both FirstCognition and "
-        "Datom.world are trying to solve the same fundamental problem: make data programmable at a semantic level, "
-        "not trapped in fragmented application silos."],
+        "FirstCognition believes schemas/ontologies carry meaning. Datom.world believes "
+        [:strong "data is always syntax"]
+        ", meaning emerges only through interpretation. Schemas are secret interpreters—type checkers evaluate constraints, reasoners perform inference. This isn't academic philosophy; it determines whether your system handles semantic evolution, multiple interpretations, and AI collaboration."],
        :content
        [:section.blog-article
         [:div.section-inner

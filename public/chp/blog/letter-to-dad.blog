@@ -3,7 +3,9 @@
        :date #inst "2025-12-10T00:00:00.000-00:00",
        :abstract
        [:p
-        "Ba à, con muốn giải thích cho ba hiểu rõ con đã làm gì suốt bao nhiêu năm nay, theo cách thật dễ hiểu, không cần kỹ thuật hay toán gì cả."],
+        "A personal letter explaining Datom.world in "
+        [:strong "plain language"]
+        " (Vietnamese, Chinese, English)—why a simple unified structure for all information enables a new computational model where people own their data, devices cooperate naturally, and software becomes simpler and more humane."],
        :content
        [:section.blog-article
         [:div.section-inner

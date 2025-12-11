@@ -2,10 +2,9 @@
        :date #inst "2025-11-28T00:00:00.000-00:00",
        :abstract
        [:p
-        "Large Language Models work by treating language as geometry. Embeddings transform words and phrases into "
-        "high-dimensional vectors where semantic relationships become geometric relationships. This mapping works "
-        "because training creates an approximate homomorphism between linguistic operations and vector arithmetic, "
-        "allowing meaning to be computed through spatial transformations in hundreds of dimensions."],
+        "LLMs transform language into "
+        [:strong "geometry"]
+        ": embeddings map words to high-dimensional vectors where semantic similarity becomes spatial proximity. Training creates an approximate homomorphism between linguistic operations and vector arithmetic—meaning literally becomes computable through spatial transformations."],
        :content
        [:section.blog-article
         [:div.section-inner

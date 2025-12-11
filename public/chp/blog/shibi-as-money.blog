@@ -2,12 +2,9 @@
        :date #inst "2025-11-20T00:00:00.000-00:00",
        :abstract
        [:p
-        "ShiBi is a local, subjective value coordination protocol. It cannot be money because money demands "
-        [:strong "global transferability"]
-        " and a shared infrastructure for routing and settlement—the very things ShiBi is designed to avoid. "
-        "This post explores why, starting with a core insight: "
-        [:a {:href "/blog/all-money-is-monopoly-money.blog"} "all money is monopoly money"]
-        " whose value derives from flow, not substance."],
+        "ShiBi "
+        [:strong "cannot be money"]
+        " because money requires global transferability and shared infrastructure—exactly what ShiBi avoids. Even Ripple's decentralized IOUs centralized into gateways. Money's global coordination demands would destroy ShiBi's local, subjective value model where agents compensate each other for attention without universal agreement."],
        :content
        [:section.blog-article
         [:div.section-inner

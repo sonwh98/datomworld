@@ -2,10 +2,9 @@
        :date #inst "2025-11-28T00:00:00.000-00:00",
        :abstract
        [:p
-        "LLM training isn't just statistical clustering or pattern matching. It's a process of learning a geometric "
-        "representation where probability calculations become efficient. Through gradient descent on a prediction task, "
-        "the model discovers that encoding semantic relationships as geometric relationships minimizes loss. The result "
-        "is a space where vector arithmetic mirrors linguistic operations, not by design, but by necessity."],
+        "LLM training isn't clustering—it's learning a "
+        [:strong "geometric representation"]
+        " that makes next-word prediction efficient. Through gradient descent, the model discovers that encoding semantics as geometry minimizes loss, creating a space where vector arithmetic mirrors linguistic operations by necessity, not design."],
        :content
        [:section.blog-article
         [:div.section-inner

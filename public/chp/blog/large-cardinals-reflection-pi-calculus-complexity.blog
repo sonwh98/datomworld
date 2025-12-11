@@ -2,10 +2,9 @@
        :date #inst "2025-11-23T00:00:00.000-00:00",
        :abstract
        [:p
-        "Large cardinal axioms in set theory express reflection principles—properties true of the universe "
-        "that are already true in smaller universes below. These aren't just mathematical curiosities; they're "
-        "logical fractals that bridge infinite set theory to distributed communication complexity through "
-        "π-calculus. Understanding this connection reveals why computational work emerges from dimensional gradients."],
+        "Large cardinal axioms express "
+        [:strong "reflection principles"]
+        "—properties of the universe V already true in smaller sets M ⊂ V. These logical fractals bridge infinite set theory to distributed communication complexity: reflection in mathematics mirrors channel nesting in π-calculus, revealing why work emerges from dimensional gradients."],
        :content
        [:section.blog-article
         [:div.section-inner

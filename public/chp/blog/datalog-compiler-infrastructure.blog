@@ -3,9 +3,9 @@
        :date #inst "2025-11-16T00:00:00.000-00:00",
        :abstract
        [:p
-        "Traditional compilers operate on "
-        [:strong "limited views"]
-        " of the program. Each optimization pass walks the AST, performs local reasoning, annotates nodes, and passes control to the next stage. Global optimizations require building complex data structures—call graphs, control flow graphs, data flow analysis—each one a custom implementation."],
+        "When ASTs are datoms in DaoDB, the entire program becomes a "
+        [:strong "queryable database"]
+        ". Every optimization transforms from manual tree-walking to declarative Datalog queries—enabling whole-program reasoning, composable analyses, and user-programmable compilation impossible in traditional architectures."],
        :content
        [:section.blog-article
         [:div.section-inner

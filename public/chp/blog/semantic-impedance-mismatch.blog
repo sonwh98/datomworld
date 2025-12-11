@@ -3,7 +3,9 @@
        :date #inst "2025-11-16T00:00:00.000-00:00",
        :abstract
        [:p
-        "Object-oriented languages have classes and objects. Functional languages have no such concept. Instead, they have higher-order functions and closures. Procedural languages have goto. Modern languages forbid it. Some languages have exceptions. Others use result types. Some have null. Others make it impossible."],
+        "How can Java's classes and Clojure's closures share a Universal AST? The semantic differences are "
+        [:strong "different encodings of the same concepts"]
+        ": classes are closures with vtables, exceptions are non-local continuations, null is an optional type. The Universal AST represents the underlying computation, not the surface syntax."],
        :content
        [:section.blog-article
         [:div.section-inner

@@ -2,9 +2,9 @@
        :date #inst "2024-12-03T00:00:00.000-00:00",
        :abstract
        [:p
-        "One of the quiet superpowers behind Datom.World is that every fact is a datom in an immutable stream. "
-        "Because we model changes as a log of tuples, we can rebuild state anywhere — on a phone, in a WASM runtime, "
-        "or across a mesh of edge nodes — as long as we can fold over the stream."],
+        "Datoms flow as immutable streams that can be "
+        [:strong "folded into state anywhere"]
+        "—phone, WASM, edge nodes. Using Clojure transducers, we process these streams with zero intermediate collections, making distributed computation deterministic and conflict resolution just another transformation."],
        :content
        [:section.blog-article
         [:div.section-inner

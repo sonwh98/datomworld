@@ -3,7 +3,9 @@
        :date #inst "2025-11-20T00:00:00.000-00:00",
        :abstract
        [:p
-        "The traditional operating system is organized around a strict boundary: kernel space owns the hardware and the global state, and user space hosts applications that must ask permission to do anything meaningful. This model made sense when hardware was scarce and protection was achieved by preventing accidental or malicious writes to memory."],
+        "Datom.world erases the kernel/userspace boundary: "
+        [:strong "everything is streams and interpreters"]
+        ". Yin.vm continuations handle isolation without memory protection. The OS reduces to a universal append-only fabric where interpreters are the primitive executors, making the rigid split a relic."],
        :content
        [:section.blog-article
         [:div.section-inner

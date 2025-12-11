@@ -2,10 +2,9 @@
        :date #inst "2025-11-24T00:00:00.000-00:00",
        :abstract
        [:p
-        "We often describe computation as symbol manipulation, state transitions, or logic gates. "
-        "These descriptions are technically correct but conceptually narrow. If we look across programming languages, "
-        "machine learning, human cognition, and distributed systems, a deeper pattern emerges: computation is the "
-        "transformation of structure through three fundamental operations: expansion, compression, and morphism construction."],
+        "Computation is "
+        [:strong "structural transformation"]
+        " through three operations: expansion (generating richer semantics), compression (extracting basis-free invariants), and morphism construction (building bridges between structures). This framework unifies interpretation, learning, and understanding."],
        :content
        [:section.blog-article
         [:div.section-inner

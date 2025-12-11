@@ -2,9 +2,11 @@
        :date #inst "2025-11-18T00:00:00.000-00:00",
        :abstract
        [:p
-        "Datoms are elegantly simple: "
+        "Datoms appear fixed-size—"
         [:code "[e a v t m]"]
-        ". Entity, attribute, value, transaction, metadata. Five elements. Fixed-size tuple. The fifth element (m) is metadata that can be used for anything—causality, context, or other interpreter-specific information."],
+        "—but their elements aren't. Variable-size values create "
+        [:strong "hidden performance costs"]
+        " in parsing, indexing, and caching. The solution: hybrid representation with typed streams, interning, and columnar encoding that balances semantic universality with execution speed."],
        :content
        [:section.blog-article
         [:div.section-inner

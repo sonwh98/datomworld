@@ -3,9 +3,9 @@
        :date #inst "2025-10-29T00:00:00.000-00:00",
        :abstract
        [:p
-        "What makes code \"good\"? A friend once told me he doesn't know but bad code is code that other developers write. "
-        "The joke is funny because it's true,and it's true because every developer has a different mental model. "
-        "What's obvious to you is cryptic to me. What's elegant in your head is spaghetti in mine."],
+        "Good code isn't designed—it "
+        [:strong "evolves"]
+        " through a dance with entropy. By distributing complexity outward (more modules) while keeping each piece internally coherent, code becomes malleable—the only objective measure of quality that matters."],
        :content
        [:section.blog-article
         [:div.section-inner

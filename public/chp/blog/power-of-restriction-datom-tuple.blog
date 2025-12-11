@@ -3,9 +3,9 @@
        :date #inst "2025-12-10T00:00:00.000-00:00",
        :abstract
        [:p
-        "In software, freedom is usually assumed to come from adding more: more fields, more flexibility, more ways to shape data. Datom.world moves in the opposite direction, fixing all information into a "
+        "Fixing all information into a "
         [:strong "five-element tuple"]
-        ", the datom. This seeming restriction is precisely what gives Datom.world its unexpected power: by narrowing the structure to a single invariant form, we widen the space of everything that can be built on top of it."],
+        " seems limiting, but restriction becomes power: uniform structure eliminates negotiation, enables effortless composition, simplifies distribution, and frees interpretation—a smaller tuple opens a larger world."],
        :content
        [:section.blog-article
         [:div.section-inner

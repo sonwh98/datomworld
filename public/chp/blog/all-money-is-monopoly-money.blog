@@ -2,10 +2,9 @@
        :date #inst "2025-11-20T00:00:00.000-00:00",
        :abstract
        [:p
-        "People love to argue about what counts as \"real money.\" Bitcoin advocates say government currencies "
-        "are doomed because they can be printed. Fiat advocates say Bitcoin is a speculative token detached from "
-        "the real economy. But both sides miss a fundamental point: all money (BTC, USD, gold tokens, Rai stones) is "
-        "Monopoly money. Its value comes from trust, which enables coordination, not from the material itself."],
+        "All money—BTC, USD, gold—is Monopoly money: "
+        [:strong "accounting artifacts"]
+        " whose value comes from trust, not materials. Money's power lies in creating flow through skilled people. The real question isn't BTC vs USD, but which system generates the best flow of human productive activity."],
        :content
        [:section.blog-article
         [:div.section-inner

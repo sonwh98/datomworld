@@ -2,7 +2,9 @@
        :date #inst "2025-11-05T00:00:00.000-00:00",
        :abstract
        [:p
-        "Can the existence of unitarity, combined with π-calculus, explain why communication has a finite speed—and why the universe itself behaves like a distributed computer?"],
+        "Unitarity (information preservation) + π-calculus (local communication) explain why communication has a "
+        [:strong "finite speed limit"]
+        ". Instantaneous communication would violate causality and create contradictions in information flow. The speed of light is the architectural parameter enforcing locality in the universe's distributed computation."],
        :content
        [:section.blog-article
         [:div.section-inner

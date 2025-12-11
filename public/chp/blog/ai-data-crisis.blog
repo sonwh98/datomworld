@@ -2,7 +2,9 @@
        :date #inst "2025-11-18T00:00:00.000-00:00",
        :abstract
        [:p
-        "Andrew Ng highlighted a crisis: AI agents are getting smarter faster than data infrastructure can keep up. SaaS vendors charge thousands for API access to your own data. The problem is structural—silos vs streams. Datom.world solves this with local-first datom streams: you own your data, apps are interpreters, agents become first-class peers. The architecture itself must change."],
+        "AI agents need unrestricted access to data streams, but SaaS vendors lock data behind paywalls. Datom.world eliminates this with "
+        [:strong "local-first datom streams"]
+        "—you own your data, apps become interpreters, and agents operate as first-class peers without API barriers."],
        :content
        [:section.blog-article
         [:div.section-inner

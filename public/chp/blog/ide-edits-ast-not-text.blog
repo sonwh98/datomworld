@@ -2,9 +2,9 @@
        :date #inst "2025-11-16T00:00:00.000-00:00",
        :abstract
        [:p
-        "Every IDE today edits text. You type characters. The editor syntax-highlights them. Maybe it runs a parser in the background to help with autocomplete. But the fundamental unit of editing is "
-        [:strong "text"]
-        "."],
+        "When you "
+        [:strong "edit AST directly"]
+        ", text becomes a materialized view—not the canonical code. Syntax becomes a user preference (C-like vs Lisp vs Python), refactoring becomes querying datoms, and collaboration merges AST changes, making text's tyranny obsolete."],
        :content
        [:section.blog-article
         [:div.section-inner

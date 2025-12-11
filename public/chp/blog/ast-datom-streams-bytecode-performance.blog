@@ -3,7 +3,9 @@
        :date #inst "2025-11-16T00:00:00.000-00:00",
        :abstract
        [:p
-        "Bytecode interpreters are fast. AST interpreters are slow. This is considered a fundamental trade-off in language implementation."],
+        "Traditional wisdom says you must choose between bytecode performance or AST queryability. Datom streams "
+        [:strong "blur this distinction"]
+        "—by compiling ASTs to linear execution streams via Datalog, we achieve bytecode-like speed while preserving full semantic introspection."],
        :content
        [:section.blog-article
         [:div.section-inner

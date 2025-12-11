@@ -3,9 +3,9 @@
        :date #inst "2025-12-10T00:00:00.000-00:00",
        :abstract
        [:p
-        "Object-oriented databases promised to eliminate the impedance mismatch between programming languages and databases. Store your objects directly. No ORM. No translation layer. For a brief moment in the late 1980s and early 1990s, they were the future. Then the hype vanished. Understanding why reveals fundamental truths about what makes data survive, and why "
-        [:strong "Datom.world's fixed datom model"]
-        " succeeds where object databases failed."],
+        "Object databases failed because "
+        [:strong "storing objects stores semantics"]
+        ", not structure. Language-specific memory layouts decay when languages evolve. Every refactor becomes a migration. Queries remained impossible. Datom.world succeeds by storing pure syntax (five-element tuples), keeping semantics external to interpretation—enabling data that survives language evolution."],
        :content
        [:section.blog-article
         [:div.section-inner

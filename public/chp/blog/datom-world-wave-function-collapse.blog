@@ -2,15 +2,9 @@
        :date #inst "2025-11-17T00:00:00.000-00:00",
        :abstract
        [:p
-        "DaoDB is a "
-        [:strong "local-first distributed tuple store"]
-        ". When a device operates "
-        [:strong "in isolation"]
-        ", it maintains its own complete database. But when devices "
-        [:strong "entangle"]
-        " into a synchronization group, something profound happens: each device holds only a "
-        [:strong "partial view"]
-        " of the whole state."],
+        "DaoDB implements "
+        [:strong "Relational Quantum Mechanics"]
+        ": no global state exists, only local states relative to observers. When isolated devices sync, their conflicting states undergo wave function collapse through CRDT merge—creating correlation, not convergence to pre-existing truth."],
        :content
        [:section.blog-article
         [:div.section-inner

@@ -3,9 +3,9 @@
        :date #inst "2025-11-15T00:00:00.000-00:00",
        :abstract
        [:p
-        "In datom.world, "
-        [:strong "everything is a datom stream"]
-        ". Code, data, execution state, transformations—all are streams of immutable facts flowing through time."],
+        "ASTs are traditionally static trees, but in Datom.world they're "
+        [:strong "materialized views"]
+        " over datom streams spanning five dimensions: structure, time, types, language transformations, and execution state—making code simultaneously queryable, portable, and alive."],
        :content
        [:section.blog-article
         [:div.section-inner

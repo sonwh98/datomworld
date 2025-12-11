@@ -3,7 +3,9 @@
        :date #inst "2025-11-19T00:00:00.000-00:00",
        :abstract
        [:p
-        "Logseq is a beautiful product. Built with Clojure/ClojureScript. Uses DataScript for queries. Claims to be a \"knowledge graph.\" It should be perfect."],
+        "Logseq uses DataScript queries but stores data as "
+        [:strong "Markdown files"]
+        "—creating architectural tension. The canonical truth lives in mutable text, not immutable datoms, forcing constant parsing overhead and making git diffs meaningless. It's a knowledge graph trapped in a document format."],
        :content
        [:section.blog-article
         [:div.section-inner

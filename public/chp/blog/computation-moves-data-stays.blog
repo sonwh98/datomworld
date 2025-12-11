@@ -3,9 +3,9 @@
        :date #inst "2025-12-11T00:00:00.000-00:00",
        :abstract
        [:p
-        "In most programming languages, a continuation is a snapshot of everything: control state, environment, stack, and the entire graph of data those things reference. This is why continuations are rarely mobile. Yin.vm breaks that assumption. A continuation in Yin is not a container of bulk data. It is a "
-        [:strong "thin control object"]
-        ", a movable locus of computation whose environment and heap bindings do not need to travel with it. They stay in distributed streams. The continuation simply carries references and resumes wherever the data happens to be."],
+        "Yin.vm inverts traditional execution: continuations become "
+        [:strong "thin control objects"]
+        " that migrate to where data lives, not containers dragging gigabytes of heap. By externalizing state into streams and intelligently resolving symbols, computation becomes mobile—making distributed computing feel local without pretending everything is."],
        :content
        [:section.blog-article
         [:div.section-inner

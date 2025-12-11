@@ -3,7 +3,9 @@
        :date #inst "2025-11-20T00:00:00.000-00:00",
        :abstract
        [:p
-        "Maxwell's demon doesn't add energy to a system. It releases hidden potential simply by interpreting information (observing microscopic states and acting on them). Datom.world agents unlock economic value the same way: not by creating more data, but by interpreting existing datoms in smarter ways."],
+        "Maxwell's demon doesn't add energy—it "
+        [:strong "releases hidden potential"]
+        " by interpreting information (observing particles and acting on them). Datom.world agents unlock economic value the same way: not creating more data, but interpreting existing datoms in smarter ways, extracting work from chaotic streams."],
        :content
        [:section.blog-article
         [:div.section-inner

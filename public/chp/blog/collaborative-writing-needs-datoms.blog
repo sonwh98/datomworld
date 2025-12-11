@@ -3,7 +3,9 @@
        :date #inst "2025-11-19T00:00:00.000-00:00",
        :abstract
        [:p
-        "Google Docs revolutionized collaborative writing. But it's fundamentally flawed."],
+        "Google Docs' document model forces Operational Transform complexity, loses version history, and surrenders data ownership. Datom streams with "
+        [:strong "branch-aware storage"]
+        " enable true collaboration where local edits are never lost and merges create new branches instead of overwriting your work."],
        :content
        [:section.blog-article
         [:div.section-inner

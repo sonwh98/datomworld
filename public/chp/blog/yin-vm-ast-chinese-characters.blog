@@ -2,9 +2,9 @@
        :date #inst "2025-11-15T00:00:00.000-00:00",
        :abstract
        [:p
-        "There are hundreds of Chinese dialects. Many are mutually unintelligible to the point of being foreign languages to each other. A Mandarin speaker cannot understand Cantonese. A Shanghainese speaker cannot understand Hokkien. Yet all of these are considered "
-        [:strong "\"Chinese\""]
-        " for one reason: they share the same written characters."],
+        "Chinese dialects are mutually unintelligible, yet all share "
+        [:strong "written characters"]
+        "—meaning in the character, not the sound. Yin.vm's Universal AST is programming's equivalent: languages share semantic representation (datom streams) while varying in syntax. Code becomes portable across languages, just as Chinese text is readable across dialects."],
        :content
        [:section.blog-article
         [:div.section-inner

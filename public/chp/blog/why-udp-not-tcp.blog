@@ -3,9 +3,9 @@
        :date #inst "2025-12-10T00:00:00.000-00:00",
        :abstract
        [:p
-        "For most distributed systems, the choice between TCP and UDP is about reliability versus speed. For Datom.world, it's about something deeper: "
-        [:strong "whether the transport layer enforces semantics that contradict the data model"]
-        ". TCP smuggles in assumptions about order, causality, and connection state that violate Datom.world's axioms. UDP provides the raw substrate where datoms can flow freely, with causality encoded in the data itself, not imposed by the wire."],
+        "TCP forces global ordering and connection state, smuggling in semantics that contradict Datom.world's axioms. UDP provides the "
+        [:strong "raw substrate"]
+        " where causality lives in datom metadata (as entity references), not the wire—enabling mobile continuations, CRDT merges, and interpreter-directed reliability without transport-layer lies."],
        :content
        [:section.blog-article
         [:div.section-inner

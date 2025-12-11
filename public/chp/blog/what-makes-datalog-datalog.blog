@@ -2,9 +2,9 @@
        :date #inst "2025-11-17T00:00:00.000-00:00",
        :abstract
        [:p
-        "Datomic implements Datalog with an EDN-based syntax that looks like structured data. Prolog-style Datalog uses predicates and horn clauses. Souffle uses a C-like syntax. LogicBlox has its own notation. SQL's "
-        [:code "WITH RECURSIVE"]
-        " enables Datalog-style queries."],
+        "Datalog is defined by "
+        [:strong "semantics, not syntax"]
+        ": relational foundation, Horn clause logic, stratified negation, bottom-up evaluation, set semantics. Datomic's EDN, Prolog's predicates, SQL's WITH RECURSIVE—all Datalog if the evaluation model matches. Surface representation is irrelevant."],
        :content
        [:section.blog-article
         [:div.section-inner
