@@ -317,9 +317,4 @@
             " (the Datalog database powering datom streams)"]
            [:li
             [:a {:href "/yin.chp"} "Yin VM Documentation"]
-            " (technical deep dive)"]
-           [:li
-            [:a
-             {:href "https://github.com/sonwh98/datomworld"}
-             "GitHub Repository"]
-            " (explore the implementation)"]]]]]}
+            " (technical deep dive)"]]]]]}

@@ -140,9 +140,4 @@
             " (how complex computation emerges from simple tuples)"]
            [:li
             [:a {:href "/dao-db.chp"} "DaoDB"]
-            " (the database that makes datoms universal)"]
-           [:li
-            [:a
-             {:href "https://github.com/sonwh98/datomworld"}
-             "GitHub Repository"]
-            " (explore the implementation)"]]]]]}
+            " (the database that makes datoms universal)"]]]]]}

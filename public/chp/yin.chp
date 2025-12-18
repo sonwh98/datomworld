@@ -98,6 +98,6 @@
        [:h2 "Documentation & Source"]
        [:p "Dive deeper into the Yin VM implementation:"]
        [:ul.bulleted
-        [:li [:a {:href "https://github.com/sonwh98/datomworld/blob/master/src/cljc/yin/docs/documentation_index.md" :target "_blank"} "Complete Documentation"] " — AST specification, CESK state machine, and implementation details"]
-        [:li [:a {:href "https://github.com/sonwh98/datomworld/blob/master/src/cljc/yin/vm.cljc" :target "_blank"} "Source Code"] " — Browse the ClojureScript implementation on GitHub"]]]])}
+        [:li "Complete Documentation — AST specification, CESK state machine, and implementation details"]
+        [:li "Source Code — Browse the ClojureScript implementation"]]]])}
    template))

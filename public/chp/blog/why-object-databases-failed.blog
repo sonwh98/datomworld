@@ -322,9 +322,4 @@
             " (how to translate across languages)"]
            [:li
             [:a {:href "/dao-db.chp"} "DaoDB"]
-            " (the Datalog database powering datom streams)"]
-           [:li
-            [:a
-             {:href "https://github.com/sonwh98/datomworld"}
-             "GitHub Repository"]
-            " (explore the implementation)"]]]]]}
+            " (the Datalog database powering datom streams)"]]]]]}

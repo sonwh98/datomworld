@@ -270,9 +270,4 @@
             " (technical deep dive)"]
            [:li
             [:a {:href "/yang.chp"} "Yang Compiler"]
-            " (how Clojure code becomes datom streams)"]
-           [:li
-            [:a
-             {:href "https://github.com/sonwh98/datomworld"}
-             "GitHub Repository"]
-            " (explore the implementation)"]]]]]}
+            " (how Clojure code becomes datom streams)"]]]]]}

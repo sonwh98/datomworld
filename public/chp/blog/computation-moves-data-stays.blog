@@ -255,9 +255,4 @@
             " (technical deep dive)"]
            [:li
             [:a {:href "/dao-db.chp"} "DaoDB"]
-            " (the stream database)"]
-           [:li
-            [:a
-             {:href "https://github.com/sonwh98/datomworld"}
-             "GitHub Repository"]
-            " (explore the implementation)"]]]]]}
+            " (the stream database)"]]]]]}

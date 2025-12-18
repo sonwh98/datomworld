@@ -294,9 +294,4 @@
             " (deep dive into the implementation)"]
            [:li
             [:a {:href "/yang.chp"} "Yang Compiler"]
-            " (how Clojure code becomes Universal ASTs)"]
-           [:li
-            [:a
-             {:href "https://github.com/sonwh98/datomworld"}
-             "GitHub Repository"]
-            " (browse the source code)"]]]]]}
+            " (how Clojure code becomes Universal ASTs)"]]]]]}
