@@ -434,10 +434,10 @@
           [:p [:strong "Learn more:"]]
 
           [:ul.bulleted
-           [:li [:a {:href "/yin.chp"} "Yin.VM"] " ... the CESK continuation machine"]
-           [:li [:a {:href "/dao-db.chp"} "DaoDB"] " ... materialized views from streams"]
-           [:li [:a {:href "/datomworld.chp"} "Datom.World"] " ... platform overview"]
-           [:li [:a {:href "/blog/stream-vs-interface-architecture.blog"} "Beyond Interfaces"] " ... why streams mirror evolution"]
-           [:li [:a {:href "/blog/universal-ast-vs-assembly.blog"} "Universal AST vs Assembly"] " ... code representation"]
-           [:li [:a {:href "/blog/datalog-compiler-infrastructure.blog"} "Datalog as Compiler Infrastructure"] " ... queryable compilation"]
-           [:li [:a {:href "/blog/structure-vs-interpretation.blog"} "Structure vs Interpretation"] " ... meaning through observation"]]]]]}
+           [:li [:a {:href "/yin.chp"} "Yin.VM"] " : the CESK continuation machine"]
+           [:li [:a {:href "/dao-db.chp"} "DaoDB"] " : materialized views from streams"]
+           [:li [:a {:href "/datomworld.chp"} "Datom.World"] " : platform overview"]
+           [:li [:a {:href "/blog/stream-vs-interface-architecture.blog"} "Beyond Interfaces"] " : why streams mirror evolution"]
+           [:li [:a {:href "/blog/universal-ast-vs-assembly.blog"} "Universal AST vs Assembly"] " : code representation"]
+           [:li [:a {:href "/blog/datalog-compiler-infrastructure.blog"} "Datalog as Compiler Infrastructure"] " : queryable compilation"]
+           [:li [:a {:href "/blog/structure-vs-interpretation.blog"} "Structure vs Interpretation"] " : meaning through observation"]]]]]}

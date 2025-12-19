@@ -87,7 +87,9 @@
            "system recognizes this minimal shape."]
 
           [:p
-           "Interpreters are the Maxwell's Demons observing the stream. Each one:"]
+           "Interpreters are the Maxwell's Demons observing the stream (see "
+           [:a {:href "/blog/maxwells-demon-economic-value.blog"} "Maxwell's Demon and Economic Value"]
+           " for how this principle unlocks value from information). Each one:"]
 
           [:ol
            [:li "Observes the universal datom stream"]
@@ -131,7 +133,9 @@
            "v1, v2, v3 APIs, deprecated fields that can never be removed, and features that exist solely for backward compatibility."]
 
           [:p
-           "In stream-based systems, there are no versions. The stream is append-only. New attributes can be added at any time "
+           "In stream-based systems, there are no versions. The stream is append-only (see "
+           [:a {:href "/blog/datoms-as-streams.blog"} "Streaming Datoms with Transducers"]
+           " for implementation details). New attributes can be added at any time "
            "by any writer. Old interpreters ignore facts they don't understand. New interpreters make use of them. While attribute "
            "semantics can evolve (requiring interpreters to adapt their understanding), the stream format itself never breaks. "
            "Evolution is continuous and granular, not discrete and coordinated."]
@@ -324,8 +328,9 @@
            " and Yin.VM working together."]
 
           [:p
-           "DaoDB acts as a specialized indexer, continuously building efficient query structures from the datom stream. "
-           "Yin.VM queries DaoDB for the AST slices it needs, caching them for fast execution. The \"everything is a query\" concern "
+           "DaoDB acts as a specialized indexer, continuously building efficient query structures from the datom stream (see "
+           [:a {:href "/blog/daodb-distributed-database-immutable-streams.blog"} "DaoDB: Distributed Database from Immutable Streams"]
+           "). Yin.VM queries DaoDB for the AST slices it needs, caching them for fast execution. The \"everything is a query\" concern "
            "only applies at system boundaries, not during hot execution loops."]
 
           [:h3 "Storage and memory"]
@@ -403,10 +408,12 @@
           [:p [:strong "Learn more:"]]
 
           [:ul.bulleted
-           [:li [:a {:href "/datomworld.chp"} "Datom.World"] " ... platform overview"]
-           [:li [:a {:href "/yin.chp"} "Yin.VM"] " ... the CESK continuation machine"]
-           [:li [:a {:href "/dao-db.chp"} "DaoDB"] " ... materialized views from streams"]
-           [:li [:a {:href "/dao-stream.chp"} "DaoStream"] " ... universal streaming API"]
-           [:li [:a {:href "/blog/architecture.blog"} "The Trillion-Dollar Glitch"] " ... why software architecture fails"]
-           [:li [:a {:href "/blog/power-of-restriction-datom-tuple.blog"} "The Power of Restriction"] " ... why fixed tuples enable flexibility"]
-           [:li [:a {:href "/blog/structure-vs-interpretation.blog"} "Structure vs Interpretation"] " ... meaning through observation"]]]]]}
+           [:li [:a {:href "/datomworld.chp"} "Datom.World"] ": platform overview"]
+           [:li [:a {:href "/yin.chp"} "Yin.VM"] ": the CESK continuation machine"]
+           [:li [:a {:href "/dao-db.chp"} "DaoDB"] ": materialized views from streams"]
+           [:li [:a {:href "/dao-stream.chp"} "DaoStream"] ": universal streaming API"]
+           [:li [:a {:href "/blog/architecture.blog"} "The Trillion-Dollar Glitch"] ": why software architecture fails"]
+           [:li [:a {:href "/blog/power-of-restriction-datom-tuple.blog"} "The Power of Restriction"] ": why fixed tuples enable flexibility"]
+           [:li [:a {:href "/blog/structure-vs-interpretation.blog"} "Structure vs Interpretation"] ": meaning through observation"]
+           [:li [:a {:href "/blog/maxwells-demon-economic-value.blog"} "Maxwell's Demon and Economic Value"] ": how interpreters unlock value from streams"]
+           [:li [:a {:href "/blog/semantic-impedance-mismatch.blog"} "The Semantic Impedance Mismatch"] ": cross-language translation through semantic cores"]]]]]}
