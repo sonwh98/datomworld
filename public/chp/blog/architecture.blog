@@ -584,9 +584,133 @@
 
           [:p "At the conceptual level, this is correct."]
 
+          [:h3 "Where Polylith fails: three fundamental problems"]
+
+          [:p
+           "Beyond the enforcement problem, Polylith faces three structural challenges that reveal why "
+           "policy-based constraints cannot match physics-based ones. Each represents a domain where Polylith "
+           "adds complexity to manage problems that stream-based systems eliminate entirely."]
+
+          [:h4 "1. The problem of coupling (interfaces vs. interpreters)"]
+
+          [:p
+           [:strong "Polylith's approach:"]
+           " Polylith fights coupling by enforcing strict interfaces. Brick A cannot talk to Brick B unless it goes through "
+           [:code "interface.clj"]
+           ". This is " [:em "syntactic decoupling"] ". You are still mentally binding \"Caller\" to \"Callee.\""]
+
+          [:p
+           [:strong "Datom.World's simplification:"]
+           " It introduces " [:em "semantic decoupling"] ". You don't call a function; you emit a datom stream."]
+
+          [:p
+           "Instead of "
+           [:code "UserComponent"]
+           " calling "
+           [:code "EmailComponent.send()"]
+           ", the "
+           [:code "UserComponent"]
+           " emits a fact: "
+           [:code "[:user/registered \"bob\"]"]
+           "."]
+
+          [:p
+           "The "
+           [:code "EmailInterpreter"]
+           " (which might live in a Polylith component) observes the stream, sees the fact, and interprets it as a command to send an email."]
+
+          [:p
+           [:strong "Result:"]
+           " The \"Caller\" doesn't know the \"Interpreter\" exists. The coupling is strictly to the "
+           [:em "data schema"]
+           ", not the "
+           [:em "code signature"]
+           "."]
+
+          [:h4 "2. The problem of boundaries (microservices vs. continuations)"]
+
+          [:p
+           [:strong "Polylith's approach:"]
+           " Polylith spends significant energy defining \"Bases\" to wrap code into artifacts (JARs, Lambdas) to create network boundaries. "
+           "It assumes the network is a cliff you have to build bridges over."]
+
+          [:p
+           [:strong "Datom.World's simplification:"]
+           " It uses continuations. Since the computing model is \"Interpreters processing streams,\" the code state is portable."]
+
+          [:p
+           "A stream of datoms can flow from a client (Interpreter A) to a server (Interpreter B) transparently. "
+           "You don't need complex Polylith logic to \"expose\" a component over HTTP. The stream "
+           [:em "is"]
+           " the API."]
+
+          [:p
+           [:strong "Result:"]
+           " The boundary dissolves because the data flow is uniform regardless of location. "
+           "Network topology becomes a deployment detail, not an architectural constraint."]
+
+          [:h4 "3. The problem of logic (functions vs. rules)"]
+
+          [:p
+           [:strong "Polylith's approach:"]
+           " Inside a Polylith brick, you typically write standard imperative or functional code (A calls B calls C). "
+           "As logic grows, the call graph gets messy, requiring more Polylith bricks to split it up."]
+
+          [:p
+           [:strong "Datom.World's simplification:"]
+           " Computation is framed as interpretation."]
+
+          [:p
+           "You don't write a sprawling "
+           [:code "process-order"]
+           " function. You write an interpreter (perhaps using Datalog rules or transducers) that transforms a stream of "
+           [:code "[:order/placed]"]
+           " datoms into "
+           [:code "[:inventory/reserved]"]
+           " datoms."]
+
+          [:p
+           [:strong "Result:"]
+           " The logic is flattened. It's just \"Data In → Interpreter → Data Out\". This removes the cyclomatic complexity "
+           "that necessitates Polylith's extreme modularity in the first place."]
+
+          [:h3 "Coexistence: Polylith as an interpreter container"]
+
+          [:p
+           "This analysis doesn't mean Polylith is incompatible with Datom.World. You can validly use Polylith to "
+           [:em "house"]
+           " your Datom.World interpreters:"]
+
+          [:ul.bulleted
+           [:li
+            [:code "bases/"]
+            ": Defines the runtime nodes (e.g., a Browser Node, a Server Node)"]
+           [:li
+            [:code "components/"]
+            ": Defines the interpreters"
+            [:ul.bulleted
+             [:li
+              [:code "components/order-interpreter"]
+              ": Reacts to order streams"]
+             [:li
+              [:code "components/ui-interpreter"]
+              ": Reacts to state streams to render HTML (DaoFlow)"]]]]
+
+          [:p
+           "The simplification: If you use Datom.World, your Polylith structure becomes incredibly boring. "
+           "You don't need complex interface hierarchies or dependency injection frameworks. You just have a collection "
+           "of interpreters listening to the same \"World\" of streams."]
+
+          [:p
+           "The overhead of Polylith (the tooling, the structure, the interface definitions) vanishes because the "
+           "complexity of coordination has been moved out of the file structure and into the stream. "
+           "Polylith becomes a simple organizational convention rather than a load-bearing architectural framework."]
+
           [:h3 "Where Polylith fails: enforcement"]
 
-          [:p "Polylith enforces its constraints through:"]
+          [:p
+           "But even when used to organize interpreters, Polylith's fundamental weakness remains. "
+           "It enforces its constraints through:"]
 
           [:ul.bulleted
            [:li "directory layout"]
