@@ -92,7 +92,13 @@
        [:p
         "Ready to emit new continuations? Explore "
         [:a {:href "/yang.chp"} "the Yang compiler"]
-        " to see how Clojure code becomes Universal ASTs and enters the Yin runtime."]]]
+        " to see how Clojure code becomes Universal ASTs and enters the Yin runtime."]
+       [:p.learn-more
+        "To understand how Yin makes continuations lightweight and mobile, read "
+        [:a {:href "/blog/computation-moves-data-stays.blog"} "Computation Moves, Data Stays"]
+        ". To see why continuations are the foundation for representing all language semantics, explore "
+        [:a {:href "/blog/continuations-universal-semantic-kernel.blog"} "Continuations as Universal Semantic Kernel"]
+        "."]]]
      [:section.section-dark
       [:div.section-inner
        [:h2 "Documentation & Source"]

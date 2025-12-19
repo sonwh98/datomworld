@@ -167,6 +167,8 @@
         [:p.learn-more
          "Learn more about how the Universal AST enables cross-language semantic preservation in "
          [:a {:href "/blog/yin-vm-ast-chinese-characters.blog"} "Yin.vm: Chinese Characters for Programming Languages"]
+         ", how different language semantics map to a unified representation in "
+         [:a {:href "/blog/semantic-impedance-mismatch.blog"} "The Semantic Impedance Mismatch"]
          ", and how ASTs are stored as queryable datom streams in "
          [:a {:href "/blog/ast-higher-dimensional-datom-streams.blog"} "AST as Higher Dimensional Construction of Datom Streams"] "."]]]
       [:section.section-dark

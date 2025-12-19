@@ -171,6 +171,15 @@
        [:p
         "This is stigmergy applied to data: leaving traces that others can interpret, creating collective intelligence without central control. "
         "Like ants building colonies through pheromone trails, apps build shared worlds through datom streams."]
+       [:p.learn-more
+        "To understand why streams work across distributed nodes without global coordination, read "
+        [:a {:href "/blog/unitarity-and-communication-limits.blog"} "Unitarity and Communication Limits"] ". "
+        "For practical examples of stream processing, see "
+        [:a {:href "/blog/datoms-as-streams.blog"} "Streaming Datoms with Transducers"] ". "
+        "To see why interpretation is fundamental, explore "
+        [:a {:href "/blog/structure-vs-interpretation.blog"} "Structure vs Interpretation"] ". "
+        "To understand why distributing entropy to system boundaries creates resilient architectures, read "
+        [:a {:href "/blog/code-entropy-evolution.blog"} "Code Entropy and Evolution"] "."]
        [:p.next
         "See how "
         [:a {:href "/yin.chp"} "Yin"]

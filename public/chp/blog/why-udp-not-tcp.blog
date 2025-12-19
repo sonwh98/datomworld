@@ -1,6 +1,6 @@
 #:blog{:title
        "Why TCP Is Too Semantic for Datom.world",
-       :date #inst "2025-12-10T00:00:00.000-00:00",
+       :date #inst "2025-12-09T00:00:00.000-00:00",
        :abstract
        [:p
         "TCP forces global ordering and connection state, smuggling in semantics that contradict Datom.world's axioms. UDP provides the "

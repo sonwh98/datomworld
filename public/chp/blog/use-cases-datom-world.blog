@@ -1,5 +1,5 @@
 #:blog{:title "What Can You Build with Datom.world?",
-       :date #inst "2025-11-19T00:00:00.000-00:00",
+       :date #inst "2025-11-19T01:00:00.000-00:00",
        :abstract
        [:p
         "Datom.world isn't a product—it's a "
