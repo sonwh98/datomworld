@@ -37,7 +37,7 @@
           [:p
            "But what if it's not a bug at all? What if "
            [:strong "distributed databases are quantum systems"]
-           ", and conflicts are "
+           ", and conflicts behave like "
            [:strong "wave function collapse"]
            "?"]
           [:p
@@ -45,9 +45,9 @@
            [:strong "local states relative to observers"]
            ". When two observers interact, their local states "
            [:strong "entangle"]
-           ". The \"collapse\" is just "
+           ". The \"collapse\" isn't a real physical process—it's just "
            [:strong "correlation between observers"]
-           ", not a global event."]
+           ", establishing a shared perspective where none existed before."]
           [:p
            "This is "
            [:em "exactly"]
@@ -111,100 +111,8 @@
            ", and they agree on a "
            [:strong "correlated outcome"]
            "—but there was never a moment when the electron had a global, observer-independent spin."]
-          [:h2 "DaoDB as a Quantum System"]
-          [:p "Now consider DaoDB:"]
-          [:h3 "Unitarity: Partial States, Complete System"]
-          [:p
-           "In quantum mechanics, "
-           [:strong "unitarity"]
-           " means the total information in the system is preserved. The wave function never loses information—it only evolves."]
-          [:p
-           "In DaoDB, when devices form an "
-           [:strong "entanglement group"]
-           " (a sync network), unitarity manifests as distributed partial states—similar to "
-           [:strong "RAID 5"]
-           " storage arrays."]
-          [:h4 "The RAID 5 Analogy"]
-          [:p
-           "In RAID 5, data is "
-           [:strong "striped across multiple disks"]
-           " with parity information:"]
-          [:pre
-           [:code
-            "Disk 1: [A1, A2, _, P4]  ; Holds data blocks + parity\nDisk 2: [B1, _, P3, B4]  ; Different blocks + parity\nDisk 3: [_, C2, C3, C4]  ; Different blocks + parity\n\nNo single disk has complete data.\nBut ANY 2 disks can reconstruct the complete state.\nTotal information = distributed across array (unitary)."]]
-          [:p
-           "No single disk contains the complete data, yet "
-           [:strong "the total information is preserved"]
-           " across the array. Any N-1 disks can reconstruct the whole. This is "
-           [:strong "distributed unitarity"]
-           "."]
-          [:h4 "DaoDB's Distributed Unitarity"]
-          [:p "DaoDB implements the same principle:"]
-          [:pre
-           [:code
-            "Isolated Device A (complete state):\n  [entity-1 :name \"Alice\" :tx 100]\n  [entity-1 :age 30 :tx 100]\n  [entity-2 :name \"Bob\" :tx 100]\n  [entity-2 :age 35 :tx 100]\n\nDevice A joins entanglement group → holds partial state:\n  [entity-1 :name \"Alice\" :tx 100]\n  [entity-1 :age 30 :tx 100]\n  ; entity-2 is now on Device B\n\nDevice B (partial state):\n  [entity-2 :name \"Bob\" :tx 100]\n  [entity-2 :age 35 :tx 100]\n\nTotal system state = Device A + Device B (unitary)"]]
-          [:p
-           [:strong "No single device has the complete picture"]
-           "—just like no single RAID disk has all the data. But the "
-           [:strong "total information is preserved"]
-           " across the entanglement group."]
-          [:h4 "The Critical Difference: No Redundancy"]
-          [:p
-           "Here's where the RAID 5 analogy breaks down. RAID 5 has "
-           [:strong "parity redundancy"]
-           ":"]
-          [:pre
-           [:code
-            "RAID 5 with redundancy:\nDisk 1: A1\nDisk 2: A2\nDisk 3: P (parity = A1 XOR A2)\n\nIf Disk 1 fails → A1 = P XOR A2 (reconstructable)\nInformation is DUPLICATED via parity."]]
-          [:p
-           "But in "
-           [:strong "true quantum unitarity"]
-           ", there is "
-           [:strong "NO redundancy"]
-           ":"]
-          [:pre
-           [:code
-            "Quantum entangled particles:\nParticle A: ↑ or ↓ (maximum uncertainty, 50/50)\nParticle B: ↑ or ↓ (maximum uncertainty, 50/50)\n\nJoint state: |ψ⟩ = (|↑↓⟩ - |↓↑⟩)/√2 (perfectly defined!)\n\nNeither particle contains 'half the information.'\nEach particle is maximally uncertain.\nInformation exists in the CORRELATION, not in copies."]]
-          [:p
-           "This is the "
-           [:strong "no-cloning theorem"]
-           ": quantum information cannot be duplicated. The information exists in the "
-           [:strong "correlations between observers"]
-           ", not in redundant copies."]
-          [:h4 "DaoDB's Two Modes"]
-          [:p "DaoDB can operate in two distinct modes:"]
-          [:p [:strong "Mode 1: Pure Quantum (No Redundancy)"] ""]
-          [:pre
-           [:code
-            "Device A: [entity-1 :name \"Alice\"]\nDevice B: [entity-2 :name \"Bob\"]\nDevice C: [entity-3 :name \"Carol\"]\n\nEach device holds UNIQUE data.\nTotal information = A + B + C\nNo redundancy. Pure unitarity.\nNo fault tolerance—lose a device, lose that data."]]
-          [:p
-           [:strong "Mode 2: CRDT Replication (With Redundancy)"]
-           ""]
-          [:pre
-           [:code
-            "Device A: [entity-1] + [entity-2 replica]\nDevice B: [entity-1 replica] + [entity-2]\n\nCRDTs allow intentional replication.\nFault-tolerant—can lose one device.\nThis is RAID-like, not pure quantum."]]
-          [:p
-           "The quantum analogy is strongest in "
-           [:strong "Mode 1"]
-           ". Each device holds a unique partial state. Information exists in the "
-           [:strong "distributed correlations"]
-           ", not in copies. The total state is preserved (unitary), but there's no redundancy."]
-          [:p
-           "Mode 2 sacrifices pure quantum unitarity for "
-           [:strong "fault tolerance"]
-           ". CRDTs replicate data, creating redundancy. This is more like RAID 5 or traditional distributed databases."]
-          [:p
-           "DaoDB supports both: "
-           [:strong "pure quantum distribution"]
-           " (maximum efficiency, no redundancy) and "
-           [:strong "fault-tolerant replication"]
-           " (redundancy for availability). The choice depends on whether you prioritize "
-           [:em "quantum-like efficiency"]
-           " or "
-           [:em "traditional fault tolerance"]
-           "."]
-          [:p
-           "When isolated: complete local database. When entangled in Mode 1: partial view with no redundancy, information in correlations. When entangled in Mode 2: partial view with CRDT replication for fault tolerance."]
+          [:h2 "DaoDB as RQM in Practice"]
+          [:p "Now let's see how DaoDB implements these RQM principles:"]
           [:h3 "Local-First Architecture"]
           [:p
            "Each device is an "
@@ -242,21 +150,21 @@
            " that is real "
            [:strong "relative to itself"]
            "."]
-          [:h3 "Sync = Measurement = Wave Function Collapse"]
+          [:h3 "Sync = Measurement = Correlation Establishment"]
           [:p
            "When Alice and Bob reconnect, their devices sync. This is "
            [:strong "interaction between observers"]
+           ". What appears as \"wave function collapse\" is actually "
+           [:strong "the establishment of correlation"]
            ":"]
           [:pre
            [:code
             "Device A observes Device B's state:\n  [entity-1 :age 29 :tx 102]  ; Bob's version\n\nDevice B observes Device A's state:\n  [entity-1 :age 31 :tx 101]  ; Alice's version\n\nCONFLICT DETECTED!"]]
           [:p
-           "This is "
-           [:strong "wave function collapse"]
-           ". Two incompatible local states "
+           "This isn't a real \"collapse\" event. Two incompatible local states "
            [:strong "entangle"]
-           ". The system must "
-           [:strong "reconcile"]
+           " through interaction. The system "
+           [:strong "reconciles"]
            " into a "
            [:strong "correlated outcome"]
            "."]
@@ -290,8 +198,68 @@
            [:strong
             "created a new correlated reality through interaction"]
            "."]
+          [:h3 "Unitarity: Partial States, Complete System"]
+          [:p
+           "In quantum mechanics, "
+           [:strong "unitarity"]
+           " means the total information in the system is preserved. The wave function never loses information—it only evolves."]
+          [:p
+           "In DaoDB, when devices form an "
+           [:strong "entanglement group"]
+           " (a sync network), unitarity manifests as distributed partial states. Like RAID 5 storage arrays where data is striped across disks, DaoDB can distribute information across devices—but with a critical quantum difference."]
+          [:h4 "DaoDB's Distributed Unitarity"]
+          [:pre
+           [:code
+            "Isolated Device A (complete state):\n  [entity-1 :name \"Alice\" :tx 100]\n  [entity-1 :age 30 :tx 100]\n  [entity-2 :name \"Bob\" :tx 100]\n  [entity-2 :age 35 :tx 100]\n\nDevice A joins entanglement group → holds partial state:\n  [entity-1 :name \"Alice\" :tx 100]\n  [entity-1 :age 30 :tx 100]\n  ; entity-2 is now on Device B\n\nDevice B (partial state):\n  [entity-2 :name \"Bob\" :tx 100]\n  [entity-2 :age 35 :tx 100]\n\nTotal system state = Device A + Device B (unitary)"]]
+          [:p
+           [:strong "No single device has the complete picture"]
+           ", yet the "
+           [:strong "total information is preserved"]
+           " across the entanglement group. Unlike RAID's parity redundancy, true quantum unitarity has "
+           [:strong "no redundancy"]
+           "—information exists in the "
+           [:strong "correlations between observers"]
+           ", not in copies. This is the "
+           [:strong "no-cloning theorem"]
+           " applied to distributed systems."]
+          [:h4 "DaoDB's Two Modes"]
+          [:p "DaoDB can operate in two distinct modes:"]
+          [:p [:strong "Mode 1: Pure Quantum (No Redundancy)"] ""]
+          [:pre
+           [:code
+            "Device A: [entity-1 :name \"Alice\"]\nDevice B: [entity-2 :name \"Bob\"]\nDevice C: [entity-3 :name \"Carol\"]\n\nEach device holds UNIQUE data.\nTotal information = A + B + C\nNo redundancy. Pure unitarity.\nNo fault tolerance—lose a device, lose that data."]]
+          [:p
+           [:strong "Mode 2: CRDT Replication (With Redundancy)"]
+           ""]
+          [:pre
+           [:code
+            "Device A: [entity-1] + [entity-2 replica]\nDevice B: [entity-1 replica] + [entity-2]\n\nCRDTs allow intentional replication.\nFault-tolerant—can lose one device.\nThis is RAID-like, not pure quantum."]]
+          [:p
+           "The quantum analogy is strongest in "
+           [:strong "Mode 1"]
+           ". Each device holds a unique partial state. Information exists in the "
+           [:strong "distributed correlations"]
+           ", not in copies. The total state is preserved (unitary), but there's no redundancy."]
+          [:p
+           "Mode 2 sacrifices pure quantum unitarity for "
+           [:strong "fault tolerance"]
+           ". CRDTs replicate data, creating redundancy. This is more like RAID 5 or traditional distributed databases."]
+          [:p
+           "DaoDB supports both: "
+           [:strong "pure quantum distribution"]
+           " (maximum efficiency, no redundancy) and "
+           [:strong "fault-tolerant replication"]
+           " (redundancy for availability). The choice depends on whether you prioritize "
+           [:em "quantum-like efficiency"]
+           " or "
+           [:em "traditional fault tolerance"]
+           "."]
+          [:p
+           "When isolated: complete local database. When entangled in Mode 1: partial view with no redundancy, information in correlations. When entangled in Mode 2: partial view with CRDT replication for fault tolerance."]
           [:h2 "The RQM Parallel"]
-          [:p "Let's make the parallels explicit:"]
+          [:p "We've seen how DaoDB works in practice. Now let's make the structural parallels between RQM and DaoDB explicit—this isn't just analogy, it's "
+           [:strong "isomorphism"]
+           ":"]
           [:h3 "Quantum Mechanics → DaoDB"]
           [:table
            [:thead
@@ -311,11 +279,11 @@
              [:td "Measurement"]
              [:td "Sync/replication between devices"]]
             [:tr
-             [:td "Wave function collapse"]
-             [:td "Conflict detection"]]
+             [:td "\"Collapse\" (correlation)"]
+             [:td "Conflict detection and reconciliation"]]
             [:tr
              [:td "Entanglement"]
-             [:td "Conflict resolution (CRDT merge)"]]
+             [:td "CRDT merge creating correlated states"]]
             [:tr
              [:td "Correlation"]
              [:td "Agreed-upon state after sync"]]
@@ -462,6 +430,8 @@
            [:strong "creating a new correlated reality"]
            " through interaction."]
           [:h2 "Why This Matters: Distributed Systems Are Quantum"]
+          [:p
+           "The parallels between RQM and DaoDB run deep. But this isn't just theoretical elegance—it has profound practical implications for how we build distributed systems."]
           [:p
            "Traditional distributed systems textbooks treat conflicts as "
            [:strong "bugs to eliminate"]
@@ -708,6 +678,8 @@
             "Bell's theorem is satisfied because we reject realism, not locality."]
            ""]
           [:h2 "Practical Implications"]
+          [:p
+           "Understanding DaoDB as RQM isn't just philosophically satisfying—it leads to concrete design principles for building robust distributed systems:"]
           [:h3 "1. Embrace Conflicts, Don't Fight Them"]
           [:p
            "Traditional databases treat conflicts as failures. DaoDB treats them as "
@@ -891,7 +863,9 @@
            [:strong "total information is preserved"]
            " across the system. This is quantum unitarity in distributed form."]
           [:p
-           "Distributed databases are quantum systems. Conflicts are wave function collapse. Sync is entanglement. Partial states preserve unitarity. And "
+           "Distributed databases are quantum systems. Conflicts behave like wave function \"collapse\"—not as real collapse events, but as "
+           [:strong "correlation establishment"]
+           " between observers. Sync is entanglement. Partial states preserve unitarity. And "
            [:strong "DaoDB embraces this"]
            " instead of fighting it."]
           [:p
