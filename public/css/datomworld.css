@@ -857,6 +857,36 @@ pre code {
   }
 }
 
+/* Table styles with visible borders */
+table {
+  width: 100%;
+  margin: 2rem 0;
+  border-collapse: collapse;
+  background: var(--surface);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+table th,
+table td {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 0.8rem 1rem;
+}
+
+table th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--text);
+  background: rgba(123, 220, 255, 0.1);
+}
+
+table td {
+  color: var(--muted);
+}
+
+table tbody tr:hover {
+  background: rgba(123, 220, 255, 0.05);
+}
+
 .site-footer {
   border-top: 1px solid rgba(120, 137, 255, 0.18);
   background: rgba(6, 8, 23, 0.92);
