@@ -16,6 +16,13 @@
            "In software, freedom is usually assumed to come from adding more: more fields, more flexibility, more ways to shape data. A model that lets you define any structure you want feels powerful because it seems to remove all constraints."]
           [:p
            "Datom.world moves in the opposite direction. It fixes all information into a five-element tuple: the datom. Every event, every fact, every piece of computation has exactly the same shape."]
+          [:p [:strong "The datom is defined as: [e a v t m]"]]
+          [:ul.bulleted
+           [:li [:code "e"] " - entity ID: what is being described"]
+           [:li [:code "a"] " - attribute: which aspect or property"]
+           [:li [:code "v"] " - value: the actual data"]
+           [:li [:code "t"] " - time: when this fact was asserted"]
+           [:li [:code "m"] " - entity ID for metadata: a reference to metadata about this datom, itself a collection of datoms sharing this entity ID"]]
           [:p
            "At first, this feels like a limitation. Why force the world through a single small aperture?"]
           [:p
