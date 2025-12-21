@@ -5,18 +5,19 @@
     (list
      [:section#dao-db.section-dark
       [:div.section-inner
-       [:span.status-pill "Distributed database"]
+       [:span.status-pill "Stream interpreter"]
        [:h1 "DaoDB"]
        [:p.section-lead
-        "DaoDB is a distributed database built on " [:a {:href "/dao-stream.chp"} "DaoStream"] ". "
-        "Datoms flow through the stream—some ephemeral, some persistent—and DaoDB selectively consumes them to materialize queryable covered indexes."]
+        "DaoDB is a " [:strong "datom stream interpreter"] " that materializes queryable indexes. "
+        "Built on " [:a {:href "/dao-stream.chp"} "DaoStream"] ", it observes flowing datoms—some ephemeral, some persistent—and selectively consumes them to create covered indexes optimized for Datalog queries."]
        [:p
-        "DaoStream is the flow through which datoms travel—five-element tuples [e a v t m] representing entity, attribute, value, time, and metadata. "
-        "The stream itself doesn't store datoms; they flow through it, some ephemeral and transient, others consumed by apps like DaoDB that choose to materialize them. "
-        "DaoDB taps into this flow and selectively materializes covered indexes from the datoms it observes. "
-        "Every piece of data in DaoDB is a materialized covered index derived from the datom stream. "
-        "These indexes are append-only and immutable, creating a complete history of all state changes. "
-        "This isn't a database that stores current state—it's a database that stores all states, making time travel, audit trails, and undo built-in rather than bolted-on."]
+        "Unlike traditional databases that own and manage data, DaoDB is an " [:strong "interpreter"] " of datom streams. "
+        "Datoms originate from " [:a {:href "/dao-stream.chp"} "DaoStream"] "—a flow of five-element tuples [e a v t m] representing entity, attribute, value, time, and metadata. "
+        "The stream itself doesn't store datoms; they flow through it. "
+        "DaoDB observes this flow and " [:strong "materializes covered indexes"] " from the datoms it chooses to consume. "
+        "Every piece of data in DaoDB is a materialized index " [:strong "derived from"] " the stream, not owned by DaoDB. "
+        "These indexes are append-only and immutable, creating a complete history of all observed state changes. "
+        "DaoDB doesn't store current state—it materializes queryable views of " [:strong "all states that flowed through the stream"] ", making time travel, audit trails, and undo fundamental capabilities."]
        [:p
         "Not all datoms in a stream need to be stored in DaoDB. "
         "DaoDB selectively consumes the datoms it needs to materialize its indexes, deciding what to store based on query patterns and retention policies. "
@@ -35,7 +36,8 @@
        [:p
         "This structure makes every fact self-describing and independently meaningful. "
         "You can query any datom without needing to understand the entire database schema. "
-        "Schemas evolve naturally as new attributes are added—no migrations, no downtime, no breaking changes."]]]
+        "Schemas evolve naturally as new attributes are added—no migrations, no downtime, no breaking changes. "
+        "Learn more about " [:a {:href "/blog/power-of-restriction-datom-tuple.blog"} "why the five-element tuple"] " enables DaoDB's power through restriction."]]]
      [:section.section-dark
       [:div.section-inner
        [:h2 "Local-First, Globally Synced"]
@@ -46,7 +48,8 @@
        [:p
         "Unlike cloud databases that force you to trust a central server, DaoDB keeps custody of your data locally. "
         "You choose which streams to expose and who can read them. "
-        "Collaboration happens through shared streams, not by surrendering control to a third party."]
+        "Collaboration happens through shared streams, not by surrendering control to a third party. "
+        "See how " [:a {:href "/blog/collaborative-writing-needs-datoms.blog"} "branching and CRDT merges preserve local history"] " in collaborative applications."]
        [:div.feature-grid
         [:article.feature-card
          [:h3 "Immutable history"]
@@ -61,23 +64,32 @@
       [:div.section-inner
        [:h2 "Querying the Stream"]
        [:p
-        "DaoDB interprets datom streams as a queryable database. "
-        "By materializing covered indexes from the stream, DaoDB lets you ask questions about your data: "
-        "What entities have a specific attribute? What changed between two points in time? Which datoms share causal relationships?"]
+        "As a stream interpreter, DaoDB transforms flowing datoms into queryable indexes. "
+        "By materializing covered indexes from observed datoms, DaoDB enables you to ask questions about the stream: "
+        "What entities have a specific attribute? What changed between two points in time? Which datoms share causal relationships? "
+        "The indexes exist to make queries fast—the datoms themselves originate from the stream."]
+       [:p
+        "DaoDB is inspired by " [:strong "Datomic"] " but extends its ideas far beyond traditional database use cases. "
+        "While Datomic pioneered datoms for application data, DaoDB applies the same principles to " [:strong "code as data"] "—storing ASTs, execution traces, and compiler intermediate representations as queryable datom streams. "
+        "This enables " [:a {:href "/blog/datalog-compiler-infrastructure.blog"} "every optimization to become queryable"] " and code itself to be treated as a living, temporal database."]
        [:p
         "DaoDB implements " [:strong "Datomic's syntax of Datalog"] "—a declarative query language built on Horn clauses, fixed-point semantics, and guaranteed termination. "
         "Queries are expressed as EDN data structures, making them homoiconic (code as data) and composable. "
-        "Learn more about " [:a {:href "/blog/what-makes-datalog-datalog.blog"} "what makes Datalog Datalog"] " and why "
-        [:a {:href "/blog/datalog-compiler-infrastructure.blog"} "Datalog makes every optimization queryable"] "."]
+        "Learn more about " [:a {:href "/blog/what-makes-datalog-datalog.blog"} "what makes Datalog Datalog"] "."]
        [:p
         "Because indexes are materialized from immutable streams, queries naturally support temporal access. "
         "Ask what the world looked like at any point in history. "
         "Track how entities evolved over time. "
-        "Audit who changed what and when."]
+        "Audit who changed what and when. "
+        "DaoDB combines " [:a {:href "/blog/datom-representation-performance.blog"} "efficient datom representation"] " with "
+        [:a {:href "/blog/ast-datom-streams-bytecode-performance.blog"} "bytecode-like execution performance"] " while preserving full semantic queryability."]
        [:p
-        "Other apps interpret the same streams differently—" [:a {:href "/dao-flow.chp"} "DaoFlow"] " renders them as interfaces, "
-        [:a {:href "/shibi.chp"} "Shibi"] " interprets them as economic signals. "
-        "DaoDB provides the database view: structured queries over flowing facts."]
+        "DaoDB is just one interpreter among many. "
+        "The same datom streams can be interpreted differently by other applications—" [:a {:href "/dao-flow.chp"} "DaoFlow"] " renders them as reactive interfaces, "
+        [:a {:href "/shibi.chp"} "Shibi"] " interprets them as economic signals and value flows. "
+        "DaoDB provides the " [:strong "database interpreter view"] ": materializing indexes for structured Datalog queries over flowing facts. "
+        "Learn how " [:a {:href "/blog/datoms-as-streams.blog"} "datoms flow as streams"] " and why "
+        [:a {:href "/blog/computation-moves-data-stays.blog"} "computation moves to where data lives"] "."]
        [:p.next
         "See how "
         [:a {:href "/yin.chp"} "Yin"]
