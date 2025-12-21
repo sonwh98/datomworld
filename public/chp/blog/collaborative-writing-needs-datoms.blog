@@ -92,7 +92,7 @@
           [:pre
            [:code
             {:class "language-clojure"}
-            ";; Alice's local branch (her device)\n[para-3 :text/content \"The hero hesitated.\" t1 {:branch \"alice-laptop\"}]\n[para-3 :text/content \"The protagonist paused.\" t2 {:branch \"alice-laptop\"}]\n\n;; Bob's local branch (his device)\n[para-3 :text/content \"The hero froze.\" t3 {:branch \"bob-desktop\"}]\n\n;; CRDT merge creates new branch (preserves parents)\n[para-3 :text/content \"The hero froze.\" t4 {:branch \"merged\"}]\n[para-3 :merge/parents \"alice-laptop\" t4]\n[para-3 :merge/parents \"bob-desktop\" t4]\n[para-3 :merge/strategy :last-write-wins t4]\n\n;; Alice's local history NEVER deleted\n;; She can always query: \"What did I write before the merge?\""]]
+            ";; Alice's local branch (her device)\n[para-3 :text/content \"The hero hesitated.\" t1 meta-alice-1]\n[para-3 :text/content \"The protagonist paused.\" t2 meta-alice-2]\n[meta-alice-1 :meta/branch \"alice-laptop\"]\n[meta-alice-2 :meta/branch \"alice-laptop\"]\n\n;; Bob's local branch (his device)\n[para-3 :text/content \"The hero froze.\" t3 meta-bob-1]\n[meta-bob-1 :meta/branch \"bob-desktop\"]\n\n;; CRDT merge creates new branch (preserves parents)\n[para-3 :text/content \"The hero froze.\" t4 meta-merged-1]\n[meta-merged-1 :meta/branch \"merged\"]\n[meta-merged-1 :meta/parents [meta-alice-2 meta-bob-1]]\n[para-3 :merge/parents \"alice-laptop\" t4]\n[para-3 :merge/parents \"bob-desktop\" t4]\n[para-3 :merge/strategy :last-write-wins t4]\n\n;; Alice's local history NEVER deleted\n;; She can always query: \"What did I write before the merge?\""]]
           [:p [:strong "Three document views:"]]
           [:ul.bulleted
            [:li
@@ -211,28 +211,28 @@
           [:pre
            [:code
             {:class "language-clojure"}
-            ";; Every datom knows which branch it belongs to\n[para-42 :text/content \"Draft 1\" t1 {:branch \"alice-laptop-local\"}]\n[para-42 :text/content \"Draft 2\" t2 {:branch \"alice-laptop-local\"}]\n\n;; After CRDT merge\n[para-42 :text/content \"Merged\" t3 {:branch \"merged\"\n                                      :parents [\"alice-laptop-local\"\n                                                \"bob-desktop-local\"]}]"]]
+            ";; Every datom knows which branch it belongs to\n[para-42 :text/content \"Draft 1\" t1 meta-1]\n[para-42 :text/content \"Draft 2\" t2 meta-2]\n[meta-1 :meta/branch \"alice-laptop-local\"]\n[meta-2 :meta/branch \"alice-laptop-local\"]\n\n;; After CRDT merge\n[para-42 :text/content \"Merged\" t3 meta-merged]\n[meta-merged :meta/branch \"merged\"]\n[meta-merged :meta/parents [\"alice-laptop-local\" \"bob-desktop-local\"]]"]]
           [:p
            [:strong
             "Workflow: Local editing never touches merged branch"]]
           [:pre
            [:code
             {:class "language-clojure"}
-            ";; 1. Alice writes offline\n[para-1 :text/content \"Chapter 1 draft\" t1 {:branch \"alice-laptop-local\"}]\n[para-1 :text/content \"Chapter 1 revised\" t2 {:branch \"alice-laptop-local\"}]\n\n;; 2. Bob writes offline (different device)\n[para-1 :text/content \"Alternative opening\" t3 {:branch \"bob-desktop-local\"}]\n\n;; 3. Devices sync: CRDT merge creates NEW branch\n[para-1 :text/content \"Alternative opening\" t4 {:branch \"merged\"}]\n[para-1 :merge/parents \"alice-laptop-local\" t4]\n[para-1 :merge/parents \"bob-desktop-local\" t4]\n[para-1 :merge/winner \"bob-desktop-local\" t4]  ;; Bob's timestamp later\n\n;; 4. Alice's local branch UNTOUCHED\n;;    Query {:branch \"alice-laptop-local\"} still returns:\n;;      t1: \"Chapter 1 draft\"\n;;      t2: \"Chapter 1 revised\""]]
+            ";; 1. Alice writes offline\n[para-1 :text/content \"Chapter 1 draft\" t1 meta-a1]\n[para-1 :text/content \"Chapter 1 revised\" t2 meta-a2]\n[meta-a1 :meta/branch \"alice-laptop-local\"]\n[meta-a2 :meta/branch \"alice-laptop-local\"]\n\n;; 2. Bob writes offline (different device)\n[para-1 :text/content \"Alternative opening\" t3 meta-b1]\n[meta-b1 :meta/branch \"bob-desktop-local\"]\n\n;; 3. Devices sync: CRDT merge creates NEW branch\n[para-1 :text/content \"Alternative opening\" t4 meta-m1]\n[meta-m1 :meta/branch \"merged\"]\n[para-1 :merge/parents \"alice-laptop-local\" t4]\n[para-1 :merge/parents \"bob-desktop-local\" t4]\n[para-1 :merge/winner \"bob-desktop-local\" t4]  ;; Bob's timestamp later\n\n;; 4. Alice's local branch UNTOUCHED\n;;    Query meta entities with :meta/branch \"alice-laptop-local\" still returns:\n;;      meta-a1 (t1): \"Chapter 1 draft\"\n;;      meta-a2 (t2): \"Chapter 1 revised\""]]
           [:p
            [:strong
             "Experimental branches: safe creative exploration"]]
           [:pre
            [:code
             {:class "language-clojure"}
-            ";; Try a radical rewrite without risk\n(branch! \"alice-laptop-local\" \"alice-experimental\")\n\n;; Edit experimental branch\n[para-42 :text/content \"Radical rewrite\" t5 {:branch \"alice-experimental\"}]\n\n;; Original still exists\n[para-42 :text/content \"Original\" t2 {:branch \"alice-laptop-local\"}]\n\n;; Later: merge experimental back (or discard it)\n(merge-branches! \"alice-experimental\" \"alice-laptop-local\")\n\n;; Result: new merged datom, both parents preserved\n[para-42 :text/content \"Final\" t6 {:branch \"alice-laptop-local\"}]\n[para-42 :merge/parents \"alice-experimental\" t6]"]]
+            ";; Try a radical rewrite without risk\n(branch! \"alice-laptop-local\" \"alice-experimental\")\n\n;; Edit experimental branch\n[para-42 :text/content \"Radical rewrite\" t5 meta-exp1]\n[meta-exp1 :meta/branch \"alice-experimental\"]\n\n;; Original still exists\n[para-42 :text/content \"Original\" t2 meta-orig]\n[meta-orig :meta/branch \"alice-laptop-local\"]\n\n;; Later: merge experimental back (or discard it)\n(merge-branches! \"alice-experimental\" \"alice-laptop-local\")\n\n;; Result: new merged datom, both parents preserved\n[para-42 :text/content \"Final\" t6 meta-final]\n[meta-final :meta/branch \"alice-laptop-local\"]\n[para-42 :merge/parents \"alice-experimental\" t6]\n[meta-final :meta/parents [meta-exp1]]"]]
           [:p
            [:strong
             "Query by branch: time-travel within your creative process"]]
           [:pre
            [:code
             {:class "language-clojure"}
-            ";; Show only my edits (before any merges)\n[:find ?content ?time\n :in $ ?branch\n :where\n [para-42 :text/content ?content ?tx {:branch ?branch}]\n [?tx :db/txInstant ?time]\n :order-by ?time]\n\n;; Pass \"alice-laptop-local\" → your creative evolution\n;; Pass \"merged\" → converged state with collaborators"]]
+            ";; Show only my edits (before any merges)\n[:find ?content ?time\n :in $ ?branch-name\n :where\n [para-42 :text/content ?content ?tx ?meta]\n [?meta :meta/branch ?branch-name]\n [?tx :db/txInstant ?time]\n :order-by ?time]\n\n;; Pass \"alice-laptop-local\" → your creative evolution\n;; Pass \"merged\" → converged state with collaborators"]]
           [:p
            "This is "
            [:strong "Git for prose"]
@@ -259,7 +259,7 @@
           [:pre
            [:code
             {:class "language-clojure"}
-            ";; Your complete creative evolution (your branch only)\n[:find ?content ?time\n :where\n [para-7 :text/content ?content ?tx {:branch \"alice-laptop-local\"}]\n [?tx :db/txInstant ?time]\n :order-by ?time]\n\n;; Result: Every version you wrote\n10:23 \"The hero hesitated\"\n10:25 \"The protagonist hesitated\"  ;; Revision\n10:27 \"The protagonist paused\"     ;; Refinement\n11:15 \"She paused at the threshold\" ;; Major rewrite\n\n;; Even if CRDT merge chose Bob's version\n;; Your creative process is preserved forever"]]
+            ";; Your complete creative evolution (your branch only)\n[:find ?content ?time\n :in $ ?branch-name\n :where\n [para-7 :text/content ?content ?tx ?meta]\n [?meta :meta/branch ?branch-name]\n [?tx :db/txInstant ?time]\n :order-by ?time]\n\n;; Result: Every version you wrote\n10:23 \"The hero hesitated\"\n10:25 \"The protagonist hesitated\"  ;; Revision\n10:27 \"The protagonist paused\"     ;; Refinement\n11:15 \"She paused at the threshold\" ;; Major rewrite\n\n;; Even if CRDT merge chose Bob's version\n;; Your creative process is preserved forever"]]
           [:p "Writers can ask:"]
           [:ul.bulleted
            [:li

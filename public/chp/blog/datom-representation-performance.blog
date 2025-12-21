@@ -16,7 +16,7 @@
           [:p
            "Datoms are elegantly simple: "
            [:code "[e a v t m]"]
-           ". Entity, attribute, value, transaction, metadata. Five elements. Fixed-size tuple. The fifth element (m) is metadata that can be used for anything—causality, context, or other interpreter-specific information."]
+           ". Entity, attribute, value, transaction, metadata entity ID. Five elements. Fixed-size tuple. The fifth element (m) is a metadata entity ID that references an entity containing causality, branching info, encryption context, or other interpreter-specific information."]
           [:p
            "But there's a performance trap hiding in this simplicity."]
           [:h2 "The Abstraction vs The Reality"]

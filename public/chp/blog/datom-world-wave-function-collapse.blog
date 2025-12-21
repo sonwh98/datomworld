@@ -124,7 +124,7 @@
            ". No global state coordinator."]
           [:pre
            [:code
-            "Device A (Alice's phone) - partial view:\n  [entity-1 :name \"Alice\" :tx 100]\n  [entity-1 :age 30 :tx 100]\n\nDevice B (Bob's laptop) - partial view:\n  [entity-1 :name \"Alice\" :tx 100]\n  [entity-1 :age 30 :tx 100]\n\nBoth share entity-1. Unitarity: total state distributed."]]
+            "Device A (Alice's phone) - partial view:\n  [entity-1 :name \"Alice\" tx-100 nil]\n  [entity-1 :age 30 tx-100 nil]\n\nDevice B (Bob's laptop) - partial view:\n  [entity-1 :name \"Alice\" tx-100 nil]\n  [entity-1 :age 30 tx-100 nil]\n\nBoth share entity-1. Unitarity: total state distributed."]]
           [:h3 "Offline Divergence = Superposition"]
           [:p
            "Alice goes offline. Bob goes offline. They both modify "
@@ -132,7 +132,7 @@
            " independently:"]
           [:pre
            [:code
-            "Device A (offline):\n  [entity-1 :age 31 :tx 101]  ; Alice's birthday\n\nDevice B (offline):\n  [entity-1 :age 29 :tx 102]  ; Bob corrected a mistake"]]
+            "Device A (offline):\n  [entity-1 :age 31 tx-101 nil]  ; Alice's birthday\n\nDevice B (offline):\n  [entity-1 :age 29 tx-102 nil]  ; Bob corrected a mistake"]]
           [:p
            "From a global perspective, "
            [:code "entity-1"]
@@ -159,7 +159,7 @@
            ":"]
           [:pre
            [:code
-            "Device A observes Device B's state:\n  [entity-1 :age 29 :tx 102]  ; Bob's version\n\nDevice B observes Device A's state:\n  [entity-1 :age 31 :tx 101]  ; Alice's version\n\nCONFLICT DETECTED!"]]
+            "Device A observes Device B's state:\n  [entity-1 :age 29 tx-102 nil]  ; Bob's version\n\nDevice B observes Device A's state:\n  [entity-1 :age 31 tx-101 nil]  ; Alice's version\n\nCONFLICT DETECTED!"]]
           [:p
            "This isn't a real \"collapse\" event. Two incompatible local states "
            [:strong "entangle"]
@@ -188,7 +188,7 @@
           [:p "Example with LWW:"]
           [:pre
            [:code
-            "tx 101 vs tx 102 → tx 102 wins\n\nResolved state (both devices agree):\n  [entity-1 :age 29 :tx 102]\n  [entity-1 :age-conflict-from 31 :tx 103]  ; Provenance preserved"]]
+            "tx 101 vs tx 102 → tx 102 wins\n\nResolved state (both devices agree):\n  [entity-1 :age 29 tx-102 nil]\n  [entity-1 :age-conflict-from 31 tx-103 nil]  ; Provenance preserved"]]
           [:p
            "After reconciliation, "
            [:strong "both observers now share a correlated state"]
@@ -210,7 +210,7 @@
           [:h4 "DaoDB's Distributed Unitarity"]
           [:pre
            [:code
-            "Isolated Device A (complete state):\n  [entity-1 :name \"Alice\" :tx 100]\n  [entity-1 :age 30 :tx 100]\n  [entity-2 :name \"Bob\" :tx 100]\n  [entity-2 :age 35 :tx 100]\n\nDevice A joins entanglement group → holds partial state:\n  [entity-1 :name \"Alice\" :tx 100]\n  [entity-1 :age 30 :tx 100]\n  ; entity-2 is now on Device B\n\nDevice B (partial state):\n  [entity-2 :name \"Bob\" :tx 100]\n  [entity-2 :age 35 :tx 100]\n\nTotal system state = Device A + Device B (unitary)"]]
+            "Isolated Device A (complete state):\n  [entity-1 :name \"Alice\" tx-100 nil]\n  [entity-1 :age 30 tx-100 nil]\n  [entity-2 :name \"Bob\" tx-100 nil]\n  [entity-2 :age 35 tx-100 nil]\n\nDevice A joins entanglement group → holds partial state:\n  [entity-1 :name \"Alice\" tx-100 nil]\n  [entity-1 :age 30 tx-100 nil]\n  ; entity-2 is now on Device B\n\nDevice B (partial state):\n  [entity-2 :name \"Bob\" tx-100 nil]\n  [entity-2 :age 35 tx-100 nil]\n\nTotal system state = Device A + Device B (unitary)"]]
           [:p
            [:strong "No single device has the complete picture"]
            ", yet the "
@@ -364,7 +364,7 @@
            ":"]
           [:pre
            [:code
-            "Device A's history:\n  tx 100: [entity-1 :age 30]\n  tx 101: [entity-1 :age 31]\n\nDevice B's history:\n  tx 100: [entity-1 :age 30]\n  tx 102: [entity-1 :age 29]\n\nAfter sync, both devices agree on a merged history:\n  tx 100: [entity-1 :age 30]\n  tx 101: [entity-1 :age 31 :branch-A]\n  tx 102: [entity-1 :age 29 :branch-B]\n  tx 103: [entity-1 :age 29 :merged-from [101 102]]"]]
+            "Device A's history:\n  tx 100: [entity-1 :age 30 tx-100 nil]\n  tx 101: [entity-1 :age 31 tx-101 meta-branch-a]\n\nDevice B's history:\n  tx 100: [entity-1 :age 30 tx-100 nil]\n  tx 102: [entity-1 :age 29 tx-102 meta-branch-b]\n\nAfter sync, both devices agree on a merged history:\n  tx 100: [entity-1 :age 30 tx-100 nil]\n  tx 101: [entity-1 :age 31 tx-101 meta-branch-a]\n  tx 102: [entity-1 :age 29 tx-102 meta-branch-b]\n  tx 103: [entity-1 :age 29 tx-103 meta-merged]\n\n[meta-branch-a :meta/branch \"branch-A\"]\n[meta-branch-b :meta/branch \"branch-B\"]\n[meta-merged :meta/merged-from [tx-101 tx-102]]"]]
           [:p
            "The key: "
            [:strong
@@ -606,7 +606,7 @@
           [:p "In DaoDB, the same pattern emerges:"]
           [:pre
            [:code
-            "Device A (offline): [entity-1 :color \"red\" :tx 101]\nDevice B (offline): [entity-1 :color \"blue\" :tx 102]\n\nNeither device 'knows' what the other chose.\nBoth are correct relative to their local state.\n\nWhen they sync (local interaction via network):\n  Conflict detected! Apply CRDT merge.\n  Result: [entity-1 :color \"blue\" :tx 103 :merged-from [101 102]]\n\nThe correlation emerges through LOCAL interaction,\nnot through spooky action at a distance."]]
+            "Device A (offline): [entity-1 :color \"red\" tx-101 nil]\nDevice B (offline): [entity-1 :color \"blue\" tx-102 nil]\n\nNeither device 'knows' what the other chose.\nBoth are correct relative to their local state.\n\nWhen they sync (local interaction via network):\n  Conflict detected! Apply CRDT merge.\n  Result: [entity-1 :color \"blue\" tx-103 meta-merged]\n  [meta-merged :meta/merged-from [tx-101 tx-102]]\n\nThe correlation emerges through LOCAL interaction,\nnot through spooky action at a distance."]]
           [:p
            "Device A's write did "
            [:strong "not cause"]
@@ -715,7 +715,7 @@
            ":"]
           [:pre
            [:code
-            "[entity-1 :age 29 :tx 103]\n[tx-103 :merged-from [tx-101 tx-102]]\n[tx-103 :resolution-strategy :last-write-wins]\n[tx-103 :timestamp \"2025-11-17T10:30:00Z\"]"]]
+            "[entity-1 :age 29 tx-103 meta-103]\n[meta-103 :meta/merged-from [tx-101 tx-102]]\n[tx-103 :resolution-strategy :last-write-wins]\n[tx-103 :timestamp \"2025-11-17T10:30:00Z\"]"]]
           [:p
            "Track "
            [:em "how"]
