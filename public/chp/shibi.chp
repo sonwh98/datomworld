@@ -14,7 +14,7 @@
         "Open networks have tried both: walled gardens impose centralized moderation, spam filters attempt algorithmic control. "
         "Neither works well. "
         "The spam problem is real, but censorship is equally problematic: one person's trash is another person's treasure, and centralized gatekeepers can't distinguish between them. "
-        "Shibi offers a third path between censorship and chaos."]
+        "Shibi offers a third path between censorship and chaos, a design that directly addresses the " [:a {:href "/blog/attention-market-critiques.blog"} "fundamental critiques of attention markets"] "."]
        [:p
         "Shibi (屎币) literally means \"shit coin\" in Chinese. The name is intentional. "
         "This isn't money, and it's not trying to replace money. "
