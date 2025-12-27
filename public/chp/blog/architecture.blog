@@ -900,7 +900,6 @@
            [:li [:a {:href "/datomworld.chp"} "Datom.World"] ": Platform overview"]
            [:li [:a {:href "/blog/power-of-restriction-datom-tuple.blog"} "The Power of Restriction"] ": Why a fixed tuple eliminates structural negotiation"]
            [:li [:a {:href "/blog/datoms-as-streams.blog"} "Streaming Datoms with Transducers"] ": Everything is a stream"]
-           [:li [:a {:href "/blog/unitarity-and-communication-limits.blog"} "Unitarity, π-Calculus, and the Cosmic Speed Limit"] ": Everything is a continuation"]
            [:li [:a {:href "/blog/structure-vs-interpretation.blog"} "Structure vs Interpretation"] ": Interpretation creates meaning"]
            [:li [:a {:href "/blog/yin-vm-ast-chinese-characters.blog"} "Yin.vm: Chinese Characters for Programming Languages"] ": The universal AST"]
            [:li [:a {:href "/blog/ast-datom-streams-bytecode-performance.blog"} "AST Datom Streams: Bytecode Performance with Semantic Preservation"] ": Even the AST is expressed as datoms"]]
