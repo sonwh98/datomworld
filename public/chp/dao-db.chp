@@ -13,11 +13,11 @@
        [:p
         "Unlike traditional databases that own and manage data, DaoDB is an " [:strong "interpreter"] " of datom streams. "
         "Datoms originate from " [:a {:href "/dao-stream.chp"} "DaoStream"] "—a flow of five-element tuples [e a v t m] representing entity, attribute, value, time, and metadata. "
-        "The stream itself doesn't store datoms; they flow through it. "
-        "DaoDB observes this flow and " [:strong "materializes covered indexes"] " from the datoms it chooses to consume. "
-        "Every piece of data in DaoDB is a materialized index " [:strong "derived from"] " the stream, not owned by DaoDB. "
+        "The underlying stream can be implemented as an ephemeral transport or as a persistent log (like Kafka). "
+        "DaoDB observes this flow and " [:strong "stores datoms by materializing covered indexes"] " from the datoms it chooses to consume. "
+        "Every piece of data in DaoDB is a materialized index " [:strong "derived from"] " the stream. "
         "These indexes are append-only and immutable, creating a complete history of all observed state changes. "
-        "DaoDB doesn't store current state—it materializes queryable views of " [:strong "all states that flowed through the stream"] ", making time travel, audit trails, and undo fundamental capabilities."]
+        "DaoDB doesn't just store current state—it materializes queryable views of " [:strong "all states that flowed through the stream"] ", making time travel, audit trails, and undo fundamental capabilities."]
        [:p
         "Not all datoms in a stream need to be stored in DaoDB. "
         "DaoDB selectively consumes the datoms it needs to materialize its indexes, deciding what to store based on query patterns and retention policies. "
@@ -26,7 +26,9 @@
       [:div.section-inner
        [:h2 "The Five-Element Tuple"]
        [:p
-        "Every datom in DaoDB follows the same structure: [e a v t m]"]
+        "The datom is a concept from " [:strong "Datomic"] "—a five-tuple representing an atomic fact. "
+        "DaoDB adopts this foundation but extends it. While Datomic uses [e a v t op] where op is a retraction flag, "
+        "Datom.World uses " [:strong "[e a v t m]"] " where m is a metadata entity ID."]
        [:ul.bulleted
         [:li [:strong "e (entity)"] " — The thing being described (a user, a post, a shopping cart)"]
         [:li [:strong "a (attribute)"] " — The property being asserted (name, color, quantity)"]
@@ -42,7 +44,7 @@
       [:div.section-inner
        [:h2 "Local-First, Globally Synced"]
        [:p
-        "DaoDB is fundamentally local-first. When isolated, each device maintains its own complete tuple store. But when devices " [:strong "entangle"] " into a synchronization group, something profound happens: each device holds only a " [:strong "partial view"] " of the whole state. Together, all devices in the entanglement group collectively maintain the " [:strong "complete database state"] "."]
+        "DaoDB is fundamentally local-first. When isolated, each device maintains its own complete materialized index store. But when devices " [:strong "entangle"] " into a synchronization group, something profound happens: each device holds only a " [:strong "partial view"] " of the whole state. Together, all devices in the entanglement group collectively maintain the " [:strong "complete database state"] "."]
        [:p
         "This is " [:strong "quantum unitarity"] " in a distributed system: the total information is preserved across the system, but no single observer possesses the complete state. Learn more about how " [:a {:href "/blog/datom-world-wave-function-collapse.blog"} "DaoDB implements Relational Quantum Mechanics"] " and why conflicts are wave function collapse."]
        [:p
@@ -65,9 +67,9 @@
        [:h2 "Querying the Stream"]
        [:p
         "As a stream interpreter, DaoDB transforms flowing datoms into queryable indexes. "
-        "By materializing covered indexes from observed datoms, DaoDB enables you to ask questions about the stream: "
+        "By storing datoms in covered indexes optimized for different query patterns, DaoDB enables you to ask questions: "
         "What entities have a specific attribute? What changed between two points in time? Which datoms share causal relationships? "
-        "The indexes exist to make queries fast—the datoms themselves originate from the stream."]
+        "The same datom can appear in multiple indexes (EAVT, AEVT, AVET, VAET) to support efficient lookups from different perspectives."]
        [:p
         "DaoDB is inspired by " [:strong "Datomic"] " but extends its ideas far beyond traditional database use cases. "
         "While Datomic pioneered datoms for application data, DaoDB applies the same principles to " [:strong "code as data"] "—storing ASTs, execution traces, and compiler intermediate representations as queryable datom streams. "
