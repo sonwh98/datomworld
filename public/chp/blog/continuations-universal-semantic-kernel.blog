@@ -313,6 +313,11 @@
              "Yin.vm: Chinese Characters for Programming Languages"]
             " (how the Universal AST enables cross-language interoperability)"]
            [:li
+            [:a
+             {:href "/blog/devils-advocate.blog"}
+             "Why yin.vm Succeeds Where Previous Attempts Failed"]
+            " (addressing skeptical objections to continuation-based mobile computation)"]
+           [:li
             [:a {:href "/dao-db.chp"} "DaoDB"]
             " (the Datalog database powering datom streams)"]
            [:li

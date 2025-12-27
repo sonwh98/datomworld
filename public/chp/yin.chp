@@ -242,6 +242,8 @@
         [:a {:href "/blog/computation-moves-data-stays.blog"} "Computation Moves, Data Stays"]
         ". To see why continuations are the foundation for representing all language semantics, explore "
         [:a {:href "/blog/continuations-universal-semantic-kernel.blog"} "Continuations as Universal Semantic Kernel"]
+        ". For a comprehensive defense against skeptical objections to this architecture, see "
+        [:a {:href "/blog/devils-advocate.blog"} "Why yin.vm Succeeds Where Previous Attempts Failed"]
         "."]]]
      [:section.section-dark
       [:div.section-inner

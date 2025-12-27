@@ -563,6 +563,11 @@
              "Yin.vm: Chinese Characters for Programming Languages"]
             " (the Universal Semantic AST)"]
            [:li
+            [:a
+             {:href "/blog/devils-advocate.blog"}
+             "Why yin.vm Succeeds Where Previous Attempts Failed"]
+            " (addressing skeptical objections to this architecture)"]
+           [:li
             [:a {:href "/dao-db.chp"} "DaoDB"]
             " (the Datalog database powering datom streams)"]
            [:li

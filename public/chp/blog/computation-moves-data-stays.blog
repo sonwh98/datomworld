@@ -251,6 +251,11 @@
              "Why TCP Is Too Semantic for Datom.world"]
             " (why lightweight continuations enable mobile computation)"]
            [:li
+            [:a
+             {:href "/blog/devils-advocate.blog"}
+             "Why yin.vm Succeeds Where Previous Attempts Failed"]
+            " (addressing skeptical objections to continuation-based mobile computation)"]
+           [:li
             [:a {:href "/yin.chp"} "Yin VM Documentation"]
             " (technical deep dive)"]
            [:li
