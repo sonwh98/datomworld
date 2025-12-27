@@ -49,6 +49,9 @@
         "Yin can JIT-compile bytecode for performance. "
         "Unlike most compiled languages where ASTs are discarded after compilation, "
         "in Yin they remain as datoms throughout their entire lifecycle, from source to runtime to persistence. "
+        "Transforming the AST into flat execution datoms achieves bytecode-like performance while preserving full semantic queryability—see "
+        [:a {:href "/blog/ast-datom-streams-bytecode-performance.blog"} "AST Datom Streams: Bytecode Performance with Semantic Preservation"]
+        " for how this works. "
         "The datom representation may look like low-level assembly code, but it operates at a fundamentally higher abstraction—see "
         [:a {:href "/blog/universal-ast-vs-assembly.blog"} "Universal AST vs Assembly"]
         " for why this matters."]
@@ -224,7 +227,7 @@
         "Yin turns code into data and data into computation. "
         "The Universal AST anchors every stage, persistent data structures make CESK state efficient and immutable, "
         "and the unification of functions, closures, and continuations makes agents mobile by design. "
-        "One primitive: continuation manipulation, replaces dozens of special-purpose constructs."
+        "One primitive: continuation manipulation, replaces dozens of special-purpose constructs. "
         "Eval is the machine, runtime macros stay reversible, and distributed AST transformation keeps teams iterating together."]
        [:p
         "Ready to emit new continuations? Explore "
