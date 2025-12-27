@@ -8,7 +8,7 @@
        [:span.status-pill "Continuation VM"]
        [:h1 "Yin VM"]
        [:p.section-lead
-        "Yin is what happens when Clojure and Smalltalk got together and had a baby."
+        "Yin is what happens when Clojure and Smalltalk got together and had a baby. "
         "It is a continuation virtual machine where the universal, map-based AST stays canonical, eval is the machine, "
         "and persistent data structures keep continuations fast, mobile, and immutable."]
        [:p
@@ -34,17 +34,30 @@
         "compile into this canonical form via the " [:a {:href "/yang.chp"} "Yang compiler"] " (launching with Clojure support first)."]
        [:p
         "Once a program is a Universal AST, Yin can transform, optimize, or execute it uniformly. "
-        "The AST persists—bytecode, continuations, and runtime state derive from it, and it is never discarded."
+        "The AST persists. Bytecode, continuations, and runtime state derive from it, and it is never discarded. "
         "Every transformation therefore preserves reversibility, provenance, and rich introspection."]
        [:p
-        "While the AST appears as a tree of nested maps in memory—parent nodes containing child nodes recursively—"
-        "it is decomposed into datoms and stored in " [:a {:href "/dao-db.chp"} "DaoDB"] ". "
-        "Each node becomes a set of facts: entity ID, attributes (node type, operator, operands), and relationships to other nodes. "
+        "But there's a deeper truth: "
+        [:strong "the Yin.vm AST is really an interpretation of the datom stream"]
+        ". The datom is " [:em "always"] " the source of truth. "
+        "Yin.vm's surface API takes AST as nested maps. "
+        "This AST is " [:strong "deconstructed into datom streams"] " that are indexed in " [:a {:href "/dao-db.chp"} "DaoDB"] ". "
+        "Each node becomes a set of facts: entity ID, attributes (node type, operator, operands), and relationships to other nodes."]
+       [:p
+        "Once the AST is in DaoDB, Yin.vm uses Datalog to transform the AST (now available as datoms) into bytecode (also in the form of datoms). "
+        "Both AST and bytecode are datom streams. "
+        "Yin can JIT-compile bytecode for performance. "
+        "Unlike most compiled languages where ASTs are discarded after compilation, "
+        "in Yin they remain as datoms throughout their entire lifecycle, from source to runtime to persistence. "
+        "The datom representation may look like low-level assembly code, but it operates at a fundamentally higher abstraction—see "
+        [:a {:href "/blog/universal-ast-vs-assembly.blog"} "Universal AST vs Assembly"]
+        " for why this matters."]
+       [:p
         "This decomposition transforms a hierarchical tree into a flat, queryable graph where any node can be accessed directly, "
         "parent-child relationships are explicit edges, and the entire AST becomes a knowledge graph navigable via Datalog queries."]
        [:p
-        "This changes how code is analyzed and transformed. Traditional compilers and VMs build custom data structures:"
-        "symbol tables, control flow graphs, dominance trees, call graphs:each requiring specialized traversal algorithms. "
+        "This changes how code is analyzed and transformed. Traditional compilers and VMs build custom data structures: "
+        "symbol tables, control flow graphs, dominance trees, call graphs, each requiring specialized traversal algorithms. "
         "In Yin, all of these are just Datalog queries over the same datom store. "
         "Finding all function definitions, tracing variable usage, identifying dead code, or analyzing call chains becomes declarative pattern matching. "
         "The AST is not a format the compiler consumes and discards; it is a queryable database that remains live throughout the program's lifetime."]
@@ -60,10 +73,10 @@
         "Yin implements the CESK model (Control, Environment, Store, Continuation) with persistent data structures. "
         "This is fundamentally different from traditional stack-based VMs like the JVM, Python's CPython, or JavaScript's V8. "
         "In a stack machine, function calls push frames onto a call stack, and returns pop them off. "
-        "In a CESK machine, there is no traditional call stack:the continuation " [:em "is"] " the stack, but reified as a first-class data structure."]
+        "In a CESK machine, there is no traditional call stack. The continuation " [:em "is"] " the stack, but reified as a first-class data structure."]
        [:p
         "This distinction is critical. In stack machines, the call stack is an implicit runtime construct hidden inside the VM. "
-        "You cannot capture it, serialize it, or pass it as a value:it exists only as machine state. "
+        "You cannot capture it, serialize it, or pass it as a value. It exists only as machine state. "
         "In Yin's CESK machine, the continuation is explicit, making the \"stack\" a queryable, transferable, versionable piece of data."]
        [:ul.bulleted
         [:li "Control : current AST node or continuation frame"]
@@ -80,21 +93,21 @@
         [:strong "Agents are continuations."]
         " In Datom.World, there is no distinction between an agent and a continuation. "
         "What we call an 'agent' is simply a mobile continuation equipped with " [:a {:href "/shibi.chp"} "capability tokens"] " that define its authority. "
-        "This unification is fundamental: agents don't just use continuations for mobility:they are continuations."]
+        "This unification is fundamental. Agents don't just use continuations for mobility. They are continuations."]
        [:p
         "Continuations are first-class values that represent the entire computational state. "
         "Because agents are continuations, they can move safely across network boundaries, "
         "running on embedded devices, edge racks, or supercomputers without changing shape. "
-        "They pause, serialize, migrate, and resume:carrying their control flow and authority with them while referencing data in place."]
+        "They pause, serialize, migrate, and resume, carrying their control flow and authority with them while referencing data in place."]
        [:p
         "Functions, closures and continuations are a unified concept. With this unification, metaprogramming, reflection, and "
-        "code mobility stop being special cases:they are native behaviors."]]]
+        "code mobility stop being special cases. They are native behaviors."]]]
      [:section.section-light
       [:div.section-inner
        [:h2 "What unification enables"]
        [:p
         "The claim that functions, closures, and continuations are unified deserves deeper examination. "
-        "Treating them as the same underlying construct:a reified execution context:has profound architectural consequences. "
+        "Treating them as the same underlying construct—a reified execution context—has profound architectural consequences. "
         "This isn't just conceptual elegance; it fundamentally changes what the VM can do."]
        [:h3 "One primitive replaces many"]
        [:p
@@ -113,7 +126,7 @@
        [:h3 "Computation becomes data"]
        [:p
         "Because continuations are just datoms in " [:a {:href "/dao-db.chp"} "DaoDB"] ", "
-        "the boundary between program and process disappears. Execution state is queryable, modifiable, and transferable:"]
+        "the boundary between program and process disappears. Execution state is queryable, modifiable, and transferable."]
        [:ul.bulleted
         [:li [:strong "Query with Datalog"] " : inspect active continuations, find bottlenecks, trace execution paths"]
         [:li [:strong "Version control"] " : every execution state is immutable data, making checkpointing trivial"]
@@ -130,32 +143,32 @@
         "Want to find all recursive functions? Query for functions that reference themselves. "
         "Need to trace data flow? Query for variable definitions and their usages across continuation frames. "
         "Looking for performance bottlenecks? Query for hot continuation paths and their execution counts. "
-        "The entire program:source, IR, runtime state:is a database, not a black box."]
+        "The entire program—source, IR, runtime state—is a database, not a black box."]
        [:h3 "Lightweight by design"]
        [:p
         "Because the continuation " [:em "is"] " the stack in a CESK machine, Yin has complete control over what gets captured. "
-        "Traditional stack-based VMs must snapshot the entire call stack when capturing continuations:every frame, every local, every return address. "
-        "Yin inverts this model: continuations carry only control state (program counter, code reference, hot locals). "
+        "Traditional stack-based VMs must snapshot the entire call stack when capturing continuations. Every frame, every local, every return address. "
+        "Yin inverts this model. Continuations carry only control state (program counter, code reference, hot locals). "
         "Everything else lives externally in streams."]
        [:p
-        "A continuation becomes a collection of offsets into streams. When it migrates:"]
+        "A continuation becomes a collection of offsets into streams. When it migrates, the following happens:"]
        [:ul.bulleted
         [:li "The continuation moves (a few kilobytes)"]
         [:li "The streams stay put (megabytes or gigabytes)"]
-        [:li "Symbols resolve intelligently:the compiler determines storage class statically, so hot paths stay fast"]]
+        [:li "Symbols resolve intelligently. The compiler determines storage class statically, so hot paths stay fast"]]
        [:p
         "This avoids Smalltalk's monolithic image problem while preserving its vision of capturing computational state. "
         "Continuations become thin enough to migrate across network boundaries cheaply."]
        [:h3 "Portable authority"]
        [:p
         "When continuations unify with " [:a {:href "/shibi.chp"} "capability tokens"] ", authority becomes intrinsic to computation. "
-        "An agent migrating to a new node doesn't re-authenticate its identity:it presents the capabilities it carries. "
-        "Possession proves authorization:"]
+        "An agent migrating to a new node doesn't re-authenticate its identity. It presents the capabilities it carries. "
+        "Possession proves authorization."]
        [:ul.bulleted
         [:li "Stream access tokens grant read/write permissions"]
         [:li "Resource tokens meter CPU, memory, and bandwidth"]
         [:li "Migration credentials authorize execution on remote nodes"]
-        [:li "Delegation is fine-grained:attenuate tokens before passing to subordinates"]]
+        [:li "Delegation is fine-grained. Attenuate tokens before passing to subordinates"]]
        [:p
         "Traditional systems tie permissions to identity and location. Datom.World ties permissions to possession. "
         "Authority migrates with the continuation, making distributed security composable by default."]
@@ -174,14 +187,14 @@
         "Yin executes them uniformly, transforms them with the same tools, and introspects them with the same queries."]
        [:h3 "The fundamental inversion"]
        [:p
-        "Most VMs optimize for locality: pull data toward computation, minimize migration costs, treat code as fixed. "
-        "Yin optimizes for mobility: push computation toward data, externalize state, treat code as flowing."]
-       [:p "This changes the cost model:"]
+        "Most VMs optimize for locality. They pull data toward computation, minimize migration costs, and treat code as fixed. "
+        "Yin optimizes for mobility. It pushes computation toward data, externalizes state, and treats code as flowing."]
+       [:p "This changes the cost model."]
        [:ul.bulleted
-        [:li [:strong "Traditional"] " : data movement dominates, code stays put"]
-        [:li [:strong "Yin"] " : code movement is cheap, data stays distributed"]]
+        [:li [:strong "Traditional"] ". Data movement dominates, code stays put"]
+        [:li [:strong "Yin"] ". Code movement is cheap, data stays distributed"]]
        [:p
-        "In a world where data often exceeds computation by orders of magnitude:training datasets, knowledge graphs, event logs:"
+        "In a world where data often exceeds computation by orders of magnitude—training datasets, knowledge graphs, event logs—"
         "moving a few kilobytes of continuation to where terabytes of data live makes more sense than copying terabytes to where code runs."]
        [:p.learn-more
         "See " [:a {:href "/blog/continuations-universal-semantic-kernel.blog"} "Continuations as Universal Semantic Kernel"]
@@ -195,12 +208,12 @@
         "There is no hidden interpreter. Invoking "
         [:code "eval"]
         " steps the CESK machine directly, executing the AST as data. "
-        "Because the AST remains canonical and persistent, macros exist at runtime as well as compile time:"
-        "code can generate, transform, or extend itself dynamically using the same structures the VM executes."]
+        "Because the AST remains canonical and persistent, macros exist at runtime as well as compile time. "
+        "Code can generate, transform, or extend itself dynamically using the same structures the VM executes."]
        [:p
         "ASTs are pure data, so transformation work can be distributed across nodes. "
-        "Subtrees evaluate or rewrite independently, append results to datom streams, and integrate back into the canonical representation:"
-        "enabling distributed compilation and collaborative code evolution."]
+        "Subtrees evaluate or rewrite independently, append results to datom streams, and integrate back into the canonical representation. "
+        "This enables distributed compilation and collaborative code evolution."]
        [:p.learn-more
         "See how execution achieves bytecode-like performance while preserving full queryability in "
         [:a {:href "/blog/ast-datom-streams-bytecode-performance.blog"} "AST Datom Streams: Bytecode Performance with Semantic Preservation"] "."]]]
@@ -211,7 +224,7 @@
         "Yin turns code into data and data into computation. "
         "The Universal AST anchors every stage, persistent data structures make CESK state efficient and immutable, "
         "and the unification of functions, closures, and continuations makes agents mobile by design. "
-        "One primitive:continuation manipulation:replaces dozens of special-purpose constructs. "
+        "One primitive: continuation manipulation, replaces dozens of special-purpose constructs."
         "Eval is the machine, runtime macros stay reversible, and distributed AST transformation keeps teams iterating together."]
        [:p
         "Ready to emit new continuations? Explore "
