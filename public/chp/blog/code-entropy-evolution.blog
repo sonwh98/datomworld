@@ -1,6 +1,6 @@
 #:blog{:title
        "Code as Entropy: Why Good Software Evolves, Not Designed",
-       :date #inst "2025-10-29T00:00:00.000-00:00",
+       :date #inst "2025-01-11T00:00:00.000-00:00",
        :abstract
        [:p
         "Good code isn't designed—it "
