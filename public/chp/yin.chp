@@ -9,8 +9,8 @@
        [:h1 "Yin VM"]
        [:p.section-lead
         "Yin is what happens when Clojure and Smalltalk got together and had a baby. "
-        "It is a continuation virtual machine where the universal AST exists as datoms, eval is the machine, "
-        "and persistent data structures keep continuations fast, mobile, and immutable."]
+        "It is a continuation virtual machine where both the Universal AST and runtime state exist as datoms, queryable with Datalog. "
+        "Eval is the machine, and persistent data structures keep continuations fast, mobile, and immutable."]
        [:p
         "Together with the " [:a {:href "/yang.chp"} "Yang compiler"]
         " Yin forms a dual system: Yang generates and emits continuations from Clojure code, "
@@ -45,8 +45,9 @@
         "bypassing the map form entirely. "
         "In DaoDB, datoms are indexed as covering indexes for efficient Datalog queries."]
        [:p
-        "Once in DaoDB, the AST persists throughout its entire lifecycle. "
-        "Bytecode, continuations, and runtime state all derive from these datoms, and they are never discarded. "
+        "Once in DaoDB, both the AST and runtime state persist throughout the entire lifecycle as datoms. "
+        "Everything—AST nodes, bytecode, continuations, environments, stores—exists as datoms, queryable with Datalog at any time. "
+        "Nothing is ever discarded. "
         "Every transformation therefore preserves reversibility, provenance, and rich introspection."]
        [:p
         "Once the AST datoms are indexed in DaoDB, Yin.vm uses Datalog to transform them into bytecode datoms without ever materializing the map form of the AST. "
@@ -131,17 +132,17 @@
         "Surface-level language features collapse into a small universal kernel."]
        [:h3 "Computation becomes data"]
        [:p
-        "Because continuations are just datoms in " [:a {:href "/dao-db.chp"} "DaoDB"] ", "
-        "the boundary between program and process disappears. Execution state is queryable, modifiable, and transferable."]
+        "Because both AST and runtime state (including continuations, environments, and stores) are just datoms in " [:a {:href "/dao-db.chp"} "DaoDB"] ", "
+        "the boundary between program and process disappears. Everything—from source code to execution state—is queryable with Datalog, modifiable, and transferable."]
        [:ul.bulleted
-        [:li [:strong "Query with Datalog"] " : inspect active continuations, find bottlenecks, trace execution paths"]
+        [:li [:strong "Query with Datalog"] " : inspect active continuations, find bottlenecks, trace execution paths, analyze runtime state"]
         [:li [:strong "Version control"] " : every execution state is immutable data, making checkpointing trivial"]
-        [:li [:strong "Time-travel debugging"] " : step backward through continuation history"]
+        [:li [:strong "Time-travel debugging"] " : step backward through continuation history, query past runtime states"]
         [:li [:strong "Hot code reload"] " : patch running continuations without restart"]
-        [:li [:strong "AI-assisted modification"] " : LLMs can read, understand, and transform continuations"]]
+        [:li [:strong "AI-assisted modification"] " : LLMs can read, understand, and transform continuations and runtime state"]]
        [:p
-        "The same DaoDB holds AST nodes, continuation frames, type information, and runtime facts. "
-        "Just as AST trees decompose into datoms (entity-attribute-value facts), continuations do too. "
+        "The same DaoDB holds AST nodes, bytecode, continuation frames, CESK state, type information, and runtime facts. "
+        "Just as AST trees decompose into datoms (entity-attribute-value facts), so do continuations, environments, and stores. "
         "Code, data, and execution state share a unified representation as queryable, versioned facts in the same knowledge graph."]
        [:p
         "Traditional compilers require custom visitor patterns, tree walkers, and specialized data structures for each analysis pass. "
