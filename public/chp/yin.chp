@@ -9,7 +9,7 @@
        [:h1 "Yin VM"]
        [:p.section-lead
         "Yin is what happens when Clojure and Smalltalk got together and had a baby. "
-        "It is a continuation virtual machine where the universal, map-based AST stays canonical, eval is the machine, "
+        "It is a continuation virtual machine where the universal AST exists as datoms, eval is the machine, "
         "and persistent data structures keep continuations fast, mobile, and immutable."]
        [:p
         "Together with the " [:a {:href "/yang.chp"} "Yang compiler"]
@@ -19,7 +19,7 @@
       [:div.section-inner
        [:h2 "Main ideas"]
        [:ul.bulleted
-        [:li [:strong "Universal AST"] " : designed as a compiler target, these immutable maps capture syntax, semantics, and metadata across languages."]
+        [:li [:strong "Universal AST"] " : designed as a compiler target, datoms capture syntax, semantics, and metadata across languages with an optional map projection."]
         [:li [:strong "Persistent CESK"] " : control, environment, store, and continuation reuse structure for speed."]
         [:li [:strong "First-class continuations"] " : computation pauses, migrates, and resumes anywhere, even across network boundaries."]
         [:li [:strong "Unified call constructs"] " : functions, closures, and continuations are the same reified execution context."]
@@ -27,29 +27,32 @@
         [:li [:strong "Runtime macros & distribution"] " : ASTs transform themselves locally or across nodes."]]]]
      [:section.section-dark
       [:div.section-inner
-       [:h2 "Universal map-based AST"]
+       [:h2 "Universal AST: Datoms with a Map Projection"]
        [:p
-        "Every program Yin runs is first expressed as the Universal AST: a language-agnostic, map-based structure "
+        "Every program Yin runs is expressed as the Universal AST: a language-agnostic representation "
         "that records syntax, semantics, and metadata in immutable data. Python, JavaScript, Java, and Clojure can all "
         "compile into this canonical form via the " [:a {:href "/yang.chp"} "Yang compiler"] " (launching with Clojure support first)."]
        [:p
-        "Once a program is a Universal AST, Yin can transform, optimize, or execute it uniformly. "
-        "The AST persists. Bytecode, continuations, and runtime state derive from it, and it is never discarded. "
+        "But there's a fundamental truth: "
+        [:strong "the Universal AST is really just a projection of datoms"]
+        ". The datom is " [:em "always"] " the source of truth. "
+        "What appears as a nested map structure in Yin.vm's surface API is a convenience view. "
+        "Underneath, every AST node is a set of facts: entity ID, attributes (node type, operator, operands), and relationships to other nodes."]
+       [:p
+        "The " [:a {:href "/yang.chp"} "Yang compiler"] " can generate the Universal AST in two forms. "
+        "It can directly emit the map projection for immediate use by Yin.vm's API. "
+        "Or it can directly generate the datom representation, which can be streamed directly into " [:a {:href "/dao-db.chp"} "DaoDB"] ", "
+        "bypassing the map form entirely. "
+        "In DaoDB, datoms are indexed as covering indexes for efficient Datalog queries."]
+       [:p
+        "Once in DaoDB, the AST persists throughout its entire lifecycle. "
+        "Bytecode, continuations, and runtime state all derive from these datoms, and they are never discarded. "
         "Every transformation therefore preserves reversibility, provenance, and rich introspection."]
        [:p
-        "But there's a deeper truth: "
-        [:strong "the Yin.vm AST is really an interpretation of the datom stream"]
-        ". The datom is " [:em "always"] " the source of truth. "
-        "Yin.vm's surface API takes AST as nested maps. "
-        "This AST is " [:strong "deconstructed into datom streams"] " that are indexed in " [:a {:href "/dao-db.chp"} "DaoDB"] ". "
-        "Each node becomes a set of facts: entity ID, attributes (node type, operator, operands), and relationships to other nodes."]
-       [:p
-        "Once the AST is in DaoDB, Yin.vm uses Datalog to transform the AST (now available as datoms) into bytecode (also in the form of datoms). "
+        "Once the AST datoms are indexed in DaoDB, Yin.vm uses Datalog to transform them into bytecode datoms without ever materializing the map form of the AST. "
         "Both AST and bytecode are datom streams. "
         "Yin can JIT-compile bytecode for performance. "
-        "Unlike most compiled languages where ASTs are discarded after compilation, "
-        "in Yin they remain as datoms throughout their entire lifecycle, from source to runtime to persistence. "
-        "Transforming the AST into flat execution datoms achieves bytecode-like performance while preserving full semantic queryability—see "
+        "Transforming AST datoms into flat execution bytecode achieves bytecode-like performance while preserving full semantic queryability—see "
         [:a {:href "/blog/ast-datom-streams-bytecode-performance.blog"} "AST Datom Streams: Bytecode Performance with Semantic Preservation"]
         " for how this works. "
         "The datom representation may look like low-level assembly code, but it operates at a fundamentally higher abstraction—see "
