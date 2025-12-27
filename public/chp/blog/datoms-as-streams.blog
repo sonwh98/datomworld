@@ -21,7 +21,7 @@
            "and materializes a snapshot ready for UI consumption."]
           [:h2 "From tuples to pipelines"]
           [:p
-           "Start with a handful of datoms. Each tuple follows the `[entity attribute value tx-id context]` shape, "
+           "Start with a handful of datoms. Each tuple follows the `[e a v t m]` shape (entity, attribute, value, transaction-id, metadata), "
            "so we can describe anything from identities to permissions. "
            "Transducers let us chain pure steps over that stream without creating intermediate collections."]
           [:pre

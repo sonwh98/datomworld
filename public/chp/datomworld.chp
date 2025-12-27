@@ -55,7 +55,8 @@
          [:p.learn-more "Learn more: " [:a {:href "/blog/unitarity-and-communication-limits.blog"} "Unitarity, π-Calculus, and the Cosmic Speed Limit"] "."]]
         [:article.concept-card
          [:h3 "3. Interpretation Creates Meaning"]
-         [:p [:strong "Meaning only emerges through interpretation"] ". Data is just syntax; semantics are created when an interpreter observes and acts on it. This enables semantic evolution (new interpreters don't break old ones), multiple perspectives (different teams interpret the same stream differently), and AI collaboration (agents evolve their understanding without rigid schemas)."]
+         [:p [:strong "Meaning only emerges through interpretation"] ". Data is just syntax; semantics are created when an interpreter observes and acts on it. This is the " [:strong "\"one truth, many perspectives\""] " principle: a single stream of datoms (one truth) can be interpreted differently by different observers (many perspectives), each extracting their own valid meaning."]
+         [:p "This enables semantic evolution (new interpreters don't break old ones), multiple perspectives (different teams interpret the same stream differently), and AI collaboration (agents evolve their understanding without rigid schemas)."]
          [:p.learn-more "Learn more: " [:a {:href "/blog/structure-vs-interpretation.blog"} "Structure vs Interpretation"] "."]]
         [:article.concept-card
          [:h3 "4. The Universal AST is Canonical Code"]
