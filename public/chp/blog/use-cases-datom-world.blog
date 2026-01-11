@@ -4,7 +4,7 @@
        [:p
         "Datom.world is a "
         [:strong "substrate"]
-        " for stigmergy: how ants, cells, and neurons coordinate without central control. 21 use cases from Flash Firms to time-travel debugging."],
+        " for stigmergy: how ants, cells, and neurons coordinate without central control. 23 use cases from Flash Firms to time-travel debugging."],
        :content
        [:section.blog-article
         [:div.section-inner
@@ -20,7 +20,7 @@
            [:em "enable"]
            "? What can you build that wasn't possible before?"]
           [:p
-           "Here are 21 concrete use cases. Part 1 covers business capabilities; Part 2 covers technical enablers."]
+           "Here are 23 concrete use cases. Part 1 covers business capabilities; Part 2 covers technical enablers."]
 
           [:h2 "Part 1: Business & Strategic Capabilities"]
 
@@ -30,19 +30,31 @@
           [:h4 "The Datom.world Solution"]
           [:p "ShiBi interpreter: utility token signaling as datom streams. Use tokens to stake on reputation, bid for attention, or coordinate complex economic flows without a central authority."]
 
-          [:h3 "2. The Flash Firm: Liquid Organizations"]
+          [:h3 "2. Fake Review Prevention"]
+          [:h4 "The Problem"]
+          [:p "Fake reviews exploit centralized systems through mutable history, unverifiable purchases, and Sybil attacks. Platforms struggle to prove a reviewer actually used the product."]
+          [:h4 "The Datom.world Solution"]
+          [:p "Reviews are immutable datoms causally linked to purchase streams. No purchase datom? No valid review. Datalog queries detect suspicious patterns (burst reviews, single-merchant accounts, temporal anomalies). " [:a {:href "/shibi.chp"} "ShiBi"] " stake-based signaling creates economic disincentives: reviewers stake tokens, forfeit them if proven fake. Trust emerges stigmergically from queryable data trails, not central authority judgment."]
+
+          [:h3 "3. Unified Point of Sale & Marketing"]
+          [:h4 "The Problem"]
+          [:p "POS systems and marketing platforms are siloed. Purchase data lives in one system, customer engagement in another. This disconnect makes personalized marketing guesswork and purchase verification (for reviews, warranties, returns) requires manual reconciliation."]
+          [:h4 "The Datom.world Solution"]
+          [:p "Every transaction emits purchase datoms to a unified stream. Marketing agents observe the same stream to trigger personalized offers, loyalty rewards, and follow-ups. These purchase datoms also serve as the causal anchor for " [:strong "Fake Review Prevention"] " (Use Case 2): reviews can only be valid if linked to a verified purchase datom. One stream powers both commerce and trust."]
+
+          [:h3 "4. The Flash Firm: Liquid Organizations"]
           [:h4 "The Problem"]
           [:p "Transaction costs make it prohibitively expensive to hire, onboard, and manage talent for short-term, granular tasks. Firms remain rigid and bloated because the market is too slow."]
           [:h4 "The Datom.world Solution"]
           [:p "Combine " [:strong "stigmergic coordination"] " (work signals in streams) with " [:strong "ShiBi utility tokens"] " (frictionless compensation). Teams assemble instantly for a project, execute via verified streams, and dissolve when the goal is met."]
           [:p [:em "Related blog: "] [:a {:href "/blog/the-firm.blog"} "The Firm: Transaction Costs in the Age of Agents"]]
 
-          [:h3 "3. Decentralized Service Marketplaces (Uber, Airbnb, Grab)"]
+          [:h3 "5. Decentralized Service Marketplaces (Uber, Airbnb, Grab)"]
           [:h4 "The Problem"]
           [:p "Centralized platforms extract high commissions, monopolize user data, and exert absolute control over participants. Drivers and hosts are at the mercy of a single algorithm."]
           [:h4 "The Datom.world Solution"]
           [:p "Peer-to-peer coordination via datom streams. Drivers/Hosts broadcast availability and terms. Users discover services via Datalog. Trust is established through immutable reputation logs in " [:a {:href "/dao-db.chp"} "DaoDB"] ". Compensation is direct via " [:a {:href "/shibi.chp"} "ShiBi"] " utility tokens. No central intermediary."]
-          [:h3 "4. Hyper-Local Social & Discovery (Dating, Twitter, Facebook)"]
+          [:h3 "6. Hyper-Local Social & Discovery (Dating, Twitter, Facebook)"]
           [:h4 "The Problem"]
           [:p "Centralized social networks and dating apps rely on invasive tracking and global algorithms that bury local relevance. They are fragile during outages and commoditize personal proximity for ad revenue."]
           [:h4 "The Datom.world Solution"]
@@ -50,35 +62,35 @@
 
           [:p [:em "From local coordination to global intelligence:"]]
 
-          [:h3 "5. AI Agents That Actually Have Data Access"]
+          [:h3 "7. AI Agents That Actually Have Data Access"]
           [:h4 "The Problem"]
           [:p "AI agents are getting smarter faster than our data infrastructure can keep up. SaaS silos lock data behind APIs, making it impossible for an agent to correlate your email, CRM, and financial data."]
           [:h4 "The Datom.world Solution"]
           [:p "Agents plug into " [:strong "universal datom streams"] ". A marketing agent, inventory agent, and analytics agent can all observe the same stream of business events without integration costs."]
           [:p [:em "Related blog: "] [:a {:href "/blog/ai-data-crisis.blog"} "The Coming AI Data Crisis"]]
 
-          [:h3 "6. Privacy-First Customer Trust"]
+          [:h3 "8. Privacy-First Customer Trust"]
           [:h4 "The Problem"]
           [:p "Surveillance capitalism erodes trust. Users are tired of being tracked by third-party cookies and data brokers."]
           [:h4 "The Datom.world Solution"]
           [:p [:strong "You own your datoms."] " No centralized tracking. You invite services to process your data on your terms, with cryptographic guarantees."]
           [:p [:em "Related blog: "] [:a {:href "/blog/logseq-knowledge-graph-markdown-paradox.blog"} "Logseq's Paradox"]]
 
-          [:h3 "7. Resilient IoT & Edge Networks"]
+          [:h3 "9. Resilient IoT & Edge Networks"]
           [:h4 "The Problem"]
           [:p "Cloud-dependent IoT is fragile, slow, and expensive. Bandwidth costs kill scalability."]
           [:h4 "The Datom.world Solution"]
           [:p "Sensors emit datom streams locally. Edge devices aggregate and react via " [:strong "stigmergic coordination"] ": no cloud needed for real-time decisions. Sync happens only when efficient."]
           [:p [:em "Related blog: "] [:a {:href "/blog/datoms-as-streams.blog"} "Streaming Datoms"]]
 
-          [:h3 "8. 'Airbnb for Compute' (Resource Sharing)"]
+          [:h3 "10. 'Airbnb for Compute' (Resource Sharing)"]
           [:h4 "The Problem"]
           [:p "Compute is siloed. Your phone can't easily offload a heavy task to a nearby server."]
           [:h4 "The Datom.world Solution"]
           [:p [:a {:href "/yin.chp"} "Yin.vm"] " continuations allow running code to migrate between devices. Rent spare cycles, offload heavy compute, or move a running process from phone to desktop seamlessly."]
           [:p [:em "Related blog: "] [:a {:href "/blog/unitarity-and-communication-limits.blog"} "Unitarity and Limits"]]
 
-          [:h3 "9. Unbreakable Offline-First Apps"]
+          [:h3 "11. Unbreakable Offline-First Apps"]
           [:h4 "The Problem"]
           [:p "Modern apps break without the internet. 'Offline mode' is usually a hack."]
           [:h4 "The Datom.world Solution"]
@@ -87,84 +99,84 @@
 
           [:h2 "Part 2: Technical & Architectural Enablers"]
 
-          [:h3 "10. Polyglot Systems with Universal Code"]
+          [:h3 "12. Polyglot Systems with Universal Code"]
           [:h4 "The Problem"]
           [:p "Rewriting logic for every language (JS, Python, Swift) is wasteful."]
           [:h4 "The Datom.world Solution"]
           [:p [:a {:href "/yang.chp"} "Yang Compiler"] " translates code to a Universal AST. Write business logic once, run it anywhere."]
           [:p [:em "Related blog: "] [:a {:href "/blog/yin-vm-ast-chinese-characters.blog"} "Yin.vm: Chinese Characters"]]
 
-          [:h3 "11. Agile Schema Evolution Without Migrations"]
+          [:h3 "13. Agile Schema Evolution Without Migrations"]
           [:h4 "The Problem"]
           [:p "Schema changes require downtime and complex migrations."]
           [:h4 "The Datom.world Solution"]
           [:p [:strong "Schema-on-read"] ". Interpretation happens at consumption. Add new attributes instantly without breaking existing readers."]
           [:p [:em "Related blog: "] [:a {:href "/blog/structure-vs-interpretation.blog"} "Structure vs Interpretation"]]
 
-          [:h3 "12. Semantic Collaboration (No Merge Conflicts)"]
+          [:h3 "14. Semantic Collaboration (No Merge Conflicts)"]
           [:h4 "The Problem"]
           [:p "Git merge conflicts are painful. Real-time collaboration is hard to build."]
           [:h4 "The Datom.world Solution"]
           [:p "CRDT-based semantic resolution on datom streams. Multiple users edit the same state simultaneously with automatic convergence."]
           [:p [:em "Related blog: "] [:a {:href "/blog/collaborative-writing-needs-datoms.blog"} "Collaborative Writing"]]
 
-          [:h3 "13. Intrinsic Security: Taint Tracking"]
+          [:h3 "15. Intrinsic Security: Taint Tracking"]
           [:h4 "The Problem"]
           [:p "Injection attacks (SQLi, XSS) happen when untrusted input flows to sensitive sinks."]
           [:h4 "The Datom.world Solution"]
           [:p "Datalog queries track data flow globally. Detect taint paths purely by querying the AST and data lineage."]
           [:p [:em "Related blog: "] [:a {:href "/blog/datalog-compiler-infrastructure.blog"} "Datalog Compiler"]]
 
-          [:h3 "14. Code Editors That Edit Meaning"]
+          [:h3 "16. Code Editors That Edit Meaning"]
           [:h4 "The Problem"]
           [:p "Text-based editing is fragile. Refactoring relies on regex, not semantics."]
           [:h4 "The Datom.world Solution"]
           [:p "Edit the AST directly. Refactoring is a database transaction. Impossible to create syntax errors."]
           [:p [:em "Related blog: "] [:a {:href "/blog/ide-edits-ast-not-text.blog"} "IDE Edits AST"]]
 
-          [:h3 "15. Reactive Visualizations from Streams"]
+          [:h3 "17. Reactive Visualizations from Streams"]
           [:h4 "The Problem"]
           [:p "Building dashboards requires custom code for each visualization. UI and rendering logic are tightly coupled."]
           [:h4 "The Datom.world Solution"]
           [:p [:a {:href "/dao-flow.chp"} "DaoFlow"] " renders datom streams directly into UI, 3D, or charts. Change the data, the UI updates instantly."]
           [:p [:em "Related blog: "] [:a {:href "/blog/many-syntaxes-one-ast.blog"} "Many Syntaxes"]]
 
-          [:h3 "16. Time-Travel Debugging"]
+          [:h3 "18. Time-Travel Debugging"]
           [:h4 "The Problem"]
           [:p "Reproducing bugs is hard when you can't see the history of state."]
           [:h4 "The Datom.world Solution"]
           [:p "Query full execution history as datoms. Jump to any point in history, replay, and query causality."]
           [:p [:em "Related blog: "] [:a {:href "/blog/ast-higher-dimensional-datom-streams.blog"} "Higher Dimensional AST"]]
 
-          [:h3 "17. Distributed Database with Quantum Semantics"]
+          [:h3 "19. Distributed Database with Quantum Semantics"]
           [:h4 "The Problem"]
           [:p "CAP theorem forces tradeoffs between consistency and availability."]
           [:h4 "The Datom.world Solution"]
           [:p "Relational Quantum Mechanics (RQM). Partial local states, total global information preservation. Survives partitions gracefully."]
           [:p [:em "Related blog: "] [:a {:href "/blog/datom-world-wave-function-collapse.blog"} "Wave Function Collapse"]]
 
-          [:h3 "18. Queryable Compiler Infrastructure"]
+          [:h3 "20. Queryable Compiler Infrastructure"]
           [:h4 "The Problem"]
           [:p "Compilers are black boxes. Optimizations are hard to write and compose."]
           [:h4 "The Datom.world Solution"]
           [:p "Optimizations are just Datalog queries on the AST. The compiler is a database application."]
           [:p [:em "Related blog: "] [:a {:href "/blog/datalog-compiler-infrastructure.blog"} "Datalog Compiler"]]
 
-          [:h3 "19. Lint Rules as Datalog Queries"]
+          [:h3 "21. Lint Rules as Datalog Queries"]
           [:h4 "The Problem"]
           [:p "Custom lint rules are hard to implement and require language-specific plugins."]
           [:h4 "The Datom.world Solution"]
           [:p "Define coding standards as simple queries. 'Find all loops nested inside loops'."]
           [:p [:em "Related blog: "] [:a {:href "/blog/what-makes-datalog-datalog.blog"} "What Makes Datalog Datalog"]]
 
-          [:h3 "20. Historical Optimization Learning"]
+          [:h3 "22. Historical Optimization Learning"]
           [:h4 "The Problem"]
           [:p "Compilers forget. You optimize code once and the knowledge is lost."]
           [:h4 "The Datom.world Solution"]
           [:p "Query historical build data to find which optimizations yielded actual speedups, and apply them again."]
           [:p [:em "Related blog: "] [:a {:href "/blog/code-entropy-evolution.blog"} "Code as Entropy"]]
 
-          [:h3 "21. Queryable Execution with Bytecode Speed"]
+          [:h3 "23. Queryable Execution with Bytecode Speed"]
           [:h4 "The Problem"]
           [:p "Interpreters are slow; bytecode is fast but loses semantic information."]
           [:h4 "The Datom.world Solution"]
@@ -172,7 +184,7 @@
           [:p [:em "Related blog: "] [:a {:href "/blog/ast-datom-streams-bytecode-performance.blog"} "AST Datom Streams"]]
 
           [:h2 "The Pattern: Streams → Interpreters → Composability"]
-          [:p "All 21 use cases share a common architecture:"]
+          [:p "All 23 use cases share a common architecture:"]
           [:div.highlight-box
            [:ol
             [:li [:strong "Streams"] ": Everything is datoms: code, data, execution, UI, sensors"]
@@ -182,7 +194,7 @@
           [:p "The pattern is stigmergy. Complex systems emerge from simple, local interactions: marketplaces, coding swarms, global databases. No central control required."]
 
           [:h2 "What Will You Build?"]
-          [:p "These 21 use cases are just the beginning. The real question is:"]
+          [:p "These 23 use cases are just the beginning. The real question is:"]
           [:p [:strong "What becomes possible when data, code, execution, and collaboration are all unified as queryable streams?"]]
           [:p "The web provided " [:strong "hypertext and links"] ". Datom.world provides " [:strong "streams and queries"] ". What you build on top is up to you."]
 
