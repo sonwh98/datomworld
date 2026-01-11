@@ -35,18 +35,21 @@
           [:p "Fake reviews exploit centralized systems through mutable history, unverifiable purchases, and Sybil attacks. Platforms struggle to prove a reviewer actually used the product."]
           [:h4 "The Datom.world Solution"]
           [:p "Reviews are immutable datoms causally linked to purchase streams. No purchase datom? No valid review. Datalog queries detect suspicious patterns (burst reviews, single-merchant accounts, temporal anomalies). " [:a {:href "/shibi.chp"} "ShiBi"] " stake-based signaling creates economic disincentives: reviewers stake tokens, forfeit them if proven fake. Trust emerges stigmergically from queryable data trails, not central authority judgment."]
+          [:p [:em "Related: "] "Use Case 3 (Unified POS) provides the purchase datoms that anchor review validity."]
 
           [:h3 "3. Unified Point of Sale & Marketing"]
           [:h4 "The Problem"]
-          [:p "POS systems and marketing platforms are siloed. Purchase data lives in one system, customer engagement in another. This disconnect makes personalized marketing guesswork and purchase verification (for reviews, warranties, returns) requires manual reconciliation."]
+          [:p "POS systems and marketing platforms are siloed. Purchase data lives in one system, customer engagement in another. This disconnect makes personalized marketing guesswork and forces manual reconciliation for purchase verification (reviews, warranties, returns)."]
           [:h4 "The Datom.world Solution"]
           [:p "Every transaction emits purchase datoms to a unified stream. Marketing agents observe the same stream to trigger personalized offers, loyalty rewards, and follow-ups. These purchase datoms also serve as the causal anchor for " [:strong "Fake Review Prevention"] " (Use Case 2): reviews can only be valid if linked to a verified purchase datom. One stream powers both commerce and trust."]
+          [:p [:em "Related: "] "Use Case 2 (Fake Review Prevention) depends on these purchase datoms for verification."]
 
           [:h3 "4. Demand Aggregation & Group Buying"]
           [:h4 "The Problem"]
           [:p "Individual buyers lack bargaining power. Group buying requires trust in organizers, coordination overhead, and escrow mechanisms that centralized platforms exploit for fees and control."]
           [:h4 "The Datom.world Solution"]
           [:p "Demand intent is broadcast as datoms to a shared stream. Buyers commit funds to " [:a {:href "/shibi.chp"} "ShiBi"] " smart contract escrow. Datalog queries aggregate demand in real-time: when minimum thresholds are met, the purchase executes automatically. No central organizer needed. Funds remain in buyer control until conditions are satisfied. Failed campaigns return escrowed funds automatically."]
+          [:p [:em "Related: "] "Successful group purchases emit datoms to Use Case 3 (Unified POS) streams."]
 
           [:h3 "5. The Flash Firm: Liquid Organizations"]
           [:h4 "The Problem"]
@@ -60,6 +63,7 @@
           [:p "Centralized platforms extract high commissions, monopolize user data, and exert absolute control over participants. Drivers and hosts are at the mercy of a single algorithm."]
           [:h4 "The Datom.world Solution"]
           [:p "Peer-to-peer coordination via datom streams. Drivers/Hosts broadcast availability and terms. Users discover services via Datalog. Trust is established through immutable reputation logs in " [:a {:href "/dao-db.chp"} "DaoDB"] ". Compensation is direct via " [:a {:href "/shibi.chp"} "ShiBi"] " utility tokens. No central intermediary."]
+
           [:h3 "7. Hyper-Local Social & Discovery (Dating, Twitter, Facebook)"]
           [:h4 "The Problem"]
           [:p "Centralized social networks and dating apps rely on invasive tracking and global algorithms that bury local relevance. They are fragile during outages and commoditize personal proximity for ad revenue."]
