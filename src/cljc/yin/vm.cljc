@@ -1,5 +1,15 @@
 (ns yin.vm
-  (:refer-clojure :exclude [eval]))
+  (:refer-clojure :exclude [eval])
+  (:require [yin.stream :as stream]))
+
+;; Counter for generating unique IDs
+(def ^:private id-counter (atom 0))
+
+(defn gensym-id
+  "Generate a unique keyword ID with optional prefix."
+  ([] (gensym-id "id"))
+  ([prefix]
+   (keyword (str prefix "-" (swap! id-counter inc)))))
 
 ;; Primitive operations
 (def primitives
@@ -9,7 +19,16 @@
    '/ (fn [a b] (/ a b))
    '= (fn [a b] (= a b))
    '< (fn [a b] (< a b))
-   '> (fn [a b] (> a b))})
+   '> (fn [a b] (> a b))
+   'not (fn [a] (not a))
+   'nil? (fn [a] (nil? a))
+   'empty? (fn [a] (empty? a))
+   'first (fn [a] (first a))
+   'rest (fn [a] (vec (rest a)))
+   'conj (fn [coll x] (conj coll x))
+   'assoc (fn [m k v] (assoc m k v))
+   'get (fn [m k] (get m k))
+   'vec (fn [coll] (vec coll))})
 
 (defn eval
   "Steps the CESK machine to evaluate an AST node.
@@ -19,6 +38,7 @@
     :environment - persistent lexical scope map
     :store - immutable memory graph
     :continuation - reified, persistent control context
+    :parked - map of parked continuations by ID
 
   AST is a universal map-based structure with:
     :type - node type (e.g., :literal, :variable, :application, :lambda, :if, etc.)
@@ -27,7 +47,7 @@
 
   Returns updated state after one step of evaluation."
   [state ast]
-  (let [{:keys [control environment continuation]} state
+  (let [{:keys [control environment continuation store]} state
         {:keys [type] :as node} (or ast control)]
 
     ;; If control is nil but we have a continuation, handle it
@@ -70,39 +90,30 @@
                    :environment (or saved-env environment)
                    :continuation (:parent continuation)))
 
-          ;; Stream Continuations
+          ;; Stream continuation: evaluate source for take
           :eval-stream-source
           (let [stream-ref (:value state)
-                store (:store state)
-                stream-id (:id stream-ref)
-                stream (get store stream-id)]
-            (cond
-              ;; Validation
-              (nil? stream)
-              (throw (ex-info "Invalid stream reference" {:ref stream-ref}))
-
-              ;; Case 1: Value in buffer -> Consume
-              (not (empty? (:buffer stream)))
-              (let [[val & rest-buf] (:buffer stream)
-                    new-store (assoc-in store [stream-id :buffer] (vec rest-buf))]
-                (assoc state
-                       :value val
-                       :store new-store
-                       :control nil
-                       :continuation (:parent continuation)))
-
-              ;; Case 2: Writer waiting (Rendezvous / Handoff) -> Not implemented yet
-
-              ;; Case 3: Empty -> Park (Block)
-              :else
-              (let [parked-ctx (:parent continuation)
-                    new-store (update-in store [stream-id :takers] conj parked-ctx)]
+                result (stream/vm-stream-take state stream-ref continuation)]
+            (if (:park result)
+              ;; Need to park - add continuation to takers
+              (let [stream-id (:stream-id result)
+                    parked-cont {:type :parked-continuation
+                                 :id (gensym-id "taker")
+                                 :continuation (:parent continuation)
+                                 :environment environment}
+                    store (:store state)
+                    new-store (update-in store [stream-id :takers] conj parked-cont)]
                 (assoc state
                        :store new-store
+                       :value :yin/blocked
                        :control nil
-                       :continuation nil ;; Suspend Execution
-                       :value :yin/blocked))))
+                       :continuation nil))
+              ;; Got value
+              (assoc (:state result)
+                     :control nil
+                     :continuation (:parent continuation))))
 
+          ;; Stream continuation: evaluate target for put
           :eval-stream-put-target
           (let [frame (:frame continuation)
                 stream-ref (:value state)
@@ -113,28 +124,21 @@
                                         :type :eval-stream-put-val
                                         :stream-ref stream-ref)))
 
+          ;; Stream continuation: evaluate value for put
           :eval-stream-put-val
           (let [val (:value state)
                 stream-ref (:stream-ref continuation)
-                store (:store state)
-                stream-id (:id stream-ref)
-                stream (get store stream-id)]
-            (cond
-              (nil? stream) (throw (ex-info "Invalid stream ref" {:ref stream-ref}))
-
-               ;; Check if Takers are waiting (Rendezvous)
-               ;; (not (empty? (:takers stream))) -> Not implemented in prototype
-               ;; We just buffer.
-
-              :else
-              (let [current-buf (or (:buffer stream) [])
-                    new-buf (conj current-buf val)
-                    new-store (assoc-in store [stream-id :buffer] new-buf)]
-                (assoc state
-                       :store new-store
-                       :value val ;; Put returns the value
-                       :control nil
-                       :continuation (:parent continuation)))))
+                result (stream/vm-stream-put state stream-ref val)]
+            (if-let [taker (:resume-taker result)]
+              ;; Taker was waiting - need to resume it
+              ;; For now, just complete the put and let scheduler handle resume
+              (assoc (:state result)
+                     :control nil
+                     :continuation (:parent continuation))
+              ;; No taker - value buffered
+              (assoc (:state result)
+                     :control nil
+                     :continuation (:parent continuation))))
 
           ;; Default for unknown continuation
           (throw (ex-info "Unknown continuation type"
@@ -225,28 +229,95 @@
                                   :environment environment
                                   :type :eval-test})))
 
-        ;; Stream OPS
-        :stream/make
-        (let [id (keyword (str "stream-" #?(:clj (java.util.UUID/randomUUID) :cljs (random-uuid))))
-              buffer-size (or (:buffer node) 1024)
-              new-store (assoc (:store state)
-                               id
-                               {:type :stream
-                                :buffer []
-                                :takers []
-                                :capacity buffer-size})]
+        ;; ============================================================
+        ;; VM Primitives for Store Operations
+        ;; ============================================================
+
+        ;; Generate unique ID
+        :vm/gensym
+        (let [prefix (or (:prefix node) "id")
+              id (gensym-id prefix)]
+          (assoc state :value id :control nil))
+
+        ;; Read from store
+        :vm/store-get
+        (let [key (:key node)
+              value (get store key)]
+          (assoc state :value value :control nil))
+
+        ;; Write to store
+        :vm/store-put
+        (let [key (:key node)
+              value (:val node)
+              new-store (assoc store key value)]
           (assoc state
                  :store new-store
-                 :value {:type :stream-ref :id id}
+                 :value value
                  :control nil))
 
-        :stream/take
+        ;; Update store (apply function to current value)
+        :vm/store-update
+        (let [key (:key node)
+              f (:fn node)
+              args (:args node)
+              current (get store key)
+              new-value (apply f current args)
+              new-store (assoc store key new-value)]
+          (assoc state
+                 :store new-store
+                 :value new-value
+                 :control nil))
+
+        ;; ============================================================
+        ;; VM Primitives for Continuation Control
+        ;; ============================================================
+
+        ;; Get current continuation as a value
+        :vm/current-continuation
         (assoc state
-               :control (:source node)
-               :continuation {:frame node
-                              :parent continuation
-                              :environment environment
-                              :type :eval-stream-source})
+               :value {:type :reified-continuation
+                       :continuation continuation
+                       :environment environment}
+               :control nil)
+
+        ;; Park (suspend) - saves current continuation and halts
+        :vm/park
+        (let [park-id (gensym-id "parked")
+              parked-cont {:type :parked-continuation
+                           :id park-id
+                           :continuation continuation
+                           :environment environment}
+              new-parked (assoc (or (:parked state) {}) park-id parked-cont)]
+          (assoc state
+                 :parked new-parked
+                 :value parked-cont
+                 :control nil
+                 :continuation nil)) ;; Halt execution
+
+        ;; Resume a parked continuation with a value
+        :vm/resume
+        (let [parked-id (:parked-id node)
+              resume-value (:val node)
+              parked-cont (get-in state [:parked parked-id])]
+          (if parked-cont
+            (let [new-parked (dissoc (:parked state) parked-id)]
+              (assoc state
+                     :parked new-parked
+                     :value resume-value
+                     :control nil
+                     :continuation (:continuation parked-cont)
+                     :environment (:environment parked-cont)))
+            (throw (ex-info "Cannot resume: parked continuation not found"
+                            {:parked-id parked-id}))))
+
+        ;; ============================================================
+        ;; Stream Operations (library-based)
+        ;; ============================================================
+
+        :stream/make
+        (let [capacity (or (:buffer node) 1024)
+              [stream-ref new-state] (stream/vm-stream-make state capacity)]
+          (assoc new-state :value stream-ref :control nil))
 
         :stream/put
         (assoc state
@@ -255,6 +326,14 @@
                               :parent continuation
                               :environment environment
                               :type :eval-stream-put-target})
+
+        :stream/take
+        (assoc state
+               :control (:source node)
+               :continuation {:frame node
+                              :parent continuation
+                              :environment environment
+                              :type :eval-stream-source})
 
         ;; Unknown node type
         (throw (ex-info "Unknown AST node type"
@@ -270,3 +349,15 @@
     (if (or (:control state) (:continuation state))
       (recur (eval state nil))
       state)))
+
+;; Helper to check if VM is parked (blocked)
+(defn parked?
+  "Returns true if the VM has parked continuations waiting."
+  [state]
+  (boolean (seq (:parked state))))
+
+;; Helper to get parked continuation IDs
+(defn parked-ids
+  "Returns the IDs of all parked continuations."
+  [state]
+  (keys (:parked state)))
