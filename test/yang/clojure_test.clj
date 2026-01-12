@@ -225,6 +225,69 @@
       (is (thrown? Exception
                    (yang/compile (Object.)))))))
 
+;; Stream compilation tests
+
+(deftest test-compile-stream-make
+  (testing "Compiling stream/make"
+    (testing "With buffer size"
+      (let [ast (yang/compile '(stream/make 10))]
+        (is (= :stream/make (:type ast)))
+        (is (= 10 (:buffer ast)))))
+
+    (testing "Without buffer size (default)"
+      (let [ast (yang/compile '(stream/make))]
+        (is (= :stream/make (:type ast)))
+        (is (= 1024 (:buffer ast)))))))
+
+(deftest test-compile-stream-put
+  (testing "Compiling stream/put"
+    (let [ast (yang/compile '(stream/put s 42))]
+      (is (= :stream/put (:type ast)))
+      (is (= {:type :variable :name 's} (:target ast)))
+      (is (= {:type :literal :value 42} (:val ast)))))
+
+  (testing "Compiling >! alias"
+    (let [ast (yang/compile '(>! s 42))]
+      (is (= :stream/put (:type ast)))
+      (is (= {:type :variable :name 's} (:target ast)))
+      (is (= {:type :literal :value 42} (:val ast))))))
+
+(deftest test-compile-stream-take
+  (testing "Compiling stream/take"
+    (let [ast (yang/compile '(stream/take s))]
+      (is (= :stream/take (:type ast)))
+      (is (= {:type :variable :name 's} (:source ast)))))
+
+  (testing "Compiling <! alias"
+    (let [ast (yang/compile '(<! s))]
+      (is (= :stream/take (:type ast)))
+      (is (= {:type :variable :name 's} (:source ast))))))
+
+(deftest test-stream-end-to-end
+  (testing "Compile and execute stream operations"
+    (testing "Simple put and take"
+      (let [ast (yang/compile '(let [s (stream/make 5)]
+                                 (stream/put s 42)
+                                 (stream/take s)))
+            result (vm/run (make-state vm/primitives) ast)]
+        (is (= 42 (:value result)))))
+
+    (testing "With channel-style aliases"
+      (let [ast (yang/compile '(let [s (stream/make)]
+                                 (>! s 99)
+                                 (<! s)))
+            result (vm/run (make-state vm/primitives) ast)]
+        (is (= 99 (:value result)))))
+
+    (testing "Multiple values FIFO"
+      (let [ast (yang/compile '(let [s (stream/make 10)]
+                                 (>! s 1)
+                                 (>! s 2)
+                                 (>! s 3)
+                                 (<! s)))
+            result (vm/run (make-state vm/primitives) ast)]
+        (is (= 1 (:value result)))))))
+
 (deftest test-lambda-with-multi-expression-body
   (testing "Lambda with multiple expressions in body"
     (let [ast (yang/compile '(fn [x] (+ x 1) (+ x 2) (* x 3)))

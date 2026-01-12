@@ -10,6 +10,8 @@
   - Function application
   - Conditionals (if)
   - Let bindings (let)
+  - Stream operations (stream/make, stream/put, stream/take)
+  - Channel-style aliases (>!, <!)
 
   The compiler is written in .cljc format to run on both JVM and Node.js."
   (:refer-clojure :exclude [compile]))
@@ -34,7 +36,10 @@
   [form]
   (and (seq? form)
        (symbol? (first form))
-       (contains? #{'fn 'if 'let 'quote 'do} (first form))))
+       (contains? #{'fn 'if 'let 'quote 'do
+                    'stream/make 'stream/put 'stream/take
+                    '>! '<!}
+                  (first form))))
 
 (defn compile-literal
   "Compile a literal value to Universal AST."
@@ -139,6 +144,40 @@
   [form]
   (compile-literal form))
 
+;; Stream operations
+
+(defn compile-stream-make
+  "Compile a stream/make expression to Universal AST.
+
+  Clojure: (stream/make) or (stream/make 10)
+  AST: {:type :stream/make :buffer <size>}"
+  [args env]
+  {:type :stream/make
+   :buffer (or (first args) 1024)})
+
+(defn compile-stream-put
+  "Compile a stream/put expression to Universal AST.
+
+  Clojure: (stream/put s 42) or (>! s 42)
+  AST: {:type :stream/put
+        :target <compiled-stream>
+        :val <compiled-value>}"
+  [args env]
+  (let [[target val] args]
+    {:type :stream/put
+     :target (compile-form target env)
+     :val (compile-form val env)}))
+
+(defn compile-stream-take
+  "Compile a stream/take expression to Universal AST.
+
+  Clojure: (stream/take s) or (<! s)
+  AST: {:type :stream/take
+        :source <compiled-stream>}"
+  [args env]
+  {:type :stream/take
+   :source (compile-form (first args) env)})
+
 (defn resolve-primitive
   "Resolve primitive operations in the environment.
 
@@ -198,6 +237,23 @@
          ;; Quote: (quote form)
          quote
          (compile-quote (first operands))
+
+         ;; Stream operations
+         stream/make
+         (compile-stream-make operands env)
+
+         stream/put
+         (compile-stream-put operands env)
+
+         stream/take
+         (compile-stream-take operands env)
+
+         ;; Channel-style aliases
+         >!
+         (compile-stream-put operands env)
+
+         <!
+         (compile-stream-take operands env)
 
          ;; Function application: (f arg1 arg2 ...)
          (compile-application operator operands env)))
