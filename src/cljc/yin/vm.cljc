@@ -70,50 +70,114 @@
                    :environment (or saved-env environment)
                    :continuation (:parent continuation)))
 
+          ;; Stream Continuations
+          :eval-stream-source
+          (let [stream-ref (:value state)
+                store (:store state)
+                stream-id (:id stream-ref)
+                stream (get store stream-id)]
+            (cond
+              ;; Validation
+              (nil? stream)
+              (throw (ex-info "Invalid stream reference" {:ref stream-ref}))
+
+              ;; Case 1: Value in buffer -> Consume
+              (not (empty? (:buffer stream)))
+              (let [[val & rest-buf] (:buffer stream)
+                    new-store (assoc-in store [stream-id :buffer] (vec rest-buf))]
+                (assoc state
+                       :value val
+                       :store new-store
+                       :control nil
+                       :continuation (:parent continuation)))
+
+              ;; Case 2: Writer waiting (Rendezvous / Handoff) -> Not implemented yet
+
+              ;; Case 3: Empty -> Park (Block)
+              :else
+              (let [parked-ctx (:parent continuation)
+                    new-store (update-in store [stream-id :takers] conj parked-ctx)]
+                (assoc state
+                       :store new-store
+                       :control nil
+                       :continuation nil ;; Suspend Execution
+                       :value :yin/blocked))))
+
+          :eval-stream-put-target
+          (let [frame (:frame continuation)
+                stream-ref (:value state)
+                val-node (:val frame)]
+            (assoc state
+                   :control val-node
+                   :continuation (assoc continuation
+                                        :type :eval-stream-put-val
+                                        :stream-ref stream-ref)))
+
+          :eval-stream-put-val
+          (let [val (:value state)
+                stream-ref (:stream-ref continuation)
+                store (:store state)
+                stream-id (:id stream-ref)
+                stream (get store stream-id)]
+            (cond
+              (nil? stream) (throw (ex-info "Invalid stream ref" {:ref stream-ref}))
+
+               ;; Check if Takers are waiting (Rendezvous)
+               ;; (not (empty? (:takers stream))) -> Not implemented in prototype
+               ;; We just buffer.
+
+              :else
+              (let [current-buf (or (:buffer stream) [])
+                    new-buf (conj current-buf val)
+                    new-store (assoc-in store [stream-id :buffer] new-buf)]
+                (assoc state
+                       :store new-store
+                       :value val ;; Put returns the value
+                       :control nil
+                       :continuation (:parent continuation)))))
+
+          ;; Default for unknown continuation
           (throw (ex-info "Unknown continuation type"
                           {:continuation-type cont-type
                            :continuation continuation}))))
 
       ;; Otherwise handle the node type
       (case type
-      ;; Literals evaluate to themselves
+        ;; Literals evaluate to themselves
         :literal
         (let [{:keys [value]} node]
-        ;; Always just return the value, let continuation handling happen in default case
           (assoc state :value value :control nil))
 
-      ;; Variable lookup
+        ;; Variable lookup
         :variable
         (let [{:keys [name]} node
               value (get environment name)]
-        ;; Always just return the value, let continuation handling happen in default case
           (assoc state :value value :control nil))
 
-      ;; Lambda creates a closure
+        ;; Lambda creates a closure
         :lambda
         (let [{:keys [params body]} node
               closure {:type :closure
                        :params params
                        :body body
                        :environment environment}]
-        ;; Always just return the closure, let continuation handling happen in default case
           (assoc state :value closure :control nil))
 
-      ;; Function application
+        ;; Function application
         :application
         (let [{:keys [operator operands evaluated-operands fn-value operator-evaluated?]} node
               evaluated-operands (or evaluated-operands [])]
           (cond
-          ;; All evaluated - apply function
+            ;; All evaluated - apply function
             (and operator-evaluated?
                  (= (count evaluated-operands) (count operands)))
             (cond
-            ;; Primitive function
+              ;; Primitive function
               (fn? fn-value)
               (let [result (apply fn-value evaluated-operands)]
                 (assoc state :value result :control nil))
 
-            ;; User-defined closure
+              ;; User-defined closure
               (= :closure (:type fn-value))
               (let [{:keys [params body environment]} fn-value
                     extended-env (merge environment (zipmap params evaluated-operands))]
@@ -126,7 +190,7 @@
               (throw (ex-info "Cannot apply non-function"
                               {:fn-value fn-value})))
 
-          ;; Evaluate operands one by one
+            ;; Evaluate operands one by one
             operator-evaluated?
             (let [next-operand (nth operands (count evaluated-operands))]
               (assoc state
@@ -136,7 +200,7 @@
                                     :environment environment
                                     :type :eval-operand}))
 
-          ;; Evaluate operator first
+            ;; Evaluate operator first
             :else
             (assoc state
                    :control operator
@@ -145,15 +209,15 @@
                                   :environment environment
                                   :type :eval-operator})))
 
-      ;; Conditional
+        ;; Conditional
         :if
         (let [{:keys [test consequent alternate]} node]
           (if (:evaluated-test? node)
-          ;; Test evaluated, choose branch
+            ;; Test evaluated, choose branch
             (let [test-value (:value state)
                   branch (if test-value consequent alternate)]
               (assoc state :control branch))
-          ;; Evaluate test first
+            ;; Evaluate test first
             (assoc state
                    :control test
                    :continuation {:frame node
@@ -161,7 +225,38 @@
                                   :environment environment
                                   :type :eval-test})))
 
-      ;; Unknown node type
+        ;; Stream OPS
+        :stream/make
+        (let [id (keyword (str "stream-" #?(:clj (java.util.UUID/randomUUID) :cljs (random-uuid))))
+              buffer-size (or (:buffer node) 1024)
+              new-store (assoc (:store state)
+                               id
+                               {:type :stream
+                                :buffer []
+                                :takers []
+                                :capacity buffer-size})]
+          (assoc state
+                 :store new-store
+                 :value {:type :stream-ref :id id}
+                 :control nil))
+
+        :stream/take
+        (assoc state
+               :control (:source node)
+               :continuation {:frame node
+                              :parent continuation
+                              :environment environment
+                              :type :eval-stream-source})
+
+        :stream/put
+        (assoc state
+               :control (:target node)
+               :continuation {:frame node
+                              :parent continuation
+                              :environment environment
+                              :type :eval-stream-put-target})
+
+        ;; Unknown node type
         (throw (ex-info "Unknown AST node type"
                         {:type type
                          :node node}))))))
