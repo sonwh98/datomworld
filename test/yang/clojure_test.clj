@@ -1,7 +1,8 @@
 (ns yang.clojure-test
   (:require [clojure.test :refer :all]
             [yang.clojure :as yang]
-            [yin.vm :as vm]))
+            [yin.vm :as vm]
+            [yin.stream]))
 
 (defn make-state
   "Helper to create initial VM state."
@@ -226,65 +227,75 @@
                    (yang/compile (Object.)))))))
 
 ;; Stream compilation tests
+;; Streams are now compiled as regular function applications and resolved
+;; through the module system at runtime.
 
 (deftest test-compile-stream-make
-  (testing "Compiling stream/make"
+  (testing "Compiling stream/make as application"
     (testing "With buffer size"
       (let [ast (yang/compile '(stream/make 10))]
-        (is (= :stream/make (:type ast)))
-        (is (= 10 (:buffer ast)))))
+        (is (= :application (:type ast)))
+        (is (= {:type :variable :name 'stream/make} (:operator ast)))
+        (is (= [{:type :literal :value 10}] (:operands ast)))))
 
-    (testing "Without buffer size (default)"
+    (testing "Without buffer size"
       (let [ast (yang/compile '(stream/make))]
-        (is (= :stream/make (:type ast)))
-        (is (= 1024 (:buffer ast)))))))
+        (is (= :application (:type ast)))
+        (is (= {:type :variable :name 'stream/make} (:operator ast)))
+        (is (= [] (:operands ast)))))))
 
 (deftest test-compile-stream-put
-  (testing "Compiling stream/put"
-    (let [ast (yang/compile '(stream/put s 42))]
-      (is (= :stream/put (:type ast)))
-      (is (= {:type :variable :name 's} (:target ast)))
-      (is (= {:type :literal :value 42} (:val ast)))))
+  (testing "Compiling stream/put as application"
+    (let [ast (yang/compile '(stream/put! s 42))]
+      (is (= :application (:type ast)))
+      (is (= {:type :variable :name 'stream/put!} (:operator ast)))
+      (is (= [{:type :variable :name 's}
+              {:type :literal :value 42}]
+             (:operands ast)))))
 
-  (testing "Compiling >! alias"
+  (testing "Compiling >! as application"
     (let [ast (yang/compile '(>! s 42))]
-      (is (= :stream/put (:type ast)))
-      (is (= {:type :variable :name 's} (:target ast)))
-      (is (= {:type :literal :value 42} (:val ast))))))
+      (is (= :application (:type ast)))
+      (is (= {:type :variable :name '>!} (:operator ast)))
+      (is (= [{:type :variable :name 's}
+              {:type :literal :value 42}]
+             (:operands ast))))))
 
 (deftest test-compile-stream-take
-  (testing "Compiling stream/take"
-    (let [ast (yang/compile '(stream/take s))]
-      (is (= :stream/take (:type ast)))
-      (is (= {:type :variable :name 's} (:source ast)))))
+  (testing "Compiling stream/take as application"
+    (let [ast (yang/compile '(stream/take! s))]
+      (is (= :application (:type ast)))
+      (is (= {:type :variable :name 'stream/take!} (:operator ast)))
+      (is (= [{:type :variable :name 's}] (:operands ast)))))
 
-  (testing "Compiling <! alias"
+  (testing "Compiling <! as application"
     (let [ast (yang/compile '(<! s))]
-      (is (= :stream/take (:type ast)))
-      (is (= {:type :variable :name 's} (:source ast))))))
+      (is (= :application (:type ast)))
+      (is (= {:type :variable :name '<!} (:operator ast)))
+      (is (= [{:type :variable :name 's}] (:operands ast))))))
 
 (deftest test-stream-end-to-end
-  (testing "Compile and execute stream operations"
+  (testing "Compile and execute stream operations via module system"
     (testing "Simple put and take"
       (let [ast (yang/compile '(let [s (stream/make 5)]
-                                 (stream/put s 42)
-                                 (stream/take s)))
+                                 (stream/put! s 42)
+                                 (stream/take! s)))
             result (vm/run (make-state vm/primitives) ast)]
         (is (= 42 (:value result)))))
 
-    (testing "With channel-style aliases"
+    (testing "Without buffer size (uses default)"
       (let [ast (yang/compile '(let [s (stream/make)]
-                                 (>! s 99)
-                                 (<! s)))
+                                 (stream/put! s 99)
+                                 (stream/take! s)))
             result (vm/run (make-state vm/primitives) ast)]
         (is (= 99 (:value result)))))
 
     (testing "Multiple values FIFO"
       (let [ast (yang/compile '(let [s (stream/make 10)]
-                                 (>! s 1)
-                                 (>! s 2)
-                                 (>! s 3)
-                                 (<! s)))
+                                 (stream/put! s 1)
+                                 (stream/put! s 2)
+                                 (stream/put! s 3)
+                                 (stream/take! s)))
             result (vm/run (make-state vm/primitives) ast)]
         (is (= 1 (:value result)))))))
 

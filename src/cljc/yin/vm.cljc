@@ -1,6 +1,7 @@
 (ns yin.vm
   (:refer-clojure :exclude [eval])
-  (:require [yin.stream :as stream]))
+  (:require [yin.module :as module]
+            [yin.stream :as stream]))
 
 ;; Counter for generating unique IDs
 (def ^:private id-counter (atom 0))
@@ -155,7 +156,9 @@
         ;; Variable lookup
         :variable
         (let [{:keys [name]} node
-              value (get environment name)]
+              ;; First check local environment, then module system
+              value (or (get environment name)
+                        (module/resolve-symbol name))]
           (assoc state :value value :control nil))
 
         ;; Lambda creates a closure
@@ -179,7 +182,48 @@
               ;; Primitive function
               (fn? fn-value)
               (let [result (apply fn-value evaluated-operands)]
-                (assoc state :value result :control nil))
+                ;; Check if result is an effect descriptor
+                (if (module/effect? result)
+                  ;; Execute effect
+                  (case (:effect result)
+                    :stream/make
+                    (let [[stream-ref new-state] (stream/handle-make state result gensym-id)]
+                      (assoc new-state :value stream-ref :control nil))
+
+                    :stream/put
+                    (let [effect-result (stream/handle-put state result)]
+                      (assoc (:state effect-result)
+                             :value (:value effect-result)
+                             :control nil))
+
+                    :stream/take
+                    (let [effect-result (stream/handle-take state result)]
+                      (if (:park effect-result)
+                        ;; Need to park
+                        (let [stream-id (:stream-id effect-result)
+                              parked-cont {:type :parked-continuation
+                                           :id (gensym-id "taker")
+                                           :continuation continuation
+                                           :environment environment}
+                              new-store (update-in store [stream-id :takers] conj parked-cont)]
+                          (assoc state
+                                 :store new-store
+                                 :value :yin/blocked
+                                 :control nil
+                                 :continuation nil))
+                        ;; Got value
+                        (assoc (:state effect-result)
+                               :value (:value effect-result)
+                               :control nil)))
+
+                    :stream/close
+                    (let [new-state (stream/handle-close state result)]
+                      (assoc new-state :value nil :control nil))
+
+                    ;; Unknown effect
+                    (throw (ex-info "Unknown effect type" {:effect result})))
+                  ;; Regular return value
+                  (assoc state :value result :control nil)))
 
               ;; User-defined closure
               (= :closure (:type fn-value))

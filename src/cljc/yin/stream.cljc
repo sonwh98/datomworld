@@ -1,52 +1,61 @@
 (ns yin.stream
   "Stream library for Yin VM.
 
-  Streams are implemented as a library using VM primitives:
-  - :vm/gensym for unique IDs
-  - :vm/store-get and :vm/store-put for state
-  - :vm/park and :vm/resume for blocking
+  This is a client-facing library that can be required by user code:
 
-  This module provides:
-  1. AST constructors for stream operations
-  2. Primitive functions that can be added to the VM environment
+    (require '[stream :as s])
+    (let [ch (s/make 10)]
+      (s/put! ch 42)
+      (s/take! ch))
+
+  Stream functions return effect descriptors that the VM interprets.
+  This allows streams to manipulate VM state (store, continuations)
+  while being regular functions from the client's perspective.
 
   Streams are stored in the VM store as:
   {:type :stream
    :buffer []        ;; values waiting to be taken
    :capacity n       ;; max buffer size
-   :takers []}       ;; parked continuations waiting for values")
+   :takers []}       ;; parked continuations waiting for values"
+  (:require [yin.module :as module]))
 
 ;; ============================================================
-;; AST Constructors
-;; These return AST nodes that can be composed into programs
+;; Client-Facing API (returns effect descriptors)
 ;; ============================================================
 
-(defn make-ast
-  "Return AST for creating a new stream.
-   Usage in compiled code: (stream/make 10)"
-  ([] (make-ast 1024))
-  ([buffer-size]
-   {:type :stream/make
-    :buffer buffer-size}))
+(defn make
+  "Create a new stream with given buffer capacity.
+   Returns an effect descriptor that the VM will execute."
+  ([] (make 1024))
+  ([capacity]
+   {:effect :stream/make
+    :capacity capacity}))
 
-(defn put-ast
-  "Return AST for putting a value on a stream.
-   Usage in compiled code: (stream/put s val)"
-  [stream-ast val-ast]
-  {:type :stream/put
-   :stream stream-ast
-   :val val-ast})
+(defn put!
+  "Put a value onto a stream.
+   Returns an effect descriptor that the VM will execute."
+  [stream-ref val]
+  {:effect :stream/put
+   :stream stream-ref
+   :val val})
 
-(defn take-ast
-  "Return AST for taking a value from a stream.
-   Usage in compiled code: (stream/take s)"
-  [stream-ast]
-  {:type :stream/take
-   :stream stream-ast})
+(defn take!
+  "Take a value from a stream. May block if empty.
+   Returns an effect descriptor that the VM will execute."
+  [stream-ref]
+  {:effect :stream/take
+   :stream stream-ref})
+
+(defn close!
+  "Close a stream. No more values can be put.
+   Returns an effect descriptor that the VM will execute."
+  [stream-ref]
+  {:effect :stream/close
+   :stream stream-ref})
 
 ;; ============================================================
 ;; Stream Data Structure Helpers
-;; Pure functions for manipulating stream data
+;; Pure functions used by VM to manipulate stream data
 ;; ============================================================
 
 (defn make-stream-data
@@ -55,7 +64,8 @@
   {:type :stream
    :buffer []
    :capacity capacity
-   :takers []})
+   :takers []
+   :closed false})
 
 (defn stream-empty?
   "Check if stream buffer is empty."
@@ -66,6 +76,11 @@
   "Check if stream buffer is at capacity."
   [stream]
   (>= (count (:buffer stream)) (:capacity stream)))
+
+(defn stream-closed?
+  "Check if stream is closed."
+  [stream]
+  (:closed stream))
 
 (defn stream-has-takers?
   "Check if there are parked continuations waiting."
@@ -95,69 +110,179 @@
     [taker (assoc stream :takers (vec rest-takers))]))
 
 ;; ============================================================
-;; VM-Level Operations
-;; These work directly with VM state (for use in VM primitives)
+;; VM-Level Effect Handlers
+;; Called by VM when executing stream effects
 ;; ============================================================
 
-(defn vm-stream-make
-  "Create a stream in the VM store. Returns [stream-ref updated-state]."
-  [state capacity]
-  (let [id (keyword (str "stream-" (gensym)))
+(defn handle-make
+  "Handle :stream/make effect. Returns [stream-ref updated-state]."
+  [state effect gensym-fn]
+  (let [capacity (:capacity effect)
+        id (gensym-fn "stream")
         stream-data (make-stream-data capacity)
         new-store (assoc (:store state) id stream-data)
         stream-ref {:type :stream-ref :id id}]
     [stream-ref (assoc state :store new-store)]))
 
-(defn vm-stream-put
-  "Put a value on a stream. Returns updated state.
-   If takers are waiting, resumes the first one.
-   Otherwise buffers the value."
-  [state stream-ref val]
-  (let [stream-id (:id stream-ref)
+(defn handle-put
+  "Handle :stream/put effect. Returns result map."
+  [state effect]
+  (let [stream-ref (:stream effect)
+        val (:val effect)
+        stream-id (:id stream-ref)
         store (:store state)
         stream (get store stream-id)]
-    (if (stream-has-takers? stream)
+    (cond
+      (nil? stream)
+      (throw (ex-info "Invalid stream reference" {:ref stream-ref}))
+
+      (stream-closed? stream)
+      (throw (ex-info "Cannot put to closed stream" {:ref stream-ref}))
+
+      (stream-has-takers? stream)
       ;; Taker waiting - hand off value directly
       (let [[taker new-stream] (stream-pop-taker stream)
             new-store (assoc store stream-id new-stream)]
-        ;; Return state ready to resume the taker
-        {:resume-taker taker
-         :resume-value val
-         :state (assoc state :store new-store :value val)})
+        {:value val
+         :state (assoc state :store new-store)
+         :resume-taker taker
+         :resume-value val})
+
+      :else
       ;; No takers - buffer the value
       (let [new-stream (stream-add-value stream val)
             new-store (assoc store stream-id new-stream)]
-        {:state (assoc state :store new-store :value val)}))))
+        {:value val
+         :state (assoc state :store new-store)}))))
+
+(defn handle-take
+  "Handle :stream/take effect. Returns result map."
+  [state effect]
+  (let [stream-ref (:stream effect)
+        stream-id (:id stream-ref)
+        store (:store state)
+        stream (get store stream-id)]
+    (cond
+      (nil? stream)
+      (throw (ex-info "Invalid stream reference" {:ref stream-ref}))
+
+      (not (stream-empty? stream))
+      ;; Has value - take it
+      (let [[val new-stream] (stream-take-value stream)
+            new-store (assoc store stream-id new-stream)]
+        {:value val
+         :state (assoc state :store new-store)})
+
+      (stream-closed? stream)
+      ;; Closed and empty - return nil
+      {:value nil
+       :state state}
+
+      :else
+      ;; Empty - need to park
+      {:park true
+       :stream-id stream-id
+       :state state})))
+
+(defn handle-close
+  "Handle :stream/close effect. Returns updated state."
+  [state effect]
+  (let [stream-ref (:stream effect)
+        stream-id (:id stream-ref)
+        store (:store state)
+        stream (get store stream-id)
+        new-stream (assoc stream :closed true)
+        new-store (assoc store stream-id new-stream)]
+    ;; TODO: Resume all takers with nil
+    (assoc state :store new-store)))
+
+;; ============================================================
+;; VM-Level Stream Operations (for AST node handling)
+;; These work with stream-refs directly, used by VM for
+;; :stream/make, :stream/take, :stream/put AST nodes
+;; ============================================================
+
+(defn vm-stream-make
+  "Create a stream in the VM store. Returns [stream-ref new-state]."
+  [state capacity]
+  (let [id (keyword (str "stream-" (swap! (atom 0) inc)))  ;; Will be replaced by gensym
+        stream-data (make-stream-data capacity)
+        new-store (assoc (:store state) id stream-data)
+        stream-ref {:type :stream-ref :id id}]
+    [stream-ref (assoc state :store new-store)]))
 
 (defn vm-stream-take
-  "Take a value from a stream. Returns result map.
-   If buffer has values, returns immediately.
-   Otherwise parks the current continuation."
+  "Take from a stream by ref. Used by VM continuation handling.
+   Returns result map with :park or :value/:state."
   [state stream-ref continuation]
   (let [stream-id (:id stream-ref)
         store (:store state)
         stream (get store stream-id)]
-    (if (stream-empty? stream)
+    (cond
+      (nil? stream)
+      (throw (ex-info "Invalid stream reference" {:ref stream-ref}))
+
+      (not (stream-empty? stream))
+      ;; Has value - take it
+      (let [[val new-stream] (stream-take-value stream)
+            new-store (assoc store stream-id new-stream)]
+        {:value val
+         :state (assoc state :store new-store :value val)})
+
+      (stream-closed? stream)
+      ;; Closed and empty - return nil
+      {:value nil
+       :state (assoc state :value nil)}
+
+      :else
       ;; Empty - need to park
       {:park true
        :stream-id stream-id
-       :state state}
-      ;; Has value - take it
-      (let [[val new-stream] (stream-take-value stream)
+       :state state})))
+
+(defn vm-stream-put
+  "Put to a stream by ref. Used by VM continuation handling.
+   Returns result map."
+  [state stream-ref val]
+  (let [stream-id (:id stream-ref)
+        store (:store state)
+        stream (get store stream-id)]
+    (cond
+      (nil? stream)
+      (throw (ex-info "Invalid stream reference" {:ref stream-ref}))
+
+      (stream-closed? stream)
+      (throw (ex-info "Cannot put to closed stream" {:ref stream-ref}))
+
+      (stream-has-takers? stream)
+      ;; Taker waiting - hand off value directly
+      (let [[taker new-stream] (stream-pop-taker stream)
+            new-store (assoc store stream-id new-stream)]
+        {:value val
+         :state (assoc state :store new-store :value val)
+         :resume-taker taker
+         :resume-value val})
+
+      :else
+      ;; No takers - buffer the value
+      (let [new-stream (stream-add-value stream val)
             new-store (assoc store stream-id new-stream)]
         {:value val
          :state (assoc state :store new-store :value val)}))))
 
 ;; ============================================================
-;; Primitive Functions for VM Environment
-;; These can be added to the VM's primitive environment
+;; Module Registration
 ;; ============================================================
 
-(defn make-stream-primitives
-  "Returns a map of stream primitive functions.
-   These are stateful and need access to VM state,
-   so they're wrapped in a way that the VM can call them."
+(defn register!
+  "Register the stream module with the VM module system."
   []
-  {'stream/make (fn [capacity] {:op :stream/make :capacity capacity})
-   'stream/put (fn [stream-ref val] {:op :stream/put :stream stream-ref :val val})
-   'stream/take (fn [stream-ref] {:op :stream/take :stream stream-ref})})
+  (module/register-module!
+   'stream
+   {'make make
+    'put! put!
+    'take! take!
+    'close! close!}))
+
+;; Auto-register on load
+(register!)
