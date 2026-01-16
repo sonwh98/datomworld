@@ -24,12 +24,30 @@ Do not assume graphs: graphs must be constructed explicitly from tuples.
 # DATOMS
 
 Datoms are 5-tuples: (e a v t m).
-Datoms are immutable.
-Datoms represent facts, not objects.
-m is an entity id that is used for metadata.
+Datoms are immutable facts, not objects.
+Datoms are the canonical serialization format (no parsing step).
+
+Components:
+  e: Entity ID. Sized by stream type (e.g., 16-bit, 64-bit).
+     Internal reference only when stream-local.
+     Upgraded to 128-bit during migration: High 64 bits = Node ID, Low 64 bits = Local ID.
+     Globally referenciable as 128-bit.
+     Namespace Jails: Node ID 0 is the local jail. All entity references are relative 
+     to their Node ID context. Migration requires no reference rewriting because datoms 
+     remain isolated within their originating Node ID "jail".
+     Semantic identity uses unique attributes (e.g., :person/email).
+  a: Attribute. Namespaced keyword.
+  v: Value. Ground value or entity reference.
+  t: Transaction ID. Monotonic integer within its stream.
+  m: Metadata entity. Used for provenance, access control, and cross-stream causality.
+
+Time (t) is intrinsic and stream-local.
+Metadata (m) establishes causality across streams (since t is local).
 Do not embed behavior inside datoms.
-Content hashes (if used) must be derived, not intrinsic.
-Time and causality must be explicit, never inferred.
+Content hashes (if used) are derived by interpreters, not intrinsic to the tuple.
+Interpretation is local: agents decide meaning, not global ontologies.
+Graphs are constructed from tuples, not assumed.
+Restrictions (no arbitrary URIs, no variables in storage) enable efficient indexing (EAVT, AEVT, etc.).
 
 # STREAMS
 
