@@ -4,7 +4,7 @@
             [yin.vm :as vm]
             [cljs.reader :as reader]))
 
-(defonce app-state (r/atom {:ast-as-text "{:type :application\n :operator {:type :lambda\n            :params [x y]\n            :body {:type :application\n                   :operator {:type :variable :name +}\n                   :operands [{:type :variable :name x}\n                              {:type :variable :name y}]}}\n :operands [{:type :literal :value 3}\n            {:type :literal :value 5}]}"
+(defonce app-state (r/atom {:ast-as-text "{:type :application\n :operator {:type :lambda\n            :params [x y]\n            :body {:type :application\n                   :operator {:type :variable :name +}\n                   :operands [{:type :variable :name x}\n                              {:type :variable :name y}]}}\n :operands [{:type :literal :value 4}\n            {:type :literal :value 5}]}"
                             :result nil
                             :error nil}))
 
@@ -48,8 +48,8 @@
     [:h4 "Examples:"]
     [:ul
      [:li [:a {:href "#" :on-click #(swap! app-state assoc :ast-as-text "{:type :literal :value 42}")} "Literal 42"]]
-     [:li [:a {:href "#" :on-click #(swap! app-state assoc :ast-as-text "{:type :application\n :operator {:type :variable :name '+}\n :operands [{:type :literal :value 10}\n            {:type :literal :value 20}]}")} "Addition (10 + 20)"]]
-     [:li [:a {:href "#" :on-click #(swap! app-state assoc :ast-as-text "{:type :application\n :operator {:type :lambda\n            :params [x]\n            :body {:type :application\n                   :operator {:type :variable :name '+}\n                   :operands [{:type :variable :name x}\n                              {:type :literal :value 1}]}}\n :operands [{:type :literal :value 5}]}")} "Lambda Application ((lambda (x) (+ x 1)) 5)"]]]]])
+     [:li [:a {:href "#" :on-click #(swap! app-state assoc :ast-as-text "{:type :application\n :operator {:type :variable :name +}\n :operands [{:type :literal :value 10}\n            {:type :literal :value 20}]}")} "Addition (10 + 20)"]]
+     [:li [:a {:href "#" :on-click #(swap! app-state assoc :ast-as-text "{:type :application\n :operator {:type :lambda\n            :params [x]\n            :body {:type :application\n                   :operator {:type :variable :name +}\n                   :operands [{:type :variable :name x}\n                              {:type :literal :value 1}]}}\n :operands [{:type :literal :value 5}]}")} "Lambda Application ((lambda (x) (+ x 1)) 5)"]]]]])
 
 (defn init []
   (let [app (js/document.getElementById "app")]
