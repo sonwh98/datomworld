@@ -4,6 +4,7 @@
    [clojure.java.io :as io]
    [clojure.pprint :as pp :refer :all]
    [clojure.string :as str]
+   [nrepl.cmdline :as nrepl]
    [org.httpkit.server :as httpkit]
    [ring.middleware.file]
    [ring.middleware.params]
@@ -54,7 +55,9 @@
   (let [port (c/config :port)
         s (httpkit/run-server (create-app) {:port port})]
     (reset! server s)
-    (println (format "Server running on http://localhost:%s " port))))
+    (println (format "Server running on http://localhost:%s " port))
+    (when (c/config :nrepl)
+      (nrepl/-main "--middleware" "[cider.nrepl/cider-middleware]"))))
 
 (defn -main []
   (start-server))

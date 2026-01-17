@@ -33,7 +33,7 @@
 
 ;; clj -M:nREPL
 ;; clj -M:fmt
-;; clj -M:server
+;; clj -M:nREPL:server
 ;; clj -M:test
 ;; clj -M:test -n yin.vm-literal-test
 ;; clj -M:test -n yin.vm-continuation-test
