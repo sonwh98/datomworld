@@ -19,11 +19,13 @@
            :fmt {:extra-deps {dev.weavejester/cljfmt {:mvn/version "0.13.1"}}
                  :main-opts  ["-m" "cljfmt.main" "fix"]}
            :cljs {:extra-deps {thheller/shadow-cljs {:mvn/version "3.3.5"}
-                               reagent/reagent {:mvn/version "2.0.1"}                               com.cognitect/transit-cljs {:mvn/version "0.8.280"}}}
+                               reagent/reagent {:mvn/version "2.0.1"}
+                               com.cognitect/transit-cljs {:mvn/version "0.8.280"}}}
            :dev {:extra-paths ["src/dev"]
                  :extra-deps {thheller/shadow-cljs {:mvn/version "3.3.5"}
                               cider/cider-nrepl {:mvn/version "0.55.7"}
-                              reagent/reagent {:mvn/version "2.0.1"}                              com.cognitect/transit-cljs {:mvn/version "0.8.280"}}
+                              reagent/reagent {:mvn/version "2.0.1"}
+                              com.cognitect/transit-cljs {:mvn/version "0.8.280"}}
                  :jvm-opts ["-Dconfig=config.clj"]}
            :server {:extra-deps {http-kit/http-kit {:mvn/version "2.8.0"}}
                     :jvm-opts ["-Dconfig=config.clj"]
@@ -40,3 +42,5 @@
 ;; clj -M:test -v yin.vm-addition-test/test-lambda-with-multiple-operations
 
 ;; npx shadow-cljs compile test && node target/node-tests.js
+;; clj -M:dev -m shadow.cljs.devtools.cli watch datomworld
+;; clj -M:cljs -m shadow.cljs.devtools.cli watch datomworld
