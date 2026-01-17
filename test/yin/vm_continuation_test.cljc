@@ -1,8 +1,7 @@
 (ns yin.vm-continuation-test
   (:require #?(:clj [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
-            [yin.vm :as vm]
-            [yin.test-util :refer [make-state]]))
+            [yin.vm :as vm]))
 
 (deftest test-simple-increment
   (testing "Simple continuation test - increment by 1"
@@ -16,7 +15,7 @@
                                  :operands [{:type :variable :name 'x}
                                             {:type :literal :value 1}]}}
                :operands [{:type :literal :value 5}]}
-          result (vm/run (make-state {'+ add-fn}) ast)]
+          result (vm/run (vm/make-state {'+ add-fn}) ast)]
       (is (= 6 (:value result))
           "Should increment 5 to 6"))))
 
@@ -31,7 +30,7 @@
                                  :operands [{:type :variable :name 'x}
                                             {:type :literal :value 1}]}}
                :operands [{:type :literal :value 5}]}
-          initial-state (assoc (make-state {'+ add-fn}) :control ast)
+          initial-state (assoc (vm/make-state {'+ add-fn}) :control ast)
           step-count (loop [state initial-state
                             steps 0]
                        (if (or (:control state) (:continuation state))
@@ -51,7 +50,7 @@
                                  :operands [{:type :variable :name 'x}
                                             {:type :literal :value 1}]}}
                :operands [{:type :literal :value 5}]}
-          initial-state (assoc (make-state {'+ add-fn}) :control ast)
+          initial-state (assoc (vm/make-state {'+ add-fn}) :control ast)
           ;; Collect all states during execution
           all-states (loop [state initial-state
                             states []]
@@ -92,7 +91,7 @@
                                                         {:type :literal :value 1}]}
                                             {:type :literal :value 1}]}}
                :operands [{:type :literal :value 10}]}
-          result (vm/run (make-state {'+ add-fn}) ast)]
+          result (vm/run (vm/make-state {'+ add-fn}) ast)]
       (is (= 12 (:value result))
           "Should increment 10 by 2 to get 12"))))
 
@@ -109,13 +108,13 @@
                                                         {:type :literal :value 1}]}}
                            :operands [{:type :literal :value n}]})]
 
-      (is (= 1 (:value (vm/run (make-state {'+ add-fn}) (increment-ast 0))))
+      (is (= 1 (:value (vm/run (vm/make-state {'+ add-fn}) (increment-ast 0))))
           "0 + 1 = 1")
-      (is (= 6 (:value (vm/run (make-state {'+ add-fn}) (increment-ast 5))))
+      (is (= 6 (:value (vm/run (vm/make-state {'+ add-fn}) (increment-ast 5))))
           "5 + 1 = 6")
-      (is (= 101 (:value (vm/run (make-state {'+ add-fn}) (increment-ast 100))))
+      (is (= 101 (:value (vm/run (vm/make-state {'+ add-fn}) (increment-ast 100))))
           "100 + 1 = 101")
-      (is (= 0 (:value (vm/run (make-state {'+ add-fn}) (increment-ast -1))))
+      (is (= 0 (:value (vm/run (vm/make-state {'+ add-fn}) (increment-ast -1))))
           "-1 + 1 = 0"))))
 
 (deftest test-continuation-type-transitions
@@ -129,7 +128,7 @@
                                  :operands [{:type :variable :name 'x}
                                             {:type :literal :value 1}]}}
                :operands [{:type :literal :value 5}]}
-          initial-state (assoc (make-state {'+ add-fn}) :control ast)
+          initial-state (assoc (vm/make-state {'+ add-fn}) :control ast)
           ;; Collect continuation types during execution
           continuation-types (loop [state initial-state
                                     types []]

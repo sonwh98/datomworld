@@ -2,7 +2,6 @@
   (:require [reagent.core :as r]
             [reagent.dom :as rdom]
             [yin.vm :as vm]
-            [yin.test-util :refer [make-state]]
             [cljs.reader :as reader]))
 
 (defonce app-state (r/atom {:ast-as-text "{:type :application\n :operator {:type :lambda\n            :params [x y]\n            :body {:type :application\n                   :operator {:type :variable :name +}\n                   :operands [{:type :variable :name x}\n                              {:type :variable :name y}]}}\n :operands [{:type :literal :value 3}\n            {:type :literal :value 5}]}"
@@ -15,7 +14,7 @@
       (let [ast (reader/read-string input)
             ;; Initialize environment with standard primitives
             initial-env vm/primitives
-            state (make-state initial-env)
+            state (vm/make-state initial-env)
             result (vm/run state ast)]
         (swap! app-state assoc :result (:value result) :error nil))
       (catch js/Error e

@@ -1,32 +1,31 @@
 (ns yin.vm-test
   (:require [yin.vm :as vm]
-            [yin.test-util :refer [make-state]]
             #?(:clj [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])))
 
 (deftest test-literal-evaluation
   (testing "Integer literal evaluation"
     (let [ast {:type :literal :value 42}
-          result (vm/run (make-state {}) ast)]
+          result (vm/run (vm/make-state {}) ast)]
       (is (= 42 (:value result))
           "Integer literal should evaluate to itself")))
 
   (testing "String literal evaluation"
     (let [ast {:type :literal :value "hello"}
-          result (vm/run (make-state {}) ast)]
+          result (vm/run (vm/make-state {}) ast)]
       (is (= "hello" (:value result))
           "String literal should evaluate to itself"))))
 
 (deftest test-variable-lookup
   (testing "Single variable lookup in environment"
     (let [ast {:type :variable :name 'x}
-          result (vm/run (make-state {'x 100}) ast)]
+          result (vm/run (vm/make-state {'x 100}) ast)]
       (is (= 100 (:value result))
           "Should lookup variable x in environment")))
 
   (testing "Multiple variables in environment"
     (let [ast {:type :variable :name 'z}
-          result (vm/run (make-state {'x 10 'y 20 'z 30}) ast)]
+          result (vm/run (vm/make-state {'x 10 'y 20 'z 30}) ast)]
       (is (= 30 (:value result))
           "Should lookup variable z from environment with multiple bindings"))))
 
@@ -35,7 +34,7 @@
     (let [ast {:type :lambda
                :params ['x]
                :body {:type :variable :name 'x}}
-          result (vm/run (make-state {'y 50}) ast)]
+          result (vm/run (vm/make-state {'y 50}) ast)]
       (is (= :closure (:type (:value result)))
           "Lambda should create a closure")
       (is (= ['x] (:params (:value result)))
@@ -47,7 +46,7 @@
                :test {:type :literal :value true}
                :consequent {:type :literal :value "yes"}
                :alternate {:type :literal :value "no"}}
-          result (vm/eval (make-state {}) ast)]
+          result (vm/eval (vm/make-state {}) ast)]
       (is (= {:type :literal :value true} (:control result))
           "First step should evaluate the test expression"))))
 
@@ -58,7 +57,7 @@
                :operator {:type :literal :value add-fn}
                :operands [{:type :literal :value 10}
                           {:type :literal :value 20}]}
-          result (vm/run (make-state {}) ast)]
+          result (vm/run (vm/make-state {}) ast)]
       (is (= 30 (:value result))
           "Direct call to + primitive: 10 + 20 = 30"))))
 
@@ -75,7 +74,7 @@
                                             {:type :variable :name 'y}]}}
                :operands [{:type :literal :value 3}
                           {:type :literal :value 5}]}
-          result (vm/run (make-state {'+ add-fn}) ast)]
+          result (vm/run (vm/make-state {'+ add-fn}) ast)]
       (is (= 8 (:value result))
           "Lambda application: ((lambda (x y) (+ x y)) 3 5) = 8"))))
 
@@ -91,7 +90,7 @@
                                  :operands [{:type :variable :name 'x}
                                             {:type :literal :value 1}]}}
                :operands [{:type :literal :value 5}]}
-          initial-state (assoc (make-state {'+ add-fn}) :control ast)]
+          initial-state (assoc (vm/make-state {'+ add-fn}) :control ast)]
 
       (testing "Multiple evaluation steps occur"
         (let [step-count (loop [state initial-state
@@ -103,7 +102,7 @@
               "Should take multiple steps to evaluate lambda application")))
 
       (testing "Final result is correct"
-        (let [result (vm/run (make-state {'+ add-fn}) ast)]
+        (let [result (vm/run (vm/make-state {'+ add-fn}) ast)]
           (is (= 6 (:value result))
               "((lambda (x) (+ x 1)) 5) should evaluate to 6"))))))
 
@@ -134,7 +133,7 @@
   (vm/eval my-state nil)
 
   ;; Run to completion
-  (vm/run (make-state {})
+  (vm/run (vm/make-state {})
           {:type :literal :value 99})
 
   ;; Test lambda addition manually
@@ -149,4 +148,4 @@
                                   {:type :variable :name 'y}]}}
      :operands [{:type :literal :value 3}
                 {:type :literal :value 5}]})
-  (vm/run (make-state {'+ add-fn}) add-lambda-ast))
+  (vm/run (vm/make-state {'+ add-fn}) add-lambda-ast))

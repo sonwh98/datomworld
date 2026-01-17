@@ -1,14 +1,11 @@
 (ns yin.vm-state-test
-  "Tests for CESK machine state transitions in the Yin VM.
-  Converted from test_state_demo.clj"
   (:require #?(:clj [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
-            [yin.vm :as vm]
-            [yin.test-util :refer [make-state]]))
+            [yin.vm :as vm]))
 
 (deftest test-state-structure
   (testing "State has all required fields"
-    (let [state (make-state {})]
+    (let [state (vm/make-state {})]
       (is (contains? state :control)
           "State should have :control field")
       (is (contains? state :environment)
@@ -22,7 +19,7 @@
 
 (deftest test-initial-state
   (testing "Initial state has correct default values"
-    (let [state (make-state {})]
+    (let [state (vm/make-state {})]
       (is (nil? (:control state))
           "Initial control should be nil")
       (is (empty? (:environment state))
@@ -36,7 +33,7 @@
 
 (deftest test-state-with-environment
   (testing "State can have initial environment bindings"
-    (let [state (make-state {'x 10 'y 20})]
+    (let [state (vm/make-state {'x 10 'y 20})]
       (is (= 10 (get-in state [:environment 'x]))
           "Environment should contain x binding")
       (is (= 20 (get-in state [:environment 'y]))
@@ -45,7 +42,7 @@
 (deftest test-state-immutability
   (testing "State is immutable - eval creates new state"
     (let [ast {:type :literal :value 42}
-          state-0 (assoc (make-state {}) :control ast)
+          state-0 (assoc (vm/make-state {}) :control ast)
           state-1 (vm/eval state-0 nil)]
       (is (not= state-0 state-1)
           "Eval should create a new state")
@@ -61,7 +58,7 @@
 (deftest test-state-transitions-literal
   (testing "State transitions for literal evaluation"
     (let [ast {:type :literal :value 42}
-          state-0 (assoc (make-state {}) :control ast)]
+          state-0 (assoc (vm/make-state {}) :control ast)]
 
       (testing "Initial state"
         (is (some? (:control state-0))
@@ -88,7 +85,7 @@
                                  :operands [{:type :variable :name 'x}
                                             {:type :literal :value 1}]}}
                :operands [{:type :literal :value 5}]}
-          initial-state (assoc (make-state {'+ add-fn}) :control ast)
+          initial-state (assoc (vm/make-state {'+ add-fn}) :control ast)
 
           ;; Collect all states
           all-states (loop [state initial-state
@@ -129,7 +126,7 @@
                                  :operands [{:type :variable :name 'x}
                                             {:type :literal :value 1}]}}
                :operands [{:type :literal :value 5}]}
-          initial-state (assoc (make-state {'+ add-fn}) :control ast)
+          initial-state (assoc (vm/make-state {'+ add-fn}) :control ast)
 
           ;; Collect continuation types
           cont-types (loop [state initial-state
@@ -154,7 +151,7 @@
                :operator {:type :variable :name '+}
                :operands [{:type :literal :value 10}
                           {:type :literal :value 20}]}
-          state (assoc (make-state {'+ add-fn}) :control ast)]
+          state (assoc (vm/make-state {'+ add-fn}) :control ast)]
 
       (testing "State captures control"
         (is (= :application (:type (:control state)))
@@ -182,7 +179,7 @@
                                  :operands [{:type :variable :name 'x}
                                             {:type :literal :value 1}]}}
                :operands [{:type :literal :value 5}]}
-          initial-state (assoc (make-state {'+ add-fn}) :control ast)
+          initial-state (assoc (vm/make-state {'+ add-fn}) :control ast)
 
           step-count (loop [state initial-state
                             steps 0]
@@ -201,7 +198,7 @@
                           :params ['x]
                           :body {:type :variable :name 'x}}
                :operands [{:type :literal :value 5}]}
-          initial-state (assoc (make-state {'+ add-fn}) :control ast)
+          initial-state (assoc (vm/make-state {'+ add-fn}) :control ast)
 
           ;; Find state where environment has 'x bound
           states (loop [state initial-state

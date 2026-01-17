@@ -31,6 +31,15 @@
    'get (fn [m k] (get m k))
    'vec (fn [coll] (vec coll))})
 
+(defn make-state
+  "Create an initial CESK machine state with given environment."
+  [env]
+  {:control nil
+   :environment env
+   :store {}
+   :continuation nil
+   :value nil})
+
 (defn eval
   "Steps the CESK machine to evaluate an AST node.
 

@@ -146,5 +146,4 @@
 
 (comment
   (text->datoms "Sonny lives in Vietnam and works for Acme Inc")
-  (ps)
-  )
+  (ps))

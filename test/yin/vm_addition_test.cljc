@@ -1,8 +1,7 @@
 (ns yin.vm-addition-test
   (:require #?(:clj [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
-            [yin.vm :as vm]
-            [yin.test-util :refer [make-state]]))
+            [yin.vm :as vm]))
 
 (deftest test-primitive-addition
   (testing "Direct primitive addition"
@@ -12,7 +11,7 @@
                :operator {:type :literal :value add-fn}
                :operands [{:type :literal :value 10}
                           {:type :literal :value 20}]}
-          result (vm/run (make-state {}) ast)]
+          result (vm/run (vm/make-state {}) ast)]
       (is (= 30 (:value result))
           "10 + 20 should equal 30"))))
 
@@ -29,7 +28,7 @@
                                             {:type :variable :name 'y}]}}
                :operands [{:type :literal :value 3}
                           {:type :literal :value 5}]}
-          result (vm/run (make-state {'+ add-fn}) ast)]
+          result (vm/run (vm/make-state {'+ add-fn}) ast)]
       (is (= 8 (:value result))
           "Lambda addition of 3 and 5 should equal 8"))))
 
@@ -42,15 +41,15 @@
                      :operands [{:type :literal :value a}
                                 {:type :literal :value b}]})]
 
-      (is (= 0 (:value (vm/run (make-state {}) (add-ast 0 0))))
+      (is (= 0 (:value (vm/run (vm/make-state {}) (add-ast 0 0))))
           "0 + 0 = 0")
-      (is (= 5 (:value (vm/run (make-state {}) (add-ast 2 3))))
+      (is (= 5 (:value (vm/run (vm/make-state {}) (add-ast 2 3))))
           "2 + 3 = 5")
-      (is (= 100 (:value (vm/run (make-state {}) (add-ast 50 50))))
+      (is (= 100 (:value (vm/run (vm/make-state {}) (add-ast 50 50))))
           "50 + 50 = 100")
-      (is (= 0 (:value (vm/run (make-state {}) (add-ast -5 5))))
+      (is (= 0 (:value (vm/run (vm/make-state {}) (add-ast -5 5))))
           "-5 + 5 = 0")
-      (is (= -10 (:value (vm/run (make-state {}) (add-ast -3 -7))))
+      (is (= -10 (:value (vm/run (vm/make-state {}) (add-ast -3 -7))))
           "-3 + -7 = -10"))))
 
 (deftest test-nested-lambda-addition
@@ -70,7 +69,7 @@
                                                               {:type :variable :name 'y}]}}
                                  :operands [{:type :literal :value 5}]}}
                :operands [{:type :literal :value 3}]}
-          result (vm/run (make-state {'+ add-fn}) ast)]
+          result (vm/run (vm/make-state {'+ add-fn}) ast)]
       (is (= 8 (:value result))
           "Nested lambda should correctly capture and use environment"))))
 
@@ -92,13 +91,13 @@
                                                         {:type :literal :value 1}]}]}}
                :operands [{:type :literal :value 10}
                           {:type :literal :value 5}]}
-          result (vm/run (make-state {'+ add-fn '- sub-fn}) ast)]
+          result (vm/run (vm/make-state {'+ add-fn '- sub-fn}) ast)]
       (is (= 14 (:value result))
           "Should compute 10 + (5 - 1) = 14"))))
 
 (deftest test-all-arithmetic-primitives
   (testing "All arithmetic primitive operations"
-    (let [state (make-state {})
+    (let [state (vm/make-state {})
           literal-ast (fn [op-sym a b]
                         (let [op-fn (get vm/primitives op-sym)]
                           {:type :application
@@ -120,7 +119,7 @@
 
 (deftest test-comparison-operations
   (testing "Comparison primitive operations"
-    (let [state (make-state {})
+    (let [state (vm/make-state {})
           literal-ast (fn [op-sym a b]
                         (let [op-fn (get vm/primitives op-sym)]
                           {:type :application

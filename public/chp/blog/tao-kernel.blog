@@ -10,8 +10,7 @@
                    [:p "Operating Systems are traditionally viewed as managers (traffic cops that shuffle memory and schedule CPU cycles). This is a legacy view trapped in the paradigms of the 1970s."]
 
                    [:p "In this architecture, the OS is not a manager. It is an Observer of event streams."
-                    "This kernel is a twist on the microkernel idea: " [:strong "Tao Kernel"] "."
-                    ]
+                    "This kernel is a twist on the microkernel idea: " [:strong "Tao Kernel"] "."]
 
                    [:p "In Datom.world, interpreters interpret streams. The Tao Kernel is one such interpreter."]
 

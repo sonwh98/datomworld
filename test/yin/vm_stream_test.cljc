@@ -1,13 +1,12 @@
 (ns yin.vm-stream-test
   (:require #?(:clj [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
-            [yin.vm :as vm]
-            [yin.test-util :refer [make-state]]))
+            [yin.vm :as vm]))
 
 (deftest test-stream-make
   (testing "stream/make creates a stream reference"
     (let [ast {:type :stream/make :buffer 10}
-          result (vm/run (make-state {}) ast)]
+          result (vm/run (vm/make-state {}) ast)]
       (is (= :stream-ref (:type (:value result)))
           "Should return a stream reference")
       (is (keyword? (:id (:value result)))
@@ -15,7 +14,7 @@
 
   (testing "stream/make with default buffer"
     (let [ast {:type :stream/make}
-          result (vm/run (make-state {}) ast)
+          result (vm/run (vm/make-state {}) ast)
           stream-id (:id (:value result))
           stream (get-in result [:store stream-id])]
       (is (= :stream (:type stream))
@@ -29,7 +28,7 @@
   (testing "stream/put adds value to stream buffer"
     (let [;; First create a stream
           make-ast {:type :stream/make :buffer 5}
-          state-with-stream (vm/run (make-state {}) make-ast)
+          state-with-stream (vm/run (vm/make-state {}) make-ast)
           stream-ref (:value state-with-stream)
           stream-id (:id stream-ref)
 
@@ -47,7 +46,7 @@
 
   (testing "stream/put multiple values"
     (let [make-ast {:type :stream/make :buffer 10}
-          state-with-stream (vm/run (make-state {}) make-ast)
+          state-with-stream (vm/run (vm/make-state {}) make-ast)
           stream-ref (:value state-with-stream)
           stream-id (:id stream-ref)
 
@@ -72,7 +71,7 @@
   (testing "stream/take retrieves value from stream buffer"
     (let [;; Create stream and put a value
           make-ast {:type :stream/make :buffer 5}
-          state-with-stream (vm/run (make-state {}) make-ast)
+          state-with-stream (vm/run (vm/make-state {}) make-ast)
           stream-ref (:value state-with-stream)
           stream-id (:id stream-ref)
 
@@ -94,7 +93,7 @@
 
   (testing "stream/take from empty stream blocks"
     (let [make-ast {:type :stream/make :buffer 5}
-          state-with-stream (vm/run (make-state {}) make-ast)
+          state-with-stream (vm/run (vm/make-state {}) make-ast)
           stream-ref (:value state-with-stream)
 
           take-ast {:type :stream/take
@@ -107,7 +106,7 @@
 (deftest test-stream-fifo-ordering
   (testing "stream maintains FIFO order"
     (let [make-ast {:type :stream/make :buffer 10}
-          state-with-stream (vm/run (make-state {}) make-ast)
+          state-with-stream (vm/run (vm/make-state {}) make-ast)
           stream-ref (:value state-with-stream)
           stream-id (:id stream-ref)
 
@@ -149,7 +148,7 @@
                                  :target {:type :variable :name 's}
                                  :val {:type :literal :value 42}}}
                :operands [{:type :stream/make :buffer 5}]}
-          result (vm/run (make-state {}) ast)]
+          result (vm/run (vm/make-state {}) ast)]
 
       (is (= 42 (:value result))
           "Lambda should be able to put to stream"))))
@@ -169,7 +168,7 @@
                                              :target {:type :variable :name 's}
                                              :val {:type :literal :value 42}}]}}
                :operands [{:type :stream/make :buffer 5}]}
-          result (vm/run (make-state {}) ast)]
+          result (vm/run (vm/make-state {}) ast)]
 
       (is (= 42 (:value result))
           "Should put 42 and take 42 back"))))
