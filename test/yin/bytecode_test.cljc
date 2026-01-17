@@ -1,5 +1,6 @@
 (ns yin.bytecode-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require #?(:clj [clojure.test :refer [deftest is testing]]
+               :cljs [cljs.test :refer-macros [deftest is testing]])
             [yin.bytecode :as bc]))
 
 (def primitives

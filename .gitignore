@@ -11,6 +11,10 @@ pom.xml.asc
 .lein-plugins/
 .lein-failures
 .nrepl-port
+.DS_Store
+**/.DS_Store
+.calva/
+.vscode/
 .cpcache/
 .shadow-cljs/
 public/js/

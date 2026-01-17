@@ -1,7 +1,8 @@
 (ns yin.vm-state-test
   "Tests for CESK machine state transitions in the Yin VM.
   Converted from test_state_demo.clj"
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require #?(:clj [clojure.test :refer [deftest is testing]]
+               :cljs [cljs.test :refer-macros [deftest is testing]])
             [yin.vm :as vm]
             [yin.test-util :refer [make-state]]))
 
