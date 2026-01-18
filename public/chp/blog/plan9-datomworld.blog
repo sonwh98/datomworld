@@ -77,7 +77,44 @@
 
                    [:p "To support highly mobile continuations, Datom.world takes inspiration from nature. How do ants find resources without a central map? They use stigmergy: indirect coordination via pheromone trails in the environment."]
 
-                   [:p "Datom.world proposes a similar mechanism for stream discovery. Streams emit \"scent datoms\" via a decentralized gossip protocol. When a continuation moves to a new location, it doesn't query a central DNS; it \"sniffs\" the local network environment for the attribute \"scents\" it requires to run, seamlessly re-binding to local or high-performance stream sources."]
+                   [:p "Datom.world proposes a similar mechanism for stream discovery. Streams emit \"scent datoms\" that propagate through multiple physical channels, each serving a different architectural purpose:"]
+
+                   [:h3 "The Five Senses of Discovery"]
+
+                   [:table
+                    [:thead
+                     [:tr [:th "Sense"] [:th "Technology"] [:th "Scope"] [:th "Purpose"]]]
+                    [:tbody
+                     [:tr [:td "Sight"] [:td "DNS / Seed Nodes"] [:td "Global"] [:td "Finding the \"colony\" from the open internet"]]
+                     [:tr [:td "Smell"] [:td "Local Multicast"] [:td "Subnet"] [:td "Sensing service availability in the building"]]
+                     [:tr [:td "Hearing"] [:td "Ultrasonic (Acoustic)"] [:td "Room"] [:td "Intentional discovery with someone next to you"]]
+                     [:tr [:td "Touch"] [:td "BLE / NFC"] [:td "Personal Space"] [:td "Tethering your phone to your watch or laptop"]]
+                     [:tr [:td "Memory"] [:td "Persistence (DaoDB)"] [:td "Temporal"] [:td "Recalling streams you interacted with previously"]]]]
+
+                   [:p "The Five Senses map discovery by scope; the ant metaphor maps discovery by intent. Ultrasonic requires physical proximity (you must be in the same room), making it ideal for intentional sharing. Sound doesn't travel through walls effectively, so receiving an ultrasonic datom is physical proof of presence."]
+
+                   [:h3 "The Bump Metaphor: Physical Intent"]
+
+                   [:p "In the original Bump app, sound frequency served as a high-fidelity sync signal. In Datom.world, ultrasonic pings facilitate instant stream handshakes:"]
+
+                   [:ol
+                    [:li [:strong "Acoustic Pairing"] ": A phone emits an ultrasonic datom containing a temporary handshake scent: " [:code "[:device, :scent/handshake, token-uuid, t, m]"]]
+                    [:li [:strong "Spatial Confirmation"] ": Receiving that datom proves physical proximity (same room)"]
+                    [:li [:strong "Stream Leap"] ": Once confirmed acoustically, machines switch to high-speed byte streams over Wi-Fi or 5G to transfer the continuation"]]
+
+                   [:h3 "The Lifecycle of a Mobile Continuation"]
+
+                   [:p "The ant metaphor fully realized:"]
+
+                   [:ol
+                    [:li [:strong "The Journey"] ": A continuation runs on your phone in Nha Trang, using DNS to maintain a heartbeat with your home server"]
+                    [:li [:strong "Entering a Room"] ": You walk into a workspace. Your phone \"hears\" an ultrasonic beacon from a shared monitor"]
+                    [:li [:strong "The Scent"] ": The beacon contains a scent for a " [:code ":display/sink"] " attribute"]
+                    [:li [:strong "The Decision"] ": The continuation decides this is a better output than the tiny phone screen"]
+                    [:li [:strong "The Handshake"] ": BLE (which also serves as a persistent tether) exchanges a gossip packet to verify credentials via " [:code "m"]]
+                    [:li [:strong "The Flow"] ": The continuation redirects its output stream to the monitor. Raw bytes flow over the local LAN"]]
+
+                   [:p "Plan 9's discovery was explicit and administrative: you had to know what you were looking for and where it lived. Datom.world's discovery is environmental and opportunistic. Resources constantly advertise their presence through multiple physical channels, and continuations constantly sense the best path to execute their logic. The system feels alive."]
 
                    [:h2 "Conclusion"]
 
