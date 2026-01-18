@@ -5,14 +5,67 @@
             [yin.bytecode :as bc]
             [yang.clojure :as yang]
             [cljs.reader :as reader]
-            [cljs.pprint :as pprint]))
+            [cljs.pprint :as pprint]
+            ["monaco-editor/esm/vs/editor/editor.api.js" :as monaco]))
+
+(defn pretty-print [data]
+  (binding [pprint/*print-right-margin* 60]
+    (with-out-str (pprint/pprint data))))
 
 (defonce app-state (r/atom {:clojure-code "(+ 4 5)"
-                            :ast-as-text "{:type :application\n :operator {:type :lambda\n            :params [x y]\n            :body {:type :application\n                   :operator {:type :variable :name +}\n                   :operands [{:type :variable :name x}\n                              {:type :variable :name y}]}}\n :operands [{:type :literal :value 4}\n            {:type :literal :value 5}]}"
+                            :ast-as-text (pretty-print
+                                          {:type :application
+                                           :operator {:type :lambda
+                                                      :params '[x y]
+                                                      :body {:type :application
+                                                             :operator {:type :variable :name '+}
+                                                             :operands [{:type :variable :name 'x}
+                                                                        {:type :variable :name 'y}]}}
+                                           :operands [{:type :literal :value 4}
+                                                      {:type :literal :value 5}]})
                             :result nil
                             :bytecode-result nil
                             :compiled nil
                             :error nil}))
+
+(defn monaco-editor [{:keys [value on-change language read-only]}]
+  (let [editor-ref (r/atom nil)
+        el-ref (atom nil)]
+    (r/create-class
+     {:display-name "monaco-editor"
+      :component-did-mount
+      (fn [this]
+        (when-let [node @el-ref]
+          (let [editor (.create ^js monaco/editor node
+                                (clj->js {:value value
+                                          :language language
+                                          :readOnly (boolean read-only)
+                                          :theme "vs-dark"
+                                          :automaticLayout true
+                                          :minimap {:enabled false}}))]
+            (reset! editor-ref editor)
+            (.onDidChangeModelContent ^js editor
+                                       (fn [_]
+                                         (when on-change
+                                           (let [current-value (.getValue ^js editor)]
+                                             (when (not= value current-value)
+                                               (on-change current-value)))))))))
+      :component-did-update
+      (fn [this old-argv]
+        (let [{:keys [value]} (r/props this)]
+          (when-let [editor ^js @editor-ref]
+            (when (not= value (.getValue editor))
+              (let [position (.getPosition editor)]
+                (.setValue editor value)
+                (.setPosition editor position))))))
+      :component-will-unmount
+      (fn [this]
+        (when-let [editor ^js @editor-ref]
+          (.dispose editor)))
+      :reagent-render
+      (fn [{:keys [style]}]
+        [:div {:ref #(reset! el-ref %)
+               :style (merge {:height "300px" :width "100%" :border "1px solid #ccc"} style)}])})))
 
 (defn evaluate-ast []
   (let [input (:ast-as-text @app-state)]
@@ -54,7 +107,7 @@
     (try
       (let [form (reader/read-string input)
             ast (yang/compile form)]
-        (swap! app-state assoc :ast-as-text (with-out-str (pprint/pprint ast)) :error nil))
+        (swap! app-state assoc :ast-as-text (pretty-print ast) :error nil))
       (catch js/Error e
         (swap! app-state assoc :error (str "Clojure Compile Error: " (.-message e)))))))
 
@@ -64,13 +117,12 @@
    
    [:div {:style {:display "flex" :flex-direction "row" :align-items "flex-start" :margin-bottom "20px"}}
     ;; Column 1: Clojure Code
-    [:div
+    [:div {:style {:width "400px"}}
      [:label {:style {:font-weight "bold"}} "Enter Clojure Code:"]
      [:br]
-     [:textarea {:rows 15
-                 :cols 40
-                 :value (:clojure-code @app-state)
-                 :on-change #(swap! app-state assoc :clojure-code (-> % .-target .-value))}]]
+     [monaco-editor {:value (:clojure-code @app-state)
+                     :language "clojure"
+                     :on-change #(swap! app-state assoc :clojure-code %)}]]
     
     ;; Arrow 1: Clojure -> AST
     [:div {:style {:margin "0 10px" :display "flex" :flex-direction "column" :justify-content "center" :height "300px"}}
@@ -78,13 +130,12 @@
       "Compile to AST ->"]] 
     
     ;; Column 2: Yin AST
-    [:div
+    [:div {:style {:width "450px"}}
      [:label {:style {:font-weight "bold"}} "Yin AST (EDN):"]
      [:br]
-     [:textarea {:rows 15
-                 :cols 45
-                 :value (:ast-as-text @app-state)
-                 :on-change #(swap! app-state assoc :ast-as-text (-> % .-target .-value))}]]
+     [monaco-editor {:value (:ast-as-text @app-state)
+                     :language "clojure"
+                     :on-change #(swap! app-state assoc :ast-as-text %)}]]
 
     ;; Arrow 2: AST -> Bytecode
     [:div {:style {:margin "0 10px" :margin-right "10px" :display "flex" :flex-direction "column" :justify-content "center" :height "300px"}}
@@ -92,15 +143,14 @@
       "Compile AST ->"]] 
 
     ;; Column 3: Compiled Bytecode
-    [:div
+    [:div {:style {:width "450px"}}
      [:label {:style {:font-weight "bold"}} "Compiled Bytecode:"]
      [:br]
-     [:textarea {:rows 15
-                 :cols 45
-                 :read-only true
-                 :value (if-let [compiled (:compiled @app-state)]
-                          (with-out-str (pprint/pprint compiled))
-                          "")}] ]]
+     [monaco-editor {:value (if-let [compiled (:compiled @app-state)]
+                              (pretty-print compiled)
+                              "")
+                     :language "clojure"
+                     :read-only true}]]]
 
    [:div {:style {:margin-bottom "20px"}}
     [:button {:on-click evaluate-ast :style {:margin-right "10px"}}
@@ -126,9 +176,19 @@
    [:div {:style {:margin-top "20px" :font-size "0.8em"}}
     [:h4 "Examples:"]
     [:ul
-     [:li [:a {:href "#" :on-click #(swap! app-state assoc :ast-as-text "{:type :literal :value 42}")} "Literal 42"]]
-     [:li [:a {:href "#" :on-click #(swap! app-state assoc :ast-as-text "{:type :application\n :operator {:type :variable :name +}\n :operands [{:type :literal :value 10}\n            {:type :literal :value 20}]")} "Addition (10 + 20)"]]
-     [:li [:a {:href "#" :on-click #(swap! app-state assoc :ast-as-text "{:type :application\n :operator {:type :lambda\n            :params [x]\n            :body {:type :application\n                   :operator {:type :variable :name +}\n                   :operands [{:type :variable :name x}\n                              {:type :literal :value 1}]}}\n :operands [{:type :literal :value 5}]")} "Lambda Application ((lambda (x) (+ x 1)) 5)"]]]]])
+     [:li [:a {:href "#" :on-click #(swap! app-state assoc :ast-as-text (pretty-print {:type :literal :value 42}))} "Literal 42"]]
+     [:li [:a {:href "#" :on-click #(swap! app-state assoc :ast-as-text (pretty-print {:type :application
+                                                                                     :operator {:type :variable :name '+}
+                                                                                     :operands [{:type :literal :value 10}
+                                                                                                {:type :literal :value 20}]}))} "Addition (10 + 20)"]]
+     [:li [:a {:href "#" :on-click #(swap! app-state assoc :ast-as-text (pretty-print {:type :application
+                                                                                     :operator {:type :lambda
+                                                                                                :params '[x]
+                                                                                                :body {:type :application
+                                                                                                       :operator {:type :variable :name '+}
+                                                                                                       :operands [{:type :variable :name 'x}
+                                                                                                                  {:type :literal :value 1}]}}
+                                                                                     :operands [{:type :literal :value 5}]}))} "Lambda Application ((lambda (x) (+ x 1)) 5)"]]]]])
 
 (defn init []
   (let [app (js/document.getElementById "app")]
