@@ -1,0 +1,88 @@
+#:blog{:title "From Distributed Files to Semantic Streams: Evolving the Plan 9 Vision with Datom.world"
+       :date #inst "2026-01-16T00:00:00.000-00:00"
+       :abstract [:p "Plan 9 reimagined Unix as a distributed file system. Datom.world evolves this vision into a distributed reactive state machine, replacing bytes with facts and processes with continuations."]
+       :content [:section.blog-article
+                 [:div.section-inner
+                  [:article
+                   :$blog-title
+                   :$blog-date
+
+                   [:p "In the pantheon of operating system design, Plan 9 from Bell Labs occupies a legendary space. It was the \"pure\" successor to Unix, designed by many of the same minds (Pike, Thompson, Ritchie) to address a world increasingly defined by networks. Plan 9's brilliance lay in its radical simplification: it took the Unix philosophy and pushed it to its absolute logical limit. For those unfamiliar with the system, " [:a {:href "https://www.youtube.com/watch?v=EoYUZtZl02g"} "Ken Thompson's talk"] " and the original " [:a {:href "https://doc.cat-v.org/plan_9/1st_edition/designing_plan_9"} "Designing Plan 9"] " paper provide excellent introductions to its design philosophy."]
+
+                   [:p "Decades later, the computing landscape has shifted again. We live in a world of omnipresent connectivity, massive data volumes, and functional, reactive programming paradigms. Datom.world is an architectural exploration that asks a critical question: What if we took the spirit of Plan 9, its commitment to universal abstractions and network transparency, but rebuilt its foundations using modern atomic units?"]
+
+                   [:p "Datom.world does not clone Plan 9; it evolves it. It replaces the 1990s vision of a \"distributed file system\" with a 2030s vision of a \"distributed reactive state machine.\""]
+
+                   [:p "Here is how Datom.world reinterprets the core principles of Plan 9 for a new era."]
+
+                   [:h2 "1. The Atomic Unit: From Bytes to Facts"]
+
+                   [:p "The single most defining concept of Plan 9 is \"Everything is a file.\" A mouse, a network connection, a window, and a process list are all exposed as file hierarchies reachable via a standard path. This was revolutionary because it meant a single set of tools (read, write, cat, grep) could manage the entire system."]
+
+                   [:p "However, a file is ultimately an unstructured stream of bytes. To derive meaning from it, the consumer must know the format specification: how to parse " [:code "/dev/mouse"] " versus " [:code "/proc/123/status"] ". Each resource type requires its own parser."]
+
+                   [:p [:strong "The Datom.world Evolution: \"Everything is a stream of datoms.\""]]
+
+                   [:p "Datom.world replaces the unstructured byte stream with a structured, semantic stream of Datoms. A datom is an immutable fact represented as a tuple: " [:code "[Entity, Attribute, Value, Transaction, Meta]"] "."]
+
+                   [:ul
+                    [:li [:strong "Plan 9"] ": You read bytes from " [:code "/dev/temp-sensor"] " and must parse the ASCII string \"25.5C\"."]
+                    [:li [:strong "Datom.world"] ": You subscribe to a stream and observe a fact: " [:code "[:sensor-1, :temp/celsius, 25.5, T_100, M_auth]"] "."]
+
+                   [:p "The wire format still requires parsing, but the uniform structure eliminates format-specific parsers. The system moves from transporting opaque envelopes to transporting structured meaning."]
+
+                   [:p "Furthermore, Datom.world acknowledges the physical reality that machines only speak bytes. It implements a \"Realization Spectrum.\" At the hardware level, a datom stream might be a highly optimized, fixed-width vector of bytes for zero-copy performance. A datom can even be encoded in a single byte on extremely constrained devices. But to the logic layer (like the yin.vm), it appears as a fully realized, high-level map. The system handles the translation seamlessly, grounding high-level abstractions in low-level efficiency."]
+
+                   [:h2 "2. Execution and State: From Processes to Continuations"]
+
+                   [:p "Plan 9 was a pioneer in distributed computing. It allowed a user on a lightweight terminal to execute heavy processes on remote CPU servers transparently. The resources were distributed, but the process itself was still largely tied to a specific machine's kernel."]
+
+                   [:p [:strong "The Datom.world Evolution: \"Everything is a continuation.\""]]
+
+                   [:p "Datom.world takes the concept of \"computing anywhere\" to its logical extreme. It treats the entire state of execution: program counter, stack, registers, and logic, as a serializable data structure called a Continuation."]
+
+                   [:p "In Plan 9, you run a command over there. In Datom.world, the concept of \"running\" is fluid. A continuation is a portable object that flows across the datom fabric. If a server in Nha Trang becomes overloaded, a running continuation can be paused, serialized into datoms, moved to a server in Philadelphia, and resumed instantly. The \"computer\" is no longer a box; it is the network itself."]
+
+                   [:h2 "3. The Control Plane: From Text and Protocols to Pure Data"]
+
+                   [:p "Plan 9 adhered to the principle that \"Everything is Text.\" To dial a network connection, you wrote a text string like " [:code "connect 1.2.3.4!80"] " into a control file. To facilitate this, Plan 9 relied on the 9P protocol, a stateful messaging system for filesystem operations."]
+
+                   [:p "Text is human-readable and debuggable, but requires parsing for machine processing. The 9P protocol, while elegantly simple, maintains session state."]
+
+                   [:p [:strong "The Datom.world Evolution: Protocol-less, Data-Driven Control."]]
+
+                   [:p "In Datom.world, the datom is self-describing. The packet is the protocol. The " [:code "[e,a,v,t,m]"] " structure contains all necessary context: identity, attribute, value, causal order, and metadata (security/provenance). This trades 9P's stateful simplicity for stateless uniformity."]
+
+                   [:p "Consequently, the control plane is not text; \"Everything is Datoms.\" Configuring the operating system is identical to inserting a record into a database. To change a system setting, you emit a datom: " [:code "[:sys/config, :vm/max-memory, \"16GB\", T, M]"] "."]
+
+                   [:p "This turns the entire OS into a queryable, temporal database. You don't grep logs to find past configurations; you query the system history just as you would application data."]
+
+                   [:h2 "4. Composition: From Structural Union to Functional Pipelines"]
+
+                   [:p "One of Plan 9's most powerful features was Union Directories. It allowed users to transparently stack directory hierarchies on top of each other. A user could overlay their private " [:code "~/bin"] " directory on top of the system " [:code "/bin"] " to customize their environment. This was a structural, spatial composition of resources."]
+
+                   [:p [:strong "The Datom.world Evolution: Functional Interpreter Pipelines."]]
+
+                   [:p "Datom.world reimagines composition through a functional lens. Instead of stacking static directories, it uses Interpreters to transform dynamic streams."]
+
+                   [:p "An interpreter is a function (itself a continuation) that subscribes to input streams and emits values to an output stream. To create a \"union,\" you don't use a kernel mount; you use a Union Interpreter that merges two streams based on programmable logic (for example, prioritizing user config over system config)."]
+
+                   [:p "This transforms the world from a static hierarchy of files into a reactive directed acyclic graph (DAG) of state. When a fact changes anywhere in the system, it ripples through the interpreter chains instantly."]
+
+                   [:h2 "5. The Missing Link: Discovery via \"Scent\""]
+
+                   [:p "Plan 9 relied on hierarchical naming and file servers for resource discovery. While these servers can be replicated, highly dynamic environments with mobile continuations benefit from more decentralized approaches."]
+
+                   [:p [:strong "The Datom.world Evolution: Stigmergic Discovery."]]
+
+                   [:p "To support highly mobile continuations, Datom.world takes inspiration from nature. How do ants find resources without a central map? They use stigmergy: indirect coordination via pheromone trails in the environment."]
+
+                   [:p "Datom.world proposes a similar mechanism for stream discovery. Streams emit \"scent datoms\" via a decentralized gossip protocol. When a continuation moves to a new location, it doesn't query a central DNS; it \"sniffs\" the local network environment for the attribute \"scents\" it requires to run, seamlessly re-binding to local or high-performance stream sources."]
+
+                   [:h2 "Conclusion"]
+
+                   [:p "Plan 9 proved that a complex system could be built from a few profoundly simple abstractions. Its small codebase, text-based debuggability, and decades of proven reliability remain virtues that any successor must respect."]
+
+                   [:p "Datom.world honors that legacy by applying the same rigorous simplification to a new technological context. It trades Plan 9's kernel-level minimalism for interpreter-level flexibility, and text's universal debuggability for structured queryability. These are trade-offs, not pure wins."]
+
+                   [:p "By shifting the foundation from files to datoms, and from processes to continuations, Datom.world envisions a computing environment where the artificial boundaries between \"database,\" \"network,\" and \"operating system\" finally dissolve into a unified, semantic whole."]]]]]}
