@@ -42,7 +42,7 @@
           (let [extensions (cond-> #js [basicSetup (clojure) oneDark]
                              read-only (.concat #js [(.of (.-editable EditorView) false)])
                              on-change (.concat #js [(.of (.-updateListener EditorView)
-                                                          (fn [update]
+                                                          (fn [^js update]
                                                             (when (and (.-docChanged update) on-change)
                                                               (on-change (.. update -state -doc toString)))))]))
                 state (.create EditorState #js {:doc value :extensions extensions})
