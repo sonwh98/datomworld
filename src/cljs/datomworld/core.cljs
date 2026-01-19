@@ -69,22 +69,27 @@
 (defn evaluate-ast []
   (let [input (:ast-as-text @app-state)]
     (try
-      (let [ast (reader/read-string input)
-            ;; Initialize environment with standard primitives
+      ;; Wrap input in a vector to read multiple forms
+      (let [forms (reader/read-string (str "[" input "]"))
             initial-env vm/primitives
             state (vm/make-state initial-env)
-            result (vm/run state ast)]
-        (swap! app-state assoc :result (:value result) :error nil))
+            ;; Evaluate each form sequentially
+            results (mapv #(vm/run state %) forms)]
+        ;; Update state with the result of the last form
+        (swap! app-state assoc :result (:value (last results)) :error nil))
       (catch js/Error e
         (swap! app-state assoc :error (.-message e) :result nil)))))
 
 (defn compile-ast []
   (let [input (:ast-as-text @app-state)]
     (try
-      (let [ast (reader/read-string input)
-            [bytes pool] (bc/compile ast)]
-        (swap! app-state assoc :compiled {:bytes bytes :pool pool} :error nil)
-        {:bytes bytes :pool pool})
+      (let [forms (reader/read-string (str "[" input "]"))
+            compiled-results (mapv (fn [ast]
+                                     (let [[bytes pool] (bc/compile ast)]
+                                       {:bytes bytes :pool pool}))
+                                   forms)]
+        (swap! app-state assoc :compiled compiled-results :error nil)
+        compiled-results)
       (catch js/Error e
         (swap! app-state assoc :error (.-message e) :compiled nil)
         nil))))
@@ -92,21 +97,25 @@
 (defn run-bytecode []
   (let [compiled (:compiled @app-state)
         ;; If not compiled yet, try to compile
-        {:keys [bytes pool]} (or compiled (compile-ast))]
-    (when (and bytes pool)
+        compiled-results (or compiled (compile-ast))]
+    (when (seq compiled-results)
       (try
         (let [initial-env vm/primitives
-              result (bc/run-bytes bytes pool initial-env)]
-          (swap! app-state assoc :bytecode-result result :error nil))
+              results (mapv (fn [{:keys [bytes pool]}]
+                              (bc/run-bytes bytes pool initial-env))
+                            compiled-results)]
+          (swap! app-state assoc :bytecode-result (last results) :error nil))
         (catch js/Error e
           (swap! app-state assoc :error (str "Bytecode Error: " (.-message e)) :bytecode-result nil))))))
 
 (defn compile-clojure []
   (let [input (:clojure-code @app-state)]
     (try
-      (let [form (reader/read-string input)
-            ast (yang/compile form)]
-        (swap! app-state assoc :ast-as-text (pretty-print ast) :error nil))
+      (let [forms (reader/read-string (str "[" input "]"))
+            asts (mapv yang/compile forms)
+            ast-strings (map pretty-print asts)
+            result-text (clojure.string/join "\n" ast-strings)]
+        (swap! app-state assoc :ast-as-text result-text :error nil))
       (catch js/Error e
         (swap! app-state assoc :error (str "Clojure Compile Error: " (.-message e)))))))
 
