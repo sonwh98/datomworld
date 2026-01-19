@@ -8,6 +8,7 @@
             [cljs.pprint :as pprint]
             ["codemirror" :refer [basicSetup EditorView]]
             ["@codemirror/state" :refer [EditorState]]
+            ["@codemirror/theme-one-dark" :refer [oneDark]]
             ["@nextjournal/lang-clojure" :refer [clojure]]))
 
 (defn pretty-print [data]
@@ -38,7 +39,7 @@
       :component-did-mount
       (fn [this]
         (when-let [node @el-ref]
-          (let [extensions (cond-> #js [basicSetup (clojure)]
+          (let [extensions (cond-> #js [basicSetup (clojure) oneDark]
                              read-only (.concat #js [(.of (.-editable EditorView) false)])
                              on-change (.concat #js [(.of (.-updateListener EditorView)
                                                           (fn [update]
@@ -63,7 +64,7 @@
       :reagent-render
       (fn [{:keys [style]}]
         [:div {:ref #(reset! el-ref %)
-               :style (merge {:height "300px" :width "100%" :border "1px solid #ccc" :overflow "auto" :background-color "white"} style)}])})))
+               :style (merge {:height "300px" :width "100%" :border "1px solid #ccc" :overflow "auto"} style)}])})))
 
 (defn evaluate-ast []
   (let [input (:ast-as-text @app-state)]
