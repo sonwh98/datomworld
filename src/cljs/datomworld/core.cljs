@@ -6,7 +6,9 @@
             [yang.clojure :as yang]
             [cljs.reader :as reader]
             [cljs.pprint :as pprint]
-            ["monaco-editor/esm/vs/editor/editor.api.js" :as monaco]))
+            ["codemirror" :refer [basicSetup EditorView]]
+            ["@codemirror/state" :refer [EditorState]]
+            ["@nextjournal/lang-clojure" :refer [clojure]]))
 
 (defn pretty-print [data]
   (binding [pprint/*print-right-margin* 60]
@@ -28,44 +30,40 @@
                             :compiled nil
                             :error nil}))
 
-(defn monaco-editor [{:keys [value on-change language read-only]}]
-  (let [editor-ref (r/atom nil)
+(defn codemirror-editor [{:keys [value on-change read-only]}]
+  (let [view-ref (r/atom nil)
         el-ref (atom nil)]
     (r/create-class
-     {:display-name "monaco-editor"
+     {:display-name "codemirror-editor"
       :component-did-mount
       (fn [this]
         (when-let [node @el-ref]
-          (let [editor (.create ^js monaco/editor node
-                                (clj->js {:value value
-                                          :language language
-                                          :readOnly (boolean read-only)
-                                          :theme "vs-dark"
-                                          :automaticLayout true
-                                          :minimap {:enabled false}}))]
-            (reset! editor-ref editor)
-            (.onDidChangeModelContent ^js editor
-                                       (fn [_]
-                                         (when on-change
-                                           (let [current-value (.getValue ^js editor)]
-                                             (when (not= value current-value)
-                                               (on-change current-value)))))))))
+          (let [extensions (cond-> #js [basicSetup (clojure)]
+                             read-only (.concat #js [(.of (.-editable EditorView) false)])
+                             on-change (.concat #js [(.of (.-updateListener EditorView)
+                                                          (fn [update]
+                                                            (when (and (.-docChanged update) on-change)
+                                                              (on-change (.. update -state -doc toString)))))]))
+                state (.create EditorState #js {:doc value :extensions extensions})
+                view (new EditorView #js {:state state :parent node})]
+            (reset! view-ref view))))
       :component-did-update
       (fn [this old-argv]
         (let [{:keys [value]} (r/props this)]
-          (when-let [editor ^js @editor-ref]
-            (when (not= value (.getValue editor))
-              (let [position (.getPosition editor)]
-                (.setValue editor value)
-                (.setPosition editor position))))))
+          (when-let [view @view-ref]
+            (let [current-value (.. view -state -doc toString)]
+              (when (not= value current-value)
+                (.dispatch view #js {:changes #js {:from 0 
+                                                   :to (.. view -state -doc -length)
+                                                   :insert value}}))))))
       :component-will-unmount
       (fn [this]
-        (when-let [editor ^js @editor-ref]
-          (.dispose editor)))
+        (when-let [view @view-ref]
+          (.destroy view)))
       :reagent-render
       (fn [{:keys [style]}]
         [:div {:ref #(reset! el-ref %)
-               :style (merge {:height "300px" :width "100%" :border "1px solid #ccc"} style)}])})))
+               :style (merge {:height "300px" :width "100%" :border "1px solid #ccc" :overflow "auto" :background-color "white"} style)}])})))
 
 (defn evaluate-ast []
   (let [input (:ast-as-text @app-state)]
@@ -120,9 +118,8 @@
     [:div {:style {:width "400px"}}
      [:label {:style {:font-weight "bold"}} "Enter Clojure Code:"]
      [:br]
-     [monaco-editor {:value (:clojure-code @app-state)
-                     :language "clojure"
-                     :on-change #(swap! app-state assoc :clojure-code %)}]]
+     [codemirror-editor {:value (:clojure-code @app-state)
+                         :on-change #(swap! app-state assoc :clojure-code %)}]]
     
     ;; Arrow 1: Clojure -> AST
     [:div {:style {:margin "0 10px" :display "flex" :flex-direction "column" :justify-content "center" :height "300px"}}
@@ -133,9 +130,8 @@
     [:div {:style {:width "450px"}}
      [:label {:style {:font-weight "bold"}} "Yin AST (EDN):"]
      [:br]
-     [monaco-editor {:value (:ast-as-text @app-state)
-                     :language "clojure"
-                     :on-change #(swap! app-state assoc :ast-as-text %)}]]
+     [codemirror-editor {:value (:ast-as-text @app-state)
+                         :on-change #(swap! app-state assoc :ast-as-text %)}]]
 
     ;; Arrow 2: AST -> Bytecode
     [:div {:style {:margin "0 10px" :margin-right "10px" :display "flex" :flex-direction "column" :justify-content "center" :height "300px"}}
@@ -146,11 +142,10 @@
     [:div {:style {:width "450px"}}
      [:label {:style {:font-weight "bold"}} "Compiled Bytecode:"]
      [:br]
-     [monaco-editor {:value (if-let [compiled (:compiled @app-state)]
-                              (pretty-print compiled)
-                              "")
-                     :language "clojure"
-                     :read-only true}]]]
+     [codemirror-editor {:value (if-let [compiled (:compiled @app-state)]
+                                  (pretty-print compiled)
+                                  "")
+                         :read-only true}]]]
 
    [:div {:style {:margin-bottom "20px"}}
     [:button {:on-click evaluate-ast :style {:margin-right "10px"}}
