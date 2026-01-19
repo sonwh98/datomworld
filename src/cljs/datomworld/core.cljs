@@ -137,7 +137,7 @@
     ;; Arrow 2: AST -> Bytecode
     [:div {:style {:margin "0 10px" :margin-right "10px" :display "flex" :flex-direction "column" :justify-content "center" :height "300px"}}
      [:button {:on-click compile-ast :style {:padding "5px"}}
-      "Compile AST ->"]] 
+      "Compile to bytecode ->"]] 
 
     ;; Column 3: Compiled Bytecode
     [:div {:style {:width "450px"}}
