@@ -29,7 +29,9 @@
    'conj (fn [coll x] (conj coll x))
    'assoc (fn [m k v] (assoc m k v))
    'get (fn [m k] (get m k))
-   'vec (fn [coll] (vec coll))})
+   'vec (fn [coll] (vec coll))
+   ;; Definition primitive - returns an effect
+   'yin/def (fn [k v] {:effect :vm/store-put :key k :val v})})
 
 (defn make-state
   "Create an initial CESK machine state with given environment."
@@ -165,8 +167,9 @@
         ;; Variable lookup
         :variable
         (let [{:keys [name]} node
-              ;; First check local environment, then module system
+              ;; Check local environment, then store (global), then module system
               value (or (get environment name)
+                        (get store name)
                         (module/resolve-symbol name))]
           (assoc state :value value :control nil))
 
@@ -195,6 +198,15 @@
                 (if (module/effect? result)
                   ;; Execute effect
                   (case (:effect result)
+                    :vm/store-put
+                    (let [key (:key result)
+                          value (:val result)
+                          new-store (assoc store key value)]
+                      (assoc state
+                             :store new-store
+                             :value value
+                             :control nil))
+
                     :stream/make
                     (let [[stream-ref new-state] (stream/handle-make state result gensym-id)]
                       (assoc new-state :value stream-ref :control nil))

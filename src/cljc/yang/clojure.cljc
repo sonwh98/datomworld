@@ -37,7 +37,7 @@
   [form]
   (and (seq? form)
        (symbol? (first form))
-       (contains? #{'fn 'if 'let 'quote 'do}
+       (contains? #{'fn 'if 'let 'quote 'do 'def}
                   (first form))))
 
 (defn compile-literal
@@ -51,6 +51,19 @@
   [sym]
   {:type :variable
    :name sym})
+
+(defn compile-def
+  "Compile a def form to Universal AST.
+
+  Clojure: (def x 10)
+  AST: {:type :application
+        :operator {:type :variable :name 'yin/def}
+        :operands [{:type :literal :value 'x} <compiled-value>]}"
+  [sym value env]
+  {:type :application
+   :operator {:type :variable :name 'yin/def}
+   :operands [{:type :literal :value sym}
+              (compile-form value env)]})
 
 (defn compile-lambda
   "Compile a lambda (fn) expression to Universal AST.
@@ -202,6 +215,11 @@
          ;; Quote: (quote form)
          quote
          (compile-quote (first operands))
+
+         ;; Def: (def sym value)
+         def
+         (let [[sym value] operands]
+           (compile-def sym value env))
 
          ;; Function application: (f arg1 arg2 ...)
          ;; This includes stream operations (stream/make, stream/put, stream/take, >!, <!)

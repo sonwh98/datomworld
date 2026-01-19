@@ -54,7 +54,7 @@
           (when-let [view @view-ref]
             (let [current-value (.. view -state -doc toString)]
               (when (not= value current-value)
-                (.dispatch view #js {:changes #js {:from 0 
+                (.dispatch view #js {:changes #js {:from 0
                                                    :to (.. view -state -doc -length)
                                                    :insert value}}))))))
       :component-will-unmount
@@ -122,7 +122,7 @@
 (defn hello-world []
   [:div
    [:h1 "Datomworld Yin VM Explorer"]
-   
+
    [:div {:style {:display "flex" :flex-direction "row" :align-items "flex-start" :margin-bottom "20px"}}
     ;; Column 1: Clojure Code
     [:div {:style {:width "400px"}}
@@ -130,12 +130,12 @@
      [:br]
      [codemirror-editor {:value (:clojure-code @app-state)
                          :on-change #(swap! app-state assoc :clojure-code %)}]]
-    
+
     ;; Arrow 1: Clojure -> AST
     [:div {:style {:margin "0 10px" :display "flex" :flex-direction "column" :justify-content "center" :height "300px"}}
      [:button {:on-click compile-clojure :style {:padding "5px"}}
-      "Compile to AST ->"]] 
-    
+      "Compile to AST ->"]]
+
     ;; Column 2: Yin AST
     [:div {:style {:width "450px"}}
      [:label {:style {:font-weight "bold"}} "Yin AST (EDN):"]
@@ -146,7 +146,7 @@
     ;; Arrow 2: AST -> Bytecode
     [:div {:style {:margin "0 10px" :margin-right "10px" :display "flex" :flex-direction "column" :justify-content "center" :height "300px"}}
      [:button {:on-click compile-ast :style {:padding "5px"}}
-      "Compile to bytecode ->"]] 
+      "Compile to bytecode ->"]]
 
     ;; Column 3: Compiled Bytecode
     [:div {:style {:width "450px"}}
@@ -183,17 +183,17 @@
     [:ul
      [:li [:a {:href "#" :on-click #(swap! app-state assoc :ast-as-text (pretty-print {:type :literal :value 42}))} "Literal 42"]]
      [:li [:a {:href "#" :on-click #(swap! app-state assoc :ast-as-text (pretty-print {:type :application
-                                                                                     :operator {:type :variable :name '+}
-                                                                                     :operands [{:type :literal :value 10}
-                                                                                                {:type :literal :value 20}]}))} "Addition (10 + 20)"]]
+                                                                                       :operator {:type :variable :name '+}
+                                                                                       :operands [{:type :literal :value 10}
+                                                                                                  {:type :literal :value 20}]}))} "Addition (10 + 20)"]]
      [:li [:a {:href "#" :on-click #(swap! app-state assoc :ast-as-text (pretty-print {:type :application
-                                                                                     :operator {:type :lambda
-                                                                                                :params '[x]
-                                                                                                :body {:type :application
-                                                                                                       :operator {:type :variable :name '+}
-                                                                                                       :operands [{:type :variable :name 'x}
-                                                                                                                  {:type :literal :value 1}]}}
-                                                                                     :operands [{:type :literal :value 5}]}))} "Lambda Application ((lambda (x) (+ x 1)) 5)"]]]]])
+                                                                                       :operator {:type :lambda
+                                                                                                  :params '[x]
+                                                                                                  :body {:type :application
+                                                                                                         :operator {:type :variable :name '+}
+                                                                                                         :operands [{:type :variable :name 'x}
+                                                                                                                    {:type :literal :value 1}]}}
+                                                                                       :operands [{:type :literal :value 5}]}))} "Lambda Application ((lambda (x) (+ x 1)) 5)"]]]]])
 
 (defn init []
   (let [app (js/document.getElementById "app")]
