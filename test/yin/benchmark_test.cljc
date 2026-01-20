@@ -73,4 +73,29 @@
           #?(:clj (println (format "Yin.Datom-Bytecode (Stream): %.4f ms" duration-ms))
              :cljs (println "Yin.Datom-Bytecode (Stream):" duration-ms "ms"))
 
+          #?(:clj (d/close conn)))))
+
+    ;; --- 3. Yin.Datom-Bytecode (Fast/Hydrated) ---
+    (let [db-path #?(:clj (str "/tmp/benchmark-fast-" (gen-id)) :cljs nil)
+          conn #?(:clj (d/get-conn db-path dbc/schema)
+                  :cljs (d/create-conn dbc/schema))
+          datoms (dbc/decompose-ast ast)]
+
+      (d/transact! conn datoms)
+
+      (let [db (d/db conn)
+            root-id (:ast/node-id (first datoms))
+            exec-stream (dbc/compile-to-stream db root-id)]
+
+        (d/transact! conn exec-stream)
+
+        (let [start (now)
+              result (dbc/run-stream-fast conn exec-stream vm/primitives)
+              end (now)
+              duration-ms (ms-diff start end)]
+
+          (is (= 4096 result))
+          #?(:clj (println (format "Yin.Datom-Bytecode (Fast):   %.4f ms" duration-ms))
+             :cljs (println "Yin.Datom-Bytecode (Fast):" duration-ms "ms"))
+
           #?(:clj (d/close conn)))))))

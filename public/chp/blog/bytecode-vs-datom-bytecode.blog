@@ -10,19 +10,25 @@
           [:h2 "The Experiment"]
           [:p "We pitted two implementations of the Yin VM against each other running a deeply nested arithmetic expression (2^12 nested additions generated via code)."]
           [:ul.bulleted
-           [:li [:strong "Recursive Array Bytecode (Traditional):"] " Uses recursive function calls to traverse and execute a nested structure using persistent vectors."]
-           [:li [:strong "Linear Datom Stream (New):"] " Flattens the AST into a linear stream of execution datoms stored in a DataScript/Datalevin database."]
+           [:li [:strong "Recursive Array Bytecode (Traditional):"] " Uses a tight loop with O(1) vector access to execute bytecode."]
+           [:li [:strong "Linear Datom Stream (New):"] " Flattens the AST into a linear stream of execution datoms stored in a DataScript/Datalevin database."]]
 
           [:h2 "The Results"]
-          [:p "After fixing a performance bug (LazySeq O(N) access) in the array implementation, the true baseline emerged:"]
-          [:pre [:code
-                 "Recursive Array Bytecode:     20.61 ms
-Linear Datom Stream:        1311.21 ms
-Difference: ~63x slower"]] 
 
-          [:p "The Datom Stream implementation is significantly slower. This is expected: it performs database queries (`d/pull`) for every instruction and handles transactions for every function compilation."]
+          [:p "After fixing a performance bug (LazySeq O(N) access) in the array implementation, the true baseline emerged. We also implemented an \"Optimized Stream\" that pre-fetches AST data to avoid DB queries in the hot loop."]
+
+          [:pre [:code
+
+                 "Recursive Array Bytecode:     20.39 ms
+
+          Linear Datom Stream:        1151.38 ms
+
+          Optimized Datom Stream:      443.08 ms"]]
+
+          [:p "The Standard Datom Stream is ~56x slower. The Optimized Stream (which keeps data as Datoms but hydrates them into memory before execution) is ~22x slower."]
 
           [:h2 "Why is Datom Stream Slower?"]
+
           [:p "Three architectural costs are paid for every instruction:"]
 
           [:h3 "1. Database Overhead"]
@@ -38,14 +44,14 @@ Difference: ~63x slower"]]
           [:p "If it's 60x slower, why use it? Because " [:strong "speed is not the only metric"] "."]
           [:p "The Datom Stream architecture buys us capabilities that are impossible with raw bytecode:"]
           [:ul.bulleted
-           [:li [:strong "Queryability:"] " We can run Datalog queries *during execution* to inspect the state of the VM. \"Find all functions that accessed variable X\" becomes a query, not a debugger breakpoint."]
+           [:li [:strong "Queryability:"] " We can run Datalog queries " [:em "during execution"] " to inspect the state of the VM. \"Find all functions that accessed variable X\" becomes a query, not a debugger breakpoint."]
            [:li [:strong "Provenance:"] " Every execution step is linked to its source AST node. We never lose the \"why\" behind an operation."]
            [:li [:strong "Time-Travel:"] " Because execution is a stream of facts, we can rewind, replay, and fork execution state trivially."]
            [:li [:strong "Security:"] " The DB acts as a capability-secure sandbox naturally."]]
 
           [:h2 "The Realization"]
-          [:p "This benchmark clarifies the trade-off of Datom.World: " [:strong "We trade raw compute speed for semantic richness."] "."]
-          [:p "For number-crunching (matrix multiplication, physics simulations), use optimized bytecode or native code. For **orchestration, business logic, and intelligent agents**, where understanding *what* the code is doing is more important than how fast it loops, the Datom Stream is the superior architecture."]
+          [:p "This benchmark clarifies the trade-off of Datom.World: " [:strong "We trade raw compute speed for semantic richness."]]
+          [:p "For number-crunching (matrix multiplication, physics simulations), use optimized bytecode or native code. For " [:strong "orchestration, business logic, and intelligent agents"] ", where understanding " [:em "what"] " the code is doing is more important than how fast it loops, the Datom Stream is the superior architecture."]
           [:p "It turns the runtime into a database. And for our use cases, a queryable runtime is worth the cost."]
 
           [:p [:strong "Learn more:"]]
