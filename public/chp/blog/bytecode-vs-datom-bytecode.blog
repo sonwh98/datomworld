@@ -34,7 +34,7 @@ Yin.Datom-Bytecode (Stream): 1173.97 ms"]]
           [:h3 "3. JIT Optimization"]
           [:p "Staying within a single method (the interpreter loop) allows the JVM's Just-In-Time (JIT) compiler to optimize the 'hot loop' aggressively. Recursive function calls across boundaries are much harder for the JIT to inline and optimize effectively."]
 
-          [:h2 "Conclusion"]
-          [:p "This benchmark validates the core thesis of Datom.World: " [:strong "Linearity is orthogonal to semantics."] ""]
-          [:p "We did not sacrifice the rich, queryable nature of our data to achieve this speed. The execution stream is still composed of datoms (facts). We simply changed the " [:em "shape"] " of the data from a tree to a stream to align with how hardware actually works."]
-          [:p "By treating execution as a linear stream of facts, we achieve bytecode-like performance characteristics while retaining the introspection capabilities of an AST."]]]]}
+          [:h2 "The Realization"]
+          [:p "This benchmark validates the core architectural leap of Datom.World: " [:strong "Linearity is orthogonal to semantics."] ""]
+          [:p "We did not sacrifice the rich, queryable nature of our data to achieve this speed. The execution stream is still composed of immutable datoms. We simply changed the " [:em "shape"] " of the data from a tree to a stream to align with how hardware actually processes facts."]
+          [:p "The " [:strong "6.2x performance gain"] " proves that " [:em "Everything is a Datom Stream"] " is not just an elegant Lisp-family philosophy—it is a high-performance architecture. By moving from recursive tree-walking to linear fact-streams, we've demonstrated that semantic richness and raw execution speed can coexist in the same layer."]]]]}
