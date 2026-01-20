@@ -1,6 +1,6 @@
-#:blog{:title "Benchmark: Recursive Array Bytecode vs Linear Datom Stream (6x-60x Performance Gain)",
+#:blog{:title "Benchmark: The Price of Introspection (Datoms vs Bytecode)",
        :date #inst "2026-01-20T00:00:00.000-00:00",
-       :abstract [:p "We benchmarked two VM implementations: a traditional recursive array-based bytecode interpreter versus the new linear Datom Stream architecture. The result? The Linear Datom Stream implementation was " [:strong "6x to 60x faster"] " depending on the platform. Here is the data and the architectural explanation why."]
+       :abstract [:p "We benchmarked two VM implementations: a traditional recursive array-based bytecode interpreter versus the new linear Datom Stream architecture. The result? Optimized Bytecode is " [:strong "60x faster"] " than Datom Streams. Here is why we choose the slower architecture anyway."]
        :content
        [:section.blog-article
         [:div.section-inner
@@ -10,48 +10,46 @@
           [:h2 "The Experiment"]
           [:p "We pitted two implementations of the Yin VM against each other running a deeply nested arithmetic expression (2^12 nested additions generated via code)."]
           [:ul.bulleted
-           [:li [:strong "Recursive Array Bytecode (Traditional):"] " Uses recursive function calls to traverse and execute a nested structure."]
-           [:li [:strong "Linear Datom Stream (New):"] " Flattens the AST into a linear stream of execution datoms and runs them in a tight loop."]]
+           [:li [:strong "Recursive Array Bytecode (Traditional):"] " Uses recursive function calls to traverse and execute a nested structure using persistent vectors."]
+           [:li [:strong "Linear Datom Stream (New):"] " Flattens the AST into a linear stream of execution datoms stored in a DataScript/Datalevin database."]
 
           [:h2 "The Results"]
-          [:h3 "JVM (Clojure)"]
+          [:p "After fixing a performance bug (LazySeq O(N) access) in the array implementation, the true baseline emerged:"]
           [:pre [:code
-                 "Recursive Array Bytecode:   7336.99 ms
-Linear Datom Stream:        1173.97 ms
-Speedup: ~6.2x"]]
+                 "Recursive Array Bytecode:     20.61 ms
+Linear Datom Stream:        1311.21 ms
+Difference: ~63x slower"]] 
 
-          [:h3 "Node.js (V8)"]
-          [:pre [:code
-                 "Recursive Array Bytecode:   33015.46 ms
-Linear Datom Stream:          538.86 ms
-Speedup: ~61x"]]
+          [:p "The Datom Stream implementation is significantly slower. This is expected: it performs database queries (`d/pull`) for every instruction and handles transactions for every function compilation."]
 
-          [:p "The Linear Datom Stream implementation is consistently faster, with the gap widening significantly on JavaScript engines where function call overhead is higher compared to tight loops."]
+          [:h2 "Why is Datom Stream Slower?"]
+          [:p "Three architectural costs are paid for every instruction:"]
 
-          [:h2 "Why Is It Faster?"]
+          [:h3 "1. Database Overhead"]
+          [:p "Instead of an O(1) array index lookup `(nth bytes pc)`, the Datom VM performs a `d/pull` query against the in-memory database to retrieve the instruction and its operands. While fast, a DB query involves hashing, map lookups, and object allocation that dwarfs a simple array access."]
 
-          [:p "Three architectural factors contribute to this significant gap:"]
+          [:h3 "2. Transaction Overhead"]
+          [:p "JIT-compiling closures involves `d/transact!`. Even in-memory, ensuring transactional consistency (ACID) adds latency that a raw memory write does not have."]
 
-          [:h3 "1. Loop/Recur vs. Host Recursion"]
-          [:p "The most significant factor is how the interpreter loop works. The traditional bytecode interpreter relied on " [:strong "host recursion"] " (host function calls) to handle nested expressions. Every function application created a new stack frame, incurring overhead and pressure on the CPU cache."]
-          [:p "The Datom Stream interpreter uses a single " [:code "loop/recur"] " structure. On the JVM, this compiles down to a single efficient bytecode loop with simple jumps. It never consumes stack frames for control flow, allowing it to execute millions of instructions without overhead."]
+          [:h3 "3. Object Allocation"]
+          [:p "The Datom VM works with rich immutable maps for every step, whereas the Bytecode VM works mostly with primitive integers and lightweight vectors."]
 
-          [:h3 "2. Linear Execution & Cache Locality"]
-          [:p "The compilation phase flattens the nested AST tree into a " [:strong "linear vector"] " of steps. The CPU can predict and prefetch the next instruction because they are stored sequentially in memory."]
-          [:p "Contrast this with the recursive approach, which effectively 'chases pointers' through the heap as it jumps between different array objects and closures. The linear stream is cache-friendly; the recursive tree is cache-hostile."]
-
-          [:h3 "3. JIT Optimization"]
-          [:p "Staying within a single method (the interpreter loop) allows the Just-In-Time (JIT) compiler to optimize the 'hot loop' aggressively. Recursive function calls across boundaries are much harder for the JIT to inline and optimize effectively."]
-
-          [:p "These three factors combine to explain the benchmark results. But the deeper insight is architectural."]
+          [:h2 "Why We Choose the Slower Architecture"]
+          [:p "If it's 60x slower, why use it? Because " [:strong "speed is not the only metric"] "."]
+          [:p "The Datom Stream architecture buys us capabilities that are impossible with raw bytecode:"]
+          [:ul.bulleted
+           [:li [:strong "Queryability:"] " We can run Datalog queries *during execution* to inspect the state of the VM. \"Find all functions that accessed variable X\" becomes a query, not a debugger breakpoint."]
+           [:li [:strong "Provenance:"] " Every execution step is linked to its source AST node. We never lose the \"why\" behind an operation."]
+           [:li [:strong "Time-Travel:"] " Because execution is a stream of facts, we can rewind, replay, and fork execution state trivially."]
+           [:li [:strong "Security:"] " The DB acts as a capability-secure sandbox naturally."]]
 
           [:h2 "The Realization"]
-          [:p "This benchmark validates the core architectural leap of Datom.World: " [:strong "Linear execution does not require semantic erasure."] ""]
-          [:p "We did not sacrifice the rich, queryable nature of our data to achieve this speed. The execution stream is still composed of immutable datoms. We simply changed the " [:em "shape"] " of the data from a tree to a stream to align with how hardware actually processes facts."]
-          [:p "The " [:strong "6x to 60x performance gain"] " proves that " [:em "Everything is a Datom Stream"] " is not just an elegant Lisp-family philosophy—it is a high-performance architecture. By moving from recursive tree-walking to linear fact-streams, we've demonstrated that semantic richness and raw execution speed can coexist in the same layer."]
+          [:p "This benchmark clarifies the trade-off of Datom.World: " [:strong "We trade raw compute speed for semantic richness."] "."]
+          [:p "For number-crunching (matrix multiplication, physics simulations), use optimized bytecode or native code. For **orchestration, business logic, and intelligent agents**, where understanding *what* the code is doing is more important than how fast it loops, the Datom Stream is the superior architecture."]
+          [:p "It turns the runtime into a database. And for our use cases, a queryable runtime is worth the cost."]
 
           [:p [:strong "Learn more:"]]
           [:ul.bulleted
-           [:li [:a {:href "/blog/ast-datom-streams-bytecode-performance.blog"} "AST Datom Streams: Bytecode Performance with Semantic Preservation"] " (the theory behind this benchmark)"]
+           [:li [:a {:href "/blog/ast-datom-streams-bytecode-performance.blog"} "AST Datom Streams: Bytecode Performance with Semantic Preservation"] " (the theory)"]
            [:li [:a {:href "/blog/ast-higher-dimensional-datom-streams.blog"} "AST as Higher Dimensional Construction of Datom Streams"] " (why ASTs are materialized views)"]
            [:li [:a {:href "/blog/continuations-universal-semantic-kernel.blog"} "Why Continuations Are the Universal Semantic Kernel"] " (why we use loop/recur and continuations)"]]]]]}

@@ -54,16 +54,19 @@
             body-len (count body-bytes)
             [params-pool params-idx] (add-constant body-pool params)]
         ;; Structure: OP_LAMBDA [params-idx] [body-len-high] [body-len-low] [BODY...]
-        [(concat [OP_LAMBDA params-idx]
-                 [(bit-shift-right (bit-and body-len 0xFF00) 8) (bit-and body-len 0xFF)]
-                 body-bytes)
+        [(-> [OP_LAMBDA params-idx]
+             (into [(bit-shift-right (bit-and body-len 0xFF00) 8) (bit-and body-len 0xFF)])
+             (into body-bytes))
          params-pool])
 
       :application
       ;; Compile operator, then operands, then emit APPLY
       (let [[op-bytes pool-1] (compile-ast operator constant-pool)
             [args-bytes pool-2] (compile-seq operands pool-1)]
-        [(concat op-bytes args-bytes [OP_APPLY (count operands)])  ;; NOTE: Limit 255 args
+        [(-> []
+             (into op-bytes)
+             (into args-bytes)
+             (into [OP_APPLY (count operands)]))  ;; NOTE: Limit 255 args
          pool-2])
 
       :if
@@ -77,11 +80,12 @@
             cons-len (count cons-bytes)
             jump-cons-len (+ cons-len 3) ;; +3 for OP_JUMP + 2 bytes offset
             ]
-        [(concat test-bytes
-                 [OP_JUMP_IF_FALSE] [(bit-shift-right (bit-and jump-cons-len 0xFF00) 8) (bit-and jump-cons-len 0xFF)]
-                 cons-bytes
-                 [OP_JUMP] [(bit-shift-right (bit-and alt-len 0xFF00) 8) (bit-and alt-len 0xFF)]
-                 alt-bytes)
+        [(-> []
+             (into test-bytes)
+             (into [OP_JUMP_IF_FALSE (bit-shift-right (bit-and jump-cons-len 0xFF00) 8) (bit-and jump-cons-len 0xFF)])
+             (into cons-bytes)
+             (into [OP_JUMP (bit-shift-right (bit-and alt-len 0xFF00) 8) (bit-and alt-len 0xFF)])
+             (into alt-bytes))
          pool-3])
 
       ;; Default
@@ -140,8 +144,8 @@
            (let [argc (nth bytes (inc pc))
                  ;; Stack: [Fn, Arg1, Arg2, ... ArgN] <- Top
                  ;; We need to pop N args, then the Fn
-                 args (vec (take-last argc stack))
-                 stack-minus-args (vec (drop-last argc stack))
+                 args (subvec stack (- (count stack) argc))
+                 stack-minus-args (subvec stack 0 (- (count stack) argc))
                  fn-val (peek stack-minus-args)
                  stack-rest (pop stack-minus-args)]
 
