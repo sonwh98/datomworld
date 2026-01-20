@@ -37,4 +37,10 @@ Yin.Datom-Bytecode (Stream): 1173.97 ms"]]
           [:h2 "The Realization"]
           [:p "This benchmark validates the core architectural leap of Datom.World: " [:strong "Linearity is orthogonal to semantics."] ""]
           [:p "We did not sacrifice the rich, queryable nature of our data to achieve this speed. The execution stream is still composed of immutable datoms. We simply changed the " [:em "shape"] " of the data from a tree to a stream to align with how hardware actually processes facts."]
-          [:p "The " [:strong "6.2x performance gain"] " proves that " [:em "Everything is a Datom Stream"] " is not just an elegant Lisp-family philosophy—it is a high-performance architecture. By moving from recursive tree-walking to linear fact-streams, we've demonstrated that semantic richness and raw execution speed can coexist in the same layer."]]]]}
+          [:p "The " [:strong "6.2x performance gain"] " proves that " [:em "Everything is a Datom Stream"] " is not just an elegant Lisp-family philosophy—it is a high-performance architecture. By moving from recursive tree-walking to linear fact-streams, we've demonstrated that semantic richness and raw execution speed can coexist in the same layer."]
+
+          [:p [:strong "Learn more:"]]
+          [:ul.bulleted
+           [:li [:a {:href "/blog/ast-datom-streams-bytecode-performance.blog"} "AST Datom Streams: Bytecode Performance with Semantic Preservation"] " (the theory behind this benchmark)"]
+           [:li [:a {:href "/blog/ast-higher-dimensional-datom-streams.blog"} "AST as Higher Dimensional Construction of Datom Streams"] " (why ASTs are materialized views)"]
+           [:li [:a {:href "/blog/continuations-universal-semantic-kernel.blog"} "Why Continuations Are the Universal Semantic Kernel"] " (why we use loop/recur and continuations)"]]]]]}
