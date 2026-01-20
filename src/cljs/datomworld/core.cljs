@@ -72,11 +72,14 @@
       ;; Wrap input in a vector to read multiple forms
       (let [forms (reader/read-string (str "[" input "]"))
             initial-env vm/primitives
-            state (vm/make-state initial-env)
-            ;; Evaluate each form sequentially
-            results (mapv #(vm/run state %) forms)]
+            initial-state (vm/make-state initial-env)
+            ;; Evaluate each form sequentially, threading the state
+            final-state (reduce (fn [state form]
+                                  (vm/run state form))
+                                initial-state
+                                forms)]
         ;; Update state with the result of the last form
-        (swap! app-state assoc :result (:value (last results)) :error nil))
+        (swap! app-state assoc :result (:value final-state) :error nil))
       (catch js/Error e
         (swap! app-state assoc :error (.-message e) :result nil)))))
 
@@ -193,8 +196,8 @@
                                                                                                          :operator {:type :variable :name '+}
                                                                                                          :operands [{:type :variable :name 'x}
                                                                                                                     {:type :literal :value 1}]}}
-                                                                                       :operands [{:type :literal :value 5}]}))} "Lambda Application ((lambda (x) (+ x 1)) 5)"]]]]])
-
+                                                                                       :operands [{:type :literal :value 5}]}))} "Lambda Application ((lambda (x) (+ x 1)) 5)"]]
+     [:li [:a {:href "#" :on-click #(swap! app-state assoc :clojure-code "(def fib (fn [n]\n           (if (< n 2)\n             n\n             (+ (fib (- n 1)) (fib (- n 2))))))\n(fib 7)")} "Fibonacci (Clojure)"]]]]])
 (defn init []
   (let [app (js/document.getElementById "app")]
     (rdom/render [hello-world] app)))
