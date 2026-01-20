@@ -151,8 +151,9 @@
                  (recur (+ pc 2) (conj stack-rest res) env))
 
                (= :closure (:type fn-val))
-               (let [{:keys [params body-bytes env]} fn-val
-                     new-env (merge env (zipmap params args))]
+               (let [{:keys [params body-bytes env] :as closure} fn-val
+                     closure-env env
+                     new-env (merge closure-env (zipmap params args))]
                  ;; RECURSIVE CALL for the closure execution
                  ;; In a real iterative VM, we'd push a frame. Here using host recursion for simplicity of prototype.
                  (let [res (run-bytes body-bytes constant-pool new-env)]

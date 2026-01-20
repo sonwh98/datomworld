@@ -2,29 +2,42 @@
   "Yin VM Bytecode represented as Datom Streams.
    Follows the architecture where AST is a structural stream and 
    execution is a linear stream of datoms."
-  (:require [datalevin.core :as d]
+  (:require #?(:clj [datalevin.core :as d]
+               :cljs [datascript.core :as d])
             [yin.vm :as vm]
             [clojure.walk :as walk]))
 
 ;; --- Schema ---
 
 (def schema
-  {:ast/node-id {:db/unique :db.unique/identity}
-   :ast/type    {:db/valueType :db.type/keyword}
-   :ast/operator {:db/valueType :db.type/ref}
-   :ast/operands {:db/valueType :db.type/ref :db/cardinality :db.cardinality/many}
-   :ast/body     {:db/valueType :db.type/ref}
-   :ast/test     {:db/valueType :db.type/ref}
-   :ast/consequent {:db/valueType :db.type/ref}
-   :ast/alternate {:db/valueType :db.type/ref}
+  #?(:clj
+     {:ast/node-id {:db/unique :db.unique/identity}
+      :ast/type    {:db/valueType :db.type/keyword}
+      :ast/operator {:db/valueType :db.type/ref}
+      :ast/operands {:db/valueType :db.type/ref :db/cardinality :db.cardinality/many}
+      :ast/body     {:db/valueType :db.type/ref}
+      :ast/test     {:db/valueType :db.type/ref}
+      :ast/consequent {:db/valueType :db.type/ref}
+      :ast/alternate {:db/valueType :db.type/ref}
 
-   :exec/step-id    {:db/unique :db.unique/identity}
-   :exec/instruction {:db/valueType :db.type/keyword}
-   :exec/node       {:db/valueType :db.type/ref}
-   :exec/order      {:db/valueType :db.type/long}
-   :exec/target     {:db/valueType :db.type/long}
-   :exec/metadata   {:db/valueType :db.type/ref} ;; Reference to metadata entity
-   })
+      :exec/step-id    {:db/unique :db.unique/identity}
+      :exec/instruction {:db/valueType :db.type/keyword}
+      :exec/node       {:db/valueType :db.type/ref}
+      :exec/order      {:db/valueType :db.type/long}
+      :exec/target     {:db/valueType :db.type/long}
+      :exec/metadata   {:db/valueType :db.type/ref}}
+     :cljs
+     {:ast/node-id {:db/unique :db.unique/identity}
+      :ast/operator {:db/valueType :db.type/ref}
+      :ast/operands {:db/valueType :db.type/ref :db/cardinality :db.cardinality/many}
+      :ast/body     {:db/valueType :db.type/ref}
+      :ast/test     {:db/valueType :db.type/ref}
+      :ast/consequent {:db/valueType :db.type/ref}
+      :ast/alternate {:db/valueType :db.type/ref}
+
+      :exec/step-id    {:db/unique :db.unique/identity}
+      :exec/node       {:db/valueType :db.type/ref}
+      :exec/metadata   {:db/valueType :db.type/ref}}))
 
 ;; --- Decomposition (AST Map -> Datoms) ---
 
@@ -89,16 +102,27 @@
      metadata-id (assoc :exec/metadata [:db/id metadata-id]))))
 
 (defn- flatten-node [db node-id start-order]
+
   (let [node (d/pull db '[:ast/type
+
                           {:ast/operator [:ast/node-id]}
+
                           {:ast/operands [:ast/node-id]}
+
                           {:ast/body [:ast/node-id]}
+
                           {:ast/test [:ast/node-id]}
+
                           {:ast/consequent [:ast/node-id]}
+
                           {:ast/alternate [:ast/node-id]}]
+
                      [:ast/node-id node-id])
+
         type (:ast/type node)]
+
     (case type
+
       :literal
       [[(emit-step node-id :push-literal start-order)]
        (inc start-order)]
@@ -168,8 +192,9 @@
 
 (defn run-stream
   "Executes a linear stream of execution datoms."
-  [db exec-stream initial-env]
-  (let [steps (sort-by :exec/order (mapv (fn [s] (d/pull db '[:exec/instruction :exec/order :exec/target {:exec/node [:ast/node-id]}] [:exec/step-id (:exec/step-id s)])) exec-stream))]
+  [conn exec-stream initial-env]
+  (let [db (d/db conn)
+        steps (sort-by :exec/order (mapv (fn [s] (d/pull db '[:exec/instruction :exec/order :exec/target {:exec/node [:ast/node-id]}] [:exec/step-id (:exec/step-id s)])) exec-stream))]
     (loop [pc 0
            stack []
            env initial-env
@@ -179,7 +204,10 @@
         (let [step (nth steps pc)
               instr (:exec/instruction step)
               node-id (get-in step [:exec/node :ast/node-id])
-              node (d/pull db '[*] [:ast/node-id node-id])]
+              node (d/pull db '[:ast/value :ast/name :ast/params
+                                {:ast/body [:ast/node-id]}
+                                {:ast/operands [:ast/node-id]}]
+                           [:ast/node-id node-id])]
           (case instr
             :push-literal
             (recur (inc pc) (conj stack (:ast/value node)) env store)
@@ -189,6 +217,13 @@
                         (get store (:ast/name node)))]
               (recur (inc pc) (conj stack v) env store))
 
+            :push-closure
+            (let [closure {:type :closure
+                           :params (:ast/params node)
+                           :body-id (:ast/node-id (:ast/body node))
+                           :env env}]
+              (recur (inc pc) (conj stack closure) env store))
+
             :apply
             (let [operands (:ast/operands node)
                   argc (count operands)
@@ -196,9 +231,21 @@
                   stack-minus-args (subvec stack 0 (- (count stack) argc))
                   f (peek stack-minus-args)
                   stack-rest (pop stack-minus-args)]
-              (if (fn? f)
+              (cond
+                (fn? f)
                 (recur (inc pc) (conj stack-rest (apply f args)) env store)
-                ;; Handle closures if implemented
+
+                (= :closure (:type f))
+                (let [{:keys [params body-id env] :as closure} f
+                      closure-env env
+                      new-env (merge closure-env (zipmap params args))
+                      ;; JIT compile body
+                      body-stream (compile-to-stream (d/db conn) body-id)
+                      _ (d/transact! conn body-stream)
+                      res (run-stream conn body-stream new-env)]
+                  (recur (inc pc) (conj stack-rest res) env store))
+
+                :else
                 (throw (ex-info "Non-primitive application not yet in stream runner" {:f f}))))
 
             :jump-if-false

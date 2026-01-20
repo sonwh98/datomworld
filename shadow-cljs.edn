@@ -6,7 +6,8 @@
   "test"]
 
  :dependencies
- [[reagent "2.0.1"]]
+ [[reagent "2.0.1"]
+  [datascript "1.5.4"]]
 
  :dev-http {9000 "public"}
 

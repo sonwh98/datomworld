@@ -2,7 +2,8 @@
   (:require [reagent.core :as r]
             [reagent.dom :as rdom]
             [yin.vm :as vm]
-            [yin.bytecode :as bc]
+            [yin.datom-bytecode :as dbc]
+            [datascript.core :as d]
             [yang.clojure :as yang]
             [cljs.reader :as reader]
             [cljs.pprint :as pprint]
@@ -30,6 +31,8 @@
                             :bytecode-result nil
                             :compiled nil
                             :error nil}))
+
+;; ... codemirror-editor component ...
 
 (defn codemirror-editor [{:keys [value on-change read-only]}]
   (let [view-ref (r/atom nil)
@@ -87,10 +90,19 @@
   (let [input (:ast-as-text @app-state)]
     (try
       (let [forms (reader/read-string (str "[" input "]"))
+            ;; Use a temporary DB for compilation (simulated)
+            ;; In a real app, this would be a persistent connection
+            conn (d/create-conn dbc/schema)
+
             compiled-results (mapv (fn [ast]
-                                     (let [[bytes pool] (bc/compile ast)]
-                                       {:bytes bytes :pool pool}))
+                                     (let [datoms (dbc/decompose-ast ast)]
+                                       (d/transact! conn datoms)
+                                       (let [root-id (:ast/node-id (first datoms))
+                                             exec-stream (dbc/compile-to-stream (d/db conn) root-id)]
+                                         {:datoms datoms
+                                          :exec-stream exec-stream})))
                                    forms)]
+
         (swap! app-state assoc :compiled compiled-results :error nil)
         compiled-results)
       (catch js/Error e
@@ -104,9 +116,19 @@
     (when (seq compiled-results)
       (try
         (let [initial-env vm/primitives
-              results (mapv (fn [{:keys [bytes pool]}]
-                              (bc/run-bytes bytes pool initial-env))
-                            compiled-results)]
+              ;; Create a fresh DB for execution
+              conn (d/create-conn dbc/schema)
+
+              results (reduce (fn [results {:keys [datoms exec-stream]}]
+                                ;; Transact structural + execution datoms
+                                (d/transact! conn datoms)
+                                (d/transact! conn exec-stream)
+
+                                (let [res (dbc/run-stream conn exec-stream initial-env)]
+                                  (conj results res)))
+                              []
+                              compiled-results)]
+
           (swap! app-state assoc :bytecode-result (last results) :error nil))
         (catch js/Error e
           (swap! app-state assoc :error (str "Bytecode Error: " (.-message e)) :bytecode-result nil))))))
@@ -153,14 +175,14 @@
 
     ;; Column 3: Compiled Bytecode
     [:div {:style {:width "450px"}}
-     [:label {:style {:font-weight "bold"}} "Compiled Bytecode:"]
+     [:label {:style {:font-weight "bold"}} "Compiled Bytecode (Datom Stream):"]
      [:br]
      [codemirror-editor {:value (if-let [compiled (:compiled @app-state)]
                                   (pretty-print compiled)
                                   "")
                          :read-only true}]
      [:div {:style {:font-size "0.8em" :color "#666" :margin-top "5px"}}
-      "Note: Bytecode VM does not yet support 'def' or side effects."]]]
+      "Note: Bytecode is now a linear execution datom stream."]]]
 
    [:div {:style {:margin-bottom "20px"}}
     [:button {:on-click evaluate-ast :style {:margin-right "10px"}}

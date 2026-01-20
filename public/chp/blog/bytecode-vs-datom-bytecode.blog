@@ -1,0 +1,40 @@
+#:blog{:title "Benchmark: Bytecode vs Datom Streams (6x Performance Gain)",
+       :date #inst "2026-01-20T00:00:00.000-00:00",
+       :abstract [:p "We benchmarked two VM implementations: a traditional recursive array-based bytecode interpreter versus the new linear Datom Stream architecture. The result? The Datom Stream implementation was " [:strong "6.2x faster"] ". Here is the data and the architectural explanation why."]
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+          [:h2 "The Experiment"]
+          [:p "We pitted two implementations of the Yin VM against each other running a deeply nested calculation (2^12 operations generated via code)."]
+          [:ul.bulleted
+           [:li [:strong "Yin.Bytecode (Traditional):"] " Uses recursive function calls to traverse and execute a nested structure."]
+           [:li [:strong "Yin.Datom-Bytecode (New):"] " Flattens the AST into a linear stream of execution datoms and runs them in a tight loop."]]
+
+          [:h2 "The Results"]
+          [:p "Running the benchmark on the JVM (Clojure):"]
+          [:pre [:code
+                 "Yin.Bytecode (Array):       7336.99 ms
+Yin.Datom-Bytecode (Stream): 1173.97 ms"]]
+          [:p "The Datom Stream implementation is approximately " [:strong "6.2x faster"] "."]
+
+          [:h2 "Why Is It Faster?"]
+          [:p "Three architectural factors contribute to this significant gap:"]
+
+          [:h3 "1. Loop/Recur vs. Host Recursion"]
+          [:p "The most significant factor is how the interpreter loop works. The traditional bytecode interpreter relied on " [:strong "host recursion"] " (Java method calls) to handle nested expressions. Every function application created a new stack frame, incurring overhead and pressure on the CPU cache."]
+          [:p "The Datom Stream interpreter uses a single " [:code "loop/recur"] " structure. On the JVM, this compiles down to a single efficient bytecode loop with simple jumps. It never consumes stack frames for control flow, allowing it to execute millions of instructions without overhead."]
+
+          [:h3 "2. Linear Execution & Cache Locality"]
+          [:p "The compilation phase flattens the nested AST tree into a " [:strong "linear vector"] " of steps. The CPU can predict and prefetch the next instruction because they are stored sequentially in memory."]
+          [:p "Contrast this with the recursive approach, which effectively 'chases pointers' through the heap as it jumps between different array objects and closures. The linear stream is cache-friendly; the recursive tree is cache-hostile."]
+
+          [:h3 "3. JIT Optimization"]
+          [:p "Staying within a single method (the interpreter loop) allows the JVM's Just-In-Time (JIT) compiler to optimize the 'hot loop' aggressively. Recursive function calls across boundaries are much harder for the JIT to inline and optimize effectively."]
+
+          [:h2 "Conclusion"]
+          [:p "This benchmark validates the core thesis of Datom.World: " [:strong "Linearity is orthogonal to semantics."] ""]
+          [:p "We did not sacrifice the rich, queryable nature of our data to achieve this speed. The execution stream is still composed of datoms (facts). We simply changed the " [:em "shape"] " of the data from a tree to a stream to align with how hardware actually works."]
+          [:p "By treating execution as a linear stream of facts, we achieve bytecode-like performance characteristics while retaining the introspection capabilities of an AST."]]]]}
