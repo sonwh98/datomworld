@@ -9,7 +9,7 @@
 
                    [:p "Operating Systems are traditionally viewed as managers (traffic cops that shuffle memory and schedule CPU cycles). This is a legacy view trapped in the paradigms of the 1970s."]
 
-                   [:p "In this architecture, the OS is not a manager. It is an Observer of event streams."
+                   [:p "In this architecture, the OS is not a manager. It is an Observer of event streams. "
                     "This kernel is a twist on the microkernel idea: " [:strong "Tao Kernel"] "."]
 
                    [:p "In Datom.world, interpreters interpret streams. The Tao Kernel is one such interpreter."]
@@ -43,7 +43,7 @@
                       [:li [:em "m"] ": The Hash of the Metadata (Context / Signature)."]
                       [:li "Kernel's Interpretation: \"I assert that this fact occurred at this moment, authorized by this signature.\""]]]]
 
-                   [:h2 "I. The Architecture"]
+                   [:h2 "The Architecture"]
 
                    [:p "To support stream interpretation at high speed, the Tao Kernel discards the \"70s hacks\" of traditional OS design (Virtual Memory, Context Switching, Hardware Rings)."]
 
@@ -53,15 +53,56 @@
 
                    [:ul
                     [:li [:strong "Unified Address Space"] ": The entire OS runs in a single 64-bit address space. There is no artificial wall between \"User\" and \"Kernel.\""]
-                    [:li [:strong "Safety via Immutability and Isolation"] ": Hardware rings are unnecessary for memory protection because data is immutable and code runs in isolated Yin.vm sandboxes. Code cannot corrupt what it cannot change or reach."]
                     [:li [:strong "Zero-Copy IPC"] ": Processes interact by passing Pointers, not by copying buffers. Inter-process communication becomes an O(1) operation."]]
 
-                   [:h3 "2. The \"Interned\" Universe"]
+                   [:h3 "2. Capabilities Replace Hardware Rings"]
+
+                   [:p "Traditional operating systems enforce security through CPU privilege levels: ring0 (kernel) and ring3 (user). Every system call requires an expensive context switch. The Tao Kernel replaces this hardware mechanism with Shibi capabilities."]
+
+                   [:h4 "Why Capabilities?"]
+
+                   [:ul
+                    [:li [:strong "Fine-Grained Access"] ": Hardware rings are coarse: a process either has kernel access or it doesn't. Capabilities are precise: \"this continuation can read " [:code ":user/email"] " on entity 42.\""]
+                    [:li [:strong "No Context Switches"] ": Ring transitions (ring3→ring0) flush TLBs and pipelines. With capabilities in a single address space, \"syscalls\" are just function calls with capability checks."]
+                    [:li [:strong "Defense in Depth"] ": Capabilities combine with immutable data and isolated Yin.vm sandboxes. Code cannot corrupt what it cannot change or reach."]
+                    [:li [:strong "Delegation"] ": A continuation can pass a subset of its capabilities to another continuation without involving the kernel. Authority flows with the data."]
+                    [:li [:strong "Revocation"] ": Capabilities can be revoked without stopping processes or modifying objects. The capability token simply becomes invalid."]
+                    [:li [:strong "No Confused Deputy"] ": Capabilities are unforgeable cryptographic tokens. A malicious continuation cannot trick another into misusing its privileges."]]
+
+                   [:h4 "Portability and Distribution"]
+
+                   [:ul
+                    [:li [:strong "Hardware Independent"] ": The security model doesn't depend on x86 rings or ARM exception levels. Same semantics on any hardware."]
+                    [:li [:strong "Network Transparent"] ": A capability token works the same on your phone as on a cloud server. When continuations migrate, their capabilities migrate with them."]
+                    [:li [:strong "Auditable"] ": Every capability use can be logged as a datom. The security model becomes queryable history."]]
+
+                   [:h4 "Trade-offs"]
+
+                   [:p "Capabilities are not free:"]
+
+                   [:ul
+                    [:li [:strong "Capability Management"] ": Someone must grant initial capabilities. The Tao Kernel bootstraps with a root capability that can mint others."]
+                    [:li [:strong "Software Enforcement"] ": Capability checks run in software, not silicon. However, modern CPUs are adding hardware capability support (CHERI), and the Yin.vm can JIT capability checks into native code."]
+                    [:li [:strong "Debugging"] ": Without clear privilege boundaries, tracing security issues requires following capability chains through the datom history."]]
+
+                   [:p "The trade-off is worth it: capabilities turn security into data. And in Datom.world, data is what we do best."]
+
+                   [:h3 "3. The \"Interned\" Universe"]
 
                    [:ul
                     [:li [:strong "Structural Sharing"] ": Because the Kernel decomposes everything into content-addressable Triples, the entire memory state acts as a global Merkle DAG."]
-                    [:li [:strong "Deduplication"] ": If 50 apps use the string \"Sonny,\" it exists exactly once in physical RAM."]
+                    [:li [:strong "Local Deduplication"] ": If 50 apps use the string \"Sonny,\" it exists exactly once in physical RAM."]
                     [:li [:strong "The Triple"] ": The Kernel is elegant because it only understands one data structure: The Triple. Whether it is storing a User (" [:code "[e a v]"] ") or a History Log (" [:code "[h t m]"] "), the structure is identical."]]
+
+                   [:p "The interned universe extends beyond a single machine. Content-addressable data has the same hash everywhere. The string \"Sonny\" hashes to the same value on your phone, my laptop, and every server on the internet. This has deep implications for distributed systems:"]
+
+                   [:ul
+                    [:li [:strong "Global Deduplication"] ": The entire internet can share the same \"Sonny\" string. When a continuation migrates from Nha Trang to Philadelphia, it doesn't copy data; it carries hashes. The destination either has the content or fetches it once."]
+                    [:li [:strong "Verification Without Trust"] ": If I claim to send you \"Sonny,\" you can verify the content matches the hash without trusting me. Data integrity is structural, not social."]
+                    [:li [:strong "Caching Everywhere"] ": Any node can cache any content. The hash is the address. CDNs, edge nodes, and local devices all participate in a global content-addressed mesh."]
+                    [:li [:strong "Immutable References"] ": A hash pointing to \"Sonny\" will always point to \"Sonny.\" Links never rot. History never rewrites."]]
+
+                   [:p "Traditional systems copy data between address spaces, between processes, between machines. The interned universe references data. The network becomes a single distributed heap where content lives exactly once and pointers span the globe."]
 
                    [:h2 "Conclusion: The Tao Stack"]
 
@@ -93,6 +134,6 @@
                      [:tr
                       [:td "Shibi"]
                       [:td "The Energy"]
-                      [:td "Chi (The Economic Resource)"]]]]
+                      [:td "Capability tokens (Security + Economic Resource)"]]]]
 
                    [:p "The Tao Kernel is the machine that turns the chaos of the stream into structured state."]]]]}
