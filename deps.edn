@@ -5,6 +5,7 @@
         org.postgresql/postgresql {:mvn/version "42.7.3"}
         org.clojure/data.json {:mvn/version "2.5.0"}
         http-kit/http-kit {:mvn/version "2.8.0"}
+        datalevin/datalevin {:mvn/version "0.9.27"}
         stigmergy/chp {:mvn/version "0.1.0-SNAPSHOT"
                        :exclusions [refactor-nrepl/refactor-nrepl]}}
  :paths ["src/clj" "src/cljc" "src/cljs"]
