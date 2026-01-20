@@ -1,6 +1,6 @@
 #:blog{:title "Benchmark: The Price of Introspection (Datoms vs Bytecode)",
        :date #inst "2026-01-20T00:00:00.000-00:00",
-       :abstract [:p "We benchmarked two VM implementations: a traditional recursive array-based bytecode interpreter versus the new linear Datom Stream architecture. The result? Optimized Bytecode is " [:strong "60x faster"] " than Datom Streams. Here is why we choose the slower architecture anyway."]
+       :abstract [:p "We benchmarked two VM implementations: a traditional bytecode interpreter versus the Datom Stream architecture. The result? Bytecode is " [:strong "6x to 44x faster"] " depending on platform and optimization. Here is why we choose the slower architecture anyway."]
        :content
        [:section.blog-article
         [:div.section-inner
@@ -15,17 +15,29 @@
 
           [:h2 "The Results"]
 
-          [:p "After fixing a performance bug (LazySeq O(N) access) in the array implementation, the true baseline emerged. We also implemented an \"Optimized Stream\" that pre-fetches AST data to avoid DB queries in the hot loop."]
+          [:p "After fixing a performance bug (LazySeq O(N) access) in the array implementation, the true baseline emerged. We also implemented an \"Optimized Stream\" that pre-fetches AST data to avoid DB queries in the hot loop. Both platforms use DataScript for consistency."]
 
+          [:h3 "JVM (Clojure + DataScript)"]
           [:pre [:code
+                 "Recursive Array Bytecode:     20 ms
+Linear Datom Stream:         891 ms
+Optimized Datom Stream:      122 ms"]]
 
-                 "Recursive Array Bytecode:     20.39 ms
+          [:h3 "Node.js (ClojureScript + DataScript)"]
+          [:pre [:code
+                 "Recursive Array Bytecode:     33 ms
+Linear Datom Stream:         550 ms
+Optimized Datom Stream:      460 ms"]]
 
-          Linear Datom Stream:        1151.38 ms
+          [:p "On the JVM, the Standard Datom Stream is ~44x slower than bytecode. The Optimized Stream (which pre-fetches datoms into memory) cuts this to ~6x slower, a " [:strong "7x improvement"] "."]
 
-          Optimized Datom Stream:      443.08 ms"]]
+          [:p "On Node.js, the optimization provides only ~1.2x speedup. The Standard Datom Stream is ~16x slower than bytecode; Optimized is ~14x slower."]
 
-          [:p "The Standard Datom Stream is ~56x slower. The Optimized Stream (which keeps data as Datoms but hydrates them into memory before execution) is ~22x slower."]
+          [:h3 "Why Does the Optimization Help More on JVM?"]
+
+          [:p "V8's JIT aggressively optimizes the DataScript query path, making " [:code "d/pull"] " nearly as fast as pre-fetched data. The JVM's HotSpot takes longer to warm up and benefits more from eliminating repeated queries."]
+
+          [:p "Interestingly, Node.js runs the baseline Datom Stream faster than JVM (550ms vs 891ms), but JVM catches up with the optimized version (122ms vs 460ms)."]
 
           [:h2 "Why is Datom Stream Slower?"]
 
@@ -41,7 +53,7 @@
           [:p "The Datom VM works with rich immutable maps for every step, whereas the Bytecode VM works mostly with primitive integers and lightweight vectors."]
 
           [:h2 "Why We Choose the Slower Architecture"]
-          [:p "If it's 60x slower, why use it? Because " [:strong "speed is not the only metric"] "."]
+          [:p "If it's 6x to 44x slower, why use it? Because " [:strong "speed is not the only metric"] "."]
           [:p "The Datom Stream architecture buys us capabilities that are impossible with raw bytecode:"]
           [:ul.bulleted
            [:li [:strong "Queryability:"] " We can run Datalog queries " [:em "during execution"] " to inspect the state of the VM. \"Find all functions that accessed variable X\" becomes a query, not a debugger breakpoint."]

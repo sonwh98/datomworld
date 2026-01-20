@@ -2,42 +2,23 @@
   "Yin VM Bytecode represented as Datom Streams.
    Follows the architecture where AST is a structural stream and 
    execution is a linear stream of datoms."
-  (:require #?(:clj [datalevin.core :as d]
-               :cljs [datascript.core :as d])
-            [yin.vm :as vm]
-            [clojure.walk :as walk]))
+  (:require [datascript.core :as d]
+            [yin.vm :as vm]))
 
 ;; --- Schema ---
 
 (def schema
-  #?(:clj
-     {:ast/node-id {:db/unique :db.unique/identity}
-      :ast/type    {:db/valueType :db.type/keyword}
-      :ast/operator {:db/valueType :db.type/ref}
-      :ast/operands {:db/valueType :db.type/ref :db/cardinality :db.cardinality/many}
-      :ast/body     {:db/valueType :db.type/ref}
-      :ast/test     {:db/valueType :db.type/ref}
-      :ast/consequent {:db/valueType :db.type/ref}
-      :ast/alternate {:db/valueType :db.type/ref}
+  {:ast/node-id {:db/unique :db.unique/identity}
+   :ast/operator {:db/valueType :db.type/ref}
+   :ast/operands {:db/valueType :db.type/ref :db/cardinality :db.cardinality/many}
+   :ast/body     {:db/valueType :db.type/ref}
+   :ast/test     {:db/valueType :db.type/ref}
+   :ast/consequent {:db/valueType :db.type/ref}
+   :ast/alternate {:db/valueType :db.type/ref}
 
-      :exec/step-id    {:db/unique :db.unique/identity}
-      :exec/instruction {:db/valueType :db.type/keyword}
-      :exec/node       {:db/valueType :db.type/ref}
-      :exec/order      {:db/valueType :db.type/long}
-      :exec/target     {:db/valueType :db.type/long}
-      :exec/metadata   {:db/valueType :db.type/ref}}
-     :cljs
-     {:ast/node-id {:db/unique :db.unique/identity}
-      :ast/operator {:db/valueType :db.type/ref}
-      :ast/operands {:db/valueType :db.type/ref :db/cardinality :db.cardinality/many}
-      :ast/body     {:db/valueType :db.type/ref}
-      :ast/test     {:db/valueType :db.type/ref}
-      :ast/consequent {:db/valueType :db.type/ref}
-      :ast/alternate {:db/valueType :db.type/ref}
-
-      :exec/step-id    {:db/unique :db.unique/identity}
-      :exec/node       {:db/valueType :db.type/ref}
-      :exec/metadata   {:db/valueType :db.type/ref}}))
+   :exec/step-id    {:db/unique :db.unique/identity}
+   :exec/node       {:db/valueType :db.type/ref}
+   :exec/metadata   {:db/valueType :db.type/ref}})
 
 ;; --- Decomposition (AST Map -> Datoms) ---
 
@@ -102,23 +83,14 @@
      metadata-id (assoc :exec/metadata [:db/id metadata-id]))))
 
 (defn- flatten-node [db node-id start-order]
-
   (let [node (d/pull db '[:ast/type
-
                           {:ast/operator [:ast/node-id]}
-
                           {:ast/operands [:ast/node-id]}
-
                           {:ast/body [:ast/node-id]}
-
                           {:ast/test [:ast/node-id]}
-
                           {:ast/consequent [:ast/node-id]}
-
                           {:ast/alternate [:ast/node-id]}]
-
                      [:ast/node-id node-id])
-
         type (:ast/type node)]
 
     (case type
@@ -194,7 +166,12 @@
   "Executes a linear stream of execution datoms."
   [conn exec-stream initial-env]
   (let [db (d/db conn)
-        steps (sort-by :exec/order (mapv (fn [s] (d/pull db '[:exec/instruction :exec/order :exec/target {:exec/node [:ast/node-id]}] [:exec/step-id (:exec/step-id s)])) exec-stream))]
+        steps (->> exec-stream
+                   (mapv (fn [s]
+                           (d/pull db '[:exec/instruction :exec/order :exec/target
+                                        {:exec/node [:ast/node-id]}]
+                                   [:exec/step-id (:exec/step-id s)])))
+                   (sort-by :exec/order))]
     (loop [pc 0
            stack []
            env initial-env
@@ -340,9 +317,7 @@
                   new-stack (pop stack)]
               (if condition
                 (recur (inc pc) new-stack env store)
-                ;; Target finding is still O(N) here without pre-calculation,
-                ;; but let's assume it's not the main bottleneck for this benchmark.
-                ;; Optimization: Pre-calculate jump targets in 'steps'.
+                ;; TODO: Pre-calculate jump targets for O(1) lookup
                 (let [target-order (:exec/target step)
                       target-pc (some (fn [i] (when (= (:exec/order (nth steps i)) target-order) i)) (range (count steps)))]
                   (recur (or target-pc (count steps)) new-stack env store))))

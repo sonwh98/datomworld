@@ -4,11 +4,8 @@
             [yin.vm :as vm]
             [yin.bytecode :as bc]
             [yin.datom-bytecode :as dbc]
-            #?(:clj [datalevin.core :as d]
-               :cljs [datascript.core :as d])
+            [datascript.core :as d]
             [yang.clojure :as yang]))
-
-(defn- gen-id [] #?(:clj (str (java.util.UUID/randomUUID)) :cljs (str (random-uuid))))
 
 (defn now []
   #?(:clj (System/nanoTime)
@@ -47,18 +44,14 @@
       (catch #?(:clj Exception :cljs js/Error) e
         (println "Yin.Bytecode (Array): FAILED -" (ex-message e))))
 
-    ;; --- 2. Yin.Datom-Bytecode (Datalevin/Datom Stream) ---
-    (let [db-path #?(:clj (str "/tmp/benchmark-" (gen-id)) :cljs nil)
-          conn #?(:clj (d/get-conn db-path dbc/schema)
-                  :cljs (d/create-conn dbc/schema))
+    ;; --- 2. Yin.Datom-Bytecode (DataScript/Datom Stream) ---
+    (let [conn (d/create-conn dbc/schema)
           datoms (dbc/decompose-ast ast)]
 
       (d/transact! conn datoms)
 
       (let [db (d/db conn)
             root-id (:ast/node-id (first datoms))
-
-            ;; Compile to stream
             exec-stream (dbc/compile-to-stream db root-id)]
 
         (d/transact! conn exec-stream)
@@ -71,14 +64,10 @@
 
           (is (= 4096 result))
           #?(:clj (println (format "Yin.Datom-Bytecode (Stream): %.4f ms" duration-ms))
-             :cljs (println "Yin.Datom-Bytecode (Stream):" duration-ms "ms"))
-
-          #?(:clj (d/close conn)))))
+             :cljs (println "Yin.Datom-Bytecode (Stream):" duration-ms "ms")))))
 
     ;; --- 3. Yin.Datom-Bytecode (Fast/Hydrated) ---
-    (let [db-path #?(:clj (str "/tmp/benchmark-fast-" (gen-id)) :cljs nil)
-          conn #?(:clj (d/get-conn db-path dbc/schema)
-                  :cljs (d/create-conn dbc/schema))
+    (let [conn (d/create-conn dbc/schema)
           datoms (dbc/decompose-ast ast)]
 
       (d/transact! conn datoms)
@@ -96,6 +85,4 @@
 
           (is (= 4096 result))
           #?(:clj (println (format "Yin.Datom-Bytecode (Fast):   %.4f ms" duration-ms))
-             :cljs (println "Yin.Datom-Bytecode (Fast):" duration-ms "ms"))
-
-          #?(:clj (d/close conn)))))))
+             :cljs (println "Yin.Datom-Bytecode (Fast):" duration-ms "ms")))))))
