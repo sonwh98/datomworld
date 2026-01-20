@@ -1,6 +1,6 @@
-#:blog{:title "Benchmark: Bytecode vs Datom Streams (6x Performance Gain)",
+#:blog{:title "Benchmark: Bytecode vs Datom Streams (6x-60x Performance Gain)",
        :date #inst "2026-01-20T00:00:00.000-00:00",
-       :abstract [:p "We benchmarked two VM implementations: a traditional recursive array-based bytecode interpreter versus the new linear Datom Stream architecture. The result? The Datom Stream implementation was " [:strong "6.2x faster"] ". Here is the data and the architectural explanation why."]
+       :abstract [:p "We benchmarked two VM implementations: a traditional recursive array-based bytecode interpreter versus the new linear Datom Stream architecture. The result? The Datom Stream implementation was " [:strong "6x to 60x faster"] " depending on the platform. Here is the data and the architectural explanation why."]
        :content
        [:section.blog-article
         [:div.section-inner
@@ -14,13 +14,22 @@
            [:li [:strong "Yin.Datom-Bytecode (New):"] " Flattens the AST into a linear stream of execution datoms and runs them in a tight loop."]]
 
           [:h2 "The Results"]
-          [:p "Running the benchmark on the JVM (Clojure):"]
+          [:h3 "JVM (Clojure)"]
           [:pre [:code
                  "Yin.Bytecode (Array):       7336.99 ms
-Yin.Datom-Bytecode (Stream): 1173.97 ms"]]
-          [:p "The Datom Stream implementation is approximately " [:strong "6.2x faster"] "."]
+Yin.Datom-Bytecode (Stream): 1173.97 ms
+Speedup: ~6.2x"]]
+
+          [:h3 "Node.js (V8)"]
+          [:pre [:code
+                 "Yin.Bytecode (Array):       33015.46 ms
+Yin.Datom-Bytecode (Stream):   538.86 ms
+Speedup: ~61x"]]
+
+          [:p "The Datom Stream implementation is consistently faster, with the gap widening significantly on JavaScript engines where function call overhead is higher compared to tight loops."]
 
           [:h2 "Why Is It Faster?"]
+
           [:p "Three architectural factors contribute to this significant gap:"]
 
           [:h3 "1. Loop/Recur vs. Host Recursion"]
@@ -37,7 +46,7 @@ Yin.Datom-Bytecode (Stream): 1173.97 ms"]]
           [:h2 "The Realization"]
           [:p "This benchmark validates the core architectural leap of Datom.World: " [:strong "Linearity is orthogonal to semantics."] ""]
           [:p "We did not sacrifice the rich, queryable nature of our data to achieve this speed. The execution stream is still composed of immutable datoms. We simply changed the " [:em "shape"] " of the data from a tree to a stream to align with how hardware actually processes facts."]
-          [:p "The " [:strong "6.2x performance gain"] " proves that " [:em "Everything is a Datom Stream"] " is not just an elegant Lisp-family philosophy—it is a high-performance architecture. By moving from recursive tree-walking to linear fact-streams, we've demonstrated that semantic richness and raw execution speed can coexist in the same layer."]
+          [:p "The " [:strong "6x to 60x performance gain"] " proves that " [:em "Everything is a Datom Stream"] " is not just an elegant Lisp-family philosophy—it is a high-performance architecture. By moving from recursive tree-walking to linear fact-streams, we've demonstrated that semantic richness and raw execution speed can coexist in the same layer."]
 
           [:p [:strong "Learn more:"]]
           [:ul.bulleted
