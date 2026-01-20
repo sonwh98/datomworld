@@ -158,7 +158,9 @@
      [codemirror-editor {:value (if-let [compiled (:compiled @app-state)]
                                   (pretty-print compiled)
                                   "")
-                         :read-only true}]]]
+                         :read-only true}]
+     [:div {:style {:font-size "0.8em" :color "#666" :margin-top "5px"}}
+      "Note: Bytecode VM does not yet support 'def' or side effects."]]]
 
    [:div {:style {:margin-bottom "20px"}}
     [:button {:on-click evaluate-ast :style {:margin-right "10px"}}
