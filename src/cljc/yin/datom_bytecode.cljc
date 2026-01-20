@@ -266,156 +266,90 @@
             (recur (inc pc) stack env store)))))))
 
 (defn run-stream-fast
-
   "Executes a linear stream by pre-resolving AST data to avoid d/pull in the hot loop."
-
   [conn exec-stream initial-env]
-
   (let [db (d/db conn)
-
-                    ;; Pre-pull and HYDRATE the steps.
-
-                    ;; We merge the AST node data directly into the step map.
-
+        ;; Pre-pull and HYDRATE the steps.
+        ;; We merge the AST node data directly into the step map.
         steps (->> exec-stream
-
                    (mapv (fn [s]
-
-                           (let [step (d/pull db '[:exec/instruction :exec/order :exec/target {:exec/node [:ast/node-id :ast/value :ast/name :ast/params {:ast/body [:ast/node-id]} {:ast/operands [:ast/node-id]}]}]
-
+                           (let [step (d/pull db '[:exec/instruction :exec/order :exec/target
+                                                   {:exec/node [:ast/node-id :ast/value :ast/name :ast/params
+                                                                {:ast/body [:ast/node-id]}
+                                                                {:ast/operands [:ast/node-id]}]}]
                                               [:exec/step-id (:exec/step-id s)])]
-
-                                         ;; Flatten/optimize for quick access
-
+                             ;; Flatten/optimize for quick access
                              (assoc step
-
                                     :op (:exec/instruction step)
-
                                     :val (get-in step [:exec/node :ast/value])
-
                                     :var (get-in step [:exec/node :ast/name])
-
                                     :params (get-in step [:exec/node :ast/params])
-
                                     :body-id (get-in step [:exec/node :ast/body :ast/node-id])
-
                                     :argc (count (get-in step [:exec/node :ast/operands]))))))
-
                    (sort-by :exec/order)
-
                    vec)]
-
     (loop [pc 0
-
            stack []
-
            env initial-env
-
            store {}]
-
       (if (>= pc (count steps))
-
         (peek stack)
-
         (let [step (nth steps pc)
-
               instr (:op step)]
-
           (case instr
-
             :push-literal
-
             (recur (inc pc) (conj stack (:val step)) env store)
 
             :load-var
-
             (let [v (or (get env (:var step))
-
                         (get store (:var step)))]
-
               (recur (inc pc) (conj stack v) env store))
 
             :push-closure
-
             (let [closure {:type :closure
-
                            :params (:params step)
-
                            :body-id (:body-id step)
-
                            :env env}]
-
               (recur (inc pc) (conj stack closure) env store))
 
             :apply
-
             (let [argc (:argc step)
-
                   args (subvec stack (- (count stack) argc))
-
                   stack-minus-args (subvec stack 0 (- (count stack) argc))
-
                   f (peek stack-minus-args)
-
                   stack-rest (pop stack-minus-args)]
-
               (cond
-
                 (fn? f)
-
                 (recur (inc pc) (conj stack-rest (apply f args)) env store)
 
                 (= :closure (:type f))
-
                 (let [{:keys [params body-id env] :as closure} f
-
                       closure-env env
-
                       new-env (merge closure-env (zipmap params args))
-
-                                  ;; JIT compile body
-
+                      ;; JIT compile body
                       body-stream (compile-to-stream (d/db conn) body-id)
-
                       _ (d/transact! conn body-stream)
-
                       res (run-stream-fast conn body-stream new-env)]
-
                   (recur (inc pc) (conj stack-rest res) env store))
 
                 :else
-
                 (throw (ex-info "Non-primitive application not yet in stream runner" {:f f}))))
 
             :jump-if-false
-
             (let [condition (peek stack)
-
                   new-stack (pop stack)]
-
               (if condition
-
                 (recur (inc pc) new-stack env store)
-
-                            ;; Target finding is still O(N) here without pre-calculation, 
-
-                            ;; but let's assume it's not the main bottleneck for this benchmark.
-
-                            ;; Optimization: Pre-calculate jump targets in 'steps'.
-
+                ;; Target finding is still O(N) here without pre-calculation,
+                ;; but let's assume it's not the main bottleneck for this benchmark.
+                ;; Optimization: Pre-calculate jump targets in 'steps'.
                 (let [target-order (:exec/target step)
-
                       target-pc (some (fn [i] (when (= (:exec/order (nth steps i)) target-order) i)) (range (count steps)))]
-
                   (recur (or target-pc (count steps)) new-stack env store))))
 
             :jump
-
             (let [target-order (:exec/target step)
-
                   target-pc (some (fn [i] (when (= (:exec/order (nth steps i)) target-order) i)) (range (count steps)))]
-
               (recur (or target-pc (count steps)) stack env store))
 
             (recur (inc pc) stack env store)))))))
-
