@@ -28,7 +28,9 @@
 
                    [:p "The Kernel does not merely \"store\" these Datoms. It " [:em "interprets"] " them. It transforms the raw stream into structured state."]
 
-                   [:p "When the Tao Kernel reads a Datom " [:code "[e a v t m]"] ", it deconstructs it into two fundamental particles:"]
+                   [:p "The 5-tuple " [:code "[e a v t m]"] " is metaphorically " [:strong "space-time"] ": a single coordinate that locates a fact within both the semantic landscape and the causal timeline."]
+
+                   [:p "When the Tao Kernel reads a Datom, it deconstructs it into two fundamental particles:"]
 
                    [:ul
                     [:li [:strong "The Particle of Space (The Fact)"] ": " [:code "[e a v]"]
