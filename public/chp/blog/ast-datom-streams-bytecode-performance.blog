@@ -34,6 +34,7 @@
            "Bytecode is a linear array. The CPU can predict and prefetch instructions. Cache lines are used efficiently:"]
           [:pre
            [:code
+            {:class "language-asm"}
             "; Python bytecode (linear)\nInstruction[0]: LOAD_FAST 0\nInstruction[1]: LOAD_FAST 1\nInstruction[2]: BINARY_ADD\nInstruction[3]: RETURN_VALUE\n\n; Memory layout: [LOAD_FAST][LOAD_FAST][BINARY_ADD][RETURN_VALUE]\n; Cache-friendly: sequential access pattern"]]
           [:h3 "2. Minimal Indirection"]
           [:p
@@ -56,6 +57,7 @@
            "AST nodes are scattered across the heap. Traversing a tree means jumping between distant memory locations:"]
           [:pre
            [:code
+            {:class "language-asm"}
             "; AST nodes scattered in heap\nNode A @ 0x1000  →  Node B @ 0x5000  →  Node C @ 0x2000\n                ↓\n             Node D @ 0x8000\n\n; Cache-hostile: each traversal step likely a cache miss"]]
           [:h3 "2. Pointer Chasing"]
           [:p
@@ -104,7 +106,7 @@
            " the program structure:"]
           [:pre
            [:code
-            "[node-1 :ast/type :application]\n[node-1 :ast/operator node-2]\n[node-1 :ast/operands [node-3 node-4]]\n[node-2 :ast/type :variable]\n[node-2 :ast/name '+]\n[node-3 :ast/type :literal]\n[node-3 :ast/value 10]\n[node-4 :ast/type :literal]\n[node-4 :ast/value 32]"]]
+            "[node-1 :ast/type :application tx-1 meta-1]\n[node-1 :ast/operator node-2 tx-1 meta-1]\n[node-1 :ast/operands [node-3 node-4] tx-1 meta-1]\n[node-2 :ast/type :variable tx-1 meta-1]\n[node-2 :ast/name '+ tx-1 meta-1]\n[node-3 :ast/type :literal tx-1 meta-1]\n[node-3 :ast/value 10 tx-1 meta-1]\n[node-4 :ast/type :literal tx-1 meta-1]\n[node-4 :ast/value 32 tx-1 meta-1]"]]
           [:p
            "This is the "
            [:strong "semantic layer"]
@@ -118,7 +120,7 @@
           [:p "The datoms that capture " [:em "what to do next"] ":"]
           [:pre
            [:code
-            "[step-1 :exec/instruction :eval-operator]\n[step-1 :exec/node node-1]\n[step-1 :exec/order 0]\n[step-2 :exec/instruction :eval-operand]\n[step-2 :exec/node node-3]\n[step-2 :exec/order 1]\n[step-3 :exec/instruction :eval-operand]\n[step-3 :exec/node node-4]\n[step-3 :exec/order 2]\n[step-4 :exec/instruction :apply]\n[step-4 :exec/function node-2]\n[step-4 :exec/args [node-3 node-4]]\n[step-4 :exec/order 3]"]]
+            "[step-1 :exec/instruction :eval-operator tx-2 meta-2]\n[step-1 :exec/node node-1 tx-2 meta-2]\n[step-1 :exec/order 0 tx-2 meta-2]\n[step-2 :exec/instruction :eval-operand tx-2 meta-2]\n[step-2 :exec/node node-3 tx-2 meta-2]\n[step-2 :exec/order 1 tx-2 meta-2]\n[step-3 :exec/instruction :eval-operand tx-2 meta-2]\n[step-3 :exec/node node-4 tx-2 meta-2]\n[step-3 :exec/order 2 tx-2 meta-2]\n[step-4 :exec/instruction :apply tx-2 meta-2]\n[step-4 :exec/function node-2 tx-2 meta-2]\n[step-4 :exec/args [node-3 node-4] tx-2 meta-2]\n[step-4 :exec/order 3 tx-2 meta-2]"]]
           [:p "This is the " [:strong "execution layer"] ". It has:"]
           [:ul.bulleted
            [:li
@@ -151,27 +153,26 @@
            [:li "Generates a linear execution sequence"]
            [:li "Preserves links back to AST nodes"]
            [:li "Stores the result as datoms"]]
-          [:div
-           [:h2 "Where Do AST Datoms Come From?"]
-           [:p
-            "Before execution can begin, the program must exist as a stream of AST datoms in the database. There are two primary paths for this to happen:"]
-           [:h3 "1. The Native Path: Structure Editing"]
-           [:p
-            "In the pure Datom.World model, code is not written as text. Instead, a developer uses a "
-            [:em "structure editor"]
-            " that directly manipulates the AST. Every change directly creates, updates, or retracts datoms in the database. In this path, the AST datoms are the direct medium of creation, so no separate decomposition step is needed."]
-           [:h3 "2. The Ingestion Path: The Yang Compiler"]
-           [:p
-            "To bridge with the world of text-based source code, Datom.World provides the "
-            [:strong "Yang compiler"]
-            ". This tool parses traditional source files (like Python or Clojure) and produces an in-memory AST map. This map must then be "
-            [:strong "decomposed"]
-            " into the flat, canonical datom representation for storage in DaoDB."]
-           [:pre
-            [:code
-             "Text Source Code → Yang Compiler → AST Map → Decomposition → AST Datoms in DB"]]
-           [:p
-            "This ingestion path is crucial for interoperability. Regardless of which path is taken, the end result is the same: a canonical, queryable representation of the program as a stream of AST datoms. The following execution model begins from this point."]]
+          [:h2 "Where Do AST Datoms Come From?"]
+          [:p
+           "Before execution can begin, the program must exist as a stream of AST datoms in the database. There are two primary paths for this to happen:"]
+          [:h3 "1. The Native Path: Structure Editing"]
+          [:p
+           "In the pure Datom.world model, code is not written as text. Instead, a developer uses a "
+           [:em "structure editor"]
+           " that directly manipulates the AST. Every change directly creates, updates, or retracts datoms in the database. In this path, the AST datoms are the direct medium of creation, so no separate decomposition step is needed."]
+          [:h3 "2. The Ingestion Path: The Yang Compiler"]
+          [:p
+           "To bridge with the world of text-based source code, Datom.world provides the "
+           [:strong "Yang compiler"]
+           ". This tool parses traditional source files (like Python or Clojure) and produces an in-memory AST map. This map must then be "
+           [:strong "decomposed"]
+           " into the flat, canonical datom representation for storage in DaoDB."]
+          [:pre
+           [:code
+            "Text Source Code → Yang Compiler → AST Map → Decomposition → AST Datoms in DB"]]
+          [:p
+           "This ingestion path is crucial for interoperability. Regardless of which path is taken, the end result is the same: a canonical, queryable representation of the program as a stream of AST datoms. The following execution model begins from this point."]
           [:h2 "The Execution Model"]
           [:p
            "With both streams in place, execution becomes a two-phase process:"]
@@ -202,6 +203,19 @@
            [:li
             [:strong "Links to AST preserved"]
             " (can query semantics during execution)"]]
+          [:h3 "Optimization: Datoms as 64-bit Integers"]
+          [:p
+           "We can push this performance even further. While logically every execution step is a rich 5-tuple datom, the runtime can physically encode these datoms into single "
+           [:strong "64-bit integers"]
+           "."]
+          [:p
+           "To the CPU, this stream of integers looks exactly like traditional bytecode. It fits in registers, packs efficiently into cache lines, and executes with minimal overhead. Yet, because the encoding is reversible, it retains all the properties of a datom: it can be queried, filtered, and joined against just like any other fact in the database."]
+          [:p
+           "This gives us the ultimate convergence: "
+           [:strong "Physical bytecode"]
+           " that behaves like "
+           [:strong "Logical datoms"]
+           "."]
           [:h2 "The Critical Difference from Traditional Bytecode"]
           [:p "Traditional bytecode " [:strong "erases semantics"] ":"]
           [:pre
@@ -317,8 +331,7 @@
             " (transaction history)"]
            [:li
             "Multi-dimensional queries "
-            [:strong "during execution"]
-            ""]]
+            [:strong "during execution"]]]
           [:h2 "Execution Modes"]
           [:p
            "This architecture supports multiple execution strategies:"]
@@ -382,7 +395,7 @@
           [:h2 "The Spectrum of Designs"]
           [:p
            "Different use cases favor different points on the spectrum:"]
-          [:h3 "Mobile Agents (Datom.World Focus)"]
+          [:h3 "Mobile Agents (Datom.world Focus)"]
           [:ul.bulleted
            [:li
             [:strong "Priority"]
@@ -431,6 +444,12 @@
            [:li "Static analysis only (no execution)"]
            [:li "No execution stream (query structure, not runtime)"]
            [:li "No time dimension (snapshots, not streams)"]]
+          [:h3 "Datomic"]
+          [:p "Datomic pioneered immutable facts and Datalog queries. But:"]
+          [:ul.bulleted
+           [:li "Focused on application data, not program representation"]
+           [:li "No AST storage or execution model"]
+           [:li "Datoms are for state, not code"]]
           [:h3 "Erlang BEAM"]
           [:p "BEAM bytecode preserves some semantics:"]
           [:ul.bulleted
@@ -438,8 +457,8 @@
            [:li "Message passing introspectable"]
            [:li
             "But: Still bytecode (low-level), limited queryability"]]
-          [:h3 "Datom.World / Yin.vm"]
-          [:p "Combines all three:"]
+          [:h3 "Datom.world / Yin.vm"]
+          [:p "Combines all four:"]
           [:ul.bulleted
            [:li
             [:strong "GraalVM"]
@@ -448,11 +467,14 @@
             [:strong "CodeQL"]
             ": Queryable program structure via Datalog"]
            [:li
+            [:strong "Datomic"]
+            ": Immutable facts, time-travel, Datalog queries"]
+           [:li
             [:strong "BEAM"]
             ": Live introspection of running systems"]
            [:li
             [:strong "Plus"]
-            ": Time-travel, mobile code, multi-dimensional queries"]]
+            ": Code as datoms, mobile agents, execution streams"]]
           [:h2 "The Fundamental Insight"]
           [:p
            "The bytecode-vs-AST trade-off is not fundamental. It's an artifact of "
