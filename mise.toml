@@ -1,4 +1,6 @@
 [tools]
-java = "21"
+java = ["21", "17"]
 clojure = "1.12.4.1582"
 node = "22.21.1"
+android-sdk = "latest"
+flutter = "3.22.0"
