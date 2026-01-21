@@ -1,0 +1,83 @@
+#:blog{:title "From Bookmarks to Datoms",
+       :date #inst "2026-01-21T00:00:00.000-00:00",
+       :abstract
+       [:p
+        "Browser bookmarks are dead data. The CLI tool "
+        [:strong "buku"]
+        " liberated them to the terminal. "
+        [:strong "Datom.world"]
+        " liberates them to the stream. Why managing knowledge requires more than just a database file"]
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+          [:p "We all have that folder. \"Read Later.\" \"Research.\" \"Cool Stuff.\" The graveyard of good intentions."]
+          [:p "Browser bookmarks are " [:strong "dead data"] ". They live in a silo inside Chrome or Firefox. They are hard to search, impossible to program against, and don't connect to anything else in your life."]
+          [:p "A recent " [:a {:href "https://www.xda-developers.com/replaced-browser-bookmarks-with-knowledge-management-tool/"} "XDA Developers article"] " highlighted a tool called " [:strong "buku"] ". The author replaced their browser bookmarks with a terminal-based knowledge management tool."]
+          [:p "It was a massive improvement. But we can go further."]
+          [:p "Here is how we build the ultimate knowledge manager on Datom.world."]
+          [:h2 "The Evolution of the Bookmark"]
+          [:h3 "Level 1: The Browser Silo"]
+          [:p "Chrome stores bookmarks in a JSON file. Firefox uses SQLite. To access them, you open the browser manager. Sync is handled by their proprietary cloud. You don't own the data; you rent access to it."]
+          [:h3 "Level 2: The CLI Liberator (buku)"]
+          [:p "The " [:strong "buku"] " tool (described in the XDA article) moves bookmarks into a local SQLite database managed by you. It offers:"]
+          [:ul.bulleted
+           [:li [:strong "CLI access"] ": Scriptable, greppable, fast."]
+           [:li [:strong "Tags"] ": Better organization than folders."]
+           [:li [:strong "Ownership"] ": It's your file."]
+           [:li [:strong "Portability"] ": Works on any distro."]]
+          [:p "But it has a fatal flaw: " [:strong "It's still just a file."] " To sync it between your laptop and phone, you need Dropbox, Git, or a self-hosted server. Integrating it with your notes or tasks requires hacking."]
+          [:h3 "Level 3: The Datom Stream"]
+          [:p "On Datom.world, a bookmark isn't a row in a database. It's an " [:strong "event in a stream"] "."]
+          [:p "When you bookmark a site, you emit a datom:"]
+          [:pre [:code {:class "language-clojure"} "[entity-id :bookmark/url \"https://datom.world\" tx-id meta-id]"]]
+          [:p "This subtle shift changes everything."]
+          [:h2 "Why Streams Beat Databases for Knowledge"]
+          [:h3 "1. Sync is Native"]
+          [:p "With " [:strong "buku"] ", syncing is an operations problem (cron jobs, git push)."]
+          [:p "With " [:a {:href "/dao-db.chp"} "DaoDB"] ", syncing is the default state. Your laptop emits the bookmark datom. Your phone's DaoDB instance subscribes to the stream. The merge happens automatically via CRDTs. No conflicts, no servers to manage."]
+          [:h3 "2. Stigmergy: Bookmarks as Signals"]
+          [:p "A bookmark is rarely just \"save this URL.\" It's a signal: \"This content is valuable to me.\""]
+          [:p "In a database, that signal sits idle. In a stream, " [:strong "agents can react to it"] "."]
+          [:ul.bulleted
+           [:li [:strong "The Archivist Agent"] ": Sees a new bookmark datom. Fetches the page content. Saves it to IPFS or local storage. Now you have a permanent offline copy."]
+           [:li [:strong "The Tagger Agent"] ": Analyzes the content. Suggests tags based on your previous bookmarks. \"You tagged similar posts as #architecture.\""]
+           [:li [:strong "The Graph Agent"] ": Connects this bookmark to your Logseq notes. \"This article references the concept you wrote about yesterday.\""]]
+          [:h3 "3. Universal Access"]
+          [:p "Because the data is in " [:a {:href "/dao-db.chp"} "DaoDB"] ", it's queryable by anything."]
+          [:p [:strong "The CLI View:"]]
+          [:pre [:code {:class "language-bash"} "$ dao query '[:find ?url ?title :where [?e :bookmark/tag \"clojure\"] [?e :bookmark/url ?url] [?e :bookmark/title ?title]]'"]]
+          [:p [:strong "The Web View (DaoFlow):"]]
+          [:p "A reactive dashboard that visualizes your reading habits. Not a separate app, just a query rendering your stream."]
+          [:p [:strong "The IDE View:"]]
+          [:p "Your code editor can query your bookmarks to find documentation you saved months ago."]
+          [:h2 "Building a Bookmark Stream"]
+          [:p "We don't need to write a complex application. We just need to define the schema and the streams."]
+          [:h3 "The Schema"]
+          [:p "In Datom.world, schema is minimal."]
+          [:pre [:code {:class "language-clojure"} "{:bookmark/url {:type :string :unique true}
+ :bookmark/title {:type :string}
+ :bookmark/tags {:type :ref :many true}
+ :bookmark/created-at {:type :instant}}"]]
+          [:h3 "The Ingest"]
+          [:p "A simple browser extension acts as the emitter. It doesn't store data; it pushes datoms to your local DaoDB instance."]
+          [:h3 "The Query"]
+          [:p "Finding what you need becomes a Datalog query:"]
+          [:pre [:code {:class "language-clojure"} "[:find ?title ?url
+ :where
+ [?e :bookmark/tags ?tag]
+ [?tag :tag/name \"distributed-systems\"]
+ [?e :bookmark/url ?url]
+ [?e :bookmark/title ?title]]"]]
+          [:h2 "The Lesson"]
+          [:p "Tools like " [:strong "buku"] " are excellent because they move data from " [:strong "applications"] " (browsers) to " [:strong "user space"] " (files)."]
+          [:p "Datom.world moves data from " [:strong "user space"] " to " [:strong "agent space"] " (streams)."]
+          [:p "When your data lives in streams, applications dissolve. You don't need a \"bookmark manager app.\" You need a way to emit bookmarks and a way to query them. The \"app\" is just a temporary view on a permanent stream."]
+          [:p "Stop managing files. Start emitting datoms."]
+          [:h2 "Learn More"]
+          [:ul.bulleted
+           [:li [:a {:href "/dao-db.chp"} "DaoDB"]]
+           [:li [:a {:href "/blog/datoms-as-streams.blog"} "Datoms as Streams"]]
+           [:li [:a {:href "/blog/logseq-knowledge-graph-markdown-paradox.blog"} "Logseq's Paradox"]]]]]]}
