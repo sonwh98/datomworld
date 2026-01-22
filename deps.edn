@@ -7,6 +7,7 @@
         http-kit/http-kit {:mvn/version "2.8.0"}
         stigmergy/chp {:mvn/version "0.1.0-SNAPSHOT"
                        :exclusions [refactor-nrepl/refactor-nrepl]}}
+ :cljd/opts {:kind :flutter :main datomworld.main}
  :paths ["src/clj" "src/cljc" "src/cljs" "src/cljd"]
  :aliases {:test {:extra-paths ["test"]
                   :extra-deps {io.github.cognitect-labs/test-runner
