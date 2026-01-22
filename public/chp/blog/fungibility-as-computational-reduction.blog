@@ -1,4 +1,4 @@
-#:blog{:title "The Fungibility Reduction: How Money Solves the Traveling Salesman Problem"
+#:blog{:title "Fungibility as Computational Reduction: How Money Solves the Traveling Salesman Problem"
        :date #inst "2026-01-21T12:00:00.000-00:00"
        :abstract [:p "The Traveling Salesman Problem is NP-hard: no algorithm solves it in polynomial time. "
                   "Yet logistics networks route millions of packages daily. The trick is fungibility. "
