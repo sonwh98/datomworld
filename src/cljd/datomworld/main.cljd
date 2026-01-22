@@ -4,10 +4,10 @@
 
 (defn main []
   (f/run
-    (m/MaterialApp
-      .title "Datomworld"
-      .theme (m/ThemeData .primarySwatch m.Colors/blue)
-      .home (m/Scaffold
-              .appBar (m/AppBar .title (m/Text "Datomworld"))
-              .body (m/Center
-                      .child (m/Text "Hello Datomworld!"))))))
+   (m/MaterialApp
+    .title "Datomworld"
+    .theme (m/ThemeData .primarySwatch m.Colors/blue)
+    .home (m/Scaffold
+           .appBar (m/AppBar .title (m/Text "Datomworld"))
+           .body (m/Center
+                  .child (m/Text "Hello Datomworld!"))))))
