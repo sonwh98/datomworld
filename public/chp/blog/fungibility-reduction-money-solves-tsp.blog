@@ -1,0 +1,548 @@
+#:blog{:title "The Fungibility Reduction: How Money Solves the Traveling Salesman Problem"
+       :date #inst "2026-01-21T12:00:00.000-00:00"
+       :abstract [:p "The Traveling Salesman Problem is NP-hard: no algorithm solves it in polynomial time. "
+                  "Yet logistics networks route millions of packages daily. The trick is fungibility. "
+                  "Money reduces TSP from an intractable combinatorial search to a tractable distributed "
+                  "optimization: prices compress constraints into scalars, arbitrageurs explore in parallel, "
+                  "and fungible tokens provide the slack that enables approximate solutions. Use the market "
+                  "solution as initialization for gradient descent and you get polynomial-time global search "
+                  "with high-precision local refinement. This reframing reveals markets as the initialization "
+                  "engine for optimization, inflation as state decay, and trust as computational bit-depth."]
+       :content [:section.blog-article
+                 [:div.section-inner
+                  [:article
+                   :$blog-title
+                   :$blog-date
+
+                   [:h2 "Introduction: The Reduction"]
+
+                   [:p "The Traveling Salesman Problem asks: given " [:em "n"] " cities, what is the "
+                    "shortest route visiting each exactly once? With " [:em "n!"] " possible routes, "
+                    "no known algorithm solves this in polynomial time. It is NP-hard."]
+
+                   [:p "Yet FedEx routes millions of packages daily. Amazon optimizes warehouse-to-door "
+                    "paths across continents. Global supply chains coordinate thousands of nodes in "
+                    "real time. These are TSP variants. How do markets solve what algorithms cannot?"]
+
+                   [:p "The answer is " [:strong "fungibility"] ". Money performs a computational "
+                    "reduction: it transforms an intractable combinatorial search into a tractable "
+                    "distributed optimization. The key is a " [:strong "dual-signal architecture"] ":"]
+
+                   [:ul
+                    [:li [:strong "Non-fungible signals"] " encode hard constraints: provenance, ownership, "
+                     "capability. They carry complete lineage and cannot be merged. In this framework, "
+                     "we call these " [:em "Shibi"] " tokens."]
+                    [:li [:strong "Fungible tokens"] " (money) provide the reduction. Because every dollar "
+                     "is identical, agents can liquidate any position, hold a neutral state, and "
+                     "reacquire anywhere in the solution space. This transforms sparse barter networks "
+                     "into dense markets where approximate solutions become tractable."]]
+
+                   [:p "Together, these form a computational substrate where every trade is a state "
+                    "transition and the market as a whole runs a polynomial-time approximation "
+                    "algorithm on NP-hard coordination problems."]
+
+                   [:h2 "The Reduction in Action"]
+
+                   [:p "NP-hard problems share a structure: the solution space grows exponentially, "
+                    "making exhaustive search intractable. TSP has " [:em "n!"] " routes. Resource "
+                    "allocation across " [:em "m"] " agents and " [:em "k"] " goods has " [:em "k^m"]
+                    " assignments. Matching markets have factorial complexity."]
+
+                   [:p "Fungibility reduces these to tractable form. Here is how the reduction works:"]
+
+                   [:h3 "Prices as Compressed Constraints"]
+
+                   [:p "Every price is a " [:strong "Kolmogorov-compressed"] " representation of a "
+                    "high-dimensional constraint surface:"]
+
+                   [:ul
+                    [:li "The price of steel encodes global supply, demand, transport costs, tariffs, "
+                     "weather patterns, energy costs, and thousands of other factors"]
+                    [:li "An arbitrageur does not need to " [:em "know"] " all these constraints"]
+                    [:li "They only need to observe a price discrepancy and act on it"]]
+
+                   [:p "The market compresses an impossibly complex constraint satisfaction problem into "
+                    "scalar signals that any agent can read and respond to."]
+
+                   [:h3 "Parallel Distributed Search"]
+
+                   [:p "A centralized algorithm must evaluate solutions sequentially. A market deploys "
+                    [:strong "millions of parallel agents"] ", each exploring different regions of "
+                    "solution space:"]
+
+                   [:ul
+                    [:li "Each arbitrageur is a search thread"]
+                    [:li "Each trade is a state transition"]
+                    [:li "Profit signals promising regions; loss signals regions to abandon"]]
+
+                   [:h3 "Fungibility as Thermal Energy"]
+
+                   [:p "Here is the core insight: " [:strong "fungibility enables jumps"] "."]
+
+                   [:p "Consider an agent holding a non-fungible asset: a house, a specific machine, a "
+                    "unique contract. To change position, they must find a counterparty who wants "
+                    [:em "exactly that asset"] " and has " [:em "exactly what they want"] ". This is "
+                    "the barter problem. The search space is the Cartesian product of all possible "
+                    "swaps: exponentially large, sparsely connected."]
+
+                   [:p "Now give the agent money. Suddenly they can:"]
+
+                   [:ol
+                    [:li "Liquidate their current position (convert to fungible tokens)"]
+                    [:li "Hold a " [:strong "neutral state"] " (cash) while searching"]
+                    [:li "Acquire any new position without finding a direct swap partner"]]
+
+                   [:p "This is the reduction. Fungibility transforms a sparse, high-dimensional matching "
+                    "problem into a dense, low-dimensional one. The agent no longer searches for "
+                    "\"who wants my house and has what I want\" but simply \"what is the best use of "
+                    "these dollars.\""]
+
+                   [:p "In simulated annealing, " [:strong "thermal energy"] " allows the system to escape "
+                    "local minima by temporarily accepting worse states. In markets, "
+                    [:strong "liquidity"] " plays the same role. Cash is the \"worse state\": it earns "
+                    "no return, provides no utility. But it enables " [:em "any"] " subsequent transition. "
+                    "The fungible buffer is slack in the constraint system, freedom to explore."]
+
+                   [:p "Without fungibility, agents are locked into local optima. They cannot move without "
+                    "finding improbable multi-party swaps. The optimization stalls. With fungibility, "
+                    "the state space becomes navigable. Agents can tunnel through barriers that would "
+                    "trap a barter economy forever."]
+
+                   [:h3 "Concrete Examples"]
+
+                   [:p [:strong "Logistics (TSP variant)"] ": Global supply chains solve routing problems "
+                    "through distributed price discovery. Warehouses are cities; transport costs are "
+                    "distances; arbitrageurs finding cheaper routes are the optimization steps. A "
+                    "startup undercutting an incumbent with a novel route is tunneling past a local "
+                    "minimum."]
+
+                   [:p [:strong "Matching Markets"] ": Jobs to workers, organs to patients, students to "
+                    "schools. Markets solve these through iterative price discovery: excess demand "
+                    "raises prices, excess supply lowers them, agents update preferences, and the "
+                    "process converges to stable matchings. This is equivalent to a distributed "
+                    "auction algorithm."]
+
+                   [:p [:strong "Resource Allocation (Knapsack)"] ": Portfolio allocation, production "
+                    "planning, time management. Markets solve these through price rationing: scarce "
+                    "resources command higher prices, agents select items with highest value-to-price "
+                    "ratio, and the market discovers shadow prices of constraints without any central "
+                    "planner solving the integer program."]
+
+                   [:p "Markets do not find globally optimal solutions. They find "
+                    [:strong "good-enough solutions in polynomial time"] " by distributing search "
+                    "across agents who each solve local subproblems."]
+
+                   [:p "This raises a question: if fungibility enables the reduction, what determines "
+                    "the quality of the approximation? The answer lies in the architecture of the "
+                    "signals themselves."]
+
+                   [:h2 "The Dual-Signal Architecture"]
+
+                   [:p "Markets succeed where gradient descent fails because of how they handle the "
+                    "exploration-exploitation tradeoff. The key is separating two kinds of signal."]
+
+                   [:h3 "Shibi: The Non-Fungible Layer"]
+
+                   [:p "Shibi tokens are " [:strong "high-dimensional basis vectors"] " that carry "
+                    "complete lineage. They are content-addressed and immutable. Each token encodes:"]
+
+                   [:ul
+                    [:li "Provenance: the full history of how value was created"]
+                    [:li "Ownership: who holds capability over the token"]
+                    [:li "Constraints: what conditions must be satisfied for transfer"]]
+
+                   [:p "In datom terms (5-tuples of entity, attribute, value, transaction, metadata), "
+                    "Shibi tokens are facts recorded in an append-only event log. They cannot be "
+                    "forged because their identity " [:em "is"] " their history."]
+
+                   [:h3 "USD: The Fungible Buffer"]
+
+                   [:p "As described earlier, fungible currency is the thermal energy that enables "
+                    "non-local jumps. It transforms sparse barter networks into dense markets by "
+                    "allowing agents to liquidate, hold neutral, and reacquire anywhere in solution "
+                    "space. The fungible buffer is computational slack: freedom to explore."]
+
+                   [:h3 "Why This Beats Gradient Descent"]
+
+                   [:table
+                    [:thead
+                     [:tr [:th "Problem"] [:th "Gradient Descent"] [:th "Dual-Signal Market"]]]
+                    [:tbody
+                     [:tr [:td "Dimensionality"]
+                      [:td "Central solver tracks all variables"]
+                      [:td "Each agent tracks only local state"]]
+                     [:tr [:td "Local Minima"]
+                      [:td "Momentum/noise (crude)"]
+                      [:td "Arbitrage tunneling (structured)"]]
+                     [:tr [:td "Non-Convexity"]
+                      [:td "Random restarts"]
+                      [:td "Parallel exploration by diverse agents"]]
+                     [:tr [:td "Discrete Constraints"]
+                      [:td "Relaxation + rounding (lossy)"]
+                      [:td "Atomic transactions (exact)"]]]]
+
+                   [:p "When an agent finds an arbitrage opportunity, they discover that the current "
+                    "market state violates a constraint the Shibi layer encodes. The USD jump moves "
+                    "the system toward better constraint satisfaction."]
+
+                   [:h3 "Market Depth as Computational Capacity"]
+
+                   [:p "The " [:strong "bit-depth"] " of a market determines its problem-solving ability:"]
+
+                   [:ul
+                    [:li [:strong "Shallow markets"] ": Few agents, low liquidity. Can only solve simple "
+                     "coordination problems. Equivalent to greedy algorithms."]
+                    [:li [:strong "Deep markets"] ": Many agents, high liquidity. Can solve complex "
+                     "multi-constraint problems. Equivalent to sophisticated metaheuristics."]]
+
+                   [:p "When a market is thin, prices become noisy and the optimizer thrashes. When a "
+                    "market is deep, every constraint is represented by an agent who profits from "
+                    "enforcing it."]
+
+                   [:h2 "The Unitary Market Optimizer"]
+
+                   [:p "We can now formalize this as an optimization framework. Traditional gradient "
+                    "descent minimizes Mean Squared Error. The Unitary Market Optimizer (UMO) "
+                    "minimizes " [:strong "Total Unresolved Entropy"] ":"]
+
+                   [:pre [:code "L_U = K(State) + β · H(Buffer)"]]
+
+                   [:p "Where:"]
+                   [:ul
+                    [:li [:code "K(State)"] ": Kolmogorov complexity of the Shibi signal (program length)"]
+                    [:li [:code "H(Buffer)"] ": Shannon entropy of the fungible buffer (noise/arbitrage cost)"]
+                    [:li [:code "β"] ": Annealing temperature governing jump probability"]]
+
+                   [:p "The optimizer seeks state transitions that reduce total description length. "
+                    "Convergence occurs when " [:code "H(Buffer)"] " drops to zero and the state is "
+                    "fully described by verified Shibi datoms."]
+
+                   [:table
+                    [:thead
+                     [:tr [:th "Feature"] [:th "Gradient Descent"] [:th "Unitary Market Optimizer"]]]
+                    [:tbody
+                     [:tr [:td "Logic"] [:td "High-entropy (raw slopes)"] [:td "Low-entropy (compressed)"]]
+                     [:tr [:td "Movement"] [:td "Incremental steps"] [:td "Arbitrage jumps (tunneling)"]]
+                     [:tr [:td "Memory"] [:td "Volatile / hidden"] [:td "Persistent / event log"]]
+                     [:tr [:td "Convergence"] [:td "Zero gradient"] [:td "Unitary equilibrium"]]
+                     [:tr [:td "Failure Mode"] [:td "Local minima / thrashing"]
+                      [:td "Computational gridlock (out of bits)"]]]]
+
+                   [:h2 "The Hybrid: Market Initialization + Distributed Gradient Descent"]
+
+                   [:p "Markets find good-enough solutions in polynomial time. Gradient descent finds "
+                    "precise solutions but gets trapped in local minima. What if we combine them?"]
+
+                   [:p "Use the market solution as the " [:strong "starting point"] " for distributed "
+                    "gradient descent."]
+
+                   [:h3 "The Cold Start Problem"]
+
+                   [:p "Traditional gradient descent is a blind search. If you start on the wrong "
+                    "mountain, you descend to a local minimum and miss the grand valley entirely. "
+                    "The algorithm has no way to know it started in the wrong basin."]
+
+                   [:p "Most AI training today uses Stochastic Gradient Descent from random "
+                    "initialization. This requires enormous compute to escape bad basins through "
+                    "noise. It works, but wastefully."]
+
+                   [:p "Markets solve the cold start problem. Millions of agents use fungible tokens "
+                    "to perform non-local jumps, exploring the global structure of the solution "
+                    "space. They find the right valley in polynomial time. Then gradient descent "
+                    "can do what it does best: precise local refinement."]
+
+                   [:h3 "Two-Stage Execution"]
+
+                   [:p "The hybrid optimizer runs in two phases:"]
+
+                   [:table
+                    [:thead
+                     [:tr [:th "Phase"] [:th "Optimizer"] [:th "Signal"] [:th "Goal"]]]
+                    [:tbody
+                     [:tr [:td "Discovery"]
+                      [:td "Market"]
+                      [:td "Fungible (high entropy)"]
+                      [:td "Escape local minima; find the basin of the global optimum"]]
+                     [:tr [:td "Settlement"]
+                      [:td "Gradient Descent"]
+                      [:td "Non-fungible (low entropy)"]
+                      [:td "Precise convergence; unitify the final state"]]]]
+
+                   [:p "The market does the heavy lifting: moving the system across high-dimensional "
+                    "gaps where gradients are flat or noisy. Gradient descent then compiles that "
+                    "approximate solution into a verified, high-precision result."]
+
+                   [:h3 "The Handover Protocol"]
+
+                   [:p "When should the system switch from market exploration to gradient refinement? "
+                    "The signal is " [:strong "arbitrage exhaustion"] ":"]
+
+                   [:ul
+                    [:li "While arbitrage opportunities exist, the market is still discovering structure"]
+                    [:li "When arbitrage profits approach zero, the market has found an equilibrium"]
+                    [:li "This equilibrium is the starting point for gradient descent"]
+                    [:li "The remaining optimization is local refinement, not global search"]]
+
+                   [:p "In the loss function " [:code "L_U = K(State) + β · H(Buffer)"] ", handover "
+                    "occurs when " [:code "H(Buffer)"] " stabilizes. The high-entropy exploration "
+                    "phase has found the basin; now minimize " [:code "K(State)"] " precisely."]
+
+                   [:h3 "The Precision Tradeoff"]
+
+                   [:p "Markets are fast but noisy (low bit-precision). Gradient descent is slow but "
+                    "exact (high bit-precision). The hybrid gets both:"]
+
+                   [:ul
+                    [:li [:strong "Polynomial speed"] ": Market finds the basin in O(poly n)"]
+                    [:li [:strong "Unitary precision"] ": GD locks it into a verified Shibi state"]]
+
+                   [:p "This avoids the failure modes of each approach alone:"]
+
+                   [:ul
+                    [:li "Pure markets: good approximation but never fully settles (perpetual noise)"]
+                    [:li "Pure GD: precise but starts in wrong basin (local minimum trap)"]
+                    [:li "Hybrid: market escapes traps, GD provides precision"]]
+
+                   [:h3 "Why This Beats Standard AI Training"]
+
+                   [:p "Current LLMs use SGD from random initialization, burning compute to escape bad "
+                    "basins through stochastic noise. They also suffer model collapse when trained "
+                    "recursively on synthetic data."]
+
+                   [:p "The market-initialized approach offers:"]
+
+                   [:ul
+                    [:li [:strong "Faster convergence"] ": Start in the right basin, not random"]
+                    [:li [:strong "Collapse resistance"] ": Market maintains connection to ground truth "
+                     "(non-fungible Shibi layer) even during high-entropy exploration"]
+                    [:li [:strong "Verifiable endpoints"] ": GD phase zeroes out remaining entropy "
+                     "against Shibi ground truth, producing unitified results"]]
+
+                   [:p "The market is not just an economy. It is the " [:strong "initialization engine"]
+                    " for a global optimization process."]
+
+                   [:h2 "Bit Reclamation: Error Correction for Currency"]
+
+                   [:p "Inflation is not merely \"prices going up.\" It is " [:strong "state decay"]
+                    ". When a currency inflates, the linkage between tokens and real output becomes "
+                    "smeared. The unit of measure loses fidelity."]
+
+                   [:p "In a fungible currency under inflation:"]
+
+                   [:ul
+                    [:li "Every unit is identical, so you cannot distinguish verified productive work "
+                     "from thermal noise (excess supply)"]
+                    [:li "The currency loses its power as a unit of measure"]
+                    [:li "In high-dimensional space, the yardstick changes length depending on which "
+                     "vector you measure"]]
+
+                   [:p "This is information entropy. The currency has \"rotted.\""]
+
+                   [:p [:strong "Bit Reclamation"] " is the error-correction process that restores "
+                    "unitarity:"]
+
+                   [:ol
+                    [:li [:strong "Filter"] ": Examine the pool of high-entropy currency"]
+                    [:li [:strong "Extract"] ": Map currency back to its Minimal Description Length "
+                     "(the Shibi datoms representing real productive work)"]
+                    [:li [:strong "Unitify"] ": Identify currency that cannot map back to truthful "
+                     "vectors as noise; harden the remainder as high-fidelity computation units"]]
+
+                   [:p "This is analogous to quantum error correction: periodically projecting the "
+                    "system back onto the subspace of valid states."]
+
+                   [:h2 "Entropy Flows: Laundering, Taxation, and Debt"]
+
+                   [:p "The dual-signal architecture reveals deep structure in phenomena usually treated "
+                    "as unrelated: money laundering, taxation, and recursive debt."]
+
+                   [:h3 "Money Laundering as Gauge Transformation"]
+
+                   [:p "In a non-fungible system, money laundering is " [:strong "topologically impossible"]
+                    ". Every Shibi token is a unique vector in the event log. You cannot wash a token "
+                    "originating from a dishonest state transition because its history " [:em "is"]
+                    " its identity."]
+
+                   [:p "Laundering requires fungibility: taking a dirty state (Value + Bad History) and "
+                    "transforming it into a clean state (Value + No History). In physics, a "
+                    [:strong "gauge transformation"] " changes local field descriptions without "
+                    "changing physical observables."]
+
+                   [:p "In economics:"]
+
+                   [:ul
+                    [:li [:strong "The Transition"] ": Moving from Shibi (high fidelity) to USD (low "
+                     "fidelity) performs a lossy gauge transformation"]
+                    [:li [:strong "The Rot"] ": The fungible layer washes metadata away, stripping "
+                     "polynomial coefficients and leaving only scalar magnitude"]
+                    [:li [:strong "The Blind Spot"] ": Laundering happens in the fungible buffer where "
+                     "provenance bits are traded for noise bits"]]
+
+                   [:h3 "Taxation as Entropy Gradient"]
+
+                   [:p "The state functions as a " [:strong "Maxwell's Demon"] ", using taxation and "
+                    "spending to create an entropy gradient that sorts high-entropy market noise "
+                    "into low-entropy public infrastructure."]
+
+                   [:ul
+                    [:li [:strong "Spending (G)"] ": Injects specific, low-entropy signals (\"Build this "
+                     "bridge,\" \"Educate this person\"). Creates a potential field."]
+                    [:li [:strong "Taxation (T)"] ": Acts as the sink. Reclaims fungible noise to prevent "
+                     "entropy overheating."]
+                    [:li [:strong "The Gradient"] ": The difference (G - T) creates a flow that forces "
+                     "agents to produce real output to satisfy tax obligations."]]
+
+                   [:p "Tax evasion is a " [:strong "symmetry-breaking event"] ". By bypassing the sink, "
+                    "agents keep fungible bits but erase non-fungible lineage. The entropy gradient "
+                    "flattens. Without the pull of tax requirements, the optimizer loses motivation "
+                    "to seek global minima."]
+
+                   [:table
+                    [:thead
+                     [:tr [:th "Concept"] [:th "Conventional View"] [:th "Thermodynamic View"]]]
+                    [:tbody
+                     [:tr [:td "Taxation"] [:td "A fee you lose"] [:td "Entropy gradient driving output"]]
+                     [:tr [:td "Laundering"] [:td "A crime"] [:td "Gauge transformation into noise"]]
+                     [:tr [:td "Government"] [:td "Service provider"]
+                      [:td "Maxwell's Demon sorting bits"]]]]
+
+                   [:h3 "Fractal Debt Cascades"]
+
+                   [:p "When the entropy sink is bypassed, debt becomes a "
+                    [:strong "recursive feedback loop"] ". Without settlement, debt pays forward "
+                    "into infinite fractal layers:"]
+
+                   [:ul
+                    [:li [:strong "Finer Scales"] ": Micro-debts (individual arbitrage jumps) never "
+                     "resolve. They become zombie datoms with no physical backing."]
+                    [:li [:strong "Larger Scales"] ": Micro-debts aggregate into macro-bubbles. A single "
+                     "unresolved bit supports massive derivative structures."]
+                    [:li [:strong "The Result"] ": The economy becomes a Mandelbrot set of IOUs, "
+                     "computationally unstable because tracking resolution requires infinite bits."]]
+
+                   [:h2 "Computational Decoherence"]
+
+                   [:p "When an LLM trains recursively on its own synthetic output, it enters a feedback "
+                    "loop favoring statistical noise over ground truth. Eventually the model collapses "
+                    "into gibberish."]
+
+                   [:p "A recursive debt cycle without a base case (real output) undergoes "
+                    [:strong "exactly the same process"] "."]
+
+                   [:ul
+                    [:li [:strong "Ground Truth"] ": Non-fungible contributions with high information "
+                     "density and unitarity"]
+                    [:li [:strong "Synthetic Data"] ": Fungible approximations useful for jumps but "
+                     "lacking ground-truth lineage"]
+                    [:li [:strong "Recursive Training"] ": When Shibi backs USD that buys more Shibi, "
+                     "ground truth dilutes"]]
+
+                   [:p "The result is " [:strong "Economic Model Collapse"] ". The optimizer stops "
+                    "looking at physical reality and optimizes for statistical patterns of its own "
+                    "debt. Trust breaks because signal has decohered from the world."]
+
+                   [:table
+                    [:thead
+                     [:tr [:th "Feature"] [:th "LLM Model Collapse"] [:th "Economic Decoherence"]]]
+                    [:tbody
+                     [:tr [:td "Input"] [:td "Synthetic text"] [:td "Fungible debt"]]
+                     [:tr [:td "Process"] [:td "Self-attention feedback"]
+                      [:td "Self-backing arbitrage loops"]]
+                     [:tr [:td "Drift"] [:td "Convergence to noise"]
+                      [:td "Gauge drift (loss of lineage)"]]
+                     [:tr [:td "End State"] [:td "Gibberish (mode collapse)"]
+                      [:td "Gridlock (decoherence)"]]]]
+
+                   [:h2 "The Convergence Criterion"]
+
+                   [:p "Recursive debt " [:em "can"] " be productive. The question is whether "
+                    "recursion converges or diverges."]
+
+                   [:p "Debt is productive when Work (Q) grows faster than Entropy (S):"]
+
+                   [:ul
+                    [:li [:strong "Convergent"] ": Debt enables jumps solving coordination problems. "
+                     "The result (a bridge, a venture) has lower Kolmogorov complexity than the "
+                     "debt that created it. Recursion compiles into verified datoms."]
+                    [:li [:strong "Divergent"] ": Debt services older debt (Ponzi recursion). Entropy "
+                     "grows faster than work. Description length increases until the system runs "
+                     "out of bits to verify lineage."]]
+
+                   [:h3 "When Recursion Works"]
+
+                   [:p "Complex outputs (semiconductor fabs, global logistics) require thousands of "
+                    "recursive trust layers before producing the first unit of Q. This works because "
+                    "final output is " [:strong "super-linear"] ": more valuable than the sum of "
+                    "recursive bits that created it."]
+
+                   [:p "As long as the system can see a path to settlement (a unitary base case), "
+                    "recursion is a valid computational shortcut."]
+
+                   [:h3 "When Recursion Fails"]
+
+                   [:ul
+                    [:li [:strong "Map replaces territory"] ": The market trades debt as if it were output"]
+                    [:li [:strong "Bit exhaustion"] ": Jump count grows until lineage is lost and the "
+                     "system becomes stochastic noise"]]
+
+                   [:h2 "Implementation: The Recursion Governor"]
+
+                   [:p "For an event-log architecture, we implement a Recursion Governor:"]
+
+                   [:ol
+                    [:li [:strong "Monitor"] ": Track recursion depth for every datom in the log"]
+                    [:li [:strong "Detect"] ": If entropy gradient flattens (Q not being produced), "
+                     "trigger a Bit Reclamation event"]
+                    [:li [:strong "Enforce"] ": Force recursion to halt and unitify back into the "
+                     "physical layer"]]
+
+                   [:p "This treats the economy not as a ledger to balance but as a "
+                    [:strong "high-precision instrument"] " for solving coordination problems."]
+
+                   [:h3 "When Markets Fail"]
+
+                   [:p "Markets are not universal solvers. They fail when:"]
+
+                   [:ul
+                    [:li [:strong "Externalities break price signals"] ": Unpriced costs (pollution, "
+                     "congestion) cause the optimizer to minimize the wrong objective"]
+                    [:li [:strong "Information asymmetry"] ": Agents cannot observe relevant state, "
+                     "so arbitrage cannot correct discrepancies"]
+                    [:li [:strong "Coordination failure"] ": Some solutions require synchronized jumps "
+                     "by multiple agents (chicken-and-egg problems)"]
+                    [:li [:strong "Time horizon mismatch"] ": Markets discount the future; some "
+                     "constraint satisfaction requires patient capital"]]
+
+                   [:p "These are not arguments against markets as optimizers. They are "
+                    [:strong "specifications for market design"] ": which constraints must be "
+                    "encoded in the Shibi layer (explicit, non-fungible, enforceable) rather than "
+                    "left to the USD layer (implicit, fungible, arbitrageable)."]
+
+                   [:h2 "Conclusion"]
+
+                   [:p "Fungibility is the trick that makes NP-hard problems tractable. By reducing "
+                    "high-dimensional constraints to scalar prices, money enables markets to run "
+                    "polynomial-time approximation algorithms on problems no central solver can touch."]
+
+                   [:p "This computational view reveals:"]
+
+                   [:ul
+                    [:li "Money is a reduction, not just a medium of exchange"]
+                    [:li "Prices are Kolmogorov-compressed constraints"]
+                    [:li "Arbitrage is parallel search with non-local tunneling"]
+                    [:li "Markets are initialization engines for optimization"]
+                    [:li "The hybrid (market discovery + gradient refinement) beats either alone"]
+                    [:li "Inflation is state decay (loss of compression fidelity)"]
+                    [:li "Taxation is the entropy gradient that drives convergence"]
+                    [:li "Trust is bit-depth: the capacity to verify lineage"]]
+
+                   [:p "The question for any recursive debt structure is not \"Is debt good or bad?\" "
+                    "but " [:strong "\"Does the recursion converge?\""] " Convergence to real output "
+                    "solves coordination problems. Divergence into self-reference collapses like an "
+                    "LLM trained on its own hallucinations."]
+
+                   [:p "Markets solve TSP not by finding optimal solutions, but by using fungibility "
+                    "to make approximate solutions " [:em "computable"] ". Use the market equilibrium "
+                    "as initialization for gradient descent and you get the best of both: global search "
+                    "in polynomial time, local refinement with unitary precision. The reduction is the "
+                    "innovation. Integrity is the constraint that keeps it working."]]]]}
