@@ -49,3 +49,10 @@
 ;; npx shadow-cljs compile test && node target/node-tests.js
 ;; clj -M:dev -m shadow.cljs.devtools.cli watch datomworld
 ;; clj -M:cljs -m shadow.cljs.devtools.cli watch datomworld
+
+;; mise exec -- clj -M:cljd watch 
+;; mise exec -- flutter run 
+
+;; To start the emulator:                                                                                              ;; emulator -avd Pixel_3_API_34
+;; flutter emulators --launch Pixel_3_API_34
+;; emulator -avd Pixel_3_API_34 -no-snapshot-load  
