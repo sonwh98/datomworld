@@ -1,0 +1,24 @@
+(ns test-runner
+  (:require [cljs.test :refer-macros [run-tests]]
+            [daodb.core-test]
+            [yin.vm-test]
+            [yin.vm-literal-test]
+            [yin.vm-addition-test]
+            [yin.vm-state-test]
+            [yin.vm-basic-test]
+            [yin.bytecode-test]
+            [yin.vm-continuation-test]
+            [yin.vm-stream-test]))
+
+(defn -main []
+  (run-tests 'daodb.core-test
+             'yin.vm-test
+             'yin.vm-literal-test
+             'yin.vm-addition-test
+             'yin.vm-state-test
+             'yin.vm-basic-test
+             'yin.bytecode-test
+             'yin.vm-continuation-test
+             'yin.vm-stream-test))
+
+(set! *main-cli-fn* -main)

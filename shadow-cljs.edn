@@ -21,6 +21,6 @@
           :closure-defines {datomworld.core/WEBSOCKET_PORT 8090}
           :modules {:main {:init-fn datomworld.core/init}}}
 
-  :test {:target :node-test
-         :output-to "target/node-tests.js"
-         :autorun true}}}
+  :test {:target :node-script
+         :main test-runner/-main
+         :output-to "target/node-tests.js"}}}

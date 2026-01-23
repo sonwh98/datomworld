@@ -4,12 +4,12 @@ import '../../src/dart/yin_vm.dart';
 void main() {
   group('Yin VM Tests', () {
     late YinState initialState;
-
     setUp(() {
       initialState = YinVM.makeState({});
     });
 
     test('Arithmetic: (+ 1 2)', () {
+      print('Running Arithmetic Test: (+ 1 2)');
       final ast = {
         'type': 'application',
         'operator': {'type': 'variable', 'name': '+'},
@@ -20,10 +20,12 @@ void main() {
       };
 
       final result = YinVM.run(initialState, ast);
+      print('Result: ${result.value}');
       expect(result.value, equals(3));
     });
 
     test('Identity Lambda: ((fn [x] x) 42)', () {
+      print('Running Identity Lambda Test: ((fn [x] x) 42)');
       final ast = {
         'type': 'application',
         'operator': {
@@ -37,10 +39,12 @@ void main() {
       };
 
       final result = YinVM.run(initialState, ast);
+      print('Result: ${result.value}');
       expect(result.value, equals(42));
     });
 
     test('Stream: Make/Put/Take', () {
+      print('Running Stream Test: Make/Put/Take');
       // ((fn [s] ((fn [_] (stream/take s)) (stream/put s 99))) (stream/make 10))
       final ast = {
         'type': 'application',
@@ -72,6 +76,7 @@ void main() {
       };
 
       final result = YinVM.run(initialState, ast);
+      print('Result: ${result.value}');
       expect(result.value, equals(99));
     });
   });
