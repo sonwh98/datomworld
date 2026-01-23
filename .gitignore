@@ -28,3 +28,4 @@ node_modules/
 .clojuredart/
 lib/cljd-out/
 test/cljd-out/
+.dart_tool/
