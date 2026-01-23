@@ -601,9 +601,16 @@
            "Datom.world extends this principle: if Clojure proves that layered interpretation over simple streams creates powerful expressiveness at the "
            [:em "language"]
            " level, datom.world applies the same design to the "
-           [:em "data"]
-           " level. "
-           "Streams of datoms are the universal substrate, interpretation layers extract meaning, and no single consumer owns the semantics."]
+           [:strong "entire stack"]
+           ". "
+           "From programming languages to databases, game engines to applications, and even artificial intelligence—everything is layered interpretation over simple streams."]
+          [:p
+           "Streams of datoms are the universal substrate. "
+           "DaoDB interprets the stream as indexes. "
+           "Yin.VM interprets it as execution. "
+           "DaoFlow interprets it as UI. "
+           "AI agents interpret it as training data. "
+           "Interpretation layers extract meaning, and no single consumer owns the semantics."]
           [:p
            "Like Plan 9's uniform file interface that made diverse resources composable through a tiny API "
            "(open, read, write, close), "

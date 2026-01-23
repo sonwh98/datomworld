@@ -12,7 +12,4 @@
            .body (m/Center
                   .child (m/Text "Hello Datomworld!4"))))))
 
-(comment
-    (require '["package:flutter/material.dart" :as m])
-    (let [ctx (:context *env)]                                                                                               (.showSnackBar                                                                                                           (m/ScaffoldMessenger.of ctx)                                                                                           (m/SnackBar .content (m/Text "Hello from REPL!")))) 
-  )
+
