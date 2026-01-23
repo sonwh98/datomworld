@@ -1,0 +1,473 @@
+#:blog{:title "Why LLMs Need Structured Code: The Yin.vm Approach",
+       :date #inst "2025-12-08T00:00:00.000-00:00",
+       :abstract
+       [:p
+        "Yin.vm's universal AST-as-datom design transforms programming from \"code as text\" to \"code as queryable data\". "
+        "When combined with DaoDB's distributed tuple store, this architecture creates a new computational substrate where "
+        "programs, continuations, and knowledge graphs coexist in a single queryable space. LLMs become meta-compilers "
+        "operating over structured semantic graphs rather than generating free-form text, while contracts and ontologies "
+        "eliminate hallucinations at the system boundary."],
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+
+          [:h2 "The Core Insight: AST as Datom"]
+          [:p
+           "Most virtual machines treat code and data as separate domains. Source code compiles to bytecode, "
+           "bytecode executes and manipulates data, and introspection requires complex debugging infrastructure. "
+           "Yin.vm takes a radically different approach: "
+           [:strong "everything is a datom"]
+           "."]
+          [:p
+           "A datom is an immutable five-element tuple: "
+           [:code "[entity attribute value time causality]"]
+           ". In Yin.vm, your program's "
+           [:strong "abstract syntax tree (AST)"]
+           " is encoded directly as datoms:"]
+          [:pre
+           [:code
+            {:class "language-clojure"}
+            ";; A simple function represented as datoms\n[fn-1 :yin/op :apply t c]\n[fn-1 :yin/name \"add\" t c]\n[fn-1 :yin/args [arg-1 arg-2] t c]\n[arg-1 :yin/type :i64 t c]\n[arg-2 :yin/type :i64 t c]\n[fn-1 :yin/body body-1 t c]\n[body-1 :yin/op :+ t c]\n[body-1 :yin/operands [arg-1 arg-2] t c]"]]
+          [:p
+           "This seemingly simple choice has profound implications. When your AST "
+           [:em "is"]
+           " data, stored in "
+           [:a {:href "/dao-db.chp"} "DaoDB"]
+           "'s distributed tuple store, you get:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Queryable code"]
+            ": Use Datalog to ask \"show me all functions that access the filesystem\""]
+           [:li
+            [:strong "Mobile continuations"]
+            ": Pause execution, serialize as datoms, resume anywhere in the network"]
+           [:li
+            [:strong "Time-traveling execution"]
+            ": Query what your program looked like at any point in history"]
+           [:li
+            [:strong "Cross-language interop"]
+            ": The same AST can render as Python, Rust, or Clojure"]
+           [:li
+            [:strong "LLM integration"]
+            ": Models operate on structured graphs, not text"]]
+
+          [:h2 "From Programming Languages to Yin"]
+          [:p
+           "Traditional languages each have their own surface syntax and runtime semantics. "
+           "Yin.vm provides a "
+           [:strong "universal semantic layer"]
+           "—a canonical AST that multiple languages can compile to and from."]
+
+          [:h3 "Why Not Just Use Lisp/Clojure?"]
+          [:p
+           "Lisp and Clojure code is famously close to being an AST—the parenthesized "
+           "S-expressions directly reflect tree structure. This is why Lisp has powerful "
+           "macro systems and homoiconicity (code as data). However, "
+           [:strong "Lisp AST carries hidden assumptions"]
+           " that prevent it from being truly universal:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Evaluation model"]
+            ": Lisp assumes eager evaluation by default, with special forms "
+            "for delayed evaluation. Many languages need lazy evaluation, strict evaluation, "
+            "or other models as primitives."]
+           [:li
+            [:strong "Namespace and scoping"]
+            ": Lisp's dynamic scope (in some dialects) and "
+            "lexical scope assumptions don't map cleanly to all languages."]
+           [:li
+            [:strong "Data structure semantics"]
+            ": Lisp lists are linked lists with specific performance "
+            "characteristics. Other languages need vectors, arrays, or different collection semantics."]
+           [:li
+            [:strong "Type assumptions"]
+            ": Clojure assumes dynamic typing with optional specs. "
+            "Compiling from statically-typed languages requires preserving type information "
+            "that Clojure's model doesn't natively represent."]
+           [:li
+            [:strong "Mutation model"]
+            ": Clojure is immutable-by-default with explicit mutation. "
+            "Languages like C++ or Rust need fine-grained control over mutation, ownership, "
+            "and borrowing that Lisp doesn't express."]]
+          [:p
+           "Yin.vm's universal AST "
+           [:strong "makes everything explicit"]
+           ". Instead of inheriting Lisp's evaluation model, "
+           "it provides explicit continuation primitives. Instead of assuming immutability, "
+           "it makes mutation explicit with clear semantics. Instead of Lisp's list-oriented "
+           "data model, it uses datoms that don't carry collection-type assumptions."]
+          [:p
+           "This means front-end languages—whether Python, Rust, Java, or Clojure itself—can "
+           "compile to Yin AST "
+           [:strong "without ambiguity or hidden semantic mismatches"]
+           ". "
+           "The universal AST is a lower-level semantic primitive than even Lisp, precisely "
+           "because it doesn't assume any particular evaluation strategy or data model."]
+
+          [:h3 "Language Compilation: Deterministic and Sound"]
+          [:p
+           "For conventional programming languages, Yin acts as a stable compilation target:"]
+          [:ul.bulleted
+           [:li "Each language has a deterministic compiler: Lang AST → Yin AST"]
+           [:li "Type-checked subsets can provide formal guarantees"]
+           [:li "Verified transformations preserve semantics"]
+           [:li "Cross-language calls become: \"pass a continuation/datom sequence to Yin\""]]
+          [:p
+           "Consider how Clojure code becomes callable from Rust. You don't expose raw AST datoms "
+           "to Rust—instead, a build pipeline generates type-safe bindings:"]
+          [:pre
+           [:code
+            {:class "language-clojure"}
+            ";; Clojure function annotated for FFI export\n^{:yin/export true\n  :yin/ffi {:name \"add_i64\"\n            :params [[:i64 :a] [:i64 :b]]\n            :ret :i64}}\n(defn add [a b]\n  (+ a b))"]]
+          [:p "The Yang compiler (Clojure → Yin) emits:"]
+          [:ol
+           [:li "Yin bytecode with a " [:code ":code-id"]]
+           [:li "An FFI manifest describing exported symbols"]]
+          [:p "A Rust " [:code "build.rs"] " script reads the manifest and generates:"]
+          [:pre
+           [:code
+            {:class "language-rust"}
+            "// Auto-generated Rust wrapper\npub fn add_i64(vm: &mut YinVm, a: i64, b: i64) -> Result<i64, Error> {\n    let args = [Value::I64(a), Value::I64(b)];\n    let res = vm.call(\"my.app.math/add\", &args)?;\n    match res {\n        Value::I64(n) => Ok(n),\n        other => Err(Error::TypeMismatch),\n    }\n}"]]
+          [:p
+           "To the Rust compiler, this is just a normal function with clear types. "
+           "The AST/datom magic stays hidden inside the Yin runtime. Cross-language interop "
+           "becomes straightforward because "
+           [:strong "all languages speak the same continuation language"]
+           "."]
+
+          [:h2 "LLMs as Meta-Compilers"]
+          [:p
+           "When an LLM interacts with code, the relationship is fundamentally different from "
+           "traditional compilers. LLMs don't provide deterministic mappings—they propose "
+           "probabilistic transformations. But Yin's AST-as-datom design provides a "
+           [:strong "structured semantic bottleneck"]
+           " that constrains LLM behavior."]
+
+          [:h3 "Structured Generation, Not Text Synthesis"]
+          [:p "Instead of generating free-form code text, LLMs emit structured datoms:"]
+          [:ul.bulleted
+           [:li "Use function calling / tools to generate EDN/JSON schemas"]
+           [:li "Output Yin AST nodes with known opcodes and arities"]
+           [:li "Validation layer checks schema, types, and policies"]
+           [:li "Invalid proposals are rejected before execution"]]
+          [:p
+           "The universal AST provides a "
+           [:strong "small, closed vocabulary"]
+           " of operations—far easier to align an LLM to than full Python or C++. "
+           "The model learns to compose from primitives like "
+           [:code ":apply"]
+           ", "
+           [:code ":let"]
+           ", "
+           [:code ":if"]
+           ", "
+           [:code ":loop"]
+           " rather than inventing arbitrary syntax."]
+
+          [:h3 "Continuations as Agent State"]
+          [:p
+           "Because everything in Yin is a continuation, LLMs can:"]
+          [:ul.bulleted
+           [:li "Request the current continuation as data (VM snapshot)"]
+           [:li "Transform it (insert logging, branch, replace sub-computation)"]
+           [:li "Return a new continuation as a patch or datom stream"]]
+          [:p
+           "The LLM isn't just writing programs once—it's "
+           [:strong "inspecting, editing, and splicing new behavior into running computations"]
+           ". This turns Yin into a live substrate for interactive agent workflows."]
+
+          [:h3 "Contract Layer for Safety"]
+          [:p
+           "LLMs are probabilistic, so you need contracts on the universal AST:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Type/shape checking"]
+            ": Ensure opcodes exist and arguments match expected types"]
+           [:li
+            [:strong "Capability checks"]
+            ": No I/O ops in sandboxed contexts"]
+           [:li
+            [:strong "Gas/cost annotations"]
+            ": Ops and continuations carry resource budgets"]
+           [:li
+            [:strong "Policy enforcement"]
+            ": Datalog rules reject datoms violating constraints"]]
+          [:p
+           "When a contract fails, Yin rejects the continuation and the LLM receives an error. "
+           "It can then propose a different patch. The AST becomes a "
+           [:strong "sandboxable capability language"]
+           " rather than unconstrained code generation."]
+
+          [:h2 "AST + Continuations in DaoDB"]
+          [:p
+           "Storing Yin's AST and continuations as datoms in DaoDB—a distributed, P2P tuple store—"
+           "fundamentally changes what \"code\" means."]
+
+          [:h3 "Code as Queryable Data"]
+          [:p "Programs aren't files anymore—they're datasets:"]
+          [:pre
+           [:code
+            {:class "language-clojure"}
+            ";; Find all continuations blocked on HTTP requests\n(d/q '[:find ?cont\n       :where\n       [?cont :yin/state :blocked]\n       [?cont :yin/blocked-on ?op]\n       [?op :yin/type :net/http/request]]\n     db)\n\n;; Find functions that capture many free variables (memory hogs)\n(d/q '[:find ?fn\n       :where\n       [?fn :yin/free-vars ?vars]\n       [(count ?vars) ?n]\n       [(> ?n 10)]]\n     db)"]]
+          [:p
+           "Datalog becomes your "
+           [:strong "global introspection language"]
+           " for the entire distributed computation graph. "
+           "You can enforce invariants like \"no continuation tagged :untrusted may call :op/shell-exec\"."]
+
+          [:h3 "Mobile Code and Live Patching"]
+          [:p "Because ASTs and continuations are datoms:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Shipping code"]
+            " means replicating datoms to another node"]
+           [:li
+            [:strong "Migrating computation"]
+            " means copying continuation datoms and resuming elsewhere"]
+           [:li
+            [:strong "Hot patching"]
+            " means writing new code datoms and updating code-id references"]]
+          [:p
+           "Programs become "
+           [:strong "truly mobile"]
+           "—they can pause on one machine, travel across the network as datom streams, "
+           "and resume on different hardware or even in a different language runtime."]
+
+          [:h3 "System-Wide Optimization"]
+          [:p "With all code queryable in DaoDB, you can run scheduled Datalog rules that:"]
+          [:ul.bulleted
+           [:li "Identify hot paths (frequently executed code-ids)"]
+           [:li "Mark them for JIT compilation or specialization"]
+           [:li "Track provenance: which code derived from which templates"]
+           [:li "Audit: which peers contributed to library evolution"]]
+          [:p
+           "The distributed database becomes an "
+           [:strong "optimization oracle and code history system"]
+           "."]
+
+          [:h2 "LLMs Operating Over Distributed Code"]
+          [:p
+           "When you combine LLMs with AST-as-datom in DaoDB, the model's role shifts "
+           "from \"code generator\" to "
+           [:strong "meta-compiler and refactoring agent"]
+           "."]
+
+          [:h3 "Retrieval-Augmented Programming"]
+          [:p "Instead of generating from scratch, the LLM:"]
+          [:ol
+           [:li "Queries DaoDB for existing functions and continuations"]
+           [:li "Finds components that implement required capabilities"]
+           [:li "Synthesizes new continuations that compose existing pieces"]]
+          [:p
+           "This reduces hallucination—the model recombines "
+           [:strong "known, working code"]
+           " rather than inventing everything."]
+
+          [:h3 "Program Repair and Explanation"]
+          [:p "When a failure occurs:"]
+          [:ol
+           [:li "Yin writes trace datoms describing the failed continuation"]
+           [:li "LLM queries AST and trace slices from DaoDB"]
+           [:li "Proposes structural fixes as AST patches"]
+           [:li "Yin validates under policy constraints"]
+           [:li "New code-id versions are published"]]
+          [:p
+           "The LLM can also "
+           [:strong "narrate what happened"]
+           " by bridging low-level AST datoms and high-level "
+           "human context. It becomes a debugging assistant operating on structured execution traces."]
+
+          [:h3 "Autonomous Optimization"]
+          [:p "LLMs can periodically inspect:"]
+          [:ul.bulleted
+           [:li "Which code paths dominate CPU time"]
+           [:li "Which continuations often fail"]
+           [:li "Where type instability causes overhead"]]
+          [:p
+           "Then propose rewritten or specialized AST variants. DaoDB versioning allows "
+           "safe rollout and rollback."]
+
+          [:h2 "Eliminating Hallucinations with Ontology as Type System"]
+          [:p
+           "In another design discussion, we explored using a "
+           [:strong "knowledge graph with ontology"]
+           " as an invariant representation—a third \"basis\" alongside LLM vectors and natural language. "
+           "This technique integrates perfectly with Yin/DaoDB."]
+
+          [:h3 "Ontology Embedded in DaoDB"]
+          [:p
+           "DaoDB can hold both "
+           [:strong "world knowledge"]
+           " (entities, relationships) and "
+           [:strong "program knowledge"]
+           " (ASTs, continuations):"]
+          [:pre
+           [:code
+            {:class "language-clojure"}
+            ";; Ontology layer\n[:person/alice :rdf/type :Person t c]\n[:person/alice :person/age 42 t c]\n[:person/age :rdf/domain :Person t c]\n[:person/age :rdf/range :xsd/int t c]\n\n;; Program layer\n[fn-1 :yin/op :apply t c]\n[fn-1 :yin/operates-on :Account t c]  ; references ontology"]]
+          [:p
+           "Programs reference ontology concepts. Functions declare they operate on specific types "
+           "like "
+           [:code ":Account"]
+           " or "
+           [:code ":Payment"]
+           ". Validators ensure:"]
+          [:ul.bulleted
+           [:li "All referenced predicates exist in the ontology"]
+           [:li "Argument types match domain/range constraints"]
+           [:li "Capabilities (caps, tenancy, auth) are enforced"]]
+
+          [:h3 "Hallucinations as Invalid Graph Moves"]
+          [:p
+           "When an LLM proposes changes, the system enforces:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Knowledge claims"]
+            " must be backed by datoms in the graph or marked as speculative"]
+           [:li
+            [:strong "Code patches"]
+            " must pass ontology consistency checks"]
+           [:li
+            [:strong "References to nonexistent entities/predicates"]
+            " are rejected"]]
+          [:p
+           "Example: if the LLM invents "
+           [:code ":account/magicField"]
+           ", the validator checks the ontology, "
+           "finds no such predicate, and rejects the patch. The hallucination dies at the boundary."]
+
+          [:h3 "Ontology as Type System"]
+          [:p
+           "The ontology + knowledge graph effectively "
+           [:strong "is"]
+           " a rich type system:"]
+          [:ul.bulleted
+           [:li "Logical types: Person, Account, Payment"]
+           [:li "Relations: owns, debited-from, authorized-by"]
+           [:li "Constraints: domain/range, cardinality, uniqueness"]]
+          [:p
+           "This is stronger than traditional type systems because it encodes "
+           [:strong "domain semantics"]
+           ", not just data shapes. An LLM operating within this ontology can't generate "
+           "semantically invalid operations—the graph structure prevents it."]
+
+          [:h3 "Trust Boundaries via Provenance"]
+          [:p "Tag datoms by source:"]
+          [:ul.bulleted
+           [:li [:code ":source/human"] " (manually authored)"]
+           [:li [:code ":source/system"] " (verified and trusted)"]
+           [:li [:code ":source/llm"] " (proposed by model, pending review)"]
+           [:li [:code ":source/oracle"] " (from external authoritative source)"]]
+          [:p
+           "Business-critical decisions only depend on datoms with high-trust provenance. "
+           "LLM-generated datoms remain low-trust until upgraded by validation or human approval. "
+           "Hallucinations become "
+           [:strong "quarantined suggestions"]
+           ", not silently absorbed facts."]
+
+          [:h2 "A New Computational Substrate"]
+          [:p "This architecture creates something genuinely novel:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Programs that are datasets"]
+            ", queryable, versioned, and distributed"]
+           [:li
+            [:strong "Continuations that migrate"]
+            ", pausing, serializing, and resuming anywhere"]
+           [:li
+            [:strong "LLMs as refactoring agents"]
+            ", operating on structured graphs instead of text"]
+           [:li
+            [:strong "Ontology-enforced correctness"]
+            ", with hallucinations rejected at system boundaries"]
+           [:li
+            [:strong "Self-observing, self-modifying systems"]
+            " within strict policy constraints"]]
+          [:p
+           "The boundaries between static/dynamic, data/code, and local/distributed dissolve. "
+           "What emerges is a "
+           [:strong "distributed computational medium"]
+           " where:"]
+          [:ul.bulleted
+           [:li "Structure (datoms) is the primitive"]
+           [:li "Semantics (AST) is preserved across transformations"]
+           [:li "Interpretation (Yin VM, LLMs, other agents) varies by context"]
+           [:li "Truth (ontology + contracts) is enforced by the substrate"]]
+
+          [:h2 "Implications for Software Development"]
+          [:p "If code is data, continuations are mobile, and LLMs are meta-compilers:"]
+
+          [:h3 "For Traditional Developers"]
+          [:ul.bulleted
+           [:li "Write in your preferred language (Clojure, Rust, Python)"]
+           [:li "Compile to Yin's universal AST with semantic preservation"]
+           [:li "Interop across languages without FFI pain"]
+           [:li "Query your entire codebase with Datalog"]
+           [:li "Time-travel debug any execution state"]]
+
+          [:h3 "For AI-Assisted Development"]
+          [:ul.bulleted
+           [:li "LLMs propose structured AST patches, not text"]
+           [:li "Contracts and ontologies catch errors before execution"]
+           [:li "Retrieval-augmented programming reduces hallucination"]
+           [:li "Autonomous optimization and repair in production"]
+           [:li "Explainable systems through trace introspection"]]
+
+          [:h3 "For Distributed Systems"]
+          [:ul.bulleted
+           [:li "Mobile code that migrates between nodes seamlessly"]
+           [:li "P2P synchronization via DaoDB's entanglement"]
+           [:li "Global introspection across the computation graph"]
+           [:li "Policy-enforced security at the datom level"]
+           [:li "Live patching without downtime"]]
+
+          [:h2 "Conclusion: Beyond the VM"]
+          [:p
+           "Yin.vm isn't just another virtual machine. By encoding the AST as datoms and storing "
+           "everything in DaoDB's distributed tuple space, it creates a "
+           [:strong "new kind of computational substrate"]
+           ":"]
+          [:ul.bulleted
+           [:li "Code and data share the same representation"]
+           [:li "Execution state (continuations) is queryable and mobile"]
+           [:li "LLMs operate as constrained meta-compilers over structured graphs"]
+           [:li "Ontologies act as semantic type systems preventing hallucination"]
+           [:li "The entire system is distributed, versioned, and introspectable"]]
+          [:p
+           "This is conceptual compression at its finest: "
+           [:strong
+            "one shape of data (datom), one shape of computation (continuation), one substrate (stream)"]
+           ". Everything else emerges from these primitives."]
+          [:p
+           "When AST becomes data, programs become mobile, and LLMs become architects, "
+           "we transcend the traditional boundaries of programming. What emerges is closer to a "
+           [:strong "self-aware distributed operating system"]
+           "—one where code, knowledge, and execution "
+           "coexist in a unified, queryable, evolving computational fabric."]
+
+          [:p [:strong "Learn More:"]]
+          [:ul.bulleted
+           [:li
+            [:a {:href "/blog/yin-vm-ast-chinese-characters.blog"}
+             "Yin.vm: Chinese Characters for Programming Languages"]
+            " (the universal semantic AST)"]
+           [:li
+            [:a {:href "/blog/universal-ast-vs-assembly.blog"}
+             "Universal AST vs Assembly"]
+            " (high-level semantics in low-level form)"]
+           [:li
+            [:a {:href "/blog/daodb-distributed-database-immutable-streams.blog"}
+             "DaoDB: Distributed Database Built on Immutable Streams"]
+            " (where ASTs and continuations live)"]
+           [:li
+            [:a {:href "/dao-db.chp"} "DaoDB Documentation"]
+            " (Datalog queries over datom streams)"]
+           [:li
+            [:a {:href "/yin.chp"} "Yin VM Documentation"]
+            " (deep dive into the continuation machine)"]
+           [:li
+            [:a {:href "/yang.chp"} "Yang Compiler"]
+            " (how Clojure becomes universal AST)"]]]]]}
