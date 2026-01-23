@@ -1,0 +1,18 @@
+(ns datomworld.main
+  (:require [cljd.flutter :as f]
+            ["package:flutter/material.dart" :as m]))
+
+(defn main []
+  (f/run
+   (m/MaterialApp
+    .title "Datomworld4"
+    .theme (m/ThemeData .primarySwatch m.Colors/blue)
+    .home (m/Scaffold
+           .appBar (m/AppBar .title (m/Text "Datomworld"))
+           .body (m/Center
+                  .child (m/Text "Hello Datomworld!4"))))))
+
+(comment
+    (require '["package:flutter/material.dart" :as m])
+    (let [ctx (:context *env)]                                                                                               (.showSnackBar                                                                                                           (m/ScaffoldMessenger.of ctx)                                                                                           (m/SnackBar .content (m/Text "Hello from REPL!")))) 
+  )

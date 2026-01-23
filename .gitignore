@@ -22,3 +22,9 @@ node_modules/
 .clj-kondo/
 .lsp/
 *~
+
+# ClojureDart
+.cpcache/
+.clojuredart/
+lib/cljd-out/
+test/cljd-out/
