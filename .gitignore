@@ -29,3 +29,6 @@ node_modules/
 lib/cljd-out/
 test/cljd-out/
 .dart_tool/
+
+# Editor backups
+#*#
