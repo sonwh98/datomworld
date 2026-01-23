@@ -1,7 +1,18 @@
 # datomworld
 A world built on data
 
+## Prerequisites
+
+This project uses [mise](https://mise.jdx.dev/) to manage development tools.
+
+To install the required versions of Java, Clojure, Node.js, and Flutter, run:
+
 ```bash
+mise install
+```
+
+## Development
+
 % npx shadow-cljs watch datomworld
 ```
 
