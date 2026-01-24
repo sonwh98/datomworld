@@ -31,7 +31,7 @@
                  :jvm-opts ["-Dconfig=config.clj"]}
            :cljd {:extra-deps {tensegritics/clojuredart
                                {:git/url "https://github.com/tensegritics/ClojureDart.git"
-                                :sha "c56e2dc1bef1841a7ce58ce2546946dd0be414e1"}}
+                                :sha "81b5c03a55cf52b21dc0be8ccfa4827b9889f488"}}
                   :main-opts ["-m" "cljd.build"]}
            :server {:extra-deps {http-kit/http-kit {:mvn/version "2.8.0"}}
                     :jvm-opts ["-Dconfig=config.clj"]

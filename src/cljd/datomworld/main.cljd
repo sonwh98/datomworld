@@ -1,15 +1,59 @@
 (ns datomworld.main
-  (:require [cljd.flutter :as f]
-            ["package:flutter/material.dart" :as m]))
+  (:require ["package:flutter/material.dart" :as m]
+            [clojure.edn :as edn]
+            [yin.vm :as vm]))
+
+(def default-ast
+  "{:type :application
+ :operator {:type :variable :name +}
+ :operands [{:type :literal :value 10}
+            {:type :literal :value 20}]}")
+
+(defn home-page []
+  (let [controller (m/TextEditingController .text default-ast)
+        result-notifier (m/ValueNotifier "")]
+    (m/Scaffold
+     .appBar (m/AppBar .title (m/Text "Datomworld - Yin VM"))
+     .body (m/Padding
+            .padding (m/EdgeInsets.all 16.0)
+            .child (m/Column
+                    .crossAxisAlignment m/CrossAxisAlignment.start
+                    .children
+                    [(m/TextField
+                      .controller controller
+                      .maxLines 20
+                      .decoration (m/InputDecoration
+                                   .border (m/OutlineInputBorder)
+                                   .labelText "Enter AST (EDN)"))
+                     (m/SizedBox .height 16.0)
+                     (m/ElevatedButton
+                      .onPressed (fn []
+                                   (let [input (.-text controller)]
+                                     (try
+                                       (let [ast (edn/read-string input)
+                                             state (vm/make-state vm/primitives)
+                                             final-state (vm/run state ast)
+                                             res (:value final-state)]
+                                         (set! (.-value result-notifier) (str res)))
+                                       (catch Object e
+                                         (set! (.-value result-notifier) (str "Error: " e))))
+                                     nil))
+                      .child (m/Text "Evaluate"))
+                     (m/SizedBox .height 16.0)
+                     (m/Text "Result:" .style (m/TextStyle .fontWeight m/FontWeight.bold))
+                     (m/SizedBox .height 8.0)
+                     (m/Expanded
+                      .child (m/SingleChildScrollView
+                              .child (m/ValueListenableBuilder
+                                      .valueListenable result-notifier
+                                      .builder (fn [_ value _]
+                                                 (m/Text (str value))))))])))))
 
 (defn main []
-  (f/run
+  (m/runApp
    (m/MaterialApp
-    .title "Datomworld4"
+    .title "Datomworld"
     .theme (m/ThemeData .primarySwatch m.Colors/blue)
-    .home (m/Scaffold
-           .appBar (m/AppBar .title (m/Text "Datomworld"))
-           .body (m/Center
-                  .child (m/Text "Hello Datomworld!4"))))))
+    .home (home-page))))
 
 
