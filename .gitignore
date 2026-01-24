@@ -15,6 +15,7 @@ pom.xml.asc
 **/.DS_Store
 .calva/
 .vscode/
+.idea/
 .cpcache/
 .shadow-cljs/
 public/js/
