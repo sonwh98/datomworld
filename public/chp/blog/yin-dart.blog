@@ -1,0 +1,282 @@
+#:blog{:title "Yin.vm in Dart: Dynamic Semantics on a Static Platform",
+       :date #inst "2026-01-24T00:00:00.000-00:00",
+       :abstract
+       [:p
+        "ClojureDart compiles Clojure to Dart at build time, inheriting Dart's static compilation constraints. "
+        "No runtime eval, no dynamic code loading, no traditional macros. But what if the dynamism moved from "
+        "the language into the data? By implementing Yin.vm as a CESK interpreter in Dart, we transform Dart "
+        "into a fixed substrate while datom ASTs become the dynamic, loadable, interpretable layer. "
+        "The result: full Lisp-like flexibility on Flutter's cross-platform runtime."],
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+
+          [:h2 "The ClojureDart Constraint"]
+          [:p
+           "ClojureDart is a remarkable achievement: it compiles Clojure to Dart, enabling Clojure developers "
+           "to build Flutter applications. But Dart's compilation model imposes fundamental constraints:"]
+          [:ul.bulleted
+           [:li
+            [:strong "No runtime eval"]
+            ": All code must be known at compile time. You cannot construct and execute code dynamically."]
+           [:li
+            [:strong "No dynamic code loading"]
+            ": Tree shaking eliminates unused code paths. Hot reload exists during development, but production "
+            "builds are sealed."]
+           [:li
+            [:strong "No traditional macros"]
+            ": Clojure's macro system operates at compile time, but the compiled Dart output is static. "
+            "Runtime macros that transform executing code are impossible."]
+           [:li
+            [:strong "Limited reflection"]
+            ": Dart's mirrors are restricted or unavailable in Flutter. Introspection of runtime structures is constrained."]]
+          [:p
+           "These limitations stem from Dart's design goals: ahead-of-time compilation enables fast startup, "
+           "small binaries, and predictable performance. But they conflict with Lisp's fundamental promise of "
+           "code as data and runtime malleability."]
+
+          [:h2 "The Insight: Move Dynamism into Data"]
+          [:p
+           "The solution is conceptually simple but profound: "
+           [:strong "implement an interpreter in Dart, and make the interpreted language dynamic"]
+           "."]
+          [:p
+           "This is exactly what Yin.vm provides. Instead of trying to make Dart dynamic (impossible) or "
+           "accepting static constraints (limiting), we build a CESK continuation machine in Dart that "
+           "interprets datom ASTs. The Dart code is fixed and AOT-compiled. The datom ASTs are dynamic, "
+           "loadable at runtime, and fully interpretable."]
+          [:pre
+           [:code
+            {:class "language-text"}
+            "┌─────────────────────────────────────────────────────┐\n│  Dart Runtime (static, AOT compiled)               │\n│  ┌───────────────────────────────────────────────┐ │\n│  │  Yin.vm Interpreter (CESK Machine)            │ │\n│  │  ┌─────────────────────────────────────────┐  │ │\n│  │  │ C: Control   (current AST node)         │  │ │\n│  │  │ E: Env       (variable bindings)        │  │ │\n│  │  │ S: Store     (heap/memory)              │  │ │\n│  │  │ K: Kont      (what happens next)        │  │ │\n│  │  └─────────────────────────────────────────┘  │ │\n│  └───────────────────────────────────────────────┘ │\n│                        ↑                           │\n│                        │ interprets                │\n│                        ↓                           │\n│  ┌───────────────────────────────────────────────┐ │\n│  │  Datom AST Stream (dynamic, loadable)         │ │\n│  │  [e :yin/op :apply t m]                       │ │\n│  │  [e :yin/args [...] t m]                      │ │\n│  │  [e :yin/body body-ref t m]                   │ │\n│  └───────────────────────────────────────────────┘ │\n└─────────────────────────────────────────────────────┘"]]
+
+          [:h2 "Why CESK?"]
+          [:p
+           "The CESK machine (Control, Environment, Store, Kontinuation) is a canonical model for "
+           "implementing interpreters with explicit control flow. Each component serves a specific purpose:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Control"]
+            ": The current expression being evaluated (an AST node, represented as datoms)."]
+           [:li
+            [:strong "Environment"]
+            ": A mapping from variable names to addresses in the store (lexical bindings)."]
+           [:li
+            [:strong "Store"]
+            ": A heap that maps addresses to values (enables mutation and sharing)."]
+           [:li
+            [:strong "Kontinuation"]
+            ": A reified representation of \"what to do next\" after the current expression completes."]]
+          [:p
+           "The continuation is the key innovation. By making the continuation explicit and first-class, "
+           "Yin.vm gains capabilities impossible in Dart alone:"]
+          [:ul.bulleted
+           [:li "Pause execution at any point and serialize the entire state"]
+           [:li "Resume execution later, potentially on a different device"]
+           [:li "Implement cooperative multitasking without threads"]
+           [:li "Enable time-travel debugging by storing continuation snapshots"]]
+
+          [:h2 "Datom AST: Code as Queryable Data"]
+          [:p
+           "In Yin.vm, the abstract syntax tree is not a transient compiler artifact. It persists as datoms:"]
+          [:pre
+           [:code
+            {:class "language-clojure"}
+            ";; A simple function: (fn [x] (+ x 1))\n[fn-1   :yin/op      :fn         t m]\n[fn-1   :yin/params  [param-1]   t m]\n[param-1 :yin/name   \"x\"         t m]\n[fn-1   :yin/body    body-1      t m]\n[body-1 :yin/op      :apply      t m]\n[body-1 :yin/fn      :+          t m]\n[body-1 :yin/args    [arg-1 arg-2] t m]\n[arg-1  :yin/ref     param-1     t m]\n[arg-2  :yin/literal 1           t m]"]]
+          [:p
+           "Because the AST is data (datoms), it can be:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Loaded dynamically"]
+            ": Fetch new AST datoms from a stream, network, or database at runtime."]
+           [:li
+            [:strong "Queried"]
+            ": Use Datalog to find all functions that reference a given variable."]
+           [:li
+            [:strong "Transformed"]
+            ": Runtime macros that rewrite AST datoms before or during execution."]
+           [:li
+            [:strong "Versioned"]
+            ": The " [:code "t"] " (transaction) component tracks when each node was created or modified."]
+           [:li
+            [:strong "Provenance-tracked"]
+            ": The " [:code "m"] " (metadata) component records where each node came from."]]
+
+          [:h2 "What This Enables"]
+          [:p
+           "Implementing Yin.vm in Dart unlocks capabilities that would otherwise be impossible:"]
+
+          [:h3 "Dynamic Code Loading"]
+          [:p
+           "New functionality can arrive as datom streams at runtime. A mobile app can download "
+           "new features, workflows, or bug fixes without going through app store review:"]
+          [:pre
+           [:code
+            {:class "language-clojure"}
+            ";; Receive new AST datoms over the network\n(defn load-feature [stream]\n  (let [ast-datoms (stream/take-until stream :eof)]\n    (yin/register-fn! vm ast-datoms)))"]]
+          [:p
+           "The Dart code (Yin.vm interpreter) stays fixed. Only the interpreted AST changes."]
+
+          [:h3 "Runtime Macros"]
+          [:p
+           "Because ASTs are datoms, code can transform itself using the same structures the VM executes. "
+           "A macro is just a function that takes AST datoms and returns AST datoms:"]
+          [:pre
+           [:code
+            {:class "language-clojure"}
+            ";; A logging macro that wraps function bodies\n(defn wrap-with-logging [fn-datoms]\n  (let [body (find-body fn-datoms)\n        logged-body (wrap-log body)]\n    (replace-body fn-datoms logged-body)))"]]
+          [:p
+           "These transformations happen at interpretation time, not compile time. True runtime metaprogramming."]
+
+          [:h3 "Serializable Continuations"]
+          [:p
+           "The CESK machine's continuation is an explicit data structure. It can be serialized to datoms:"]
+          [:pre
+           [:code
+            {:class "language-clojure"}
+            ";; Serialize current execution state\n(let [k (yin/capture-continuation vm)]\n  (datom/write-to-stream k output-stream))\n\n;; Later, possibly on a different device\n(let [k (datom/read-from-stream input-stream)]\n  (yin/resume-continuation vm k))"]]
+          [:p
+           "This enables mobile agents, distributed computation, and fault-tolerant workflows "
+           "that can checkpoint and resume across crashes."]
+
+          [:h3 "Hot Patching in Production"]
+          [:p
+           "Update running applications without restart. Push new AST datoms, and the interpreter "
+           "picks them up. Functions can be replaced atomically while the system continues running."]
+
+          [:h2 "The Tradeoff: Interpretation vs. Compilation"]
+          [:p
+           "Interpretation is slower than AOT compilation. A function interpreted by Yin.vm will "
+           "execute more slowly than the same function compiled directly to Dart. This is the "
+           "fundamental tradeoff."]
+          [:p "But the performance gap can be managed:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Hot paths in Dart"]
+            ": Performance-critical primitives (arithmetic, collections, I/O) are implemented "
+            "as native Dart functions that the interpreter calls directly."]
+           [:li
+            [:strong "Selective interpretation"]
+            ": Only dynamic, changeable logic runs through Yin.vm. UI rendering, "
+            "networking, and other framework interactions stay in compiled Dart."]
+           [:li
+            [:strong "JIT opportunities"]
+            ": Frequently executed AST paths can be identified and specialized."]
+           [:li
+            [:strong "Acceptable for coordination"]
+            ": Business logic, workflows, and rules often don't need nanosecond performance. "
+            "The flexibility of runtime modification outweighs the speed cost."]]
+
+          [:h2 "Architecture in Practice"]
+          [:p "A Flutter app using Yin.vm might be structured like this:"]
+          [:pre
+           [:code
+            {:class "language-text"}
+            "┌─────────────────────────────────────────────┐\n│  Flutter Framework (Dart, compiled)         │\n│  - Widgets, rendering, platform channels    │\n└─────────────────────────────────────────────┘\n                    ↑\n                    │ calls\n                    ↓\n┌─────────────────────────────────────────────┐\n│  Application Shell (Dart, compiled)         │\n│  - Yin.vm interpreter                       │\n│  - Native primitives (I/O, crypto, etc.)    │\n│  - Stream infrastructure                    │\n└─────────────────────────────────────────────┘\n                    ↑\n                    │ interprets\n                    ↓\n┌─────────────────────────────────────────────┐\n│  Business Logic (Datom AST, dynamic)        │\n│  - Workflows, rules, transformations        │\n│  - User-defined functions                   │\n│  - Remotely loaded features                 │\n└─────────────────────────────────────────────┘\n                    ↑\n                    │ streams from\n                    ↓\n┌─────────────────────────────────────────────┐\n│  DaoDB / Datom Streams                      │\n│  - Persistent AST storage                   │\n│  - Continuation checkpoints                 │\n│  - Distributed synchronization              │\n└─────────────────────────────────────────────┘"]]
+          [:p
+           "The compiled Dart layer handles performance-critical rendering and platform integration. "
+           "The interpreted Yin.vm layer handles dynamic, changeable business logic. "
+           "The datom stream layer provides persistence and distribution."]
+
+          [:h2 "Comparison: Other Approaches"]
+          [:p "This pattern is not unique to Yin.vm. Similar architectures exist elsewhere:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Lua in games"]
+            ": Game engines (Unity, Unreal, custom) embed Lua for scriptable game logic. "
+            "The engine is compiled C++; the scripts are interpreted Lua."]
+           [:li
+            [:strong "JavaScript in React Native"]
+            ": The native shell is compiled; the JS business logic is interpreted/JIT'd."]
+           [:li
+            [:strong "WebAssembly runtimes"]
+            ": Wasmer, Wasmtime embed a Wasm interpreter in native applications."]]
+          [:p
+           "What distinguishes Yin.vm is the "
+           [:strong "datom representation"]
+           ". ASTs are not opaque bytecode but queryable, versionable, provenance-tracked data. "
+           "The code itself participates in the same data model as everything else in the system."]
+
+          [:h2 "Implementation Considerations"]
+          [:p "Building Yin.vm in Dart requires attention to several areas:"]
+
+          [:h3 "Efficient Datom Representation"]
+          [:p
+           "Dart's type system allows defining efficient datom structures. A datom might be:"]
+          [:pre
+           [:code
+            {:class "language-dart"}
+            "class Datom {\n  final int e;      // Entity ID\n  final Symbol a;   // Attribute (interned)\n  final Object v;   // Value\n  final int t;      // Transaction ID\n  final int m;      // Metadata entity\n  \n  const Datom(this.e, this.a, this.v, this.t, this.m);\n}"]]
+          [:p
+           "Symbol interning keeps attribute comparisons fast. Immutability enables structural sharing."]
+
+          [:h3 "Continuation Representation"]
+          [:p
+           "Continuations must be serializable. A continuation frame might look like:"]
+          [:pre
+           [:code
+            {:class "language-dart"}
+            "sealed class Kont {}\n\nclass KontHalt extends Kont {}\n\nclass KontArg extends Kont {\n  final List<Object> evaluatedArgs;\n  final List<Datom> remainingArgs;\n  final Env env;\n  final Kont next;\n  // ...\n}\n\nclass KontFn extends Kont {\n  final List<Datom> args;\n  final Env env;\n  final Kont next;\n  // ...\n}"]]
+          [:p
+           "Dart's sealed classes ensure exhaustive pattern matching on continuation types."]
+
+          [:h3 "Primitive Operations"]
+          [:p
+           "Core operations (arithmetic, comparison, collection manipulation) should be implemented "
+           "as native Dart functions, not interpreted AST:"]
+          [:pre
+           [:code
+            {:class "language-dart"}
+            "final primitives = <Symbol, Function>{\n  Symbol('+'):  (a, b) => a + b,\n  Symbol('-'):  (a, b) => a - b,\n  Symbol('*'):  (a, b) => a * b,\n  Symbol('cons'): (h, t) => [h, ...t],\n  Symbol('first'): (l) => l.first,\n  // ...\n};"]]
+
+          [:h2 "Beyond ClojureDart"]
+          [:p
+           "This architecture does not replace ClojureDart. It complements it. ClojureDart remains "
+           "valuable for writing the Dart layer: the Yin.vm interpreter itself, the Flutter widgets, "
+           "the native primitives. Clojure's expressiveness makes implementing the interpreter pleasant."]
+          [:p
+           "But for dynamic, runtime-modifiable logic, Yin.vm provides what ClojureDart cannot: "
+           "true code-as-data at runtime, not just at compile time."]
+          [:p
+           "The result is a layered architecture:"]
+          [:ul.bulleted
+           [:li [:strong "ClojureDart"] " for writing the interpreter and native primitives"]
+           [:li [:strong "Yin.vm"] " for interpreting dynamic AST datoms"]
+           [:li [:strong "DaoDB"] " for persisting and distributing code and continuations"]
+           [:li [:strong "Flutter"] " for cross-platform UI rendering"]]
+
+          [:h2 "Conclusion"]
+          [:p
+           "ClojureDart's static compilation constraints are not bugs but consequences of Dart's design. "
+           "Rather than fighting those constraints, Yin.vm embraces them by making Dart the "
+           [:em "substrate"]
+           " rather than the "
+           [:em "language"]
+           "."]
+          [:p
+           "The dynamism moves into data. ASTs become datom streams, loadable and interpretable at runtime. "
+           "Continuations become serializable checkpoints, pausable and resumable across devices. "
+           "Code becomes queryable, versionable, transformable while the system runs."]
+          [:p
+           "This is not a workaround but a design principle: "
+           [:strong "interpretation over compilation when flexibility matters more than raw speed"]
+           ". The fixed interpreter provides a stable foundation. The dynamic AST provides unbounded extensibility."]
+          [:p
+           "Yin.vm in Dart: where static compilation meets dynamic semantics."]
+
+          [:p [:strong "Related Reading:"]]
+          [:ul.bulleted
+           [:li
+            [:a {:href "/blog/why-llms-need-structured-code-the-yin-vm-approach.blog"}
+             "Why LLMs Need Structured Code: The Yin.vm Approach"]]
+           [:li
+            [:a {:href "/blog/continuations-universal-semantic-kernel.blog"}
+             "Continuations as Universal Semantic Kernel"]]
+           [:li
+            [:a {:href "/yin.chp"} "Yin VM Documentation"]]
+           [:li
+            [:a {:href "/blog/computation-moves-data-stays.blog"}
+             "Computation Moves, Data Stays"]]]]]]}
