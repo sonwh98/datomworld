@@ -2,7 +2,15 @@
 set -e
 
 # Configuration
-DEVICE_ID="emulator-5554"
+# Find the first connected Android device (excluding 'List of devices attached' header)
+DEVICE_ID=$(adb devices | grep -w "device" | head -n 1 | cut -f1)
+
+if [ -z "$DEVICE_ID" ]; then
+  echo "Error: No connected Android device found."
+  echo "Please start an emulator or connect a device."
+  exit 1
+fi
+
 ENTRY_POINT="lib/cljd-out/datomworld/main.dart"
 PACKAGE_NAME="com.example.cljd_datomworld"
 
@@ -22,6 +30,6 @@ mise exec -- flutter install -d "$DEVICE_ID"
 
 # 4. Launch App
 echo "4. Launching application..."
-adb -s "$DEVICE_ID" shell monkey -p "$PACKAGE_NAME" -c android.intent.category.LAUNCHER 1
+adb -s "$DEVICE_ID" shell am start -n "$PACKAGE_NAME/.MainActivity"
 
 echo "=== Redeploy Complete ==="

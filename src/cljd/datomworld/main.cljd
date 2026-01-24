@@ -1,34 +1,60 @@
 (ns datomworld.main
   (:require ["package:flutter/material.dart" :as m]
             [clojure.edn :as edn]
-            [yin.vm :as vm]))
+            [yin.vm :as vm]
+            [yang.clojure :as yang]))
+
+(def default-clojure "(+ 30 20)")
 
 (def default-ast
   "{:type :application
  :operator {:type :variable :name +}
- :operands [{:type :literal :value 10}
+ :operands [{:type :literal :value 30}
             {:type :literal :value 20}]}")
 
 (defn home-page []
-  (let [controller (m/TextEditingController .text default-ast)
+  (let [clj-controller (m/TextEditingController .text default-clojure)
+        ast-controller (m/TextEditingController .text default-ast)
         result-notifier (m/ValueNotifier "")]
     (m/Scaffold
      .appBar (m/AppBar .title (m/Text "Datomworld - Yin VM"))
      .body (m/Padding
             .padding (m/EdgeInsets.all 16.0)
-            .child (m/Column
-                    .crossAxisAlignment m/CrossAxisAlignment.start
+            .child (m/ListView
                     .children
-                    [(m/TextField
-                      .controller controller
-                      .maxLines 20
+                    [(m/Text "Clojure Code:" .style (m/TextStyle .fontWeight m/FontWeight.bold))
+                     (m/SizedBox .height 8.0)
+                     (m/TextField
+                      .controller clj-controller
+                      .maxLines 5
                       .decoration (m/InputDecoration
                                    .border (m/OutlineInputBorder)
-                                   .labelText "Enter AST (EDN)"))
+                                   .labelText "Enter Clojure Code"))
+                     (m/SizedBox .height 8.0)
+                     (m/ElevatedButton
+                      .onPressed (fn []
+                                   (try
+                                     (let [input (.-text clj-controller)
+                                           form (edn/read-string input)
+                                           ast (yang/compile form)]
+                                       (set! (.-text ast-controller) (pr-str ast)))
+                                     (catch Object e
+                                       (set! (.-text ast-controller) (str "Error compiling: " e))))
+                                   nil)
+                      .child (m/Text "Compile to AST"))
+                     (m/SizedBox .height 16.0)
+                     (m/Text "Yin AST (EDN):" .style (m/TextStyle .fontWeight m/FontWeight.bold))
+                     (m/SizedBox .height 8.0)
+                     (m/TextField
+                      .controller ast-controller
+                      .maxLines 10
+                      .decoration (m/InputDecoration
+                                   .border (m/OutlineInputBorder)
+                                   .labelText "AST"))
                      (m/SizedBox .height 16.0)
                      (m/ElevatedButton
                       .onPressed (fn []
-                                   (let [input (.-text controller)]
+                                   (let [input (.-text ast-controller)]
                                      (try
                                        (let [ast (edn/read-string input)
                                              state (vm/make-state vm/primitives)
@@ -38,16 +64,20 @@
                                        (catch Object e
                                          (set! (.-value result-notifier) (str "Error: " e))))
                                      nil))
-                      .child (m/Text "Evaluate"))
+                      .child (m/Text "Evaluate AST"))
                      (m/SizedBox .height 16.0)
                      (m/Text "Result:" .style (m/TextStyle .fontWeight m/FontWeight.bold))
                      (m/SizedBox .height 8.0)
-                     (m/Expanded
-                      .child (m/SingleChildScrollView
-                              .child (m/ValueListenableBuilder
-                                      .valueListenable result-notifier
-                                      .builder (fn [_ value _]
-                                                 (m/Text (str value))))))])))))
+                     (m/ValueListenableBuilder
+                      .valueListenable result-notifier
+                      .builder (fn [_ value _]
+                                 (m/Container
+                                  .width double/infinity
+                                  .padding (m/EdgeInsets.all 8.0)
+                                  .decoration (m/BoxDecoration
+                                               .border (m/Border.all .color m.Colors/grey)
+                                               .borderRadius (m/BorderRadius.circular 4.0))
+                                  .child (m/Text (str value) .style (m/TextStyle .fontFamily "monospace")))))])))))
 
 (defn main []
   (m/runApp

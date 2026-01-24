@@ -230,7 +230,8 @@
      :else
      (throw (ex-info "Cannot compile unknown form type"
                      {:form form
-                      :type (type form)})))))
+                      :type #?(:cljd (clojure.core/str (.-runtimeType form))
+                               :default (clojure.core/type form))})))))
 
 (defn compile
   "Main compiler entry point.
