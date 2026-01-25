@@ -1,0 +1,402 @@
+#:blog{:title "Beyond FFI with Datom Streams",
+       :date #inst "2026-01-26T00:00:00.000-00:00",
+       :abstract
+       [:p
+        "In the landscape of virtual machine design, the boundary between host and execution engine is often the most "
+        "significant bottleneck. For Yin.VM, the computation core of the Datom.world ecosystem, we have moved "
+        "away from function-based Foreign Function Interfaces. Instead of treating the VM as a library to be commanded "
+        "through imperative calls, Yin.VM treats the execution boundary as a continuous stream of Datoms. This shift from "
+        "\"doing\" to \"telling\" represents a fundamental rethink of how decentralized systems should handle cross-language execution."],
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+
+          [:p.subtitle
+           [:em
+            "How Datom.world replaces traditional Foreign Function Interfaces (FFI) with high-performance reactive streams and zero-copy ring buffers."]]
+
+          [:p
+           "In the landscape of virtual machine design, the boundary between the host environment and the execution "
+           "engine is often the most significant bottleneck. For "
+           [:a {:href "/yin.chp"} "Yin.VM"]
+           ", the computation core of the Datom.world ecosystem, we have moved away from the decades-old "
+           "standard of function-based Foreign Function Interfaces (FFI)."]
+
+          [:p
+           "Instead of treating the VM as a library to be commanded through imperative calls, Yin.VM treats the "
+           "execution boundary as a "
+           [:strong "continuous stream of Datoms"]
+           ". This shift from \"doing\" to \"telling\" represents a fundamental rethink of how decentralized systems "
+           "should handle cross-language execution."]
+
+          [:h2 "The Traditional Bottleneck: The \"Marshaling Tax\""]
+
+          [:p
+           "Historically, embedding a VM (like Lua or Python) into a host language (like Clojure) follows a "
+           "Request/Response pattern. To execute a single instruction or process a transaction, the host must "
+           "pause its own execution, translate its internal data structures into C-compatible structs, and pass "
+           "control across the FFI border."]
+
+          [:p "This \"Traditional Way\" introduces several points of friction:"]
+
+          [:ul.bulleted
+           [:li
+            [:strong "Synchronous Blocking"]
+            ": The host language sits idle while the VM processes the call."]
+           [:li
+            [:strong "Impedance Mismatch"]
+            ": Rich, functional data in Clojure must be \"shredded\" into low-level C pointers and rebuilt on the other side."]
+           [:li
+            [:strong "The Marshaling Tax"]
+            ": A significant percentage of CPU cycles is spent on serialization and deserialization rather than actual computation."]]
+
+          [:p
+           "In a distributed or decentralized context where state changes occur rapidly across a network, this "
+           "constant \"stopping and starting\" of the execution flow creates unacceptable latency."]
+
+          [:h2 "The Yin.VM Solution: Streaming the Truth"]
+
+          [:p
+           "Yin.VM operates on a different philosophy. It views the world not as a series of commands, but as a "
+           "sequence of "
+           [:strong "immutable facts"]
+           ". By utilizing a Datom Stream "
+           [:code "(Entity, Attribute, Value, Transaction, Metadata)"]
+           ", the VM transforms the execution boundary into a reactive data pipe."]
+
+          [:h3 "How It Works"]
+
+          [:p
+           "The host application (e.g., a Clojure backend) no longer calls specific functions within the VM. "
+           "Instead, it \"pushes\" datoms into an input stream. The VM, written in a systems language like Rust, "
+           "independently consumes these facts. As the VM processes the stream, it triggers internal continuations "
+           "(captured execution states) that react to the incoming data."]
+
+          [:p
+           "Crucially, "
+           [:strong "communication flows in both directions via datom streams"]
+           ". When Yin.VM needs to invoke native capabilities (file I/O, cryptography, network), it emits datoms "
+           "to an output stream. The Bridge Dispatcher consumes these datoms and triggers the appropriate native "
+           "functions. The result? A symmetric architecture where both \"calling into\" and \"calling out of\" "
+           "the VM use the same unified interface."]
+
+          [:p "This approach offers three primary advantages:"]
+
+          [:ul.bulleted
+           [:li
+            [:strong "Temporal Decoupling"]
+            ": The host can produce facts at its own speed, and the VM can consume them as resources allow. "
+            "They are no longer locked in a synchronous \"handshake.\""]
+           [:li
+            [:strong "Native Replayability"]
+            ": Since the stream is a log of facts, the entire state of the VM can be reconstructed at any time "
+            "by simply replaying the stream. This makes debugging and decentralized consensus inherently easier."]
+           [:li
+            [:strong "Unified Interface"]
+            ": Whether the VM is running in the same process via shared memory or across the globe via a socket, "
+            "the interface remains a simple stream of bytes."]]
+
+          [:h2 "Engineering Efficiency with Ring Buffers"]
+
+          [:p
+           "To ensure this streaming model outperforms traditional FFI, Yin.VM utilizes "
+           [:strong "Shared Memory Ring Buffers"]
+           ". These are lock-free data structures that allow the host and the VM to communicate "
+           "bidirectionally with virtually zero overhead. Two ring buffers handle the two directions: "
+           "one for datoms flowing into the VM, one for datoms flowing out."]
+
+          [:h3 "The Zero-Copy Workflow"]
+
+          [:p
+           "By mapping a shared region of memory between the host (Clojure/JVM) and the guest (Rust/Yin.VM), "
+           "the system achieves the \"holy grail\" of performance: "
+           [:strong "Zero-Copy"]
+           "."]
+
+          [:ol
+           [:li
+            "The host writes the raw binary representation of a Datom (e.g., five 64-bit integers) into a slot in the ring buffer."]
+           [:li
+            "The host increments a write cursor."]
+           [:li
+            "The Yin.VM engine, polling the cursor, sees the new data and reads it directly from the same memory address."]]
+
+          [:p
+           "Because both sides agree on the binary layout of a Datom, there is no \"translation\" step. The data "
+           "is written once and read once, bypassing the expensive overhead of traditional FFI calls."]
+
+          [:pre
+           [:code
+            {:class "language-text"}
+            "┌────────────────────────────────────────────────────────────────┐\n│                     Shared Memory Region                       │\n│  ┌──────────────────────────────────────────────────────────┐  │\n│  │  Input Ring Buffer (Host → VM)                           │  │\n│  │  ┌─────┬─────┬─────┬─────┬─────┬─────┬─────┬─────┐       │  │\n│  │  │ D0  │ D1  │ D2  │ ... │     │     │     │     │       │  │\n│  │  └─────┴─────┴─────┴─────┴─────┴─────┴─────┴─────┘       │  │\n│  └──────────────────────────────────────────────────────────┘  │\n│  ┌──────────────────────────────────────────────────────────┐  │\n│  │  Output Ring Buffer (VM → Host)                          │  │\n│  │  ┌─────┬─────┬─────┬─────┬─────┬─────┬─────┬─────┐       │  │\n│  │  │ D0  │ D1  │ D2  │ ... │     │     │     │     │       │  │\n│  │  └─────┴─────┴─────┴─────┴─────┴─────┴─────┴─────┘       │  │\n│  └──────────────────────────────────────────────────────────┘  │\n└────────────────────────────────────────────────────────────────┘\n      ↑          │                     │          ↑\nreads │          │ writes        writes│          │ reads\n      │          ↓                     ↓          │\n ┌────────────────────┐         ┌────────────────────┐\n │    Yin.VM (Rust)   │         │   Host (Clojure)   │\n │                    │         │  Bridge Dispatcher │\n └────────────────────┘         └────────────────────┘"]]
+
+          [:h2 "The Bridge Dispatcher: Connecting the Brain to its Limbs"]
+
+          [:p
+           "For a stream-based FFI to function, the Bridge Dispatcher must be \"bolted onto\" the native host "
+           "environment before the VM starts processing."]
+
+          [:p
+           "In the world of Yin.VM, the VM is essentially a \"brain\" in a jar. It can think (execute logic) "
+           "and remember (store datoms), but it has no \"limbs\" unless the native host provides them via the dispatcher."]
+
+          [:h3 "Installation as Capability Registration"]
+
+          [:p
+           "When you set up the native host (whether in Rust, C, or Clojure), you are performing a "
+           [:strong "Capability Registration"]
+           ". You are telling the dispatcher: \"If the VM asks for 'CalculateHash', run this specific native function.\""]
+
+          [:ol
+           [:li
+            [:strong "Define Native Functions"]
+            ": You have your high-performance C/Rust functions ready."]
+           [:li
+            [:strong "Register with Dispatcher"]
+            ": You map a string or an ID (e.g., "
+            [:code ":op/sha256"]
+            ") to a native function pointer."]
+           [:li
+            [:strong "Launch VM and Dispatcher"]
+            ": Both start polling their respective ends of the ring buffers."]]
+
+          [:h3 "The Host as an Operating System"]
+
+          [:p
+           "Think of the native host as an "
+           [:strong "Operating System"]
+           " and Yin.VM as a "
+           [:strong "User-space Process"]
+           ". A process cannot talk to the hardware directly; it must make a System Call."]
+
+          [:ul.bulleted
+           [:li
+            "In a traditional OS, a system call triggers an interrupt that jumps to the kernel stack."]
+           [:li
+            "In Yin.VM, a \"system call\" is simply writing a datom to the output stream."]]
+
+          [:p
+           "The Bridge Dispatcher is essentially the "
+           [:strong "Kernel's Syscall Handler"]
+           ". If you don't \"install\" the handler for a specific call, the VM can scream into the stream "
+           "all it wants, but nothing will happen."]
+
+          [:h3 "Dynamic vs. Static Dispatchers"]
+
+          [:p
+           "Because Datom.world is designed to be decentralized, there are two ways to \"install\" these dispatchers:"]
+
+          [:table
+           [:thead
+            [:tr
+             [:th "Type"]
+             [:th "How it works"]
+             [:th "Use Case"]]]
+           [:tbody
+            [:tr
+             [:td [:strong "Static Dispatcher"]]
+             [:td "Hard-coded into the Rust/Native binary. Highest speed."]
+             [:td "Core VM primitives (Math, Memory, Crypto)."]]
+            [:tr
+             [:td [:strong "Dynamic Dispatcher"]]
+             [:td "Loaded at runtime (e.g., via " [:code "dlopen"] " or a plugin system)."]
+             [:td "User-defined \"Capabilities\" or specialized node extensions."]]]]
+
+          [:h3 "Shibi Tokens: Capability-Gated Registration"]
+
+          [:p
+           "In a decentralized network, who gets to install a dispatcher? You cannot simply allow any node to "
+           "register arbitrary native functions. This is where "
+           [:a {:href "/blog/shibi-as-money.blog"} "Shibi tokens"]
+           " enter the picture."]
+
+          [:p
+           "To register a dispatcher, you must present a "
+           [:strong "Shibi token specific to that dispatcher"]
+           ". Possession of the token is proof of capability. No token, no installation."]
+
+          [:ul.bulleted
+           [:li
+            [:strong "Scoped Authority"]
+            ": Each Shibi token grants the right to install a specific dispatcher (e.g., a token for "
+            [:code ":crypto/sign"]
+            " cannot be used to install "
+            [:code ":sys/write-file"]
+            ")."]
+           [:li
+            [:strong "Transferable Capability"]
+            ": Shibi tokens can be transferred, delegated, or revoked. If a node loses its token, "
+            "it loses the ability to provide that native capability."]
+           [:li
+            [:strong "Auditable"]
+            ": Because Shibi transactions are recorded as datoms in DaoDB, the history of who installed "
+            "what dispatcher is permanently auditable."]]
+
+          [:p
+           "This use of Shibi tokens to gate native registration is a novel solution to the security risks of "
+           "decentralized VMs. It effectively turns the \"System Call\" table into a "
+           [:strong "cryptographic marketplace"]
+           ". A node cannot unilaterally expand its native capabilities; it must possess the specific "
+           "\"proof of right\" to interact with host resources like the file system or network."]
+
+          [:p
+           "This maps the "
+           [:strong "economic layer"]
+           " of Datom.world directly onto the "
+           [:strong "security boundary"]
+           " of the VM. Capability and commerce become one."]
+
+          [:h3 "Why This is a Security Sandbox"]
+
+          [:p
+           "This \"pre-installation\" requirement is actually a massive security feature for decentralized architecture."]
+
+          [:p
+           "If a piece of malicious code is running inside Yin.VM, it cannot \"guess\" a function address or "
+           "perform a buffer overflow on the native stack. It can only emit datoms. If the Bridge Dispatcher "
+           "hasn't been explicitly configured to listen for a specific request, the request is simply ignored "
+           "or logged as an error."]
+
+          [:p
+           [:strong "The Yin.VM Principle"]
+           ": A VM is only as powerful as the Dispatcher it is connected to."]
+
+          [:h2 "The Dispatcher as a Stream Interpreter"]
+
+          [:p
+           "In this architecture, you aren't just building a VM. You are building "
+           [:strong "two distinct interpreters"]
+           " that form a symbiotic loop:"]
+
+          [:ul.bulleted
+           [:li
+            [:strong "Yin.VM"]
+            ": Interprets bytecode to produce datoms."]
+           [:li
+            [:strong "Bridge Dispatcher"]
+            ": Interprets datoms to produce native effects."]]
+
+          [:p
+           "By viewing the Bridge Dispatcher as a \"Stream Interpreter,\" you move away from rigid API definitions "
+           "and into a world of dynamic, capability-based execution."]
+
+          [:h3 "The Dispatcher as a Logic Engine"]
+
+          [:p
+           "Just as Yin.VM has an instruction pointer and a stack, the Bridge Dispatcher has a "
+           [:strong "Pattern Matcher"]
+           " and a "
+           [:strong "Registry"]
+           "."]
+
+          [:p
+           "When a datom enters the dispatcher, it isn't \"executed\" in the traditional sense. "
+           "It is matched against a set of known patterns:"]
+
+          [:ul.bulleted
+           [:li
+            [:strong "If match found"]
+            ": Trigger the native function."]
+           [:li
+            [:strong "If no match"]
+            ": Ignore, log, or route the datom to another node (the \"Decentralized\" part of the project)."]]
+
+          [:h3 "The Benefits of Interpreting the FFI"]
+
+          [:p
+           "Because the dispatcher is an interpreter, you gain several \"superpowers\" that traditional FFI lacks:"]
+
+          [:ul.bulleted
+           [:li
+            [:strong "Interception"]
+            ": You can inject a \"Middleware\" into the dispatcher that logs every native call for auditing "
+            "without touching the VM's code."]
+           [:li
+            [:strong "Virtualization"]
+            ": You can lie to the VM. If the VM asks for a production database (via a datom), the dispatcher "
+            "can interpret that request and route it to a mock in-memory database instead."]
+           [:li
+            [:strong "Throttling"]
+            ": The dispatcher can see a \"stream\" of requests and decide to slow them down or batch them "
+            "if the native resource is under heavy load."]]
+
+          [:h3 "Structural Comparison: Bytecode vs. Datoms"]
+
+          [:table
+           [:thead
+            [:tr
+             [:th "Feature"]
+             [:th "Yin.VM (Bytecode Interpreter)"]
+             [:th "Bridge Dispatcher (Stream Interpreter)"]]]
+           [:tbody
+            [:tr
+             [:td "Input"]
+             [:td "Opaque Bytecode OpCodes"]
+             [:td "Structured Datoms (E, A, V, T, M)"]]
+            [:tr
+             [:td "State"]
+             [:td "Virtual Registers / Continuations"]
+             [:td "Native Function Registry / Resource Handles"]]
+            [:tr
+             [:td "Output"]
+             [:td "New Datoms / State Mutations"]
+             [:td "Native Side-Effects (Disk, Network, CPU)"]]
+            [:tr
+             [:td "Goal"]
+             [:td "Pure Logic Execution"]
+             [:td "Bridging Logic to Reality"]]]]
+
+          [:h3 "The Language of the Stream"]
+
+          [:p
+           "Since the Dispatcher is an interpreter, the \"language\" it speaks is the "
+           [:strong "schema of your datoms"]
+           ". For Datom.world, this means the Attribute ("
+           [:code "A"]
+           ") in your datom acts as the \"OpCode\" for the dispatcher."]
+
+          [:ul.bulleted
+           [:li
+            "If "
+            [:code "A = :sys/write-file"]
+            ", the dispatcher interprets this as a file system instruction."]
+           [:li
+            "If "
+            [:code "A = :crypto/sign"]
+            ", it interprets it as a call to your Rust/C security library."]]
+
+          [:h3 "The Resulting Ecosystem"]
+
+          [:p
+           "This architecture makes Yin.VM incredibly resilient. You can upgrade the \"Stream Interpreter\" "
+           "(the Dispatcher) to add new native capabilities without ever having to recompile or change your "
+           "Yin.VM bytecode. You are essentially building a "
+           [:strong "plug-and-play hardware interface"]
+           " for your virtual logic."]
+
+          [:h2 "Conclusion: A VM for a Decentralized Reality"]
+
+          [:p
+           "By abandoning the imperative function call in favor of a fact-based stream, Yin.VM achieves a level "
+           "of reactivity and auditability that traditional VMs cannot match. It aligns the low-level execution "
+           "engine with the high-level philosophy of Datom.world: that "
+           [:strong "data is a river of immutable truths"]
+           ", and computation is simply a way to navigate that flow."]
+
+          [:p
+           "The result is an architecture that is not only faster but more resilient: a necessary foundation "
+           "for the future of decentralized computing."]
+
+          [:p [:strong "Related Reading:"]]
+          [:ul.bulleted
+           [:li
+            [:a {:href "/yin.chp"} "Yin VM Documentation"]]
+           [:li
+            [:a {:href "/blog/datoms-as-streams.blog"} "Datoms as Streams"]]
+           [:li
+            [:a {:href "/blog/stream-vs-interface-architecture.blog"} "Stream vs Interface Architecture"]]
+           [:li
+            [:a {:href "/blog/plan9-9p-daostream.blog"} "Plan 9, 9P, and DaoStream"]]]]]]}
