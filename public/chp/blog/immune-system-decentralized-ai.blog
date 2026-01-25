@@ -1,0 +1,207 @@
+#:blog{:title "Building the Immune System for Decentralized AI: How Datom.world Defends Against Poisoning Attacks",
+       :date #inst "2026-01-26T00:00:00.000-00:00",
+       :abstract
+       [:p
+        "The promise of decentralized intelligence is vast: millions of IoT devices collaborating to train smarter AI "
+        "models without sharing raw, private data. But in a zero-trust environment, this dream faces a critical nightmare: "
+        "Poisoning Attacks. By synthesizing Yin.VM, DaoDB, and Shibi, Datom.world creates a self-defending nervous system "
+        "for decentralized intelligence, where participants don't need to trust each other, only the immutable physics of the infrastructure."],
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+
+          [:p
+           "The promise of decentralized intelligence is vast. Imagine a world where millions of IoT devices "
+           "(from smart thermometers to autonomous vehicles) collaborate to train smarter AI models without "
+           "ever sharing their raw, private data. This is the dream of Federated Learning (FL)."]
+
+          [:p
+           "But in a decentralized, zero-trust environment, this dream faces a critical nightmare: "
+           [:strong "Poisoning Attacks"]
+           "."]
+
+          [:p
+           "If we can't trust the device, how do we know it's submitting honest learning data? A malicious "
+           "actor can inject \"poisoned\" updates (subtly corrupted mathematical gradients designed to degrade "
+           "the global model's accuracy or introduce hidden backdoors). In a standard FL setup, the central "
+           "aggregator unknowingly mixes this poison into the community pot, ruining the meal for everyone."]
+
+          [:p
+           "Securing decentralized AI requires more than just good math; it requires "
+           [:strong "new infrastructure"]
+           "."]
+
+          [:p
+           "Recent academic research highlights a \"dual-aggregation\" approach as the gold standard for defense. "
+           "At Datom.world, we aren't just reading the research; we are building the infrastructure that makes "
+           "these theoretical defenses practically viable."]
+
+          [:p
+           "By synthesizing our core components (Yin.VM, DaoDB, and Shibi) we are creating a "
+           [:strong "self-defending nervous system"]
+           " for decentralized intelligence."]
+
+          [:h2 "The Blueprint: What is \"Dual-Aggregation\" Defense?"]
+
+          [:p
+           "To stop poisoning in an open network, you cannot rely on a single line of defense. The academic "
+           "consensus points to a two-stage \"dual\" approach:"]
+
+          [:ul.bulleted
+           [:li
+            [:strong "Stage 1: The Filter (Local Defense)"]
+            ": Before an update is even considered for the global model, the contributor must prove their "
+            "honesty. This is often done via \"challenge-response\" tasks or comparing the update against "
+            "a known benchmark to detect obvious anomalies."]
+           [:li
+            [:strong "Stage 2: The Robust Aggregator (Global Defense)"]
+            ": Even after filtering, clever attackers might slip through. The second stage uses advanced "
+            "statistical methods (like trimmed means or similarity checks) to identify and neutralize "
+            "subtle outliers across the entire pool of contributed updates."]]
+
+          [:p
+           "While powerful in theory, implementing this in a decentralized network without a central "
+           "\"God-server\" is incredibly difficult (unless you have the right architecture)."]
+
+          [:h2 "The Synthesis: The Datom.world Defense Stack"]
+
+          [:p
+           "Datom.world provides the exact three layers needed to turn this academic blueprint into a "
+           "working, decentralized reality."]
+
+          [:h3 "1. The Logic Layer: Yin.VM as the Verifiable \"Gatekeeper\""]
+
+          [:p
+           "The first challenge in decentralized FL is running the \"filtering\" stage without a trusted server. "
+           "If I ask a malicious node, \"Are you lying?\", it will obviously say \"No.\""]
+
+          [:p
+           [:a {:href "/yin.chp"} "Yin.VM"]
+           " serves as our "
+           [:strong "trusted execution environment"]
+           ". Because Yin focuses on verifiable computation based on rigorous programming language theory, "
+           "we can use it to enforce Stage 1 of the dual-defense."]
+
+          [:p
+           "Instead of blindly accepting a model update, the network can require the contributor to run "
+           "the update process inside a Yin.VM instance alongside a deterministic \"challenge\" task. "
+           "The output isn't just the model gradient; it's a "
+           [:strong "cryptographic proof"]
+           " that the gradient was generated honestly according to the rules of the VM. If the math "
+           "doesn't check out, the gate doesn't open."]
+
+          [:h3 "2. The Economic & Capability Layer: Shibi as the \"Skin in the Game\""]
+
+          [:p
+           "The biggest weakness of open networks is the "
+           [:strong "Sybil attack"]
+           ": an attacker spins up 10,000 fake nodes to overwhelm the system with bad data. "
+           "Math alone can't solve this volume problem."]
+
+          [:p
+           "This is where "
+           [:a {:href "/blog/shibi-as-money.blog"} "Shibi"]
+           ", Datom.world's non-fungible utility token, becomes critical. Shibi transforms \"attention\" "
+           "and participation into a scarce, tradable resource."]
+
+          [:p
+           "In our FL defense synthesis, Shibi acts as a "
+           [:strong "capability token"]
+           ". To submit an update to the global model, a device must hold and \"stake\" a specific "
+           "Shibi token granting that capability. This instantly solves two problems:"]
+
+          [:ul.bulleted
+           [:li
+            [:strong "Anti-Spam"]
+            ": Attacking the network becomes economically ruinous. You can't just spin up free nodes; "
+            "you need scarce Shibi for each one."]
+           [:li
+            [:strong "Immediate Revocation"]
+            ": If Yin.VM detects a poisoned update, the protocol doesn't just reject the data. It can "
+            "\"burn\" or slash the staked Shibi. The malicious actor instantly loses their capability "
+            "to interact with the system."]]
+
+          [:h3 "3. The Memory Layer: DaoDB as the Immutable Reputation Ledger"]
+
+          [:p
+           "To effectively defend against poisoning, the system must "
+           [:strong "remember past behavior"]
+           ". A node that submits \"slightly off\" data ten times in a row is more suspicious than "
+           "a node that does it once."]
+
+          [:p
+           [:a {:href "/dao-db.chp"} "DaoDB"]
+           ", with its Datomic-inspired architecture of immutable facts "
+           [:code "(e a v t m)"]
+           ", provides the perfect substrate for long-term reputation. We don't just store the final "
+           "model; we store the historical \"similarity scores\" of every update from every Shibi-holder "
+           "as immutable datoms."]
+
+          [:p
+           "This creates a "
+           [:strong "permanent, unforgeable audit trail"]
+           ". The \"Robust Aggregation\" (Stage 2) algorithms can query DaoDB to weight contributions "
+           "based on a node's entire history, not just their current submission. Once a reputation is "
+           "tarnished in the immutable ledger, it cannot be reset."]
+
+          [:h2 "Conclusion: A Self-Defending Brain"]
+
+          [:p "By combining these three elements, Datom.world moves beyond simple data storage."]
+
+          [:ul.bulleted
+           [:li
+            [:strong "Yin.VM"]
+            " provides the verifiable logic to "
+            [:em "detect lies"]
+            "."]
+           [:li
+            [:strong "DaoDB"]
+            " provides the immutable memory to "
+            [:em "track liars"]
+            "."]
+           [:li
+            [:strong "Shibi"]
+            " provides the economic teeth to "
+            [:em "punish them"]
+            "."]]
+
+          [:p
+           "This synthesis creates a decentralized ecosystem that is "
+           [:strong "inherently hostile to poisoning attacks"]
+           ". It allows us to build collaborative AI where participants don't need to trust each other. "
+           "They only need to trust the immutable physics of the Datom infrastructure."]
+
+          [:p [:strong "Related Reading:"]]
+          [:ul.bulleted
+           [:li
+            [:a {:href "/yin.chp"} "Yin VM Documentation"]]
+           [:li
+            [:a {:href "/dao-db.chp"} "DaoDB Documentation"]]
+           [:li
+            [:a {:href "/blog/shibi-as-money.blog"} "Shibi as Money"]]
+           [:li
+            [:a {:href "/blog/agents.blog"} "Agents in Datom.world"]]]
+
+          [:h2 "References"]
+          [:ul.bulleted
+           [:li
+            "Dong, N., Wang, Z., Sun, J., Kampffmeyer, M., Knottenbelt, W., & Xing, E. (2024). "
+            "Defending against poisoning attacks in federated learning with blockchain. "
+            [:em "IEEE Transactions on Artificial Intelligence, 5"]
+            "(7). "
+            [:a {:href "https://doi.org/10.48550/arxiv.2307.00543"} "https://doi.org/10.48550/arxiv.2307.00543"]]
+           [:li
+            "Moyeen, M. A. et al. (2025). "
+            "FedChallenger: A robust challenge-response and aggregation strategy to defend poisoning attacks in federated learning. "
+            [:em "IEEE Access, 13"]
+            ", 153867-153880. "
+            [:a {:href "https://doi.org/10.1109/ACCESS.2025.11095660"} "https://doi.org/10.1109/ACCESS.2025.11095660"]]
+           [:li
+            "Xu, R., Gao, S., Li, C., Joshi, J., & Li, J. (2025). "
+            "Dual defense: Enhancing privacy and mitigating poisoning attacks in federated learning. "
+            [:em "arXiv preprint arXiv:2502.05547"]
+            ". "
+            [:a {:href "https://doi.org/10.48550/arxiv.2502.05547"} "https://doi.org/10.48550/arxiv.2502.05547"]]]]]]}
