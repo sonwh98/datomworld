@@ -190,7 +190,7 @@
             [:tr [:td "Traditional"] [:td "22 bytes"] [:td "7"]]]]
 
           [:p
-           "Semantic bytecode is roughly 2x more verbose in terms of instruction units, but each datom carries queryable semantic information that raw bytes lack. In terms of actual memory footprint, semantic datoms are significantly larger (roughly 20-50x), reflecting the storage cost of maintaining full metadata and structural queryability."]
+           "Semantic bytecode is currently more verbose in terms of instruction units, but each datom carries queryable semantic information that raw bytes lack. Furthermore, this overhead is not fundamental: datoms can be bitpacked into 64-bit numbers. Once this optimization is implemented, semantic bytecode will achieve size parity with traditional bytecode while retaining its superior queryability."]
 
           [:h2 "Platform Comparison"]
           [:p "Raw execution times for the nested AST benchmark (microseconds per call):"]
@@ -272,6 +272,7 @@
 
           [:p "Potential optimizations include:"]
           [:ul.bulleted
+           [:li "Bitpacking datoms into 64-bit numbers for memory parity with traditional bytecode"]
            [:li "Pre-indexing datoms by node ID (O(1) lookup instead of linear scan)"]
            [:li "Caching node attribute maps during execution"]
            [:li "Using arrays instead of vectors for hot paths"]
