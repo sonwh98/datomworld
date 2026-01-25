@@ -1,12 +1,12 @@
-#:blog{:title "Yin.vm in Dart: Dynamic Semantics on a Static Platform",
+#:blog{:title "Yin.vm on Dart: Portable cljc Meets Static Compilation",
        :date #inst "2026-01-24T00:00:00.000-00:00",
        :abstract
        [:p
         "ClojureDart compiles Clojure to Dart at build time, inheriting Dart's static compilation constraints. "
         "No runtime eval, no dynamic code loading, no traditional macros. But what if the dynamism moved from "
-        "the language into the data? By implementing Yin.vm as a CESK interpreter in Dart, we transform Dart "
-        "into a fixed substrate while datom ASTs become the dynamic, loadable, interpretable layer. "
-        "The result: full Lisp-like flexibility on Flutter's cross-platform runtime."],
+        "the language into the data? Yin.vm and the Yang compiler are written in portable cljc code, running on "
+        "JVM, JavaScript, and Dart via existing Clojure compilers. A native Dart implementation provides a "
+        "performance baseline. The result: full Lisp-like flexibility on Flutter's cross-platform runtime."],
        :content
        [:section.blog-article
         [:div.section-inner
@@ -41,13 +41,24 @@
           [:h2 "The Insight: Move Dynamism into Data"]
           [:p
            "The solution is conceptually simple but profound: "
-           [:strong "implement an interpreter in Dart, and make the interpreted language dynamic"]
+           [:strong "implement an interpreter that runs on Dart, and make the interpreted language dynamic"]
            "."]
           [:p
            "This is exactly what Yin.vm provides. Instead of trying to make Dart dynamic (impossible) or "
-           "accepting static constraints (limiting), we build a CESK continuation machine in Dart that "
-           "interprets datom ASTs. The Dart code is fixed and AOT-compiled. The datom ASTs are dynamic, "
+           "accepting static constraints (limiting), we build a CESK continuation machine that "
+           "interprets datom ASTs. The interpreter code is fixed and AOT-compiled. The datom ASTs are dynamic, "
            "loadable at runtime, and fully interpretable."]
+          [:p
+           "The key insight: "
+           [:strong "Yin.vm and the Yang compiler are written in portable cljc code"]
+           ". This means the same codebase runs on:"]
+          [:ul.bulleted
+           [:li "JVM (via Clojure)"]
+           [:li "JavaScript (via ClojureScript)"]
+           [:li "Dart/Flutter (via ClojureDart)"]]
+          [:p
+           "Write once, interpret everywhere. The interpreter itself leverages Clojure's cross-platform story "
+           "while providing dynamic semantics on top of static runtimes."]
           [:pre
            [:code
             {:class "language-text"}
@@ -200,8 +211,10 @@
            ". ASTs are not opaque bytecode but queryable, versionable, provenance-tracked data. "
            "The code itself participates in the same data model as everything else in the system."]
 
-          [:h2 "Implementation Considerations"]
-          [:p "Building Yin.vm in Dart requires attention to several areas:"]
+          [:h2 "Native Dart Implementation"]
+          [:p
+           "For the native Dart benchmark implementation, several areas require attention. "
+           "These patterns also inform optimizations that can be applied to hot paths in the cljc version:"]
 
           [:h3 "Efficient Datom Representation"]
           [:p
@@ -232,18 +245,43 @@
             {:class "language-dart"}
             "final primitives = &lt;Symbol, Function&gt;{\n  Symbol('+'):  (a, b) =&gt; a + b,\n  Symbol('-'):  (a, b) =&gt; a - b,\n  Symbol('*'):  (a, b) =&gt; a * b,\n  Symbol('cons'): (h, t) =&gt; [h, ...t],\n  Symbol('first'): (l) =&gt; l.first,\n  // ...\n};"]]
 
-          [:h2 "Beyond ClojureDart"]
+          [:h2 "Two Paths: Portable cljc and Native Dart"]
           [:p
-           "This architecture does not replace ClojureDart. It complements it. ClojureDart remains "
-           "valuable for writing the Dart layer: the Yin.vm interpreter itself, the Flutter widgets, "
-           "the native primitives. Clojure's expressiveness makes implementing the interpreter pleasant."]
+           "The implementation strategy follows two parallel paths:"]
+
+          [:h3 "Primary: Portable cljc"]
           [:p
-           "But for dynamic, runtime-modifiable logic, Yin.vm provides what ClojureDart cannot: "
-           "true code-as-data at runtime, not just at compile time."]
-          [:p
-           "The result is a layered architecture:"]
+           "Yin.vm and the Yang compiler are written in "
+           [:strong "portable cljc code"]
+           ". This leverages the existing Clojure compiler ecosystem:"]
           [:ul.bulleted
-           [:li [:strong "ClojureDart"] " for writing the interpreter and native primitives"]
+           [:li [:strong "Clojure"] " compiles cljc to JVM bytecode"]
+           [:li [:strong "ClojureScript"] " compiles cljc to JavaScript"]
+           [:li [:strong "ClojureDart"] " compiles cljc to Dart"]]
+          [:p
+           "One codebase, three platforms. The interpreter runs wherever Clojure runs. "
+           "ClojureDart handles the compilation to Dart; Yin.vm handles the dynamic interpretation on top."]
+
+          [:h3 "Secondary: Native Dart Implementation"]
+          [:p
+           "A separate Yin.vm implementation written directly in native Dart provides a "
+           [:strong "performance baseline"]
+           ". This allows us to measure:"]
+          [:ul.bulleted
+           [:li "How much overhead ClojureDart compilation introduces"]
+           [:li "Where native Dart optimizations might be beneficial"]
+           [:li "Whether hot paths should be rewritten in native Dart"]]
+          [:p
+           "The native Dart version serves as a benchmark, not a replacement. The portable cljc version "
+           "remains the primary implementation for maintainability and cross-platform consistency."]
+
+          [:h3 "The Resulting Architecture"]
+          [:p
+           "This dual approach yields a layered architecture:"]
+          [:ul.bulleted
+           [:li [:strong "cljc"] " for writing the interpreter and compiler (portable)"]
+           [:li [:strong "ClojureDart"] " for compiling cljc to Dart"]
+           [:li [:strong "Native Dart"] " for performance-critical primitives and benchmarking"]
            [:li [:strong "Yin.vm"] " for interpreting dynamic AST datoms"]
            [:li [:strong "DaoDB"] " for persisting and distributing code and continuations"]
            [:li [:strong "Flutter"] " for cross-platform UI rendering"]]
@@ -261,11 +299,16 @@
            "Continuations become serializable checkpoints, pausable and resumable across devices. "
            "Code becomes queryable, versionable, transformable while the system runs."]
           [:p
+           "By writing Yin.vm and the Yang compiler in portable cljc, we get the best of both worlds: "
+           [:strong "write once in Clojure, run on JVM, JavaScript, and Dart"]
+           ". The native Dart implementation serves as a performance benchmark, guiding optimizations "
+           "without sacrificing the maintainability of the portable codebase."]
+          [:p
            "This is not a workaround but a design principle: "
            [:strong "interpretation over compilation when flexibility matters more than raw speed"]
            ". The fixed interpreter provides a stable foundation. The dynamic AST provides unbounded extensibility."]
           [:p
-           "Yin.vm in Dart: where static compilation meets dynamic semantics."]
+           "Yin.vm on Dart: where static compilation meets dynamic semantics, and portability meets performance."]
 
           [:p [:strong "Related Reading:"]]
           [:ul.bulleted
