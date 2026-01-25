@@ -1,0 +1,139 @@
+(ns yin.bytecode-bench
+  (:require [yin.bytecode :as bc]
+            #?(:clj [clojure.test :refer [deftest is testing]]
+               :cljs [cljs.test :refer-macros [deftest is testing]])))
+
+(defn now-us []
+  #?(:clj (/ (System/nanoTime) 1000.0)
+     :cljs (* (js/performance.now) 1000)))
+
+(defn benchmark [f iterations]
+  (let [start (now-us)
+        _ (dotimes [_ iterations] (f))
+        end (now-us)]
+    (/ (- end start) iterations)))
+
+(def primitives {'+ + '- - '* * '/ / '< < '> > '= =})
+
+(def literal-ast {:type :literal :value 42})
+
+(def add-ast {:type :application
+              :operator {:type :variable :name '+}
+              :operands [{:type :literal :value 10}
+                         {:type :literal :value 20}]})
+
+(def lambda-ast {:type :application
+                 :operator {:type :lambda
+                            :params ['x]
+                            :body {:type :application
+                                   :operator {:type :variable :name '+}
+                                   :operands [{:type :variable :name 'x}
+                                              {:type :literal :value 1}]}}
+                 :operands [{:type :literal :value 10}]})
+
+(def nested-ast {:type :application
+                 :operator {:type :lambda
+                            :params ['x]
+                            :body {:type :application
+                                   :operator {:type :variable :name '+}
+                                   :operands [{:type :variable :name 'x}
+                                              {:type :application
+                                               :operator {:type :variable :name '*}
+                                               :operands [{:type :literal :value 2}
+                                                          {:type :literal :value 3}]}]}}
+                 :operands [{:type :literal :value 10}]})
+
+(def conditional-ast {:type :if
+                      :test {:type :application
+                             :operator {:type :variable :name '<}
+                             :operands [{:type :literal :value 5}
+                                        {:type :literal :value 10}]}
+                      :consequent {:type :literal :value :yes}
+                      :alternate {:type :literal :value :no}})
+
+(defn fmt [n]
+  #?(:clj (format "%.2f" (double n))
+     :cljs (.toFixed n 2)))
+
+(defn run-single-benchmark [name ast iterations]
+  (bc/reset-node-counter!)
+  (let [semantic-compiled (bc/compile ast)
+        [legacy-bytes legacy-pool] (bc/compile-legacy ast)
+
+        sem-compile (benchmark #(do (bc/reset-node-counter!) (bc/compile ast)) iterations)
+        leg-compile (benchmark #(bc/compile-legacy ast) iterations)
+
+        _ (bc/reset-node-counter!)
+        sem-compiled2 (bc/compile ast)
+        sem-run (benchmark #(bc/run-semantic sem-compiled2 primitives) iterations)
+        leg-run (benchmark #(bc/run-bytes legacy-bytes legacy-pool primitives) iterations)]
+
+    {:name name
+     :compile-semantic sem-compile
+     :compile-legacy leg-compile
+     :compile-ratio (/ sem-compile leg-compile)
+     :execute-semantic sem-run
+     :execute-legacy leg-run
+     :execute-ratio (/ sem-run leg-run)}))
+
+(defn print-benchmark [result]
+  (println (str "--- " (:name result) " ---"))
+  (println (str "  Compile - Semantic: " (fmt (:compile-semantic result)) " us | Legacy: " (fmt (:compile-legacy result))
+                " us | Ratio: " (fmt (:compile-ratio result)) "x"))
+  (println (str "  Execute - Semantic: " (fmt (:execute-semantic result)) " us | Legacy: " (fmt (:execute-legacy result))
+                " us | Ratio: " (fmt (:execute-ratio result)) "x"))
+  (println))
+
+(defn run-benchmarks []
+  (let [platform #?(:clj "CLJ" :cljs "CLJS")]
+    (println "")
+    (println "============================================")
+    (println (str platform " Bytecode Benchmark: Semantic vs Traditional"))
+    (println "============================================")
+    (println "")
+
+    ;; Warm up
+    (print "Warming up... ")
+    #?(:clj (flush))
+    (dotimes [_ 500]
+      (bc/reset-node-counter!)
+      (bc/compile nested-ast)
+      (bc/compile-legacy nested-ast)
+      (bc/run-semantic (bc/compile nested-ast) primitives)
+      (let [[b p] (bc/compile-legacy nested-ast)] (bc/run-bytes b p primitives)))
+    (println "done.")
+    (println "")
+
+    (let [iterations 5000
+          results [(run-single-benchmark "Literal (42)" literal-ast iterations)
+                   (run-single-benchmark "Addition (+ 10 20)" add-ast iterations)
+                   (run-single-benchmark "Lambda ((fn [x] (+ x 1)) 10)" lambda-ast iterations)
+                   (run-single-benchmark "Nested ((fn [x] (+ x (* 2 3))) 10)" nested-ast iterations)
+                   (run-single-benchmark "Conditional (if (< 5 10) :yes :no)" conditional-ast iterations)]]
+
+      (doseq [r results]
+        (print-benchmark r))
+
+      (println "--- Query Operations (semantic only) ---")
+      (bc/reset-node-counter!)
+      (let [compiled (bc/compile nested-ast)
+            datoms (:datoms compiled)]
+        (let [q (benchmark #(bc/find-applications datoms) iterations)]
+          (println (str "  find-applications:  " (fmt q) " us -> " (count (bc/find-applications datoms)) " found")))
+        (let [q (benchmark #(bc/find-lambdas datoms) iterations)]
+          (println (str "  find-lambdas:       " (fmt q) " us -> " (count (bc/find-lambdas datoms)) " found")))
+        (let [q (benchmark #(bc/find-variables datoms) iterations)]
+          (println (str "  find-variables:     " (fmt q) " us -> " (count (bc/find-variables datoms)) " found"))))
+
+      (println "")
+      (println "Summary: Semantic trades speed for queryability")
+      results)))
+
+;; Make it a test so it runs with the test suite
+(deftest ^:benchmark bytecode-benchmark-test
+  (testing "Benchmark semantic vs traditional bytecode"
+    (let [results (run-benchmarks)]
+      ;; Just verify benchmarks ran and returned results
+      (is (= 5 (count results)))
+      (is (every? #(< 0 (:compile-semantic %)) results))
+      (is (every? #(< 0 (:execute-semantic %)) results)))))

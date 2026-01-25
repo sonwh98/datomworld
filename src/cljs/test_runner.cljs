@@ -7,6 +7,7 @@
             [yin.vm-state-test]
             [yin.vm-basic-test]
             [yin.bytecode-test]
+            [yin.bytecode-bench]
             [yin.vm-continuation-test]
             [yin.vm-stream-test]))
 
@@ -18,6 +19,7 @@
              'yin.vm-state-test
              'yin.vm-basic-test
              'yin.bytecode-test
+             'yin.bytecode-bench
              'yin.vm-continuation-test
              'yin.vm-stream-test))
 
