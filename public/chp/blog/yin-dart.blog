@@ -219,7 +219,7 @@
           [:pre
            [:code
             {:class "language-dart"}
-            "sealed class Kont {}\n\nclass KontHalt extends Kont {}\n\nclass KontArg extends Kont {\n  final List<Object> evaluatedArgs;\n  final List<Datom> remainingArgs;\n  final Env env;\n  final Kont next;\n  // ...\n}\n\nclass KontFn extends Kont {\n  final List<Datom> args;\n  final Env env;\n  final Kont next;\n  // ...\n}"]]
+            "sealed class Kont {}\n\nclass KontHalt extends Kont {}\n\nclass KontArg extends Kont {\n  final List&lt;Object&gt; evaluatedArgs;\n  final List&lt;Datom&gt; remainingArgs;\n  final Env env;\n  final Kont next;\n  // ...\n}\n\nclass KontFn extends Kont {\n  final List&lt;Datom&gt; args;\n  final Env env;\n  final Kont next;\n  // ...\n}"]]
           [:p
            "Dart's sealed classes ensure exhaustive pattern matching on continuation types."]
 
@@ -230,7 +230,7 @@
           [:pre
            [:code
             {:class "language-dart"}
-            "final primitives = <Symbol, Function>{\n  Symbol('+'):  (a, b) => a + b,\n  Symbol('-'):  (a, b) => a - b,\n  Symbol('*'):  (a, b) => a * b,\n  Symbol('cons'): (h, t) => [h, ...t],\n  Symbol('first'): (l) => l.first,\n  // ...\n};"]]
+            "final primitives = &lt;Symbol, Function&gt;{\n  Symbol('+'):  (a, b) =&gt; a + b,\n  Symbol('-'):  (a, b) =&gt; a - b,\n  Symbol('*'):  (a, b) =&gt; a * b,\n  Symbol('cons'): (h, t) =&gt; [h, ...t],\n  Symbol('first'): (l) =&gt; l.first,\n  // ...\n};"]]
 
           [:h2 "Beyond ClojureDart"]
           [:p
