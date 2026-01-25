@@ -1,5 +1,5 @@
 #:blog{:title "Building the Immune System for Decentralized AI: How Datom.world Defends Against Poisoning Attacks",
-       :date #inst "2026-01-26T00:00:00.000-00:00",
+       :date #inst "2026-01-25T00:00:00.000-00:00",
        :abstract
        [:p
         "The promise of decentralized intelligence is vast: millions of IoT devices collaborating to train smarter AI "
