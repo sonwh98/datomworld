@@ -229,7 +229,7 @@
           [:p
            "This mirrors the distinction in "
            [:a {:href "/blog/universal-ast-vs-assembly.blog"} "Universal AST vs Assembly"]
-           ": assembly optimizes for hardware execution, while the Universal AST optimizes for semantic preservation."]
+           ": assembly optimizes for hardware execution, while the Universal AST optimizes for semantic preservation. Crucially, semantic preservation can be used to optimize for hardware execution (via JIT), but the reverse is not true: you cannot recover lost semantics from optimized assembly."]
 
           [:h2 "When to Use Each"]
 
