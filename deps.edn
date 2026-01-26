@@ -61,3 +61,4 @@
 ;; To start the emulator:                                                                                              ;; emulator -avd Pixel_3_API_34
 ;; flutter emulators --launch Pixel_3_API_34
 ;; emulator -avd Pixel_3_API_34 -no-snapshot-load  
+;; emulator -list-avds
