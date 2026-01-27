@@ -111,7 +111,7 @@
 ;; =============================================================================
 ;; These test the CONTRACT, not implementation details:
 ;; - Datoms are 5-tuples [e a v t m]
-;; - Entity IDs are integers
+;; - Entity IDs are tempids (negative integers)
 ;; - Attributes use :yin/ namespace
 ;; - Entity references correctly link parent to child nodes
 
@@ -121,10 +121,10 @@
       (is (every? #(= 5 (count %)) datoms)
           "Every datom must be a 5-tuple")))
 
-  (testing "Entity IDs are integers"
+  (testing "Entity IDs are tempids (negative integers)"
     (let [datoms (vec (vm/ast->datoms {:type :literal :value 42}))]
-      (is (every? #(integer? (first %)) datoms)
-          "Entity ID (position 0) must be an integer")))
+      (is (every? #(neg-int? (first %)) datoms)
+          "Entity ID (position 0) must be a negative integer tempid")))
 
   (testing "Attributes use :yin/ namespace"
     (let [datoms (vec (vm/ast->datoms {:type :literal :value 42}))
@@ -140,7 +140,7 @@
           "Metadata (position 4) defaults to 0 (nil metadata entity)"))))
 
 (deftest test-ast->datoms-entity-references
-  (testing "Lambda body is referenced by entity ID"
+  (testing "Lambda body is referenced by tempid"
     (let [datoms (vec (vm/ast->datoms {:type :lambda
                                        :params ['x]
                                        :body {:type :variable :name 'x}}))
@@ -150,10 +150,10 @@
           "Should have one lambda node")
       (is (some? body-ref-datom)
           "Lambda should have :yin/body attribute")
-      (is (integer? (nth body-ref-datom 2))
-          ":yin/body value should be an entity reference (integer)")))
+      (is (neg-int? (nth body-ref-datom 2))
+          ":yin/body value should be a tempid reference (negative integer)")))
 
-  (testing "Application operands are vector of entity references"
+  (testing "Application operands are vector of tempid references"
     (let [datoms (vec (vm/ast->datoms {:type :application
                                        :operator {:type :variable :name '+}
                                        :operands [{:type :literal :value 1}
@@ -163,8 +163,8 @@
           "Application should have :yin/operands attribute")
       (is (vector? (nth operands-datom 2))
           ":yin/operands should be a vector")
-      (is (every? integer? (nth operands-datom 2))
-          ":yin/operands should contain entity references (integers)"))))
+      (is (every? neg-int? (nth operands-datom 2))
+          ":yin/operands should contain tempid references (negative integers)"))))
 
 (deftest test-ast->datoms-options
   (testing "Custom transaction ID"
@@ -210,8 +210,8 @@
       (testing "All datoms are valid 5-tuples"
         (is (every? #(= 5 (count %)) datoms)
             "Every datom must be a 5-tuple")
-        (is (every? #(integer? (first %)) datoms)
-            "All entity IDs must be integers")
+        (is (every? #(neg-int? (first %)) datoms)
+            "All entity IDs must be negative integer tempids")
         (is (every? #(= "yin" (namespace (second %))) datoms)
             "All attributes must be in :yin/ namespace"))
 

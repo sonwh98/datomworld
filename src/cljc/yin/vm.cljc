@@ -45,16 +45,18 @@
 (defn ast->datoms
   "Convert AST map into lazy-seq of datoms. A datom is [e a v t m].
 
+   Entity IDs are tempids (negative integers: -1, -2, -3...) that get resolved
+   to actual entity IDs when transacted. The transactor assigns real positive IDs.
+
    Options:
      :t - transaction ID (default 0)
-     :m - metadata entity reference (default 0, nil metadata)
-     :start-id - starting entity ID (default 1)"
+     :m - metadata entity reference (default 0, nil metadata)"
   ([ast] (ast->datoms ast {}))
   ([ast opts]
-   (let [id-counter (atom (or (:start-id opts) 0))
+   (let [id-counter (atom 0)
          t (or (:t opts) 0)
          m (or (:m opts) 0)
-         gen-id #(swap! id-counter inc)]
+         gen-id #(swap! id-counter dec)]
      (letfn [(emit [e attr val]
                [e attr val t m])
 
@@ -161,41 +163,45 @@
   ;; ast->datoms exploration
   ;; If these examples don't work, DELETE this block
 
-  ;; Simple literal: produces 2 datoms
+  ;; Simple literal: produces 2 datoms with negative tempids
   (ast->datoms {:type :literal :value 42})
-  ;; => ([1 :yin/type :literal 0 0]
-  ;;     [1 :yin/value 42 0 0])
+  ;; => ([-1 :yin/type :literal 0 0]
+  ;;     [-1 :yin/value 42 0 0])
 
-  ;; Lambda with body: parent references child via entity ID
+  ;; Lambda with body: parent references child via tempid
   (ast->datoms {:type :lambda :params ['x] :body {:type :variable :name 'x}})
-  ;; => ([1 :yin/type :lambda 0 0]
-  ;;     [1 :yin/params [x] 0 0]
-  ;;     [1 :yin/body 2 0 0]      ; entity 1 references entity 2
-  ;;     [2 :yin/type :variable 0 0]
-  ;;     [2 :yin/name x 0 0])
+  ;; => ([-1 :yin/type :lambda 0 0]
+  ;;     [-1 :yin/params [x] 0 0]
+  ;;     [-1 :yin/body -2 0 0]      ; tempid -1 references tempid -2
+  ;;     [-2 :yin/type :variable 0 0]
+  ;;     [-2 :yin/name x 0 0])
 
-  ;; Application (+ 1 2): operator and operands are entity references
+  ;; Application (+ 1 2): operator and operands are tempid references
   (ast->datoms {:type :application
                 :operator {:type :variable :name '+}
                 :operands [{:type :literal :value 1}
                            {:type :literal :value 2}]})
-  ;; => ([1 :yin/type :application 0 0]
-  ;;     [1 :yin/operator 2 0 0]
-  ;;     [1 :yin/operands [3 4] 0 0]
-  ;;     [2 :yin/type :variable 0 0]
-  ;;     [2 :yin/name + 0 0]
-  ;;     [3 :yin/type :literal 0 0]
-  ;;     [3 :yin/value 1 0 0]
-  ;;     [4 :yin/type :literal 0 0]
-  ;;     [4 :yin/value 2 0 0])
+  ;; => ([-1 :yin/type :application 0 0]
+  ;;     [-1 :yin/operator -2 0 0]
+  ;;     [-1 :yin/operands [-3 -4] 0 0]
+  ;;     [-2 :yin/type :variable 0 0]
+  ;;     [-2 :yin/name + 0 0]
+  ;;     [-3 :yin/type :literal 0 0]
+  ;;     [-3 :yin/value 1 0 0]
+  ;;     [-4 :yin/type :literal 0 0]
+  ;;     [-4 :yin/value 2 0 0])
 
   ;; Custom transaction ID and metadata
   (ast->datoms {:type :literal :value 99} {:t 1000 :m 5})
-  ;; => ([1 :yin/type :literal 1000 5]
-  ;;     [1 :yin/value 99 1000 5])
+  ;; => ([-1 :yin/type :literal 1000 5]
+  ;;     [-1 :yin/value 99 1000 5])
 
   ;; Verify datom shape: all datoms are 5-tuples [e a v t m]
   (every? #(= 5 (count %)) (ast->datoms {:type :literal :value 42}))
+  ;; => true
+
+  ;; Tempids are negative integers, resolved to positive IDs by transactor
+  (every? neg-int? (map first (ast->datoms {:type :literal :value 42})))
   ;; => true
   )
 
