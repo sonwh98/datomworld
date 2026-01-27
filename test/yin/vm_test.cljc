@@ -106,6 +106,140 @@
           (is (= 6 (:value result))
               "((lambda (x) (+ x 1)) 5) should evaluate to 6"))))))
 
+;; =============================================================================
+;; ast->datoms interface tests
+;; =============================================================================
+;; These test the CONTRACT, not implementation details:
+;; - Datoms are 5-tuples [e a v t m]
+;; - Entity IDs are integers
+;; - Attributes use :yin/ namespace
+;; - Entity references correctly link parent to child nodes
+
+(deftest test-ast->datoms-shape
+  (testing "All datoms are 5-tuples [e a v t m]"
+    (let [datoms (vec (vm/ast->datoms {:type :literal :value 42}))]
+      (is (every? #(= 5 (count %)) datoms)
+          "Every datom must be a 5-tuple")))
+
+  (testing "Entity IDs are integers"
+    (let [datoms (vec (vm/ast->datoms {:type :literal :value 42}))]
+      (is (every? #(integer? (first %)) datoms)
+          "Entity ID (position 0) must be an integer")))
+
+  (testing "Attributes use :yin/ namespace"
+    (let [datoms (vec (vm/ast->datoms {:type :literal :value 42}))
+          attrs (map second datoms)]
+      (is (every? #(= "yin" (namespace %)) attrs)
+          "All attributes must be in :yin/ namespace")))
+
+  (testing "Transaction ID and metadata default to 0"
+    (let [datoms (vec (vm/ast->datoms {:type :literal :value 42}))]
+      (is (every? #(= 0 (nth % 3)) datoms)
+          "Transaction ID (position 3) defaults to 0")
+      (is (every? #(= 0 (nth % 4)) datoms)
+          "Metadata (position 4) defaults to 0 (nil metadata entity)"))))
+
+(deftest test-ast->datoms-entity-references
+  (testing "Lambda body is referenced by entity ID"
+    (let [datoms (vec (vm/ast->datoms {:type :lambda
+                                       :params ['x]
+                                       :body {:type :variable :name 'x}}))
+          lambda-datoms (filter #(= :lambda (nth % 2)) datoms)
+          body-ref-datom (first (filter #(= :yin/body (second %)) datoms))]
+      (is (= 1 (count lambda-datoms))
+          "Should have one lambda node")
+      (is (some? body-ref-datom)
+          "Lambda should have :yin/body attribute")
+      (is (integer? (nth body-ref-datom 2))
+          ":yin/body value should be an entity reference (integer)")))
+
+  (testing "Application operands are vector of entity references"
+    (let [datoms (vec (vm/ast->datoms {:type :application
+                                       :operator {:type :variable :name '+}
+                                       :operands [{:type :literal :value 1}
+                                                  {:type :literal :value 2}]}))
+          operands-datom (first (filter #(= :yin/operands (second %)) datoms))]
+      (is (some? operands-datom)
+          "Application should have :yin/operands attribute")
+      (is (vector? (nth operands-datom 2))
+          ":yin/operands should be a vector")
+      (is (every? integer? (nth operands-datom 2))
+          ":yin/operands should contain entity references (integers)"))))
+
+(deftest test-ast->datoms-options
+  (testing "Custom transaction ID"
+    (let [datoms (vec (vm/ast->datoms {:type :literal :value 42} {:t 1000}))]
+      (is (every? #(= 1000 (nth % 3)) datoms)
+          "Transaction ID should be 1000")))
+
+  (testing "Custom metadata entity"
+    (let [datoms (vec (vm/ast->datoms {:type :literal :value 42} {:m 5}))]
+      (is (every? #(= 5 (nth % 4)) datoms)
+          "Metadata entity should be 5"))))
+
+(deftest test-ast->datoms-fibonacci
+  (testing "Fibonacci lambda produces valid datoms"
+    ;; (lambda (n)
+    ;;   (if (< n 2)
+    ;;     n
+    ;;     (+ (fib (- n 1)) (fib (- n 2)))))
+    (let [fib-ast {:type :lambda
+                   :params ['n]
+                   :body {:type :if
+                          :test {:type :application
+                                 :operator {:type :variable :name '<}
+                                 :operands [{:type :variable :name 'n}
+                                            {:type :literal :value 2}]}
+                          :consequent {:type :variable :name 'n}
+                          :alternate {:type :application
+                                      :operator {:type :variable :name '+}
+                                      :operands [{:type :application
+                                                  :operator {:type :variable :name 'fib}
+                                                  :operands [{:type :application
+                                                              :operator {:type :variable :name '-}
+                                                              :operands [{:type :variable :name 'n}
+                                                                         {:type :literal :value 1}]}]}
+                                                 {:type :application
+                                                  :operator {:type :variable :name 'fib}
+                                                  :operands [{:type :application
+                                                              :operator {:type :variable :name '-}
+                                                              :operands [{:type :variable :name 'n}
+                                                                         {:type :literal :value 2}]}]}]}}}
+          datoms (vec (vm/ast->datoms fib-ast))]
+
+      (testing "All datoms are valid 5-tuples"
+        (is (every? #(= 5 (count %)) datoms)
+            "Every datom must be a 5-tuple")
+        (is (every? #(integer? (first %)) datoms)
+            "All entity IDs must be integers")
+        (is (every? #(= "yin" (namespace (second %))) datoms)
+            "All attributes must be in :yin/ namespace"))
+
+      (testing "Contains expected node types"
+        (let [types (->> datoms
+                         (filter #(= :yin/type (second %)))
+                         (map #(nth % 2))
+                         frequencies)]
+          (is (= 1 (get types :lambda))
+              "Should have 1 lambda")
+          (is (= 1 (get types :if))
+              "Should have 1 if")
+          (is (= 6 (get types :application))
+              "Should have 6 applications: <, +, fib, -, fib, -")
+          (is (= 10 (get types :variable))
+              "Should have 10 variables: <, n, n, +, fib, -, n, fib, -, n")
+          (is (= 3 (get types :literal))
+              "Should have 3 literals: 2, 1, 2")))
+
+      (testing "Entity references form valid graph"
+        (let [entity-ids (set (map first datoms))
+              refs (->> datoms
+                        (filter #(#{:yin/body :yin/operator :yin/test
+                                    :yin/consequent :yin/alternate} (second %)))
+                        (map #(nth % 2)))]
+          (is (every? #(contains? entity-ids %) refs)
+              "All entity references should point to existing entities"))))))
+
 (comment
   ;; REPL usage examples:
 

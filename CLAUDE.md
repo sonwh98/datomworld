@@ -39,7 +39,16 @@ Components:
   a: Attribute. Namespaced keyword.
   v: Value. Ground value or entity reference.
   t: Transaction ID. Monotonic integer within its stream.
-  m: Metadata entity. Used for provenance, access control, and cross-stream causality.
+  m: Metadata entity reference (always an integer, never language-level nil).
+     Used for provenance, access control, and cross-stream causality.
+
+Nil Metadata Entity:
+  When a datom has no metadata, m points to entity 0 (the nil metadata entity).
+  Entity 0 is defined by these primordial datoms:
+    [0 :db/ident :db.meta/nil 0 0]
+    [0 :db/doc "Nil metadata. Used when a datom has no associated metadata." 0 0]
+  The nil entity is self-referential: its own m field points to itself (fixed point).
+  Checking for nil metadata: (zero? m) or (= m 0).
 
 Time (t) is intrinsic and stream-local.
 Metadata (m) establishes causality across streams (since t is local).

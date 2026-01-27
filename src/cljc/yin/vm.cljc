@@ -42,6 +42,163 @@
    :continuation nil
    :value nil})
 
+(defn ast->datoms
+  "Convert AST map into lazy-seq of datoms. A datom is [e a v t m].
+
+   Options:
+     :t - transaction ID (default 0)
+     :m - metadata entity reference (default 0, nil metadata)
+     :start-id - starting entity ID (default 1)"
+  ([ast] (ast->datoms ast {}))
+  ([ast opts]
+   (let [id-counter (atom (or (:start-id opts) 0))
+         t (or (:t opts) 0)
+         m (or (:m opts) 0)
+         gen-id #(swap! id-counter inc)]
+     (letfn [(emit [e attr val]
+               [e attr val t m])
+
+             (convert [node]
+               (let [e (gen-id)
+                     {:keys [type]} node]
+                 (case type
+                   :literal
+                   (lazy-seq
+                    (list (emit e :yin/type :literal)
+                          (emit e :yin/value (:value node))))
+
+                   :variable
+                   (lazy-seq
+                    (list (emit e :yin/type :variable)
+                          (emit e :yin/name (:name node))))
+
+                   :lambda
+                   (let [body-datoms (convert (:body node))
+                         body-id (first (first body-datoms))]
+                     (lazy-cat
+                      (list (emit e :yin/type :lambda)
+                            (emit e :yin/params (:params node))
+                            (emit e :yin/body body-id))
+                      body-datoms))
+
+                   :application
+                   (let [op-datoms (convert (:operator node))
+                         op-id (first (first op-datoms))
+                         operand-results (map convert (:operands node))
+                         operand-ids (map #(first (first %)) operand-results)]
+                     (lazy-cat
+                      (list (emit e :yin/type :application)
+                            (emit e :yin/operator op-id)
+                            (emit e :yin/operands (vec operand-ids)))
+                      op-datoms
+                      (apply concat operand-results)))
+
+                   :if
+                   (let [test-datoms (convert (:test node))
+                         test-id (first (first test-datoms))
+                         cons-datoms (convert (:consequent node))
+                         cons-id (first (first cons-datoms))
+                         alt-datoms (convert (:alternate node))
+                         alt-id (first (first alt-datoms))]
+                     (lazy-cat
+                      (list (emit e :yin/type :if)
+                            (emit e :yin/test test-id)
+                            (emit e :yin/consequent cons-id)
+                            (emit e :yin/alternate alt-id))
+                      test-datoms
+                      cons-datoms
+                      alt-datoms))
+
+                   ;; VM primitives
+                   :vm/gensym
+                   (lazy-seq
+                    (list (emit e :yin/type :vm/gensym)
+                          (emit e :yin/prefix (or (:prefix node) "id"))))
+
+                   :vm/store-get
+                   (lazy-seq
+                    (list (emit e :yin/type :vm/store-get)
+                          (emit e :yin/key (:key node))))
+
+                   :vm/store-put
+                   (lazy-seq
+                    (list (emit e :yin/type :vm/store-put)
+                          (emit e :yin/key (:key node))
+                          (emit e :yin/val (:val node))))
+
+                   ;; Stream operations
+                   :stream/make
+                   (lazy-seq
+                    (list (emit e :yin/type :stream/make)
+                          (emit e :yin/buffer (or (:buffer node) 1024))))
+
+                   :stream/put
+                   (let [target-datoms (convert (:target node))
+                         target-id (first (first target-datoms))
+                         val-datoms (convert (:val node))
+                         val-id (first (first val-datoms))]
+                     (lazy-cat
+                      (list (emit e :yin/type :stream/put)
+                            (emit e :yin/target target-id)
+                            (emit e :yin/val val-id))
+                      target-datoms
+                      val-datoms))
+
+                   :stream/take
+                   (let [source-datoms (convert (:source node))
+                         source-id (first (first source-datoms))]
+                     (lazy-cat
+                      (list (emit e :yin/type :stream/take)
+                            (emit e :yin/source source-id))
+                      source-datoms))
+
+                   ;; Default
+                   (throw (ex-info "Unknown AST node type" {:type type :node node})))))]
+
+       (convert ast)))))
+
+(comment
+  ;; ast->datoms exploration
+  ;; If these examples don't work, DELETE this block
+
+  ;; Simple literal: produces 2 datoms
+  (ast->datoms {:type :literal :value 42})
+  ;; => ([1 :yin/type :literal 0 0]
+  ;;     [1 :yin/value 42 0 0])
+
+  ;; Lambda with body: parent references child via entity ID
+  (ast->datoms {:type :lambda :params ['x] :body {:type :variable :name 'x}})
+  ;; => ([1 :yin/type :lambda 0 0]
+  ;;     [1 :yin/params [x] 0 0]
+  ;;     [1 :yin/body 2 0 0]      ; entity 1 references entity 2
+  ;;     [2 :yin/type :variable 0 0]
+  ;;     [2 :yin/name x 0 0])
+
+  ;; Application (+ 1 2): operator and operands are entity references
+  (ast->datoms {:type :application
+                :operator {:type :variable :name '+}
+                :operands [{:type :literal :value 1}
+                           {:type :literal :value 2}]})
+  ;; => ([1 :yin/type :application 0 0]
+  ;;     [1 :yin/operator 2 0 0]
+  ;;     [1 :yin/operands [3 4] 0 0]
+  ;;     [2 :yin/type :variable 0 0]
+  ;;     [2 :yin/name + 0 0]
+  ;;     [3 :yin/type :literal 0 0]
+  ;;     [3 :yin/value 1 0 0]
+  ;;     [4 :yin/type :literal 0 0]
+  ;;     [4 :yin/value 2 0 0])
+
+  ;; Custom transaction ID and metadata
+  (ast->datoms {:type :literal :value 99} {:t 1000 :m 5})
+  ;; => ([1 :yin/type :literal 1000 5]
+  ;;     [1 :yin/value 99 1000 5])
+
+  ;; Verify datom shape: all datoms are 5-tuples [e a v t m]
+  (every? #(= 5 (count %)) (ast->datoms {:type :literal :value 42}))
+  ;; => true
+  )
+
 (defn eval
   "Steps the CESK machine to evaluate an AST node.
 
