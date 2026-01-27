@@ -21,7 +21,7 @@
 ;; - Explicit: every relationship is a separate fact
 ;; - Composable: Datalog queries over semantic primitives
 ;;
-;; The bytecode is canonical. Syntax (Clojure, Python, etc.) is a rendering.
+;; The AST as datoms is canonical. Syntax (Clojure, Python, etc.) is a rendering.
 ;; =============================================================================
 
 ;; --- Node ID Generation ---
