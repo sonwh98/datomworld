@@ -129,7 +129,9 @@
 
                    [:p "Stream types determine entity ID size. Constrained edge devices can use streams typed with entity IDs as small as 16-bit. When a continuation migrates to the cloud, the remote DaoDB upgrades entity IDs to 128-bit: the originating node's 64-bit ID becomes the high bits, and the original entity ID is zero-extended to fill the low bits. The node ID acts as a namespace jail. The remote DaoDB's own entities have node ID zero, while migrated entities retain their originating node ID. All entity references within the migrated datoms are interpreted relative to the originating node ID."]
 
-                   [:p "This structure accommodates trillions of devices. The 64-bit node ID space supports billions of nodes, each with its own 64-bit entity ID space, ensuring isolation while allowing entities to coexist on the same remote DaoDB."]
+                   [:p "This structure accommodates trillions of devices. The 64-bit node ID space supports billions of nodes, each with its own 64-bit entity ID space, ensuring isolation while allowing entities to coexist on the same remote DaoDB. This mirrors IPv6's design: 64-bit network prefix plus 64-bit interface ID."]
+
+                   [:p "Entity IDs 0-1024 are reserved for system entities (built-in attributes like " [:code ":db/ident"] ", type markers, and other primitives) with universal meaning across all namespaces. User entities start at 1025, which serves as the \"zero basis\" for user data. On migration, the zero basis changes but entity IDs remain unchanged because they are relative offsets."]
 
                    [:p "Why not UUIDs or sequential UUIDs (squuids)?"]
                    [:ul
@@ -166,6 +168,11 @@
                     [:li "The datom stream is the single source of truth"]
                     [:li "Interpreters materialize views optimized for different purposes"]
                     [:li "New interpreters can be added without changing the underlying data"]]
+
+                   [:h3 "Streams: Bounded and Unbounded"]
+                   [:p "Streams can be " [:strong "open"] " (unbounded, still receiving datoms) or " [:strong "bounded"] " (closed at some transaction " [:code "t"] ", finite, stable for reasoning). A bounded stream " [:em "is"] " the database value. There is no separate \"value\" type. Stability comes from bounding, not from a different abstraction."]
+
+                   [:p "Datalog queries (" [:code "d/q"] ") work on any bounded stream. A raw stream without indexes requires O(n) scan. A DaoDB-managed stream with EAVT/AEVT/AVET/VAET indexes enables O(log n) lookup. Same interface, same semantics, different performance. Indexes are a performance optimization, not a semantic requirement."]
 
                    [:h2 "Restrictions as Features"]
                    [:p "Datoms are more restrictive than RDF:"]
