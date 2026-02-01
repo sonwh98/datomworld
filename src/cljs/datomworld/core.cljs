@@ -29,6 +29,7 @@
                             :result nil
                             :bytecode-result nil
                             :compiled nil
+                            :bytecode-stats nil
                             :error nil}))
 
 (defn codemirror-editor [{:keys [value on-change read-only]}]
@@ -87,14 +88,24 @@
   (let [input (:ast-as-text @app-state)]
     (try
       (let [forms (reader/read-string (str "[" input "]"))
-            compiled-results (mapv (fn [ast]
-                                     (let [[bytes pool] (bc/compile ast)]
-                                       {:bytes bytes :pool pool}))
-                                   forms)]
-        (swap! app-state assoc :compiled compiled-results :error nil)
+            ;; Reset node counter for consistent IDs
+            _ (bc/reset-node-counter!)
+            ;; Compile to semantic bytecode (datoms)
+            compiled-results (mapv bc/compile forms)
+            ;; Compute stats for all compiled forms
+            all-datoms (mapcat :datoms compiled-results)
+            stats {:total-datoms (count all-datoms)
+                   :lambdas (count (bc/find-lambdas all-datoms))
+                   :applications (count (bc/find-applications all-datoms))
+                   :variables (count (bc/find-variables all-datoms))
+                   :literals (count (bc/find-by-type all-datoms :literal))}]
+        (swap! app-state assoc
+               :compiled compiled-results
+               :bytecode-stats stats
+               :error nil)
         compiled-results)
       (catch js/Error e
-        (swap! app-state assoc :error (.-message e) :compiled nil)
+        (swap! app-state assoc :error (.-message e) :compiled nil :bytecode-stats nil)
         nil))))
 
 (defn run-bytecode []
@@ -104,12 +115,13 @@
     (when (seq compiled-results)
       (try
         (let [initial-env vm/primitives
-              results (mapv (fn [{:keys [bytes pool]}]
-                              (bc/run-bytes bytes pool initial-env))
+              ;; Run semantic bytecode (traverses datom graph by node reference)
+              results (mapv (fn [compiled]
+                              (bc/run-semantic compiled initial-env))
                             compiled-results)]
           (swap! app-state assoc :bytecode-result (last results) :error nil))
         (catch js/Error e
-          (swap! app-state assoc :error (str "Bytecode Error: " (.-message e)) :bytecode-result nil))))))
+          (swap! app-state assoc :error (str "Semantic Bytecode Error: " (.-message e)) :bytecode-result nil))))))
 
 (defn compile-clojure []
   (let [input (:clojure-code @app-state)]
@@ -146,27 +158,38 @@
      [codemirror-editor {:value (:ast-as-text @app-state)
                          :on-change #(swap! app-state assoc :ast-as-text %)}]]
 
-    ;; Arrow 2: AST -> Bytecode
+    ;; Arrow 2: AST -> Semantic Bytecode
     [:div {:style {:margin "0 10px" :margin-right "10px" :display "flex" :flex-direction "column" :justify-content "center" :height "300px"}}
      [:button {:on-click compile-ast :style {:padding "5px"}}
-      "Compile to bytecode ->"]]
+      "Compile to datoms ->"]]
 
-    ;; Column 3: Compiled Bytecode
+    ;; Column 3: Compiled Semantic Bytecode
     [:div {:style {:width "450px"}}
-     [:label {:style {:font-weight "bold"}} "Compiled Bytecode:"]
+     [:label {:style {:font-weight "bold"}} "Semantic Bytecode (Datoms):"]
      [:br]
      [codemirror-editor {:value (if-let [compiled (:compiled @app-state)]
-                                  (pretty-print compiled)
+                                  (pretty-print (mapv :datoms compiled))
                                   "")
                          :read-only true}]
+     ;; Show queryable stats
+     (when-let [stats (:bytecode-stats @app-state)]
+       [:div {:style {:font-size "0.8em" :color "#666" :margin-top "5px"
+                      :background "#f5f5f5" :padding "8px" :border-radius "4px"}}
+        [:strong "Queryable Stats:"]
+        [:ul {:style {:margin "5px 0" :padding-left "20px"}}
+         [:li "Total datoms: " (:total-datoms stats)]
+         [:li "Lambdas: " (:lambdas stats)]
+         [:li "Applications: " (:applications stats)]
+         [:li "Variables: " (:variables stats)]
+         [:li "Literals: " (:literals stats)]]])
      [:div {:style {:font-size "0.8em" :color "#666" :margin-top "5px"}}
-      "Note: Bytecode VM does not yet support 'def' or side effects."]]]
+      "Semantic bytecode preserves meaning and is queryable."]]]
 
    [:div {:style {:margin-bottom "20px"}}
     [:button {:on-click evaluate-ast :style {:margin-right "10px"}}
      "Evaluate AST"]
     [:button {:on-click run-bytecode}
-     "Run Bytecode"]]
+     "Run Semantic Bytecode"]]
 
    (when-let [error (:error @app-state)]
      [:div {:style {:color "red"}}
@@ -180,7 +203,7 @@
 
    (when (contains? @app-state :bytecode-result)
      [:div
-      [:h3 "Bytecode Run Result:"]
+      [:h3 "Semantic Bytecode Result:"]
       [:pre (pr-str (:bytecode-result @app-state))]])
 
    [:div {:style {:margin-top "20px" :font-size "0.8em"}}

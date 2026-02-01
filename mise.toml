@@ -3,4 +3,16 @@ java = ["21", "17"]
 clojure = "1.12.4.1582"
 node = "22.21.1"
 android-sdk = "latest"
-flutter = "latest"
+flutter = { version = "3.38.9-stable", platforms = """
+[linux-x64]
+url = "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_{{ version }}-stable.tar.xz"
+
+[macos-arm64]
+url = "https://storage.googleapis.com/flutter_infra_release/releases/stable/macos/flutter_macos_arm64_{{ version }}-stable.zip"
+
+[macos-x64]
+url = "https://storage.googleapis.com/flutter_infra_release/releases/stable/macos/flutter_macos_{{ version }}-stable.zip"
+
+[windows-x64]
+url = "https://storage.googleapis.com/flutter_infra_release/releases/stable/windows/flutter_windows_{{ version }}-stable.zip"
+""", version_json_path = ".releases[?channel=stable].version", version_list_url = "https://storage.googleapis.com/flutter_infra_release/releases/releases_linux.json" }

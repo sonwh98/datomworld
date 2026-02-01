@@ -1,0 +1,316 @@
+#:blog{:title
+       "Semantic Bytecode Benchmarks: The Cost of Queryability",
+       :date #inst "2026-01-27T00:00:00.000-00:00",
+       :abstract
+       [:p
+        "We benchmark semantic bytecode (datom triples) against traditional numeric bytecode across three platforms: JVM, Node.js, and Dart. The results quantify the tradeoff: semantic bytecode is 4-11x slower to compile and 1-7x slower to execute, but enables queries that are impossible with numeric bytecode. "
+        [:strong "The cost of introspection is measurable, but so is the value."]],
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+
+          [:h2 "The Experiment"]
+          [:p
+           "In "
+           [:a {:href "/blog/universal-ast-vs-assembly.blog"} "Universal AST vs Assembly"]
+           ", we argued that the Universal AST should be \"RISC for semantics\": low-level in form (flat, explicit datoms) but high-level in meaning (preserving semantic relationships). We implemented this idea in "
+           [:code "yin.bytecode"]
+           ", creating two bytecode representations:"]
+
+          [:ul.bulleted
+           [:li
+            [:strong "Traditional (numeric)"]
+            ": Sequential bytes like "
+            [:code "[1 0 1 1 4 2]"]
+            " (opcode + operands)"]
+           [:li
+            [:strong "Semantic (datoms)"]
+            ": Queryable triples like "
+            [:code "[[:node/1 :op/type :literal] [:node/1 :op/value 42]]"]]]
+
+          [:p "The question: what does queryability cost?"]
+
+          [:h2 "Methodology"]
+          [:p "We ran identical benchmarks across three Clojure platforms:"]
+          [:ul.bulleted
+           [:li [:strong "CLJ"] " (JVM): Clojure on Java 21"]
+           [:li [:strong "CLJS"] " (Node.js): ClojureScript on Node 22"]
+           [:li [:strong "CLJD"] " (Dart): ClojureDart on Dart 3.4"]]
+
+          [:p "Each benchmark:"]
+          [:ol
+           [:li "Warms up the runtime (500 iterations)"]
+           [:li "Runs 5000 iterations of compilation"]
+           [:li "Runs 5000 iterations of execution"]
+           [:li "Reports microseconds per operation"]]
+
+          [:p "Test cases range from trivial (literal value) to complex (nested lambda with multiple operations):"]
+
+          [:pre
+           [:code
+            ";; Literal\n{:type :literal :value 42}\n\n;; Addition\n{:type :application\n :operator {:type :variable :name '+}\n :operands [{:type :literal :value 10}\n            {:type :literal :value 20}]}\n\n;; Lambda\n((fn [x] (+ x 1)) 10)\n\n;; Nested\n((fn [x] (+ x (* 2 3))) 10)\n\n;; Conditional\n(if (< 5 10) :yes :no)"]]
+
+          [:h2 "Results: Compilation Performance"]
+          [:p "How much slower is semantic bytecode to " [:em "compile"] "?"]
+
+          [:table
+           [:thead
+            [:tr
+             [:th "Test Case"]
+             [:th "CLJ (JVM)"]
+             [:th "CLJS (Node)"]
+             [:th "CLJD (Dart)"]]]
+           [:tbody
+            [:tr [:td "Literal"] [:td "6.4x"] [:td "7.2x"] [:td "11.4x"]]
+            [:tr [:td "Addition"] [:td "5.1x"] [:td "6.2x"] [:td "10.1x"]]
+            [:tr [:td "Lambda"] [:td "9.3x"] [:td "4.9x"] [:td "5.7x"]]
+            [:tr [:td "Nested"] [:td "6.2x"] [:td "3.9x"] [:td "4.3x"]]
+            [:tr [:td "Conditional"] [:td "3.3x"] [:td "4.9x"] [:td "6.9x"]]]]
+
+          [:p
+           "Semantic bytecode is "
+           [:strong "4-11x slower to compile"]
+           ". This overhead comes from:"]
+          [:ul.bulleted
+           [:li "Generating unique node IDs for each instruction"]
+           [:li "Creating datom triples instead of appending bytes"]
+           [:li "Building the constant pool with keyword references"]
+           [:li "Preserving metadata (arity, params, value types)"]]
+
+          [:h2 "Results: Execution Performance"]
+          [:p "How much slower is semantic bytecode to " [:em "execute"] "?"]
+
+          [:table
+           [:thead
+            [:tr
+             [:th "Test Case"]
+             [:th "CLJ (JVM)"]
+             [:th "CLJS (Node)"]
+             [:th "CLJD (Dart)"]]]
+           [:tbody
+            [:tr [:td "Literal"] [:td "2.3x"] [:td "7.3x"] [:td "4.3x"]]
+            [:tr [:td "Addition"] [:td "1.0x"] [:td "2.0x"] [:td "2.3x"]]
+            [:tr [:td "Lambda"] [:td "1.7x"] [:td "2.5x"] [:td "3.0x"]]
+            [:tr [:td "Nested"] [:td "2.5x"] [:td "2.3x"] [:td "2.4x"]]
+            [:tr [:td "Conditional"] [:td "1.1x"] [:td "1.4x"] [:td "1.9x"]]]]
+
+          [:p
+           "Semantic bytecode is "
+           [:strong "1-7x slower to execute"]
+           ". The overhead comes from:"]
+          [:ul.bulleted
+           [:li "Graph traversal by node reference (vs sequential byte reading)"]
+           [:li "Map lookups for node attributes (vs array indexing)"]
+           [:li "Building node attribute maps at each step"]]
+
+          [:p
+           "Notably, the JVM shows the smallest execution overhead (often near 1x). The JVM's optimizing JIT compiler can inline the map lookups and eliminate much of the abstraction cost."]
+
+          [:h2 "Results: Query Performance"]
+          [:p
+           "The key advantage of semantic bytecode is queryability. How fast are queries?"]
+
+          [:table
+           [:thead
+            [:tr
+             [:th "Query"]
+             [:th "CLJ"]
+             [:th "CLJS"]
+             [:th "CLJD"]]]
+           [:tbody
+            [:tr [:td "find-applications"] [:td "3.51 us"] [:td "8.62 us"] [:td "9.78 us"]]
+            [:tr [:td "find-lambdas"] [:td "3.23 us"] [:td "5.66 us"] [:td "4.67 us"]]
+            [:tr [:td "find-variables"] [:td "1.45 us"] [:td "6.18 us"] [:td "4.68 us"]]]]
+
+          [:p "These queries find all nodes of a given type in the compiled bytecode. With traditional numeric bytecode, these queries are " [:strong "impossible"] " without parsing the byte stream and reconstructing semantic information."]
+
+          [:p "Example queries enabled by semantic bytecode:"]
+          [:pre
+           [:code
+            ";; Find all function applications\n(bc/find-applications datoms)  ; => #{:node/4 :node/7 :node/9}\n\n;; Find all lambdas\n(bc/find-lambdas datoms)       ; => #{:node/5}\n\n;; Get attributes for a specific node\n(bc/get-node-attrs datoms :node/5)\n; => {:op/type :lambda\n;     :op/arity 1\n;     :op/params [x]\n;     :op/captures-env? true}"]]
+
+          [:h3 "The Real Win: Semantic JIT Optimization"]
+          [:p
+           [:strong "Fast queries are the biggest benefit of semantic bytecode"]
+           ", not despite the execution overhead, but because they enable optimizations that are "
+           [:em "impossible"]
+           " with traditional bytecode."]
+
+          [:p "Consider what a JIT compiler can do with queryable bytecode:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Find all call sites"]
+            " for a function and inline them"]
+           [:li
+            [:strong "Detect pure functions"]
+            " (no mutations) and memoize results"]
+           [:li
+            [:strong "Identify hot loops"]
+            " by querying application patterns"]
+           [:li
+            [:strong "Specialize polymorphic calls"]
+            " based on observed argument types"]
+           [:li
+            [:strong "Eliminate dead code"]
+            " by finding unreachable nodes"]
+           [:li
+            [:strong "Constant-fold"]
+            " expressions where all inputs are literals"]]
+
+          [:p
+           "With traditional bytecode, the JIT must "
+           [:em "reconstruct"]
+           " this semantic information by analyzing opcode patterns. With semantic bytecode, it's a "
+           [:strong "3-10 microsecond query"]
+           ". This changes what optimizations are practical at runtime."]
+
+          [:pre
+           [:code
+            ";; JIT optimization example: find all pure function calls\n[:find ?call ?fn\n :where\n [?call :op/type :apply]\n [?call :op/operator-node ?fn]\n [?fn :op/type :lambda]\n [?fn :op/mutates? false]]  ; Only possible with semantic bytecode"]]
+
+          [:p
+           "The execution overhead of semantic bytecode may be "
+           [:strong "self-correcting"]
+           ": the same queryability that costs 2x in naive interpretation enables JIT optimizations that can recover (or exceed) that performance."]
+
+          [:h2 "Size Comparison"]
+          [:p "For the nested AST " [:code "((fn [x] (+ x (* 2 3))) 10)"] ":"]
+
+          [:table
+           [:thead
+            [:tr
+             [:th "Representation"]
+             [:th "Units"]
+             [:th "Pool Entries"]]]
+           [:tbody
+            [:tr [:td "Semantic"] [:td "39 datoms"] [:td "7"]]
+            [:tr [:td "Traditional"] [:td "22 bytes"] [:td "7"]]]]
+
+          [:p
+           "Semantic bytecode is currently more verbose in terms of instruction units, but each datom carries queryable semantic information that raw bytes lack. Furthermore, this overhead is not fundamental: datoms can be bitpacked into 64-bit numbers. Once this optimization is implemented, semantic bytecode will achieve size parity with traditional bytecode while retaining its superior queryability."]
+
+          [:h2 "Platform Comparison"]
+          [:p "Raw execution times for the nested AST benchmark (microseconds per call):"]
+
+          [:table
+           [:thead
+            [:tr
+             [:th "Platform"]
+             [:th "Semantic Compile"]
+             [:th "Legacy Compile"]
+             [:th "Semantic Execute"]
+             [:th "Legacy Execute"]]]
+           [:tbody
+            [:tr [:td "CLJ (JVM)"] [:td "21.28"] [:td "3.42"] [:td "16.22"] [:td "6.52"]]
+            [:tr [:td "CLJS (Node)"] [:td "80.18"] [:td "20.42"] [:td "71.40"] [:td "30.78"]]
+            [:tr [:td "CLJD (Dart)"] [:td "46.91"] [:td "10.82"] [:td "42.95"] [:td "17.81"]]]]
+
+          [:p
+           "The JVM is fastest overall, with Dart in the middle and Node.js slowest. The "
+           [:em "relative"]
+           " overhead of semantic bytecode is roughly consistent across platforms (approximately 4-6x compile, 2-2.5x execute for this test case)."]
+
+          [:h2 "The Tradeoff"]
+          [:p "Traditional bytecode optimizes for " [:strong "execution speed"] ":"]
+          [:ul.bulleted
+           [:li "Compact representation (bytes)"]
+           [:li "Sequential access (program counter)"]
+           [:li "Minimal allocation during execution"]]
+
+          [:p "Semantic bytecode optimizes for " [:strong "introspection"] ":"]
+          [:ul.bulleted
+           [:li "Queryable representation (datoms)"]
+           [:li "Graph traversal (node references)"]
+           [:li "Preserved semantic relationships"]]
+
+          [:p
+           "This mirrors the distinction in "
+           [:a {:href "/blog/universal-ast-vs-assembly.blog"} "Universal AST vs Assembly"]
+           ": assembly optimizes for hardware execution, while the Universal AST optimizes for semantic preservation. Crucially, semantic preservation can be used to optimize for hardware execution (via JIT), but the reverse is not true: you cannot recover lost semantics from optimized assembly."]
+
+          [:h2 "When to Use Each"]
+
+          [:h3 "Use Traditional Bytecode When:"]
+          [:ul.bulleted
+           [:li "Execution speed is critical"]
+           [:li "Memory is constrained"]
+           [:li "You only need to run code, not analyze it"]
+           [:li "The bytecode is a throwaway intermediate representation"]]
+
+          [:h3 "Use Semantic Bytecode When:"]
+          [:ul.bulleted
+           [:li "You need to query or transform the code"]
+           [:li "The bytecode is a persistent representation (stored in DaoDB)"]
+           [:li "You want to analyze code structure (find all mutations, all calls, etc.)"]
+           [:li "You need provenance tracking or debugging"]
+           [:li "Cross-language translation requires semantic preservation"]]
+
+          [:h2 "The Hybrid Approach"]
+          [:p
+           "In practice, Yin.vm can use both representations simultaneously:"]
+
+          [:ol
+           [:li
+            [:strong "Semantic bytecode"]
+            " stored in DaoDB for queries and analysis"]
+           [:li
+            [:strong "Traditional bytecode"]
+            " compiled on-demand for hot execution paths"]]
+
+          [:p
+           "This is the \"full-speed-plus-full-introspection\" approach mentioned in "
+           [:a {:href "/blog/yin-vm-ast-chinese-characters.blog"} "the Yin.vm overview"]
+           ". The AST (as semantic datoms) is the canonical representation. Traditional bytecode is an optimization, compiled from the AST when needed."]
+
+          [:h2 "Room for Optimization"]
+          [:p
+           [:strong "Important: "]
+           "These benchmarks reflect an unoptimized implementation. No performance tuning has been applied to the semantic bytecode VM. The current implementation prioritizes clarity over speed."]
+
+          [:p "Potential optimizations include:"]
+          [:ul.bulleted
+           [:li "Bitpacking datoms into 64-bit numbers for memory parity with traditional bytecode"]
+           [:li "Pre-indexing datoms by node ID (O(1) lookup instead of linear scan)"]
+           [:li "Caching node attribute maps during execution"]
+           [:li "Using arrays instead of vectors for hot paths"]
+           [:li "Compiling frequently-executed nodes to native closures"]
+           [:li "Lazy datom materialization (only create what's queried)"]]
+
+          [:p
+           "We believe that with these optimizations, "
+           [:strong "semantic bytecode execution can approach traditional bytecode performance"]
+           " while retaining full queryability. The JVM results (often near 1x overhead) suggest the abstraction cost is not fundamental, just unoptimized."]
+
+          [:h2 "Conclusion"]
+          [:p "The benchmarks quantify the " [:em "current, unoptimized"] " state:"]
+          [:ul.bulleted
+           [:li "Semantic bytecode costs 4-11x in compilation time"]
+           [:li "Semantic bytecode costs 1-7x in execution time (unoptimized)"]
+           [:li "Semantic bytecode enables queries that take 1-10 microseconds"]
+           [:li "Traditional bytecode cannot be queried at all"]]
+
+          [:p
+           "The cost of introspection is real but bounded, and likely reducible with optimization. For most applications, even the current 2-3x execution overhead is acceptable when the alternative is losing the ability to query and analyze code at all."]
+
+          [:p
+           "More importantly, these benchmarks validate the architectural choice: "
+           [:strong "semantic preservation has a measurable cost, and that cost is worth paying"]
+           " when code needs to be more than just executed."]
+
+          [:p [:strong "Related posts:"]]
+          [:ul.bulleted
+           [:li
+            [:a {:href "/blog/universal-ast-vs-assembly.blog"}
+             "Universal AST vs Assembly"]
+            " (the conceptual foundation)"]
+           [:li
+            [:a {:href "/blog/ast-higher-dimensional-datom-streams.blog"}
+             "AST as Higher Dimensional Datom Streams"]
+            " (why ASTs are materialized views)"]
+           [:li
+            [:a {:href "/blog/yin-vm-ast-chinese-characters.blog"}
+             "Yin.vm: Chinese Characters for Programming Languages"]
+            " (the Universal Semantic AST)"]]]]]}

@@ -1,6 +1,6 @@
-# =========================
-# datom.world – Cline Rules
-# =========================
+# ===========================
+# datom.world – Development Rules
+# ===========================
 
 # CORE PHILOSOPHY
 
@@ -27,27 +27,60 @@ Datoms are 5-tuples: (e a v t m).
 Datoms are immutable facts, not objects.
 Datoms are the canonical serialization format (no parsing step).
 
-Components:
-  e: Entity ID. Sized by stream type (e.g., 16-bit, 64-bit).
-     Internal reference only when stream-local.
-     Upgraded to 128-bit during migration: High 64 bits = Node ID, Low 64 bits = Local ID.
-     Globally referenciable as 128-bit.
-     Namespace Jails: Node ID 0 is the local jail. All entity references are relative 
-     to their Node ID context. Migration requires no reference rewriting because datoms 
-     remain isolated within their originating Node ID "jail".
-     Semantic identity uses unique attributes (e.g., :person/email).
-  a: Attribute. Namespaced keyword.
-  v: Value. Ground value or entity reference.
-  t: Transaction ID. Monotonic integer within its stream.
-  m: Metadata entity. Used for provenance, access control, and cross-stream causality.
+Intuition (physics metaphor):
+  The datom stream is the unitary wave function: it contains the complete state of the universe.
+  A datom [e a v t m] is like a space-time event.
+  Space (structural): [e a v] defines what exists (entity, attribute, value).
+  Time (causal): [t m] defines when and why (transaction, metadata).
+  Interpreters observe parts of the stream and construct higher-dimensional structures.
+  Like quantum measurement, each interpreter projects the stream differently: same data, different meanings.
 
-Time (t) is intrinsic and stream-local.
-Metadata (m) establishes causality across streams (since t is local).
-Do not embed behavior inside datoms.
-Content hashes (if used) are derived by interpreters, not intrinsic to the tuple.
-Interpretation is local: agents decide meaning, not global ontologies.
-Graphs are constructed from tuples, not assumed.
-Restrictions (no arbitrary URIs, no variables in storage) enable efficient indexing (EAVT, AEVT, etc.).
+Components:
+  e: Entity ID. Relative offset from zero basis, sized by stream type (e.g., 16-bit, 64-bit).
+     Like Datomic tempids, entity IDs are local until committed by a transactor.
+     Reserved range: 0-1024 for system entities (universal, same meaning everywhere).
+     User entities start at 1025, which is the "zero basis" for user data.
+     On migration, the zero basis changes but entity IDs remain unchanged (relative offsets).
+     Global form: 128-bit [namespace:offset] where namespace is 64-bit, offset is 64-bit.
+     This mirrors IPv6's design: 64-bit network prefix + 64-bit interface ID.
+     Namespace 0 is local. Migrated datoms receive a non-zero 64-bit namespace.
+     The 64-bit namespace space supports billions of nodes, each with 64-bit entity space.
+     Semantic identity uses unique attributes (e.g., :person/email).
+     Uniqueness is namespace-scoped: :db/unique enforces uniqueness locally, and within
+     the assigned namespace after migration. Cross-namespace correlation uses queries.
+  a: Attribute. Namespaced keyword.
+  v: Value. Ground value (primitive: integer, string, boolean, etc.) or entity reference.
+  t: Transaction ID. Monotonic integer, intrinsic and stream-local.
+  m: Metadata entity reference (always an integer, never language-level nil).
+     Establishes causality across streams (since t is local).
+     Used for provenance, access control, and cross-stream references.
+
+Sizing:
+  Datoms can be variable-size (general case) or fixed-size (typed streams).
+  A stream can declare a type that constrains the size of each datom position.
+  Fixed-size streams enable: cache-efficient layouts, SIMD operations, O(1) indexing.
+  Variable-size streams provide flexibility at the cost of offset-table overhead.
+  Example typed stream: {:e :int64, :a :keyword, :v :float64, :t :int64, :m :int64}
+
+Value Constraints:
+  v is a ground value or an entity reference.
+  v can be a blob, but size must be bounded by stream type.
+  Large values are represented as separate streams, referenced by entity ID.
+
+Reserved Entities (0-1024):
+  System entities with universal meaning across all namespaces.
+  Entity 0: nil metadata. When m=0, means "no metadata". Self-referential (fixed point).
+  Entities 1-1024: built-in attributes (:db/ident, :db/valueType, :db/cardinality, etc.),
+    primitive type markers, and other system primitives.
+  These do not migrate: they have the same meaning everywhere.
+  User-defined schema lives in user space (1025+) and migrates with data.
+
+Principles:
+  Do not embed behavior inside datoms.
+  Content hashes (if used) are derived by interpreters, not intrinsic to the tuple.
+  Interpretation is local: agents decide meaning, not global ontologies.
+  Graphs are constructed from tuples, not assumed.
+  Restrictions (no arbitrary URIs, no variables in storage) enable efficient indexing (EAVT, AEVT, etc.).
 
 # STREAMS
 
@@ -57,6 +90,39 @@ No direct function-to-function coupling without a stream boundary.
 Side effects must appear as stream emissions.
 Ordering guarantees must be explicit.
 Streams are values that can be sent through streams.
+
+Bounded vs Unbounded:
+  Open stream: unbounded, still receiving datoms.
+  Bounded stream: closed at some t, finite, stable for reasoning.
+  A bounded stream IS the database value (no separate "value" type).
+  Stability comes from bounding, not from a different abstraction.
+
+Stream Iteration:
+  Streams iterate in t-order (transaction/append order).
+  This is the canonical order regardless of any indexes.
+
+Streams and Indexes:
+  Streams are the universal abstraction (datoms in t-order).
+  Indexes are optional optimizations built by interpreters (e.g., DaoDB).
+  d/q works on any bounded stream:
+    - Raw stream: no indexes, O(n) scan
+    - DaoDB-managed stream: EAVT/AEVT/AVET/VAET indexes, O(log n) lookup
+  Same interface, same semantics, different performance.
+  Indexes are a performance optimization, not a semantic requirement.
+
+# NAMESPACES
+
+Namespaces scope entity IDs and uniqueness constraints.
+
+Cross-Namespace Queries:
+  Namespaces are treated as separate databases in queries (explicit inputs).
+  Like Datomic's multiple database pattern:
+    [:find ?e1 ?e2
+     :in $local $remote
+     :where [$local ?e1 :person/email ?email]
+            [$remote ?e2 :person/email ?email]]
+  Joins across namespaces happen on shared values, not entity IDs.
+  Cross-namespace identity correlation is a query-time concern, not storage-time.
 
 # AGENTS
 
@@ -136,8 +202,8 @@ Structure for .blog files:
                    ;; Hiccup content here (vectors for HTML elements)
                    ]]]}
 
-When creating .blog or .chp files:
-- Use EDN syntax with namespaced maps (#:blog{...} or #:chp{...})
+When creating .blog :
+- Use EDN syntax with namespaced maps (#:blog{...} )
 - Use Hiccup vectors for all markup (e.g., [:p "text"], [:strong "bold"], [:a {:href "..."} "link"])
 - Never use markdown syntax
 - Include special keywords like :$blog-title and :$blog-date where appropriate
