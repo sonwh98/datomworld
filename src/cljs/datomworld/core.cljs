@@ -2,7 +2,7 @@
   (:require [reagent.core :as r]
             [reagent.dom :as rdom]
             [yin.vm :as vm]
-            [yin.bytecode :as bc]
+            [yin.assembly :as asm]
             [yang.clojure :as yang]
             [cljs.reader :as reader]
             [cljs.pprint :as pprint]
@@ -27,9 +27,12 @@
                                            :operands [{:type :literal :value 4}
                                                       {:type :literal :value 5}]})
                             :result nil
-                            :bytecode-result nil
+                            :assembly-result nil
                             :compiled nil
-                            :bytecode-stats nil
+                            :assembly-stats nil
+                            :register-asm nil
+                            :register-bc nil
+                            :register-result nil
                             :error nil}))
 
 (defn codemirror-editor [{:keys [value on-change read-only]}]
@@ -84,31 +87,58 @@
       (catch js/Error e
         (swap! app-state assoc :error (.-message e) :result nil)))))
 
+(defn compile-legacy-bytecode []
+  (let [input (:ast-as-text @app-state)]
+    (try
+      (let [forms (reader/read-string (str "[" input "]"))
+            ;; Compile to legacy numeric bytecode
+            results (mapv asm/compile-legacy forms)]
+        (swap! app-state assoc :legacy-compiled results :error nil)
+        results)
+      (catch js/Error e
+        (swap! app-state assoc :error (.-message e) :legacy-compiled nil)
+        nil))))
+
+(defn run-legacy-bytecode []
+  (let [compiled (:legacy-compiled @app-state)
+        ;; If not compiled yet, try to compile
+        compiled-results (or compiled (compile-legacy-bytecode))]
+    (when (seq compiled-results)
+      (try
+        (let [initial-env vm/primitives
+              ;; Run legacy numeric bytecode
+              results (mapv (fn [[bytes pool]]
+                              (asm/run-bytes bytes pool initial-env))
+                            compiled-results)]
+          (swap! app-state assoc :legacy-result (last results) :error nil))
+        (catch js/Error e
+          (swap! app-state assoc :error (str "Legacy Bytecode Error: " (.-message e)) :legacy-result nil))))))
+
 (defn compile-ast []
   (let [input (:ast-as-text @app-state)]
     (try
       (let [forms (reader/read-string (str "[" input "]"))
             ;; Reset node counter for consistent IDs
-            _ (bc/reset-node-counter!)
+            _ (asm/reset-node-counter!)
             ;; Compile to semantic bytecode (datoms)
-            compiled-results (mapv bc/compile forms)
+            compiled-results (mapv asm/compile forms)
             ;; Compute stats for all compiled forms
             all-datoms (mapcat :datoms compiled-results)
             stats {:total-datoms (count all-datoms)
-                   :lambdas (count (bc/find-lambdas all-datoms))
-                   :applications (count (bc/find-applications all-datoms))
-                   :variables (count (bc/find-variables all-datoms))
-                   :literals (count (bc/find-by-type all-datoms :literal))}]
+                   :lambdas (count (asm/find-lambdas all-datoms))
+                   :applications (count (asm/find-applications all-datoms))
+                   :variables (count (asm/find-variables all-datoms))
+                   :literals (count (asm/find-by-type all-datoms :literal))}]
         (swap! app-state assoc
                :compiled compiled-results
-               :bytecode-stats stats
+               :assembly-stats stats
                :error nil)
         compiled-results)
       (catch js/Error e
-        (swap! app-state assoc :error (.-message e) :compiled nil :bytecode-stats nil)
+        (swap! app-state assoc :error (.-message e) :compiled nil :assembly-stats nil)
         nil))))
 
-(defn run-bytecode []
+(defn run-assembly []
   (let [compiled (:compiled @app-state)
         ;; If not compiled yet, try to compile
         compiled-results (or compiled (compile-ast))]
@@ -117,11 +147,48 @@
         (let [initial-env vm/primitives
               ;; Run semantic bytecode (traverses datom graph by node reference)
               results (mapv (fn [compiled]
-                              (bc/run-semantic compiled initial-env))
+                              (asm/run-semantic compiled initial-env))
                             compiled-results)]
-          (swap! app-state assoc :bytecode-result (last results) :error nil))
+          (swap! app-state assoc :assembly-result (last results) :error nil))
         (catch js/Error e
-          (swap! app-state assoc :error (str "Semantic Bytecode Error: " (.-message e)) :bytecode-result nil))))))
+          (swap! app-state assoc :error (str "Assembly Error: " (.-message e)) :assembly-result nil))))))
+
+(defn compile-register []
+  (let [input (:ast-as-text @app-state)]
+    (try
+      (let [forms (reader/read-string (str "[" input "]"))
+            results (mapv (fn [ast]
+                            (let [datoms (vm/ast->datoms ast)
+                                  asm (vm/ast-datoms->register-assembly datoms)
+                                  bc (vm/register-assembly->bytecode asm)]
+                              {:asm asm :bc bc}))
+                          forms)]
+        (swap! app-state assoc
+               :register-asm (mapv :asm results)
+               :register-bc (mapv :bc results)
+               :error nil)
+        results)
+      (catch js/Error e
+        (swap! app-state assoc :error (str "Register Compile Error: " (.-message e))
+               :register-asm nil :register-bc nil)
+        nil))))
+
+(defn run-register []
+  (let [compiled (:register-bc @app-state)
+        ;; If not compiled yet, try to compile
+        compiled-results (or compiled (map :bc (compile-register)))]
+    (when (seq compiled-results)
+      (try
+        (let [initial-env vm/primitives
+              ;; Run register-based numeric bytecode
+              results (mapv (fn [bc-data]
+                              (let [state (vm/make-rbc-bc-state bc-data initial-env)
+                                    final-state (vm/rbc-run-bc state)]
+                                (:value final-state)))
+                            compiled-results)]
+          (swap! app-state assoc :register-result (last results) :error nil))
+        (catch js/Error e
+          (swap! app-state assoc :error (str "Register VM Error: " (.-message e)) :register-result nil))))))
 
 (defn compile-clojure []
   (let [input (:clojure-code @app-state)]
@@ -135,44 +202,44 @@
         (swap! app-state assoc :error (str "Clojure Compile Error: " (.-message e)))))))
 
 (defn hello-world []
-  [:div
+  [:div {:style {:padding "20px" :font-family "sans-serif"}}
    [:h1 "Datomworld Yin VM Explorer"]
 
-   [:div {:style {:display "flex" :flex-direction "row" :align-items "flex-start" :margin-bottom "20px"}}
+   [:div {:style {:display "flex" :flex-direction "row" :align-items "flex-start" :margin-bottom "20px" :overflow-x "auto"}}
     ;; Column 1: Clojure Code
-    [:div {:style {:width "400px"}}
+    [:div {:style {:min-width "350px" :flex "1 0 auto" :margin-right "10px"}}
      [:label {:style {:font-weight "bold"}} "Enter Clojure Code:"]
      [:br]
      [codemirror-editor {:value (:clojure-code @app-state)
                          :on-change #(swap! app-state assoc :clojure-code %)}]]
 
     ;; Arrow 1: Clojure -> AST
-    [:div {:style {:margin "0 10px" :display "flex" :flex-direction "column" :justify-content "center" :height "300px"}}
+    [:div {:style {:display "flex" :flex-direction "column" :justify-content "center" :height "300px" :margin-right "10px"}}
      [:button {:on-click compile-clojure :style {:padding "5px"}}
-      "Compile to AST ->"]]
+      "AST ->"]]
 
     ;; Column 2: Yin AST
-    [:div {:style {:width "450px"}}
+    [:div {:style {:min-width "380px" :flex "1 0 auto" :margin-right "10px"}}
      [:label {:style {:font-weight "bold"}} "Yin AST (EDN):"]
      [:br]
      [codemirror-editor {:value (:ast-as-text @app-state)
                          :on-change #(swap! app-state assoc :ast-as-text %)}]]
 
-    ;; Arrow 2: AST -> Semantic Bytecode
-    [:div {:style {:margin "0 10px" :margin-right "10px" :display "flex" :flex-direction "column" :justify-content "center" :height "300px"}}
+    ;; Arrow 2: AST -> Assembly
+    [:div {:style {:display "flex" :flex-direction "column" :justify-content "center" :height "300px" :margin-right "10px"}}
      [:button {:on-click compile-ast :style {:padding "5px"}}
-      "Compile to datoms ->"]]
+      "Asm ->"]]
 
-    ;; Column 3: Compiled Semantic Bytecode
-    [:div {:style {:width "450px"}}
-     [:label {:style {:font-weight "bold"}} "Semantic Bytecode (Datoms):"]
+    ;; Column 3: Compiled Assembly
+    [:div {:style {:min-width "400px" :flex "1 0 auto" :margin-right "10px"}}
+     [:label {:style {:font-weight "bold"}} "Assembly (Datoms):"]
      [:br]
      [codemirror-editor {:value (if-let [compiled (:compiled @app-state)]
                                   (pretty-print (mapv :datoms compiled))
                                   "")
                          :read-only true}]
      ;; Show queryable stats
-     (when-let [stats (:bytecode-stats @app-state)]
+     (when-let [stats (:assembly-stats @app-state)]
        [:div {:style {:font-size "0.8em" :color "#666" :margin-top "5px"
                       :background "#f5f5f5" :padding "8px" :border-radius "4px"}}
         [:strong "Queryable Stats:"]
@@ -183,28 +250,59 @@
          [:li "Variables: " (:variables stats)]
          [:li "Literals: " (:literals stats)]]])
      [:div {:style {:font-size "0.8em" :color "#666" :margin-top "5px"}}
-      "Semantic bytecode preserves meaning and is queryable."]]]
+      "Semantic assembly preserves meaning and is queryable."]]
+
+    ;; Arrow 3: Assembly -> Register VM
+    [:div {:style {:display "flex" :flex-direction "column" :justify-content "center" :height "300px" :margin-right "10px"}}
+     [:button {:on-click compile-register :style {:padding "5px"}}
+      "Reg ->"]]
+
+    ;; Column 4: Register VM
+    [:div {:style {:min-width "400px" :flex "1 0 auto"}}
+     [:label {:style {:font-weight "bold"}} "Register VM (Asm & BC):"]
+     [:br]
+     [codemirror-editor {:value (let [asm (:register-asm @app-state)
+                                      bc (:register-bc @app-state)]
+                                  (cond
+                                    (and asm bc)
+                                    (str "--- ASSEMBLY ---\n"
+                                         (pretty-print asm)
+                                         "\n\n--- BYTECODE ---\n"
+                                         (pretty-print bc))
+                                    asm (pretty-print asm)
+                                    :else ""))
+                         :read-only true}]
+     [:div {:style {:font-size "0.8em" :color "#666" :margin-top "5px"}}
+      "Register-based bytecode for high performance."]]]
 
    [:div {:style {:margin-bottom "20px"}}
     [:button {:on-click evaluate-ast :style {:margin-right "10px"}}
      "Evaluate AST"]
-    [:button {:on-click run-bytecode}
-     "Run Semantic Bytecode"]]
+    [:button {:on-click run-assembly :style {:margin-right "10px"}}
+     "Run Assembly"]
+    [:button {:on-click run-register}
+     "Run Register VM"]]
 
    (when-let [error (:error @app-state)]
      [:div {:style {:color "red"}}
       [:h3 "Error:"]
       [:pre error]])
 
-   (when (contains? @app-state :result)
-     [:div
-      [:h3 "AST Eval Result:"]
-      [:pre (pr-str (:result @app-state))]])
+   [:div {:style {:display "flex" :gap "20px"}}
+    (when (contains? @app-state :result)
+      [:div {:style {:flex "1"}}
+       [:h3 "AST Eval Result:"]
+       [:pre {:style {:background "#eee" :padding "10px"}} (pr-str (:result @app-state))]])
 
-   (when (contains? @app-state :bytecode-result)
-     [:div
-      [:h3 "Semantic Bytecode Result:"]
-      [:pre (pr-str (:bytecode-result @app-state))]])
+    (when (contains? @app-state :assembly-result)
+      [:div {:style {:flex "1"}}
+       [:h3 "Assembly Result:"]
+       [:pre {:style {:background "#eef" :padding "10px"}} (pr-str (:assembly-result @app-state))]])
+
+    (when (contains? @app-state :register-result)
+      [:div {:style {:flex "1"}}
+       [:h3 "Register VM Result:"]
+       [:pre {:style {:background "#efe" :padding "10px"}} (pr-str (:register-result @app-state))]])]
 
    [:div {:style {:margin-top "20px" :font-size "0.8em"}}
     [:h4 "Examples:"]

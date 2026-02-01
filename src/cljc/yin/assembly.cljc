@@ -1,4 +1,4 @@
-(ns yin.bytecode
+(ns yin.assembly
   (:refer-clojure :exclude [compile type]))
 
 ;; =============================================================================

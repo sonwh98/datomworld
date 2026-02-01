@@ -1,5 +1,5 @@
-(ns yin.bytecode-bench
-  (:require [yin.bytecode :as bc]
+(ns yin.assembly-bench
+  (:require [yin.assembly :as asm]
             #?(:clj [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])))
 
@@ -56,17 +56,17 @@
      :cljs (.toFixed n 2)))
 
 (defn run-single-benchmark [name ast iterations]
-  (bc/reset-node-counter!)
-  (let [semantic-compiled (bc/compile ast)
-        [legacy-bytes legacy-pool] (bc/compile-legacy ast)
+  (asm/reset-node-counter!)
+  (let [semantic-compiled (asm/compile ast)
+        [legacy-bytes legacy-pool] (asm/compile-legacy ast)
 
-        sem-compile (benchmark #(do (bc/reset-node-counter!) (bc/compile ast)) iterations)
-        leg-compile (benchmark #(bc/compile-legacy ast) iterations)
+        sem-compile (benchmark #(do (asm/reset-node-counter!) (asm/compile ast)) iterations)
+        leg-compile (benchmark #(asm/compile-legacy ast) iterations)
 
-        _ (bc/reset-node-counter!)
-        sem-compiled2 (bc/compile ast)
-        sem-run (benchmark #(bc/run-semantic sem-compiled2 primitives) iterations)
-        leg-run (benchmark #(bc/run-bytes legacy-bytes legacy-pool primitives) iterations)]
+        _ (asm/reset-node-counter!)
+        sem-compiled2 (asm/compile ast)
+        sem-run (benchmark #(asm/run-semantic sem-compiled2 primitives) iterations)
+        leg-run (benchmark #(asm/run-bytes legacy-bytes legacy-pool primitives) iterations)]
 
     {:name name
      :compile-semantic sem-compile
@@ -88,7 +88,7 @@
   (let [platform #?(:clj "CLJ" :cljs "CLJS")]
     (println "")
     (println "============================================")
-    (println (str platform " Bytecode Benchmark: Semantic vs Traditional"))
+    (println (str platform " Assembly Benchmark: Semantic vs Traditional"))
     (println "============================================")
     (println "")
 
@@ -96,11 +96,11 @@
     (print "Warming up... ")
     #?(:clj (flush))
     (dotimes [_ 500]
-      (bc/reset-node-counter!)
-      (bc/compile nested-ast)
-      (bc/compile-legacy nested-ast)
-      (bc/run-semantic (bc/compile nested-ast) primitives)
-      (let [[b p] (bc/compile-legacy nested-ast)] (bc/run-bytes b p primitives)))
+      (asm/reset-node-counter!)
+      (asm/compile nested-ast)
+      (asm/compile-legacy nested-ast)
+      (asm/run-semantic (asm/compile nested-ast) primitives)
+      (let [[b p] (asm/compile-legacy nested-ast)] (asm/run-bytes b p primitives)))
     (println "done.")
     (println "")
 
@@ -115,23 +115,23 @@
         (print-benchmark r))
 
       (println "--- Query Operations (semantic only) ---")
-      (bc/reset-node-counter!)
-      (let [compiled (bc/compile nested-ast)
+      (asm/reset-node-counter!)
+      (let [compiled (asm/compile nested-ast)
             datoms (:datoms compiled)]
-        (let [q (benchmark #(bc/find-applications datoms) iterations)]
-          (println (str "  find-applications:  " (fmt q) " us -> " (count (bc/find-applications datoms)) " found")))
-        (let [q (benchmark #(bc/find-lambdas datoms) iterations)]
-          (println (str "  find-lambdas:       " (fmt q) " us -> " (count (bc/find-lambdas datoms)) " found")))
-        (let [q (benchmark #(bc/find-variables datoms) iterations)]
-          (println (str "  find-variables:     " (fmt q) " us -> " (count (bc/find-variables datoms)) " found"))))
+        (let [q (benchmark #(asm/find-applications datoms) iterations)]
+          (println (str "  find-applications:  " (fmt q) " us -> " (count (asm/find-applications datoms)) " found")))
+        (let [q (benchmark #(asm/find-lambdas datoms) iterations)]
+          (println (str "  find-lambdas:       " (fmt q) " us -> " (count (asm/find-lambdas datoms)) " found")))
+        (let [q (benchmark #(asm/find-variables datoms) iterations)]
+          (println (str "  find-variables:     " (fmt q) " us -> " (count (asm/find-variables datoms)) " found"))))
 
       (println "")
       (println "Summary: Semantic trades speed for queryability")
       results)))
 
 ;; Make it a test so it runs with the test suite
-(deftest ^:benchmark bytecode-benchmark-test
-  (testing "Benchmark semantic vs traditional bytecode"
+(deftest ^:benchmark assembly-benchmark-test
+  (testing "Benchmark semantic vs traditional assembly"
     (let [results (run-benchmarks)]
       ;; Just verify benchmarks ran and returned results
       (is (= 5 (count results)))

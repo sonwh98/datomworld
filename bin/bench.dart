@@ -1,4 +1,4 @@
-import '../lib/cljd-out/yin/bytecode-bench-cljd.dart' as bench;
+import '../lib/cljd-out/yin/assembly-bench-cljd.dart' as bench;
 
 void main() {
   bench.main();

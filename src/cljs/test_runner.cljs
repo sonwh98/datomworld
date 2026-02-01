@@ -6,8 +6,8 @@
             [yin.vm-addition-test]
             [yin.vm-state-test]
             [yin.vm-basic-test]
-            [yin.bytecode-test]
-            [yin.bytecode-bench]
+            [yin.assembly-test]
+            [yin.assembly-bench]
             [yin.vm-continuation-test]
             [yin.vm-stream-test]
             [yin.vm-register-test]))
@@ -19,8 +19,8 @@
              'yin.vm-addition-test
              'yin.vm-state-test
              'yin.vm-basic-test
-             'yin.bytecode-test
-             'yin.bytecode-bench
+             'yin.assembly-test
+             'yin.assembly-bench
              'yin.vm-continuation-test
              'yin.vm-stream-test
              'yin.vm-register-test))
