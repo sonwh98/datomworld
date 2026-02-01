@@ -19,16 +19,7 @@
 
 (defonce app-state (r/atom {:source-lang :clojure
                             :source-code "(+ 4 5)"
-                            :ast-as-text (pretty-print
-                                          {:type :application
-                                           :operator {:type :lambda
-                                                      :params '[x y]
-                                                      :body {:type :application
-                                                             :operator {:type :variable :name '+'}
-                                                             :operands [{:type :variable :name 'x}
-                                                                        {:type :variable :name 'y}]}}
-                                           :operands [{:type :literal :value 4}
-                                                      {:type :literal :value 5}]})
+                            :ast-as-text ""
                             :result nil
                             :assembly-result nil
                             :compiled nil
@@ -252,19 +243,34 @@
      [:button {:on-click compile-source :style {:padding "5px"}}
       "AST ->"]]
 
-    ;; Column 2: Yin AST
-    [:div {:style {:min-width "380px" :flex "1 0 auto" :margin-right "10px"}}
-     [:label {:style {:font-weight "bold"}} "Yin AST (EDN):"]
-     [:br]
-     [codemirror-editor {:value (:ast-as-text @app-state)
-                         :on-change #(swap! app-state assoc :ast-as-text %)}]]
+            ;; Column 2: Yin AST
 
-    ;; Arrow 2: AST -> Assembly
+    [:div {:style {:min-width "380px" :flex "1 0 auto" :margin-right "10px"}}
+
+     [:label {:style {:font-weight "bold"}} "Yin AST (EDN):"]
+
+     [:br]
+
+     [codemirror-editor {:value (:ast-as-text @app-state)
+
+                         :on-change #(swap! app-state assoc :ast-as-text %)}]
+
+     [:button {:on-click evaluate-ast :style {:margin-top "5px"}}
+
+      "Run AST"]
+
+     (when (contains? @app-state :result)
+       [:div {:style {:margin-top "10px"}}
+        [:strong {:style {:color "#333"}} "AST Eval Result:"]
+        [:pre {:style {:background "#eee" :color "#111" :padding "10px" :border-radius "4px"}}
+         (pr-str (:result @app-state))]])]
+
+            ;; Arrow 2: AST -> Assembly
     [:div {:style {:display "flex" :flex-direction "column" :justify-content "center" :height "300px" :margin-right "10px"}}
      [:button {:on-click compile-ast :style {:padding "5px"}}
       "Asm ->"]]
 
-    ;; Column 3: Compiled Assembly
+            ;; Column 3: Compiled Assembly
     [:div {:style {:min-width "400px" :flex "1 0 auto" :margin-right "10px"}}
      [:label {:style {:font-weight "bold"}} "Assembly (Datoms):"]
      [:br]
@@ -272,17 +278,24 @@
                                   (pretty-print (mapv :datoms compiled))
                                   "")
                          :read-only true}]
+     [:button {:on-click run-assembly :style {:margin-top "5px"}}
+      "Run Assembly"]
+     (when (contains? @app-state :assembly-result)
+       [:div {:style {:margin-top "10px"}}
+        [:strong {:style {:color "#333"}} "Assembly Run Result:"]
+        [:pre {:style {:background "#eef" :color "#111" :padding "10px" :border-radius "4px"}}
+         (pr-str (:assembly-result @app-state))]])
      [:div {:style {:font-size "0.8em" :color "#666" :margin-top "5px"}}
       "Semantic assembly (Datoms). Queryable."]]
 
-    ;; Arrow 3: Assembly -> VM targets
+            ;; Arrow 3: Assembly -> VM targets
     [:div {:style {:display "flex" :flex-direction "column" :justify-content "center" :height "300px" :margin-right "10px"}}
      [:button {:on-click compile-register :style {:padding "5px" :margin-bottom "5px"}}
       "Reg ->"]
      [:button {:on-click compile-stack :style {:padding "5px"}}
       "Stack ->"]]
 
-    ;; Column 4: Register VM
+            ;; Column 4: Register VM
     [:div {:style {:min-width "350px" :flex "1 0 auto" :margin-right "10px"}}
      [:label {:style {:font-weight "bold"}} "Register VM:"]
      [:br]
@@ -290,15 +303,22 @@
                                       bc (:register-bc @app-state)]
                                   (cond
                                     (and asm bc)
-                                    (str "--- REG ASM ---\\n" (pretty-print asm)
-                                         "\\n--- BYTECODE ---\\n" (pretty-print bc))
+                                    (str "--- REG ASM ---\n" (pretty-print asm)
+                                         "\n--- BYTECODE ---\n" (pretty-print bc))
                                     asm (pretty-print asm)
                                     :else ""))
                          :read-only true}]
+     [:button {:on-click run-register :style {:margin-top "5px"}}
+      "Run Register VM"]
+     (when (contains? @app-state :register-result)
+       [:div {:style {:margin-top "10px"}}
+        [:strong {:style {:color "#333"}} "Reg VM Result:"]
+        [:pre {:style {:background "#efe" :color "#111" :padding "10px" :border-radius "4px"}}
+         (pr-str (:register-result @app-state))]])
      [:div {:style {:font-size "0.8em" :color "#666" :margin-top "5px"}}
       "Register-based assembly & bytecode."]]
 
-    ;; Column 5: Stack VM
+            ;; Column 5: Stack VM
     [:div {:style {:min-width "350px" :flex "1 0 auto"}}
      [:label {:style {:font-weight "bold"}} "Stack VM:"]
      [:br]
@@ -306,57 +326,39 @@
                                       bc (:stack-bc @app-state)]
                                   (cond
                                     (and asm bc)
-                                    (str "--- STACK ASM ---\\n" (pretty-print asm)
-                                         "\\n--- BYTECODE ---\\n" (pretty-print bc))
+                                    (str "--- STACK ASM ---\n" (pretty-print asm)
+                                         "\n--- BYTECODE ---\n" (pretty-print bc))
                                     asm (pretty-print asm)
                                     :else ""))
                          :read-only true}]
+     [:button {:on-click run-stack :style {:margin-top "5px"}}
+      "Run Stack VM"]
+     (when (contains? @app-state :stack-result)
+       [:div {:style {:margin-top "10px"}}
+        [:strong {:style {:color "#333"}} "Stack VM Result:"]
+        [:pre {:style {:background "#fee" :color "#111" :padding "10px" :border-radius "4px"}}
+         (pr-str (:stack-result @app-state))]])
      [:div {:style {:font-size "0.8em" :color "#666" :margin-top "5px"}}
       "Stack-based assembly & bytecode."]]]
 
-   [:div {:style {:margin-bottom "20px"}}
-    [:button {:on-click evaluate-ast :style {:margin-right "10px"}}
-     "Evaluate AST"]
-    [:button {:on-click run-assembly :style {:margin-right "10px"}}
-     "Run Assembly"]
-    [:button {:on-click run-register :style {:margin-right "10px"}}
-     "Run Register VM"]
-    [:button {:on-click run-stack}
-     "Run Stack VM"]]
-
    (when-let [error (:error @app-state)]
+
      [:div {:style {:color "red"}}
+
       [:h3 "Error:"]
+
       [:pre error]])
 
-   [:div {:style {:display "flex" :gap "10px" :flex-wrap "wrap"}}
-    (when (contains? @app-state :result)
-      [:div {:style {:flex "1 1 200px"}}
-       [:h4 "AST Eval:"]
-       [:pre {:style {:background "#eee" :padding "10px"}} (pr-str (:result @app-state))]])
-
-    (when (contains? @app-state :assembly-result)
-      [:div {:style {:flex "1 1 200px"}}
-       [:h4 "Assembly Run:"]
-       [:pre {:style {:background "#eef" :padding "10px"}} (pr-str (:assembly-result @app-state))]])
-
-    (when (contains? @app-state :register-result)
-      [:div {:style {:flex "1 1 200px"}}
-       [:h4 "Reg VM Run:"]
-       [:pre {:style {:background "#efe" :padding "10px"}} (pr-str (:register-result @app-state))]])
-
-    (when (contains? @app-state :stack-result)
-      [:div {:style {:flex "1 1 200px"}}
-       [:h4 "Stack VM Run:"]
-       [:pre {:style {:background "#fee" :padding "10px"}} (pr-str (:stack-result @app-state))]])]
-
    [:div {:style {:margin-top "20px" :font-size "0.8em"}}
+
     [:h4 "Examples:"]
     [:ul
      [:li [:a {:href "#" :on-click #(swap! app-state assoc :source-code "(+ 10 20)" :source-lang :clojure)} "Clojure: (+ 10 20)"]]
      [:li [:a {:href "#" :on-click #(swap! app-state assoc :source-code "10 + 20" :source-lang :python)} "Python: 10 + 20"]]
      [:li [:a {:href "#" :on-click #(swap! app-state assoc :source-code "(fn [x] (+ x 1))" :source-lang :clojure)} "Clojure: (fn [x] (+ x 1))"]]
-     [:li [:a {:href "#" :on-click #(swap! app-state assoc :source-code "lambda x: x + 1" :source-lang :python)} "Python: lambda x: x + 1"]]]]])
+     [:li [:a {:href "#" :on-click #(swap! app-state assoc :source-code "lambda x: x + 1" :source-lang :python)} "Python: lambda x: x + 1"]]
+     [:li [:a {:href "#" :on-click #(swap! app-state assoc :source-code "(def fib (fn [n]\n           (if (< n 2)\n             n\n             (+ (fib (- n 1)) (fib (- n 2))))))\n(fib 7)" :source-lang :clojure)} "Clojure: Fibonacci"]]
+     [:li [:a {:href "#" :on-click #(swap! app-state assoc :source-code "def fib(n):\n  if n < 2:\n    return n\n  else:\n    return fib(n-1) + fib(n-2)\nfib(7)" :source-lang :python)} "Python: Fibonacci"]]]]])
 (defn init []
   (let [app (js/document.getElementById "app")]
     (rdom/render [hello-world] app)))
