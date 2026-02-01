@@ -7,6 +7,7 @@
             [yang.python :as py]
             [cljs.reader :as reader]
             [cljs.pprint :as pprint]
+            [clojure.string :as str]
             ["codemirror" :refer [basicSetup EditorView]]
             ["@codemirror/state" :refer [EditorState]]
             ["@codemirror/theme-one-dark" :refer [oneDark]]
@@ -16,6 +17,13 @@
 (defn pretty-print [data]
   (binding [pprint/*print-right-margin* 60]
     (with-out-str (pprint/pprint data))))
+
+(def default-positions
+  {:source {:x 20 :y 80 :w 350}
+   :ast {:x 420 :y 80 :w 380}
+   :assembly {:x 850 :y 80 :w 400}
+   :register {:x 1300 :y 80 :w 350}
+   :stack {:x 1300 :y 500 :w 350}})
 
 (defonce app-state (r/atom {:source-lang :clojure
                             :source-code "(+ 4 5)"
@@ -30,7 +38,12 @@
                             :stack-asm nil
                             :stack-bc nil
                             :stack-result nil
-                            :error nil}))
+                            :error nil
+                            :ui-positions default-positions
+                            :drag-state nil}))
+
+(when (nil? (:ui-positions @app-state))
+  (swap! app-state assoc :ui-positions default-positions))
 
 (defn codemirror-editor [{:keys [value on-change read-only language]}]
   (let [view-ref (r/atom nil)
@@ -52,17 +65,13 @@
             (reset! view-ref view))))
       :component-did-update
       (fn [this old-argv]
-        (let [{:keys [value language]} (r/props this)
-              {old-language :language} (second old-argv)]
+        (let [{:keys [value language]} (r/props this)]
           (when-let [view @view-ref]
             (let [current-value (.. view -state -doc toString)]
               (when (not= value current-value)
                 (.dispatch view #js {:changes #js {:from 0
                                                    :to (.. view -state -doc -length)
-                                                   :insert value}})))
-            ;; Reconfigure if language changed (simple re-mount strategy is easier but let's try just updating doc first)
-            ;; Actually re-mounting is safer for language change
-            )))
+                                                   :insert value}}))))))
       :component-will-unmount
       (fn [this]
         (when-let [view @view-ref]
@@ -70,21 +79,18 @@
       :reagent-render
       (fn [{:keys [style]}]
         [:div {:ref #(reset! el-ref %)
-               :style (merge {:height "300px" :width "100%" :border "1px solid #ccc" :overflow "auto"} style)}])})))
+               :style (merge {:height "300px" :width "100%" :border "1px solid #2d3b55" :overflow "auto"} style)}])})))
 
 (defn evaluate-ast []
   (let [input (:ast-as-text @app-state)]
     (try
-      ;; Wrap input in a vector to read multiple forms
       (let [forms (reader/read-string (str "[" input "]"))
             initial-env vm/primitives
             initial-state (vm/make-state initial-env)
-            ;; Evaluate each form sequentially, threading the state
             final-state (reduce (fn [state form]
                                   (vm/run state form))
                                 initial-state
                                 forms)]
-        ;; Update state with the result of the last form
         (swap! app-state assoc :result (:value final-state) :error nil))
       (catch js/Error e
         (swap! app-state assoc :error (.-message e) :result nil)))))
@@ -113,14 +119,12 @@
 (defn run-stack []
   (let [compiled (:stack-bc @app-state)
         pools (:stack-pool @app-state)
-        ;; If not compiled yet, try to compile
         results (if (seq compiled)
                   (mapv vector compiled pools)
                   (mapv (juxt :bc :pool) (compile-stack)))]
     (when (seq results)
       (try
         (let [initial-env vm/primitives
-              ;; Run stack-based numeric bytecode
               run-results (mapv (fn [[bytes pool]]
                                   (asm/run-bytes bytes pool initial-env))
                                 results)]
@@ -132,11 +136,8 @@
   (let [input (:ast-as-text @app-state)]
     (try
       (let [forms (reader/read-string (str "[" input "]"))
-            ;; Reset node counter for consistent IDs
             _ (asm/reset-node-counter!)
-            ;; Compile to semantic bytecode (datoms)
             compiled-results (mapv asm/compile forms)
-            ;; Compute stats for all compiled forms
             all-datoms (mapcat :datoms compiled-results)
             stats {:total-datoms (count all-datoms)
                    :lambdas (count (asm/find-lambdas all-datoms))
@@ -154,12 +155,10 @@
 
 (defn run-assembly []
   (let [compiled (:compiled @app-state)
-        ;; If not compiled yet, try to compile
         compiled-results (or compiled (compile-ast))]
     (when (seq compiled-results)
       (try
         (let [initial-env vm/primitives
-              ;; Run semantic bytecode (traverses datom graph by node reference)
               results (mapv (fn [compiled]
                               (asm/run-semantic compiled initial-env))
                             compiled-results)]
@@ -189,12 +188,10 @@
 
 (defn run-register []
   (let [compiled (:register-bc @app-state)
-        ;; If not compiled yet, try to compile
         compiled-results (or compiled (map :bc (compile-register)))]
     (when (seq compiled-results)
       (try
         (let [initial-env vm/primitives
-              ;; Run register-based numeric bytecode
               results (mapv (fn [bc-data]
                               (let [state (vm/make-rbc-bc-state bc-data initial-env)
                                     final-state (vm/rbc-run-bc state)]
@@ -214,151 +211,173 @@
                    :python (let [ast (py/compile input)]
                              [ast]))
             ast-strings (map pretty-print asts)
-            result-text (clojure.string/join "\n" ast-strings)]
+            result-text (str/join "\n" ast-strings)]
         (swap! app-state assoc :ast-as-text result-text :error nil))
       (catch js/Error e
         (swap! app-state assoc :error (str "Compile Error: " (.-message e)))))))
 
+(defn draggable-card [id title content]
+  (let [positions (r/cursor app-state [:ui-positions])
+        drag-state (r/cursor app-state [:drag-state])
+        pos (get @positions id)
+        z-index (if (= (:id @drag-state) id) 100 10)]
+    [:div
+     {:style {:position "absolute"
+              :left (:x pos)
+              :top (:y pos)
+              :width (:w pos)
+              :min-height "200px"
+              :background "#0e1328"
+              :border "1px solid #2d3b55"
+              :box-shadow "0 10px 25px rgba(0,0,0,0.5)"
+              :z-index z-index
+              :color "#c5c6c7"
+              :display "flex"
+              :flex-direction "column"}}
+     [:div
+      {:style {:background "#151b33"
+               :padding "5px 10px"
+               :cursor "move"
+               :border-bottom "1px solid #2d3b55"
+               :font-weight "bold"
+               :color "#f1f5ff"
+               :user-select "none"}
+       :on-mouse-down (fn [e]
+                        (.preventDefault e)
+                        (reset! drag-state {:id id
+                                            :start-x (.-clientX e)
+                                            :start-y (.-clientY e)
+                                            :initial-pos pos}))}
+      title]
+     [:div {:style {:padding "10px" :flex "1"}}
+      content]]))
+
+(defn connection-line [from-id to-id label on-click]
+  (let [positions (:ui-positions @app-state)
+        from (get positions from-id)
+        to (get positions to-id)]
+    (when (and from to)
+      (let [start-x (+ (:x from) (:w from))
+            start-y (+ (:y from) 50) ;; Header offset approx
+            end-x (:x to)
+            end-y (+ (:y to) 50)
+
+            dist (Math/abs (- end-x start-x))
+            cp1-x (+ start-x (/ dist 2))
+            cp1-y start-y
+            cp2-x (- end-x (/ dist 2))
+            cp2-y end-y
+
+            path-d (str "M " start-x " " start-y
+                        " C " cp1-x " " cp1-y ", "
+                        cp2-x " " cp2-y ", "
+                        end-x " " end-y)
+
+            mid-x (+ start-x (/ (- end-x start-x) 2))
+            mid-y (+ start-y (/ (- end-y start-y) 2))]
+
+        [:g
+         [:path {:d path-d
+                 :fill "none"
+                 :stroke "#444c56"
+                 :stroke-width "2"}]
+         [:circle {:cx end-x :cy end-y :r "4" :fill "#444c56"}]
+         [:foreignObject {:x (- mid-x 40) :y (- mid-y 15) :width "80" :height "30" :style {:pointer-events "auto"}}
+          [:div {:style {:display "flex" :justify-content "center"}}
+           [:button {:on-click on-click
+                     :style {:background "#0e1328" :border "1px solid #2d3b55" :border-radius "4px" :cursor "pointer" :font-size "12px" :color "#c5c6c7"}}
+            label]]]]))))
+
+(defn handle-mouse-move [e]
+  (when-let [drag @(r/cursor app-state [:drag-state])]
+    (let [dx (- (.-clientX e) (:start-x drag))
+          dy (- (.-clientY e) (:start-y drag))
+          new-x (+ (:x (:initial-pos drag)) dx)
+          new-y (+ (:y (:initial-pos drag)) dy)]
+      (swap! app-state assoc-in [:ui-positions (:id drag) :x] new-x)
+      (swap! app-state assoc-in [:ui-positions (:id drag) :y] new-y))))
+
+(defn handle-mouse-up [e]
+  (swap! app-state assoc :drag-state nil))
+
 (defn hello-world []
-  [:div {:style {:padding "20px" :font-family "sans-serif"}}
-   [:h1 "Datomworld Yin VM Explorer"]
+  (r/create-class
+   {:component-did-mount
+    (fn []
+      (js/window.addEventListener "mousemove" handle-mouse-move)
+      (js/window.addEventListener "mouseup" handle-mouse-up))
+    :component-will-unmount
+    (fn []
+      (js/window.removeEventListener "mousemove" handle-mouse-move)
+      (js/window.removeEventListener "mouseup" handle-mouse-up))
+    :reagent-render
+    (fn []
+      [:div {:style {:width "100%" :height "100vh" :position "relative" :overflow "hidden" :background "#060817" :color "#c5c6c7"}}
+       [:h1 {:style {:margin "20px" :pointer-events "none" :color "#f1f5ff"}} "Datomworld Yin VM Explorer"]
 
-   [:div {:style {:display "flex" :flex-direction "row" :align-items "flex-start" :margin-bottom "20px" :overflow-x "auto"}}
-    ;; Column 1: Source Code
-    [:div {:style {:min-width "350px" :flex "1 0 auto" :margin-right "10px"}}
-     [:div {:style {:display "flex" :justify-content "space-between" :align-items "center"}}
-      [:label {:style {:font-weight "bold"}} "Source Code:"]
-      [:select {:value (:source-lang @app-state)
-                :on-change #(swap! app-state assoc :source-lang (keyword (.. % -target -value)))
-                :style {:margin-bottom "5px"}}
-       [:option {:value "clojure"} "Clojure"]
-       [:option {:value "python"} "Python"]]]
-     [codemirror-editor {:key (:source-lang @app-state) ;; Force remount on language change
-                         :value (:source-code @app-state)
-                         :language (:source-lang @app-state)
-                         :on-change #(swap! app-state assoc :source-code %)}]]
+       [:svg {:style {:position "absolute" :top 0 :left 0 :width "100%" :height "100%" :pointer-events "none" :z-index 0}}
+        [connection-line :source :ast "AST ->" compile-source]
+        [connection-line :ast :assembly "Asm ->" compile-ast]
+        [connection-line :assembly :register "Reg ->" compile-register]
+        [connection-line :assembly :stack "Stack ->" compile-stack]]
 
-    ;; Arrow 1: Source -> AST
-    [:div {:style {:display "flex" :flex-direction "column" :justify-content "center" :height "300px" :margin-right "10px"}}
-     [:button {:on-click compile-source :style {:padding "5px"}}
-      "AST ->"]]
+       [draggable-card :source "Source Code"
+        [:div
+         [:div {:style {:display "flex" :justify-content "space-between" :margin-bottom "5px"}}
+          [:select {:value (:source-lang @app-state)
+                    :on-change (fn [e] (swap! app-state assoc :source-lang (keyword (.. e -target -value))))
+                    :style {:background "#0e1328" :color "#c5c6c7" :border "1px solid #2d3b55"}}
+           [:option {:value "clojure"} "Clojure"]
+           [:option {:value "python"} "Python"]]]
+         [codemirror-editor {:key (:source-lang @app-state)
+                             :value (:source-code @app-state)
+                             :language (:source-lang @app-state)
+                             :on-change (fn [v] (swap! app-state assoc :source-code v))}]
+         [:div {:style {:marginTop "10px" :fontSize "0.8em" :color "#8b949e"}}
+          [:strong {:style {:color "#f1f5ff"}} "Examples: "]
+          [:a {:href "#" :style {:color "#58a6ff"} :on-click (fn [] (swap! app-state assoc :source-code "(+ 10 20)" :source-lang :clojure))} "(+ 10 20)"]
+          " | "
+          [:a {:href "#" :style {:color "#58a6ff"} :on-click (fn [] (swap! app-state assoc :source-code "10 + 20" :source-lang :python))} "10 + 20"]]]]
 
-            ;; Column 2: Yin AST
+       [draggable-card :ast "Yin AST"
+        [:div
+         [codemirror-editor {:value (:ast-as-text @app-state)
+                             :on-change (fn [v] (swap! app-state assoc :ast-as-text v))}]
+         [:button {:on-click evaluate-ast :style {:marginTop "5px" :background "#238636" :color "#fff" :border "none" :padding "5px 10px" :border-radius "4px" :cursor "pointer"}} "Run AST"]
+         (when (:result @app-state)
+           [:div {:style {:marginTop "5px" :background "#0d1117" :padding "5px" :border "1px solid #30363d"}} (pr-str (:result @app-state))])]]
 
-    [:div {:style {:min-width "380px" :flex "1 0 auto" :margin-right "10px"}}
+       [draggable-card :assembly "Assembly (Datoms)"
+        [:div
+         [codemirror-editor {:value (if-let [c (:compiled @app-state)] (pretty-print (mapv :datoms c)) "")
+                             :read-only true}]
+         [:button {:on-click run-assembly :style {:marginTop "5px" :background "#238636" :color "#fff" :border "none" :padding "5px 10px" :border-radius "4px" :cursor "pointer"}} "Run Assembly"]
+         (when (:assembly-result @app-state)
+           [:div {:style {:marginTop "5px" :background "#0d1117" :padding "5px" :border "1px solid #30363d"}} (pr-str (:assembly-result @app-state))])]]
 
-     [:label {:style {:font-weight "bold"}} "Yin AST (EDN):"]
+       [draggable-card :register "Register VM"
+        [:div
+         [codemirror-editor {:value (str (if (:register-asm @app-state) (pretty-print (:register-asm @app-state)) "")
+                                         (if (:register-bc @app-state) (str "\n--- BC ---\n" (pretty-print (:register-bc @app-state))) ""))
+                             :read-only true}]
+         [:button {:on-click run-register :style {:marginTop "5px" :background "#238636" :color "#fff" :border "none" :padding "5px 10px" :border-radius "4px" :cursor "pointer"}} "Run Reg VM"]
+         (when (:register-result @app-state)
+           [:div {:style {:marginTop "5px" :background "#0d1117" :padding "5px" :border "1px solid #30363d"}} (pr-str (:register-result @app-state))])]]
 
-     [:br]
+       [draggable-card :stack "Stack VM"
+        [:div
+         [codemirror-editor {:value (str (if (:stack-asm @app-state) (pretty-print (:stack-asm @app-state)) "")
+                                         (if (:stack-bc @app-state) (str "\n--- BC ---\n" (pretty-print (:stack-bc @app-state))) ""))
+                             :read-only true}]
+         [:button {:on-click run-stack :style {:marginTop "5px" :background "#238636" :color "#fff" :border "none" :padding "5px 10px" :border-radius "4px" :cursor "pointer"}} "Run Stack VM"]
+         (when (:stack-result @app-state)
+           [:div {:style {:marginTop "5px" :background "#0d1117" :padding "5px" :border "1px solid #30363d"}} (pr-str (:stack-result @app-state))])]]
 
-     [codemirror-editor {:value (:ast-as-text @app-state)
+       (when (:error @app-state)
+         [:div {:style {:position "absolute" :bottom "10px" :left "10px" :right "10px" :background "rgba(255,0,0,0.2)" :border "1px solid #da3633" :padding "10px" :color "#f85149"}}
+          [:strong "Error: "]
+          (:error @app-state)])])}))
 
-                         :on-change #(swap! app-state assoc :ast-as-text %)}]
-
-     [:button {:on-click evaluate-ast :style {:margin-top "5px"}}
-
-      "Run AST"]
-
-     (when (contains? @app-state :result)
-       [:div {:style {:margin-top "10px"}}
-        [:strong {:style {:color "#333"}} "AST Eval Result:"]
-        [:pre {:style {:background "#eee" :color "#111" :padding "10px" :border-radius "4px"}}
-         (pr-str (:result @app-state))]])]
-
-            ;; Arrow 2: AST -> Assembly
-    [:div {:style {:display "flex" :flex-direction "column" :justify-content "center" :height "300px" :margin-right "10px"}}
-     [:button {:on-click compile-ast :style {:padding "5px"}}
-      "Asm ->"]]
-
-            ;; Column 3: Compiled Assembly
-    [:div {:style {:min-width "400px" :flex "1 0 auto" :margin-right "10px"}}
-     [:label {:style {:font-weight "bold"}} "Assembly (Datoms):"]
-     [:br]
-     [codemirror-editor {:value (if-let [compiled (:compiled @app-state)]
-                                  (pretty-print (mapv :datoms compiled))
-                                  "")
-                         :read-only true}]
-     [:button {:on-click run-assembly :style {:margin-top "5px"}}
-      "Run Assembly"]
-     (when (contains? @app-state :assembly-result)
-       [:div {:style {:margin-top "10px"}}
-        [:strong {:style {:color "#333"}} "Assembly Run Result:"]
-        [:pre {:style {:background "#eef" :color "#111" :padding "10px" :border-radius "4px"}}
-         (pr-str (:assembly-result @app-state))]])
-     [:div {:style {:font-size "0.8em" :color "#666" :margin-top "5px"}}
-      "Semantic assembly (Datoms). Queryable."]]
-
-            ;; Arrow 3: Assembly -> VM targets
-    [:div {:style {:display "flex" :flex-direction "column" :justify-content "center" :height "300px" :margin-right "10px"}}
-     [:button {:on-click compile-register :style {:padding "5px" :margin-bottom "5px"}}
-      "Reg ->"]
-     [:button {:on-click compile-stack :style {:padding "5px"}}
-      "Stack ->"]]
-
-            ;; Column 4: Register VM
-    [:div {:style {:min-width "350px" :flex "1 0 auto" :margin-right "10px"}}
-     [:label {:style {:font-weight "bold"}} "Register VM:"]
-     [:br]
-     [codemirror-editor {:value (let [asm (:register-asm @app-state)
-                                      bc (:register-bc @app-state)]
-                                  (cond
-                                    (and asm bc)
-                                    (str "--- REG ASM ---\n" (pretty-print asm)
-                                         "\n--- BYTECODE ---\n" (pretty-print bc))
-                                    asm (pretty-print asm)
-                                    :else ""))
-                         :read-only true}]
-     [:button {:on-click run-register :style {:margin-top "5px"}}
-      "Run Register VM"]
-     (when (contains? @app-state :register-result)
-       [:div {:style {:margin-top "10px"}}
-        [:strong {:style {:color "#333"}} "Reg VM Result:"]
-        [:pre {:style {:background "#efe" :color "#111" :padding "10px" :border-radius "4px"}}
-         (pr-str (:register-result @app-state))]])
-     [:div {:style {:font-size "0.8em" :color "#666" :margin-top "5px"}}
-      "Register-based assembly & bytecode."]]
-
-            ;; Column 5: Stack VM
-    [:div {:style {:min-width "350px" :flex "1 0 auto"}}
-     [:label {:style {:font-weight "bold"}} "Stack VM:"]
-     [:br]
-     [codemirror-editor {:value (let [asm (:stack-asm @app-state)
-                                      bc (:stack-bc @app-state)]
-                                  (cond
-                                    (and asm bc)
-                                    (str "--- STACK ASM ---\n" (pretty-print asm)
-                                         "\n--- BYTECODE ---\n" (pretty-print bc))
-                                    asm (pretty-print asm)
-                                    :else ""))
-                         :read-only true}]
-     [:button {:on-click run-stack :style {:margin-top "5px"}}
-      "Run Stack VM"]
-     (when (contains? @app-state :stack-result)
-       [:div {:style {:margin-top "10px"}}
-        [:strong {:style {:color "#333"}} "Stack VM Result:"]
-        [:pre {:style {:background "#fee" :color "#111" :padding "10px" :border-radius "4px"}}
-         (pr-str (:stack-result @app-state))]])
-     [:div {:style {:font-size "0.8em" :color "#666" :margin-top "5px"}}
-      "Stack-based assembly & bytecode."]]]
-
-   (when-let [error (:error @app-state)]
-
-     [:div {:style {:color "red"}}
-
-      [:h3 "Error:"]
-
-      [:pre error]])
-
-   [:div {:style {:margin-top "20px" :font-size "0.8em"}}
-
-    [:h4 "Examples:"]
-    [:ul
-     [:li [:a {:href "#" :on-click #(swap! app-state assoc :source-code "(+ 10 20)" :source-lang :clojure)} "Clojure: (+ 10 20)"]]
-     [:li [:a {:href "#" :on-click #(swap! app-state assoc :source-code "10 + 20" :source-lang :python)} "Python: 10 + 20"]]
-     [:li [:a {:href "#" :on-click #(swap! app-state assoc :source-code "(fn [x] (+ x 1))" :source-lang :clojure)} "Clojure: (fn [x] (+ x 1))"]]
-     [:li [:a {:href "#" :on-click #(swap! app-state assoc :source-code "lambda x: x + 1" :source-lang :python)} "Python: lambda x: x + 1"]]
-     [:li [:a {:href "#" :on-click #(swap! app-state assoc :source-code "(def fib (fn [n]\n           (if (< n 2)\n             n\n             (+ (fib (- n 1)) (fib (- n 2))))))\n(fib 7)" :source-lang :clojure)} "Clojure: Fibonacci"]]
-     [:li [:a {:href "#" :on-click #(swap! app-state assoc :source-code "def fib(n):\n  if n < 2:\n    return n\n  else:\n    return fib(n-1) + fib(n-2)\nfib(7)" :source-lang :python)} "Python: Fibonacci"]]]]])
 (defn init []
   (let [app (js/document.getElementById "app")]
     (rdom/render [hello-world] app)))
