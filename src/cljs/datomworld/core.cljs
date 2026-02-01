@@ -210,7 +210,7 @@
     (try
       (let [asts (case lang
                    :clojure (let [forms (reader/read-string (str "[" input "]"))]
-                              (mapv yang/compile forms))
+                              [(yang/compile-program forms)])
                    :python (let [ast (py/compile input)]
                              [ast]))
             ast-strings (map pretty-print asts)
