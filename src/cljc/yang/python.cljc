@@ -279,22 +279,50 @@
                       {:type :literal :value nil})}
     (throw (ex-info "Unknown node" {:node node}))))
 
+(def Z-combinator
+  "The Z combinator (strict fixed-point combinator) for recursion.
+   Z = λf. (λx. f (λv. x x v)) (λx. f (λv. x x v))"
+  {:type :lambda :params ['f]
+   :body {:type :application
+          :operator {:type :lambda :params ['x]
+                     :body {:type :application
+                            :operator {:type :variable :name 'f}
+                            :operands [{:type :lambda :params ['v]
+                                        :body {:type :application
+                                               :operator {:type :application
+                                                          :operator {:type :variable :name 'x}
+                                                          :operands [{:type :variable :name 'x}]}
+                                               :operands [{:type :variable :name 'v}]}}]}}
+          :operands [{:type :lambda :params ['x]
+                      :body {:type :application
+                             :operator {:type :variable :name 'f}
+                             :operands [{:type :lambda :params ['v]
+                                         :body {:type :application
+                                                :operator {:type :application
+                                                           :operator {:type :variable :name 'x}
+                                                           :operands [{:type :variable :name 'x}]}
+                                                :operands [{:type :variable :name 'v}]}}]}}]}})
+
 (defn compile-program [ast]
   ;; Handle top-level definitions by wrapping in let/lambda application.
-  ;; [def f..., call f] -> ((fn [f] call f) (fn...))
+  ;; [def f..., call f] -> ((fn [f] call f) (Z (fn [f] (fn [args] body))))
   (let [stmts (:stmts ast)]
     (if (empty? stmts)
       {:type :literal :value nil}
       (let [head (first stmts)]
         (if (= :def (:py-type head))
-          ;; It's a definition: let name = body in rest
+          ;; It's a definition: let name = (Z ...) in rest
           {:type :application
            :operator {:type :lambda
                       :params [(:name head)]
                       :body (compile-program {:stmts (rest stmts)})}
-           :operands [{:type :lambda
-                       :params (:params head)
-                       :body (compile-suite (:body head))}]}
+           :operands [{:type :application
+                       :operator Z-combinator
+                       :operands [{:type :lambda
+                                   :params [(:name head)]
+                                   :body {:type :lambda
+                                          :params (:params head)
+                                          :body (compile-suite (:body head))}}]}]}
           ;; Not a definition
           (if (= 1 (count stmts))
             (compile-stmt head)
