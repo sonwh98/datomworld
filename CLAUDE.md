@@ -153,6 +153,12 @@ ASTs are materialized views over five orthogonal dimensions:
   4. Language (transformations): cross-language semantic preservation
   5. Execution (runtime): continuation state, stack frames, instruction pointers
 
+The canonical nature of the AST as datoms enables multiple execution models via semantic projections:
+- A stack-based VM for traditional sequential execution and legacy compatibility.
+- A register-based VM for modern, efficient execution with explicit register allocation.
+- Compilation to native code for specific hardware targets (e.g., IoT devices, specialized chips).
+Since the AST preserves semantics as immutable data, any execution backend can project the same underlying facts into the optimal form for its target environment.
+
 Types are metadata on AST nodes, not categories of languages.
 Static and dynamic typing are unified as certainty levels (:static, :dynamic, :unknown).
 Eval is the VM: no hidden interpreter, AST execution is explicit.

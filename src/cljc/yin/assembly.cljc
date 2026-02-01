@@ -258,18 +258,39 @@
    this follows node references (like graph traversal)."
   ([compiled] (run-semantic compiled {}))
   ([{:keys [node datoms pool]} env]
-   (let [node-map (node->map datoms node)]
-     (case (:op/type node-map)
+   (let [node-map (node->map datoms node)
+         ;; Attribute resolution helper
+         attr-mapping {:op/type :yin/type
+                       :op/const-ref :yin/const-ref ;; fallback if name not enough
+                       :op/var-name :yin/name
+                       :op/params-ref :yin/params-ref
+                       :op/params :yin/params
+                       :op/body-node :yin/body
+                       :op/operator-node :yin/operator
+                       :op/operand-nodes :yin/operands
+                       :op/arity :yin/arity
+                       :op/test-node :yin/test
+                       :op/consequent-node :yin/consequent
+                       :op/alternate-node :yin/alternate}
+         get-val (fn [attr]
+                   (or (get node-map attr)
+                       (get node-map (get attr-mapping attr))))
+         op-type (get-val :op/type)]
+     (case op-type
        :literal
-       (get-const pool (:op/const-ref node-map))
+       (get-const pool (or (get-val :op/const-ref)
+                           ;; If no const-ref, try to find by value (for yin.vm datoms)
+                           (get node-map :yin/value)))
 
-       :load-var
-       (let [var-name (get-const pool (:op/const-ref node-map))]
+       (:load-var :variable)
+       (let [var-name (or (get-val :op/var-name)
+                          (get-const pool (get-val :op/const-ref)))]
          (get env var-name))
 
        :lambda
-       (let [params (get-const pool (:op/params-ref node-map))
-             body-node (:op/body-node node-map)]
+       (let [params (or (get-val :op/params)
+                        (get-const pool (get-val :op/params-ref)))
+             body-node (get-val :op/body-node)]
          {:type :closure
           :params params
           :body-node body-node
@@ -277,9 +298,9 @@
           :pool pool
           :env env})
 
-       :apply
-       (let [op-node (:op/operator-node node-map)
-             operand-nodes (:op/operand-nodes node-map)
+       (:apply :application)
+       (let [op-node (get-val :op/operator-node)
+             operand-nodes (get-val :op/operand-nodes)
              ;; Evaluate operator
              fn-val (run-semantic {:node op-node :datoms datoms :pool pool} env)
              ;; Evaluate operands
@@ -299,16 +320,16 @@
            :else
            (throw (ex-info "Cannot apply non-function" {:fn fn-val}))))
 
-       :jump-if
-       (let [test-node (:op/test-node node-map)
-             cons-node (:op/consequent-node node-map)
-             alt-node (:op/alternate-node node-map)
+       (:jump-if :if)
+       (let [test-node (get-val :op/test-node)
+             cons-node (get-val :op/consequent-node)
+             alt-node (get-val :op/alternate-node)
              test-val (run-semantic {:node test-node :datoms datoms :pool pool} env)]
          (if test-val
            (run-semantic {:node cons-node :datoms datoms :pool pool} env)
            (run-semantic {:node alt-node :datoms datoms :pool pool} env)))
 
-       (throw (ex-info "Unknown op type" {:node-map node-map}))))))
+       (throw (ex-info "Unknown op type" {:node-map node-map :op-type op-type}))))))
 
 ;; =============================================================================
 ;; Legacy Numeric Bytecode (for comparison/compatibility)
