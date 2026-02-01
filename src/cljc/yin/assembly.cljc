@@ -329,61 +329,221 @@
   (let [idx (count pool)]
     [(conj pool val) idx]))
 
-(declare compile-ast-legacy)
+;; =============================================================================
+;; Datoms -> Stack Assembly
+;; =============================================================================
 
-(defn compile-seq-legacy [ast-seq constant-pool]
-  (reduce (fn [[bytes pool] ast]
-            (let [[new-bytes new-pool] (compile-ast-legacy ast pool)]
-              [(into bytes new-bytes) new-pool]))
-          [[] constant-pool]
-          ast-seq))
+(defn ast-datoms->stack-assembly
+  "Takes the AST as datoms and transforms it to symbolic stack assembly.
 
-(defn compile-ast-legacy [ast constant-pool]
-  (let [{:keys [type value name params body operator operands test consequent alternate]} ast]
-    (case type
-      :literal
-      (let [[new-pool idx] (add-constant-legacy constant-pool value)]
-        [[OP_LITERAL idx] new-pool])
+   Assembly is a vector of symbolic instructions (keyword mnemonics).
+   Unlike register assembly, this targets a stack machine.
 
-      :variable
-      (let [[new-pool idx] (add-constant-legacy constant-pool name)]
-        [[OP_LOAD_VAR idx] new-pool])
+   Instructions:
+     [:push v]           - push literal value v
+     [:load name]        - push value of variable name
+     [:call argc]        - pop function and argc args, call, push result
+     [:lambda params body-len] - push closure (captures env, body follows)
+     [:jump-false label] - pop condition, if false jump to label
+     [:jump label]       - unconditional jump to label
+     [:return]           - return top of stack
+     [:label name]       - pseudo-instruction for jump targets"
+  [ast-as-datoms]
+  (let [;; Materialize and index datoms by entity
+        datoms (vec ast-as-datoms)
+        by-entity (group-by first datoms)
 
-      :lambda
-      (let [[body-bytes body-pool] (compile-ast-legacy body constant-pool)
-            body-len (count body-bytes)
-            [params-pool params-idx] (add-constant-legacy body-pool params)]
-        [(concat [OP_LAMBDA params-idx]
-                 [(bit-shift-right (bit-and body-len 0xFF00) 8) (bit-and body-len 0xFF)]
-                 body-bytes)
-         params-pool])
+        ;; Get attribute value for entity
+        get-attr (fn [e attr]
+                   (some (fn [[_ a v _ _]]
+                           (when (= a attr) v))
+                         (get by-entity e)))
 
-      :application
-      (let [[op-bytes pool-1] (compile-ast-legacy operator constant-pool)
-            [args-bytes pool-2] (compile-seq-legacy operands pool-1)]
-        [(concat op-bytes args-bytes [OP_APPLY (count operands)])
-         pool-2])
+        ;; Find root entity (max of negative tempids = -1)
+        root-id (apply max (keys by-entity))
 
-      :if
-      (let [[test-bytes pool-1] (compile-ast-legacy test constant-pool)
-            [cons-bytes pool-2] (compile-ast-legacy consequent pool-1)
-            [alt-bytes pool-3] (compile-ast-legacy alternate pool-2)
-            alt-len (count alt-bytes)
-            cons-len (count cons-bytes)
-            jump-cons-len (+ cons-len 3)]
-        [(concat test-bytes
-                 [OP_JUMP_IF_FALSE] [(bit-shift-right (bit-and jump-cons-len 0xFF00) 8) (bit-and jump-cons-len 0xFF)]
-                 cons-bytes
-                 [OP_JUMP] [(bit-shift-right (bit-and alt-len 0xFF00) 8) (bit-and alt-len 0xFF)]
-                 alt-bytes)
-         pool-3])
+        ;; Assembly accumulator
+        instructions (atom [])
+        emit! (fn [instr] (swap! instructions conj instr))
 
-      (throw (ex-info "Unknown AST type" {:ast ast})))))
+        ;; Label generator
+        label-counter (atom 0)
+        gen-label! (fn [prefix]
+                     (keyword (str prefix "-" (swap! label-counter inc))))]
+
+    (letfn [(compile-node [e]
+              (let [node-type (get-attr e :op/type)]
+                (case node-type
+                  :literal
+                  (emit! [:push (get-attr e :op/value)])
+
+                  :load-var
+                  (emit! [:load (get-attr e :op/var-name)])
+
+                  :lambda
+                  (let [params (get-attr e :op/params)
+                        body-node (get-attr e :op/body-node)
+                        skip-label (gen-label! "after-lambda")]
+                    ;; Emit lambda header
+                    (emit! [:lambda params skip-label])
+                    ;; Compile body
+                    (compile-node body-node)
+                    (emit! [:return])
+                    ;; Emit skip label
+                    (emit! [:label skip-label]))
+
+                  :apply
+                  (let [op-node (get-attr e :op/operator-node)
+                        operand-nodes (get-attr e :op/operand-nodes)]
+                    ;; Push operator
+                    (compile-node op-node)
+                    ;; Push operands
+                    (doseq [arg-node operand-nodes]
+                      (compile-node arg-node))
+                    ;; Call
+                    (emit! [:call (count operand-nodes)]))
+
+                  :jump-if
+                  (let [test-node (get-attr e :op/test-node)
+                        cons-node (get-attr e :op/consequent-node)
+                        alt-node (get-attr e :op/alternate-node)
+                        else-label (gen-label! "else")
+                        end-label (gen-label! "end")]
+                    ;; Test
+                    (compile-node test-node)
+                    (emit! [:jump-false else-label])
+                    ;; Consequent
+                    (compile-node cons-node)
+                    (emit! [:jump end-label])
+                    ;; Alternate
+                    (emit! [:label else-label])
+                    (compile-node alt-node)
+                    ;; End
+                    (emit! [:label end-label]))
+
+                  ;; Handle unknown types gracefully (e.g. implicitly return nil or throw)
+                  (throw (ex-info "Unknown node type in stack assembly compilation"
+                                  {:type node-type :entity e})))))]
+
+      (compile-node root-id)
+      @instructions)))
+
+(defn stack-assembly->bytecode
+  "Convert symbolic stack assembly to numeric bytecode.
+   Returns [bytes pool]."
+  [instructions]
+  (let [pool (atom [])
+        pool-index (atom {})
+        add-constant (fn [val]
+                       (if-let [idx (get @pool-index val)]
+                         idx
+                         (let [idx (count @pool)]
+                           (swap! pool conj val)
+                           (swap! pool-index assoc val idx)
+                           idx)))
+
+        ;; Pass 1: Measure sizes and record label positions.
+        label-offsets (atom {})
+        current-offset (atom 0)
+
+        ;; Helper to size instruction
+        instr-size (fn [instr]
+                     (case (first instr)
+                       :push 2
+                       :load 2
+                       :lambda 4 ;; op + params_idx + 2 byte len
+                       :call 2
+                       :jump-false 3
+                       :jump 3
+                       :return 1
+                       :label 0
+                       0))]
+
+    ;; Pass 1: Calculate label offsets
+    (doseq [instr instructions]
+      (if (= :label (first instr))
+        (swap! label-offsets assoc (second instr) @current-offset)
+        (swap! current-offset + (instr-size instr))))
+
+    ;; Pass 2: Emit bytes
+    (let [bytes (atom [])
+          emit-byte! (fn [b] (swap! bytes conj b))
+          emit-short! (fn [s]
+                        (emit-byte! (bit-shift-right (bit-and s 0xFF00) 8))
+                        (emit-byte! (bit-and s 0xFF)))
+
+          ;; Re-calculate current offset during emission for relative jumps
+          emit-offset (atom 0)]
+
+      (doseq [instr instructions]
+        (let [[op arg1 arg2] instr]
+          (case op
+            :push
+            (let [idx (add-constant arg1)]
+              (emit-byte! OP_LITERAL)
+              (emit-byte! idx)
+              (swap! emit-offset + 2))
+
+            :load
+            (let [idx (add-constant arg1)]
+              (emit-byte! OP_LOAD_VAR)
+              (emit-byte! idx)
+              (swap! emit-offset + 2))
+
+            :lambda
+            (let [params-idx (add-constant arg1)
+                  target-label arg2
+                  target-offset (get @label-offsets target-label)
+                  ;; Body length = target-offset - (current-offset + 4)
+                  body-len (- target-offset (+ @emit-offset 4))]
+              (emit-byte! OP_LAMBDA)
+              (emit-byte! params-idx)
+              (emit-short! body-len)
+              (swap! emit-offset + 4))
+
+            :call
+            (do
+              (emit-byte! OP_APPLY)
+              (emit-byte! arg1)
+              (swap! emit-offset + 2))
+
+            :jump-false
+            (let [target-label arg1
+                  target-offset (get @label-offsets target-label)
+                  ;; Relative offset = target-offset - (current-offset + 3)
+                  rel-offset (- target-offset (+ @emit-offset 3))]
+              (emit-byte! OP_JUMP_IF_FALSE)
+              (emit-short! rel-offset)
+              (swap! emit-offset + 3))
+
+            :jump
+            (let [target-label arg1
+                  target-offset (get @label-offsets target-label)
+                  rel-offset (- target-offset (+ @emit-offset 3))]
+              (emit-byte! OP_JUMP)
+              (emit-short! rel-offset)
+              (swap! emit-offset + 3))
+
+            :return
+            (do
+              (emit-byte! OP_RETURN)
+              (swap! emit-offset + 1))
+
+            :label
+            nil ;; No code emitted
+            )))
+
+      [@bytes @pool])))
 
 (defn compile-legacy
-  "Compile AST to traditional numeric bytecode (for comparison)."
+  "Compile AST to traditional numeric bytecode (for comparison).
+   Now reimplemented using the stack assembly pipeline."
   [ast]
-  (compile-ast-legacy ast []))
+  ;; Use the new pipeline: AST -> Datoms -> Stack Asm -> Bytecode
+  (reset-node-counter!)
+  (let [datoms (:datoms (compile ast))
+        stack-asm (ast-datoms->stack-assembly datoms)]
+    (stack-assembly->bytecode stack-asm)))
 
 ;; --- Legacy Numeric VM ---
 ;; This shows what information is LOST with numeric bytecode.

@@ -4,24 +4,27 @@
             [yin.vm :as vm]
             [yin.assembly :as asm]
             [yang.clojure :as yang]
+            [yang.python :as py]
             [cljs.reader :as reader]
             [cljs.pprint :as pprint]
             ["codemirror" :refer [basicSetup EditorView]]
             ["@codemirror/state" :refer [EditorState]]
             ["@codemirror/theme-one-dark" :refer [oneDark]]
-            ["@nextjournal/lang-clojure" :refer [clojure]]))
+            ["@nextjournal/lang-clojure" :refer [clojure]]
+            ["@codemirror/lang-python" :refer [python]]))
 
 (defn pretty-print [data]
   (binding [pprint/*print-right-margin* 60]
     (with-out-str (pprint/pprint data))))
 
-(defonce app-state (r/atom {:clojure-code "(+ 4 5)"
+(defonce app-state (r/atom {:source-lang :clojure
+                            :source-code "(+ 4 5)"
                             :ast-as-text (pretty-print
                                           {:type :application
                                            :operator {:type :lambda
                                                       :params '[x y]
                                                       :body {:type :application
-                                                             :operator {:type :variable :name '+}
+                                                             :operator {:type :variable :name '+'}
                                                              :operands [{:type :variable :name 'x}
                                                                         {:type :variable :name 'y}]}}
                                            :operands [{:type :literal :value 4}
@@ -33,9 +36,12 @@
                             :register-asm nil
                             :register-bc nil
                             :register-result nil
+                            :stack-asm nil
+                            :stack-bc nil
+                            :stack-result nil
                             :error nil}))
 
-(defn codemirror-editor [{:keys [value on-change read-only]}]
+(defn codemirror-editor [{:keys [value on-change read-only language]}]
   (let [view-ref (r/atom nil)
         el-ref (atom nil)]
     (r/create-class
@@ -43,7 +49,8 @@
       :component-did-mount
       (fn [this]
         (when-let [node @el-ref]
-          (let [extensions (cond-> #js [basicSetup (clojure) oneDark]
+          (let [lang-ext (if (= language :python) (python) (clojure))
+                extensions (cond-> #js [basicSetup lang-ext oneDark]
                              read-only (.concat #js [(.of (.-editable EditorView) false)])
                              on-change (.concat #js [(.of (.-updateListener EditorView)
                                                           (fn [^js update]
@@ -54,13 +61,17 @@
             (reset! view-ref view))))
       :component-did-update
       (fn [this old-argv]
-        (let [{:keys [value]} (r/props this)]
+        (let [{:keys [value language]} (r/props this)
+              {old-language :language} (second old-argv)]
           (when-let [view @view-ref]
             (let [current-value (.. view -state -doc toString)]
               (when (not= value current-value)
                 (.dispatch view #js {:changes #js {:from 0
                                                    :to (.. view -state -doc -length)
-                                                   :insert value}}))))))
+                                                   :insert value}})))
+            ;; Reconfigure if language changed (simple re-mount strategy is easier but let's try just updating doc first)
+            ;; Actually re-mounting is safer for language change
+            )))
       :component-will-unmount
       (fn [this]
         (when-let [view @view-ref]
@@ -87,32 +98,44 @@
       (catch js/Error e
         (swap! app-state assoc :error (.-message e) :result nil)))))
 
-(defn compile-legacy-bytecode []
+(defn compile-stack []
   (let [input (:ast-as-text @app-state)]
     (try
       (let [forms (reader/read-string (str "[" input "]"))
-            ;; Compile to legacy numeric bytecode
-            results (mapv asm/compile-legacy forms)]
-        (swap! app-state assoc :legacy-compiled results :error nil)
+            results (mapv (fn [ast]
+                            (let [datoms (vm/ast->datoms ast)
+                                  asm (asm/ast-datoms->stack-assembly datoms)
+                                  [bc pool] (asm/stack-assembly->bytecode asm)]
+                              {:asm asm :bc bc :pool pool}))
+                          forms)]
+        (swap! app-state assoc
+               :stack-asm (mapv :asm results)
+               :stack-bc (mapv :bc results)
+               :stack-pool (mapv :pool results)
+               :error nil)
         results)
       (catch js/Error e
-        (swap! app-state assoc :error (.-message e) :legacy-compiled nil)
+        (swap! app-state assoc :error (str "Stack Compile Error: " (.-message e))
+               :stack-asm nil :stack-bc nil)
         nil))))
 
-(defn run-legacy-bytecode []
-  (let [compiled (:legacy-compiled @app-state)
+(defn run-stack []
+  (let [compiled (:stack-bc @app-state)
+        pools (:stack-pool @app-state)
         ;; If not compiled yet, try to compile
-        compiled-results (or compiled (compile-legacy-bytecode))]
-    (when (seq compiled-results)
+        results (if (seq compiled)
+                  (mapv vector compiled pools)
+                  (mapv (juxt :bc :pool) (compile-stack)))]
+    (when (seq results)
       (try
         (let [initial-env vm/primitives
-              ;; Run legacy numeric bytecode
-              results (mapv (fn [[bytes pool]]
-                              (asm/run-bytes bytes pool initial-env))
-                            compiled-results)]
-          (swap! app-state assoc :legacy-result (last results) :error nil))
+              ;; Run stack-based numeric bytecode
+              run-results (mapv (fn [[bytes pool]]
+                                  (asm/run-bytes bytes pool initial-env))
+                                results)]
+          (swap! app-state assoc :stack-result (last run-results) :error nil))
         (catch js/Error e
-          (swap! app-state assoc :error (str "Legacy Bytecode Error: " (.-message e)) :legacy-result nil))))))
+          (swap! app-state assoc :error (str "Stack VM Error: " (.-message e)) :stack-result nil))))))
 
 (defn compile-ast []
   (let [input (:ast-as-text @app-state)]
@@ -190,32 +213,43 @@
         (catch js/Error e
           (swap! app-state assoc :error (str "Register VM Error: " (.-message e)) :register-result nil))))))
 
-(defn compile-clojure []
-  (let [input (:clojure-code @app-state)]
+(defn compile-source []
+  (let [input (:source-code @app-state)
+        lang (:source-lang @app-state)]
     (try
-      (let [forms (reader/read-string (str "[" input "]"))
-            asts (mapv yang/compile forms)
+      (let [asts (case lang
+                   :clojure (let [forms (reader/read-string (str "[" input "]"))]
+                              (mapv yang/compile forms))
+                   :python (let [ast (py/compile input)]
+                             [ast]))
             ast-strings (map pretty-print asts)
             result-text (clojure.string/join "\n" ast-strings)]
         (swap! app-state assoc :ast-as-text result-text :error nil))
       (catch js/Error e
-        (swap! app-state assoc :error (str "Clojure Compile Error: " (.-message e)))))))
+        (swap! app-state assoc :error (str "Compile Error: " (.-message e)))))))
 
 (defn hello-world []
   [:div {:style {:padding "20px" :font-family "sans-serif"}}
    [:h1 "Datomworld Yin VM Explorer"]
 
    [:div {:style {:display "flex" :flex-direction "row" :align-items "flex-start" :margin-bottom "20px" :overflow-x "auto"}}
-    ;; Column 1: Clojure Code
+    ;; Column 1: Source Code
     [:div {:style {:min-width "350px" :flex "1 0 auto" :margin-right "10px"}}
-     [:label {:style {:font-weight "bold"}} "Enter Clojure Code:"]
-     [:br]
-     [codemirror-editor {:value (:clojure-code @app-state)
-                         :on-change #(swap! app-state assoc :clojure-code %)}]]
+     [:div {:style {:display "flex" :justify-content "space-between" :align-items "center"}}
+      [:label {:style {:font-weight "bold"}} "Source Code:"]
+      [:select {:value (:source-lang @app-state)
+                :on-change #(swap! app-state assoc :source-lang (keyword (.. % -target -value)))
+                :style {:margin-bottom "5px"}}
+       [:option {:value "clojure"} "Clojure"]
+       [:option {:value "python"} "Python"]]]
+     [codemirror-editor {:key (:source-lang @app-state) ;; Force remount on language change
+                         :value (:source-code @app-state)
+                         :language (:source-lang @app-state)
+                         :on-change #(swap! app-state assoc :source-code %)}]]
 
-    ;; Arrow 1: Clojure -> AST
+    ;; Arrow 1: Source -> AST
     [:div {:style {:display "flex" :flex-direction "column" :justify-content "center" :height "300px" :margin-right "10px"}}
-     [:button {:on-click compile-clojure :style {:padding "5px"}}
+     [:button {:on-click compile-source :style {:padding "5px"}}
       "AST ->"]]
 
     ;; Column 2: Yin AST
@@ -238,89 +272,91 @@
                                   (pretty-print (mapv :datoms compiled))
                                   "")
                          :read-only true}]
-     ;; Show queryable stats
-     (when-let [stats (:assembly-stats @app-state)]
-       [:div {:style {:font-size "0.8em" :color "#666" :margin-top "5px"
-                      :background "#f5f5f5" :padding "8px" :border-radius "4px"}}
-        [:strong "Queryable Stats:"]
-        [:ul {:style {:margin "5px 0" :padding-left "20px"}}
-         [:li "Total datoms: " (:total-datoms stats)]
-         [:li "Lambdas: " (:lambdas stats)]
-         [:li "Applications: " (:applications stats)]
-         [:li "Variables: " (:variables stats)]
-         [:li "Literals: " (:literals stats)]]])
      [:div {:style {:font-size "0.8em" :color "#666" :margin-top "5px"}}
-      "Semantic assembly preserves meaning and is queryable."]]
+      "Semantic assembly (Datoms). Queryable."]]
 
-    ;; Arrow 3: Assembly -> Register VM
+    ;; Arrow 3: Assembly -> VM targets
     [:div {:style {:display "flex" :flex-direction "column" :justify-content "center" :height "300px" :margin-right "10px"}}
-     [:button {:on-click compile-register :style {:padding "5px"}}
-      "Reg ->"]]
+     [:button {:on-click compile-register :style {:padding "5px" :margin-bottom "5px"}}
+      "Reg ->"]
+     [:button {:on-click compile-stack :style {:padding "5px"}}
+      "Stack ->"]]
 
     ;; Column 4: Register VM
-    [:div {:style {:min-width "400px" :flex "1 0 auto"}}
-     [:label {:style {:font-weight "bold"}} "Register VM (Asm & BC):"]
+    [:div {:style {:min-width "350px" :flex "1 0 auto" :margin-right "10px"}}
+     [:label {:style {:font-weight "bold"}} "Register VM:"]
      [:br]
      [codemirror-editor {:value (let [asm (:register-asm @app-state)
                                       bc (:register-bc @app-state)]
                                   (cond
                                     (and asm bc)
-                                    (str "--- ASSEMBLY ---\n"
-                                         (pretty-print asm)
-                                         "\n\n--- BYTECODE ---\n"
-                                         (pretty-print bc))
+                                    (str "--- REG ASM ---\\n" (pretty-print asm)
+                                         "\\n--- BYTECODE ---\\n" (pretty-print bc))
                                     asm (pretty-print asm)
                                     :else ""))
                          :read-only true}]
      [:div {:style {:font-size "0.8em" :color "#666" :margin-top "5px"}}
-      "Register-based bytecode for high performance."]]]
+      "Register-based assembly & bytecode."]]
+
+    ;; Column 5: Stack VM
+    [:div {:style {:min-width "350px" :flex "1 0 auto"}}
+     [:label {:style {:font-weight "bold"}} "Stack VM:"]
+     [:br]
+     [codemirror-editor {:value (let [asm (:stack-asm @app-state)
+                                      bc (:stack-bc @app-state)]
+                                  (cond
+                                    (and asm bc)
+                                    (str "--- STACK ASM ---\\n" (pretty-print asm)
+                                         "\\n--- BYTECODE ---\\n" (pretty-print bc))
+                                    asm (pretty-print asm)
+                                    :else ""))
+                         :read-only true}]
+     [:div {:style {:font-size "0.8em" :color "#666" :margin-top "5px"}}
+      "Stack-based assembly & bytecode."]]]
 
    [:div {:style {:margin-bottom "20px"}}
     [:button {:on-click evaluate-ast :style {:margin-right "10px"}}
      "Evaluate AST"]
     [:button {:on-click run-assembly :style {:margin-right "10px"}}
      "Run Assembly"]
-    [:button {:on-click run-register}
-     "Run Register VM"]]
+    [:button {:on-click run-register :style {:margin-right "10px"}}
+     "Run Register VM"]
+    [:button {:on-click run-stack}
+     "Run Stack VM"]]
 
    (when-let [error (:error @app-state)]
      [:div {:style {:color "red"}}
       [:h3 "Error:"]
       [:pre error]])
 
-   [:div {:style {:display "flex" :gap "20px"}}
+   [:div {:style {:display "flex" :gap "10px" :flex-wrap "wrap"}}
     (when (contains? @app-state :result)
-      [:div {:style {:flex "1"}}
-       [:h3 "AST Eval Result:"]
+      [:div {:style {:flex "1 1 200px"}}
+       [:h4 "AST Eval:"]
        [:pre {:style {:background "#eee" :padding "10px"}} (pr-str (:result @app-state))]])
 
     (when (contains? @app-state :assembly-result)
-      [:div {:style {:flex "1"}}
-       [:h3 "Assembly Result:"]
+      [:div {:style {:flex "1 1 200px"}}
+       [:h4 "Assembly Run:"]
        [:pre {:style {:background "#eef" :padding "10px"}} (pr-str (:assembly-result @app-state))]])
 
     (when (contains? @app-state :register-result)
-      [:div {:style {:flex "1"}}
-       [:h3 "Register VM Result:"]
-       [:pre {:style {:background "#efe" :padding "10px"}} (pr-str (:register-result @app-state))]])]
+      [:div {:style {:flex "1 1 200px"}}
+       [:h4 "Reg VM Run:"]
+       [:pre {:style {:background "#efe" :padding "10px"}} (pr-str (:register-result @app-state))]])
+
+    (when (contains? @app-state :stack-result)
+      [:div {:style {:flex "1 1 200px"}}
+       [:h4 "Stack VM Run:"]
+       [:pre {:style {:background "#fee" :padding "10px"}} (pr-str (:stack-result @app-state))]])]
 
    [:div {:style {:margin-top "20px" :font-size "0.8em"}}
     [:h4 "Examples:"]
     [:ul
-     [:li [:a {:href "#" :on-click #(swap! app-state assoc :ast-as-text (pretty-print {:type :literal :value 42}))} "Literal 42"]]
-     [:li [:a {:href "#" :on-click #(swap! app-state assoc :ast-as-text (pretty-print {:type :application
-                                                                                       :operator {:type :variable :name '+}
-                                                                                       :operands [{:type :literal :value 10}
-                                                                                                  {:type :literal :value 20}]}))} "Addition (10 + 20)"]]
-     [:li [:a {:href "#" :on-click #(swap! app-state assoc :ast-as-text (pretty-print {:type :application
-                                                                                       :operator {:type :lambda
-                                                                                                  :params '[x]
-                                                                                                  :body {:type :application
-                                                                                                         :operator {:type :variable :name '+}
-                                                                                                         :operands [{:type :variable :name 'x}
-                                                                                                                    {:type :literal :value 1}]}}
-                                                                                       :operands [{:type :literal :value 5}]}))} "Lambda Application ((lambda (x) (+ x 1)) 5)"]]
-     [:li [:a {:href "#" :on-click #(swap! app-state assoc :clojure-code "(def fib (fn [n]\n           (if (< n 2)\n             n\n             (+ (fib (- n 1)) (fib (- n 2))))))\n(fib 7)")} "Fibonacci (Clojure)"]]]]])
+     [:li [:a {:href "#" :on-click #(swap! app-state assoc :source-code "(+ 10 20)" :source-lang :clojure)} "Clojure: (+ 10 20)"]]
+     [:li [:a {:href "#" :on-click #(swap! app-state assoc :source-code "10 + 20" :source-lang :python)} "Python: 10 + 20"]]
+     [:li [:a {:href "#" :on-click #(swap! app-state assoc :source-code "(fn [x] (+ x 1))" :source-lang :clojure)} "Clojure: (fn [x] (+ x 1))"]]
+     [:li [:a {:href "#" :on-click #(swap! app-state assoc :source-code "lambda x: x + 1" :source-lang :python)} "Python: lambda x: x + 1"]]]]])
 (defn init []
   (let [app (js/document.getElementById "app")]
     (rdom/render [hello-world] app)))
