@@ -353,11 +353,27 @@
         datoms (vec ast-as-datoms)
         by-entity (group-by first datoms)
 
-        ;; Get attribute value for entity
+        ;; Attribute mapping from op (assembly) to yin (vm) namespaces
+        attr-mapping {:op/type :yin/type
+                      :op/value :yin/value
+                      :op/var-name :yin/name
+                      :op/params :yin/params
+                      :op/body-node :yin/body
+                      :op/operator-node :yin/operator
+                      :op/operand-nodes :yin/operands
+                      :op/test-node :yin/test
+                      :op/consequent-node :yin/consequent
+                      :op/alternate-node :yin/alternate}
+
+        ;; Get attribute value for entity (checks both :op/... and :yin/... attributes)
         get-attr (fn [e attr]
-                   (some (fn [[_ a v _ _]]
-                           (when (= a attr) v))
-                         (get by-entity e)))
+                   (let [yin-attr (get attr-mapping attr)]
+                     (some (fn [[_ a v _ _]]
+                             (cond
+                               (= a attr) v
+                               (= a yin-attr) v
+                               :else nil))
+                           (get by-entity e))))
 
         ;; Find root entity (max of negative tempids = -1)
         root-id (apply max (keys by-entity))
@@ -377,7 +393,10 @@
                   :literal
                   (emit! [:push (get-attr e :op/value)])
 
-                  :load-var
+                  :variable
+                  (emit! [:load (get-attr e :op/var-name)])
+
+                  :load-var ;; Handle :load-var explicitly if node-type matches but attr names differ?
                   (emit! [:load (get-attr e :op/var-name)])
 
                   :lambda
@@ -403,7 +422,36 @@
                     ;; Call
                     (emit! [:call (count operand-nodes)]))
 
+                  :application ;; Handle :application alias for :apply
+                  (let [op-node (get-attr e :op/operator-node)
+                        operand-nodes (get-attr e :op/operand-nodes)]
+                    ;; Push operator
+                    (compile-node op-node)
+                    ;; Push operands
+                    (doseq [arg-node operand-nodes]
+                      (compile-node arg-node))
+                    ;; Call
+                    (emit! [:call (count operand-nodes)]))
+
                   :jump-if
+                  (let [test-node (get-attr e :op/test-node)
+                        cons-node (get-attr e :op/consequent-node)
+                        alt-node (get-attr e :op/alternate-node)
+                        else-label (gen-label! "else")
+                        end-label (gen-label! "end")]
+                    ;; Test
+                    (compile-node test-node)
+                    (emit! [:jump-false else-label])
+                    ;; Consequent
+                    (compile-node cons-node)
+                    (emit! [:jump end-label])
+                    ;; Alternate
+                    (emit! [:label else-label])
+                    (compile-node alt-node)
+                    ;; End
+                    (emit! [:label end-label]))
+
+                  :if ;; Handle :if alias for :jump-if
                   (let [test-node (get-attr e :op/test-node)
                         cons-node (get-attr e :op/consequent-node)
                         alt-node (get-attr e :op/alternate-node)
