@@ -21,7 +21,7 @@
   (loop [s line tokens []]
     (if (empty? s)
       tokens
-      (let [patterns [[:number #"^-?\d+\.?\d*"]
+      (let [patterns [[:number #"^\d+\.?\d*"]
                       [:string #"^\"([^\"]*)\""]
                       [:string #"^'([^']*)'"]
                       [:keyword #"^(def|lambda|return|if|else|and|or|not|True|False|None)\b"]
@@ -138,9 +138,16 @@
         {:ast {:py-type :call :function ast :args args} :remaining remaining})
       {:ast ast :remaining remaining})))
 
+(defn parse-py-unary [tokens]
+  (if (match? (first tokens) :operator "-")
+    (let [{:keys [ast remaining]} (parse-py-unary (rest tokens))]
+      {:ast {:py-type :binop :op '- :left {:py-type :literal :value 0} :right ast}
+       :remaining remaining})
+    (parse-py-call tokens)))
+
 (defn parse-py-binary-op [tokens min-prec]
   (let [precedence {'* 3 '/ 3 '+ 2 '- 2 '== 1 '!= 1 '< 1 '> 1 '<= 1 '>= 1 'and 0 'or 0}
-        {:keys [ast remaining]} (parse-py-call tokens)]
+        {:keys [ast remaining]} (parse-py-unary tokens)]
     (loop [left ast toks remaining]
       (let [[type val] (first toks)]
         (if-let [prec (and (= :operator type) (get precedence (symbol val)))]
