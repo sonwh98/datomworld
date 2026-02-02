@@ -1,4 +1,0 @@
-{:file-types {"chp" :edn
-              "blog" :edn}
- :file-pattern #re "\\.clj[cdsx]?$|\\.edn$|\\.chp$|\\.blog$"
- :paths ["src" "test" "public/chp"]}

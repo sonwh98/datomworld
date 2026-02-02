@@ -1,0 +1,9 @@
+{:rules
+ {:indentation {:enabled? true}
+  :whitespace {:enabled? true
+               :remove-trailing? true
+               :insert-missing? true}
+  :blank-lines {:enabled? true
+                :max-consecutive 2}
+  :namespaces {:enabled? true}
+  :eof-newline {:enabled? true}}}
