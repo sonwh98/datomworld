@@ -41,11 +41,14 @@
            :style/fix {:extra-paths ["src/dev"]
                        :exec-fn tasks/cljstyle-fix}
            :fmt/fix {:extra-paths ["src/dev"]
-                     :exec-fn tasks/zprint-fix}}}
+                     :exec-fn tasks/zprint-fix}
+           :fix {:extra-paths ["src/dev"]
+                 :exec-fn tasks/fix-all}}}
 
 
 ;; clj -X:style/fix
 ;; clj -X:fmt/fix
+
 
 ;; clj -M:nREPL
 
