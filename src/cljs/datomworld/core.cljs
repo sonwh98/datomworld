@@ -22,11 +22,11 @@
 
 
 (def default-positions
-  {:source {:x 20, :y 80, :w 350, :h 450},
-   :ast {:x 420, :y 80, :w 380, :h 450},
-   :assembly {:x 850, :y 80, :w 400, :h 450},
-   :register {:x 1300, :y 80, :w 350, :h 450},
-   :stack {:x 1300, :y 500, :w 350, :h 450}})
+  {:source {:x 20, :y 180, :w 350, :h 450},
+   :ast {:x 420, :y 180, :w 380, :h 450},
+   :assembly {:x 850, :y 180, :w 400, :h 450},
+   :register {:x 1300, :y 180, :w 350, :h 450},
+   :stack {:x 1300, :y 650, :w 350, :h 450}})
 
 
 (defonce app-state
@@ -51,7 +51,8 @@
 
 
 (when (or (nil? (:ui-positions @app-state))
-          (not (:h (:source (:ui-positions @app-state)))))
+          (not (:h (:source (:ui-positions @app-state))))
+          (= 80 (:y (:source (:ui-positions @app-state)))))
   (swap! app-state assoc :ui-positions default-positions))
 
 
