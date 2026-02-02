@@ -27,7 +27,8 @@
    :ast {:x 420, :y 180, :w 380, :h 450},
    :assembly {:x 850, :y 180, :w 400, :h 450},
    :register {:x 1300, :y 180, :w 350, :h 450},
-   :stack {:x 1300, :y 650, :w 350, :h 450}})
+   :stack {:x 1300, :y 650, :w 350, :h 450},
+   :query {:x 850, :y 650, :w 400, :h 450}})
 
 
 (defonce ds-conn (d/create-conn vm/schema))
@@ -51,6 +52,8 @@
      :stack-asm nil,
      :stack-bc nil,
      :stack-result nil,
+     :query-text "[:find ?e ?type\n :where [?e :yin/type ?type]]",
+     :query-result nil,
      :error nil,
      :ui-positions default-positions,
      :drag-state nil,
@@ -231,6 +234,22 @@
              (swap! app-state assoc
                :error (str "Assembly Error: " (.-message e))
                :assembly-result nil))))))
+
+
+(defn run-query
+  []
+  (let [db (:ds-db @app-state)]
+    (if (nil? db)
+      (swap! app-state assoc
+        :error "No DataScript db. Click \"Asm ->\" first."
+        :query-result nil)
+      (try (let [query (reader/read-string (:query-text @app-state))
+                 result (d/q query db)]
+             (swap! app-state assoc :query-result result :error nil))
+           (catch js/Error e
+             (swap! app-state assoc
+               :error (str "Query Error: " (.-message e))
+               :query-result nil))))))
 
 
 (defn compile-register
@@ -529,7 +548,8 @@
            [connection-line :source :ast "AST ->" compile-source]
            [connection-line :ast :assembly "Asm ->" compile-ast]
            [connection-line :assembly :register "Reg ->" compile-register]
-           [connection-line :assembly :stack "Stack ->" compile-stack]]
+           [connection-line :assembly :stack "Stack ->" compile-stack]
+           [connection-line :assembly :query "d/q ->" run-query]]
           [draggable-card :source
            [:div
             {:style {:display "flex",
@@ -678,6 +698,31 @@
                         :padding "5px",
                         :border "1px solid #30363d"}}
                (pr-str (:stack-result @app-state))])]]
+          [draggable-card :query "Datalog Query"
+           [:div
+            {:style {:display "flex",
+                     :flex-direction "column",
+                     :flex "1",
+                     :overflow "hidden"}}
+            [codemirror-editor
+             {:value (:query-text @app-state),
+              :on-change (fn [v] (swap! app-state assoc :query-text v)),
+              :style {:flex "1", :min-height "80px"}}]
+            [:button
+             {:on-click run-query,
+              :style {:marginTop "5px",
+                      :background "#238636",
+                      :color "#fff",
+                      :border "none",
+                      :padding "5px 10px",
+                      :border-radius "4px",
+                      :cursor "pointer"}} "Run Query"]
+            [codemirror-editor
+             {:value (if-let [result (:query-result @app-state)]
+                       (pretty-print (vec (sort result)))
+                       ""),
+              :read-only true,
+              :style {:flex "1", :min-height "80px", :marginTop "5px"}}]]]
           (when (:error @app-state)
             [:div
              {:style {:position "absolute",
