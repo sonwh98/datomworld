@@ -18,32 +18,45 @@
   The compiler is written in .cljc format to run on both JVM and Node.js."
   (:refer-clojure :exclude [compile]))
 
+
 ;; Forward declaration for mutual recursion
 (declare compile-form)
+
 
 ;; The Z combinator (strict fixed-point combinator) for recursion.
 ;; Z = λf. (λx. f (λv. x x v)) (λx. f (λv. x x v))
 (def Z-combinator
-  {:type :lambda :params ['f]
-   :body {:type :application
-          :operator {:type :lambda :params ['x]
-                     :body {:type :application
-                            :operator {:type :variable :name 'f}
-                            :operands [{:type :lambda :params ['v]
-                                        :body {:type :application
-                                               :operator {:type :application
-                                                          :operator {:type :variable :name 'x}
-                                                          :operands [{:type :variable :name 'x}]}
-                                               :operands [{:type :variable :name 'v}]}}]}}
-          :operands [{:type :lambda :params ['x]
-                      :body {:type :application
-                             :operator {:type :variable :name 'f}
-                             :operands [{:type :lambda :params ['v]
-                                         :body {:type :application
-                                                :operator {:type :application
-                                                           :operator {:type :variable :name 'x}
-                                                           :operands [{:type :variable :name 'x}]}
-                                                :operands [{:type :variable :name 'v}]}}]}}]}})
+  {:type :lambda,
+   :params ['f],
+   :body
+     {:type :application,
+      :operator {:type :lambda,
+                 :params ['x],
+                 :body {:type :application,
+                        :operator {:type :variable, :name 'f},
+                        :operands
+                          [{:type :lambda,
+                            :params ['v],
+                            :body {:type :application,
+                                   :operator
+                                     {:type :application,
+                                      :operator {:type :variable, :name 'x},
+                                      :operands [{:type :variable, :name 'x}]},
+                                   :operands [{:type :variable, :name 'v}]}}]}},
+      :operands
+        [{:type :lambda,
+          :params ['x],
+          :body {:type :application,
+                 :operator {:type :variable, :name 'f},
+                 :operands
+                   [{:type :lambda,
+                     :params ['v],
+                     :body {:type :application,
+                            :operator {:type :application,
+                                       :operator {:type :variable, :name 'x},
+                                       :operands [{:type :variable, :name 'x}]},
+                            :operands [{:type :variable, :name 'v}]}}]}}]}})
+
 
 (defn literal?
   "Check if a value is a literal (self-evaluating)."
@@ -57,35 +70,36 @@
       (vector? form)
       (map? form)))
 
+
 (defn special-form?
   "Check if a form is a special form."
   [form]
   (and (seq? form)
        (symbol? (first form))
-       (contains? #{'fn 'if 'let 'quote 'do 'def}
-                  (first form))))
+       (contains? #{'fn 'if 'let 'quote 'do 'def} (first form))))
+
 
 (defn compile-literal
   "Compile a literal value to Universal AST."
   [form]
-  {:type :literal
-   :value form})
+  {:type :literal, :value form})
+
 
 (defn compile-variable
   "Compile a variable reference (symbol) to Universal AST."
   [sym]
-  {:type :variable
-   :name sym})
+  {:type :variable, :name sym})
+
 
 (defn compile-def
   "Compile a def form to Universal AST.
    Note: This is for non-top-level defs or when not using compile-program.
    It emits a yin/def application which requires environment support."
   [sym value env]
-  {:type :application
-   :operator {:type :variable :name 'yin/def}
-   :operands [{:type :literal :value sym}
-              (compile-form value env)]})
+  {:type :application,
+   :operator {:type :variable, :name 'yin/def},
+   :operands [{:type :literal, :value sym} (compile-form value env)]})
+
 
 (defn compile-lambda
   "Compile a lambda (fn) expression to Universal AST.
@@ -96,9 +110,8 @@
         :body <compiled-body>}"
   [params body env]
   (let [compiled-body (compile-form body env)]
-    {:type :lambda
-     :params (vec params)
-     :body compiled-body}))
+    {:type :lambda, :params (vec params), :body compiled-body}))
+
 
 (defn compile-application
   "Compile a function application to Universal AST.
@@ -110,9 +123,10 @@
   [operator operands env]
   (let [compiled-operator (compile-form operator env)
         compiled-operands (mapv #(compile-form % env) operands)]
-    {:type :application
-     :operator compiled-operator
+    {:type :application,
+     :operator compiled-operator,
      :operands compiled-operands}))
+
 
 (defn compile-if
   "Compile a conditional (if) expression to Universal AST.
@@ -123,12 +137,12 @@
         :consequent <compiled-consequent>
         :alternate <compiled-alternate>}"
   [test consequent alternate env]
-  {:type :if
-   :test (compile-form test env)
-   :consequent (compile-form consequent env)
-   :alternate (if alternate
-                (compile-form alternate env)
-                (compile-literal nil))})
+  {:type :if,
+   :test (compile-form test env),
+   :consequent (compile-form consequent env),
+   :alternate
+     (if alternate (compile-form alternate env) (compile-literal nil))})
+
 
 (defn compile-let
   "Compile a let binding to Universal AST.
@@ -143,11 +157,10 @@
     (let [[binding-name binding-value & rest-bindings] bindings
           compiled-value (compile-form binding-value env)
           compiled-body (compile-let rest-bindings body env)]
-      {:type :application
-       :operator {:type :lambda
-                  :params [binding-name]
-                  :body compiled-body}
+      {:type :application,
+       :operator {:type :lambda, :params [binding-name], :body compiled-body},
        :operands [compiled-value]})))
+
 
 (defn compile-do
   "Compile a do block to Universal AST.
@@ -165,11 +178,10 @@
       (let [[first-expr & rest-exprs] exprs
             compiled-first (compile-form first-expr env)
             compiled-rest (compile-do rest-exprs env)]
-        {:type :application
-         :operator {:type :lambda
-                    :params ['_]
-                    :body compiled-rest}
+        {:type :application,
+         :operator {:type :lambda, :params ['_], :body compiled-rest},
          :operands [compiled-first]}))))
+
 
 (defn compile-quote
   "Compile a quoted form to Universal AST.
@@ -178,14 +190,15 @@
   [form]
   (compile-literal form))
 
+
 (defn resolve-primitive
   "Resolve primitive operations in the environment.
 
   Primitives like +, -, *, /, =, <, > are built into the Yin VM
   and are accessed as variables."
   [sym]
-  (when (contains? #{'+ '- '* '/ '= '< '>} sym)
-    sym))
+  (when (contains? #{'+ '- '* '/ '= '< '>} sym) sym))
+
 
 (defn compile-form
   "Compile a Clojure form to Universal AST.
@@ -196,64 +209,46 @@
   ([form env]
    (cond
      ;; Literals
-     (literal? form)
-     (compile-literal form)
-
+     (literal? form) (compile-literal form)
      ;; Variables (symbols)
-     (symbol? form)
-     (compile-variable form)
-
+     (symbol? form) (compile-variable form)
      ;; Special forms and function application
      (seq? form)
-     (let [[operator & operands] form]
-       (case operator
-         ;; Lambda: (fn [params] body)
-         fn
-         (let [[params & body] operands
-               ;; Handle multi-expression body with implicit do
-               body-expr (if (= 1 (count body))
-                           (first body)
-                           (cons 'do body))]
-           (compile-lambda params body-expr env))
-
-         ;; Conditional: (if test consequent alternate?)
-         if
-         (let [[test consequent alternate] operands]
-           (compile-if test consequent alternate env))
-
-         ;; Let binding: (let [bindings] body)
-         let
-         (let [[bindings & body] operands
-               ;; Handle multi-expression body with implicit do
-               body-expr (if (= 1 (count body))
-                           (first body)
-                           (cons 'do body))]
-           (compile-let bindings body-expr env))
-
-         ;; Do block: (do expr1 expr2 ...)
-         do
-         (compile-do operands env)
-
-         ;; Quote: (quote form)
-         quote
-         (compile-quote (first operands))
-
-         ;; Def: (def sym value)
-         def
-         (let [[sym value] operands]
-           (compile-def sym value env))
-
-         ;; Function application: (f arg1 arg2 ...)
-         ;; This includes stream operations (stream/make, stream/put, stream/take, >!, <!)
-         ;; which are resolved through the module system at runtime
-         (compile-application operator operands env)))
-
+       (let [[operator & operands] form]
+         (case operator
+           ;; Lambda: (fn [params] body)
+           fn (let [[params & body] operands
+                    ;; Handle multi-expression body with implicit do
+                    body-expr
+                      (if (= 1 (count body)) (first body) (cons 'do body))]
+                (compile-lambda params body-expr env))
+           ;; Conditional: (if test consequent alternate?)
+           if (let [[test consequent alternate] operands]
+                (compile-if test consequent alternate env))
+           ;; Let binding: (let [bindings] body)
+           let (let [[bindings & body] operands
+                     ;; Handle multi-expression body with implicit do
+                     body-expr
+                       (if (= 1 (count body)) (first body) (cons 'do body))]
+                 (compile-let bindings body-expr env))
+           ;; Do block: (do expr1 expr2 ...)
+           do (compile-do operands env)
+           ;; Quote: (quote form)
+           quote (compile-quote (first operands))
+           ;; Def: (def sym value)
+           def (let [[sym value] operands] (compile-def sym value env))
+           ;; Function application: (f arg1 arg2 ...)
+           ;; This includes stream operations (stream/make, stream/put,
+           ;; stream/take, >!, <!)
+           ;; which are resolved through the module system at runtime
+           (compile-application operator operands env)))
      ;; Unknown form type
-     :else
-     (throw (ex-info "Cannot compile unknown form type"
-                     {:form form
-                      :type #?(:cljd (clojure.core/str (.-runtimeType form))
-                               :default (clojure.core/type form))})))))
+     :else (throw (ex-info "Cannot compile unknown form type"
+                           {:form form,
+                            :type #?(:cljd (clojure.core/str (.-runtimeType
+                                                               form))
+                                     :default (clojure.core/type form))})))))
+
 
 (defn compile-program
   "Compile a sequence of Clojure forms into a single Universal AST.
@@ -261,27 +256,30 @@
    Uses Z-combinator for recursive definitions."
   [forms]
   (if (empty? forms)
-    {:type :literal :value nil}
+    {:type :literal, :value nil}
     (let [head (first forms)]
       (if (and (seq? head) (= 'def (first head)))
         (let [[_ name value] head]
           ;; It's a definition: let name = (Z (fn [name] value)) in rest
-          {:type :application
-           :operator {:type :lambda
-                      :params [name]
-                      :body (compile-program (rest forms))}
-           :operands [{:type :application
-                       :operator Z-combinator
-                       :operands [{:type :lambda
-                                   :params [name]
+          {:type :application,
+           :operator {:type :lambda,
+                      :params [name],
+                      :body (compile-program (rest forms))},
+           :operands [{:type :application,
+                       :operator Z-combinator,
+                       :operands [{:type :lambda,
+                                   :params [name],
                                    :body (compile-form value)}]}]})
         ;; Not a definition
         (if (= 1 (count forms))
           (compile-form head)
           ;; Sequence
-          {:type :application
-           :operator {:type :lambda :params ['_] :body (compile-program (rest forms))}
+          {:type :application,
+           :operator {:type :lambda,
+                      :params ['_],
+                      :body (compile-program (rest forms))},
            :operands [(compile-form head)]})))))
+
 
 (defn compile
   "Main compiler entry point.

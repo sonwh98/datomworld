@@ -1,21 +1,23 @@
 (ns world.server
-  (:require
-   [bidi.ring :as bidi] :reload
-   [clojure.java.io :as io]
-   [clojure.pprint :as pp :refer :all]
-   [clojure.string :as str]
-   [nrepl.cmdline :as nrepl]
-   [org.httpkit.server :as httpkit]
-   [ring.middleware.file]
-   [ring.middleware.params]
-   [ring.middleware.multipart-params]
-   [ring.middleware.content-type]
-   [ring.util.response :as response]
-   [stigmergy.chp]
-   [stigmergy.config :as c]
-   [world.blog]))
+  (:require [:reload]
+            [bidi.ring :as bidi]
+            [clojure.java.io :as io]
+            [clojure.pprint :as pp :refer :all]
+            [clojure.string :as str]
+            [nrepl.cmdline :as nrepl]
+            [org.httpkit.server :as httpkit]
+            [ring.middleware.content-type]
+            [ring.middleware.file]
+            [ring.middleware.multipart-params]
+            [ring.middleware.params]
+            [ring.util.response :as response]
+            [stigmergy.chp]
+            [stigmergy.config :as c]
+            [world.blog]))
 
-(defn redirect-missing-chp [handler]
+
+(defn redirect-missing-chp
+  [handler]
   (fn [req]
     (let [uri (:uri req)]
       (if (and uri (str/ends-with? uri ".chp"))
@@ -32,24 +34,28 @@
                 (handler req)))))
         (handler req)))))
 
-(defn create-app []
+
+(defn create-app
+  []
   (let [routes (c/config :bidi-routes)
         handler (bidi/make-handler routes)
-        mime-types (merge {"chp" "text/html"
-                           nil "text/html"}
+        mime-types (merge {"chp" "text/html", nil "text/html"}
                           (c/config :mime-types))
         app (-> handler
                 (ring.middleware.file/wrap-file "public")
                 ring.middleware.params/wrap-params
                 ring.middleware.multipart-params/wrap-multipart-params
-                (ring.middleware.content-type/wrap-content-type {:mime-types mime-types}))
+                (ring.middleware.content-type/wrap-content-type {:mime-types
+                                                                   mime-types}))
         redirecting-app (redirect-missing-chp app)]
-    (fn [req]
-      (redirecting-app req))))
+    (fn [req] (redirecting-app req))))
+
 
 (defonce server (atom nil))
 
-(defn start-server []
+
+(defn start-server
+  []
   (println "Loading configuration in" (System/getProperty "config"))
   (c/reload)
   (let [port (c/config :port)
@@ -59,21 +65,27 @@
     (when (c/config :nrepl)
       (nrepl/-main "--middleware" "[cider.nrepl/cider-middleware]"))))
 
-(defn -main []
-  (start-server))
+
+(defn -main [] (start-server))
+
 
 (comment
   (require '[clojure.pprint :as pp :refer :all]
            '[taoensso.timbre.appenders.core :as appenders])
-
-  (log/merge-config! {:min-level :debug
-                      :middleware [(fn [data]
-                                     (update data :vargs (partial mapv #(if (string? %)
-                                                                          %
-                                                                          (with-out-str (pp/pprint %))))))]
-                      :appenders {:println {:enabled? false}
-                                  :catalog (merge (appenders/spit-appender {:fname (let [log-dir (or (System/getenv "LOG_DIR") ".")]
-                                                                                     (str  log-dir "/world.log"))})
-                                                  {:min-level :debug
-                                                   :level :debug
-                                                   :ns-filter {:allow #{"world.core"}}})}}))
+  (log/merge-config!
+    {:min-level :debug,
+     :middleware
+       [(fn [data]
+          (update data
+                  :vargs
+                  (partial mapv
+                           #(if (string? %) % (with-out-str (pp/pprint %))))))],
+     :appenders {:println {:enabled? false},
+                 :catalog (merge (appenders/spit-appender
+                                   {:fname (let [log-dir (or (System/getenv
+                                                               "LOG_DIR")
+                                                             ".")]
+                                             (str log-dir "/world.log"))})
+                                 {:min-level :debug,
+                                  :level :debug,
+                                  :ns-filter {:allow #{"world.core"}}})}}))

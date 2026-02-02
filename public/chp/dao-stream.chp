@@ -1,51 +1,51 @@
 (let [template (load-file "public/chp/template.chp")]
   (clojure.walk/postwalk-replace
-   {:template/title "Datom.World — DaoStream"
-    :template/content
-    (list
-     [:section#dao-stream.section-dark
-      [:div.section-inner
-       [:span.status-pill "The substrate of flow"]
-       [:h1 "DaoStream"]
-       [:p.subtitle "The Way That Flows"]
-       [:p.section-lead
-        "In Datom.World, everything begins and ends with the DaoStream — the unified interface that connects all things."]
-       [:p
-        "The DaoStream generalizes Plan 9's revolutionary insight. "
-        "Plan 9 discovered that " [:em "everything is a file"] "—a unified interface where processes, networks, and devices become readable and writable resources. "
-        "DaoStream extends this: " [:strong "everything is a stream"] ". "
-        "Files are streams. APIs are streams. Databases are streams. Messages are streams. " [:a {:href "/dao-flow.chp"} "Graphics"] " are streams. Devices are streams. UI is a stream."]
-       [:p
-        "Like the Dao (道) in Taoist philosophy, it maintains a simple, constant form—the stream interface—yet adapts to infinite contexts. "
-        "The same operations work everywhere: " [:strong "open, read, write, close"] ". "
-        "Local or distributed. Static or flowing. Finite or infinite. "
-        "The DaoStream carries meaning not by dictating structure, but by allowing interpreters to emerge around it."]
-       [:p
-        "In Datom.World, DaoStream replaces countless specialized APIs, message queues, and database protocols with a single, universal stream interface:"]
-       [:p.emphasis [:strong "Everything is a stream."]]
-       [:p
-        "Applications don't \"call services\" or \"query databases.\" "
-        "They open streams at paths, read datoms, write datoms, close streams. "
-        "Every resource in Datom.World—whether file-like or flow-like—is accessible as a stream in a hierarchical namespace."]
-       [:div.principle-box
-        [:p "Every resource is a stream at a path: " [:code "[:entity :attribute]"]]
-        [:p "Every operation flows datoms: " [:code "[e a v t m]"]]
-        [:p "Every interaction is open, read, write, close."]]
-       [:p
-        "Through the DaoStream, software returns to first principles—the Unix philosophy perfected. "
-        "Not just files, but streams. Not just pipes, but datom flows. "
-        "Everything is a stream. Everything flows."]]]
-     [:section.section-light
-      [:div.section-inner
-       [:h2 "The Stream Protocol"]
-       [:p
-        "Building on Plan 9's file metaphor, DaoStream defines a universal stream protocol. "
-        "Every resource—databases, messages, sensors, services, files—is a stream that supports four operations. "
-        "To understand how DaoStream simplifies Plan 9's 9P protocol while preserving its elegant philosophy, see "
-        [:a {:href "/blog/plan9-9p-daostream.blog"} "DaoStream: Inspired by Plan 9, Simpler Than 9P"] "."]
-       [:div.code-block
-        [:pre [:code
-               "(defprotocol Stream
+    {:template/title "Datom.World — DaoStream"
+     :template/content
+     (list
+       [:section#dao-stream.section-dark
+        [:div.section-inner
+         [:span.status-pill "The substrate of flow"]
+         [:h1 "DaoStream"]
+         [:p.subtitle "The Way That Flows"]
+         [:p.section-lead
+          "In Datom.World, everything begins and ends with the DaoStream — the unified interface that connects all things."]
+         [:p
+          "The DaoStream generalizes Plan 9's revolutionary insight. "
+          "Plan 9 discovered that " [:em "everything is a file"] "—a unified interface where processes, networks, and devices become readable and writable resources. "
+          "DaoStream extends this: " [:strong "everything is a stream"] ". "
+          "Files are streams. APIs are streams. Databases are streams. Messages are streams. " [:a {:href "/dao-flow.chp"} "Graphics"] " are streams. Devices are streams. UI is a stream."]
+         [:p
+          "Like the Dao (道) in Taoist philosophy, it maintains a simple, constant form—the stream interface—yet adapts to infinite contexts. "
+          "The same operations work everywhere: " [:strong "open, read, write, close"] ". "
+          "Local or distributed. Static or flowing. Finite or infinite. "
+          "The DaoStream carries meaning not by dictating structure, but by allowing interpreters to emerge around it."]
+         [:p
+          "In Datom.World, DaoStream replaces countless specialized APIs, message queues, and database protocols with a single, universal stream interface:"]
+         [:p.emphasis [:strong "Everything is a stream."]]
+         [:p
+          "Applications don't \"call services\" or \"query databases.\" "
+          "They open streams at paths, read datoms, write datoms, close streams. "
+          "Every resource in Datom.World—whether file-like or flow-like—is accessible as a stream in a hierarchical namespace."]
+         [:div.principle-box
+          [:p "Every resource is a stream at a path: " [:code "[:entity :attribute]"]]
+          [:p "Every operation flows datoms: " [:code "[e a v t m]"]]
+          [:p "Every interaction is open, read, write, close."]]
+         [:p
+          "Through the DaoStream, software returns to first principles—the Unix philosophy perfected. "
+          "Not just files, but streams. Not just pipes, but datom flows. "
+          "Everything is a stream. Everything flows."]]]
+       [:section.section-light
+        [:div.section-inner
+         [:h2 "The Stream Protocol"]
+         [:p
+          "Building on Plan 9's file metaphor, DaoStream defines a universal stream protocol. "
+          "Every resource—databases, messages, sensors, services, files—is a stream that supports four operations. "
+          "To understand how DaoStream simplifies Plan 9's 9P protocol while preserving its elegant philosophy, see "
+          [:a {:href "/blog/plan9-9p-daostream.blog"} "DaoStream: Inspired by Plan 9, Simpler Than 9P"] "."]
+         [:div.code-block
+          [:pre [:code
+                 "(defprotocol Stream
   (open [this path]
     \"Open a stream at the given path in the datom namespace.
      Path examples: [:user :alice :messages], [:sensors :temperature]\")
@@ -55,188 +55,188 @@
     \"Write datoms to the stream. Append-only semantics.\")
   (close [this]
     \"Close the stream and release resources.\"))"]]]
-       [:div.feature-grid
-        [:article.feature-card
-         [:h3 [:code "open"]]
-         [:p "Open a stream at a path in the datom namespace. Paths are hierarchical vectors: " [:code "[:user :alice :chat]"] ", " [:code "[:db :products]"] ", " [:code "[:sensor :temp]"] "."]
-         [:p "Opening establishes the stream—whether to a static file, a live feed, or a remote resource. The path is the only required parameter."]]
-        [:article.feature-card
-         [:h3 [:code "read"]]
-         [:p "Read datoms from the stream. Returns a lazy sequence of " [:code "[e a v t m]"] " tuples."]
-         [:p "Streams are pull-based and asynchronous. Whether reading a finite file or an infinite flow, the interface is identical."]]
-        [:article.feature-card
-         [:h3 [:code "write"]]
-         [:p "Write datoms to the stream. All writes are appends—datoms are immutable once written."]
-         [:p "Streams are append-only logs. Apps like " [:a {:href "/dao-db.chp"} "DaoDB"] " interpret these streams as queryable databases."]]
-        [:article.feature-card
-         [:h3 [:code "close"]]
-         [:p "Close the stream and release resources. Ensures clean shutdown and proper cleanup."]]]
-       [:p
-        "This protocol is universal. Every resource in Datom.World—chat, database, API, sensor, file—is a stream with the same interface. "
-        "Learn " [:code "open/read/write/close"] " once, access everything. "
-        "No versioning, no REST vs GraphQL debates, no integration glue. Just streams."]]]
-     [:section.section-dark
-      [:div.section-inner
-       [:h2 "Everything Becomes a Stream"]
-       [:p
-        "The innovation isn't the API—" [:code "open/read/write/close"] " has existed since Unix. "
-        "The innovation is " [:em "what becomes accessible"] " through this simple interface."]
-       [:p
-        "Plan 9's genius wasn't inventing file operations. "
-        "It was making processes, networks, and devices " [:em "reachable"] " through those operations. "
-        "Read from " [:code "/proc/1234/status"] " to see a process. "
-        "Write to " [:code "/net/tcp"] " to open a connection. "
-        "The same four operations, but now they touch everything."]
-       [:p
-        "DaoStream extends this principle: all resources become streams in a unified namespace:"]
-       [:ul.bulleted
-        [:li [:strong "Messages"] " — " [:code "[:chat :alice]"] " is a stream you read and write"]
-        [:li [:strong "Databases"] " — " [:code "[:db :users]"] " is a stream; apps like " [:a {:href "/dao-db.chp"} "DaoDB"] " build indexes from it"]
-        [:li [:strong "Sensors"] " — " [:code "[:sensors :temperature]"] " is an infinite stream of measurements"]
-        [:li [:strong "Devices"] " — " [:code "[:devices :printer]"] " is a stream you write to"]
-        [:li [:strong "Graphics"] " — " [:code "[:display :screen]"] " is a stream of rendered frames"]
-        [:li [:strong "UI"] " — " [:code "[:ui :events]"] " is a stream of clicks and gestures"]
-        [:li [:strong "APIs"] " — " [:code "[:api :weather]"] " is a stream you read for data"]
-        [:li [:strong "AI agents"] " — " [:code "[:agents :assistant]"] " is a conversational stream"]
-        [:li [:strong "Process state"] " — " [:code "[:process 1234 :status]"] " is a stream of runtime metrics"]
-        [:li [:strong "Files"] " — " [:code "[:files :document.txt]"] " is a finite stream of content"]]
-       [:p
-        "The power emerges from " [:em "universality of access"] ", not novelty of operations. "
-        "Every resource—local or remote, static or flowing, finite or infinite—presents the same interface. "
-        "Open a path. Read datoms. Write datoms. Close when done."]
-       [:p
-        "You're not learning new APIs. "
-        "You're discovering new resources that speak the language you already know. "
-        "The namespace expands infinitely. The operations stay simple."]
-       [:p
-        "No impedance mismatch. No protocol translation. No API clients. "
-        "Just streams, all the way down."]]]
-     [:section.section-light
-      [:div.section-inner
-       [:h2 "Streams as Infrastructure"]
-       [:p
-        "DaoStream isn't just an API—it's infrastructure. "
-        "Inspired by Plan 9's philosophy, it defines how resources appear and behave:"]
-       [:div.feature-grid
-        [:article.feature-card
-         [:h3 "Append-only semantics"]
-         [:p "Streams are append-only logs. Datoms are never modified or deleted. "
-          "This enables time travel, audit trails, and undo—for free."]]
-        [:article.feature-card
-         [:h3 "Location transparency"]
-         [:p "Streams can be local or remote—the path syntax is identical. "
-          "Open " [:code "[:db :users]"] " and DaoStream handles routing, connection, and entanglement transparently."]]
-        [:article.feature-card
-         [:h3 "Local-first by default"]
-         [:p "All streams exist locally first. Writes propagate to entangled nodes when connected. "
-          "Offline operation isn't a special case—it's the foundation."]]]
-       [:p
-        "Every app is a stream interpreter. "
-        [:a {:href "/dao-db.chp"} "DaoDB"] " interprets streams as queryable indexes. "
-        [:a {:href "/dao-flow.chp"} "DaoFlow"] " interprets streams as reactive UIs. "
-        [:a {:href "/shibi.chp"} "Shibi"] " interprets streams as economic signals. "
-        "Your app interprets streams according to your domain."]
-       [:p
-        "This extends Plan 9's insight to distributed, temporal systems: "
-        "a unified namespace where interpretation happens at the edges, "
-        "and the substrate—streams of datoms—remains beautifully simple."]]]
-     [:section.section-dark
-      [:div.section-inner
-       [:h2 "One Truth, Many Perspectives"]
-       [:p
-        "The power of DaoStream comes from separation of data and interpretation. "
-        "Streams contain datoms—" [:code "[e a v t m]"] " tuples that represent facts. "
-        "Apps interpret those facts according to their needs."]
-       [:p
-        "The same stream can serve many interpreters simultaneously:"]
-       [:ul.bulleted
-        [:li "Your email client reads " [:code "[:messages :inbox]"] " as conversations"]
-        [:li "Your calendar reads it as scheduled events"]
-        [:li "Your analytics tool reads it as behavioral patterns"]
-        [:li "Your AI agent reads it as training examples"]]
-       [:p
-        "No data duplication. No schema migrations. No ETL pipelines. "
-        "Just streams of datoms, and interpreters that extract meaning. "
-        "This eliminates the "
-        [:a {:href "/blog/architecture.blog"} "structural decoherence"]
-        " that causes the trillion-dollar leak in traditional software."]
-       [:p
-        "This is schema-on-read taken to its logical conclusion: "
-        "streams carry universal datoms, interpretation happens at read time. "
-        "Add new interpreters—no database changes required. "
-        "One stream, many perspectives. Many streams, composed freely."]]]
-     [:section.section-light
-      [:div.section-inner
-       [:h2 "Why Streams Instead of APIs?"]
-       [:p
-        "Modern software drowns in accidental complexity:"]
-       [:ul.bulleted
-        [:li "Every service exposes a different API"]
-        [:li "Every database speaks a different protocol"]
-        [:li "Every resource requires specialized client libraries"]
-        [:li "REST, GraphQL, gRPC, WebSockets, SQL, NoSQL—each with unique semantics"]]
-       [:p
-        "Plan 9 showed that " [:em "everything is a file"] " eliminates this complexity. "
-        "DaoStream extends this insight: " [:strong "everything is a stream"] ". "
-        "Files are streams. So are databases, sensors, APIs, and conversations."]
-       [:p
-        "This isn't just pragmatic—it's fundamental. "
-        "The pi-calculus proves that computation can be entirely reframed as communication. "
-        "It's Turing complete: anything computable can be expressed as interacting processes exchanging messages. "
-        "This is why streams—communication channels—are more powerful yet simpler than traditional APIs. "
-        "We're not choosing a convenient abstraction. We're aligning with the mathematical structure of computation itself. "
-        "For the deep connection between pi-calculus, reflection principles, and communication complexity, see "
-        [:a {:href "/blog/large-cardinals-reflection-pi-calculus-complexity.blog"} "Large Cardinals and π-Calculus"] "."]
-       [:div.feature-grid
-        [:article.feature-card
-         [:h3 "Uniform interface"]
-         [:p "Learn " [:code "open/read/write/close"] " once. Use it for databases, messages, sensors, APIs, files. "
-          "No framework churn. No versioning hell. No integration glue."]]
-        [:article.feature-card
-         [:h3 "Hierarchical namespace"]
-         [:p "Resources live in paths expressed as vectors: " [:code "[:user :alice :messages]"] ", " [:code "[:db :products]"] ". "
-          "Familiar, composable, and naturally organized."]]
-        [:article.feature-card
-         [:h3 "Temporal by default"]
-         [:p "Streams are append-only logs. History is preserved automatically. "
-          "Time travel, replay, and audit trails emerge naturally."]]]
-       [:p
-        "When everything is a stream, the boundaries between database, filesystem, API, and message queue dissolve. "
-        "There are only paths in a namespace, and datoms flowing through time."]]]
-     [:section.section-dark
-      [:div.section-inner
-       [:h2 "The Flow of the Dao"]
-       [:p
-        "In Taoist philosophy, the Dao is the natural order—the way things flow when not forced. "
-        "Water doesn't fight its way downhill; it follows the path of least resistance."]
-       [:p
-        "DaoStream embodies this principle, extending Plan 9's elegant simplicity to flowing data:"]
-       [:ul.bulleted
-        [:li [:strong "No central authority"] " — Streams exist on peers, not servers. Read and write directly."]
-        [:li [:strong "Natural composition"] " — Paths compose naturally. " [:code "[:user :alice]"] " contains " [:code "[:user :alice :messages]"] "."]
-        [:li [:strong "Effortless distribution"] " — Open " [:code "[:remote :server :db]"] " and entanglement handles routing transparently."]
-        [:li [:strong "Emergent behavior"] " — Complex systems arise from simple stream operations."]]
-       [:p
-        "This is stigmergy applied to data: "
-        "apps leave traces (datoms) in streams, other apps interpret them, collective intelligence emerges. "
-        "No orchestrator. No coordinator. Just streams and interpreters."]
-       [:p
-        "Plan 9 showed that unified interfaces unlock emergent power. "
-        "DaoStream extends this insight: when every resource is a stream of datoms—whether file-like or flow-like—"
-        "the entire distributed system becomes a single, coherent namespace of flowing truth."]
-       [:p.learn-more
-        "To understand why stream-based systems work across distributed nodes without global coordination, read "
-        [:a {:href "/blog/unitarity-and-communication-limits.blog"} "Unitarity and Communication Limits"] ". "
-        "To see how distributed systems are quantum systems with no global state, explore "
-        [:a {:href "/blog/datom-world-wave-function-collapse.blog"} "DaoDB and the Collapse of the Wave Function"] ". "
-        "To see why interpretation is fundamental, explore "
-        [:a {:href "/blog/structure-vs-interpretation.blog"} "Structure vs Interpretation"] ". "
-        "To understand why distributing entropy to system boundaries creates resilient architectures, read "
-        [:a {:href "/blog/code-entropy-evolution.blog"} "Code Entropy and Evolution"] "."]
-       [:p.next
-        "See how "
-        [:a {:href "/yin.chp"} "Yin"]
-        " agents consume and produce streams, or explore "
-        [:a {:href "/dao-db.chp"} "DaoDB"]
-        " to understand stream interpretation as queryable indexes."]]])}
-   template))
+         [:div.feature-grid
+          [:article.feature-card
+           [:h3 [:code "open"]]
+           [:p "Open a stream at a path in the datom namespace. Paths are hierarchical vectors: " [:code "[:user :alice :chat]"] ", " [:code "[:db :products]"] ", " [:code "[:sensor :temp]"] "."]
+           [:p "Opening establishes the stream—whether to a static file, a live feed, or a remote resource. The path is the only required parameter."]]
+          [:article.feature-card
+           [:h3 [:code "read"]]
+           [:p "Read datoms from the stream. Returns a lazy sequence of " [:code "[e a v t m]"] " tuples."]
+           [:p "Streams are pull-based and asynchronous. Whether reading a finite file or an infinite flow, the interface is identical."]]
+          [:article.feature-card
+           [:h3 [:code "write"]]
+           [:p "Write datoms to the stream. All writes are appends—datoms are immutable once written."]
+           [:p "Streams are append-only logs. Apps like " [:a {:href "/dao-db.chp"} "DaoDB"] " interpret these streams as queryable databases."]]
+          [:article.feature-card
+           [:h3 [:code "close"]]
+           [:p "Close the stream and release resources. Ensures clean shutdown and proper cleanup."]]]
+         [:p
+          "This protocol is universal. Every resource in Datom.World—chat, database, API, sensor, file—is a stream with the same interface. "
+          "Learn " [:code "open/read/write/close"] " once, access everything. "
+          "No versioning, no REST vs GraphQL debates, no integration glue. Just streams."]]]
+       [:section.section-dark
+        [:div.section-inner
+         [:h2 "Everything Becomes a Stream"]
+         [:p
+          "The innovation isn't the API—" [:code "open/read/write/close"] " has existed since Unix. "
+          "The innovation is " [:em "what becomes accessible"] " through this simple interface."]
+         [:p
+          "Plan 9's genius wasn't inventing file operations. "
+          "It was making processes, networks, and devices " [:em "reachable"] " through those operations. "
+          "Read from " [:code "/proc/1234/status"] " to see a process. "
+          "Write to " [:code "/net/tcp"] " to open a connection. "
+          "The same four operations, but now they touch everything."]
+         [:p
+          "DaoStream extends this principle: all resources become streams in a unified namespace:"]
+         [:ul.bulleted
+          [:li [:strong "Messages"] " — " [:code "[:chat :alice]"] " is a stream you read and write"]
+          [:li [:strong "Databases"] " — " [:code "[:db :users]"] " is a stream; apps like " [:a {:href "/dao-db.chp"} "DaoDB"] " build indexes from it"]
+          [:li [:strong "Sensors"] " — " [:code "[:sensors :temperature]"] " is an infinite stream of measurements"]
+          [:li [:strong "Devices"] " — " [:code "[:devices :printer]"] " is a stream you write to"]
+          [:li [:strong "Graphics"] " — " [:code "[:display :screen]"] " is a stream of rendered frames"]
+          [:li [:strong "UI"] " — " [:code "[:ui :events]"] " is a stream of clicks and gestures"]
+          [:li [:strong "APIs"] " — " [:code "[:api :weather]"] " is a stream you read for data"]
+          [:li [:strong "AI agents"] " — " [:code "[:agents :assistant]"] " is a conversational stream"]
+          [:li [:strong "Process state"] " — " [:code "[:process 1234 :status]"] " is a stream of runtime metrics"]
+          [:li [:strong "Files"] " — " [:code "[:files :document.txt]"] " is a finite stream of content"]]
+         [:p
+          "The power emerges from " [:em "universality of access"] ", not novelty of operations. "
+          "Every resource—local or remote, static or flowing, finite or infinite—presents the same interface. "
+          "Open a path. Read datoms. Write datoms. Close when done."]
+         [:p
+          "You're not learning new APIs. "
+          "You're discovering new resources that speak the language you already know. "
+          "The namespace expands infinitely. The operations stay simple."]
+         [:p
+          "No impedance mismatch. No protocol translation. No API clients. "
+          "Just streams, all the way down."]]]
+       [:section.section-light
+        [:div.section-inner
+         [:h2 "Streams as Infrastructure"]
+         [:p
+          "DaoStream isn't just an API—it's infrastructure. "
+          "Inspired by Plan 9's philosophy, it defines how resources appear and behave:"]
+         [:div.feature-grid
+          [:article.feature-card
+           [:h3 "Append-only semantics"]
+           [:p "Streams are append-only logs. Datoms are never modified or deleted. "
+            "This enables time travel, audit trails, and undo—for free."]]
+          [:article.feature-card
+           [:h3 "Location transparency"]
+           [:p "Streams can be local or remote—the path syntax is identical. "
+            "Open " [:code "[:db :users]"] " and DaoStream handles routing, connection, and entanglement transparently."]]
+          [:article.feature-card
+           [:h3 "Local-first by default"]
+           [:p "All streams exist locally first. Writes propagate to entangled nodes when connected. "
+            "Offline operation isn't a special case—it's the foundation."]]]
+         [:p
+          "Every app is a stream interpreter. "
+          [:a {:href "/dao-db.chp"} "DaoDB"] " interprets streams as queryable indexes. "
+          [:a {:href "/dao-flow.chp"} "DaoFlow"] " interprets streams as reactive UIs. "
+          [:a {:href "/shibi.chp"} "Shibi"] " interprets streams as economic signals. "
+          "Your app interprets streams according to your domain."]
+         [:p
+          "This extends Plan 9's insight to distributed, temporal systems: "
+          "a unified namespace where interpretation happens at the edges, "
+          "and the substrate—streams of datoms—remains beautifully simple."]]]
+       [:section.section-dark
+        [:div.section-inner
+         [:h2 "One Truth, Many Perspectives"]
+         [:p
+          "The power of DaoStream comes from separation of data and interpretation. "
+          "Streams contain datoms—" [:code "[e a v t m]"] " tuples that represent facts. "
+          "Apps interpret those facts according to their needs."]
+         [:p
+          "The same stream can serve many interpreters simultaneously:"]
+         [:ul.bulleted
+          [:li "Your email client reads " [:code "[:messages :inbox]"] " as conversations"]
+          [:li "Your calendar reads it as scheduled events"]
+          [:li "Your analytics tool reads it as behavioral patterns"]
+          [:li "Your AI agent reads it as training examples"]]
+         [:p
+          "No data duplication. No schema migrations. No ETL pipelines. "
+          "Just streams of datoms, and interpreters that extract meaning. "
+          "This eliminates the "
+          [:a {:href "/blog/architecture.blog"} "structural decoherence"]
+          " that causes the trillion-dollar leak in traditional software."]
+         [:p
+          "This is schema-on-read taken to its logical conclusion: "
+          "streams carry universal datoms, interpretation happens at read time. "
+          "Add new interpreters—no database changes required. "
+          "One stream, many perspectives. Many streams, composed freely."]]]
+       [:section.section-light
+        [:div.section-inner
+         [:h2 "Why Streams Instead of APIs?"]
+         [:p
+          "Modern software drowns in accidental complexity:"]
+         [:ul.bulleted
+          [:li "Every service exposes a different API"]
+          [:li "Every database speaks a different protocol"]
+          [:li "Every resource requires specialized client libraries"]
+          [:li "REST, GraphQL, gRPC, WebSockets, SQL, NoSQL—each with unique semantics"]]
+         [:p
+          "Plan 9 showed that " [:em "everything is a file"] " eliminates this complexity. "
+          "DaoStream extends this insight: " [:strong "everything is a stream"] ". "
+          "Files are streams. So are databases, sensors, APIs, and conversations."]
+         [:p
+          "This isn't just pragmatic—it's fundamental. "
+          "The pi-calculus proves that computation can be entirely reframed as communication. "
+          "It's Turing complete: anything computable can be expressed as interacting processes exchanging messages. "
+          "This is why streams—communication channels—are more powerful yet simpler than traditional APIs. "
+          "We're not choosing a convenient abstraction. We're aligning with the mathematical structure of computation itself. "
+          "For the deep connection between pi-calculus, reflection principles, and communication complexity, see "
+          [:a {:href "/blog/large-cardinals-reflection-pi-calculus-complexity.blog"} "Large Cardinals and π-Calculus"] "."]
+         [:div.feature-grid
+          [:article.feature-card
+           [:h3 "Uniform interface"]
+           [:p "Learn " [:code "open/read/write/close"] " once. Use it for databases, messages, sensors, APIs, files. "
+            "No framework churn. No versioning hell. No integration glue."]]
+          [:article.feature-card
+           [:h3 "Hierarchical namespace"]
+           [:p "Resources live in paths expressed as vectors: " [:code "[:user :alice :messages]"] ", " [:code "[:db :products]"] ". "
+            "Familiar, composable, and naturally organized."]]
+          [:article.feature-card
+           [:h3 "Temporal by default"]
+           [:p "Streams are append-only logs. History is preserved automatically. "
+            "Time travel, replay, and audit trails emerge naturally."]]]
+         [:p
+          "When everything is a stream, the boundaries between database, filesystem, API, and message queue dissolve. "
+          "There are only paths in a namespace, and datoms flowing through time."]]]
+       [:section.section-dark
+        [:div.section-inner
+         [:h2 "The Flow of the Dao"]
+         [:p
+          "In Taoist philosophy, the Dao is the natural order—the way things flow when not forced. "
+          "Water doesn't fight its way downhill; it follows the path of least resistance."]
+         [:p
+          "DaoStream embodies this principle, extending Plan 9's elegant simplicity to flowing data:"]
+         [:ul.bulleted
+          [:li [:strong "No central authority"] " — Streams exist on peers, not servers. Read and write directly."]
+          [:li [:strong "Natural composition"] " — Paths compose naturally. " [:code "[:user :alice]"] " contains " [:code "[:user :alice :messages]"] "."]
+          [:li [:strong "Effortless distribution"] " — Open " [:code "[:remote :server :db]"] " and entanglement handles routing transparently."]
+          [:li [:strong "Emergent behavior"] " — Complex systems arise from simple stream operations."]]
+         [:p
+          "This is stigmergy applied to data: "
+          "apps leave traces (datoms) in streams, other apps interpret them, collective intelligence emerges. "
+          "No orchestrator. No coordinator. Just streams and interpreters."]
+         [:p
+          "Plan 9 showed that unified interfaces unlock emergent power. "
+          "DaoStream extends this insight: when every resource is a stream of datoms—whether file-like or flow-like—"
+          "the entire distributed system becomes a single, coherent namespace of flowing truth."]
+         [:p.learn-more
+          "To understand why stream-based systems work across distributed nodes without global coordination, read "
+          [:a {:href "/blog/unitarity-and-communication-limits.blog"} "Unitarity and Communication Limits"] ". "
+          "To see how distributed systems are quantum systems with no global state, explore "
+          [:a {:href "/blog/datom-world-wave-function-collapse.blog"} "DaoDB and the Collapse of the Wave Function"] ". "
+          "To see why interpretation is fundamental, explore "
+          [:a {:href "/blog/structure-vs-interpretation.blog"} "Structure vs Interpretation"] ". "
+          "To understand why distributing entropy to system boundaries creates resilient architectures, read "
+          [:a {:href "/blog/code-entropy-evolution.blog"} "Code Entropy and Evolution"] "."]
+         [:p.next
+          "See how "
+          [:a {:href "/yin.chp"} "Yin"]
+          " agents consume and produce streams, or explore "
+          [:a {:href "/dao-db.chp"} "DaoDB"]
+          " to understand stream interpretation as queryable indexes."]]])}
+    template))

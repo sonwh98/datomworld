@@ -1,97 +1,126 @@
 (ns yin.assembly-bench
-  (:require [yin.assembly :as asm]
-            #?(:clj [clojure.test :refer [deftest is testing]]
-               :cljs [cljs.test :refer-macros [deftest is testing]])))
+  (:require #?(:clj [clojure.test :refer [deftest is testing]]
+               :cljs [cljs.test :refer-macros [deftest is testing]])
+            [yin.assembly :as asm]))
 
-(defn now-us []
+
+(defn now-us
+  []
   #?(:clj (/ (System/nanoTime) 1000.0)
      :cljs (* (js/performance.now) 1000)))
 
-(defn benchmark [f iterations]
+
+(defn benchmark
+  [f iterations]
   (let [start (now-us)
         _ (dotimes [_ iterations] (f))
         end (now-us)]
     (/ (- end start) iterations)))
 
-(def primitives {'+ + '- - '* * '/ / '< < '> > '= =})
 
-(def literal-ast {:type :literal :value 42})
+(def primitives {'+ +, '- -, '* *, '/ /, '< <, '> >, '= =})
 
-(def add-ast {:type :application
-              :operator {:type :variable :name '+}
-              :operands [{:type :literal :value 10}
-                         {:type :literal :value 20}]})
+(def literal-ast {:type :literal, :value 42})
 
-(def lambda-ast {:type :application
-                 :operator {:type :lambda
-                            :params ['x]
-                            :body {:type :application
-                                   :operator {:type :variable :name '+}
-                                   :operands [{:type :variable :name 'x}
-                                              {:type :literal :value 1}]}}
-                 :operands [{:type :literal :value 10}]})
 
-(def nested-ast {:type :application
-                 :operator {:type :lambda
-                            :params ['x]
-                            :body {:type :application
-                                   :operator {:type :variable :name '+}
-                                   :operands [{:type :variable :name 'x}
-                                              {:type :application
-                                               :operator {:type :variable :name '*}
-                                               :operands [{:type :literal :value 2}
-                                                          {:type :literal :value 3}]}]}}
-                 :operands [{:type :literal :value 10}]})
+(def add-ast
+  {:type :application,
+   :operator {:type :variable, :name '+},
+   :operands [{:type :literal, :value 10} {:type :literal, :value 20}]})
 
-(def conditional-ast {:type :if
-                      :test {:type :application
-                             :operator {:type :variable :name '<}
-                             :operands [{:type :literal :value 5}
-                                        {:type :literal :value 10}]}
-                      :consequent {:type :literal :value :yes}
-                      :alternate {:type :literal :value :no}})
 
-(defn fmt [n]
+(def lambda-ast
+  {:type :application,
+   :operator {:type :lambda,
+              :params ['x],
+              :body {:type :application,
+                     :operator {:type :variable, :name '+},
+                     :operands [{:type :variable, :name 'x}
+                                {:type :literal, :value 1}]}},
+   :operands [{:type :literal, :value 10}]})
+
+
+(def nested-ast
+  {:type :application,
+   :operator {:type :lambda,
+              :params ['x],
+              :body {:type :application,
+                     :operator {:type :variable, :name '+},
+                     :operands [{:type :variable, :name 'x}
+                                {:type :application,
+                                 :operator {:type :variable, :name '*},
+                                 :operands [{:type :literal, :value 2}
+                                            {:type :literal, :value 3}]}]}},
+   :operands [{:type :literal, :value 10}]})
+
+
+(def conditional-ast
+  {:type :if,
+   :test {:type :application,
+          :operator {:type :variable, :name '<},
+          :operands [{:type :literal, :value 5} {:type :literal, :value 10}]},
+   :consequent {:type :literal, :value :yes},
+   :alternate {:type :literal, :value :no}})
+
+
+(defn fmt
+  [n]
   #?(:clj (format "%.2f" (double n))
      :cljs (.toFixed n 2)))
 
-(defn run-single-benchmark [name ast iterations]
+
+(defn run-single-benchmark
+  [name ast iterations]
   (asm/reset-node-counter!)
   (let [semantic-compiled (asm/compile ast)
         [legacy-bytes legacy-pool] (asm/compile-legacy ast)
-
-        sem-compile (benchmark #(do (asm/reset-node-counter!) (asm/compile ast)) iterations)
+        sem-compile (benchmark #(do (asm/reset-node-counter!) (asm/compile ast))
+                               iterations)
         leg-compile (benchmark #(asm/compile-legacy ast) iterations)
-
         _ (asm/reset-node-counter!)
         sem-compiled2 (asm/compile ast)
-        sem-run (benchmark #(asm/run-semantic sem-compiled2 primitives) iterations)
-        leg-run (benchmark #(asm/run-bytes legacy-bytes legacy-pool primitives) iterations)]
-
-    {:name name
-     :compile-semantic sem-compile
-     :compile-legacy leg-compile
-     :compile-ratio (/ sem-compile leg-compile)
-     :execute-semantic sem-run
-     :execute-legacy leg-run
+        sem-run (benchmark #(asm/run-semantic sem-compiled2 primitives)
+                           iterations)
+        leg-run (benchmark #(asm/run-bytes legacy-bytes legacy-pool primitives)
+                           iterations)]
+    {:name name,
+     :compile-semantic sem-compile,
+     :compile-legacy leg-compile,
+     :compile-ratio (/ sem-compile leg-compile),
+     :execute-semantic sem-run,
+     :execute-legacy leg-run,
      :execute-ratio (/ sem-run leg-run)}))
 
-(defn print-benchmark [result]
+
+(defn print-benchmark
+  [result]
   (println (str "--- " (:name result) " ---"))
-  (println (str "  Compile - Semantic: " (fmt (:compile-semantic result)) " us | Legacy: " (fmt (:compile-legacy result))
-                " us | Ratio: " (fmt (:compile-ratio result)) "x"))
-  (println (str "  Execute - Semantic: " (fmt (:execute-semantic result)) " us | Legacy: " (fmt (:execute-legacy result))
-                " us | Ratio: " (fmt (:execute-ratio result)) "x"))
+  (println (str "  Compile - Semantic: "
+                (fmt (:compile-semantic result))
+                " us | Legacy: "
+                (fmt (:compile-legacy result))
+                " us | Ratio: "
+                (fmt (:compile-ratio result))
+                "x"))
+  (println (str "  Execute - Semantic: "
+                (fmt (:execute-semantic result))
+                " us | Legacy: "
+                (fmt (:execute-legacy result))
+                " us | Ratio: "
+                (fmt (:execute-ratio result))
+                "x"))
   (println))
 
-(defn run-benchmarks []
-  (let [platform #?(:clj "CLJ" :cljs "CLJS")]
+
+(defn run-benchmarks
+  []
+  (let [platform #?(:clj "CLJ"
+                    :cljs "CLJS")]
     (println "")
     (println "============================================")
     (println (str platform " Assembly Benchmark: Semantic vs Traditional"))
     (println "============================================")
     (println "")
-
     ;; Warm up
     (print "Warming up... ")
     #?(:clj (flush))
@@ -100,34 +129,50 @@
       (asm/compile nested-ast)
       (asm/compile-legacy nested-ast)
       (asm/run-semantic (asm/compile nested-ast) primitives)
-      (let [[b p] (asm/compile-legacy nested-ast)] (asm/run-bytes b p primitives)))
+      (let [[b p] (asm/compile-legacy nested-ast)]
+        (asm/run-bytes b p primitives)))
     (println "done.")
     (println "")
-
     (let [iterations 5000
-          results [(run-single-benchmark "Literal (42)" literal-ast iterations)
-                   (run-single-benchmark "Addition (+ 10 20)" add-ast iterations)
-                   (run-single-benchmark "Lambda ((fn [x] (+ x 1)) 10)" lambda-ast iterations)
-                   (run-single-benchmark "Nested ((fn [x] (+ x (* 2 3))) 10)" nested-ast iterations)
-                   (run-single-benchmark "Conditional (if (< 5 10) :yes :no)" conditional-ast iterations)]]
-
-      (doseq [r results]
-        (print-benchmark r))
-
+          results
+            [(run-single-benchmark "Literal (42)" literal-ast iterations)
+             (run-single-benchmark "Addition (+ 10 20)" add-ast iterations)
+             (run-single-benchmark "Lambda ((fn [x] (+ x 1)) 10)"
+                                   lambda-ast
+                                   iterations)
+             (run-single-benchmark "Nested ((fn [x] (+ x (* 2 3))) 10)"
+                                   nested-ast
+                                   iterations)
+             (run-single-benchmark "Conditional (if (< 5 10) :yes :no)"
+                                   conditional-ast
+                                   iterations)]]
+      (doseq [r results] (print-benchmark r))
       (println "--- Query Operations (semantic only) ---")
       (asm/reset-node-counter!)
       (let [compiled (asm/compile nested-ast)
             datoms (:datoms compiled)]
         (let [q (benchmark #(asm/find-applications datoms) iterations)]
-          (println (str "  find-applications:  " (fmt q) " us -> " (count (asm/find-applications datoms)) " found")))
+          (println (str "  find-applications:  "
+                        (fmt q)
+                        " us -> "
+                        (count (asm/find-applications datoms))
+                        " found")))
         (let [q (benchmark #(asm/find-lambdas datoms) iterations)]
-          (println (str "  find-lambdas:       " (fmt q) " us -> " (count (asm/find-lambdas datoms)) " found")))
+          (println (str "  find-lambdas:       "
+                        (fmt q)
+                        " us -> "
+                        (count (asm/find-lambdas datoms))
+                        " found")))
         (let [q (benchmark #(asm/find-variables datoms) iterations)]
-          (println (str "  find-variables:     " (fmt q) " us -> " (count (asm/find-variables datoms)) " found"))))
-
+          (println (str "  find-variables:     "
+                        (fmt q)
+                        " us -> "
+                        (count (asm/find-variables datoms))
+                        " found"))))
       (println "")
       (println "Summary: Semantic trades speed for queryability")
       results)))
+
 
 ;; Make it a test so it runs with the test suite
 (deftest ^:benchmark assembly-benchmark-test

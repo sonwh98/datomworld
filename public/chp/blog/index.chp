@@ -1,6 +1,7 @@
 (require '[clojure.java.io :as io]
          '[clojure.string :as str])
 
+
 (let [template (load-file "public/chp/template.chp")
       blog-dir (io/file "public/chp/blog")
       blog-files (->> (file-seq blog-dir)
@@ -10,38 +11,38 @@
                                     :blog/file (.getName file))))
                       (sort-by :blog/date #(compare %2 %1)))]
   (clojure.walk/postwalk-replace
-   {:template/title "Datom.World — Technical Blog"
-    :template/content
-    (list
-     [:section.blog-list
-      [:div.section-inner
-       [:div.blog-search
-        [:input {:type "text"
-                 :id "blog-search"
-                 :placeholder "Search blogs (regex supported)..."
-                 :class "search-input"}]]
-       [:div.blog-grid {:id "blog-grid"}
-        (for [blog blog-files
-              :let [chp-file (str/replace (:blog/file blog) #"\.blog$" ".chp")
-                    link (str "/blog/" chp-file)
-                    date-inst (:blog/date blog)
-                    date-str (if date-inst
-                               (.format (java.text.SimpleDateFormat. "MMM d, yyyy")
-                                        date-inst)
-                               "Unknown date")]]
-          [:article.blog-card
-           {:data-title (:blog/title blog)
-            :data-abstract (pr-str (second (:blog/abstract blog)))
-            :data-date date-str}
-           [:div.blog-meta
-            [:span date-str]]
-           [:h2 [:a {:href link}
-                 (:blog/title blog)]]
-           (:blog/abstract blog)
-           [:a {:href link}
-            "Read the article →"]])]]]
-     [:script {:type "text/javascript"}
-      "
+    {:template/title "Datom.World — Technical Blog"
+     :template/content
+     (list
+       [:section.blog-list
+        [:div.section-inner
+         [:div.blog-search
+          [:input {:type "text"
+                   :id "blog-search"
+                   :placeholder "Search blogs (regex supported)..."
+                   :class "search-input"}]]
+         [:div.blog-grid {:id "blog-grid"}
+          (for [blog blog-files
+                :let [chp-file (str/replace (:blog/file blog) #"\.blog$" ".chp")
+                      link (str "/blog/" chp-file)
+                      date-inst (:blog/date blog)
+                      date-str (if date-inst
+                                 (.format (java.text.SimpleDateFormat. "MMM d, yyyy")
+                                          date-inst)
+                                 "Unknown date")]]
+            [:article.blog-card
+             {:data-title (:blog/title blog)
+              :data-abstract (pr-str (second (:blog/abstract blog)))
+              :data-date date-str}
+             [:div.blog-meta
+              [:span date-str]]
+             [:h2 [:a {:href link}
+                   (:blog/title blog)]]
+             (:blog/abstract blog)
+             [:a {:href link}
+              "Read the article →"]])]]]
+       [:script {:type "text/javascript"}
+        "
       document.getElementById('blog-search').addEventListener('input', function(e) {
         const searchTerm = e.target.value;
         const cards = document.querySelectorAll('.blog-card');
@@ -75,4 +76,4 @@
         });
       });
       "])}
-   template))
+    template))

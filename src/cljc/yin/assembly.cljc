@@ -1,5 +1,5 @@
-(ns yin.assembly
-  (:refer-clojure :exclude [compile type]))
+(ns yin.assembly (:refer-clojure :exclude [compile type]))
+
 
 ;; =============================================================================
 ;; Semantic Bytecode: RISC for Semantics
@@ -21,7 +21,8 @@
 ;; - Explicit: every relationship is a separate fact
 ;; - Composable: Datalog queries over semantic primitives
 ;;
-;; The AST as datoms is canonical. Syntax (Clojure, Python, etc.) is a rendering.
+;; The AST as datoms is canonical. Syntax (Clojure, Python, etc.) is a
+;; rendering.
 ;; =============================================================================
 
 ;; --- Node ID Generation ---
@@ -29,15 +30,18 @@
 ;; Tempids are negative offsets from this basis.
 (def ^:private node-counter (atom 1024))
 
+
 (defn- gen-node-id
   "Generate a unique negative numeric node ID (tempid) for bytecode instructions."
   []
   (- (swap! node-counter inc)))
 
+
 (defn reset-node-counter!
   "Reset node counter to the zero-basis for user entities (1024)."
   []
   (reset! node-counter 1024))
+
 
 ;; --- Semantic Opcodes as Keywords ---
 ;; Instead of numeric opcodes, we use semantic keywords that preserve meaning.
@@ -45,12 +49,12 @@
 
 (def semantic-ops
   "The minimal set of semantic primitives (like RISC instruction set)."
-  #{:literal      ; Self-evaluating value
-    :load-var     ; Variable reference (lexical lookup)
-    :lambda       ; Function creation (closure)
-    :apply        ; Function application
-    :jump-if      ; Conditional branch
-    :jump         ; Unconditional branch
+  #{:literal  ; Self-evaluating value
+    :load-var ; Variable reference (lexical lookup)
+    :lambda   ; Function creation (closure)
+    :apply    ; Function application
+    :jump-if  ; Conditional branch
+    :jump     ; Unconditional branch
     :return})     ; Return from function
 
 ;; --- Datom-Based Instruction Representation ---
@@ -64,31 +68,35 @@
   (let [node-id (gen-node-id)
         base-datoms [[node-id :op/type op-type]]
         extra-datoms (mapv (fn [[k v]] [node-id k v]) (partition 2 kvs))]
-    {:node node-id
-     :datoms (into base-datoms extra-datoms)}))
+    {:node node-id, :datoms (into base-datoms extra-datoms)}))
+
 
 ;; --- Constant Pool ---
 ;; Values are stored in a constant pool and referenced by ID.
 ;; Unlike numeric indices, we use semantic references.
 
-(defn- add-constant [pool val]
+(defn- add-constant
+  [pool val]
   (let [const-id (keyword "const" (str (count pool)))]
     [(assoc pool const-id val) const-id]))
+
 
 ;; --- Compiler: AST → Semantic Datoms ---
 ;; Forward declaration
 (declare compile-ast)
+
 
 (defn compile-seq
   "Compile a sequence of AST nodes, threading the constant pool."
   [ast-seq pool]
   (reduce (fn [{:keys [datoms pool seq-nodes]} ast]
             (let [result (compile-ast ast pool)]
-              {:datoms (into datoms (:datoms result))
-               :pool (:pool result)
+              {:datoms (into datoms (:datoms result)),
+               :pool (:pool result),
                :seq-nodes (conj seq-nodes (:node result))}))
-          {:datoms [] :pool pool :seq-nodes []}
-          ast-seq))
+    {:datoms [], :pool pool, :seq-nodes []}
+    ast-seq))
+
 
 (defn compile-ast
   "Compile an AST node to semantic datoms.
@@ -97,90 +105,91 @@
             :datoms [[e a v]...]
             :pool constant-pool}"
   [ast pool]
-  (let [{:keys [type value name params body operator operands test consequent alternate]} ast]
+  (let [{:keys [type value name params body operator operands test consequent
+                alternate]}
+          ast]
     (case type
       ;; Literal: self-evaluating value
       ;; Traditional: [OP_LITERAL idx]
       ;; Semantic: [node-1 :op/type :literal] [node-1 :op/value 42]
-      :literal
-      (let [[new-pool const-id] (add-constant pool value)
-            {:keys [node datoms]} (emit-datoms :literal
-                                               :op/const-ref const-id
-                                               :op/value-type (cond
-                                                                (number? value) :number
-                                                                (string? value) :string
-                                                                (boolean? value) :boolean
-                                                                (nil? value) :nil
-                                                                :else :unknown))]
-        {:node node :datoms datoms :pool new-pool})
-
+      :literal (let [[new-pool const-id] (add-constant pool value)
+                     {:keys [node datoms]} (emit-datoms
+                                             :literal
+                                             :op/const-ref const-id
+                                             :op/value-type
+                                               (cond (number? value) :number
+                                                     (string? value) :string
+                                                     (boolean? value) :boolean
+                                                     (nil? value) :nil
+                                                     :else :unknown))]
+                 {:node node, :datoms datoms, :pool new-pool})
       ;; Variable: lexical lookup
       ;; Traditional: [OP_LOAD_VAR idx]
       ;; Semantic: [node-1 :op/type :load-var] [node-1 :op/var-name 'x]
-      :variable
-      (let [[new-pool const-id] (add-constant pool name)
-            {:keys [node datoms]} (emit-datoms :load-var
-                                               :op/const-ref const-id
-                                               :op/var-name name)]
-        {:node node :datoms datoms :pool new-pool})
-
+      :variable (let [[new-pool const-id] (add-constant pool name)
+                      {:keys [node datoms]} (emit-datoms :load-var
+                                                         :op/const-ref const-id
+                                                         :op/var-name name)]
+                  {:node node, :datoms datoms, :pool new-pool})
       ;; Lambda: closure creation
       ;; Traditional: [OP_LAMBDA params-idx len-hi len-lo ...body...]
       ;; Semantic: preserves params, body reference, captures environment
-      :lambda
-      (let [;; Compile body first
-            body-result (compile-ast body pool)
-            [params-pool params-id] (add-constant (:pool body-result) params)
-            {:keys [node datoms]} (emit-datoms :lambda
-                                               :op/params-ref params-id
-                                               :op/params params
-                                               :op/arity (count params)
-                                               :op/body-node (:node body-result)
-                                               :op/captures-env? true)]
-        {:node node
-         :datoms (into datoms (:datoms body-result))
-         :pool params-pool})
-
+      :lambda (let [;; Compile body first
+                    body-result (compile-ast body pool)
+                    [params-pool params-id] (add-constant (:pool body-result)
+                                                          params)
+                    {:keys [node datoms]} (emit-datoms :lambda
+                                                       :op/params-ref params-id
+                                                       :op/params params
+                                                       :op/arity (count params)
+                                                       :op/body-node
+                                                         (:node body-result)
+                                                       :op/captures-env? true)]
+                {:node node,
+                 :datoms (into datoms (:datoms body-result)),
+                 :pool params-pool})
       ;; Application: function call
       ;; Traditional: [OP_APPLY argc]
       ;; Semantic: preserves operator, operands, arity explicitly
-      :application
-      (let [;; Compile operator
-            op-result (compile-ast operator pool)
-            ;; Compile operands
-            args-result (compile-seq operands (:pool op-result))
-            {:keys [node datoms]} (emit-datoms :apply
-                                               :op/operator-node (:node op-result)
-                                               :op/operand-nodes (:seq-nodes args-result)
-                                               :op/arity (count operands)
-                                               :op/call-type :unknown)] ; Could be :primitive, :closure, etc.
-        {:node node
-         :datoms (-> datoms
-                     (into (:datoms op-result))
-                     (into (:datoms args-result)))
-         :pool (:pool args-result)})
-
-      ;; Conditional: if-then-else
-      ;; Traditional: [test...] [JUMP_IF_FALSE offset] [cons...] [JUMP offset] [alt...]
+      :application (let [;; Compile operator
+                         op-result (compile-ast operator pool)
+                         ;; Compile operands
+                         args-result (compile-seq operands (:pool op-result))
+                         {:keys [node datoms]}
+                           (emit-datoms :apply
+                                        :op/operator-node (:node op-result)
+                                        :op/operand-nodes (:seq-nodes
+                                                            args-result)
+                                        :op/arity (count operands)
+                                        :op/call-type :unknown)] ; Could be
+                     ;; :primitive, :closure, etc.
+                     {:node node,
+                      :datoms (-> datoms
+                                  (into (:datoms op-result))
+                                  (into (:datoms args-result))),
+                      :pool (:pool args-result)})
+      ;; Conditional: if-then-else. Traditional: [test...] [JUMP_IF_FALSE
+      ;; offset] [cons...] [JUMP
+      ;; offset] [alt...]
       ;; Semantic: preserves structure without offset calculation
-      :if
-      (let [test-result (compile-ast test pool)
-            cons-result (compile-ast consequent (:pool test-result))
-            alt-result (compile-ast alternate (:pool cons-result))
-            {:keys [node datoms]} (emit-datoms :jump-if
-                                               :op/test-node (:node test-result)
-                                               :op/consequent-node (:node cons-result)
-                                               :op/alternate-node (:node alt-result)
-                                               :op/branch-type :if-then-else)]
-        {:node node
-         :datoms (-> datoms
-                     (into (:datoms test-result))
-                     (into (:datoms cons-result))
-                     (into (:datoms alt-result)))
-         :pool (:pool alt-result)})
-
+      :if (let [test-result (compile-ast test pool)
+                cons-result (compile-ast consequent (:pool test-result))
+                alt-result (compile-ast alternate (:pool cons-result))
+                {:keys [node datoms]} (emit-datoms
+                                        :jump-if
+                                        :op/test-node (:node test-result)
+                                        :op/consequent-node (:node cons-result)
+                                        :op/alternate-node (:node alt-result)
+                                        :op/branch-type :if-then-else)]
+            {:node node,
+             :datoms (-> datoms
+                         (into (:datoms test-result))
+                         (into (:datoms cons-result))
+                         (into (:datoms alt-result))),
+             :pool (:pool alt-result)})
       ;; Default: unknown AST type
       (throw (ex-info "Unknown AST type" {:ast ast})))))
+
 
 (defn compile
   "Compile an AST to semantic bytecode.
@@ -192,11 +201,13 @@
   (reset-node-counter!)
   (compile-ast ast {}))
 
+
 ;; =============================================================================
 ;; Querying Semantic Bytecode
 ;; =============================================================================
 ;; Because bytecode is now datoms, we can query it with Datalog-like patterns.
-;; This is the key insight from the blog: low-level form enables high-level queries.
+;; This is the key insight from the blog: low-level form enables high-level
+;; queries.
 
 (defn find-by-type
   "Find all nodes of a given semantic type.
@@ -208,12 +219,14 @@
        (map first)
        set))
 
+
 (defn find-by-attr
   "Find all datoms with a given attribute.
 
    Example: (find-by-attr datoms :op/arity) => all nodes with arity info"
   [datoms attr]
   (filter (fn [[_ a _]] (= a attr)) datoms))
+
 
 (defn get-node-attrs
   "Get all attributes for a node as a map.
@@ -224,20 +237,24 @@
        (filter (fn [[e _ _]] (= e node-id)))
        (reduce (fn [m [_ a v]] (assoc m a v)) {})))
 
+
 (defn find-applications
   "Find all function applications in the bytecode."
   [datoms]
   (find-by-type datoms :apply))
+
 
 (defn find-lambdas
   "Find all lambda definitions in the bytecode."
   [datoms]
   (find-by-type datoms :lambda))
 
+
 (defn find-variables
   "Find all variable references in the bytecode."
   [datoms]
   (find-by-type datoms :load-var))
+
 
 ;; =============================================================================
 ;; VM: Execute Semantic Bytecode
@@ -245,13 +262,14 @@
 ;; The VM interprets semantic datoms. Unlike numeric bytecode which requires
 ;; sequential execution, semantic bytecode can be traversed by node reference.
 
-(defn- get-const [pool const-ref]
-  (get pool const-ref))
+(defn- get-const [pool const-ref] (get pool const-ref))
+
 
 (defn- node->map
   "Convert datoms for a node into a map for efficient lookup."
   [datoms node-id]
   (get-node-attrs datoms node-id))
+
 
 (defn run-semantic
   "Execute semantic bytecode starting from a node.
@@ -262,76 +280,75 @@
   ([{:keys [node datoms pool]} env]
    (let [node-map (node->map datoms node)
          ;; Attribute resolution helper
-         attr-mapping {:op/type :yin/type
-                       :op/const-ref :yin/const-ref ;; fallback if name not enough
-                       :op/var-name :yin/name
-                       :op/params-ref :yin/params-ref
-                       :op/params :yin/params
-                       :op/body-node :yin/body
-                       :op/operator-node :yin/operator
-                       :op/operand-nodes :yin/operands
-                       :op/arity :yin/arity
-                       :op/test-node :yin/test
-                       :op/consequent-node :yin/consequent
+         attr-mapping {:op/type :yin/type,
+                       :op/const-ref :yin/const-ref, ; fallback if name not
+                       ;; enough
+                       :op/var-name :yin/name,
+                       :op/params-ref :yin/params-ref,
+                       :op/params :yin/params,
+                       :op/body-node :yin/body,
+                       :op/operator-node :yin/operator,
+                       :op/operand-nodes :yin/operands,
+                       :op/arity :yin/arity,
+                       :op/test-node :yin/test,
+                       :op/consequent-node :yin/consequent,
                        :op/alternate-node :yin/alternate}
          get-val (fn [attr]
                    (or (get node-map attr)
                        (get node-map (get attr-mapping attr))))
          op-type (get-val :op/type)]
      (case op-type
-       :literal
-       (get-const pool (or (get-val :op/const-ref)
-                           ;; If no const-ref, try to find by value (for yin.vm datoms)
-                           (get node-map :yin/value)))
-
+       :literal (get-const pool
+                           (or (get-val :op/const-ref)
+                               ;; If no const-ref, try to find by value
+                               ;; (for yin.vm datoms)
+                               (get node-map :yin/value)))
        (:load-var :variable)
-       (let [var-name (or (get-val :op/var-name)
-                          (get-const pool (get-val :op/const-ref)))]
-         (get env var-name))
-
-       :lambda
-       (let [params (or (get-val :op/params)
-                        (get-const pool (get-val :op/params-ref)))
-             body-node (get-val :op/body-node)]
-         {:type :closure
-          :params params
-          :body-node body-node
-          :datoms datoms
-          :pool pool
-          :env env})
-
+         (let [var-name (or (get-val :op/var-name)
+                            (get-const pool (get-val :op/const-ref)))]
+           (get env var-name))
+       :lambda (let [params (or (get-val :op/params)
+                                (get-const pool (get-val :op/params-ref)))
+                     body-node (get-val :op/body-node)]
+                 {:type :closure,
+                  :params params,
+                  :body-node body-node,
+                  :datoms datoms,
+                  :pool pool,
+                  :env env})
        (:apply :application)
-       (let [op-node (get-val :op/operator-node)
-             operand-nodes (get-val :op/operand-nodes)
-             ;; Evaluate operator
-             fn-val (run-semantic {:node op-node :datoms datoms :pool pool} env)
-             ;; Evaluate operands
-             args (mapv #(run-semantic {:node % :datoms datoms :pool pool} env)
-                        operand-nodes)]
-         (cond
-           ;; Host function (primitive)
-           (fn? fn-val)
-           (apply fn-val args)
-
-           ;; Closure
-           (= :closure (:type fn-val))
-           (let [{:keys [params body-node datoms pool env]} fn-val
-                 new-env (merge env (zipmap params args))]
-             (run-semantic {:node body-node :datoms datoms :pool pool} new-env))
-
-           :else
-           (throw (ex-info "Cannot apply non-function" {:fn fn-val}))))
-
+         (let [op-node (get-val :op/operator-node)
+               operand-nodes (get-val :op/operand-nodes)
+               ;; Evaluate operator
+               fn-val (run-semantic {:node op-node, :datoms datoms, :pool pool}
+                                    env)
+               ;; Evaluate operands
+               args (mapv #(run-semantic {:node %, :datoms datoms, :pool pool}
+                                         env)
+                      operand-nodes)]
+           (cond
+             ;; Host function (primitive)
+             (fn? fn-val) (apply fn-val args)
+             ;; Closure
+             (= :closure (:type fn-val))
+               (let [{:keys [params body-node datoms pool env]} fn-val
+                     new-env (merge env (zipmap params args))]
+                 (run-semantic {:node body-node, :datoms datoms, :pool pool}
+                               new-env))
+             :else (throw (ex-info "Cannot apply non-function" {:fn fn-val}))))
        (:jump-if :if)
-       (let [test-node (get-val :op/test-node)
-             cons-node (get-val :op/consequent-node)
-             alt-node (get-val :op/alternate-node)
-             test-val (run-semantic {:node test-node :datoms datoms :pool pool} env)]
-         (if test-val
-           (run-semantic {:node cons-node :datoms datoms :pool pool} env)
-           (run-semantic {:node alt-node :datoms datoms :pool pool} env)))
+         (let [test-node (get-val :op/test-node)
+               cons-node (get-val :op/consequent-node)
+               alt-node (get-val :op/alternate-node)
+               test-val (run-semantic
+                          {:node test-node, :datoms datoms, :pool pool}
+                          env)]
+           (if test-val
+             (run-semantic {:node cons-node, :datoms datoms, :pool pool} env)
+             (run-semantic {:node alt-node, :datoms datoms, :pool pool} env)))
+       (throw (ex-info "Unknown op type"
+                       {:node-map node-map, :op-type op-type}))))))
 
-       (throw (ex-info "Unknown op type" {:node-map node-map :op-type op-type}))))))
 
 ;; =============================================================================
 ;; Legacy Numeric Bytecode (for comparison/compatibility)
@@ -348,9 +365,10 @@
 (def OP_RETURN 6)        ; [OP_RETURN]
 (def OP_JUMP 7)          ; [OP_JUMP] [offset-hi] [offset-lo]
 
-(defn- add-constant-legacy [pool val]
-  (let [idx (count pool)]
-    [(conj pool val) idx]))
+(defn- add-constant-legacy
+  [pool val]
+  (let [idx (count pool)] [(conj pool val) idx]))
+
 
 ;; =============================================================================
 ;; Datoms -> Stack Assembly
@@ -375,130 +393,112 @@
   (let [;; Materialize and index datoms by entity
         datoms (vec ast-as-datoms)
         by-entity (group-by first datoms)
-
         ;; Attribute mapping from op (assembly) to yin (vm) namespaces
-        attr-mapping {:op/type :yin/type
-                      :op/value :yin/value
-                      :op/var-name :yin/name
-                      :op/params :yin/params
-                      :op/body-node :yin/body
-                      :op/operator-node :yin/operator
-                      :op/operand-nodes :yin/operands
-                      :op/test-node :yin/test
-                      :op/consequent-node :yin/consequent
+        attr-mapping {:op/type :yin/type,
+                      :op/value :yin/value,
+                      :op/var-name :yin/name,
+                      :op/params :yin/params,
+                      :op/body-node :yin/body,
+                      :op/operator-node :yin/operator,
+                      :op/operand-nodes :yin/operands,
+                      :op/test-node :yin/test,
+                      :op/consequent-node :yin/consequent,
                       :op/alternate-node :yin/alternate}
-
-        ;; Get attribute value for entity (checks both :op/... and :yin/... attributes)
+        ;; Get attribute value for entity (checks both :op/... and :yin/...
+        ;; attributes)
         get-attr (fn [e attr]
                    (let [yin-attr (get attr-mapping attr)]
                      (some (fn [datom]
                              (let [[_ a v] datom]
-                               (cond
-                                 (= a attr) v
-                                 (= a yin-attr) v
-                                 :else nil)))
+                               (cond (= a attr) v
+                                     (= a yin-attr) v
+                                     :else nil)))
                            (get by-entity e))))
-
-        ;; Find root entity (min of negative numeric IDs = highest magnitude/last assigned)
+        ;; Find root entity (min of negative numeric IDs = highest
+        ;; magnitude/last assigned)
         root-id (apply min (keys by-entity))
-
         ;; Assembly accumulator
         instructions (atom [])
         emit! (fn [instr] (swap! instructions conj instr))
-
         ;; Label generator
         label-counter (atom 0)
         gen-label! (fn [prefix]
                      (keyword (str prefix "-" (swap! label-counter inc))))]
+    (letfn
+      [(compile-node [e]
+         (let [node-type (get-attr e :op/type)]
+           (case node-type
+             :literal (emit! [:push (get-attr e :op/value)])
+             :variable (emit! [:load (get-attr e :op/var-name)])
+             :load-var ; Handle :load-var explicitly if node-type matches
+               ;; but attr names differ?
+               (emit! [:load (get-attr e :op/var-name)])
+             :lambda (let [params (get-attr e :op/params)
+                           body-node (get-attr e :op/body-node)
+                           skip-label (gen-label! "after-lambda")]
+                       ;; Emit lambda header
+                       (emit! [:lambda params skip-label])
+                       ;; Compile body
+                       (compile-node body-node)
+                       (emit! [:return])
+                       ;; Emit skip label
+                       (emit! [:label skip-label]))
+             :apply (let [op-node (get-attr e :op/operator-node)
+                          operand-nodes (get-attr e :op/operand-nodes)]
+                      ;; Push operator
+                      (compile-node op-node)
+                      ;; Push operands
+                      (doseq [arg-node operand-nodes] (compile-node arg-node))
+                      ;; Call
+                      (emit! [:call (count operand-nodes)]))
+             :application ; Handle :application alias for :apply
+               (let [op-node (get-attr e :op/operator-node)
+                     operand-nodes (get-attr e :op/operand-nodes)]
+                 ;; Push operator
+                 (compile-node op-node)
+                 ;; Push operands
+                 (doseq [arg-node operand-nodes] (compile-node arg-node))
+                 ;; Call
+                 (emit! [:call (count operand-nodes)]))
+             :jump-if (let [test-node (get-attr e :op/test-node)
+                            cons-node (get-attr e :op/consequent-node)
+                            alt-node (get-attr e :op/alternate-node)
+                            else-label (gen-label! "else")
+                            end-label (gen-label! "end")]
+                        ;; Test
+                        (compile-node test-node)
+                        (emit! [:jump-false else-label])
+                        ;; Consequent
+                        (compile-node cons-node)
+                        (emit! [:jump end-label])
+                        ;; Alternate
+                        (emit! [:label else-label])
+                        (compile-node alt-node)
+                        ;; End
+                        (emit! [:label end-label]))
+             :if ; Handle :if alias for :jump-if
+               (let [test-node (get-attr e :op/test-node)
+                     cons-node (get-attr e :op/consequent-node)
+                     alt-node (get-attr e :op/alternate-node)
+                     else-label (gen-label! "else")
+                     end-label (gen-label! "end")]
+                 ;; Test
+                 (compile-node test-node)
+                 (emit! [:jump-false else-label])
+                 ;; Consequent
+                 (compile-node cons-node)
+                 (emit! [:jump end-label])
+                 ;; Alternate
+                 (emit! [:label else-label])
+                 (compile-node alt-node)
+                 ;; End
+                 (emit! [:label end-label]))
+             ;; Handle unknown types gracefully (e.g. implicitly return nil
+             ;; or throw)
+             (throw (ex-info "Unknown node type in stack assembly compilation"
+                             {:type node-type, :entity e})))))]
+      (compile-node root-id) @instructions)))
 
-    (letfn [(compile-node [e]
-              (let [node-type (get-attr e :op/type)]
-                (case node-type
-                  :literal
-                  (emit! [:push (get-attr e :op/value)])
-
-                  :variable
-                  (emit! [:load (get-attr e :op/var-name)])
-
-                  :load-var ;; Handle :load-var explicitly if node-type matches but attr names differ?
-                  (emit! [:load (get-attr e :op/var-name)])
-
-                  :lambda
-                  (let [params (get-attr e :op/params)
-                        body-node (get-attr e :op/body-node)
-                        skip-label (gen-label! "after-lambda")]
-                    ;; Emit lambda header
-                    (emit! [:lambda params skip-label])
-                    ;; Compile body
-                    (compile-node body-node)
-                    (emit! [:return])
-                    ;; Emit skip label
-                    (emit! [:label skip-label]))
-
-                  :apply
-                  (let [op-node (get-attr e :op/operator-node)
-                        operand-nodes (get-attr e :op/operand-nodes)]
-                    ;; Push operator
-                    (compile-node op-node)
-                    ;; Push operands
-                    (doseq [arg-node operand-nodes]
-                      (compile-node arg-node))
-                    ;; Call
-                    (emit! [:call (count operand-nodes)]))
-
-                  :application ;; Handle :application alias for :apply
-                  (let [op-node (get-attr e :op/operator-node)
-                        operand-nodes (get-attr e :op/operand-nodes)]
-                    ;; Push operator
-                    (compile-node op-node)
-                    ;; Push operands
-                    (doseq [arg-node operand-nodes]
-                      (compile-node arg-node))
-                    ;; Call
-                    (emit! [:call (count operand-nodes)]))
-
-                  :jump-if
-                  (let [test-node (get-attr e :op/test-node)
-                        cons-node (get-attr e :op/consequent-node)
-                        alt-node (get-attr e :op/alternate-node)
-                        else-label (gen-label! "else")
-                        end-label (gen-label! "end")]
-                    ;; Test
-                    (compile-node test-node)
-                    (emit! [:jump-false else-label])
-                    ;; Consequent
-                    (compile-node cons-node)
-                    (emit! [:jump end-label])
-                    ;; Alternate
-                    (emit! [:label else-label])
-                    (compile-node alt-node)
-                    ;; End
-                    (emit! [:label end-label]))
-
-                  :if ;; Handle :if alias for :jump-if
-                  (let [test-node (get-attr e :op/test-node)
-                        cons-node (get-attr e :op/consequent-node)
-                        alt-node (get-attr e :op/alternate-node)
-                        else-label (gen-label! "else")
-                        end-label (gen-label! "end")]
-                    ;; Test
-                    (compile-node test-node)
-                    (emit! [:jump-false else-label])
-                    ;; Consequent
-                    (compile-node cons-node)
-                    (emit! [:jump end-label])
-                    ;; Alternate
-                    (emit! [:label else-label])
-                    (compile-node alt-node)
-                    ;; End
-                    (emit! [:label end-label]))
-
-                  ;; Handle unknown types gracefully (e.g. implicitly return nil or throw)
-                  (throw (ex-info "Unknown node type in stack assembly compilation"
-                                  {:type node-type :entity e})))))]
-
-      (compile-node root-id)
-      @instructions)))
 
 (defn stack-assembly->bytecode
   "Convert symbolic stack assembly to numeric bytecode.
@@ -513,99 +513,77 @@
                            (swap! pool conj val)
                            (swap! pool-index assoc val idx)
                            idx)))
-
         ;; Pass 1: Measure sizes and record label positions.
         label-offsets (atom {})
         current-offset (atom 0)
-
         ;; Helper to size instruction
         instr-size (fn [instr]
                      (case (first instr)
                        :push 2
                        :load 2
-                       :lambda 4 ;; op + params_idx + 2 byte len
+                       :lambda 4 ; op + params_idx + 2 byte len
                        :call 2
                        :jump-false 3
                        :jump 3
                        :return 1
                        :label 0
                        0))]
-
     ;; Pass 1: Calculate label offsets
     (doseq [instr instructions]
       (if (= :label (first instr))
         (swap! label-offsets assoc (second instr) @current-offset)
         (swap! current-offset + (instr-size instr))))
-
     ;; Pass 2: Emit bytes
     (let [bytes (atom [])
           emit-byte! (fn [b] (swap! bytes conj b))
           emit-short! (fn [s]
                         (emit-byte! (bit-shift-right (bit-and s 0xFF00) 8))
                         (emit-byte! (bit-and s 0xFF)))
-
           ;; Re-calculate current offset during emission for relative jumps
           emit-offset (atom 0)]
-
       (doseq [instr instructions]
         (let [[op arg1 arg2] instr]
           (case op
-            :push
-            (let [idx (add-constant arg1)]
-              (emit-byte! OP_LITERAL)
-              (emit-byte! idx)
-              (swap! emit-offset + 2))
-
-            :load
-            (let [idx (add-constant arg1)]
-              (emit-byte! OP_LOAD_VAR)
-              (emit-byte! idx)
-              (swap! emit-offset + 2))
-
-            :lambda
-            (let [params-idx (add-constant arg1)
-                  target-label arg2
-                  target-offset (get @label-offsets target-label)
-                  ;; Body length = target-offset - (current-offset + 4)
-                  body-len (- target-offset (+ @emit-offset 4))]
-              (emit-byte! OP_LAMBDA)
-              (emit-byte! params-idx)
-              (emit-short! body-len)
-              (swap! emit-offset + 4))
-
-            :call
-            (do
-              (emit-byte! OP_APPLY)
-              (emit-byte! arg1)
-              (swap! emit-offset + 2))
-
-            :jump-false
-            (let [target-label arg1
-                  target-offset (get @label-offsets target-label)
-                  ;; Relative offset = target-offset - (current-offset + 3)
-                  rel-offset (- target-offset (+ @emit-offset 3))]
-              (emit-byte! OP_JUMP_IF_FALSE)
-              (emit-short! rel-offset)
-              (swap! emit-offset + 3))
-
-            :jump
-            (let [target-label arg1
-                  target-offset (get @label-offsets target-label)
-                  rel-offset (- target-offset (+ @emit-offset 3))]
-              (emit-byte! OP_JUMP)
-              (emit-short! rel-offset)
-              (swap! emit-offset + 3))
-
-            :return
-            (do
-              (emit-byte! OP_RETURN)
-              (swap! emit-offset + 1))
-
-            :label
-            nil ;; No code emitted
-            )))
-
+            :push (let [idx (add-constant arg1)]
+                    (emit-byte! OP_LITERAL)
+                    (emit-byte! idx)
+                    (swap! emit-offset + 2))
+            :load (let [idx (add-constant arg1)]
+                    (emit-byte! OP_LOAD_VAR)
+                    (emit-byte! idx)
+                    (swap! emit-offset + 2))
+            :lambda (let [params-idx (add-constant arg1)
+                          target-label arg2
+                          target-offset (get @label-offsets target-label)
+                          ;; Body length = target-offset - (current-offset
+                          ;; + 4)
+                          body-len (- target-offset (+ @emit-offset 4))]
+                      (emit-byte! OP_LAMBDA)
+                      (emit-byte! params-idx)
+                      (emit-short! body-len)
+                      (swap! emit-offset + 4))
+            :call (do (emit-byte! OP_APPLY)
+                      (emit-byte! arg1)
+                      (swap! emit-offset + 2))
+            :jump-false (let [target-label arg1
+                              target-offset (get @label-offsets target-label)
+                              ;; Relative offset = target-offset -
+                              ;; (current-offset + 3)
+                              rel-offset (- target-offset (+ @emit-offset 3))]
+                          (emit-byte! OP_JUMP_IF_FALSE)
+                          (emit-short! rel-offset)
+                          (swap! emit-offset + 3))
+            :jump (let [target-label arg1
+                        target-offset (get @label-offsets target-label)
+                        rel-offset (- target-offset (+ @emit-offset 3))]
+                    (emit-byte! OP_JUMP)
+                    (emit-short! rel-offset)
+                    (swap! emit-offset + 3))
+            :return (do (emit-byte! OP_RETURN) (swap! emit-offset + 1))
+            :label nil ; No code emitted
+          )))
       [@bytes @pool])))
+
 
 (defn compile-legacy
   "Compile AST to traditional numeric bytecode (for comparison).
@@ -617,14 +595,17 @@
         stack-asm (ast-datoms->stack-assembly datoms)]
     (stack-assembly->bytecode stack-asm)))
 
+
 ;; --- Legacy Numeric VM ---
 ;; This shows what information is LOST with numeric bytecode.
 ;; You cannot query "find all lambdas" without parsing the byte stream.
 
-(defn- fetch-short [bytes pc]
+(defn- fetch-short
+  [bytes pc]
   (let [hi (nth bytes pc)
         lo (nth bytes (inc pc))]
     (bit-or (bit-shift-left hi 8) lo)))
+
 
 (defn run-bytes
   "Execute legacy numeric bytecode.
@@ -652,74 +633,74 @@
                     rest-frames))))
        (let [op (nth bytes pc)]
          (condp = op
-           OP_LITERAL
-           (let [val-idx (nth bytes (inc pc))
-                 val (nth constant-pool val-idx)]
-             (recur (+ pc 2) bytes (conj stack val) env call-stack))
-
-           OP_LOAD_VAR
-           (let [sym-idx (nth bytes (inc pc))
-                 sym (nth constant-pool sym-idx)
-                 val (get env sym)]
-             (recur (+ pc 2) bytes (conj stack val) env call-stack))
-
-           OP_LAMBDA
-           (let [params-idx (nth bytes (inc pc))
-                 params (nth constant-pool params-idx)
-                 body-len (fetch-short bytes (+ pc 2))
-                 body-start (+ pc 4)
-                 body-bytes (subvec bytes body-start (+ body-start body-len))
-                 closure {:type :closure
-                          :params params
-                          :body-bytes body-bytes
-                          :env env}]
-             (recur (+ pc 4 body-len) bytes (conj stack closure) env call-stack))
-
+           OP_LITERAL (let [val-idx (nth bytes (inc pc))
+                            val (nth constant-pool val-idx)]
+                        (recur (+ pc 2) bytes (conj stack val) env call-stack))
+           OP_LOAD_VAR (let [sym-idx (nth bytes (inc pc))
+                             sym (nth constant-pool sym-idx)
+                             val (get env sym)]
+                         (recur (+ pc 2) bytes (conj stack val) env call-stack))
+           OP_LAMBDA (let [params-idx (nth bytes (inc pc))
+                           params (nth constant-pool params-idx)
+                           body-len (fetch-short bytes (+ pc 2))
+                           body-start (+ pc 4)
+                           body-bytes
+                             (subvec bytes body-start (+ body-start body-len))
+                           closure {:type :closure,
+                                    :params params,
+                                    :body-bytes body-bytes,
+                                    :env env}]
+                       (recur (+ pc 4 body-len)
+                              bytes
+                              (conj stack closure)
+                              env
+                              call-stack))
            OP_APPLY
-           (let [argc (nth bytes (inc pc))
-                 args (vec (take-last argc stack))
-                 stack-minus-args (vec (drop-last argc stack))
-                 fn-val (peek stack-minus-args)
-                 stack-rest (pop stack-minus-args)]
-             (cond
-               (fn? fn-val)
-               (let [res (apply fn-val args)]
-                 (recur (+ pc 2) bytes (conj stack-rest res) env call-stack))
-
-               (= :closure (:type fn-val))
-               (let [{clo-params :params clo-body :body-bytes clo-env :env} fn-val
-                     new-env (merge clo-env (zipmap clo-params args))
-                     frame {:pc (+ pc 2) :bytes bytes :stack stack-rest :env env}]
-                 (recur 0 clo-body [] new-env (conj call-stack frame)))
-
-               :else
-               (throw (ex-info "Cannot apply non-function" {:fn fn-val}))))
-
+             (let [argc (nth bytes (inc pc))
+                   args (vec (take-last argc stack))
+                   stack-minus-args (vec (drop-last argc stack))
+                   fn-val (peek stack-minus-args)
+                   stack-rest (pop stack-minus-args)]
+               (cond (fn? fn-val) (let [res (apply fn-val args)]
+                                    (recur (+ pc 2)
+                                           bytes
+                                           (conj stack-rest res)
+                                           env
+                                           call-stack))
+                     (= :closure (:type fn-val))
+                       (let [{clo-params :params,
+                              clo-body :body-bytes,
+                              clo-env :env}
+                               fn-val
+                             new-env (merge clo-env (zipmap clo-params args))
+                             frame {:pc (+ pc 2),
+                                    :bytes bytes,
+                                    :stack stack-rest,
+                                    :env env}]
+                         (recur 0 clo-body [] new-env (conj call-stack frame)))
+                     :else (throw (ex-info "Cannot apply non-function"
+                                           {:fn fn-val}))))
            OP_JUMP_IF_FALSE
-           (let [offset (fetch-short bytes (inc pc))
-                 condition (peek stack)
-                 new-stack (pop stack)]
-             (if condition
-               (recur (+ pc 3) bytes new-stack env call-stack)
-               (recur (+ pc 3 offset) bytes new-stack env call-stack)))
+             (let [offset (fetch-short bytes (inc pc))
+                   condition (peek stack)
+                   new-stack (pop stack)]
+               (if condition
+                 (recur (+ pc 3) bytes new-stack env call-stack)
+                 (recur (+ pc 3 offset) bytes new-stack env call-stack)))
+           OP_JUMP (let [offset (fetch-short bytes (inc pc))]
+                     (recur (+ pc 3 offset) bytes stack env call-stack))
+           OP_RETURN (let [result (peek stack)]
+                       (if (empty? call-stack)
+                         result
+                         (let [frame (peek call-stack)
+                               rest-frames (pop call-stack)]
+                           (recur (:pc frame)
+                                  (:bytes frame)
+                                  (conj (:stack frame) result)
+                                  (:env frame)
+                                  rest-frames))))
+           (throw (ex-info "Unknown Opcode" {:op op, :pc pc}))))))))
 
-           OP_JUMP
-           (let [offset (fetch-short bytes (inc pc))]
-             (recur (+ pc 3 offset) bytes stack env call-stack))
-
-           OP_RETURN
-           (let [result (peek stack)]
-             (if (empty? call-stack)
-               result
-               (let [frame (peek call-stack)
-                     rest-frames (pop call-stack)]
-                 (recur (:pc frame)
-                        (:bytes frame)
-                        (conj (:stack frame) result)
-                        (:env frame)
-                        rest-frames))))
-
-           (throw (ex-info "Unknown Opcode" {:op op :pc pc}))))))))
 
 ;; =============================================================================
 ;; Comparison: The Key Insight

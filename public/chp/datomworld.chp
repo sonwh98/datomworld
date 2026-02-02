@@ -1,123 +1,123 @@
 (let [template (load-file "public/chp/template.chp")]
   (clojure.walk/postwalk-replace
-   {:template/title "Datom.World: Private preview overview"
-    :template/content
-    (list
-     [:section.hero
-      [:div.section-inner
-       [:div.hero-copy
-        [:span.status-pill "Private preview"]
-        [:h1 "Your world, materialized from datom streams"]
-        [:p.lead
-         "Datom.World is a platform for building local-first, stream-native software. "
-         "Streams of datoms flow between devices, and apps interpret those streams according to their domain. "
-         "Apps, agents, and teammates collaborate without handing over control."]
-        [:p
-         "Today's internet is controlled by a handful of giant companies who "
-         [:a {:href "/tracking.chp"} "track everything you do"]
-         ", monetize your attention, and lock your data behind their walls. "
-         "Datom.World imagines something different: a stream-native fabric where you keep custody of your information, "
-         "invite services on your terms, and tap into collective compute the way you might book a spare room on Airbnb. "
-         "Services interpret the streams you expose, making collaboration additive instead of extractive."]]]]
-     [:section.section-light
-      [:div.section-inner
-       [:h2 "What is Datom.World?"]
-       [:p
-        "Datom.World is inspired by ant colonies and neural networks, systems where intelligence emerges from simple components through stigmergy. "
-        "Ants leave traces that guide others. Neurons fire and form connections. "
-        "No central control, yet collective intelligence arises. "
-        "We apply that principle to the digital world."]
-       [:p
-        "Instead of a centralized internet ruled by a handful of servers, Datom.World is a living ecosystem of independent nodes, "
-        "personal devices, computers, sensors, each contributing to a shared fabric. "
-        "Nodes exchange tiny data atoms, or datoms, just as ants share pheromone signals molecule by molecule."]
-       [:p
-        "A datom is the smallest unit of structured data: a self-contained piece of fact you fully own. "
-        "You choose what to share and with whom. There are no hidden algorithms or distant data centers dictating the rules. "
-        "Everything stays local-first and private by design. Just facts you own, shared on your terms."]
-       [:p
-        "Streams of datoms flow between trusted peers, creating an internet that is distributed, entangled, and alive, where collaboration emerges naturally and privacy is foundational. "
-        "Datom.World reimagines software as a digital ecosystem: self-organizing, adaptive, and free."]]]
-     [:section.section-light
-      [:div.section-inner
-       [:h2 "The Core Concepts"]
-       [:p "Datom.World is built on four foundational principles that create a new paradigm for computing. These concepts are woven throughout our architecture, from the Yin VM to the DaoDB database. Each concept has links to more detailed articles for deeper exploration."]
-       [:div.concept-grid
-        [:article.concept-card
-         [:h3 "1. Everything is a Stream"]
-         [:p "The foundational axiom: " [:strong "everything is a stream of datoms"] ". A datom is an immutable fact represented as " [:code "[e a v t m]"] " (entity, attribute, value, transaction ID, metadata). Transaction IDs are monotonic within each stream; cross-stream causality is determined via metadata. Code, data, state changes, execution traces—all are append-only logs of datoms."]
-         [:p "Benefits: total auditability (nothing deleted, perfect history), time travel (query any past state), and a unified data model. Everything—messages, files, databases, APIs—collapses into a single primitive: the stream."]
-         [:p.learn-more "Learn more: " [:a {:href "/blog/datoms-as-streams.blog"} "Streaming Datoms with Transducers"] ", " [:a {:href "/blog/ast-higher-dimensional-datom-streams.blog"} "AST as Higher Dimensional Datom Streams"] ", and " [:a {:href "/blog/code-entropy-evolution.blog"} "Code Entropy and Evolution"] " (why distributing complexity to boundaries creates resilient systems)."]]
-        [:article.concept-card
-         [:h3 "2. Everything is a Continuation"]
-         [:p "If streams are how data flows, continuations are how computation flows. Every running process is a " [:strong "continuation"] ": a serializable snapshot that can pause, migrate, and resume anywhere."]
-         [:p "Built on " [:a {:href "/yin.chp"} "Yin"] ", your code becomes portable and secure. Start on your phone, continue on an edge server, finish on a GPU cluster. Enables true code mobility (Python to C++ with state intact), extreme fault tolerance, Airbnb-style compute (rent anyone's hardware with mutual security), and never losing context (resume on any device)."]
-         [:p.learn-more "Learn more: " [:a {:href "/blog/unitarity-and-communication-limits.blog"} "Unitarity, π-Calculus, and the Cosmic Speed Limit"] "."]]
-        [:article.concept-card
-         [:h3 "3. Interpretation Creates Meaning"]
-         [:p [:strong "Meaning only emerges through interpretation"] ". Data is just syntax; semantics are created when an interpreter observes and acts on it. This is the " [:strong "\"one truth, many perspectives\""] " principle: a single stream of datoms (one truth) can be interpreted differently by different observers (many perspectives), each extracting their own valid meaning."]
-         [:p "This enables semantic evolution (new interpreters don't break old ones), multiple perspectives (different teams interpret the same stream differently), and AI collaboration (agents evolve their understanding without rigid schemas)."]
-         [:p.learn-more "Learn more: " [:a {:href "/blog/structure-vs-interpretation.blog"} "Structure vs Interpretation"] "."]]
-        [:article.concept-card
-         [:h3 "4. The Universal AST is Canonical Code"]
-         [:p "The " [:strong "Universal Abstract Syntax Tree (AST) is the canonical representation of code"] ". The text you see is just one rendering of this AST. Like Chinese characters providing a shared semantic layer for different dialects, the Universal AST enables bijective translation between languages (Python ↔ C++ with no meaning loss), syntax as preference (view/edit in your preferred language), and no parse errors (editing the structure itself)."]
-         [:p.learn-more "Learn more: " [:a {:href "/blog/yin-vm-ast-chinese-characters.blog"} "Yin.vm: Chinese Characters for Programming Languages"] " and " [:a {:href "/blog/semantic-impedance-mismatch.blog"} "The Semantic Impedance Mismatch"] "."]]]]]
-     [:section.section-dark
-      [:div.section-inner
-       [:h2 "Keeping Open Networks Open"]
-       [:p
-        "Open networks face an inevitable challenge: as they grow, spam threatens to make them unusable. "
-        "Email proved this. The traditional solutions, centralized moderation or algorithmic filtering, either create gatekeepers or opacity."]
-       [:p
-        "Datom.World takes a different approach. "
-        [:a {:href "/shibi.chp"} "Shibi"]
-        " is a capability-based economic layer that makes spam costly without requiring censorship. "
-        "You issue your own purpose-specific tokens. To reach you or append to your streams, others need your tokens. "
-        "You give them freely to trusted contacts, or set a price for strangers. "
-        "Attention becomes a tradable asset you control, and spam gets priced out naturally."]
-       [:p
-        "Shibi isn't money and deliberately avoids being money-like. It's an anti-spam mechanism that keeps the network open without gatekeepers. "
-        "Learn more about "
-        [:a {:href "/shibi.chp"} "how Shibi works"]
-        " and "
-        [:a {:href "/blog/shibi-as-money.blog"} "why it can't be like money"]
-        "."]]]
-     [:section.section-light
-      [:div.section-inner
-       [:h2 "Recomposing the Web"]
-       [:p
-        "Datom.World can be thought of as a decomposition of the modern web browser into its elemental technologies, then recomposed around a new philosophy to build a new world wide web: everything is a stream, and everything is a continuation."]
-       [:p
-        "In the traditional web stack, the JavaScript VM drives execution, HTTP defines communication, the DOM structures the UI, and local storage keeps data persistent. "
-        "Each of these layers was built to serve a client–server world, where the browser is a consumer of remote computation. "
-        "Datom.World reverses this assumption. Every device, from a phone to a cluster, becomes a sovereign node capable of computation, storage, and visualization."]
-       [:p
-        "Where the JavaScript VM once stood, Datom.World introduces "
-        [:a {:href "/yin.chp"} "Yin"]
-        ", a continuation-based virtual machine that treats computation as an evolving process rather than a sequence of calls. "
-        "HTTP's request–response model dissolves into "
-        [:a {:href "/dao-stream.chp"} "DaoStream"]
-        ", the universal streaming API where data flows continuously between entangled peers through append-only datom streams. "
-        "LocalStorage becomes "
-        [:a {:href "/dao-db.chp"} "DaoDB"]
-        ", an app that materializes queryable indexes from those streams. "
-        "And instead of the DOM, "
-        [:a {:href "/dao-flow.chp"} "DaoFlow"]
-        " interprets streams as renderable interfaces, treating the UI as an emergent view of living data."]
-       [:p
-        "Each component corresponds to its web counterpart, but their composition is entirely different. "
-        "Instead of a client viewing a remote world, every node in Datom.World participates in creating that world. "
-        "The result is not a web of documents or servers, but a web of processes, a distributed organism of computation and collaboration."]
-       [:p
-        "In short, Datom.World is what the Web becomes when it is rebuilt from first principles: local-first, continuation-based, and stream-native. "
-        "Where the old web is limited to HTML, Datom.World interpreters can visualize the same datom streams as anything: 3D video games, traditional web pages, VR environments, or any other form. "
-        "DaoFlow is one such interpreter that renders datoms into living, reactive interfaces."]
-       [:p
-        "And the same recomposition applies beyond browsing. "
-        [:a {:href "/blog/datalog-compiler-infrastructure.blog"} "Compilers and languages"] " themselves are being rebuilt as queryable datom fabrics: Yin.vm expresses programs as Datalog facts, DaoDB turns optimizations into queries, and DaoStream carries execution as continuations. "
-        "Recomposing the web therefore also means recomposing the tools that build it."]
-       [:p
-        "This is the internet reimagined: not a web of documents or servers, but a living organism where streams carry data through time, continuations carry computation through space, and both flow together through the same fabric. "
-        "Software that breathes, pausing and resuming as resources become available, collaborating across devices and people without central coordination. "
-        "Self-organizing, adaptive, and resilient."]]])}
-   template))
+    {:template/title "Datom.World: Private preview overview"
+     :template/content
+     (list
+       [:section.hero
+        [:div.section-inner
+         [:div.hero-copy
+          [:span.status-pill "Private preview"]
+          [:h1 "Your world, materialized from datom streams"]
+          [:p.lead
+           "Datom.World is a platform for building local-first, stream-native software. "
+           "Streams of datoms flow between devices, and apps interpret those streams according to their domain. "
+           "Apps, agents, and teammates collaborate without handing over control."]
+          [:p
+           "Today's internet is controlled by a handful of giant companies who "
+           [:a {:href "/tracking.chp"} "track everything you do"]
+           ", monetize your attention, and lock your data behind their walls. "
+           "Datom.World imagines something different: a stream-native fabric where you keep custody of your information, "
+           "invite services on your terms, and tap into collective compute the way you might book a spare room on Airbnb. "
+           "Services interpret the streams you expose, making collaboration additive instead of extractive."]]]]
+       [:section.section-light
+        [:div.section-inner
+         [:h2 "What is Datom.World?"]
+         [:p
+          "Datom.World is inspired by ant colonies and neural networks, systems where intelligence emerges from simple components through stigmergy. "
+          "Ants leave traces that guide others. Neurons fire and form connections. "
+          "No central control, yet collective intelligence arises. "
+          "We apply that principle to the digital world."]
+         [:p
+          "Instead of a centralized internet ruled by a handful of servers, Datom.World is a living ecosystem of independent nodes, "
+          "personal devices, computers, sensors, each contributing to a shared fabric. "
+          "Nodes exchange tiny data atoms, or datoms, just as ants share pheromone signals molecule by molecule."]
+         [:p
+          "A datom is the smallest unit of structured data: a self-contained piece of fact you fully own. "
+          "You choose what to share and with whom. There are no hidden algorithms or distant data centers dictating the rules. "
+          "Everything stays local-first and private by design. Just facts you own, shared on your terms."]
+         [:p
+          "Streams of datoms flow between trusted peers, creating an internet that is distributed, entangled, and alive, where collaboration emerges naturally and privacy is foundational. "
+          "Datom.World reimagines software as a digital ecosystem: self-organizing, adaptive, and free."]]]
+       [:section.section-light
+        [:div.section-inner
+         [:h2 "The Core Concepts"]
+         [:p "Datom.World is built on four foundational principles that create a new paradigm for computing. These concepts are woven throughout our architecture, from the Yin VM to the DaoDB database. Each concept has links to more detailed articles for deeper exploration."]
+         [:div.concept-grid
+          [:article.concept-card
+           [:h3 "1. Everything is a Stream"]
+           [:p "The foundational axiom: " [:strong "everything is a stream of datoms"] ". A datom is an immutable fact represented as " [:code "[e a v t m]"] " (entity, attribute, value, transaction ID, metadata). Transaction IDs are monotonic within each stream; cross-stream causality is determined via metadata. Code, data, state changes, execution traces—all are append-only logs of datoms."]
+           [:p "Benefits: total auditability (nothing deleted, perfect history), time travel (query any past state), and a unified data model. Everything—messages, files, databases, APIs—collapses into a single primitive: the stream."]
+           [:p.learn-more "Learn more: " [:a {:href "/blog/datoms-as-streams.blog"} "Streaming Datoms with Transducers"] ", " [:a {:href "/blog/ast-higher-dimensional-datom-streams.blog"} "AST as Higher Dimensional Datom Streams"] ", and " [:a {:href "/blog/code-entropy-evolution.blog"} "Code Entropy and Evolution"] " (why distributing complexity to boundaries creates resilient systems)."]]
+          [:article.concept-card
+           [:h3 "2. Everything is a Continuation"]
+           [:p "If streams are how data flows, continuations are how computation flows. Every running process is a " [:strong "continuation"] ": a serializable snapshot that can pause, migrate, and resume anywhere."]
+           [:p "Built on " [:a {:href "/yin.chp"} "Yin"] ", your code becomes portable and secure. Start on your phone, continue on an edge server, finish on a GPU cluster. Enables true code mobility (Python to C++ with state intact), extreme fault tolerance, Airbnb-style compute (rent anyone's hardware with mutual security), and never losing context (resume on any device)."]
+           [:p.learn-more "Learn more: " [:a {:href "/blog/unitarity-and-communication-limits.blog"} "Unitarity, π-Calculus, and the Cosmic Speed Limit"] "."]]
+          [:article.concept-card
+           [:h3 "3. Interpretation Creates Meaning"]
+           [:p [:strong "Meaning only emerges through interpretation"] ". Data is just syntax; semantics are created when an interpreter observes and acts on it. This is the " [:strong "\"one truth, many perspectives\""] " principle: a single stream of datoms (one truth) can be interpreted differently by different observers (many perspectives), each extracting their own valid meaning."]
+           [:p "This enables semantic evolution (new interpreters don't break old ones), multiple perspectives (different teams interpret the same stream differently), and AI collaboration (agents evolve their understanding without rigid schemas)."]
+           [:p.learn-more "Learn more: " [:a {:href "/blog/structure-vs-interpretation.blog"} "Structure vs Interpretation"] "."]]
+          [:article.concept-card
+           [:h3 "4. The Universal AST is Canonical Code"]
+           [:p "The " [:strong "Universal Abstract Syntax Tree (AST) is the canonical representation of code"] ". The text you see is just one rendering of this AST. Like Chinese characters providing a shared semantic layer for different dialects, the Universal AST enables bijective translation between languages (Python ↔ C++ with no meaning loss), syntax as preference (view/edit in your preferred language), and no parse errors (editing the structure itself)."]
+           [:p.learn-more "Learn more: " [:a {:href "/blog/yin-vm-ast-chinese-characters.blog"} "Yin.vm: Chinese Characters for Programming Languages"] " and " [:a {:href "/blog/semantic-impedance-mismatch.blog"} "The Semantic Impedance Mismatch"] "."]]]]]
+       [:section.section-dark
+        [:div.section-inner
+         [:h2 "Keeping Open Networks Open"]
+         [:p
+          "Open networks face an inevitable challenge: as they grow, spam threatens to make them unusable. "
+          "Email proved this. The traditional solutions, centralized moderation or algorithmic filtering, either create gatekeepers or opacity."]
+         [:p
+          "Datom.World takes a different approach. "
+          [:a {:href "/shibi.chp"} "Shibi"]
+          " is a capability-based economic layer that makes spam costly without requiring censorship. "
+          "You issue your own purpose-specific tokens. To reach you or append to your streams, others need your tokens. "
+          "You give them freely to trusted contacts, or set a price for strangers. "
+          "Attention becomes a tradable asset you control, and spam gets priced out naturally."]
+         [:p
+          "Shibi isn't money and deliberately avoids being money-like. It's an anti-spam mechanism that keeps the network open without gatekeepers. "
+          "Learn more about "
+          [:a {:href "/shibi.chp"} "how Shibi works"]
+          " and "
+          [:a {:href "/blog/shibi-as-money.blog"} "why it can't be like money"]
+          "."]]]
+       [:section.section-light
+        [:div.section-inner
+         [:h2 "Recomposing the Web"]
+         [:p
+          "Datom.World can be thought of as a decomposition of the modern web browser into its elemental technologies, then recomposed around a new philosophy to build a new world wide web: everything is a stream, and everything is a continuation."]
+         [:p
+          "In the traditional web stack, the JavaScript VM drives execution, HTTP defines communication, the DOM structures the UI, and local storage keeps data persistent. "
+          "Each of these layers was built to serve a client–server world, where the browser is a consumer of remote computation. "
+          "Datom.World reverses this assumption. Every device, from a phone to a cluster, becomes a sovereign node capable of computation, storage, and visualization."]
+         [:p
+          "Where the JavaScript VM once stood, Datom.World introduces "
+          [:a {:href "/yin.chp"} "Yin"]
+          ", a continuation-based virtual machine that treats computation as an evolving process rather than a sequence of calls. "
+          "HTTP's request–response model dissolves into "
+          [:a {:href "/dao-stream.chp"} "DaoStream"]
+          ", the universal streaming API where data flows continuously between entangled peers through append-only datom streams. "
+          "LocalStorage becomes "
+          [:a {:href "/dao-db.chp"} "DaoDB"]
+          ", an app that materializes queryable indexes from those streams. "
+          "And instead of the DOM, "
+          [:a {:href "/dao-flow.chp"} "DaoFlow"]
+          " interprets streams as renderable interfaces, treating the UI as an emergent view of living data."]
+         [:p
+          "Each component corresponds to its web counterpart, but their composition is entirely different. "
+          "Instead of a client viewing a remote world, every node in Datom.World participates in creating that world. "
+          "The result is not a web of documents or servers, but a web of processes, a distributed organism of computation and collaboration."]
+         [:p
+          "In short, Datom.World is what the Web becomes when it is rebuilt from first principles: local-first, continuation-based, and stream-native. "
+          "Where the old web is limited to HTML, Datom.World interpreters can visualize the same datom streams as anything: 3D video games, traditional web pages, VR environments, or any other form. "
+          "DaoFlow is one such interpreter that renders datoms into living, reactive interfaces."]
+         [:p
+          "And the same recomposition applies beyond browsing. "
+          [:a {:href "/blog/datalog-compiler-infrastructure.blog"} "Compilers and languages"] " themselves are being rebuilt as queryable datom fabrics: Yin.vm expresses programs as Datalog facts, DaoDB turns optimizations into queries, and DaoStream carries execution as continuations. "
+          "Recomposing the web therefore also means recomposing the tools that build it."]
+         [:p
+          "This is the internet reimagined: not a web of documents or servers, but a living organism where streams carry data through time, continuations carry computation through space, and both flow together through the same fabric. "
+          "Software that breathes, pausing and resuming as resources become available, collaborating across devices and people without central coordination. "
+          "Self-organizing, adaptive, and resilient."]]])}
+    template))

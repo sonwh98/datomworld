@@ -1,4 +1,6 @@
-{:rules
+{:files {:extensions #{"cljc" "cljs" "clj" "edn" "chp" "blog"}
+         :ignore #{".git" ".shadow-cljs" ".cpcache" "node_modules" "target"}}
+ :rules
  {:indentation {:enabled? true}
   :whitespace {:enabled? true
                :remove-trailing? true

@@ -14,8 +14,10 @@
     (require '[my.lib :as m])
     (m/foo 42)")
 
+
 ;; Global module registry
 (defonce ^:private module-registry (atom {}))
+
 
 (defn register-module!
   "Register a module with its exported bindings.
@@ -24,10 +26,12 @@
   (swap! module-registry assoc module-name bindings)
   module-name)
 
+
 (defn get-module
   "Get a registered module's bindings."
   [module-name]
   (get @module-registry module-name))
+
 
 (defn resolve-symbol
   "Resolve a namespaced symbol to its value.
@@ -39,15 +43,18 @@
       (let [module (get-module (symbol ns-str))]
         (get module (symbol name-str))))))
 
+
 (defn list-modules
   "List all registered module names."
   []
   (keys @module-registry))
 
+
 (defn clear-modules!
   "Clear all registered modules. Useful for testing."
   []
   (reset! module-registry {}))
+
 
 ;; ============================================================
 ;; Effect Descriptors
@@ -57,6 +64,7 @@
   "Check if a value is an effect descriptor."
   [x]
   (and (map? x) (contains? x :effect)))
+
 
 (defn make-effect
   "Create an effect descriptor."
