@@ -38,17 +38,11 @@
            :server {:extra-deps {http-kit/http-kit {:mvn/version "2.8.0"}}
                     :jvm-opts ["-Dconfig=config.clj"]
                     :main-opts ["-m" "world.server"]}
-           :style/fix {:extra-paths ["src/dev"]
-                       :exec-fn tasks/cljstyle-fix}
-           :fmt/fix {:extra-paths ["src/dev"]
-                     :exec-fn tasks/zprint-fix}
-           :fix {:extra-paths ["src/dev"]
+           :fmt {:extra-paths ["src/dev"]
                  :exec-fn tasks/fix-all}}}
 
 
-;; clj -X:style/fix
-;; clj -X:fmt/fix
-
+;; clj -X:fmt
 
 ;; clj -M:nREPL
 
