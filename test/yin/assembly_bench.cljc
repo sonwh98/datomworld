@@ -1,7 +1,8 @@
 (ns yin.assembly-bench
   (:require #?(:clj [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
-            [yin.assembly :as asm]))
+            [yin.assembly :as asm]
+            [yin.vm :as vm]))
 
 
 (defn now-us
@@ -69,27 +70,35 @@
      :cljs (.toFixed n 2)))
 
 
+(defn compile-to-datoms
+  [ast]
+  (let [datoms (vm/ast->datoms ast)
+        root-id (ffirst datoms)]
+    {:node root-id, :datoms datoms}))
+
+
 (defn run-single-benchmark
   [name ast iterations]
-  (asm/reset-node-counter!)
-  (let [semantic-compiled (asm/compile ast)
-        [legacy-bytes legacy-pool] (asm/compile-legacy ast)
-        sem-compile (benchmark #(do (asm/reset-node-counter!) (asm/compile ast))
-                               iterations)
-        leg-compile (benchmark #(asm/compile-legacy ast) iterations)
-        _ (asm/reset-node-counter!)
-        sem-compiled2 (asm/compile ast)
-        sem-run (benchmark #(asm/run-semantic sem-compiled2 primitives)
-                           iterations)
-        leg-run (benchmark #(asm/run-bytes legacy-bytes legacy-pool primitives)
-                           iterations)]
+  (let [compiled (compile-to-datoms ast)
+        datoms (vm/ast->datoms ast)
+        asm-instrs (asm/ast-datoms->stack-assembly datoms)
+        [stack-bytes stack-pool] (asm/stack-assembly->bytecode asm-instrs)
+        sem-compile (benchmark #(compile-to-datoms ast) iterations)
+        stack-compile (benchmark #(let [d (vm/ast->datoms ast)]
+                                    (-> d
+                                        asm/ast-datoms->stack-assembly
+                                        asm/stack-assembly->bytecode))
+                                 iterations)
+        sem-run (benchmark #(asm/run-semantic compiled primitives) iterations)
+        stack-run (benchmark #(asm/run-bytes stack-bytes stack-pool primitives)
+                             iterations)]
     {:name name,
      :compile-semantic sem-compile,
-     :compile-legacy leg-compile,
-     :compile-ratio (/ sem-compile leg-compile),
+     :compile-stack stack-compile,
+     :compile-ratio (/ sem-compile stack-compile),
      :execute-semantic sem-run,
-     :execute-legacy leg-run,
-     :execute-ratio (/ sem-run leg-run)}))
+     :execute-stack stack-run,
+     :execute-ratio (/ sem-run stack-run)}))
 
 
 (defn print-benchmark
@@ -97,15 +106,15 @@
   (println (str "--- " (:name result) " ---"))
   (println (str "  Compile - Semantic: "
                 (fmt (:compile-semantic result))
-                " us | Legacy: "
-                (fmt (:compile-legacy result))
+                " us | Stack: "
+                (fmt (:compile-stack result))
                 " us | Ratio: "
                 (fmt (:compile-ratio result))
                 "x"))
   (println (str "  Execute - Semantic: "
                 (fmt (:execute-semantic result))
-                " us | Legacy: "
-                (fmt (:execute-legacy result))
+                " us | Stack: "
+                (fmt (:execute-stack result))
                 " us | Ratio: "
                 (fmt (:execute-ratio result))
                 "x"))
@@ -118,18 +127,22 @@
                     :cljs "CLJS")]
     (println "")
     (println "============================================")
-    (println (str platform " Assembly Benchmark: Semantic vs Traditional"))
+    (println (str platform " Assembly Benchmark: Semantic vs Stack"))
     (println "============================================")
     (println "")
     ;; Warm up
     (print "Warming up... ")
     #?(:clj (flush))
     (dotimes [_ 500]
-      (asm/reset-node-counter!)
-      (asm/compile nested-ast)
-      (asm/compile-legacy nested-ast)
-      (asm/run-semantic (asm/compile nested-ast) primitives)
-      (let [[b p] (asm/compile-legacy nested-ast)]
+      (compile-to-datoms nested-ast)
+      (let [d (vm/ast->datoms nested-ast)]
+        (-> d
+            asm/ast-datoms->stack-assembly
+            asm/stack-assembly->bytecode))
+      (asm/run-semantic (compile-to-datoms nested-ast) primitives)
+      (let [d (vm/ast->datoms nested-ast)
+            i (asm/ast-datoms->stack-assembly d)
+            [b p] (asm/stack-assembly->bytecode i)]
         (asm/run-bytes b p primitives)))
     (println "done.")
     (println "")
@@ -148,8 +161,7 @@
                                    iterations)]]
       (doseq [r results] (print-benchmark r))
       (println "--- Query Operations (semantic only) ---")
-      (asm/reset-node-counter!)
-      (let [compiled (asm/compile nested-ast)
+      (let [compiled (compile-to-datoms nested-ast)
             datoms (:datoms compiled)]
         (let [q (benchmark #(asm/find-applications datoms) iterations)]
           (println (str "  find-applications:  "
@@ -176,7 +188,7 @@
 
 ;; Make it a test so it runs with the test suite
 (deftest ^:benchmark assembly-benchmark-test
-  (testing "Benchmark semantic vs traditional assembly"
+  (testing "Benchmark semantic vs stack assembly"
     (let [results (run-benchmarks)]
       ;; Just verify benchmarks ran and returned results
       (is (= 5 (count results)))

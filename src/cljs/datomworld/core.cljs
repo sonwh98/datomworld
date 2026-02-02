@@ -7,6 +7,7 @@
             [cljs.pprint :as pprint]
             [cljs.reader :as reader]
             [clojure.string :as str]
+            [datascript.core :as d]
             [reagent.core :as r]
             [reagent.dom :as rdom]
             [yang.clojure :as yang]
@@ -29,6 +30,9 @@
    :stack {:x 1300, :y 650, :w 350, :h 450}})
 
 
+(defonce ds-conn (d/create-conn vm/schema))
+
+
 (defonce app-state
   (r/atom
     {:source-lang :clojure,
@@ -36,7 +40,10 @@
      :ast-as-text "",
      :result nil,
      :assembly-result nil,
-     :compiled nil,
+     :datoms nil,
+     :ds-db nil,
+     :root-ids nil,
+     :root-eids nil,
      :assembly-stats nil,
      :register-asm nil,
      :register-bc nil,
@@ -170,37 +177,55 @@
 (defn compile-ast
   []
   (let [input (:ast-as-text @app-state)]
-    (try (let [forms (reader/read-string (str "[" input "]"))
-               _ (asm/reset-node-counter!)
-               compiled-results (mapv asm/compile forms)
-               all-datoms (mapcat :datoms compiled-results)
-               stats {:total-datoms (count all-datoms),
-                      :lambdas (count (asm/find-lambdas all-datoms)),
-                      :applications (count (asm/find-applications all-datoms)),
-                      :variables (count (asm/find-variables all-datoms)),
-                      :literals (count (asm/find-by-type all-datoms :literal))}]
-           (swap! app-state assoc
-             :compiled compiled-results
-             :assembly-stats stats
-             :error nil)
-           compiled-results)
-         (catch js/Error e
-           (swap! app-state assoc
-             :error (.-message e)
-             :compiled nil
-             :assembly-stats nil)
-           nil))))
+    (try
+      (let [forms (reader/read-string (str "[" input "]"))
+            all-datom-groups (mapv vm/ast->datoms forms)
+            all-datoms (vec (mapcat identity all-datom-groups))
+            root-ids (mapv ffirst all-datom-groups)
+            ;; Transact into DataScript
+            tx-data (vm/datoms->tx-data all-datoms)
+            conn (d/create-conn vm/schema)
+            {:keys [tempids]} (d/transact! conn tx-data)
+            db @conn
+            root-eids (mapv #(get tempids %) root-ids)
+            ;; root-ids are tempids for raw datom traversal (run-semantic)
+            ;; root-eids are resolved DataScript entity IDs (for d/q)
+            stats {:total-datoms (count all-datoms),
+                   :lambdas (count (asm/find-lambdas all-datoms)),
+                   :applications (count (asm/find-applications all-datoms)),
+                   :variables (count (asm/find-variables all-datoms)),
+                   :literals (count (asm/find-by-type all-datoms :literal))}]
+        (swap! app-state assoc
+          :datoms all-datoms
+          :ds-db db
+          :root-ids root-ids
+          :root-eids root-eids
+          :assembly-stats stats
+          :error nil)
+        all-datoms)
+      (catch js/Error e
+        (swap! app-state assoc
+          :error (.-message e)
+          :datoms nil
+          :ds-db nil
+          :root-ids nil
+          :root-eids nil
+          :assembly-stats nil)
+        nil))))
 
 
 (defn run-assembly
   []
-  (let [compiled (:compiled @app-state)
-        compiled-results (or compiled (compile-ast))]
-    (when (seq compiled-results)
+  (let [datoms (:datoms @app-state)
+        datoms (or datoms (compile-ast))
+        root-ids (:root-ids @app-state)]
+    (when (and (seq datoms) (seq root-ids))
       (try (let [initial-env vm/primitives
-                 results (mapv (fn [compiled]
-                                 (asm/run-semantic compiled initial-env))
-                           compiled-results)]
+                 results (mapv (fn [root-id]
+                                 (asm/run-semantic {:node root-id,
+                                                    :datoms datoms}
+                                                   initial-env))
+                           root-ids)]
              (swap! app-state assoc :assembly-result (last results) :error nil))
            (catch js/Error e
              (swap! app-state assoc
@@ -571,8 +596,8 @@
                      :flex "1",
                      :overflow "hidden"}}
             [codemirror-editor
-             {:value (if-let [c (:compiled @app-state)]
-                       (pretty-print (mapv :datoms c))
+             {:value (if-let [datoms (:datoms @app-state)]
+                       (pretty-print datoms)
                        ""),
               :read-only true}]
             [:button

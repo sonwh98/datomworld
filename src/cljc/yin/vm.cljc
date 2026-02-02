@@ -49,10 +49,36 @@
   {:control nil, :environment env, :store {}, :continuation nil, :value nil})
 
 
+(def schema
+  "DataScript schema for :yin/ AST datoms.
+   Declares ref attributes so DataScript resolves tempids during transaction."
+  {:yin/body {:db/valueType :db.type/ref},
+   :yin/operator {:db/valueType :db.type/ref},
+   :yin/operands {:db/valueType :db.type/ref,
+                  :db/cardinality :db.cardinality/many},
+   :yin/test {:db/valueType :db.type/ref},
+   :yin/consequent {:db/valueType :db.type/ref},
+   :yin/alternate {:db/valueType :db.type/ref},
+   :yin/source {:db/valueType :db.type/ref},
+   :yin/target {:db/valueType :db.type/ref},
+   :yin/val {:db/valueType :db.type/ref}})
+
+
+(def ^:private cardinality-many-attrs
+  "Attributes with :db.cardinality/many — their values are vectors of refs
+   that must be expanded into individual :db/add assertions."
+  #{:yin/operands})
+
+
 (defn datoms->tx-data
-  "Convert [e a v t m] datoms to DataScript tx-data [:db/add e a v]"
+  "Convert [e a v t m] datoms to DataScript tx-data [:db/add e a v].
+   Expands cardinality-many vector values into individual assertions."
   [datoms]
-  (map (fn [[e a v _t _m]] [:db/add e a v]) datoms))
+  (mapcat (fn [[e a v _t _m]]
+            (if (and (contains? cardinality-many-attrs a) (vector? v))
+              (map (fn [ref] [:db/add e a ref]) v)
+              [[:db/add e a v]]))
+    datoms))
 
 
 (defn ast->datoms
