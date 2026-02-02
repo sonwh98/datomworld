@@ -57,7 +57,7 @@
 (defn ast->datoms
   "Convert AST map into lazy-seq of datoms. A datom is [e a v t m].
 
-   Entity IDs are tempids (negative integers: -1, -2, -3...) that get resolved
+   Entity IDs are tempids (negative integers: -1025, -1026, -1027...) that get resolved
    to actual entity IDs when transacted. The transactor assigns real positive IDs.
 
    Options:
@@ -65,7 +65,7 @@
      :m - metadata entity reference (default 0, nil metadata)"
   ([ast] (ast->datoms ast {}))
   ([ast opts]
-   (let [id-counter (atom 0)
+   (let [id-counter (atom -1024)
          t (or (:t opts) 0)
          m (or (:m opts) 0)
          gen-id #(swap! id-counter dec)]
@@ -201,7 +201,7 @@
                            (when (= a attr) v))
                          (get by-entity e)))
 
-        ;; Find root entity (max of negative tempids = -1)
+        ;; Find root entity (max of negative tempids = -1025)
         root-id (apply max (keys by-entity))
 
         ;; Bytecode accumulator
@@ -962,7 +962,7 @@
                            (when (= a attr) v))
                          (get by-entity e)))
 
-        ;; Find root entity (max of negative tempids = -1)
+        ;; Find root entity (max of negative tempids = -1025)
         root-id (apply max (keys by-entity))
 
         ;; Assembly accumulator

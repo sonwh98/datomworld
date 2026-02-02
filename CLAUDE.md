@@ -36,10 +36,11 @@ Intuition (physics metaphor):
   Like quantum measurement, each interpreter projects the stream differently: same data, different meanings.
 
 Components:
-  e: Entity ID. Relative offset from zero basis, sized by stream type (e.g., 16-bit, 64-bit).
-     Like Datomic tempids, entity IDs are local until committed by a transactor.
-     Reserved range: 0-1024 for system entities (universal, same meaning everywhere).
-     User entities start at 1025, which is the "zero basis" for user data.
+  e: Entity ID. Relative offset from zero basis.
+     Negative IDs are temporary local IDs (tempids), used during compilation and before commitment.
+     Positive IDs are permanent IDs assigned by DaoDB after a successful transaction.
+     Reserved range: 0-1024 for system entities (always positive).
+     User entities start at 1025 (positive). While local/uncommitted, they are represented as negative counterparts (e.g., -1025).
      On migration, the zero basis changes but entity IDs remain unchanged (relative offsets).
      Global form: 128-bit [namespace:offset] where namespace is 64-bit, offset is 64-bit.
      This mirrors IPv6's design: 64-bit network prefix + 64-bit interface ID.
@@ -211,15 +212,15 @@ Datom stream at the AST boundary (concrete example, (+ 1 2)):
   [-4 :yin/value 2 0 0]
 
 Semantic projection of the same expression:
-  [1028 :op/type :apply]
-  [1028 :op/operator-node 1025]
-  [1028 :op/operand-nodes [1026 1027]]
-  [1025 :op/type :load-var]
-  [1025 :op/var-name +]
-  [1026 :op/type :literal]
-  [1026 :op/value 1]
-  [1027 :op/type :literal]
-  [1027 :op/value 2]
+  [-1028 :op/type :apply]
+  [-1028 :op/operator-node -1025]
+  [-1028 :op/operand-nodes [-1026 -1027]]
+  [-1025 :op/type :load-var]
+  [-1025 :op/var-name +]
+  [-1026 :op/type :literal]
+  [-1026 :op/value 1]
+  [-1027 :op/type :literal]
+  [-1027 :op/value 2]
 
 Invariant: every stage is a pure function from stream to stream.
 No stage mutates its input. Intermediate representations coexist.

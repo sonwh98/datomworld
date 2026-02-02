@@ -26,12 +26,13 @@
 
 ;; --- Node ID Generation ---
 ;; User entities start at 1025 per CLAUDE.md specification.
+;; Tempids are negative offsets from this basis.
 (def ^:private node-counter (atom 1024))
 
 (defn- gen-node-id
-  "Generate a unique numeric node ID for bytecode instructions (Entity ID)."
+  "Generate a unique negative numeric node ID (tempid) for bytecode instructions."
   []
-  (swap! node-counter inc))
+  (- (swap! node-counter inc)))
 
 (defn reset-node-counter!
   "Reset node counter to the zero-basis for user entities (1024)."
@@ -398,8 +399,8 @@
                                  :else nil)))
                            (get by-entity e))))
 
-        ;; Find root entity (max of numeric IDs = highest ID assigned)
-        root-id (apply max (keys by-entity))
+        ;; Find root entity (min of negative numeric IDs = highest magnitude/last assigned)
+        root-id (apply min (keys by-entity))
 
         ;; Assembly accumulator
         instructions (atom [])
