@@ -6,9 +6,13 @@
 (defn- run-cljstyle
   []
   (let [{:keys [exit out err]} (sh/sh "mise" "exec" "--" "cljstyle" "fix")]
-    (when-not (str/blank? out) (println out))
-    (when-not (str/blank? err) (binding [*out* *err*] (println err)))
-    exit))
+    (if (not= 0 exit)
+      (do (binding [*out* *err*]
+            (println "cljstyle error:")
+            (println err)
+            (println out))
+          exit)
+      0)))
 
 
 (defn- run-zprint
@@ -20,10 +24,14 @@
     (if (seq valid-files)
       (let [{:keys [exit out err]}
               (apply sh/sh "mise" "exec" "--" "zprint" "-w" valid-files)]
-        (when-not (str/blank? out) (println out))
-        (when-not (str/blank? err) (binding [*out* *err*] (println err)))
-        exit)
-      (do (println "No files found to format.") 0))))
+        (if (not= 0 exit)
+          (do (binding [*out* *err*]
+                (println "zprint error:")
+                (println err)
+                (println out))
+              exit)
+          0))
+      0)))
 
 
 (defn cljstyle-fix [_] (System/exit (run-cljstyle)))
