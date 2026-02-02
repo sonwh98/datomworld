@@ -333,48 +333,83 @@
       "def fib(n):\n  if n < 2:\n    return n\n  else:\n    return fib(n-1) + fib(n-2)\nfib(7)"}])
 
 
+(defn dropdown-menu
+  [items on-select]
+  (let [open? (r/atom false)]
+    (fn [items on-select]
+      [:div {:style {:position "relative"}}
+       [:button
+        {:on-click #(swap! open? not),
+         :style {:background "none",
+                 :border "none",
+                 :color "#f1f5ff",
+                 :cursor "pointer",
+                 :font-size "1.2rem",
+                 :padding "0 5px",
+                 :line-height "1"}} "☰"]
+       (when @open?
+         [:div
+          {:style {:position "absolute",
+                   :top "100%",
+                   :right "0",
+                   :background "#1a2035",
+                   :border "1px solid #2d3b55",
+                   :border-radius "4px",
+                   :box-shadow "0 4px 12px rgba(0,0,0,0.5)",
+                   :z-index "1000",
+                   :width "220px",
+                   :margin-top "5px",
+                   :max-height "300px",
+                   :overflow-y "auto"}}
+          (for [{:keys [name], :as item} items]
+            ^{:key name}
+            [:div
+             {:on-click (fn [] (on-select item) (reset! open? false)),
+              :style {:padding "8px 12px",
+                      :cursor "pointer",
+                      :font-size "0.9rem",
+                      :color "#c5c6c7",
+                      :border-bottom "1px solid #2d3b55"},
+              :on-mouse-over #(set! (.. % -target -style -background)
+                                    "#2d3b55"),
+              :on-mouse-out #(set! (.. % -target -style -background) "none")}
+             name])])])))
+
+
 (defn hamburger-menu
   []
-  (let [open? (r/atom false)]
-    (fn [] [:div {:style {:position "relative"}}
-            [:button
-             {:on-click #(swap! open? not),
-              :style {:background "none",
-                      :border "none",
-                      :color "#f1f5ff",
-                      :cursor "pointer",
-                      :font-size "1.2rem",
-                      :padding "0 5px",
-                      :line-height "1"}} "☰"]
-            (when @open?
-              [:div
-               {:style {:position "absolute",
-                        :top "100%",
-                        :right "0",
-                        :background "#1a2035",
-                        :border "1px solid #2d3b55",
-                        :border-radius "4px",
-                        :box-shadow "0 4px 12px rgba(0,0,0,0.5)",
-                        :z-index "1000",
-                        :width "200px",
-                        :margin-top "5px"}}
-               (for [ex code-examples]
-                 ^{:key (:name ex)}
-                 [:div
-                  {:on-click (fn []
-                               (swap! app-state assoc
-                                 :source-code (:code ex)
-                                 :source-lang (:lang ex))
-                               (reset! open? false)),
-                   :style {:padding "8px 12px",
-                           :cursor "pointer",
-                           :font-size "0.9rem",
-                           :color "#c5c6c7",
-                           :border-bottom "1px solid #2d3b55"},
-                   :on-mouse-over #(set! (.. % -target -style -background)
-                                         "#2d3b55"),
-                   :on-mouse-out #(set! (.. % -target -style -background)
-                                        "none")} (:name ex)])])])))
+  [dropdown-menu code-examples
+   (fn [ex]
+     (swap! app-state assoc :source-code (:code ex) :source-lang (:lang ex)))])
+
+
+(def query-examples
+  [{:name "All node types",
+    :query "[:find ?e ?type\n :where [?e :yin/type ?type]]"}
+   {:name "Find literals",
+    :query
+      "[:find ?e ?v\n :where\n [?e :yin/type :literal]\n [?e :yin/value ?v]]"}
+   {:name "Find variables",
+    :query
+      "[:find ?e ?name\n :where\n [?e :yin/type :variable]\n [?e :yin/name ?name]]"}
+   {:name "Find lambdas",
+    :query
+      "[:find ?e ?params\n :where\n [?e :yin/type :lambda]\n [?e :yin/params ?params]]"}
+   {:name "Find applications",
+    :query
+      "[:find ?e ?op\n :where\n [?e :yin/type :application]\n [?e :yin/operator ?op]]"}
+   {:name "Find conditionals", :query "[:find ?e\n :where [?e :yin/type :if]]"}
+   {:name "All attributes for entity",
+    :query "[:find ?a ?v\n :in $ ?e\n :where [?e ?a ?v]]"}
+   {:name "Lambda body structure",
+    :query
+      "[:find ?lam ?body ?body-type\n :where\n [?lam :yin/type :lambda]\n [?lam :yin/body ?body]\n [?body :yin/type ?body-type]]"}])
+
+
+(defn query-menu
+  []
+  [dropdown-menu query-examples
+   (fn [ex] (swap! app-state assoc :query-text (:query ex)))])
 
 
 (defn draggable-card
@@ -698,7 +733,12 @@
                         :padding "5px",
                         :border "1px solid #30363d"}}
                (pr-str (:stack-result @app-state))])]]
-          [draggable-card :query "Datalog Query"
+          [draggable-card :query
+           [:div
+            {:style {:display "flex",
+                     :justify-content "space-between",
+                     :align-items "center",
+                     :width "100%"}} "Datalog Query" [query-menu]]
            [:div
             {:style {:display "flex",
                      :flex-direction "column",
