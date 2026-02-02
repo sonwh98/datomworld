@@ -260,12 +260,27 @@
          :operator {:type :lambda :params ['_] :body s2}
          :operands [s1]}))))
 
+(def py-op->yin
+  {"==" '==
+   "!=" '!=
+   "<" '<
+   ">" '>
+   "<=" '<=
+   ">=" '>=
+   "+" '+
+   "-" '-
+   "*" '*
+   "/" '/
+   "and" 'and
+   "or" 'or
+   "not" 'not})
+
 (defn compile-stmt [node]
   (case (:py-type node)
     :literal {:type :literal :value (:value node)}
     :variable {:type :variable :name (:name node)}
     :binop {:type :application
-            :operator {:type :variable :name (:op node)}
+            :operator {:type :variable :name (get py-op->yin (clojure.core/name (:op node)) (:op node))}
             :operands [(compile-stmt (:left node)) (compile-stmt (:right node))]}
     :call {:type :application
            :operator (compile-stmt (:function node))

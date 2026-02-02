@@ -216,6 +216,52 @@
       (catch js/Error e
         (swap! app-state assoc :error (str "Compile Error: " (.-message e)))))))
 
+(def code-examples
+  [{:name "Clojure: Basic Math" :lang :clojure :code "(+ 10 20)"}
+   {:name "Clojure: Factorial" :lang :clojure :code "(def fact (fn [n]\n  (if (= n 0)\n    1\n    (* n (fact (- n 1))))))\n(fact 5)"}
+   {:name "Clojure: Fibonacci" :lang :clojure :code "(def fib (fn [n]\n  (if (< n 2)\n    n\n    (+ (fib (- n 1)) (fib (- n 2))))))\n(fib 7)"}
+   {:name "Python: Basic Math" :lang :python :code "10 + 20"}
+   {:name "Python: Factorial" :lang :python :code "def fact(n):\n  if n == 0:\n    return 1\n  else:\n    return n * fact(n-1)\nfact(5)"}
+   {:name "Python: Fibonacci" :lang :python :code "def fib(n):\n  if n < 2:\n    return n\n  else:\n    return fib(n-1) + fib(n-2)\nfib(7)"}])
+
+(defn hamburger-menu []
+  (let [open? (r/atom false)]
+    (fn []
+      [:div {:style {:position "relative"}}
+       [:button {:on-click #(swap! open? not)
+                 :style {:background "none"
+                         :border "none"
+                         :color "#f1f5ff"
+                         :cursor "pointer"
+                         :font-size "1.2rem"
+                         :padding "0 5px"
+                         :line-height "1"}}
+        "☰"]
+       (when @open?
+         [:div {:style {:position "absolute"
+                        :top "100%"
+                        :right "0"
+                        :background "#1a2035"
+                        :border "1px solid #2d3b55"
+                        :border-radius "4px"
+                        :box-shadow "0 4px 12px rgba(0,0,0,0.5)"
+                        :z-index "1000"
+                        :width "200px"
+                        :margin-top "5px"}}
+          (for [ex code-examples]
+            ^{:key (:name ex)}
+            [:div {:on-click (fn []
+                               (swap! app-state assoc :source-code (:code ex) :source-lang (:lang ex))
+                               (reset! open? false))
+                   :style {:padding "8px 12px"
+                           :cursor "pointer"
+                           :font-size "0.9rem"
+                           :color "#c5c6c7"
+                           :border-bottom "1px solid #2d3b55"}
+                   :on-mouse-over #(set! (.. % -target -style -background) "#2d3b55")
+                   :on-mouse-out #(set! (.. % -target -style -background) "none")}
+             (:name ex)])])])))
+
 (defn draggable-card [id title content]
   (let [positions (r/cursor app-state [:ui-positions])
         drag-state (r/cursor app-state [:drag-state])
@@ -241,7 +287,10 @@
                :border-bottom "1px solid #2d3b55"
                :font-weight "bold"
                :color "#f1f5ff"
-               :user-select "none"}
+               :user-select "none"
+               :display "flex"
+               :justify-content "space-between"
+               :align-items "center"}
        :on-mouse-down (fn [e]
                         (.preventDefault e)
                         (reset! drag-state {:id id
@@ -321,7 +370,10 @@
         [connection-line :assembly :register "Reg ->" compile-register]
         [connection-line :assembly :stack "Stack ->" compile-stack]]
 
-       [draggable-card :source "Source Code"
+       [draggable-card :source
+        [:div {:style {:display "flex" :justify-content "space-between" :align-items "center" :width "100%"}}
+         "Source Code"
+         [hamburger-menu]]
         [:div
          [:div {:style {:display "flex" :justify-content "space-between" :margin-bottom "5px"}}
           [:select {:value (:source-lang @app-state)
@@ -334,10 +386,7 @@
                              :language (:source-lang @app-state)
                              :on-change (fn [v] (swap! app-state assoc :source-code v))}]
          [:div {:style {:marginTop "10px" :fontSize "0.8em" :color "#8b949e"}}
-          [:strong {:style {:color "#f1f5ff"}} "Examples: "]
-          [:a {:href "#" :style {:color "#58a6ff"} :on-click (fn [] (swap! app-state assoc :source-code "(+ 10 20)" :source-lang :clojure))} "(+ 10 20)"]
-          " | "
-          [:a {:href "#" :style {:color "#58a6ff"} :on-click (fn [] (swap! app-state assoc :source-code "10 + 20" :source-lang :python))} "10 + 20"]]]]
+          "Select examples from the menu ☰ above."]]]
 
        [draggable-card :ast "Yin AST"
         [:div
