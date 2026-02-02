@@ -1,0 +1,46 @@
+#:blog{:title "Solid vs Datom.world"
+       :date #inst "2026-02-02T10:00:00.000-00:00"
+       :abstract [:p
+                  "Solid pods allow users to own their data, but they cannot control what an application does once access is granted. By reversing the relationship and moving code to data via restricted continuations, datom.world ensures that your data never leaves your sphere of control."]
+       :content [:section.blog-article
+                 [:div.section-inner
+                  :$blog-title
+                  :$blog-date
+                  [:p
+                   "The decentralized web has long chased the dream of data sovereignty. The "
+                   [:a {:href "https://solidproject.org/"} "Solid project"]
+                   " (Social Linked Data), spearheaded by Sir Tim Berners-Lee, the father of the World Wide Web, proposed a compelling vision: decouple data from applications using 'Pods.' In this model, you store your data in a personal vault, and you grant applications permission to read or write to it. It is a massive step forward from the siloed status quo, but it has a fundamental flaw (a fatal one for true privacy)."]
+                  [:h2 "The Solid Leak"]
+                  [:p
+                   "When you give a Solid-compatible app permission to access your pod, the data is typically retrieved and processed in the application's environment (whether that is a browser window or a remote server). Once the data is retrieved, the 'sovereignty' ends. The application now has a copy of your data. It can store that data in its own database, share it with third-party trackers, or use it to train models without your further consent. The pod is a storage locker, but once you let someone inside to look at the goods, you cannot stop them from taking a photograph and leaving."]
+                  [:h2 "The datom.world Solution: Code migrates to Data"]
+                  [:p
+                   "In datom.world, we treat the relationship between data and execution differently. We do not bring the data to the code. We bring the code to the data."]
+                  [:p
+                   "This is made possible by the Yin VM, a CESK continuation machine. In our architecture, applications are not monolithic binaries running in external environments. They are agents (continuations) that migrate to the node where the data resides. When an application wants to process your data, it sends its logic to your environment."]
+                  [:h2 "Restricted Continuations"]
+                  [:p
+                   "Because the Yin VM hosts the application as a first-class continuation, the environment is strictly controlled. The VM boundary is a security boundary. We can restrict what an application is capable of doing with the data it 'sees' through several mechanisms:"]
+                  [:ul
+                   [:li
+                    [:strong "Confinement: "]
+                    "The application executes within a namespace jail. It has no access to the network or external streams unless explicitly granted via a capability token."]
+                   [:li
+                    [:strong "Explicit Causality: "]
+                    "All side effects must appear as stream emissions. If an app tries to 'leak' data, that emission must go through a stream that the host (you) controls and monitors."]
+                   [:li
+                    [:strong "Immutable Facts: "]
+                    "Applications interact with datoms (immutable 5-tuples). They cannot mutate the state of your universe; they can only propose new datoms to your streams, which you can choose to accept or ignore."]]
+                  [:h2 "Computation is Data"]
+                  [:p
+                   "In datom.world, even the code is data (the Universal AST). This means the host can inspect the application's logic using Datalog queries before it even executes. We can verify that a continuation does not contain instructions to access restricted attributes like :person/email before we allow it to run in a sensitive context."]
+                  [:p
+                   "Solid gives you the right to hold your data, but datom.world gives you the power to control its fate. By ensuring that execution happens within your restricted container, we move from a model of 'permission to access' to a model of 'confinement of logic.' That is the only way to achieve true data sovereignty."]
+                  [:h2 "Related Blogs"]
+                  [:ul
+                   [:li
+                    [:a {:href "/blog/continuations-universal-semantic-kernel.chp"}
+                     "Continuations and the Universal Semantic Kernel"]]
+                   [:li
+                    [:a {:href "/blog/universal-ast-vs-assembly.chp"}
+                     "The Universal AST vs. Assembly"]]]]]}
