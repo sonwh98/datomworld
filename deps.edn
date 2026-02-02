@@ -56,6 +56,7 @@
 ;; npx shadow-cljs compile test && node target/node-tests.js
 ;; clj -M:dev -m shadow.cljs.devtools.cli watch datomworld
 ;; clj -M:cljs -m shadow.cljs.devtools.cli watch datomworld
+;; clj -M:cljs -m shadow.cljs.devtools.cli compile datomworld
 
 ;; mise exec -- clj -M:cljd watch 
 ;; mise exec -- flutter run 

@@ -25,17 +25,18 @@
 ;; =============================================================================
 
 ;; --- Node ID Generation ---
-(def ^:private node-counter (atom 0))
+;; User entities start at 1025 per CLAUDE.md specification.
+(def ^:private node-counter (atom 1024))
 
 (defn- gen-node-id
-  "Generate a unique node ID for bytecode instructions."
+  "Generate a unique numeric node ID for bytecode instructions (Entity ID)."
   []
-  (keyword "node" (str (swap! node-counter inc))))
+  (swap! node-counter inc))
 
 (defn reset-node-counter!
-  "Reset node counter (for testing)."
+  "Reset node counter to the zero-basis for user entities (1024)."
   []
-  (reset! node-counter 0))
+  (reset! node-counter 1024))
 
 ;; --- Semantic Opcodes as Keywords ---
 ;; Instead of numeric opcodes, we use semantic keywords that preserve meaning.
@@ -389,14 +390,15 @@
         ;; Get attribute value for entity (checks both :op/... and :yin/... attributes)
         get-attr (fn [e attr]
                    (let [yin-attr (get attr-mapping attr)]
-                     (some (fn [[_ a v _ _]]
-                             (cond
-                               (= a attr) v
-                               (= a yin-attr) v
-                               :else nil))
+                     (some (fn [datom]
+                             (let [[_ a v] datom]
+                               (cond
+                                 (= a attr) v
+                                 (= a yin-attr) v
+                                 :else nil)))
                            (get by-entity e))))
 
-        ;; Find root entity (max of negative tempids = -1)
+        ;; Find root entity (max of numeric IDs = highest ID assigned)
         root-id (apply max (keys by-entity))
 
         ;; Assembly accumulator
@@ -626,38 +628,51 @@
 (defn run-bytes
   "Execute legacy numeric bytecode.
    Note: This loses semantic information. You can't query the bytecode,
-   only execute it sequentially."
+   only execute it sequentially.
+   Uses an explicit call stack to avoid host recursion on closure calls."
   ([bytes constant-pool] (run-bytes bytes constant-pool {}))
   ([bytes constant-pool env]
    (loop [pc 0
+          bytes (vec bytes)
           stack []
-          env env]
+          env env
+          call-stack []]
      (if (>= pc (count bytes))
-       (peek stack)
+       ;; End of bytes: return top of stack or pop frame
+       (let [result (peek stack)]
+         (if (empty? call-stack)
+           result
+           (let [frame (peek call-stack)
+                 rest-frames (pop call-stack)]
+             (recur (:pc frame)
+                    (:bytes frame)
+                    (conj (:stack frame) result)
+                    (:env frame)
+                    rest-frames))))
        (let [op (nth bytes pc)]
          (condp = op
            OP_LITERAL
            (let [val-idx (nth bytes (inc pc))
                  val (nth constant-pool val-idx)]
-             (recur (+ pc 2) (conj stack val) env))
+             (recur (+ pc 2) bytes (conj stack val) env call-stack))
 
            OP_LOAD_VAR
            (let [sym-idx (nth bytes (inc pc))
                  sym (nth constant-pool sym-idx)
                  val (get env sym)]
-             (recur (+ pc 2) (conj stack val) env))
+             (recur (+ pc 2) bytes (conj stack val) env call-stack))
 
            OP_LAMBDA
            (let [params-idx (nth bytes (inc pc))
                  params (nth constant-pool params-idx)
                  body-len (fetch-short bytes (+ pc 2))
                  body-start (+ pc 4)
-                 body-bytes (vec (subvec (vec bytes) body-start (+ body-start body-len)))
+                 body-bytes (subvec bytes body-start (+ body-start body-len))
                  closure {:type :closure
                           :params params
                           :body-bytes body-bytes
                           :env env}]
-             (recur (+ pc 4 body-len) (conj stack closure) env))
+             (recur (+ pc 4 body-len) bytes (conj stack closure) env call-stack))
 
            OP_APPLY
            (let [argc (nth bytes (inc pc))
@@ -668,13 +683,13 @@
              (cond
                (fn? fn-val)
                (let [res (apply fn-val args)]
-                 (recur (+ pc 2) (conj stack-rest res) env))
+                 (recur (+ pc 2) bytes (conj stack-rest res) env call-stack))
 
                (= :closure (:type fn-val))
-               (let [{:keys [params body-bytes env]} fn-val
-                     new-env (merge env (zipmap params args))]
-                 (let [res (run-bytes body-bytes constant-pool new-env)]
-                   (recur (+ pc 2) (conj stack-rest res) env)))
+               (let [{clo-params :params clo-body :body-bytes clo-env :env} fn-val
+                     new-env (merge clo-env (zipmap clo-params args))
+                     frame {:pc (+ pc 2) :bytes bytes :stack stack-rest :env env}]
+                 (recur 0 clo-body [] new-env (conj call-stack frame)))
 
                :else
                (throw (ex-info "Cannot apply non-function" {:fn fn-val}))))
@@ -684,15 +699,24 @@
                  condition (peek stack)
                  new-stack (pop stack)]
              (if condition
-               (recur (+ pc 3) new-stack env)
-               (recur (+ pc 3 offset) new-stack env)))
+               (recur (+ pc 3) bytes new-stack env call-stack)
+               (recur (+ pc 3 offset) bytes new-stack env call-stack)))
 
            OP_JUMP
            (let [offset (fetch-short bytes (inc pc))]
-             (recur (+ pc 3 offset) stack env))
+             (recur (+ pc 3 offset) bytes stack env call-stack))
 
            OP_RETURN
-           (peek stack)
+           (let [result (peek stack)]
+             (if (empty? call-stack)
+               result
+               (let [frame (peek call-stack)
+                     rest-frames (pop call-stack)]
+                 (recur (:pc frame)
+                        (:bytes frame)
+                        (conj (:stack frame) result)
+                        (:env frame)
+                        rest-frames))))
 
            (throw (ex-info "Unknown Opcode" {:op op :pc pc}))))))))
 

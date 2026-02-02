@@ -49,6 +49,11 @@
    :continuation nil
    :value nil})
 
+(defn datoms->tx-data
+  "Convert [e a v t m] datoms to DataScript tx-data [:db/add e a v]"
+  [datoms]
+  (map (fn [[e a v _t _m]] [:db/add e a v]) datoms))
+
 (defn ast->datoms
   "Convert AST map into lazy-seq of datoms. A datom is [e a v t m].
 
@@ -420,11 +425,7 @@
      :yin/target     {:db/valueType :db.type/ref}
      :yin/val        {:db/valueType :db.type/ref}})
 
-  ;; Convert [e a v t m] datoms to DataScript tx-data [:db/add e a v]
-  (defn datoms->tx-data [datoms]
-    (map (fn [[e a v _t _m]] [:db/add e a v]) datoms))
-
-  ;; Example 1: Simple literal
+;; Example 1: Simple literal
   (let [ast {:type :literal :value 42}
         datoms (ast->datoms ast)
         tx-data (datoms->tx-data datoms)
