@@ -177,6 +177,59 @@ VM boundaries are security boundaries.
 Kernel-space and user-space semantics must remain consistent.
 No VM escape assumptions.
 
+# COMPILATION AS STREAM PROCESSING
+
+Compilation is a stream processor. Each stage consumes a datom stream and emits a new one.
+The compilation pipeline does not destroy or consume its input: all intermediate streams persist.
+
+Pipeline topology:
+
+  Source text
+    -> yang/compile: text -> Universal AST (maps with :type, :operator, :operands, etc.)
+    -> vm/ast->datoms: AST -> datom stream [e a v t m] with :yin/ attributes and negative tempids
+    -> Three independent projections from the same datom stream:
+       1. asm/compile: datoms -> semantic bytecode (:op/ triples, queryable via Datalog)
+       2. asm/ast-datoms->stack-assembly: datoms -> stack assembly ([:push v] [:load x] [:call n])
+       3. vm/ast-datoms->register-assembly: datoms -> register assembly ([:loadk rd v] [:call rd rf args])
+    -> Assembly -> bytecode: numeric encoding with constant pools
+    -> VM execution: bytecode stream -> value + effect descriptors
+
+Same datoms, multiple interpreters.
+The datom stream from ast->datoms is the shared substrate.
+Each backend (semantic, stack, register) projects the same facts into a different execution model.
+This is the physics metaphor in practice: same wave function, different measurements.
+
+Datom stream at the AST boundary (concrete example, (+ 1 2)):
+  [-1 :yin/type :application 0 0]
+  [-1 :yin/operator -2 0 0]
+  [-1 :yin/operands [-3 -4] 0 0]
+  [-2 :yin/type :variable 0 0]
+  [-2 :yin/name + 0 0]
+  [-3 :yin/type :literal 0 0]
+  [-3 :yin/value 1 0 0]
+  [-4 :yin/type :literal 0 0]
+  [-4 :yin/value 2 0 0]
+
+Semantic projection of the same expression:
+  [:node/1 :op/type :apply]
+  [:node/1 :op/operator-node :node/2]
+  [:node/1 :op/operand-nodes [:node/3 :node/4]]
+  [:node/2 :op/type :load-var]
+  [:node/2 :op/var-name +]
+  [:node/3 :op/type :literal]
+  [:node/3 :op/value 1]
+  [:node/4 :op/type :literal]
+  [:node/4 :op/value 2]
+
+Invariant: every stage is a pure function from stream to stream.
+No stage mutates its input. Intermediate representations coexist.
+The AST persists alongside bytecode, alongside execution state.
+
+Visual reference: src/cljs/datomworld/core.cljs renders this pipeline as draggable cards
+connected by bezier curves. Each card is a stream stage. The connection-line buttons
+(AST ->, Asm ->, Reg ->, Stack ->) are the transducers. The UI makes the stream
+topology explicit and observable.
+
 # ENTANGLEMENT
 
 One leader establishes event ordering.
