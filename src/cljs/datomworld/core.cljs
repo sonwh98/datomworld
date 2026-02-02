@@ -19,11 +19,11 @@
     (with-out-str (pprint/pprint data))))
 
 (def default-positions
-  {:source {:x 20 :y 80 :w 350}
-   :ast {:x 420 :y 80 :w 380}
-   :assembly {:x 850 :y 80 :w 400}
-   :register {:x 1300 :y 80 :w 350}
-   :stack {:x 1300 :y 500 :w 350}})
+  {:source {:x 20 :y 80 :w 350 :h 450}
+   :ast {:x 420 :y 80 :w 380 :h 450}
+   :assembly {:x 850 :y 80 :w 400 :h 450}
+   :register {:x 1300 :y 80 :w 350 :h 450}
+   :stack {:x 1300 :y 500 :w 350 :h 450}})
 
 (defonce app-state (r/atom {:source-lang :clojure
                             :source-code "(+ 4 5)"
@@ -40,9 +40,11 @@
                             :stack-result nil
                             :error nil
                             :ui-positions default-positions
-                            :drag-state nil}))
+                            :drag-state nil
+                            :resize-state nil}))
 
-(when (nil? (:ui-positions @app-state))
+(when (or (nil? (:ui-positions @app-state))
+          (not (:h (:source (:ui-positions @app-state)))))
   (swap! app-state assoc :ui-positions default-positions))
 
 (defn codemirror-editor [{:keys [value on-change read-only language]}]
@@ -54,7 +56,10 @@
       (fn [this]
         (when-let [node @el-ref]
           (let [lang-ext (if (= language :python) (python) (clojure))
-                extensions (cond-> #js [basicSetup lang-ext oneDark]
+                theme (.theme EditorView
+                              #js {"&" #js {:height "100%"}
+                                   ".cm-scroller" #js {:overflow "auto"}})
+                extensions (cond-> #js [basicSetup lang-ext oneDark theme]
                              read-only (.concat #js [(.of (.-editable EditorView) false)])
                              on-change (.concat #js [(.of (.-updateListener EditorView)
                                                           (fn [^js update]
@@ -79,7 +84,10 @@
       :reagent-render
       (fn [{:keys [style]}]
         [:div {:ref #(reset! el-ref %)
-               :style (merge {:height "300px" :width "100%" :border "1px solid #2d3b55" :overflow "auto"} style)}])})))
+               :style (merge {:height "100%"
+                              :width "100%"
+                              :border "1px solid #2d3b55"
+                              :overflow "hidden"} style)}])})))
 
 (defn evaluate-ast []
   (let [input (:ast-as-text @app-state)]
@@ -265,13 +273,18 @@
 (defn draggable-card [id title content]
   (let [positions (r/cursor app-state [:ui-positions])
         drag-state (r/cursor app-state [:drag-state])
+        resize-state (r/cursor app-state [:resize-state])
         pos (get @positions id)
-        z-index (if (= (:id @drag-state) id) 100 10)]
+        z-index (cond
+                  (= (:id @drag-state) id) 100
+                  (= (:id @resize-state) id) 100
+                  :else 10)]
     [:div
      {:style {:position "absolute"
               :left (:x pos)
               :top (:y pos)
               :width (:w pos)
+              :height (:h pos)
               :min-height "200px"
               :background "#0e1328"
               :border "1px solid #2d3b55"
@@ -279,7 +292,8 @@
               :z-index z-index
               :color "#c5c6c7"
               :display "flex"
-              :flex-direction "column"}}
+              :flex-direction "column"
+              :overflow "hidden"}}
      [:div
       {:style {:background "#151b33"
                :padding "5px 10px"
@@ -298,8 +312,24 @@
                                             :start-y (.-clientY e)
                                             :initial-pos pos}))}
       title]
-     [:div {:style {:padding "10px" :flex "1"}}
-      content]]))
+     [:div {:style {:padding "10px" :flex "1" :display "flex" :flex-direction "column" :overflow "hidden"}}
+      content]
+     ;; Resize handle
+     [:div
+      {:style {:position "absolute"
+               :bottom "0"
+               :right "0"
+               :width "15px"
+               :height "15px"
+               :cursor "nwse-resize"
+               :background "linear-gradient(135deg, transparent 50%, #2d3b55 50%)"}
+       :on-mouse-down (fn [e]
+                        (.preventDefault e)
+                        (.stopPropagation e)
+                        (reset! resize-state {:id id
+                                              :start-x (.-clientX e)
+                                              :start-y (.-clientY e)
+                                              :initial-pos pos}))}]]))
 
 (defn connection-line [from-id to-id label on-click]
   (let [positions (:ui-positions @app-state)
@@ -338,16 +368,27 @@
             label]]]]))))
 
 (defn handle-mouse-move [e]
-  (when-let [drag @(r/cursor app-state [:drag-state])]
-    (let [dx (- (.-clientX e) (:start-x drag))
-          dy (- (.-clientY e) (:start-y drag))
-          new-x (+ (:x (:initial-pos drag)) dx)
-          new-y (+ (:y (:initial-pos drag)) dy)]
-      (swap! app-state assoc-in [:ui-positions (:id drag) :x] new-x)
-      (swap! app-state assoc-in [:ui-positions (:id drag) :y] new-y))))
+  (let [drag (:drag-state @app-state)
+        resize (:resize-state @app-state)]
+    (cond
+      drag
+      (let [dx (- (.-clientX e) (:start-x drag))
+            dy (- (.-clientY e) (:start-y drag))
+            new-x (+ (:x (:initial-pos drag)) dx)
+            new-y (+ (:y (:initial-pos drag)) dy)]
+        (swap! app-state assoc-in [:ui-positions (:id drag) :x] new-x)
+        (swap! app-state assoc-in [:ui-positions (:id drag) :y] new-y))
+
+      resize
+      (let [dx (- (.-clientX e) (:start-x resize))
+            dy (- (.-clientY e) (:start-y resize))
+            new-w (max 200 (+ (:w (:initial-pos resize)) dx))
+            new-h (max 150 (+ (:h (:initial-pos resize)) dy))]
+        (swap! app-state assoc-in [:ui-positions (:id resize) :w] new-w)
+        (swap! app-state assoc-in [:ui-positions (:id resize) :h] new-h)))))
 
 (defn handle-mouse-up [e]
-  (swap! app-state assoc :drag-state nil))
+  (swap! app-state assoc :drag-state nil :resize-state nil))
 
 (defn hello-world []
   (r/create-class
@@ -374,7 +415,7 @@
         [:div {:style {:display "flex" :justify-content "space-between" :align-items "center" :width "100%"}}
          "Source Code"
          [hamburger-menu]]
-        [:div
+        [:div {:style {:display "flex" :flex-direction "column" :flex "1" :overflow "hidden"}}
          [:div {:style {:display "flex" :justify-content "space-between" :margin-bottom "5px"}}
           [:select {:value (:source-lang @app-state)
                     :on-change (fn [e] (swap! app-state assoc :source-lang (keyword (.. e -target -value))))
@@ -389,7 +430,7 @@
           "Select examples from the menu ☰ above."]]]
 
        [draggable-card :ast "Yin AST"
-        [:div
+        [:div {:style {:display "flex" :flex-direction "column" :flex "1" :overflow "hidden"}}
          [codemirror-editor {:value (:ast-as-text @app-state)
                              :on-change (fn [v] (swap! app-state assoc :ast-as-text v))}]
          [:button {:on-click evaluate-ast :style {:marginTop "5px" :background "#238636" :color "#fff" :border "none" :padding "5px 10px" :border-radius "4px" :cursor "pointer"}} "Run AST"]
@@ -397,7 +438,7 @@
            [:div {:style {:marginTop "5px" :background "#0d1117" :padding "5px" :border "1px solid #30363d"}} (pr-str (:result @app-state))])]]
 
        [draggable-card :assembly "Assembly (Datoms)"
-        [:div
+        [:div {:style {:display "flex" :flex-direction "column" :flex "1" :overflow "hidden"}}
          [codemirror-editor {:value (if-let [c (:compiled @app-state)] (pretty-print (mapv :datoms c)) "")
                              :read-only true}]
          [:button {:on-click run-assembly :style {:marginTop "5px" :background "#238636" :color "#fff" :border "none" :padding "5px 10px" :border-radius "4px" :cursor "pointer"}} "Run Assembly"]
@@ -405,7 +446,7 @@
            [:div {:style {:marginTop "5px" :background "#0d1117" :padding "5px" :border "1px solid #30363d"}} (pr-str (:assembly-result @app-state))])]]
 
        [draggable-card :register "Register VM"
-        [:div
+        [:div {:style {:display "flex" :flex-direction "column" :flex "1" :overflow "hidden"}}
          [codemirror-editor {:value (str (if (:register-asm @app-state) (pretty-print (:register-asm @app-state)) "")
                                          (if (:register-bc @app-state) (str "\n--- BC ---\n" (pretty-print (:register-bc @app-state))) ""))
                              :read-only true}]
@@ -414,7 +455,7 @@
            [:div {:style {:marginTop "5px" :background "#0d1117" :padding "5px" :border "1px solid #30363d"}} (pr-str (:register-result @app-state))])]]
 
        [draggable-card :stack "Stack VM"
-        [:div
+        [:div {:style {:display "flex" :flex-direction "column" :flex "1" :overflow "hidden"}}
          [codemirror-editor {:value (str (if (:stack-asm @app-state) (pretty-print (:stack-asm @app-state)) "")
                                          (if (:stack-bc @app-state) (str "\n--- BC ---\n" (pretty-print (:stack-bc @app-state))) ""))
                              :read-only true}]

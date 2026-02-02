@@ -290,4 +290,39 @@ If a problem appears complex:
   Make causality explicit.
   Let structure emerge from constraints.
 
+# DEBUGGING MALFORMED CLJ / EDN / CLJS
+
+Clojure and EDN files use three bracket types: ( ) [ ] { }.
+A single missing or extra bracket can silently shift the meaning of an entire file.
+The ClojureScript compiler may still succeed even when brackets are wrong,
+because the resulting forms are syntactically valid but semantically broken
+(e.g., a defn swallowing the next five defns as body forms).
+
+When brackets are suspected to be wrong:
+
+1. Run clj-kondo first:
+     clj-kondo --lint path/to/file.cljs
+   clj-kondo reports mismatched brackets with line numbers.
+   Zero errors means brackets are balanced. Warnings are separate.
+
+2. If clj-kondo reports a mismatch, write a bracket-tracing script.
+   Do NOT try to eyeball-count brackets in Clojure. The nesting is too deep.
+   Use a script that tracks a stack of (char, line, col) for every opener,
+   pops on every closer, and reports the first mismatch or any unclosed openers.
+   The script must handle: string literals (skip contents), escaped characters
+   inside strings, and ;; line comments (skip to newline).
+
+3. Fix one bracket at a time, re-running the checker after each fix.
+   A single bracket fix can reveal a second independent issue elsewhere.
+   Common patterns:
+   - A Reagent hiccup vector [component arg1 arg2] missing its closing ]
+     causes subsequent sibling vectors to become extra arguments.
+   - A defn or let missing its closing ) causes subsequent top-level
+     forms to nest inside it.
+   - Both can coexist: the total bracket count may still be zero-sum
+     while individual forms are wrong.
+
+4. After all brackets balance, run clj-kondo again to confirm zero errors,
+   then rebuild with shadow-cljs to confirm zero warnings.
+
 # End of rules
