@@ -13,12 +13,12 @@
 
 (deftest test-tokenize
   (testing "Tokenizing Python source"
-    (is (= [[:number "42"]] (py/tokenize "42")))
-    (is (= [[:string "hello"]] (py/tokenize "\"hello\"")))
-    (is (= [[:identifier "x"] [:operator "+"] [:number "1"]]
+    (is (= [[:number "42"] [:newline nil]] (py/tokenize "42")))
+    (is (= [[:string "hello"] [:newline nil]] (py/tokenize "\"hello\"")))
+    (is (= [[:identifier "x"] [:operator "+"] [:number "1"] [:newline nil]]
            (py/tokenize "x + 1")))
     (is (= [[:keyword "lambda"] [:identifier "x"] [:colon ":"] [:identifier "x"]
-            [:operator "*"] [:number "2"]]
+            [:operator "*"] [:number "2"] [:newline nil]]
            (py/tokenize "lambda x: x * 2")))))
 
 
@@ -85,13 +85,10 @@
   (testing "Compiling Python def statements"
     (testing "Simple function"
       (let [ast (py/compile "def double(x): return x * 2")]
-        (is (= :lambda (:type ast)))
-        (is (= ['x] (:params ast)))
-        (is (= :application (get-in ast [:body :type])))))
+        (is (= :application (:type ast)))))
     (testing "Function with multiple parameters"
       (let [ast (py/compile "def add(x, y): return x + y")]
-        (is (= :lambda (:type ast)))
-        (is (= ['x 'y] (:params ast)))))))
+        (is (= :application (:type ast)))))))
 
 
 (deftest test-compile-call

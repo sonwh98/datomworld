@@ -156,11 +156,13 @@
   [tokens]
   (if (match? (first tokens) :operator "-")
     (let [{:keys [ast remaining]} (parse-py-unary (rest tokens))]
-      {:ast {:py-type :binop,
-             :op '-,
-             :left {:py-type :literal, :value 0},
-             :right ast},
-       :remaining remaining})
+      (if (= (:py-type ast) :literal)
+        {:ast (update ast :value -), :remaining remaining}
+        {:ast {:py-type :binop,
+               :op '-,
+               :left {:py-type :literal, :value 0},
+               :right ast},
+         :remaining remaining}))
     (parse-py-call tokens)))
 
 
@@ -193,19 +195,65 @@
           {:ast left, :remaining toks})))))
 
 
-(defn parse-py-expr [tokens] (parse-py-binary-op tokens 0))
+(defn parse-py-if-expr
+  [test-expr tokens]
+  ;; This is slightly wrong: Python is 'consequent if test else alternate'
+  ;; The caller passed the consequent as 'test-expr'
+  (let [tokens (rest tokens) ; skip 'if'
+        {:keys [ast remaining]} (parse-py-expr tokens) ; parse test
+        remaining (expect remaining :keyword "else")
+        {alt :ast, remaining :remaining} (parse-py-expr remaining)]
+    {:ast {:py-type :if, :test ast, :consequent test-expr, :alternate alt},
+     :remaining remaining}))
+
+
+(defn parse-py-lambda
+  [tokens]
+  (let [tokens (rest tokens) ; skip 'lambda'
+        parse-params (fn [toks]
+                       (loop [params []
+                              t toks]
+                         (if (match? (first t) :colon)
+                           {:params params, :remaining (rest t)}
+                           (let [[pt pv] (first t)]
+                             (if (= :identifier pt)
+                               (if (match? (first (rest t)) :comma)
+                                 (recur (conj params (symbol pv)) (drop 2 t))
+                                 (if (match? (first (rest t)) :colon)
+                                   {:params (conj params (symbol pv)),
+                                    :remaining (rest (rest t))}
+                                   (throw (ex-info "Expected , or :"
+                                                   {:token (first (rest t))}))))
+                               (throw (ex-info "Expected param"
+                                               {:token (first t)})))))))
+        {:keys [params remaining]} (parse-params tokens)
+        {:keys [ast remaining]} (parse-py-expr remaining)]
+    {:ast {:py-type :lambda, :params params, :body ast}, :remaining remaining}))
+
+
+(defn parse-py-expr
+  [tokens]
+  (if (match? (first tokens) :keyword "lambda")
+    (parse-py-lambda tokens)
+    (let [{:keys [ast remaining]} (parse-py-binary-op tokens 0)]
+      (if (match? (first remaining) :keyword "if")
+        (parse-py-if-expr ast remaining)
+        {:ast ast, :remaining remaining}))))
 
 
 (defn parse-py-suite
   [tokens]
-  (let [tokens (expect tokens :newline)
-        tokens (expect tokens :indent)]
-    (loop [stmts []
-           toks tokens]
-      (if (match? (first toks) :dedent)
-        {:ast {:py-type :suite, :stmts stmts}, :remaining (rest toks)}
-        (let [{:keys [ast remaining]} (parse-py-statement toks)]
-          (recur (conj stmts ast) remaining))))))
+  (if (match? (first tokens) :newline)
+    (let [tokens (expect tokens :newline)
+          tokens (expect tokens :indent)]
+      (loop [stmts []
+             toks tokens]
+        (if (match? (first toks) :dedent)
+          {:ast {:py-type :suite, :stmts stmts}, :remaining (rest toks)}
+          (let [{:keys [ast remaining]} (parse-py-statement toks)]
+            (recur (conj stmts ast) remaining)))))
+    (let [{:keys [ast remaining]} (parse-py-statement tokens)]
+      {:ast {:py-type :suite, :stmts [ast]}, :remaining remaining})))
 
 
 (defn parse-py-statement
@@ -252,7 +300,7 @@
                  :params params,
                  :body ast},
            :remaining remaining})
-      ;; if
+      ;; if (statement)
       (and (= :keyword type) (= "if" val))
         (let [{:keys [ast remaining]} (parse-py-expr (rest tokens))
               remaining (expect remaining :colon)
@@ -261,9 +309,13 @@
                    (match? (first (rest remaining)) :colon))
             (let [{alt :ast, remaining :remaining} (parse-py-suite
                                                      (drop 2 remaining))]
-              {:ast {:py-type :if, :test ast, :consequent cons, :alternate alt},
+              {:ast {:py-type :if-stmt,
+                     :test ast,
+                     :consequent cons,
+                     :alternate alt},
                :remaining remaining})
-            {:ast {:py-type :if, :test ast, :consequent cons, :alternate nil},
+            {:ast
+               {:py-type :if-stmt, :test ast, :consequent cons, :alternate nil},
              :remaining remaining}))
       ;; expression stmt
       :else (let [{:keys [ast remaining]} (parse-py-expr tokens)]
@@ -289,25 +341,11 @@
 
 (defn compile-suite
   [node]
-  ;; A suite in function body usually returns the last expression?
-  ;; In Python, explicitly return is needed. If we are compiling for Yin
-  ;; (expr-based), we need to handle sequences. For now, assume simplified
-  ;; Python where last statement is value if not return. Or wrap in (do
-  ;; ...). Yin doesn't have do? Yin doesn't have 'do' in the core map I
-  ;; saw. It has 'let'. We can use nested lets or just return the last
-  ;; expression if it's a sequence. Actually, the fib example uses explicit
-  ;; return. We will compile a sequence of statements by ignoring
-  ;; non-return values? No, if/else needs to return. Let's try to turn the
-  ;; suite into a single expression.
   (let [stmts (:stmts node)]
     (if (= 1 (count stmts))
       (compile-stmt (first stmts))
-      ;; If multiple statements, this is tricky in pure functional AST.
-      ;; We can use a dummy let? (let [_ stmt1] stmt2)
       (let [s1 (compile-stmt (first stmts))
             s2 (compile-suite {:stmts (rest stmts)})]
-        ;; Only if Yin supports 'do' or we simulate it.
-        ;; Using a hack: ((fn [_] s2) s1)
         {:type :application,
          :operator {:type :lambda, :params ['_], :body s2},
          :operands [s1]}))))
@@ -343,14 +381,19 @@
     :call {:type :application,
            :operator (compile-stmt (:function node)),
            :operands (mapv compile-stmt (:args node))}
-    :return (compile-stmt (:value node)) ; Strip return wrapper, body is
-    ;; expr
+    :lambda
+      {:type :lambda, :params (:params node), :body (compile-stmt (:body node))}
+    :return (compile-stmt (:value node))
     :if {:type :if,
          :test (compile-stmt (:test node)),
-         :consequent (compile-suite (:consequent node)),
-         :alternate (if (:alternate node)
-                      (compile-suite (:alternate node))
-                      {:type :literal, :value nil})}
+         :consequent (compile-stmt (:consequent node)),
+         :alternate (compile-stmt (:alternate node))}
+    :if-stmt {:type :if,
+              :test (compile-stmt (:test node)),
+              :consequent (compile-suite (:consequent node)),
+              :alternate (if (:alternate node)
+                           (compile-suite (:alternate node))
+                           {:type :literal, :value nil})}
     (throw (ex-info "Unknown node" {:node node}))))
 
 
@@ -398,19 +441,28 @@
       {:type :literal, :value nil}
       (let [head (first stmts)]
         (if (= :def (:py-type head))
-          ;; It's a definition: let name = (Z ...) in rest
-          {:type :application,
-           :operator {:type :lambda,
-                      :params [(:name head)],
-                      :body (compile-program {:stmts (rest stmts)})},
-           :operands [{:type :application,
-                       :operator Z-combinator,
-                       :operands [{:type :lambda,
-                                   :params [(:name head)],
-                                   :body {:type :lambda,
-                                          :params (:params head),
-                                          :body (compile-suite (:body
-                                                                 head))}}]}]}
+          (if (empty? (rest stmts))
+            ;; Last statement is a def, return the bound value (the lambda)
+            {:type :application,
+             :operator Z-combinator,
+             :operands [{:type :lambda,
+                         :params [(:name head)],
+                         :body {:type :lambda,
+                                :params (:params head),
+                                :body (compile-suite (:body head))}}]}
+            ;; It's a definition: let name = (Z ...) in rest
+            {:type :application,
+             :operator {:type :lambda,
+                        :params [(:name head)],
+                        :body (compile-program {:stmts (rest stmts)})},
+             :operands [{:type :application,
+                         :operator Z-combinator,
+                         :operands [{:type :lambda,
+                                     :params [(:name head)],
+                                     :body {:type :lambda,
+                                            :params (:params head),
+                                            :body (compile-suite (:body
+                                                                   head))}}]}]})
           ;; Not a definition
           (if (= 1 (count stmts))
             (compile-stmt head)
