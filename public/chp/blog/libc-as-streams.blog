@@ -1,0 +1,107 @@
+#:blog{:title "Reimagining LibC: The Standard Library as a Stream"
+       :date #inst "2026-02-04T00:00:00.000-00:00"
+       :abstract [:p
+                  "What if the C Standard Library (LibC) wasn't a collection of system calls, but a schema for data streams? "
+                  "By reimplementing LibC as a wrapper over Datom.world streams, we unlock a universe where legacy C programs "
+                  "become automatically distributed, persistent, and reactive—running seamlessly in kernel space, user space, "
+                  "or across a global grid."]
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+
+          [:p.subtitle
+           [:em
+            "From System Calls to Stream Emissions: Transforming the Foundation of Computing."]]
+
+          [:p
+           "The C Standard Library (LibC) is the bedrock of modern computing. For decades, it has defined how programs interact "
+           "with the operating system: "
+           [:code "open"] ", " [:code "read"] ", " [:code "write"] ", " [:code "malloc"] ". "
+           "But this foundation is often rigid, tying programs to specific kernel interfaces, memory models, and local execution contexts."]
+
+          [:p
+           "At Datom.world, we ask: "
+           [:strong "What if LibC was just a wrapper around streams?"]]
+
+          [:h2 "The Theoretical Foundation: Plan 9 and Pi-Calculus"]
+
+          [:p
+           "This isn't a new idea; it's the logical conclusion of history. "
+           "The " [:strong "Plan 9"] " operating system proved that resources—files, windows, network connections, processes—could "
+           "all be treated uniformly as files provided by a 9P file server. "
+           "Theoretical computer science, specifically the " [:strong "Pi-Calculus"] ", demonstrated that any computation can be modeled "
+           "as concurrent processes communicating over channels."]
+
+          [:p
+           "Datom.world unifies these concepts. In our architecture, the 'channel' is a " [:strong "Datom Stream"] ", and the 'process' "
+           "is the " [:a {:href "/yin.chp"} "Yin.VM"] ". If Pi-Calculus is Turing complete, then a system built entirely on streams "
+           "can represent any computation, including the entirety of LibC."]
+
+          [:h2 "LibC as a Stream Schema"]
+
+          [:p
+           "Imagine re-implementing LibC not as a set of assembly interruptions (syscalls), but as a projection over datom streams. "
+           "In this world, a file descriptor is not an integer index in a kernel table; it is a " [:strong "Stream Reference"] "."]
+
+          [:h3 "The Mapping"]
+
+          [:ul.bulleted
+           [:li
+            [:strong "open(path, mode)"] " → Emits a datom " [:code "{:a :sys/open :v {:path path}}"] " to the host stream. "
+            "The host replies with a new stream reference representing that file."]
+           [:li
+            [:strong "write(fd, buffer)"] " → Emits a datom " [:code "{:a :sys/write :v buffer}"] " to the stream referenced by " [:code "fd"] "."]
+           [:li
+            [:strong "read(fd, buffer)"] " → Subscribes (takes) from the stream referenced by " [:code "fd"] "."]
+           [:li
+            [:strong "pipe()"] " → Creates a new pair of entangled streams."]]
+
+          [:p
+           "The C program doesn't know the difference. It calls " [:code "write()"] ", passing a buffer. "
+           "Under the hood, our 'LibC' wrapper wraps that buffer in a datom and pushes it onto a ring buffer."]
+
+          [:h2 "The Possibilities: Write Once, Run Everywhere"]
+
+          [:p
+           "By decoupling the standard library from the kernel syscall interface, we achieve true location independence. "
+           "A program linked against our Stream-LibC acquires superpowers essentially for free."]
+
+          [:h3 "1. Kernel-Space execution without Context Switches"]
+          [:p
+           "Since Datom.world is stream-first, it can run directly in " [:strong "Ring 0"] " (kernel space). "
+           "If your C program (e.g., a database engine or a web server) uses Stream-LibC, it can run entirely within the kernel. "
+           "There is no expensive user-to-kernel context switch for I/O, because I/O is just writing to a memory buffer (the stream)."]
+
+          [:h3 "2. Transparent Distribution"]
+          [:p
+           "Because a stream is just data, it can be routed over a network. "
+           "A C program writing to a file doesn't need to know if that file is on a local NVMe drive or on a server in Tokyo. "
+           "The Datom.world router simply forwards the " [:code ":sys/write"] " datoms to the appropriate node. "
+           "Distributed computing becomes as simple as local file I/O."]
+
+          [:h3 "3. Time Travel and Replayability"]
+          [:p
+           "Since every 'syscall' is now a datom in a stream, we have a perfect log of execution. "
+           "We can replay the stream to debug a crash, audit security access, or even migrate a running process to another machine "
+           "by serializing its stream state."]
+
+          [:h2 "The Universal Interface"]
+
+          [:p
+           "This approach breaks down the walls between languages and runtimes. "
+           "Any program that can link against C—which is effectively *every* program—can automatically become a citizen of Datom.world. "
+           "Python, Ruby, Node.js, Rust... if they use LibC, they can use streams."]
+
+          [:p
+           "We are not just building a VM; we are building a " [:strong "Universal Adapter"] " for computation. "
+           "By adhering to the physics of streams, we allow the vast legacy of existing software to inherit the future of "
+           "decentralized, immutable, and reactive systems."]
+
+          [:p [:strong "Related Reading:"]]
+          [:ul.bulleted
+           [:li [:a {:href "/blog/beyond-ffi-yin-vm-datom-streaming.blog"} "Beyond FFI with Datom Streams"]]
+           [:li [:a {:href "/blog/plan9-9p-daostream.blog"} "Plan 9, 9P, and DaoStream"]]
+           [:li [:a {:href "/yin.chp"} "Yin VM Architecture"]]]]]]}
