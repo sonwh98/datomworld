@@ -9,17 +9,15 @@
 
  :dev-http {9000 "public"}
 
- :builds
- {:datomworld
-  {:target :browser
-   :devtools {:use-document-protocol true}
-   :modules {:main {:init-fn datomworld.core/init}}}
+ :builds {:datomworld {:target :browser
+                       :devtools {:use-document-protocol true}
+                       :modules {:main {:init-fn datomworld.core/init}}}
 
-  :local {:target :browser
-          :devtools {:use-document-protocol true}
-          :closure-defines {datomworld.core/WEBSOCKET_PORT 8090}
-          :modules {:main {:init-fn datomworld.core/init}}}
+          :local {:target :browser
+                  :devtools {:use-document-protocol true}
+                  :closure-defines {datomworld.core/WEBSOCKET_PORT 8090}
+                  :modules {:main {:init-fn datomworld.core/init}}}
 
-  :test {:target :node-script
-         :main test-runner/-main
-         :output-to "target/node-tests.js"}}}
+          :test {:target :node-script
+                 :main test-runner/-main
+                 :output-to "target/node-tests.js"}}}
