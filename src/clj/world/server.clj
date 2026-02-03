@@ -1,6 +1,5 @@
 (ns world.server
-  (:require [:reload]
-            [bidi.ring :as bidi]
+  (:require [bidi.ring :as bidi]
             [clojure.java.io :as io]
             [clojure.pprint :as pp :refer :all]
             [clojure.string :as str]
