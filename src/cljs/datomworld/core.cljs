@@ -8,12 +8,40 @@
             [cljs.reader :as reader]
             [clojure.string :as str]
             [datascript.core :as d]
+            [datascript.db :as db]
+            [datascript.query :as dq]
             [reagent.core :as r]
             [reagent.dom :as rdom]
             [yang.clojure :as yang]
             [yang.python :as py]
             [yin.asm :as asm]
             [yin.vm :as vm]))
+
+
+;; Fix DataScript query under Closure advanced compilation.
+;; ClojureScript uses .v for protocol bitmaps on all types. Under :advanced,
+;; the Closure Compiler renames Datom's value field from .v to avoid collision,
+;; but DataScript's query engine accesses it via raw JS bracket notation
+;; datom["v"], which returns the protocol bitmap (an integer) instead of the
+;; actual value. Fix: convert Datom tuples to JS arrays using nth (which goes
+;; through IIndexed and resolves the renamed field correctly).
+(let [original-lookup dq/lookup-pattern-db
+      prop->idx {"e" 0, "a" 1, "v" 2, "tx" 3}]
+  (set! dq/lookup-pattern-db
+        (fn [context db pattern]
+          (let [rel (original-lookup context db pattern)
+                tuples (:tuples rel)]
+            (if (and (seq tuples) (instance? db/Datom (first tuples)))
+              (let [new-attrs (reduce-kv (fn [m k v]
+                                           (assoc m k (get prop->idx v v)))
+                                         {}
+                                         (:attrs rel))
+                    new-tuples (mapv (fn [d]
+                                       (to-array [(nth d 0) (nth d 1) (nth d 2)
+                                                  (nth d 3) (nth d 4)]))
+                                 tuples)]
+                (dq/->Relation new-attrs new-tuples))
+              rel)))))
 
 
 (defn pretty-print

@@ -27,7 +27,7 @@
                                com.cognitect/transit-cljs {:mvn/version "0.8.280"}}}
            :dev {:extra-paths ["src/dev"]
                  :extra-deps {thheller/shadow-cljs {:mvn/version "3.3.5"}
-                              cider/cider-nrepl {:mvn/version "0.55.7"}
+                              cider/cider-nrepl {:mvn/version "0.58.0"}
                               reagent/reagent {:mvn/version "2.0.1"}
                               com.cognitect/transit-cljs {:mvn/version "0.8.280"}}
                  :jvm-opts ["-Dconfig=config.clj"]}
@@ -57,9 +57,12 @@
 ;; clj -X:clean
 
 ;; npx shadow-cljs compile test && node target/node-tests.js
+;; npx shadow-cljs release datomworld
 ;; clj -M:dev -m shadow.cljs.devtools.cli watch datomworld
 ;; clj -M:cljs -m shadow.cljs.devtools.cli watch datomworld
 ;; clj -M:cljs -m shadow.cljs.devtools.cli compile datomworld
+;; clj -M:cljs -m shadow.cljs.devtools.cli release datomworld
+
 
 ;; mise exec -- clj -M:cljd watch 
 ;; mise exec -- flutter run 
