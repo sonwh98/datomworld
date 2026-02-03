@@ -1,7 +1,7 @@
-(ns yin.assembly-bench-cljd
-  (:require [yin.assembly :as asm]
+(ns yin.asm-bench-cljd
+  (:require [yin.asm :as asm]
             [yin.vm :as vm]
-            ["dart:core" :as dart]))
+            [clojure.string :as str]))
 
 (defn now-us
   []

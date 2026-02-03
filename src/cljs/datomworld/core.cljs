@@ -12,7 +12,7 @@
             [reagent.dom :as rdom]
             [yang.clojure :as yang]
             [yang.python :as py]
-            [yin.assembly :as asm]
+            [yin.asm :as asm]
             [yin.vm :as vm]))
 
 

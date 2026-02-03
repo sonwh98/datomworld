@@ -1,7 +1,7 @@
-(ns yin.assembly-bench
+(ns yin.asm-bench
   (:require #?(:clj [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
-            [yin.assembly :as asm]
+            [yin.asm :as asm]
             [yin.vm :as vm]))
 
 
