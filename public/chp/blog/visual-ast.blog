@@ -1,0 +1,26 @@
+#:blog{:title "Visual AST: Implications of Direct Structure Manipulation"
+       :date #inst "2026-02-04T12:00:00.000-00:00"
+       :abstract [:p "Exploring the architectural implications of block-based editing within the Yin VM. When code is fundamentally data, visual assembly becomes a direct viewport into the AST, bypassing text representation entirely."]
+       :content [:section.blog-article
+                 [:div.section-inner
+                  [:article
+                   :$blog-title
+                   :$blog-date
+                   [:p "In the Datomworld architecture, we adhere to a strict invariant: code is data. The Yin VM doesn't execute text; it executes a Universal AST stored as immutable datoms. This distinction opens a door that traditional text-based languages often keep closed: the ability to decouple representation from structure."]
+
+                   [:h3 "The Yin Advantage: Beyond Syntax"]
+                   [:p "Most visual programming languages (like Blockly or Scratch) operate as translators. They translate visual blocks into text code (JavaScript, Python), which is then parsed back into an AST. This round-trip introduces friction and ambiguity."]
+                   [:p "In Datomworld, this intermediate text step is unnecessary. A visual block editor becomes a direct manipulator of the Yin AST (EDN). It does not need to generate text; it generates the tree structure directly."]
+                   [:p "This leads to true \"Syntax-Free\" programming. Lisp's parentheses are often cited as a barrier, but they are merely a text serialization of a tree. A visual editor renders that tree directly. An \"Application\" block containing a \"Plus\" operator and two \"Number\" operands is not a translation of " [:code "(+ 1 2)"] "; it " [:em "is"] " the structure that " [:code "(+ 1 2)"] " represents."]
+
+                   [:h3 "The Tangibility of Logic"]
+                   [:p "When code is visualized as blocks, the \"Code is Data\" philosophy becomes tangible. Each block corresponds to a specific Entity in the database. Hovering over a function call block can reveal its underlying 5-tuple datoms—its Entity ID, its " [:code ":yin/type"] ", and its relationships to child nodes."]
+                   [:p "This demystifies execution. A function call isn't an ephemeral action; it's a persistent structure. The Visual AST becomes a viewport into the database state, proving that logic is just another form of content."]
+
+                   [:h3 "Structural Constraints as Features"]
+                   [:p "Text editors allow invalid states: unclosed strings, mismatched parentheses, and syntax errors. A Visual AST enforces structural correctness by design. You cannot place a statement where an expression is required if the \"slot\" doesn't accept it. This is structural editing (conceptually similar to Parinfer) elevated to the UI layer."]
+                   [:p "By treating the AST as the source of truth, the editor becomes a projection of that truth. If the AST says a node is an Application, the UI renders it with slots for an Operator and Operands. The UI cannot render an invalid state because it is driven by the data, not by a text buffer."]
+
+                   [:h3 "Educational Implications"]
+                   [:p "For learners, the mental model of a \"stack\" or an \"expression tree\" is often abstract. By representing these concepts visually, we allow users to manipulate the tree before they learn the syntax to describe it. They build the mental model of the Yin VM—nesting, evaluation order, operator precedence—through direct manipulation."]
+                   [:p "This approach lowers the barrier to entry for Lisp-based systems. It demonstrates that the power of Lisp comes not from its syntax, but from its structure—a structure that is inherently visualizable."]]]]}
