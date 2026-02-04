@@ -7,6 +7,7 @@
             [cljs.pprint :as pprint]
             [cljs.reader :as reader]
             [clojure.string :as str]
+            [datomworld.visual-ast :as visual-ast]
             [reagent.core :as r]
             [reagent.dom :as rdom]
             [yang.clojure :as yang]
@@ -22,7 +23,8 @@
 
 
 (def default-positions
-  {:source {:x 20, :y 180, :w 350, :h 450},
+  {:visual-ast {:x 20, :y 180, :w 350, :h 450},
+   :source {:x 20, :y 650, :w 350, :h 450},
    :ast {:x 420, :y 180, :w 380, :h 450},
    :assembly {:x 850, :y 180, :w 400, :h 450},
    :register {:x 1300, :y 180, :w 350, :h 450},
@@ -49,6 +51,7 @@
      :stack-bc nil,
      :stack-result nil,
      :query-text "[:find ?e ?type\n :where [?e :yin/type ?type]]",
+     :query-inputs "",
      :query-result nil,
      :error nil,
      :ui-positions default-positions,
@@ -230,6 +233,20 @@
                :assembly-result nil))))))
 
 
+(defn- parse-in-bindings
+  "Extract extra binding symbols from a query's :in clause (everything after $)."
+  [query]
+  (let [pairs (partition 2 1 query)
+        in-idx (some (fn [[a b]] (when (= a :in) b)) pairs)]
+    (when in-idx
+      (let [in-start (.indexOf query :in)
+            ;; Collect symbols after :in until next keyword or end
+            after-in (drop (inc in-start) query)
+            bindings (take-while #(not (keyword? %)) after-in)]
+        ;; Drop the implicit $ binding
+        (filter #(not= % '$) bindings)))))
+
+
 (defn run-query
   []
   (let [db (:ds-db @app-state)]
@@ -238,7 +255,13 @@
         :error "No DataScript db. Click \"Asm ->\" first."
         :query-result nil)
       (try (let [query (reader/read-string (:query-text @app-state))
-                 result (vm/q query db)]
+                 extra-bindings (parse-in-bindings query)
+                 extra-vals (when (seq extra-bindings)
+                              (let [input-text (or (:query-inputs @app-state)
+                                                   "")]
+                                (reader/read-string (str "[" input-text "]"))))
+                 args (into [query db] extra-vals)
+                 result (apply vm/q args)]
              (swap! app-state assoc :query-result result :error nil))
            (catch js/Error e
              (swap! app-state assoc
@@ -397,7 +420,24 @@
     :query "[:find ?a ?v\n :in $ ?e\n :where [?e ?a ?v]]"}
    {:name "Lambda body structure",
     :query
-      "[:find ?lam ?body ?body-type\n :where\n [?lam :yin/type :lambda]\n [?lam :yin/body ?body]\n [?body :yin/type ?body-type]]"}])
+      "[:find ?lam ?body ?body-type\n :where\n [?lam :yin/type :lambda]\n [?lam :yin/body ?body]\n [?body :yin/type ?body-type]]"}
+   {:name "AST depth (app nesting)",
+    :query
+      "[:find ?app ?op-type\n :where\n [?app :yin/type :application]\n [?app :yin/operator ?op]\n [?op :yin/type ?op-type]]"}
+   {:name "Leaf nodes (no children)",
+    :query
+      "[:find ?e ?type\n :where\n [?e :yin/type ?type]\n (not [?e :yin/body _])\n (not [?e :yin/operator _])\n (not [?e :yin/test _])]"}
+   {:name "Nested applications",
+    :query
+      "[:find ?outer ?inner\n :where\n [?outer :yin/type :application]\n [?outer :yin/operands ?inner]\n [?inner :yin/type :application]]"}
+   {:name "If-branch types",
+    :query
+      "[:find ?if ?cons-type ?alt-type\n :where\n [?if :yin/type :if]\n [?if :yin/consequent ?cons]\n [?cons :yin/type ?cons-type]\n [?if :yin/alternate ?alt]\n [?alt :yin/type ?alt-type]]"}
+   {:name "Lambda call sites",
+    :query
+      "[:find ?app ?lam\n :where\n [?app :yin/type :application]\n [?app :yin/operator ?lam]\n [?lam :yin/type :lambda]]"}
+   {:name "Entity count by type",
+    :query "[:find ?type (count ?e)\n :where [?e :yin/type ?type]]"}])
 
 
 (defn query-menu
@@ -574,11 +614,15 @@
                     :height "100%",
                     :pointer-events "none",
                     :z-index 0}}
+           [connection-line :visual-ast :ast "Build ->"
+            #(visual-ast/sync! app-state)]
            [connection-line :source :ast "AST ->" compile-source]
            [connection-line :ast :assembly "Asm ->" compile-ast]
            [connection-line :assembly :register "Reg ->" compile-register]
            [connection-line :assembly :stack "Stack ->" compile-stack]
            [connection-line :assembly :query "d/q ->" run-query]]
+          [draggable-card :visual-ast "Visual AST"
+           [visual-ast/editor app-state]]
           [draggable-card :source
            [:div
             {:style {:display "flex",
@@ -742,6 +786,27 @@
              {:value (:query-text @app-state),
               :on-change (fn [v] (swap! app-state assoc :query-text v)),
               :style {:flex "1", :min-height "80px"}}]
+            [:div
+             {:style {:display "flex",
+                      :align-items "center",
+                      :gap "5px",
+                      :margin-top "5px"}}
+             [:span {:style {:font-size "11px", :color "#8b949e"}} ":in"]
+             [:input
+              {:value (:query-inputs @app-state),
+               :placeholder "extra inputs (e.g. 1)",
+               :on-change
+                 (fn [e]
+                   (swap! app-state assoc :query-inputs (.. e -target -value))),
+               :style {:flex "1",
+                       :background "#0a0f1e",
+                       :border "1px solid #2d3b55",
+                       :border-radius "4px",
+                       :color "#c5c6c7",
+                       :font-size "12px",
+                       :font-family "monospace",
+                       :padding "3px 6px",
+                       :outline "none"}}]]
             [:button
              {:on-click run-query,
               :style {:marginTop "5px",
