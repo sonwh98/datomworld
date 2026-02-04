@@ -7,41 +7,12 @@
             [cljs.pprint :as pprint]
             [cljs.reader :as reader]
             [clojure.string :as str]
-            [datascript.core :as d]
-            [datascript.db :as db]
-            [datascript.query :as dq]
             [reagent.core :as r]
             [reagent.dom :as rdom]
             [yang.clojure :as yang]
             [yang.python :as py]
             [yin.asm :as asm]
             [yin.vm :as vm]))
-
-
-;; Fix DataScript query under Closure advanced compilation.
-;; ClojureScript uses .v for protocol bitmaps on all types. Under :advanced,
-;; the Closure Compiler renames Datom's value field from .v to avoid collision,
-;; but DataScript's query engine accesses it via raw JS bracket notation
-;; datom["v"], which returns the protocol bitmap (an integer) instead of the
-;; actual value. Fix: convert Datom tuples to JS arrays using nth (which goes
-;; through IIndexed and resolves the renamed field correctly).
-(let [original-lookup dq/lookup-pattern-db
-      prop->idx {"e" 0, "a" 1, "v" 2, "tx" 3}]
-  (set! dq/lookup-pattern-db
-        (fn [context db pattern]
-          (let [rel (original-lookup context db pattern)
-                tuples (:tuples rel)]
-            (if (and (seq tuples) (instance? db/Datom (first tuples)))
-              (let [new-attrs (reduce-kv (fn [m k v]
-                                           (assoc m k (get prop->idx v v)))
-                                         {}
-                                         (:attrs rel))
-                    new-tuples (mapv (fn [d]
-                                       (to-array [(nth d 0) (nth d 1) (nth d 2)
-                                                  (nth d 3) (nth d 4)]))
-                                 tuples)]
-                (dq/->Relation new-attrs new-tuples))
-              rel)))))
 
 
 (defn pretty-print
@@ -57,9 +28,6 @@
    :register {:x 1300, :y 180, :w 350, :h 450},
    :stack {:x 1300, :y 650, :w 350, :h 450},
    :query {:x 850, :y 650, :w 400, :h 450}})
-
-
-(defonce ds-conn (d/create-conn vm/schema))
 
 
 (defonce app-state
@@ -208,41 +176,38 @@
 (defn compile-ast
   []
   (let [input (:ast-as-text @app-state)]
-    (try
-      (let [forms (reader/read-string (str "[" input "]"))
-            all-datom-groups (mapv vm/ast->datoms forms)
-            all-datoms (vec (mapcat identity all-datom-groups))
-            root-ids (mapv ffirst all-datom-groups)
-            ;; Transact into DataScript
-            tx-data (vm/datoms->tx-data all-datoms)
-            conn (d/create-conn vm/schema)
-            {:keys [tempids]} (d/transact! conn tx-data)
-            db @conn
-            root-eids (mapv #(get tempids %) root-ids)
-            ;; root-ids are tempids for raw datom traversal (run-semantic)
-            ;; root-eids are resolved DataScript entity IDs (for d/q)
-            stats {:total-datoms (count all-datoms),
-                   :lambdas (count (asm/find-lambdas all-datoms)),
-                   :applications (count (asm/find-applications all-datoms)),
-                   :variables (count (asm/find-variables all-datoms)),
-                   :literals (count (asm/find-by-type all-datoms :literal))}]
-        (swap! app-state assoc
-          :datoms all-datoms
-          :ds-db db
-          :root-ids root-ids
-          :root-eids root-eids
-          :assembly-stats stats
-          :error nil)
-        all-datoms)
-      (catch js/Error e
-        (swap! app-state assoc
-          :error (.-message e)
-          :datoms nil
-          :ds-db nil
-          :root-ids nil
-          :root-eids nil
-          :assembly-stats nil)
-        nil))))
+    (try (let [forms (reader/read-string (str "[" input "]"))
+               all-datom-groups (mapv vm/ast->datoms forms)
+               all-datoms (vec (mapcat identity all-datom-groups))
+               root-ids (mapv ffirst all-datom-groups)
+               ;; Transact into DataScript
+               {:keys [db tempids]} (vm/transact! all-datoms)
+               root-eids (mapv #(get tempids %) root-ids)
+               ;; root-ids are tempids for raw datom traversal
+               ;; (run-semantic)
+               ;; root-eids are resolved DataScript entity IDs (for d/q)
+               stats {:total-datoms (count all-datoms),
+                      :lambdas (count (asm/find-lambdas all-datoms)),
+                      :applications (count (asm/find-applications all-datoms)),
+                      :variables (count (asm/find-variables all-datoms)),
+                      :literals (count (asm/find-by-type all-datoms :literal))}]
+           (swap! app-state assoc
+             :datoms all-datoms
+             :ds-db db
+             :root-ids root-ids
+             :root-eids root-eids
+             :assembly-stats stats
+             :error nil)
+           all-datoms)
+         (catch js/Error e
+           (swap! app-state assoc
+             :error (.-message e)
+             :datoms nil
+             :ds-db nil
+             :root-ids nil
+             :root-eids nil
+             :assembly-stats nil)
+           nil))))
 
 
 (defn run-assembly
@@ -272,7 +237,7 @@
         :error "No DataScript db. Click \"Asm ->\" first."
         :query-result nil)
       (try (let [query (reader/read-string (:query-text @app-state))
-                 result (d/q query db)]
+                 result (vm/q query db)]
              (swap! app-state assoc :query-result result :error nil))
            (catch js/Error e
              (swap! app-state assoc
