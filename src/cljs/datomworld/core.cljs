@@ -176,38 +176,39 @@
 (defn compile-ast
   []
   (let [input (:ast-as-text @app-state)]
-    (try (let [forms (reader/read-string (str "[" input "]"))
-               all-datom-groups (mapv vm/ast->datoms forms)
-               all-datoms (vec (mapcat identity all-datom-groups))
-               root-ids (mapv ffirst all-datom-groups)
-               ;; Transact into DataScript
-               {:keys [db tempids]} (vm/transact! all-datoms)
-               root-eids (mapv #(get tempids %) root-ids)
-               ;; root-ids are tempids for raw datom traversal
-               ;; (run-semantic)
-               ;; root-eids are resolved DataScript entity IDs (for d/q)
-               stats {:total-datoms (count all-datoms),
-                      :lambdas (count (asm/find-lambdas all-datoms)),
-                      :applications (count (asm/find-applications all-datoms)),
-                      :variables (count (asm/find-variables all-datoms)),
-                      :literals (count (asm/find-by-type all-datoms :literal))}]
-           (swap! app-state assoc
-             :datoms all-datoms
-             :ds-db db
-             :root-ids root-ids
-             :root-eids root-eids
-             :assembly-stats stats
-             :error nil)
-           all-datoms)
-         (catch js/Error e
-           (swap! app-state assoc
-             :error (.-message e)
-             :datoms nil
-             :ds-db nil
-             :root-ids nil
-             :root-eids nil
-             :assembly-stats nil)
-           nil))))
+    (try
+      (let [forms (reader/read-string (str "[" input "]"))
+            all-datom-groups (mapv vm/ast->datoms forms)
+            all-datoms (vec (mapcat identity all-datom-groups))
+            root-ids (mapv ffirst all-datom-groups)
+            ;; Transact into DataScript
+            {:keys [db tempids]} (vm/transact! all-datoms)
+            root-eids (mapv #(get tempids %) root-ids)
+            ;; root-ids are tempids for raw datom traversal
+            ;; (run-semantic)
+            ;; root-eids are resolved DataScript entity IDs (for d/q)
+            stats {:total-datoms (count all-datoms),
+                   :lambdas (count (asm/find-lambdas all-datoms)),
+                   :applications (count (asm/find-applications all-datoms)),
+                   :variables (count (asm/find-variables all-datoms)),
+                   :literals (count (asm/find-by-type all-datoms :literal))}]
+        (swap! app-state assoc
+          :datoms all-datoms
+          :ds-db db
+          :root-ids root-ids
+          :root-eids root-eids
+          :assembly-stats stats
+          :error nil)
+        all-datoms)
+      (catch js/Error e
+        (swap! app-state assoc
+          :error (.-message e)
+          :datoms nil
+          :ds-db nil
+          :root-ids nil
+          :root-eids nil
+          :assembly-stats nil)
+        nil))))
 
 
 (defn run-assembly
@@ -564,7 +565,7 @@
                    :color "#c5c6c7"}}
           [:h1
            {:style {:margin "20px", :pointer-events "none", :color "#f1f5ff"}}
-           "Datomworld Yin VM Explorer"]
+           "Datomworld Yin VM Compilation Pipeline"]
           [:svg
            {:style {:position "absolute",
                     :top 0,
