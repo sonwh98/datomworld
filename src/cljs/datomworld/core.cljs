@@ -55,6 +55,7 @@
      :query-result nil,
      :error nil,
      :ui-positions default-positions,
+     :collapsed #{},
      :drag-state nil,
      :resize-state nil}))
 
@@ -417,7 +418,7 @@
       "[:find ?e ?op\n :where\n [?e :yin/type :application]\n [?e :yin/operator ?op]]"}
    {:name "Find conditionals", :query "[:find ?e\n :where [?e :yin/type :if]]"}
    {:name "All attributes for entity",
-    :query "[:find ?e ?a ?v\n ?e\n :where [?e ?a ?v]]"}
+    :query "[:find ?e ?a ?v\n :where [?e ?a ?v]]"}
    {:name "Lambda body structure",
     :query
       "[:find ?lam ?body ?body-type\n :where\n [?lam :yin/type :lambda]\n [?lam :yin/body ?body]\n [?body :yin/type ?body-type]]"}
@@ -449,9 +450,11 @@
 (defn draggable-card
   [id title content]
   (let [positions (r/cursor app-state [:ui-positions])
+        collapsed-state (r/cursor app-state [:collapsed])
         drag-state (r/cursor app-state [:drag-state])
         resize-state (r/cursor app-state [:resize-state])
         pos (get @positions id)
+        collapsed? (contains? @collapsed-state id)
         z-index (cond (= (:id @drag-state) id) 100
                       (= (:id @resize-state) id) 100
                       :else 10)]
@@ -460,16 +463,15 @@
               :left (:x pos),
               :top (:y pos),
               :width (:w pos),
-              :height (:h pos),
-              :min-height "200px",
+              :height (if collapsed? "auto" (:h pos)),
+              :min-height (if collapsed? "auto" "200px"),
               :background "#0e1328",
               :border "1px solid #2d3b55",
               :box-shadow "0 10px 25px rgba(0,0,0,0.5)",
               :z-index z-index,
               :color "#c5c6c7",
               :display "flex",
-              :flex-direction "column",
-              :overflow "hidden"}}
+              :flex-direction "column"}}
      [:div
       {:style {:background "#151b33",
                :padding "5px 10px",
@@ -486,30 +488,43 @@
                         (reset! drag-state {:id id,
                                             :start-x (.-clientX e),
                                             :start-y (.-clientY e),
-                                            :initial-pos pos}))} title]
-     [:div
-      {:style {:padding "10px",
-               :flex "1",
-               :display "flex",
-               :flex-direction "column",
-               :overflow "hidden"}} content]
+                                            :initial-pos pos}))} [:span title]
+      [:button
+       {:on-click (fn [e]
+                    (.stopPropagation e)
+                    (swap! collapsed-state (if collapsed? disj conj) id)),
+        :style {:background "none",
+                :border "none",
+                :color "#c5c6c7",
+                :cursor "pointer",
+                :font-size "16px",
+                :line-height "1",
+                :padding "0 5px"}} (if collapsed? "+" "−")]]
+     (when-not collapsed?
+       [:div
+        {:style {:padding "10px",
+                 :flex "1",
+                 :display "flex",
+                 :flex-direction "column",
+                 :overflow "hidden"}} content])
      ;; Resize handle
-     [:div
-      {:style {:position "absolute",
-               :bottom "0",
-               :right "0",
-               :width "15px",
-               :height "15px",
-               :cursor "nwse-resize",
-               :background
-                 "linear-gradient(135deg, transparent 50%, #2d3b55 50%)"},
-       :on-mouse-down (fn [e]
-                        (.preventDefault e)
-                        (.stopPropagation e)
-                        (reset! resize-state {:id id,
-                                              :start-x (.-clientX e),
-                                              :start-y (.-clientY e),
-                                              :initial-pos pos}))}]]))
+     (when-not collapsed?
+       [:div
+        {:style {:position "absolute",
+                 :bottom "0",
+                 :right "0",
+                 :width "15px",
+                 :height "15px",
+                 :cursor "nwse-resize",
+                 :background
+                   "linear-gradient(135deg, transparent 50%, #2d3b55 50%)"},
+         :on-mouse-down (fn [e]
+                          (.preventDefault e)
+                          (.stopPropagation e)
+                          (reset! resize-state {:id id,
+                                                :start-x (.-clientX e),
+                                                :start-y (.-clientY e),
+                                                :initial-pos pos}))}])]))
 
 
 (defn connection-line
