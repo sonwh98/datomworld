@@ -7,7 +7,7 @@
             [cljs.pprint :as pprint]
             [cljs.reader :as reader]
             [clojure.string :as str]
-            [datomworld.visual-ast :as visual-ast]
+            [datomworld.structural-editor :as structural-editor]
             [reagent.core :as r]
             [reagent.dom :as rdom]
             [yang.clojure :as yang]
@@ -23,7 +23,7 @@
 
 
 (def default-positions
-  {:visual-ast {:x 20, :y 180, :w 350, :h 450},
+  {:structural-editor {:x 20, :y 180, :w 350, :h 450},
    :source {:x 20, :y 650, :w 350, :h 450},
    :ast {:x 420, :y 180, :w 380, :h 450},
    :assembly {:x 850, :y 180, :w 400, :h 450},
@@ -417,7 +417,7 @@
       "[:find ?e ?op\n :where\n [?e :yin/type :application]\n [?e :yin/operator ?op]]"}
    {:name "Find conditionals", :query "[:find ?e\n :where [?e :yin/type :if]]"}
    {:name "All attributes for entity",
-    :query "[:find ?a ?v\n :in $ ?e\n :where [?e ?a ?v]]"}
+    :query "[:find ?e ?a ?v\n ?e\n :where [?e ?a ?v]]"}
    {:name "Lambda body structure",
     :query
       "[:find ?lam ?body ?body-type\n :where\n [?lam :yin/type :lambda]\n [?lam :yin/body ?body]\n [?body :yin/type ?body-type]]"}
@@ -614,15 +614,15 @@
                     :height "100%",
                     :pointer-events "none",
                     :z-index 0}}
-           [connection-line :visual-ast :ast "Build ->"
-            #(visual-ast/sync! app-state)]
+           [connection-line :structural-editor :ast "Build ->"
+            #(structural-editor/sync! app-state)]
            [connection-line :source :ast "AST ->" compile-source]
            [connection-line :ast :assembly "Asm ->" compile-ast]
            [connection-line :assembly :register "Reg ->" compile-register]
            [connection-line :assembly :stack "Stack ->" compile-stack]
            [connection-line :assembly :query "d/q ->" run-query]]
-          [draggable-card :visual-ast "Visual AST"
-           [visual-ast/editor app-state]]
+          [draggable-card :structural-editor "Structural Editor"
+           [structural-editor/editor app-state]]
           [draggable-card :source
            [:div
             {:style {:display "flex",

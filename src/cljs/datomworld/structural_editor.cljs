@@ -1,4 +1,4 @@
-(ns datomworld.visual-ast
+(ns datomworld.structural-editor
   (:require [cljs.pprint :as pprint]
             [reagent.core :as r]
             [yin.vm :as vm]))
@@ -128,7 +128,7 @@
            (catch js/Error e
              (swap! app-state assoc
                :error
-               (str "Visual AST Error: " (.-message e)))))
+               (str "Structural Editor Error: " (.-message e)))))
       ;; No complete AST yet - clear downstream
       (swap! app-state assoc
         :ast-as-text ""
@@ -536,7 +536,7 @@
 ;; =============================================================================
 
 (defn editor
-  "Main visual AST editor component. Palette on the left, structured canvas
+  "Main structural editor component. Palette on the left, structured canvas
    on the right. Layout is interpreted from tree topology."
   [app-state]
   [:div
