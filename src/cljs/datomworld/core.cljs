@@ -7,7 +7,6 @@
             [cljs.pprint :as pprint]
             [cljs.reader :as reader]
             [clojure.string :as str]
-            [datomworld.structural-editor :as structural-editor]
             [reagent.core :as r]
             [reagent.dom :as rdom]
             [yang.clojure :as yang]
@@ -23,13 +22,12 @@
 
 
 (def default-positions
-  {:structural-editor {:x 20, :y 180, :w 350, :h 450},
-   :source {:x 20, :y 650, :w 350, :h 450},
+  {:source {:x 20, :y 180, :w 350, :h 450},
    :ast {:x 420, :y 180, :w 380, :h 450},
-   :assembly {:x 850, :y 180, :w 400, :h 450},
-   :register {:x 1300, :y 180, :w 350, :h 450},
-   :stack {:x 1300, :y 650, :w 350, :h 450},
-   :query {:x 850, :y 650, :w 400, :h 450}})
+   :assembly {:x 900, :y 180, :w 400, :h 450},
+   :register {:x 1400, :y 80, :w 350, :h 450},
+   :stack {:x 1400, :y 650, :w 350, :h 450},
+   :query {:x 900, :y 650, :w 400, :h 450}})
 
 
 (defonce app-state
@@ -544,18 +542,26 @@
 (defn connection-line
   [from-id to-id label on-click]
   (let [positions (:ui-positions @app-state)
+        collapsed (:collapsed @app-state)
         from (get positions from-id)
         to (get positions to-id)]
     (when (and from to)
-      (let [start-x (+ (:x from) (:w from))
-            start-y (+ (:y from) 50) ; Header offset approx
-            end-x (:x to)
-            end-y (+ (:y to) 50)
-            dist (Math/abs (- end-x start-x))
-            cp1-x (+ start-x (/ dist 2))
-            cp1-y start-y
-            cp2-x (- end-x (/ dist 2))
-            cp2-y end-y
+      (let [from-collapsed? (contains? collapsed from-id)
+            vertical? (and (= from-id :assembly) (= to-id :query))
+            from-h (if from-collapsed? 35 (:h from))
+            start-x (if vertical?
+                      (+ (:x from) (/ (:w from) 2))
+                      (+ (:x from) (:w from)))
+            start-y
+              (if vertical? (+ (:y from) from-h) (+ (:y from) (/ from-h 2)))
+            end-x (if vertical? (+ (:x to) (/ (:w to) 2)) (:x to))
+            end-y (if vertical? (:y to) (+ (:y to) 20))
+            dx (Math/abs (- end-x start-x))
+            dy (Math/abs (- end-y start-y))
+            cp1-x (if vertical? start-x (+ start-x (/ dx 2)))
+            cp1-y (if vertical? (+ start-y (/ dy 2)) start-y)
+            cp2-x (if vertical? end-x (- end-x (/ dx 2)))
+            cp2-y (if vertical? (- end-y (/ dy 2)) end-y)
             path-d (str "M " start-x
                         " " start-y
                         " C " cp1-x
@@ -643,21 +649,12 @@
                     :height "100%",
                     :pointer-events "none",
                     :z-index 0}}
-           [connection-line :structural-editor :ast "Build ->"
-            #(structural-editor/sync! app-state)]
            [connection-line :source :ast "AST ->" compile-source]
            [connection-line :ast :assembly "Asm ->" compile-ast]
            [connection-line :assembly :register "Reg ->" compile-register]
            [connection-line :assembly :stack "Stack ->" compile-stack]
            [connection-line :assembly :query "d/q ->" run-query]]
-          [draggable-card :structural-editor "Structural Editor"
-           [structural-editor/editor app-state]]
-          [draggable-card :source
-           [:div
-            {:style {:display "flex",
-                     :justify-content "space-between",
-                     :align-items "center",
-                     :width "100%"}} "Source Code" [hamburger-menu]]
+          [draggable-card :source "Source Code"
            [:div
             {:style {:display "flex",
                      :flex-direction "column",
@@ -666,6 +663,7 @@
             [:div
              {:style {:display "flex",
                       :justify-content "space-between",
+                      :align-items "center",
                       :margin-bottom "5px"}}
              [:select
               {:value (:source-lang @app-state),
@@ -677,7 +675,7 @@
                        :color "#c5c6c7",
                        :border "1px solid #2d3b55"}}
               [:option {:value "clojure"} "Clojure"]
-              [:option {:value "python"} "Python"]]]
+              [:option {:value "python"} "Python"]] [hamburger-menu]]
             [codemirror-editor
              {:key (:source-lang @app-state),
               :value (:source-code @app-state),
@@ -800,17 +798,16 @@
                         :padding "5px",
                         :border "1px solid #30363d"}}
                (pr-str (:stack-result @app-state))])]]
-          [draggable-card :query
-           [:div
-            {:style {:display "flex",
-                     :justify-content "space-between",
-                     :align-items "center",
-                     :width "100%"}} "Datalog Query" [query-menu]]
+          [draggable-card :query "Datalog Query"
            [:div
             {:style {:display "flex",
                      :flex-direction "column",
                      :flex "1",
                      :overflow "hidden"}}
+            [:div
+             {:style {:display "flex",
+                      :justify-content "flex-end",
+                      :margin-bottom "5px"}} [query-menu]]
             [codemirror-editor
              {:value (:query-text @app-state),
               :on-change (fn [v] (swap! app-state assoc :query-text v)),
