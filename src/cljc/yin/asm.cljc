@@ -297,96 +297,129 @@
     (bit-or (bit-shift-left hi 8) lo)))
 
 
+(defn make-stack-state
+  "Create initial stack VM state for stepping execution."
+  ([bytes constant-pool] (make-stack-state bytes constant-pool {}))
+  ([bytes constant-pool env]
+   {:pc 0,
+    :bytes (vec bytes),
+    :stack [],
+    :env env,
+    :call-stack [],
+    :pool constant-pool,
+    :halted false,
+    :value nil}))
+
+
+(defn stack-step
+  "Execute one stack VM instruction. Returns updated state.
+   When execution completes, :halted is true and :value contains the result."
+  [state]
+  (let [{:keys [pc bytes stack env call-stack pool]} state]
+    (if (>= pc (count bytes))
+      ;; End of bytes: return top of stack or pop frame
+      (let [result (peek stack)]
+        (if (empty? call-stack)
+          (assoc state
+            :halted true
+            :value result)
+          (let [frame (peek call-stack)
+                rest-frames (pop call-stack)]
+            (assoc state
+              :pc (:pc frame)
+              :bytes (:bytes frame)
+              :stack (conj (:stack frame) result)
+              :env (:env frame)
+              :call-stack rest-frames))))
+      (let [op (nth bytes pc)]
+        (condp = op
+          OP_LITERAL (let [val-idx (nth bytes (inc pc))
+                           val (nth pool val-idx)]
+                       (assoc state
+                         :pc (+ pc 2)
+                         :stack (conj stack val)))
+          OP_LOAD_VAR (let [sym-idx (nth bytes (inc pc))
+                            sym (nth pool sym-idx)
+                            val (get env sym)]
+                        (assoc state
+                          :pc (+ pc 2)
+                          :stack (conj stack val)))
+          OP_LAMBDA (let [params-idx (nth bytes (inc pc))
+                          params (nth pool params-idx)
+                          body-len (fetch-short bytes (+ pc 2))
+                          body-start (+ pc 4)
+                          body-bytes
+                            (subvec bytes body-start (+ body-start body-len))
+                          closure {:type :closure,
+                                   :params params,
+                                   :body-bytes body-bytes,
+                                   :env env}]
+                      (assoc state
+                        :pc (+ pc 4 body-len)
+                        :stack (conj stack closure)))
+          OP_APPLY (let [argc (nth bytes (inc pc))
+                         args (vec (take-last argc stack))
+                         stack-minus-args (vec (drop-last argc stack))
+                         fn-val (peek stack-minus-args)
+                         stack-rest (pop stack-minus-args)]
+                     (cond (fn? fn-val) (let [res (apply fn-val args)]
+                                          (assoc state
+                                            :pc (+ pc 2)
+                                            :stack (conj stack-rest res)))
+                           (= :closure (:type fn-val))
+                             (let [{clo-params :params,
+                                    clo-body :body-bytes,
+                                    clo-env :env}
+                                     fn-val
+                                   new-env (merge clo-env
+                                                  (zipmap clo-params args))
+                                   frame {:pc (+ pc 2),
+                                          :bytes bytes,
+                                          :stack stack-rest,
+                                          :env env}]
+                               (assoc state
+                                 :pc 0
+                                 :bytes clo-body
+                                 :stack []
+                                 :env new-env
+                                 :call-stack (conj call-stack frame)))
+                           :else (throw (ex-info "Cannot apply non-function"
+                                                 {:fn fn-val}))))
+          OP_JUMP_IF_FALSE (let [offset (fetch-short bytes (inc pc))
+                                 condition (peek stack)
+                                 new-stack (pop stack)]
+                             (assoc state
+                               :pc (if condition (+ pc 3) (+ pc 3 offset))
+                               :stack new-stack))
+          OP_JUMP (let [offset (fetch-short bytes (inc pc))]
+                    (assoc state :pc (+ pc 3 offset)))
+          OP_RETURN (let [result (peek stack)]
+                      (if (empty? call-stack)
+                        (assoc state
+                          :halted true
+                          :value result)
+                        (let [frame (peek call-stack)
+                              rest-frames (pop call-stack)]
+                          (assoc state
+                            :pc (:pc frame)
+                            :bytes (:bytes frame)
+                            :stack (conj (:stack frame) result)
+                            :env (:env frame)
+                            :call-stack rest-frames))))
+          (throw (ex-info "Unknown Opcode" {:op op, :pc pc})))))))
+
+
+(defn stack-run
+  "Run stack VM to completion. Returns final value."
+  [state]
+  (loop [s state] (if (:halted s) (:value s) (recur (stack-step s)))))
+
+
 (defn run-bytes
-  "Execute legacy numeric bytecode.
+  "Execute numeric bytecode to completion.
    Note: This loses semantic information. You can't query the bytecode,
    only execute it sequentially.
-   Uses an explicit call stack to avoid host recursion on closure calls."
+   Delegates to make-stack-state and stack-run for backward compatibility."
   ([bytes constant-pool] (run-bytes bytes constant-pool {}))
   ([bytes constant-pool env]
-   (loop [pc 0
-          bytes (vec bytes)
-          stack []
-          env env
-          call-stack []]
-     (if (>= pc (count bytes))
-       ;; End of bytes: return top of stack or pop frame
-       (let [result (peek stack)]
-         (if (empty? call-stack)
-           result
-           (let [frame (peek call-stack)
-                 rest-frames (pop call-stack)]
-             (recur (:pc frame)
-                    (:bytes frame)
-                    (conj (:stack frame) result)
-                    (:env frame)
-                    rest-frames))))
-       (let [op (nth bytes pc)]
-         (condp = op
-           OP_LITERAL (let [val-idx (nth bytes (inc pc))
-                            val (nth constant-pool val-idx)]
-                        (recur (+ pc 2) bytes (conj stack val) env call-stack))
-           OP_LOAD_VAR (let [sym-idx (nth bytes (inc pc))
-                             sym (nth constant-pool sym-idx)
-                             val (get env sym)]
-                         (recur (+ pc 2) bytes (conj stack val) env call-stack))
-           OP_LAMBDA (let [params-idx (nth bytes (inc pc))
-                           params (nth constant-pool params-idx)
-                           body-len (fetch-short bytes (+ pc 2))
-                           body-start (+ pc 4)
-                           body-bytes
-                             (subvec bytes body-start (+ body-start body-len))
-                           closure {:type :closure,
-                                    :params params,
-                                    :body-bytes body-bytes,
-                                    :env env}]
-                       (recur (+ pc 4 body-len)
-                              bytes
-                              (conj stack closure)
-                              env
-                              call-stack))
-           OP_APPLY
-             (let [argc (nth bytes (inc pc))
-                   args (vec (take-last argc stack))
-                   stack-minus-args (vec (drop-last argc stack))
-                   fn-val (peek stack-minus-args)
-                   stack-rest (pop stack-minus-args)]
-               (cond (fn? fn-val) (let [res (apply fn-val args)]
-                                    (recur (+ pc 2)
-                                           bytes
-                                           (conj stack-rest res)
-                                           env
-                                           call-stack))
-                     (= :closure (:type fn-val))
-                       (let [{clo-params :params,
-                              clo-body :body-bytes,
-                              clo-env :env}
-                               fn-val
-                             new-env (merge clo-env (zipmap clo-params args))
-                             frame {:pc (+ pc 2),
-                                    :bytes bytes,
-                                    :stack stack-rest,
-                                    :env env}]
-                         (recur 0 clo-body [] new-env (conj call-stack frame)))
-                     :else (throw (ex-info "Cannot apply non-function"
-                                           {:fn fn-val}))))
-           OP_JUMP_IF_FALSE
-             (let [offset (fetch-short bytes (inc pc))
-                   condition (peek stack)
-                   new-stack (pop stack)]
-               (if condition
-                 (recur (+ pc 3) bytes new-stack env call-stack)
-                 (recur (+ pc 3 offset) bytes new-stack env call-stack)))
-           OP_JUMP (let [offset (fetch-short bytes (inc pc))]
-                     (recur (+ pc 3 offset) bytes stack env call-stack))
-           OP_RETURN (let [result (peek stack)]
-                       (if (empty? call-stack)
-                         result
-                         (let [frame (peek call-stack)
-                               rest-frames (pop call-stack)]
-                           (recur (:pc frame)
-                                  (:bytes frame)
-                                  (conj (:stack frame) result)
-                                  (:env frame)
-                                  rest-frames))))
-           (throw (ex-info "Unknown Opcode" {:op op, :pc pc}))))))))
+   (stack-run (make-stack-state bytes constant-pool env))))

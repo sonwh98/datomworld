@@ -56,7 +56,10 @@
      :z-order (vec (keys default-positions)),
      :collapsed #{},
      :drag-state nil,
-     :resize-state nil}))
+     :resize-state nil,
+     ;; Per-window VM states for stepping execution
+     :vm-states {:register {:state nil, :running false, :expanded false},
+                 :stack {:state nil, :running false, :expanded false}}}))
 
 
 (when (or (nil? (:ui-positions @app-state))
@@ -141,22 +144,33 @@
                                      [bc pool] (asm/stack-assembly->bytecode
                                                  asm)]
                                  {:asm asm, :bc bc, :pool pool}))
-                         forms)]
+                         forms)
+               ;; Initialize VM state from last compiled result
+               last-result (last results)
+               initial-state (when last-result
+                               (asm/make-stack-state (:bc last-result)
+                                                     (:pool last-result)
+                                                     vm/primitives))]
            (swap! app-state assoc
              :stack-asm (mapv :asm results)
              :stack-bc (mapv :bc results)
              :stack-pool (mapv :pool results)
              :error nil)
+           ;; Initialize stepping state
+           (swap! app-state assoc-in [:vm-states :stack :state] initial-state)
+           (swap! app-state assoc-in [:vm-states :stack :running] false)
            results)
          (catch js/Error e
            (swap! app-state assoc
              :error (str "Stack Compile Error: " (.-message e))
              :stack-asm nil
              :stack-bc nil)
+           (swap! app-state assoc-in [:vm-states :stack :state] nil)
            nil))))
 
 
 (defn run-stack
+  "Run stack VM to completion (legacy behavior)."
   []
   (let [compiled (:stack-bc @app-state)
         pools (:stack-pool @app-state)
@@ -174,6 +188,56 @@
           (swap! app-state assoc
             :error (str "Stack VM Error: " (.-message e))
             :stack-result nil))))))
+
+
+(defn step-stack
+  "Execute one instruction in the stack VM."
+  []
+  (let [state (get-in @app-state [:vm-states :stack :state])]
+    (when (and state (not (:halted state)))
+      (try (let [new-state (asm/stack-step state)]
+             (swap! app-state assoc-in [:vm-states :stack :state] new-state)
+             (when (:halted new-state)
+               (swap! app-state assoc :stack-result (:value new-state))
+               (swap! app-state assoc-in [:vm-states :stack :running] false)))
+           (catch js/Error e
+             (swap! app-state assoc
+               :error
+               (str "Stack VM Step Error: " (.-message e)))
+             (swap! app-state assoc-in [:vm-states :stack :running] false))))))
+
+
+(defn reset-stack
+  "Reset stack VM to initial state from compiled bytecode."
+  []
+  (let [bc (last (:stack-bc @app-state))
+        pool (last (:stack-pool @app-state))]
+    (when (and bc pool)
+      (let [initial-state (asm/make-stack-state bc pool vm/primitives)]
+        (swap! app-state assoc-in [:vm-states :stack :state] initial-state)
+        (swap! app-state assoc-in [:vm-states :stack :running] false)
+        (swap! app-state assoc :stack-result nil)))))
+
+
+(declare run-stack-loop)
+
+
+(defn toggle-run-stack
+  "Toggle auto-stepping for stack VM."
+  []
+  (let [running (get-in @app-state [:vm-states :stack :running])]
+    (swap! app-state assoc-in [:vm-states :stack :running] (not running))
+    (when (not running) (run-stack-loop))))
+
+
+(defn run-stack-loop
+  "Auto-step loop for stack VM using requestAnimationFrame."
+  []
+  (let [running (get-in @app-state [:vm-states :stack :running])
+        state (get-in @app-state [:vm-states :stack :state])]
+    (when (and running state (not (:halted state)))
+      (step-stack)
+      (js/requestAnimationFrame run-stack-loop))))
 
 
 (defn compile-ast
@@ -272,28 +336,37 @@
 (defn compile-register
   []
   (let [input (:ast-as-text @app-state)]
-    (try (let [forms (reader/read-string (str "[" input "]"))
-               results (mapv (fn [ast]
-                               (let [datoms (vm/ast->datoms ast)
-                                     asm (vm/ast-datoms->register-assembly
-                                           datoms)
-                                     bc (vm/register-assembly->bytecode asm)]
-                                 {:asm asm, :bc bc}))
-                         forms)]
-           (swap! app-state assoc
-             :register-asm (mapv :asm results)
-             :register-bc (mapv :bc results)
-             :error nil)
-           results)
-         (catch js/Error e
-           (swap! app-state assoc
-             :error (str "Register Compile Error: " (.-message e))
-             :register-asm nil
-             :register-bc nil)
-           nil))))
+    (try
+      (let [forms (reader/read-string (str "[" input "]"))
+            results (mapv (fn [ast]
+                            (let [datoms (vm/ast->datoms ast)
+                                  asm (vm/ast-datoms->register-assembly datoms)
+                                  bc (vm/register-assembly->bytecode asm)]
+                              {:asm asm, :bc bc}))
+                      forms)
+            ;; Initialize VM state from last compiled result
+            last-bc (last (mapv :bc results))
+            initial-state (when last-bc
+                            (vm/make-rbc-bc-state last-bc vm/primitives))]
+        (swap! app-state assoc
+          :register-asm (mapv :asm results)
+          :register-bc (mapv :bc results)
+          :error nil)
+        ;; Initialize stepping state
+        (swap! app-state assoc-in [:vm-states :register :state] initial-state)
+        (swap! app-state assoc-in [:vm-states :register :running] false)
+        results)
+      (catch js/Error e
+        (swap! app-state assoc
+          :error (str "Register Compile Error: " (.-message e))
+          :register-asm nil
+          :register-bc nil)
+        (swap! app-state assoc-in [:vm-states :register :state] nil)
+        nil))))
 
 
 (defn run-register
+  "Run register VM to completion (legacy behavior)."
   []
   (let [compiled (:register-bc @app-state)
         compiled-results (or compiled (map :bc (compile-register)))]
@@ -310,6 +383,56 @@
              (swap! app-state assoc
                :error (str "Register VM Error: " (.-message e))
                :register-result nil))))))
+
+
+(defn step-register
+  "Execute one instruction in the register VM."
+  []
+  (let [state (get-in @app-state [:vm-states :register :state])]
+    (when (and state (not (:halted state)))
+      (try
+        (let [new-state (vm/rbc-step-bc state)]
+          (swap! app-state assoc-in [:vm-states :register :state] new-state)
+          (when (:halted new-state)
+            (swap! app-state assoc :register-result (:value new-state))
+            (swap! app-state assoc-in [:vm-states :register :running] false)))
+        (catch js/Error e
+          (swap! app-state assoc
+            :error
+            (str "Register VM Step Error: " (.-message e)))
+          (swap! app-state assoc-in [:vm-states :register :running] false))))))
+
+
+(defn reset-register
+  "Reset register VM to initial state from compiled bytecode."
+  []
+  (let [bc (last (:register-bc @app-state))]
+    (when bc
+      (let [initial-state (vm/make-rbc-bc-state bc vm/primitives)]
+        (swap! app-state assoc-in [:vm-states :register :state] initial-state)
+        (swap! app-state assoc-in [:vm-states :register :running] false)
+        (swap! app-state assoc :register-result nil)))))
+
+
+(declare run-register-loop)
+
+
+(defn toggle-run-register
+  "Toggle auto-stepping for register VM."
+  []
+  (let [running (get-in @app-state [:vm-states :register :running])]
+    (swap! app-state assoc-in [:vm-states :register :running] (not running))
+    (when (not running) (run-register-loop))))
+
+
+(defn run-register-loop
+  "Auto-step loop for register VM using requestAnimationFrame."
+  []
+  (let [running (get-in @app-state [:vm-states :register :running])
+        state (get-in @app-state [:vm-states :register :state])]
+    (when (and running state (not (:halted state)))
+      (step-register)
+      (js/requestAnimationFrame run-register-loop))))
 
 
 (defn compile-source
@@ -444,6 +567,126 @@
   []
   [dropdown-menu query-examples
    (fn [ex] (swap! app-state assoc :query-text (:query ex)))])
+
+
+(defn vm-control-buttons
+  "Render Step/Run/Reset buttons for a VM."
+  [{:keys [vm-key step-fn toggle-run-fn reset-fn]}]
+  (let [vm-state (get-in @app-state [:vm-states vm-key])
+        running (:running vm-state)
+        state (:state vm-state)
+        halted (when state (:halted state))]
+    [:div {:style {:display "flex", :gap "5px", :margin-top "5px"}}
+     [:button
+      {:on-click step-fn,
+       :disabled (or running halted (nil? state)),
+       :style
+         {:background (if (or running halted (nil? state)) "#333" "#1f6feb"),
+          :color "#fff",
+          :border "none",
+          :padding "5px 10px",
+          :border-radius "4px",
+          :cursor (if (or running halted (nil? state)) "not-allowed" "pointer"),
+          :font-size "12px"}} "Step"]
+     [:button
+      {:on-click toggle-run-fn,
+       :disabled (or halted (nil? state)),
+       :style {:background (cond (or halted (nil? state)) "#333"
+                                 running "#da3633"
+                                 :else "#238636"),
+               :color "#fff",
+               :border "none",
+               :padding "5px 10px",
+               :border-radius "4px",
+               :cursor (if (or halted (nil? state)) "not-allowed" "pointer"),
+               :font-size "12px"}} (if running "Pause" "Run")]
+     [:button
+      {:on-click reset-fn,
+       :disabled (nil? state),
+       :style {:background (if (nil? state) "#333" "#6e7681"),
+               :color "#fff",
+               :border "none",
+               :padding "5px 10px",
+               :border-radius "4px",
+               :cursor (if (nil? state) "not-allowed" "pointer"),
+               :font-size "12px"}} "Reset"]]))
+
+
+(defn stack-vm-state-display
+  "Display current state of stack VM."
+  []
+  (let [vm-state (get-in @app-state [:vm-states :stack])
+        state (:state vm-state)
+        expanded (:expanded vm-state)]
+    (when state
+      [:div
+       {:style {:margin-top "5px",
+                :padding "5px",
+                :background "#0d1117",
+                :border "1px solid #30363d",
+                :font-size "11px",
+                :font-family "monospace"}}
+       [:div
+        {:style {:display "flex",
+                 :justify-content "space-between",
+                 :align-items "center"}}
+        [:span {:style {:color "#8b949e"}}
+         (if (:halted state) "HALTED" (str "pc: " (:pc state)))]
+        [:button
+         {:on-click
+            #(swap! app-state update-in [:vm-states :stack :expanded] not),
+          :style {:background "none",
+                  :border "none",
+                  :color "#58a6ff",
+                  :cursor "pointer",
+                  :font-size "10px"}} (if expanded "Collapse" "Expand")]]
+       [:div {:style {:color "#c5c6c7"}} "Stack: "
+        (pr-str (take-last 3 (:stack state)))
+        (when (> (count (:stack state)) 3) " ...")]
+       (when expanded
+         [:div {:style {:margin-top "5px", :color "#8b949e"}}
+          [:div "Full stack: " (pr-str (:stack state))]
+          [:div "Env: " (pr-str (keys (:env state)))]
+          [:div "Call stack depth: " (count (:call-stack state))]])])))
+
+
+(defn register-vm-state-display
+  "Display current state of register VM."
+  []
+  (let [vm-state (get-in @app-state [:vm-states :register])
+        state (:state vm-state)
+        expanded (:expanded vm-state)]
+    (when state
+      [:div
+       {:style {:margin-top "5px",
+                :padding "5px",
+                :background "#0d1117",
+                :border "1px solid #30363d",
+                :font-size "11px",
+                :font-family "monospace"}}
+       [:div
+        {:style {:display "flex",
+                 :justify-content "space-between",
+                 :align-items "center"}}
+        [:span {:style {:color "#8b949e"}}
+         (if (:halted state) "HALTED" (str "ip: " (:ip state)))]
+        [:button
+         {:on-click
+            #(swap! app-state update-in [:vm-states :register :expanded] not),
+          :style {:background "none",
+                  :border "none",
+                  :color "#58a6ff",
+                  :cursor "pointer",
+                  :font-size "10px"}} (if expanded "Collapse" "Expand")]]
+       [:div {:style {:color "#c5c6c7"}} "Regs: "
+        (let [regs (:regs state)
+              active (filter (fn [[i v]] (some? v)) (map-indexed vector regs))]
+          (pr-str (into {} (take 4 active))))]
+       (when expanded
+         [:div {:style {:margin-top "5px", :color "#8b949e"}}
+          [:div "All regs: " (pr-str (:regs state))]
+          [:div "Env: " (pr-str (keys (:env state)))]
+          [:div "Continuation: " (if (:k state) "yes" "none")]])])))
 
 
 (defn bring-to-front!
@@ -751,21 +994,17 @@
                                  (pretty-print (:register-bc @app-state)))
                             "")),
               :read-only true}]
-            [:button
-             {:on-click run-register,
-              :style {:marginTop "5px",
-                      :background "#238636",
-                      :color "#fff",
-                      :border "none",
-                      :padding "5px 10px",
-                      :border-radius "4px",
-                      :cursor "pointer"}} "Run Reg VM"]
+            [vm-control-buttons
+             {:vm-key :register,
+              :step-fn step-register,
+              :toggle-run-fn toggle-run-register,
+              :reset-fn reset-register}] [register-vm-state-display]
             (when (:register-result @app-state)
               [:div
                {:style {:marginTop "5px",
                         :background "#0d1117",
                         :padding "5px",
-                        :border "1px solid #30363d"}}
+                        :border "1px solid #30363d"}} [:strong "Result: "]
                (pr-str (:register-result @app-state))])]]
           [draggable-card :stack "Stack VM"
            [:div
@@ -782,21 +1021,17 @@
                                  (pretty-print (:stack-bc @app-state)))
                             "")),
               :read-only true}]
-            [:button
-             {:on-click run-stack,
-              :style {:marginTop "5px",
-                      :background "#238636",
-                      :color "#fff",
-                      :border "none",
-                      :padding "5px 10px",
-                      :border-radius "4px",
-                      :cursor "pointer"}} "Run Stack VM"]
+            [vm-control-buttons
+             {:vm-key :stack,
+              :step-fn step-stack,
+              :toggle-run-fn toggle-run-stack,
+              :reset-fn reset-stack}] [stack-vm-state-display]
             (when (:stack-result @app-state)
               [:div
                {:style {:marginTop "5px",
                         :background "#0d1117",
                         :padding "5px",
-                        :border "1px solid #30363d"}}
+                        :border "1px solid #30363d"}} [:strong "Result: "]
                (pr-str (:stack-result @app-state))])]]
           [draggable-card :query "Datalog Query"
            [:div
