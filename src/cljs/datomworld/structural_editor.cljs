@@ -54,7 +54,8 @@
    {:label "Forms",
     :items [{:template {:type :application}, :label "Apply"}
             {:template {:type :lambda, :params '[]}, :label "Lambda"}
-            {:template {:type :if}, :label "If"}]}])
+            {:template {:type :if}, :label "If"}
+            {:template {:type :edn, :text ""}, :label "EDN"}]}])
 
 
 ;; =============================================================================
@@ -74,6 +75,9 @@
        (case (:type block)
          :literal {:type :literal, :value (:value block)}
          :variable {:type :variable, :name (:name block)}
+         :edn (try (let [parsed (cljs.reader/read-string (:text block))]
+                     {:type :literal, :value parsed})
+                   (catch js/Error _ nil))
          :lambda (let [body-ast (recurse :body)]
                    (when body-ast
                      {:type :lambda, :params (:params block), :body body-ast}))
@@ -204,27 +208,29 @@
 ;; =============================================================================
 
 (def type-colors
-  {:literal "#1a3a2a",
-   :variable "#1a2a4a",
-   :lambda "#2a1a3a",
-   :application "#3a2a1a",
-   :if "#3a3a1a"})
+  {:literal "#2d8a4e",
+   :variable "#3b6fc4",
+   :lambda "#7b4ba0",
+   :application "#c47a28",
+   :if "#b8a828",
+   :edn "#6b6b6b"})
 
 
 (def type-border-colors
-  {:literal "#2d6b45",
-   :variable "#2d4580",
-   :lambda "#5a3d7a",
-   :application "#7a5a2d",
-   :if "#7a7a2d"})
+  {:literal "#3cb06a",
+   :variable "#5b8fe4",
+   :lambda "#9b6bc0",
+   :application "#e49a48",
+   :if "#d8c848",
+   :edn "#9b9b9b"})
 
 
 (def type-labels
-  {:literal "Lit",
-   :variable "Var",
-   :lambda "Lambda",
-   :application "Apply",
-   :if "If"})
+  {:literal "lit",
+   :variable "var",
+   :lambda "fn",
+   :application "apply",
+   :if "if"})
 
 
 ;; =============================================================================
@@ -236,47 +242,93 @@
 
 (defn- slot-view
   "Render a drop target slot. If occupied, render the child block. If empty,
-   show a dashed placeholder that accepts drops from the palette."
+   show a notch-shaped cutout that accepts drops from the palette."
   [parent-id slot-key label app-state]
-  (let [st @editor-state
-        child-id (get-in st [:children [parent-id slot-key]])]
-    (if child-id
-      [:div {:style {:margin "3px 0", :position "relative"}}
-       [:div {:style {:position "absolute", :top "0", :right "0", :z-index 1}}
-        [:button
-         {:on-click (fn [e]
-                      (.stopPropagation e)
-                      (detach! parent-id slot-key)
-                      (remove-block! child-id)
-                      (sync! app-state)),
-          :style {:background "none",
-                  :border "none",
-                  :color "#8b4444",
-                  :cursor "pointer",
-                  :font-size "10px",
-                  :padding "1px 3px"}} "x"]] [block-view child-id app-state]]
-      ;; Empty slot
-      [:div
-       {:style {:border "1px dashed #2d3b55",
-                :border-radius "4px",
-                :padding "4px 8px",
-                :margin "3px 0",
-                :color "#555",
-                :font-size "11px",
-                :min-height "24px",
-                :display "flex",
-                :align-items "center"},
-        :on-drag-over (fn [e] (.preventDefault e)),
-        :on-drop
-          (fn [e]
-            (.preventDefault e)
-            (let [template-json (.getData (.-dataTransfer e) "text/plain")]
-              (when (seq template-json)
-                (try (let [template (cljs.reader/read-string template-json)
-                           new-id (add-block! template)]
-                       (attach! parent-id slot-key new-id)
-                       (sync! app-state))
-                     (catch js/Error _ nil)))))} (str label " ▾")])))
+  (let [drag-over? (r/atom false)]
+    (fn [parent-id slot-key label app-state]
+      (let [st @editor-state
+            child-id (get-in st [:children [parent-id slot-key]])]
+        (if child-id
+          [:div
+           {:style {:margin "4px 0", :position "relative"},
+            :on-drag-over (fn [e] (.stopPropagation e)),
+            :on-drop (fn [e] (.stopPropagation e))}
+           [:div
+            {:style
+               {:position "absolute", :top "2px", :right "2px", :z-index 10}}
+            [:button
+             {:on-click (fn [e]
+                          (.stopPropagation e)
+                          (detach! parent-id slot-key)
+                          (remove-block! child-id)
+                          (sync! app-state)),
+              :style {:background "rgba(0,0,0,0.4)",
+                      :border "none",
+                      :border-radius "50%",
+                      :color "#ff6b6b",
+                      :cursor "pointer",
+                      :font-size "11px",
+                      :font-weight "bold",
+                      :width "18px",
+                      :height "18px",
+                      :line-height "16px",
+                      :text-align "center",
+                      :padding "0"}} "\u00d7"]] [block-view child-id app-state]]
+          ;; Empty slot: notch-shaped cutout
+          [:div
+           {:style
+              {:background
+                 (if @drag-over? "rgba(255,255,255,0.12)" "rgba(0,0,0,0.25)"),
+               :border-radius "12px 4px 4px 12px",
+               :padding "6px 10px",
+               :margin "4px 0",
+               :color (if @drag-over? "#fff" "#888"),
+               :font-size "11px",
+               :font-family "monospace",
+               :min-height "28px",
+               :display "flex",
+               :align-items "center",
+               :box-shadow
+                 (if @drag-over?
+                   "inset 0 0 8px rgba(255,255,255,0.2), 0 0 6px rgba(100,180,255,0.3)"
+                   "inset 0 2px 4px rgba(0,0,0,0.3)"),
+               :transition "all 0.15s ease",
+               :position "relative",
+               :z-index 1},
+            :on-drag-enter (fn [e]
+                             (.preventDefault e)
+                             (.stopPropagation e)
+                             (reset! drag-over? true)),
+            :on-drag-over (fn [e] (.preventDefault e) (.stopPropagation e)),
+            :on-drag-leave (fn [e]
+                             (.stopPropagation e)
+                             ;; Only reset if leaving this element, not
+                             ;; entering a child
+                             (when (= (.-target e) (.-currentTarget e))
+                               (reset! drag-over? false))),
+            :on-drop
+              (fn [e]
+                (.preventDefault e)
+                (.stopPropagation e)
+                (reset! drag-over? false)
+                (let [template-json (.getData (.-dataTransfer e) "text/plain")]
+                  (when (seq template-json)
+                    (try (let [template (cljs.reader/read-string template-json)
+                               new-id (add-block! template)]
+                           (attach! parent-id slot-key new-id)
+                           (sync! app-state))
+                         (catch js/Error _ nil)))))}
+           ;; Notch tab indicator on the left
+           [:div
+            {:style {:width "8px",
+                     :height "16px",
+                     :background (if @drag-over?
+                                   "rgba(100,180,255,0.5)"
+                                   "rgba(255,255,255,0.08)"),
+                     :border-radius "4px",
+                     :margin-right "8px",
+                     :flex-shrink "0",
+                     :transition "all 0.15s ease"}}] [:span label]])))))
 
 
 (defn- value-input
@@ -296,15 +348,14 @@
                 (swap! editor-state assoc-in [:blocks block-id :value] parsed)
                 (sync! app-state))
               (catch js/Error _
-                ;; Keep raw string while typing
                 (swap! editor-state assoc-in [:blocks block-id :value] raw))))),
-      :style {:background "#0a0f1e",
-              :border "1px solid #2d3b55",
-              :border-radius "3px",
-              :color "#c5c6c7",
+      :style {:background "rgba(0,0,0,0.3)",
+              :border "1px solid rgba(255,255,255,0.2)",
+              :border-radius "10px",
+              :color "#fff",
               :font-size "12px",
               :font-family "monospace",
-              :padding "2px 5px",
+              :padding "3px 8px",
               :width "80px",
               :outline "none"}}]))
 
@@ -323,13 +374,13 @@
                          sym (symbol raw)]
                      (swap! editor-state assoc-in [:blocks block-id :name] sym)
                      (sync! app-state))),
-      :style {:background "#0a0f1e",
-              :border "1px solid #2d3b55",
-              :border-radius "3px",
-              :color "#c5c6c7",
+      :style {:background "rgba(0,0,0,0.3)",
+              :border "1px solid rgba(255,255,255,0.2)",
+              :border-radius "10px",
+              :color "#fff",
               :font-size "12px",
               :font-family "monospace",
-              :padding "2px 5px",
+              :padding "3px 8px",
               :width "60px",
               :outline "none"}}]))
 
@@ -352,14 +403,45 @@
                                 parsed)
                               (sync! app-state)))
                           (catch js/Error _ nil)))),
-      :style {:background "#0a0f1e",
-              :border "1px solid #2d3b55",
-              :border-radius "3px",
-              :color "#c5c6c7",
+      :style {:background "rgba(0,0,0,0.3)",
+              :border "1px solid rgba(255,255,255,0.2)",
+              :border-radius "10px",
+              :color "#fff",
               :font-size "12px",
               :font-family "monospace",
-              :padding "2px 5px",
+              :padding "3px 8px",
               :width "100px",
+              :outline "none"}}]))
+
+
+(defn- edn-input
+  "Textarea for editing arbitrary EDN expressions."
+  [block-id app-state]
+  (let [block (get-in @editor-state [:blocks block-id])
+        text (:text block)
+        valid?
+          (try (cljs.reader/read-string text) true (catch js/Error _ false))]
+    [:textarea
+     {:value text,
+      :placeholder "{:key value}",
+      :on-click (fn [e] (.stopPropagation e)),
+      :on-change (fn [e]
+                   (let [raw (.. e -target -value)]
+                     (swap! editor-state assoc-in [:blocks block-id :text] raw)
+                     (sync! app-state))),
+      :style {:background "rgba(0,0,0,0.3)",
+              :border (str "1px solid "
+                           (if valid?
+                             "rgba(255,255,255,0.2)"
+                             "rgba(255,100,100,0.5)")),
+              :border-radius "6px",
+              :color "#fff",
+              :font-size "11px",
+              :font-family "monospace",
+              :padding "4px 8px",
+              :width "150px",
+              :min-height "40px",
+              :resize "both",
               :outline "none"}}]))
 
 
@@ -371,6 +453,95 @@
       (if (get children [block-id [:operands i]]) (recur (inc i)) i))))
 
 
+(defn- output-tab
+  "A small colored protrusion on the left side of expression blocks."
+  [color]
+  [:div
+   {:style {:width "8px",
+            :height "20px",
+            :background color,
+            :border-radius "0 4px 4px 0",
+            :margin-right "-1px",
+            :flex-shrink "0",
+            :align-self "center"}}])
+
+
+(defn- pill-block
+  "Pill-shaped expression block with output tab (for literal/variable)."
+  [bg border-color label-text _label-color content]
+  [:div
+   {:style {:display "flex",
+            :align-items "center",
+            :filter "drop-shadow(0 2px 4px rgba(0,0,0,0.4))"}} [output-tab bg]
+   [:div
+    {:style {:background bg,
+             :border (str "2px solid " border-color),
+             :border-radius "20px",
+             :padding "6px 14px",
+             :font-size "12px",
+             :font-family "monospace",
+             :display "flex",
+             :align-items "center",
+             :gap "8px"}}
+    [:span
+     {:style {:color "#fff",
+              :font-size "10px",
+              :font-weight "bold",
+              :text-transform "uppercase",
+              :opacity "0.8"}} label-text] content]])
+
+
+(defn- c-block-top-bar
+  "Top bar of a C-shaped compound block."
+  [bg border-color content]
+  [:div
+   {:style {:background bg,
+            :border-top (str "2px solid " border-color),
+            :border-left (str "2px solid " border-color),
+            :border-right (str "2px solid " border-color),
+            :border-radius "6px 6px 0 0",
+            :padding "6px 12px",
+            :display "flex",
+            :align-items "center",
+            :gap "8px",
+            :font-size "12px",
+            :font-family "monospace"}} content])
+
+
+(defn- c-block-body
+  "Body area of a C-shaped block with left rail."
+  [bg border-color children]
+  [:div
+   {:style {:border-left (str "4px solid " bg),
+            :margin-left "0px",
+            :padding "6px 6px 6px 10px",
+            :background "rgba(0,0,0,0.15)",
+            :border-right (str "2px solid " border-color)}} children])
+
+
+(defn- c-block-bottom-bar
+  "Bottom bar to close the C-shape."
+  [bg border-color content]
+  [:div
+   {:style {:background bg,
+            :border-bottom (str "2px solid " border-color),
+            :border-left (str "2px solid " border-color),
+            :border-right (str "2px solid " border-color),
+            :border-radius "0 0 6px 6px",
+            :padding "4px 12px",
+            :min-height "8px"}} content])
+
+
+(defn- c-block
+  "C-shaped compound block wrapper."
+  [bg border-color top-content body-content bottom-content]
+  [:div
+   {:style {:filter "drop-shadow(0 2px 6px rgba(0,0,0,0.4))", :margin "2px 0"}}
+   [c-block-top-bar bg border-color top-content]
+   [c-block-body bg border-color body-content]
+   [c-block-bottom-bar bg border-color bottom-content]])
+
+
 (defn block-view
   "Render a single block. Layout is determined by type and slot structure,
    not by user-controlled coordinates."
@@ -379,70 +550,134 @@
         btype (:type block)
         bg (get type-colors btype "#1a1a2e")
         border-color (get type-border-colors btype "#2d3b55")]
-    [:div
-     {:style {:background bg,
-              :border (str "1px solid " border-color),
-              :border-radius (if (#{:literal :variable} btype) "12px" "6px"),
-              :padding "6px 10px",
-              :margin "2px 0",
-              :font-size "12px",
-              :font-family "monospace"}}
-     (case btype
-       :literal [:div
-                 {:style {:display "flex", :align-items "center", :gap "6px"}}
-                 [:span {:style {:color "#6bba7b", :font-size "10px"}} "lit"]
-                 [value-input block-id app-state]]
-       :variable [:div
-                  {:style {:display "flex", :align-items "center", :gap "6px"}}
-                  [:span {:style {:color "#5b8bd6", :font-size "10px"}} "var"]
-                  [name-input block-id app-state]]
-       :lambda [:div
+    (case btype
+      :literal [pill-block bg border-color "lit" "#fff"
+                [value-input block-id app-state]]
+      :variable [pill-block bg border-color "var" "#fff"
+                 [name-input block-id app-state]]
+      :edn [:div
+            {:style {:display "flex",
+                     :align-items "flex-start",
+                     :filter "drop-shadow(0 2px 4px rgba(0,0,0,0.4))"}}
+            [output-tab bg]
+            [:div
+             {:style {:background bg,
+                      :border (str "2px solid " border-color),
+                      :border-radius "8px",
+                      :padding "6px 10px",
+                      :font-size "12px",
+                      :font-family "monospace"}}
+             [:div
+              {:style {:display "flex",
+                       :align-items "center",
+                       :gap "6px",
+                       :margin-bottom "4px"}}
+              [:span
+               {:style {:color "#fff",
+                        :font-size "10px",
+                        :font-weight "bold",
+                        :text-transform "uppercase",
+                        :opacity "0.8"}} "edn"]]
+             [edn-input block-id app-state]]]
+      :lambda [c-block bg border-color
+               ;; Top bar: fn label + params
+               [:div
+                {:style {:display "flex", :align-items "center", :gap "8px"}}
+                [:span
+                 {:style {:color "#fff",
+                          :font-size "11px",
+                          :font-weight "bold",
+                          :text-transform "uppercase"}} "fn"]
+                [params-input block-id app-state]]
+               ;; Body: body slot
+               [:div
                 [:div
-                 {:style {:display "flex",
-                          :align-items "center",
-                          :gap "6px",
-                          :margin-bottom "4px"}}
-                 [:span {:style {:color "#a06bd6", :font-size "10px"}} "fn"]
-                 [params-input block-id app-state]]
-                [:div
-                 {:style {:padding-left "10px",
-                          :border-left "2px solid #5a3d7a"}}
-                 [slot-view block-id :body "body" app-state]]]
-       :application
-         (let [n (operand-count block-id)]
+                 {:style {:color "rgba(255,255,255,0.5)",
+                          :font-size "9px",
+                          :margin-bottom "2px",
+                          :text-transform "uppercase"}} "body"]
+                [slot-view block-id :body "body" app-state]]
+               ;; Bottom bar: empty
+               nil]
+      :application
+        (let [n (operand-count block-id)]
+          [c-block bg border-color
+           ;; Top bar: apply label only
+           [:span
+            {:style {:color "#fff",
+                     :font-size "11px",
+                     :font-weight "bold",
+                     :text-transform "uppercase"}} "apply"]
+           ;; Body: operator slot + operand slots
            [:div
             [:div
-             {:style {:display "flex",
-                      :align-items "center",
-                      :gap "6px",
-                      :margin-bottom "4px"}}
-             [:span {:style {:color "#d6a04b", :font-size "10px"}} "apply"]]
+             {:style {:color "rgba(255,255,255,0.5)",
+                      :font-size "9px",
+                      :margin-bottom "2px",
+                      :text-transform "uppercase"}} "operator"]
             [slot-view block-id :operator "operator" app-state]
             (for [i (range (inc n))]
               ^{:key i}
-              [slot-view block-id [:operands i] (str "arg " i) app-state])
-            [:button
-             {:on-click (fn [e]
-                          (.stopPropagation e)
-                          ;; Adding an operand slot is implicit: just sync
-                          (sync! app-state)),
-              :style {:background "none",
-                      :border "1px dashed #2d3b55",
-                      :color "#555",
-                      :cursor "pointer",
-                      :font-size "10px",
-                      :padding "1px 6px",
-                      :border-radius "3px",
-                      :margin-top "2px"}} "+ arg"]])
-       :if [:div [:span {:style {:color "#c6c64b", :font-size "10px"}} "if"]
+              [:div
+               [:div
+                {:style {:color "rgba(255,255,255,0.5)",
+                         :font-size "9px",
+                         :margin-bottom "1px",
+                         :margin-top "4px",
+                         :text-transform "uppercase"}} (str "arg " i)]
+               [slot-view block-id [:operands i] (str "arg " i) app-state]])]
+           ;; Bottom bar: + arg button
+           [:button
+            {:on-click (fn [e] (.stopPropagation e) (sync! app-state)),
+             :style {:background "rgba(255,255,255,0.1)",
+                     :border "1px solid rgba(255,255,255,0.2)",
+                     :color "#fff",
+                     :cursor "pointer",
+                     :font-size "10px",
+                     :font-weight "bold",
+                     :padding "2px 10px",
+                     :border-radius "10px"}} "+ arg"]])
+      :if [c-block bg
+           border-color
+             ;; Top bar
+             [:span
+              {:style {:color "#fff",
+                       :font-size "11px",
+                       :font-weight "bold",
+                       :text-transform "uppercase"}} "if"]
+           ;; Body: test / then / else sections with dividers
+           [:div
             [:div
-             {:style {:padding-left "10px",
-                      :border-left "2px solid #7a7a2d",
-                      :margin-top "4px"}}
-             [slot-view block-id :test "test" app-state]
-             [slot-view block-id :consequent "then" app-state]
-             [slot-view block-id :alternate "else" app-state]]]
-       [:div (str "?" btype)])]))
+             {:style {:color "rgba(255,255,255,0.5)",
+                      :font-size "9px",
+                      :text-transform "uppercase",
+                      :margin-bottom "2px"}} "test"]
+            [slot-view block-id :test "test" app-state]
+            [:div
+             {:style {:border-top (str "2px solid " bg),
+                      :margin "6px 0",
+                      :opacity "0.6",
+                      :pointer-events "none"}}]
+            [:div
+             {:style {:color "rgba(255,255,255,0.5)",
+                      :font-size "9px",
+                      :text-transform "uppercase",
+                      :margin-bottom "2px"}} "then"]
+            [slot-view block-id :consequent "then" app-state]
+            [:div
+             {:style {:border-top (str "2px solid " bg),
+                      :margin "6px 0",
+                      :opacity "0.6",
+                      :pointer-events "none"}}]
+            [:div
+             {:style {:color "rgba(255,255,255,0.5)",
+                      :font-size "9px",
+                      :text-transform "uppercase",
+                      :margin-bottom "2px"}} "else"]
+            [slot-view block-id :alternate "else" app-state]]
+             ;; Bottom bar: empty
+             nil]
+      [:div (str "?" btype)])))
 
 
 ;; =============================================================================
@@ -451,30 +686,49 @@
 
 (defn- palette-item
   [template label]
-  [:div
-   {:draggable true,
-    :on-drag-start
-      (fn [e] (.setData (.-dataTransfer e) "text/plain" (pr-str template))),
-    :style {:background "#0e1328",
-            :border "1px solid #2d3b55",
-            :border-radius "4px",
-            :padding "3px 8px",
-            :margin "2px 0",
-            :cursor "grab",
-            :font-size "11px",
-            :color "#c5c6c7",
-            :user-select "none"}} label])
+  (let [btype (:type template)
+        bg (get type-colors btype "#1a1a2e")
+        border-color (get type-border-colors btype "#2d3b55")
+        expression? (#{:literal :variable} btype)]
+    [:div
+     {:draggable true,
+      :on-drag-start
+        (fn [e] (.setData (.-dataTransfer e) "text/plain" (pr-str template))),
+      :style {:display "flex",
+              :align-items "center",
+              :margin "3px 0",
+              :cursor "grab",
+              :user-select "none",
+              :filter "drop-shadow(0 1px 2px rgba(0,0,0,0.3))"}}
+     ;; Mini output tab for expression blocks
+     (when expression?
+       [:div
+        {:style {:width "5px",
+                 :height "14px",
+                 :background bg,
+                 :border-radius "0 3px 3px 0",
+                 :margin-right "-1px",
+                 :flex-shrink "0"}}])
+     [:div
+      {:style {:background bg,
+               :border (str "1.5px solid " border-color),
+               :border-radius (if expression? "14px" "4px"),
+               :padding "3px 10px",
+               :font-size "11px",
+               :font-family "monospace",
+               :color "#fff",
+               :flex "1"}} label]]))
 
 
 (defn- palette-view
   []
   (let [collapsed-groups (r/atom #{})]
     (fn [] [:div
-            {:style {:width "110px",
+            {:style {:width "130px",
                      :flex-shrink "0",
                      :overflow-y "auto",
                      :border-right "1px solid #2d3b55",
-                     :padding "4px"}}
+                     :padding "6px"}}
             (for [{:keys [label items]} palette-groups]
               ^{:key label}
               [:div {:style {:margin-bottom "4px"}}
@@ -516,7 +770,9 @@
                             (sync! app-state))
                           (catch js/Error _ nil)))))}
      (if root-id
-       [:div [block-view root-id app-state]
+       [:div
+        {:on-drag-over (fn [e] (.stopPropagation e)),
+         :on-drop (fn [e] (.stopPropagation e))} [block-view root-id app-state]
         [:button
          {:on-click (fn [] (remove-block! root-id) (sync! app-state)),
           :style {:background "#3a1a1a",
