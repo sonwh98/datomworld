@@ -155,8 +155,8 @@
   (testing "Stack assembly from :yin/ datoms - literal"
     (let [datoms (vm/ast->datoms {:type :literal, :value 42})
           asm-instrs (asm/ast-datoms->stack-assembly datoms)
-          [bytes pool] (asm/stack-assembly->bytecode asm-instrs)]
-      (is (= 42 (asm/run-bytes bytes pool))))))
+          {:keys [bc pool]} (asm/stack-assembly->bytecode asm-instrs)]
+      (is (= 42 (asm/run-bytes bc pool))))))
 
 
 (deftest stack-assembly-application-test
@@ -166,8 +166,8 @@
                                   :operands [{:type :literal, :value 10}
                                              {:type :literal, :value 20}]})
           asm-instrs (asm/ast-datoms->stack-assembly datoms)
-          [bytes pool] (asm/stack-assembly->bytecode asm-instrs)]
-      (is (= 30 (asm/run-bytes bytes pool primitives))))))
+          {:keys [bc pool]} (asm/stack-assembly->bytecode asm-instrs)]
+      (is (= 30 (asm/run-bytes bc pool primitives))))))
 
 
 (deftest stack-assembly-lambda-test
@@ -182,8 +182,8 @@
                                                  {:type :literal, :value 1}]}},
                     :operands [{:type :literal, :value 10}]})
           asm-instrs (asm/ast-datoms->stack-assembly datoms)
-          [bytes pool] (asm/stack-assembly->bytecode asm-instrs)]
-      (is (= 11 (asm/run-bytes bytes pool primitives))))))
+          {:keys [bc pool]} (asm/stack-assembly->bytecode asm-instrs)]
+      (is (= 11 (asm/run-bytes bc pool primitives))))))
 
 
 (deftest stack-assembly-conditional-test
@@ -193,13 +193,13 @@
                                   :consequent {:type :literal, :value :yes},
                                   :alternate {:type :literal, :value :no}})
           asm-instrs (asm/ast-datoms->stack-assembly datoms)
-          [bytes pool] (asm/stack-assembly->bytecode asm-instrs)]
-      (is (= :yes (asm/run-bytes bytes pool)))))
+          {:keys [bc pool]} (asm/stack-assembly->bytecode asm-instrs)]
+      (is (= :yes (asm/run-bytes bc pool)))))
   (testing "Stack assembly from :yin/ datoms - conditional false"
     (let [datoms (vm/ast->datoms {:type :if,
                                   :test {:type :literal, :value false},
                                   :consequent {:type :literal, :value :yes},
                                   :alternate {:type :literal, :value :no}})
           asm-instrs (asm/ast-datoms->stack-assembly datoms)
-          [bytes pool] (asm/stack-assembly->bytecode asm-instrs)]
-      (is (= :no (asm/run-bytes bytes pool))))))
+          {:keys [bc pool]} (asm/stack-assembly->bytecode asm-instrs)]
+      (is (= :no (asm/run-bytes bc pool))))))
