@@ -7,41 +7,13 @@
             [cljs.pprint :as pprint]
             [cljs.reader :as reader]
             [clojure.string :as str]
-            [datascript.core :as d]
-            [datascript.db :as db]
-            [datascript.query :as dq]
+            [datomworld.structural-editor :as structural-editor]
             [reagent.core :as r]
             [reagent.dom :as rdom]
             [yang.clojure :as yang]
             [yang.python :as py]
             [yin.asm :as asm]
             [yin.vm :as vm]))
-
-
-;; Fix DataScript query under Closure advanced compilation.
-;; ClojureScript uses .v for protocol bitmaps on all types. Under :advanced,
-;; the Closure Compiler renames Datom's value field from .v to avoid collision,
-;; but DataScript's query engine accesses it via raw JS bracket notation
-;; datom["v"], which returns the protocol bitmap (an integer) instead of the
-;; actual value. Fix: convert Datom tuples to JS arrays using nth (which goes
-;; through IIndexed and resolves the renamed field correctly).
-(let [original-lookup dq/lookup-pattern-db
-      prop->idx {"e" 0, "a" 1, "v" 2, "tx" 3}]
-  (set! dq/lookup-pattern-db
-        (fn [context db pattern]
-          (let [rel (original-lookup context db pattern)
-                tuples (:tuples rel)]
-            (if (and (seq tuples) (instance? db/Datom (first tuples)))
-              (let [new-attrs (reduce-kv (fn [m k v]
-                                           (assoc m k (get prop->idx v v)))
-                                         {}
-                                         (:attrs rel))
-                    new-tuples (mapv (fn [d]
-                                       (to-array [(nth d 0) (nth d 1) (nth d 2)
-                                                  (nth d 3) (nth d 4)]))
-                                 tuples)]
-                (dq/->Relation new-attrs new-tuples))
-              rel)))))
 
 
 (defn pretty-print
@@ -51,15 +23,13 @@
 
 
 (def default-positions
-  {:source {:x 20, :y 180, :w 350, :h 450},
+  {:structural-editor {:x 20, :y 180, :w 350, :h 450},
+   :source {:x 20, :y 650, :w 350, :h 450},
    :ast {:x 420, :y 180, :w 380, :h 450},
    :assembly {:x 850, :y 180, :w 400, :h 450},
    :register {:x 1300, :y 180, :w 350, :h 450},
    :stack {:x 1300, :y 650, :w 350, :h 450},
    :query {:x 850, :y 650, :w 400, :h 450}})
-
-
-(defonce ds-conn (d/create-conn vm/schema))
 
 
 (defonce app-state
@@ -81,9 +51,12 @@
      :stack-bc nil,
      :stack-result nil,
      :query-text "[:find ?e ?type\n :where [?e :yin/type ?type]]",
+     :query-inputs "",
      :query-result nil,
      :error nil,
      :ui-positions default-positions,
+     :z-order (vec (keys default-positions)),
+     :collapsed #{},
      :drag-state nil,
      :resize-state nil}))
 
@@ -214,12 +187,10 @@
             all-datoms (vec (mapcat identity all-datom-groups))
             root-ids (mapv ffirst all-datom-groups)
             ;; Transact into DataScript
-            tx-data (vm/datoms->tx-data all-datoms)
-            conn (d/create-conn vm/schema)
-            {:keys [tempids]} (d/transact! conn tx-data)
-            db @conn
+            {:keys [db tempids]} (vm/transact! all-datoms)
             root-eids (mapv #(get tempids %) root-ids)
-            ;; root-ids are tempids for raw datom traversal (run-semantic)
+            ;; root-ids are tempids for raw datom traversal
+            ;; (run-semantic)
             ;; root-eids are resolved DataScript entity IDs (for d/q)
             stats {:total-datoms (count all-datoms),
                    :lambdas (count (asm/find-lambdas all-datoms)),
@@ -264,6 +235,20 @@
                :assembly-result nil))))))
 
 
+(defn- parse-in-bindings
+  "Extract extra binding symbols from a query's :in clause (everything after $)."
+  [query]
+  (let [pairs (partition 2 1 query)
+        in-idx (some (fn [[a b]] (when (= a :in) b)) pairs)]
+    (when in-idx
+      (let [in-start (.indexOf query :in)
+            ;; Collect symbols after :in until next keyword or end
+            after-in (drop (inc in-start) query)
+            bindings (take-while #(not (keyword? %)) after-in)]
+        ;; Drop the implicit $ binding
+        (filter #(not= % '$) bindings)))))
+
+
 (defn run-query
   []
   (let [db (:ds-db @app-state)]
@@ -272,7 +257,13 @@
         :error "No DataScript db. Click \"Asm ->\" first."
         :query-result nil)
       (try (let [query (reader/read-string (:query-text @app-state))
-                 result (d/q query db)]
+                 extra-bindings (parse-in-bindings query)
+                 extra-vals (when (seq extra-bindings)
+                              (let [input-text (or (:query-inputs @app-state)
+                                                   "")]
+                                (reader/read-string (str "[" input-text "]"))))
+                 args (into [query db] extra-vals)
+                 result (apply vm/q args)]
              (swap! app-state assoc :query-result result :error nil))
            (catch js/Error e
              (swap! app-state assoc
@@ -428,10 +419,27 @@
       "[:find ?e ?op\n :where\n [?e :yin/type :application]\n [?e :yin/operator ?op]]"}
    {:name "Find conditionals", :query "[:find ?e\n :where [?e :yin/type :if]]"}
    {:name "All attributes for entity",
-    :query "[:find ?a ?v\n :in $ ?e\n :where [?e ?a ?v]]"}
+    :query "[:find ?e ?a ?v\n :where [?e ?a ?v]]"}
    {:name "Lambda body structure",
     :query
-      "[:find ?lam ?body ?body-type\n :where\n [?lam :yin/type :lambda]\n [?lam :yin/body ?body]\n [?body :yin/type ?body-type]]"}])
+      "[:find ?lam ?body ?body-type\n :where\n [?lam :yin/type :lambda]\n [?lam :yin/body ?body]\n [?body :yin/type ?body-type]]"}
+   {:name "AST depth (app nesting)",
+    :query
+      "[:find ?app ?op-type\n :where\n [?app :yin/type :application]\n [?app :yin/operator ?op]\n [?op :yin/type ?op-type]]"}
+   {:name "Leaf nodes (no children)",
+    :query
+      "[:find ?e ?type\n :where\n [?e :yin/type ?type]\n (not [?e :yin/body _])\n (not [?e :yin/operator _])\n (not [?e :yin/test _])]"}
+   {:name "Nested applications",
+    :query
+      "[:find ?outer ?inner\n :where\n [?outer :yin/type :application]\n [?outer :yin/operands ?inner]\n [?inner :yin/type :application]]"}
+   {:name "If-branch types",
+    :query
+      "[:find ?if ?cons-type ?alt-type\n :where\n [?if :yin/type :if]\n [?if :yin/consequent ?cons]\n [?cons :yin/type ?cons-type]\n [?if :yin/alternate ?alt]\n [?alt :yin/type ?alt-type]]"}
+   {:name "Lambda call sites",
+    :query
+      "[:find ?app ?lam\n :where\n [?app :yin/type :application]\n [?app :yin/operator ?lam]\n [?lam :yin/type :lambda]]"}
+   {:name "Entity count by type",
+    :query "[:find ?type (count ?e)\n :where [?e :yin/type ?type]]"}])
 
 
 (defn query-menu
@@ -440,30 +448,44 @@
    (fn [ex] (swap! app-state assoc :query-text (:query ex)))])
 
 
+(defn bring-to-front!
+  [id]
+  (swap! app-state update
+    :z-order
+    (fn [order] (conj (vec (remove #(= % id) order)) id))))
+
+
 (defn draggable-card
   [id title content]
   (let [positions (r/cursor app-state [:ui-positions])
+        z-order (r/cursor app-state [:z-order])
+        collapsed-state (r/cursor app-state [:collapsed])
         drag-state (r/cursor app-state [:drag-state])
         resize-state (r/cursor app-state [:resize-state])
         pos (get @positions id)
-        z-index (cond (= (:id @drag-state) id) 100
-                      (= (:id @resize-state) id) 100
-                      :else 10)]
+        collapsed? (contains? @collapsed-state id)
+        base-z (or (some-> @z-order
+                           (.indexOf id)
+                           (+ 10))
+                   10)
+        z-index (cond (= (:id @drag-state) id) 1000
+                      (= (:id @resize-state) id) 1000
+                      :else base-z)]
     [:div
-     {:style {:position "absolute",
+     {:on-mouse-down #(bring-to-front! id),
+      :style {:position "absolute",
               :left (:x pos),
               :top (:y pos),
               :width (:w pos),
-              :height (:h pos),
-              :min-height "200px",
+              :height (if collapsed? "auto" (:h pos)),
+              :min-height (if collapsed? "auto" "200px"),
               :background "#0e1328",
               :border "1px solid #2d3b55",
               :box-shadow "0 10px 25px rgba(0,0,0,0.5)",
               :z-index z-index,
               :color "#c5c6c7",
               :display "flex",
-              :flex-direction "column",
-              :overflow "hidden"}}
+              :flex-direction "column"}}
      [:div
       {:style {:background "#151b33",
                :padding "5px 10px",
@@ -480,30 +502,43 @@
                         (reset! drag-state {:id id,
                                             :start-x (.-clientX e),
                                             :start-y (.-clientY e),
-                                            :initial-pos pos}))} title]
-     [:div
-      {:style {:padding "10px",
-               :flex "1",
-               :display "flex",
-               :flex-direction "column",
-               :overflow "hidden"}} content]
+                                            :initial-pos pos}))} [:span title]
+      [:button
+       {:on-click (fn [e]
+                    (.stopPropagation e)
+                    (swap! collapsed-state (if collapsed? disj conj) id)),
+        :style {:background "none",
+                :border "none",
+                :color "#c5c6c7",
+                :cursor "pointer",
+                :font-size "16px",
+                :line-height "1",
+                :padding "0 5px"}} (if collapsed? "+" "−")]]
+     (when-not collapsed?
+       [:div
+        {:style {:padding "10px",
+                 :flex "1",
+                 :display "flex",
+                 :flex-direction "column",
+                 :overflow "hidden"}} content])
      ;; Resize handle
-     [:div
-      {:style {:position "absolute",
-               :bottom "0",
-               :right "0",
-               :width "15px",
-               :height "15px",
-               :cursor "nwse-resize",
-               :background
-                 "linear-gradient(135deg, transparent 50%, #2d3b55 50%)"},
-       :on-mouse-down (fn [e]
-                        (.preventDefault e)
-                        (.stopPropagation e)
-                        (reset! resize-state {:id id,
-                                              :start-x (.-clientX e),
-                                              :start-y (.-clientY e),
-                                              :initial-pos pos}))}]]))
+     (when-not collapsed?
+       [:div
+        {:style {:position "absolute",
+                 :bottom "0",
+                 :right "0",
+                 :width "15px",
+                 :height "15px",
+                 :cursor "nwse-resize",
+                 :background
+                   "linear-gradient(135deg, transparent 50%, #2d3b55 50%)"},
+         :on-mouse-down (fn [e]
+                          (.preventDefault e)
+                          (.stopPropagation e)
+                          (reset! resize-state {:id id,
+                                                :start-x (.-clientX e),
+                                                :start-y (.-clientY e),
+                                                :initial-pos pos}))}])]))
 
 
 (defn connection-line
@@ -599,7 +634,7 @@
                    :color "#c5c6c7"}}
           [:h1
            {:style {:margin "20px", :pointer-events "none", :color "#f1f5ff"}}
-           "Datomworld Yin VM Explorer"]
+           "Datomworld Yin VM Compilation Pipeline"]
           [:svg
            {:style {:position "absolute",
                     :top 0,
@@ -608,11 +643,15 @@
                     :height "100%",
                     :pointer-events "none",
                     :z-index 0}}
+           [connection-line :structural-editor :ast "Build ->"
+            #(structural-editor/sync! app-state)]
            [connection-line :source :ast "AST ->" compile-source]
            [connection-line :ast :assembly "Asm ->" compile-ast]
            [connection-line :assembly :register "Reg ->" compile-register]
            [connection-line :assembly :stack "Stack ->" compile-stack]
            [connection-line :assembly :query "d/q ->" run-query]]
+          [draggable-card :structural-editor "Structural Editor"
+           [structural-editor/editor app-state]]
           [draggable-card :source
            [:div
             {:style {:display "flex",
@@ -776,6 +815,27 @@
              {:value (:query-text @app-state),
               :on-change (fn [v] (swap! app-state assoc :query-text v)),
               :style {:flex "1", :min-height "80px"}}]
+            [:div
+             {:style {:display "flex",
+                      :align-items "center",
+                      :gap "5px",
+                      :margin-top "5px"}}
+             [:span {:style {:font-size "11px", :color "#8b949e"}} ":in"]
+             [:input
+              {:value (:query-inputs @app-state),
+               :placeholder "extra inputs (e.g. 1)",
+               :on-change
+                 (fn [e]
+                   (swap! app-state assoc :query-inputs (.. e -target -value))),
+               :style {:flex "1",
+                       :background "#0a0f1e",
+                       :border "1px solid #2d3b55",
+                       :border-radius "4px",
+                       :color "#c5c6c7",
+                       :font-size "12px",
+                       :font-family "monospace",
+                       :padding "3px 6px",
+                       :outline "none"}}]]
             [:button
              {:on-click run-query,
               :style {:marginTop "5px",
