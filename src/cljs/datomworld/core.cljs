@@ -182,15 +182,17 @@
   []
   (let [compiled (:stack-bc @app-state)
         pools (:stack-pool @app-state)
-        results (if (seq compiled)
+        results (if (and (seq compiled) (seq pools))
                   (mapv vector compiled pools)
                   (mapv (juxt :bc :pool) (compile-stack)))]
     (when (seq results)
       (try
         (let [initial-env vm/primitives
-              run-results (mapv (fn [[bytes pool]]
-                                  (asm/run-bytes bytes pool initial-env))
-                            results)]
+              run-results
+                (mapv (fn [[bytes pool]]
+                        (asm/stack-run
+                          (asm/make-stack-state bytes pool initial-env)))
+                  results)]
           (swap! app-state assoc :stack-result (last run-results) :error nil))
         (catch js/Error e
           (swap! app-state assoc
@@ -230,6 +232,9 @@
 (declare run-stack-loop)
 
 
+(def steps-per-frame 100)
+
+
 (defn toggle-run-stack
   "Toggle auto-stepping for stack VM."
   []
@@ -242,10 +247,23 @@
   "Auto-step loop for stack VM using requestAnimationFrame."
   []
   (let [running (get-in @app-state [:vm-states :stack :running])
-        state (get-in @app-state [:vm-states :stack :state])]
-    (when (and running state (not (:halted state)))
-      (step-stack)
-      (js/requestAnimationFrame run-stack-loop))))
+        initial-state (get-in @app-state [:vm-states :stack :state])]
+    (when (and running initial-state (not (:halted initial-state)))
+      (try
+        (loop [i 0
+               state initial-state]
+          (if (or (>= i steps-per-frame) (:halted state))
+            (do (swap! app-state assoc-in [:vm-states :stack :state] state)
+                (if (:halted state)
+                  (do (swap! app-state assoc :stack-result (:value state))
+                      (swap! app-state assoc-in
+                        [:vm-states :stack :running]
+                        false))
+                  (js/requestAnimationFrame run-stack-loop)))
+            (recur (inc i) (asm/stack-step state))))
+        (catch js/Error e
+          (swap! app-state assoc :error (str "Stack VM Error: " (.-message e)))
+          (swap! app-state assoc-in [:vm-states :stack :running] false))))))
 
 
 (defn compile-ast
@@ -366,10 +384,25 @@
   "Auto-step loop for semantic VM using requestAnimationFrame."
   []
   (let [running (get-in @app-state [:vm-states :assembly :running])
-        state (get-in @app-state [:vm-states :assembly :state])]
-    (when (and running state (not (:halted state)))
-      (step-assembly)
-      (js/requestAnimationFrame run-assembly-loop))))
+        initial-state (get-in @app-state [:vm-states :assembly :state])]
+    (when (and running initial-state (not (:halted initial-state)))
+      (try
+        (loop [i 0
+               state initial-state]
+          (if (or (>= i steps-per-frame) (:halted state))
+            (do (swap! app-state assoc-in [:vm-states :assembly :state] state)
+                (if (:halted state)
+                  (do (swap! app-state assoc :assembly-result (:value state))
+                      (swap! app-state assoc-in
+                        [:vm-states :assembly :running]
+                        false))
+                  (js/requestAnimationFrame run-assembly-loop)))
+            (recur (inc i) (asm/semantic-step state))))
+        (catch js/Error e
+          (swap! app-state assoc
+            :error
+            (str "Assembly VM Error: " (.-message e)))
+          (swap! app-state assoc-in [:vm-states :assembly :running] false))))))
 
 
 (defn- parse-in-bindings
@@ -432,6 +465,7 @@
         (swap! app-state assoc
           :register-asm (mapv :asm results)
           :register-bc (mapv :bc results)
+          :register-pool (mapv :pool results)
           :register-source-map (mapv :source-map results)
           :error nil)
         ;; Initialize stepping state
@@ -451,11 +485,15 @@
   "Run register VM to completion (legacy behavior)."
   []
   (let [compiled (:register-bc @app-state)
-        compiled-results (or compiled (map :bc (compile-register)))]
+        pools (:register-pool @app-state)
+        compiled-results
+          (if (and (seq compiled) (seq pools))
+            (mapv (fn [bc pool] {:bc bc, :pool pool}) compiled pools)
+            (map (fn [r] {:bc (:bc r), :pool (:pool r)}) (compile-register)))]
     (when (seq compiled-results)
       (try (let [initial-env vm/primitives
-                 results (mapv (fn [bc-data]
-                                 (let [state (vm/make-rbc-bc-state bc-data
+                 results (mapv (fn [compiled]
+                                 (let [state (vm/make-rbc-bc-state compiled
                                                                    initial-env)
                                        final-state (vm/rbc-run-bc state)]
                                    (:value final-state)))
@@ -488,9 +526,11 @@
 (defn reset-register
   "Reset register VM to initial state from compiled bytecode."
   []
-  (let [bc (last (:register-bc @app-state))]
-    (when bc
-      (let [initial-state (vm/make-rbc-bc-state bc vm/primitives)]
+  (let [bc (last (:register-bc @app-state))
+        pool (last (:register-pool @app-state))]
+    (when (and bc pool)
+      (let [initial-state (vm/make-rbc-bc-state {:bc bc, :pool pool}
+                                                vm/primitives)]
         (swap! app-state assoc-in [:vm-states :register :state] initial-state)
         (swap! app-state assoc-in [:vm-states :register :running] false)
         (swap! app-state assoc :register-result nil)))))
@@ -511,10 +551,25 @@
   "Auto-step loop for register VM using requestAnimationFrame."
   []
   (let [running (get-in @app-state [:vm-states :register :running])
-        state (get-in @app-state [:vm-states :register :state])]
-    (when (and running state (not (:halted state)))
-      (step-register)
-      (js/requestAnimationFrame run-register-loop))))
+        initial-state (get-in @app-state [:vm-states :register :state])]
+    (when (and running initial-state (not (:halted initial-state)))
+      (try
+        (loop [i 0
+               state initial-state]
+          (if (or (>= i steps-per-frame) (:halted state))
+            (do (swap! app-state assoc-in [:vm-states :register :state] state)
+                (if (:halted state)
+                  (do (swap! app-state assoc :register-result (:value state))
+                      (swap! app-state assoc-in
+                        [:vm-states :register :running]
+                        false))
+                  (js/requestAnimationFrame run-register-loop)))
+            (recur (inc i) (vm/rbc-step-bc state))))
+        (catch js/Error e
+          (swap! app-state assoc
+            :error
+            (str "Register VM Error: " (.-message e)))
+          (swap! app-state assoc-in [:vm-states :register :running] false))))))
 
 
 (defn compile-source
@@ -707,7 +762,9 @@
                 :background "#0d1117",
                 :border "1px solid #30363d",
                 :font-size "11px",
-                :font-family "monospace"}}
+                :font-family "monospace",
+                :overflow "auto",
+                :max-height "150px"}}
        [:div
         {:style {:display "flex",
                  :justify-content "space-between",
@@ -745,7 +802,9 @@
                 :background "#0d1117",
                 :border "1px solid #30363d",
                 :font-size "11px",
-                :font-family "monospace"}}
+                :font-family "monospace",
+                :overflow "auto",
+                :max-height "150px"}}
        [:div
         {:style {:display "flex",
                  :justify-content "space-between",
@@ -784,7 +843,9 @@
                 :background "#0d1117",
                 :border "1px solid #30363d",
                 :font-size "11px",
-                :font-family "monospace"}}
+                :font-family "monospace",
+                :overflow "auto",
+                :max-height "150px"}}
        [:div
         {:style {:display "flex",
                  :justify-content "space-between",
@@ -994,6 +1055,7 @@
   [datoms active-id]
   [:div
    {:style {:flex "1",
+            :min-height "0",
             :overflow "auto",
             :font-family "monospace",
             :font-size "12px",
@@ -1016,6 +1078,7 @@
   [instructions active-idx]
   [:div
    {:style {:flex "1",
+            :min-height "0",
             :overflow "auto",
             :font-family "monospace",
             :font-size "12px",
@@ -1154,13 +1217,15 @@
                 :step-fn step-assembly,
                 :toggle-run-fn toggle-run-assembly,
                 :reset-fn reset-assembly}] [semantic-vm-state-display]
-              (when (:assembly-result @app-state)
+              (when (and asm-vm-state (:halted asm-vm-state))
                 [:div
                  {:style {:marginTop "5px",
                           :background "#0d1117",
                           :padding "5px",
-                          :border "1px solid #30363d"}} [:strong "Result: "]
-                 (pr-str (:assembly-result @app-state))])]]
+                          :border "1px solid #30363d",
+                          :overflow "auto",
+                          :max-height "150px"}} [:strong "Result: "]
+                 (pr-str (:value asm-vm-state))])]]
             [draggable-card :register "Register VM"
              [:div
               {:style {:display "flex",
@@ -1173,13 +1238,15 @@
                 :step-fn step-register,
                 :toggle-run-fn toggle-run-register,
                 :reset-fn reset-register}] [register-vm-state-display]
-              (when (:register-result @app-state)
+              (when (and reg-state (:halted reg-state))
                 [:div
                  {:style {:marginTop "5px",
                           :background "#0d1117",
                           :padding "5px",
-                          :border "1px solid #30363d"}} [:strong "Result: "]
-                 (pr-str (:register-result @app-state))])]]
+                          :border "1px solid #30363d",
+                          :overflow "auto",
+                          :max-height "150px"}} [:strong "Result: "]
+                 (pr-str (:value reg-state))])]]
             [draggable-card :stack "Stack VM"
              [:div
               {:style {:display "flex",
@@ -1192,13 +1259,15 @@
                 :step-fn step-stack,
                 :toggle-run-fn toggle-run-stack,
                 :reset-fn reset-stack}] [stack-vm-state-display]
-              (when (:stack-result @app-state)
+              (when (and stack-state (:halted stack-state))
                 [:div
                  {:style {:marginTop "5px",
                           :background "#0d1117",
                           :padding "5px",
-                          :border "1px solid #30363d"}} [:strong "Result: "]
-                 (pr-str (:stack-result @app-state))])]]
+                          :border "1px solid #30363d",
+                          :overflow "auto",
+                          :max-height "150px"}} [:strong "Result: "]
+                 (pr-str (:value stack-state))])]]
             [draggable-card :query "Datalog Query"
              [:div
               {:style {:display "flex",
