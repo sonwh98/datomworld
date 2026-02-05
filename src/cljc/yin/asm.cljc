@@ -310,7 +310,7 @@
 
 (defn stack-assembly->bytecode
   "Convert symbolic stack assembly to numeric bytecode.
-   Returns [bytes pool]."
+   Returns {:bc bytes :pool pool :source-map {byte-offset instr-index}}."
   [instructions]
   (let [pool (atom [])
         pool-index (atom {})
@@ -343,14 +343,18 @@
         (swap! current-offset + (instr-size instr))))
     ;; Pass 2: Emit bytes
     (let [bytes (atom [])
+          source-map (atom {})
           emit-byte! (fn [b] (swap! bytes conj b))
           emit-short! (fn [s]
                         (emit-byte! (bit-shift-right (bit-and s 0xFF00) 8))
                         (emit-byte! (bit-and s 0xFF)))
           ;; Re-calculate current offset during emission for relative jumps
           emit-offset (atom 0)]
-      (doseq [instr instructions]
-        (let [[op arg1 arg2] instr]
+      (doseq [[idx instr] (map-indexed vector instructions)]
+        (let [[op arg1 arg2] instr
+              start-offset @emit-offset]
+          ;; Record source map
+          (when (not= :label op) (swap! source-map assoc start-offset idx))
           (case op
             :push (let [idx (add-constant arg1)]
                     (emit-byte! OP_LITERAL)
@@ -390,7 +394,7 @@
             :return (do (emit-byte! OP_RETURN) (swap! emit-offset + 1))
             :label nil ; No code emitted
           )))
-      [@bytes @pool])))
+      {:bc @bytes, :pool @pool, :source-map @source-map})))
 
 
 ;; --- Numeric Bytecode VM ---

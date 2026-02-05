@@ -1184,8 +1184,9 @@
           fixed (reduce (fn [bc [pos asm-addr]]
                           (assoc bc pos (get offsets asm-addr asm-addr)))
                   @bytecode
-                  @fixups)]
-      {:bc fixed, :pool @pool})))
+                  @fixups)
+          source-map (into {} (map (fn [[k v]] [v k]) offsets))]
+      {:bc fixed, :pool @pool, :source-map source-map})))
 
 
 (defn make-rbc-state

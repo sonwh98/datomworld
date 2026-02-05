@@ -45,9 +45,11 @@
      :register-asm nil,
      :register-bc nil,
      :register-result nil,
+     :register-source-map nil,
      :stack-asm nil,
      :stack-bc nil,
      :stack-result nil,
+     :stack-source-map nil,
      :query-text "[:find ?e ?type\n :where [?e :yin/type ?type]]",
      :query-inputs "",
      :query-result nil,
@@ -138,36 +140,41 @@
 (defn compile-stack
   []
   (let [input (:ast-as-text @app-state)]
-    (try (let [forms (reader/read-string (str "[" input "]"))
-               results (mapv (fn [ast]
-                               (let [datoms (vm/ast->datoms ast)
-                                     asm (asm/ast-datoms->stack-assembly datoms)
-                                     [bc pool] (asm/stack-assembly->bytecode
-                                                 asm)]
-                                 {:asm asm, :bc bc, :pool pool}))
-                         forms)
-               ;; Initialize VM state from last compiled result
-               last-result (last results)
-               initial-state (when last-result
-                               (asm/make-stack-state (:bc last-result)
-                                                     (:pool last-result)
-                                                     vm/primitives))]
-           (swap! app-state assoc
-             :stack-asm (mapv :asm results)
-             :stack-bc (mapv :bc results)
-             :stack-pool (mapv :pool results)
-             :error nil)
-           ;; Initialize stepping state
-           (swap! app-state assoc-in [:vm-states :stack :state] initial-state)
-           (swap! app-state assoc-in [:vm-states :stack :running] false)
-           results)
-         (catch js/Error e
-           (swap! app-state assoc
-             :error (str "Stack Compile Error: " (.-message e))
-             :stack-asm nil
-             :stack-bc nil)
-           (swap! app-state assoc-in [:vm-states :stack :state] nil)
-           nil))))
+    (try
+      (let [forms (reader/read-string (str "[" input "]"))
+            results
+              (mapv (fn [ast]
+                      (let [datoms (vm/ast->datoms ast)
+                            asm (asm/ast-datoms->stack-assembly datoms)
+                            result (asm/stack-assembly->bytecode asm)
+                            bc (:bc result)
+                            pool (:pool result)
+                            source-map (:source-map result)]
+                        {:asm asm, :bc bc, :pool pool, :source-map source-map}))
+                forms)
+            ;; Initialize VM state from last compiled result
+            last-result (last results)
+            initial-state (when last-result
+                            (asm/make-stack-state (:bc last-result)
+                                                  (:pool last-result)
+                                                  vm/primitives))]
+        (swap! app-state assoc
+          :stack-asm (mapv :asm results)
+          :stack-bc (mapv :bc results)
+          :stack-pool (mapv :pool results)
+          :stack-source-map (mapv :source-map results)
+          :error nil)
+        ;; Initialize stepping state
+        (swap! app-state assoc-in [:vm-states :stack :state] initial-state)
+        (swap! app-state assoc-in [:vm-states :stack :running] false)
+        results)
+      (catch js/Error e
+        (swap! app-state assoc
+          :error (str "Stack Compile Error: " (.-message e))
+          :stack-asm nil
+          :stack-bc nil)
+        (swap! app-state assoc-in [:vm-states :stack :state] nil)
+        nil))))
 
 
 (defn run-stack
@@ -406,19 +413,26 @@
   (let [input (:ast-as-text @app-state)]
     (try
       (let [forms (reader/read-string (str "[" input "]"))
-            results (mapv (fn [ast]
-                            (let [datoms (vm/ast->datoms ast)
-                                  asm (vm/ast-datoms->register-assembly datoms)
-                                  bc (vm/register-assembly->bytecode asm)]
-                              {:asm asm, :bc bc}))
-                      forms)
+            results
+              (mapv (fn [ast]
+                      (let [datoms (vm/ast->datoms ast)
+                            asm (vm/ast-datoms->register-assembly datoms)
+                            result (vm/register-assembly->bytecode asm)
+                            bc (:bc result)
+                            pool (:pool result)
+                            source-map (:source-map result)]
+                        {:asm asm, :bc bc, :pool pool, :source-map source-map}))
+                forms)
             ;; Initialize VM state from last compiled result
-            last-bc (last (mapv :bc results))
-            initial-state (when last-bc
-                            (vm/make-rbc-bc-state last-bc vm/primitives))]
+            last-result (last results)
+            initial-state (when last-result
+                            (vm/make-rbc-bc-state {:bc (:bc last-result),
+                                                   :pool (:pool last-result)}
+                                                  vm/primitives))]
         (swap! app-state assoc
           :register-asm (mapv :asm results)
           :register-bc (mapv :bc results)
+          :register-source-map (mapv :source-map results)
           :error nil)
         ;; Initialize stepping state
         (swap! app-state assoc-in [:vm-states :register :state] initial-state)
@@ -998,6 +1012,29 @@
                :border-bottom "1px solid #1e263a"}} (pr-str d)])])
 
 
+(defn instruction-list-view
+  [instructions active-idx]
+  [:div
+   {:style {:flex "1",
+            :overflow "auto",
+            :font-family "monospace",
+            :font-size "12px",
+            :background "#0e1328",
+            :color "#c5c6c7",
+            :padding "5px"}}
+   (for [[i instr] (map-indexed vector instructions)]
+     ^{:key i}
+     [:div
+      {:ref (fn [el]
+              (when (and el (= i active-idx))
+                (.scrollIntoView el
+                                 #js {:block "nearest", :behavior "smooth"}))),
+       :style {:background (if (= i active-idx) "#264f78" "transparent"),
+               :padding "2px 4px",
+               :border-bottom "1px solid #1e263a"}}
+      (str i ": " (pr-str instr))])])
+
+
 (defn hello-world
   []
   (r/create-class
@@ -1014,7 +1051,19 @@
          (let [asm-vm-state (get-in @app-state [:vm-states :assembly :state])
                asm-control (:control asm-vm-state)
                active-asm-id (when (= :node (:type asm-control))
-                               (:id asm-control))]
+                               (:id asm-control))
+               ;; Register VM state
+               reg-state (get-in @app-state [:vm-states :register :state])
+               reg-ip (:ip reg-state)
+               reg-asm (last (:register-asm @app-state))
+               reg-map (last (:register-source-map @app-state))
+               active-reg-idx (get reg-map reg-ip)
+               ;; Stack VM state
+               stack-state (get-in @app-state [:vm-states :stack :state])
+               stack-pc (:pc stack-state)
+               stack-asm (last (:stack-asm @app-state))
+               stack-map (last (:stack-source-map @app-state))
+               active-stack-idx (get stack-map stack-pc)]
            [:div
             {:style {:width "100%",
                      :height "100vh",
@@ -1118,15 +1167,7 @@
                        :flex-direction "column",
                        :flex "1",
                        :overflow "hidden"}}
-              [codemirror-editor
-               {:value (str (if (:register-asm @app-state)
-                              (pretty-print (:register-asm @app-state))
-                              "")
-                            (if (:register-bc @app-state)
-                              (str "\n--- BC ---\n"
-                                   (pretty-print (:register-bc @app-state)))
-                              "")),
-                :read-only true}]
+              [instruction-list-view reg-asm active-reg-idx]
               [vm-control-buttons
                {:vm-key :register,
                 :step-fn step-register,
@@ -1145,15 +1186,7 @@
                        :flex-direction "column",
                        :flex "1",
                        :overflow "hidden"}}
-              [codemirror-editor
-               {:value (str (if (:stack-asm @app-state)
-                              (pretty-print (:stack-asm @app-state))
-                              "")
-                            (if (:stack-bc @app-state)
-                              (str "\n--- BC ---\n"
-                                   (pretty-print (:stack-bc @app-state)))
-                              "")),
-                :read-only true}]
+              [instruction-list-view stack-asm active-stack-idx]
               [vm-control-buttons
                {:vm-key :stack,
                 :step-fn step-stack,
