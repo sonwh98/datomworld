@@ -59,7 +59,8 @@
      :resize-state nil,
      ;; Per-window VM states for stepping execution
      :vm-states {:register {:state nil, :running false, :expanded false},
-                 :stack {:state nil, :running false, :expanded false}}}))
+                 :stack {:state nil, :running false, :expanded false},
+                 :assembly {:state nil, :running false, :expanded false}}}))
 
 
 (when (or (nil? (:ui-positions @app-state))
@@ -266,6 +267,18 @@
           :root-eids root-eids
           :assembly-stats stats
           :error nil)
+        ;; Initialize stepping state
+        (let [last-root (last root-ids)]
+          (when last-root
+            (let [initial-state (asm/make-semantic-state {:node last-root,
+                                                          :datoms all-datoms}
+                                                         vm/primitives)]
+              (swap! app-state assoc-in
+                [:vm-states :assembly :state]
+                initial-state)
+              (swap! app-state assoc-in
+                [:vm-states :assembly :running]
+                false))))
         all-datoms)
       (catch js/Error e
         (swap! app-state assoc
@@ -275,6 +288,7 @@
           :root-ids nil
           :root-eids nil
           :assembly-stats nil)
+        (swap! app-state assoc-in [:vm-states :assembly :state] nil)
         nil))))
 
 
@@ -295,6 +309,60 @@
              (swap! app-state assoc
                :error (str "Assembly Error: " (.-message e))
                :assembly-result nil))))))
+
+
+(defn step-assembly
+  "Execute one instruction in the semantic VM."
+  []
+  (let [state (get-in @app-state [:vm-states :assembly :state])]
+    (when (and state (not (:halted state)))
+      (try
+        (let [new-state (asm/semantic-step state)]
+          (swap! app-state assoc-in [:vm-states :assembly :state] new-state)
+          (when (:halted new-state)
+            (swap! app-state assoc :assembly-result (:value new-state))
+            (swap! app-state assoc-in [:vm-states :assembly :running] false)))
+        (catch js/Error e
+          (swap! app-state assoc
+            :error
+            (str "Assembly VM Step Error: " (.-message e)))
+          (swap! app-state assoc-in [:vm-states :assembly :running] false))))))
+
+
+(defn reset-assembly
+  "Reset semantic VM to initial state."
+  []
+  (let [datoms (:datoms @app-state)
+        root-ids (:root-ids @app-state)
+        last-root (last root-ids)]
+    (when (and datoms last-root)
+      (let [initial-state (asm/make-semantic-state {:node last-root,
+                                                    :datoms datoms}
+                                                   vm/primitives)]
+        (swap! app-state assoc-in [:vm-states :assembly :state] initial-state)
+        (swap! app-state assoc-in [:vm-states :assembly :running] false)
+        (swap! app-state assoc :assembly-result nil)))))
+
+
+(declare run-assembly-loop)
+
+
+(defn toggle-run-assembly
+  "Toggle auto-stepping for semantic VM."
+  []
+  (let [running (get-in @app-state [:vm-states :assembly :running])]
+    (swap! app-state assoc-in [:vm-states :assembly :running] (not running))
+    (when (not running) (run-assembly-loop))))
+
+
+(defn run-assembly-loop
+  "Auto-step loop for semantic VM using requestAnimationFrame."
+  []
+  (let [running (get-in @app-state [:vm-states :assembly :running])
+        state (get-in @app-state [:vm-states :assembly :state])]
+    (when (and running state (not (:halted state)))
+      (step-assembly)
+      (js/requestAnimationFrame run-assembly-loop))))
 
 
 (defn- parse-in-bindings
@@ -689,6 +757,53 @@
           [:div "Continuation: " (if (:k state) "yes" "none")]])])))
 
 
+(defn semantic-vm-state-display
+  "Display current state of semantic VM."
+  []
+  (let [vm-state (get-in @app-state [:vm-states :assembly])
+        state (:state vm-state)
+        expanded (:expanded vm-state)]
+    (when state
+      [:div
+       {:style {:margin-top "5px",
+                :padding "5px",
+                :background "#0d1117",
+                :border "1px solid #30363d",
+                :font-size "11px",
+                :font-family "monospace"}}
+       [:div
+        {:style {:display "flex",
+                 :justify-content "space-between",
+                 :align-items "center"}}
+        [:span {:style {:color "#8b949e"}}
+         (if (:halted state)
+           "HALTED"
+           (let [ctrl (:control state)]
+             (if (= :node (:type ctrl))
+               (str "Node: " (:id ctrl))
+               (str "Val: " (pr-str (:val ctrl))))))]
+        [:button
+         {:on-click
+            #(swap! app-state update-in [:vm-states :assembly :expanded] not),
+          :style {:background "none",
+                  :border "none",
+                  :color "#58a6ff",
+                  :cursor "pointer",
+                  :font-size "10px"}} (if expanded "Collapse" "Expand")]]
+       (when (and state (not (:halted state)))
+         (let [ctrl (:control state)
+               info (if (= :node (:type ctrl))
+                      (let [attrs (asm/get-node-attrs (:datoms state)
+                                                      (:id ctrl))]
+                        (str (:yin/type attrs)))
+                      "Returning...")]
+           [:div {:style {:color "#c5c6c7"}} info]))
+       (when expanded
+         [:div {:style {:margin-top "5px", :color "#8b949e"}}
+          [:div "Env: " (pr-str (keys (:env state)))]
+          [:div "Stack depth: " (count (:stack state))]])])))
+
+
 (defn bring-to-front!
   [id]
   (swap! app-state update
@@ -861,6 +976,28 @@
   (swap! app-state assoc :drag-state nil :resize-state nil))
 
 
+(defn datom-list-view
+  [datoms active-id]
+  [:div
+   {:style {:flex "1",
+            :overflow "auto",
+            :font-family "monospace",
+            :font-size "12px",
+            :background "#0e1328",
+            :color "#c5c6c7",
+            :padding "5px"}}
+   (for [[i d] (map-indexed vector datoms)]
+     ^{:key i}
+     [:div
+      {:ref (fn [el]
+              (when (and el (= (first d) active-id))
+                (.scrollIntoView el
+                                 #js {:block "nearest", :behavior "smooth"}))),
+       :style {:background (if (= (first d) active-id) "#264f78" "transparent"),
+               :padding "2px 4px",
+               :border-bottom "1px solid #1e263a"}} (pr-str d)])])
+
+
 (defn hello-world
   []
   (r/create-class
@@ -874,226 +1011,223 @@
          (js/window.removeEventListener "mouseup" handle-mouse-up)),
      :reagent-render
        (fn []
-         [:div
-          {:style {:width "100%",
-                   :height "100vh",
-                   :position "relative",
-                   :overflow "hidden",
-                   :background "#060817",
-                   :color "#c5c6c7"}}
-          [:h1
-           {:style {:margin "20px", :pointer-events "none", :color "#f1f5ff"}}
-           "Datomworld Yin VM Compilation Pipeline"]
-          [:svg
-           {:style {:position "absolute",
-                    :top 0,
-                    :left 0,
-                    :width "100%",
-                    :height "100%",
-                    :pointer-events "none",
-                    :z-index 0}}
-           [connection-line :source :ast "AST ->" compile-source]
-           [connection-line :ast :assembly "Asm ->" compile-ast]
-           [connection-line :assembly :register "Reg ->" compile-register]
-           [connection-line :assembly :stack "Stack ->" compile-stack]
-           [connection-line :assembly :query "d/q ->" run-query]]
-          [draggable-card :source "Source Code"
+         (let [asm-vm-state (get-in @app-state [:vm-states :assembly :state])
+               asm-control (:control asm-vm-state)
+               active-asm-id (when (= :node (:type asm-control))
+                               (:id asm-control))]
            [:div
-            {:style {:display "flex",
-                     :flex-direction "column",
-                     :flex "1",
-                     :overflow "hidden"}}
-            [:div
-             {:style {:display "flex",
-                      :justify-content "space-between",
-                      :align-items "center",
-                      :margin-bottom "5px"}}
-             [:select
-              {:value (:source-lang @app-state),
-               :on-change (fn [e]
-                            (swap! app-state assoc
-                              :source-lang
-                              (keyword (.. e -target -value)))),
-               :style {:background "#0e1328",
-                       :color "#c5c6c7",
-                       :border "1px solid #2d3b55"}}
-              [:option {:value "clojure"} "Clojure"]
-              [:option {:value "python"} "Python"]] [hamburger-menu]]
-            [codemirror-editor
-             {:key (:source-lang @app-state),
-              :value (:source-code @app-state),
-              :language (:source-lang @app-state),
-              :on-change (fn [v] (swap! app-state assoc :source-code v))}]
-            [:div
-             {:style {:marginTop "10px", :fontSize "0.8em", :color "#8b949e"}}
-             "Select examples from the menu ☰ above."]]]
-          [draggable-card :ast "Yin AST"
-           [:div
-            {:style {:display "flex",
-                     :flex-direction "column",
-                     :flex "1",
-                     :overflow "hidden"}}
-            [codemirror-editor
-             {:value (:ast-as-text @app-state),
-              :on-change (fn [v] (swap! app-state assoc :ast-as-text v))}]
-            [:button
-             {:on-click evaluate-ast,
-              :style {:marginTop "5px",
-                      :background "#238636",
-                      :color "#fff",
-                      :border "none",
-                      :padding "5px 10px",
-                      :border-radius "4px",
-                      :cursor "pointer"}} "Run AST"]
-            (when (:result @app-state)
-              [:div
-               {:style {:marginTop "5px",
-                        :background "#0d1117",
-                        :padding "5px",
-                        :border "1px solid #30363d"}}
-               (pr-str (:result @app-state))])]]
-          [draggable-card :assembly "Assembly (Datoms)"
-           [:div
-            {:style {:display "flex",
-                     :flex-direction "column",
-                     :flex "1",
-                     :overflow "hidden"}}
-            [codemirror-editor
-             {:value (if-let [datoms (:datoms @app-state)]
-                       (pretty-print datoms)
-                       ""),
-              :read-only true}]
-            [:button
-             {:on-click run-assembly,
-              :style {:marginTop "5px",
-                      :background "#238636",
-                      :color "#fff",
-                      :border "none",
-                      :padding "5px 10px",
-                      :border-radius "4px",
-                      :cursor "pointer"}} "Run Assembly"]
-            (when (:assembly-result @app-state)
-              [:div
-               {:style {:marginTop "5px",
-                        :background "#0d1117",
-                        :padding "5px",
-                        :border "1px solid #30363d"}}
-               (pr-str (:assembly-result @app-state))])]]
-          [draggable-card :register "Register VM"
-           [:div
-            {:style {:display "flex",
-                     :flex-direction "column",
-                     :flex "1",
-                     :overflow "hidden"}}
-            [codemirror-editor
-             {:value (str (if (:register-asm @app-state)
-                            (pretty-print (:register-asm @app-state))
-                            "")
-                          (if (:register-bc @app-state)
-                            (str "\n--- BC ---\n"
-                                 (pretty-print (:register-bc @app-state)))
-                            "")),
-              :read-only true}]
-            [vm-control-buttons
-             {:vm-key :register,
-              :step-fn step-register,
-              :toggle-run-fn toggle-run-register,
-              :reset-fn reset-register}] [register-vm-state-display]
-            (when (:register-result @app-state)
-              [:div
-               {:style {:marginTop "5px",
-                        :background "#0d1117",
-                        :padding "5px",
-                        :border "1px solid #30363d"}} [:strong "Result: "]
-               (pr-str (:register-result @app-state))])]]
-          [draggable-card :stack "Stack VM"
-           [:div
-            {:style {:display "flex",
-                     :flex-direction "column",
-                     :flex "1",
-                     :overflow "hidden"}}
-            [codemirror-editor
-             {:value (str (if (:stack-asm @app-state)
-                            (pretty-print (:stack-asm @app-state))
-                            "")
-                          (if (:stack-bc @app-state)
-                            (str "\n--- BC ---\n"
-                                 (pretty-print (:stack-bc @app-state)))
-                            "")),
-              :read-only true}]
-            [vm-control-buttons
-             {:vm-key :stack,
-              :step-fn step-stack,
-              :toggle-run-fn toggle-run-stack,
-              :reset-fn reset-stack}] [stack-vm-state-display]
-            (when (:stack-result @app-state)
-              [:div
-               {:style {:marginTop "5px",
-                        :background "#0d1117",
-                        :padding "5px",
-                        :border "1px solid #30363d"}} [:strong "Result: "]
-               (pr-str (:stack-result @app-state))])]]
-          [draggable-card :query "Datalog Query"
-           [:div
-            {:style {:display "flex",
-                     :flex-direction "column",
-                     :flex "1",
-                     :overflow "hidden"}}
-            [:div
-             {:style {:display "flex",
-                      :justify-content "flex-end",
-                      :margin-bottom "5px"}} [query-menu]]
-            [codemirror-editor
-             {:value (:query-text @app-state),
-              :on-change (fn [v] (swap! app-state assoc :query-text v)),
-              :style {:flex "1", :min-height "80px"}}]
-            [:div
-             {:style {:display "flex",
-                      :align-items "center",
-                      :gap "5px",
-                      :margin-top "5px"}}
-             [:span {:style {:font-size "11px", :color "#8b949e"}} ":in"]
-             [:input
-              {:value (:query-inputs @app-state),
-               :placeholder "extra inputs (e.g. 1)",
-               :on-change
-                 (fn [e]
-                   (swap! app-state assoc :query-inputs (.. e -target -value))),
-               :style {:flex "1",
-                       :background "#0a0f1e",
-                       :border "1px solid #2d3b55",
-                       :border-radius "4px",
-                       :color "#c5c6c7",
-                       :font-size "12px",
-                       :font-family "monospace",
-                       :padding "3px 6px",
-                       :outline "none"}}]]
-            [:button
-             {:on-click run-query,
-              :style {:marginTop "5px",
-                      :background "#238636",
-                      :color "#fff",
-                      :border "none",
-                      :padding "5px 10px",
-                      :border-radius "4px",
-                      :cursor "pointer"}} "Run Query"]
-            [codemirror-editor
-             {:value (if-let [result (:query-result @app-state)]
-                       (pretty-print (vec (sort result)))
-                       ""),
-              :read-only true,
-              :style {:flex "1", :min-height "80px", :marginTop "5px"}}]]]
-          (when (:error @app-state)
-            [:div
+            {:style {:width "100%",
+                     :height "100vh",
+                     :position "relative",
+                     :overflow "hidden",
+                     :background "#060817",
+                     :color "#c5c6c7"}}
+            [:h1
+             {:style {:margin "20px", :pointer-events "none", :color "#f1f5ff"}}
+             "Datomworld Yin VM Compilation Pipeline"]
+            [:svg
              {:style {:position "absolute",
-                      :bottom "10px",
-                      :left "10px",
-                      :right "10px",
-                      :background "rgba(255,0,0,0.2)",
-                      :border "1px solid #da3633",
-                      :padding "10px",
-                      :color "#f85149"}} [:strong "Error: "]
-             (:error @app-state)])])}))
+                      :top 0,
+                      :left 0,
+                      :width "100%",
+                      :height "100%",
+                      :pointer-events "none",
+                      :z-index 0}}
+             [connection-line :source :ast "AST ->" compile-source]
+             [connection-line :ast :assembly "Asm ->" compile-ast]
+             [connection-line :assembly :register "Reg ->" compile-register]
+             [connection-line :assembly :stack "Stack ->" compile-stack]
+             [connection-line :assembly :query "d/q ->" run-query]]
+            [draggable-card :source "Source Code"
+             [:div
+              {:style {:display "flex",
+                       :flex-direction "column",
+                       :flex "1",
+                       :overflow "hidden"}}
+              [:div
+               {:style {:display "flex",
+                        :justify-content "space-between",
+                        :align-items "center",
+                        :margin-bottom "5px"}}
+               [:select
+                {:value (:source-lang @app-state),
+                 :on-change (fn [e]
+                              (swap! app-state assoc
+                                :source-lang
+                                (keyword (.. e -target -value)))),
+                 :style {:background "#0e1328",
+                         :color "#c5c6c7",
+                         :border "1px solid #2d3b55"}}
+                [:option {:value "clojure"} "Clojure"]
+                [:option {:value "python"} "Python"]] [hamburger-menu]]
+              [codemirror-editor
+               {:key (:source-lang @app-state),
+                :value (:source-code @app-state),
+                :language (:source-lang @app-state),
+                :on-change (fn [v] (swap! app-state assoc :source-code v))}]
+              [:div
+               {:style {:marginTop "10px", :fontSize "0.8em", :color "#8b949e"}}
+               "Select examples from the menu ☰ above."]]]
+            [draggable-card :ast "Yin AST"
+             [:div
+              {:style {:display "flex",
+                       :flex-direction "column",
+                       :flex "1",
+                       :overflow "hidden"}}
+              [codemirror-editor
+               {:value (:ast-as-text @app-state),
+                :on-change (fn [v] (swap! app-state assoc :ast-as-text v))}]
+              [:button
+               {:on-click evaluate-ast,
+                :style {:marginTop "5px",
+                        :background "#238636",
+                        :color "#fff",
+                        :border "none",
+                        :padding "5px 10px",
+                        :border-radius "4px",
+                        :cursor "pointer"}} "Run AST"]
+              (when (:result @app-state)
+                [:div
+                 {:style {:marginTop "5px",
+                          :background "#0d1117",
+                          :padding "5px",
+                          :border "1px solid #30363d"}}
+                 (pr-str (:result @app-state))])]]
+            [draggable-card :assembly "Assembly (Datoms)"
+             [:div
+              {:style {:display "flex",
+                       :flex-direction "column",
+                       :flex "1",
+                       :overflow "hidden"}}
+              [datom-list-view (:datoms @app-state) active-asm-id]
+              [vm-control-buttons
+               {:vm-key :assembly,
+                :step-fn step-assembly,
+                :toggle-run-fn toggle-run-assembly,
+                :reset-fn reset-assembly}] [semantic-vm-state-display]
+              (when (:assembly-result @app-state)
+                [:div
+                 {:style {:marginTop "5px",
+                          :background "#0d1117",
+                          :padding "5px",
+                          :border "1px solid #30363d"}} [:strong "Result: "]
+                 (pr-str (:assembly-result @app-state))])]]
+            [draggable-card :register "Register VM"
+             [:div
+              {:style {:display "flex",
+                       :flex-direction "column",
+                       :flex "1",
+                       :overflow "hidden"}}
+              [codemirror-editor
+               {:value (str (if (:register-asm @app-state)
+                              (pretty-print (:register-asm @app-state))
+                              "")
+                            (if (:register-bc @app-state)
+                              (str "\n--- BC ---\n"
+                                   (pretty-print (:register-bc @app-state)))
+                              "")),
+                :read-only true}]
+              [vm-control-buttons
+               {:vm-key :register,
+                :step-fn step-register,
+                :toggle-run-fn toggle-run-register,
+                :reset-fn reset-register}] [register-vm-state-display]
+              (when (:register-result @app-state)
+                [:div
+                 {:style {:marginTop "5px",
+                          :background "#0d1117",
+                          :padding "5px",
+                          :border "1px solid #30363d"}} [:strong "Result: "]
+                 (pr-str (:register-result @app-state))])]]
+            [draggable-card :stack "Stack VM"
+             [:div
+              {:style {:display "flex",
+                       :flex-direction "column",
+                       :flex "1",
+                       :overflow "hidden"}}
+              [codemirror-editor
+               {:value (str (if (:stack-asm @app-state)
+                              (pretty-print (:stack-asm @app-state))
+                              "")
+                            (if (:stack-bc @app-state)
+                              (str "\n--- BC ---\n"
+                                   (pretty-print (:stack-bc @app-state)))
+                              "")),
+                :read-only true}]
+              [vm-control-buttons
+               {:vm-key :stack,
+                :step-fn step-stack,
+                :toggle-run-fn toggle-run-stack,
+                :reset-fn reset-stack}] [stack-vm-state-display]
+              (when (:stack-result @app-state)
+                [:div
+                 {:style {:marginTop "5px",
+                          :background "#0d1117",
+                          :padding "5px",
+                          :border "1px solid #30363d"}} [:strong "Result: "]
+                 (pr-str (:stack-result @app-state))])]]
+            [draggable-card :query "Datalog Query"
+             [:div
+              {:style {:display "flex",
+                       :flex-direction "column",
+                       :flex "1",
+                       :overflow "hidden"}}
+              [:div
+               {:style {:display "flex",
+                        :justify-content "flex-end",
+                        :margin-bottom "5px"}} [query-menu]]
+              [codemirror-editor
+               {:value (:query-text @app-state),
+                :on-change (fn [v] (swap! app-state assoc :query-text v)),
+                :style {:flex "1", :min-height "80px"}}]
+              [:div
+               {:style {:display "flex",
+                        :align-items "center",
+                        :gap "5px",
+                        :margin-top "5px"}}
+               [:span {:style {:font-size "11px", :color "#8b949e"}} ":in"]
+               [:input
+                {:value (:query-inputs @app-state),
+                 :placeholder "extra inputs (e.g. 1)",
+                 :on-change (fn [e]
+                              (swap! app-state assoc
+                                :query-inputs
+                                (.. e -target -value))),
+                 :style {:flex "1",
+                         :background "#0a0f1e",
+                         :border "1px solid #2d3b55",
+                         :border-radius "4px",
+                         :color "#c5c6c7",
+                         :font-size "12px",
+                         :font-family "monospace",
+                         :padding "3px 6px",
+                         :outline "none"}}]]
+              [:button
+               {:on-click run-query,
+                :style {:marginTop "5px",
+                        :background "#238636",
+                        :color "#fff",
+                        :border "none",
+                        :padding "5px 10px",
+                        :border-radius "4px",
+                        :cursor "pointer"}} "Run Query"]
+              [codemirror-editor
+               {:value (if-let [result (:query-result @app-state)]
+                         (pretty-print (vec (sort result)))
+                         ""),
+                :read-only true,
+                :style {:flex "1", :min-height "80px", :marginTop "5px"}}]]]
+            (when (:error @app-state)
+              [:div
+               {:style {:position "absolute",
+                        :bottom "10px",
+                        :left "10px",
+                        :right "10px",
+                        :background "rgba(255,0,0,0.2)",
+                        :border "1px solid #da3633",
+                        :padding "10px",
+                        :color "#f85149"}} [:strong "Error: "]
+               (:error @app-state)])]))}))
 
 
 (defn init

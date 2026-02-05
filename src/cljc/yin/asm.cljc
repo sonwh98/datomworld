@@ -77,46 +77,153 @@
 ;; The VM interprets :yin/ datoms by traversing node references (graph walk).
 ;; No program counter, no constant pool — values are inline in the datoms.
 
+;; =============================================================================
+;; VM: Execute AST Datoms
+;; =============================================================================
+;; The VM interprets :yin/ datoms by traversing node references (graph walk).
+;; No program counter, no constant pool — values are inline in the datoms.
+
+(defn make-semantic-state
+  "Create initial state for stepping the semantic (datom) VM."
+  [{:keys [node datoms]} env]
+  {:control {:type :node, :id node},
+   :env env,
+   :stack [],
+   :datoms datoms,
+   :halted false,
+   :value nil})
+
+
+(defn semantic-step
+  "Execute one step of the semantic VM."
+  [state]
+  (let [{:keys [control env stack datoms]} state]
+    (if (= :value (:type control))
+      ;; Handle return value from previous step
+      (let [val (:val control)]
+        (if (empty? stack)
+          (assoc state
+            :halted true
+            :value val)
+          (let [frame (peek stack)
+                new-stack (pop stack)]
+            (case (:type frame)
+              :if (let [{:keys [cons alt env]} frame]
+                    (assoc state
+                      :control {:type :node, :id (if val cons alt)}
+                      :env env
+                      :stack new-stack))
+              :app-op (let [{:keys [operands env]} frame
+                            fn-val val]
+                        (if (empty? operands)
+                          ;; 0-arity call
+                          (if (fn? fn-val)
+                            (assoc state
+                              :control {:type :value, :val (fn-val)}
+                              :env env
+                              :stack new-stack)
+                            (if (= :closure (:type fn-val))
+                              (let [{:keys [body-node env]} fn-val]
+                                (assoc state
+                                  :control {:type :node, :id body-node}
+                                  :env env ; Switch to closure env
+                                  :stack (conj new-stack
+                                               {:type :restore-env,
+                                                :env (:env frame)})))
+                              (throw (ex-info "Cannot apply non-function"
+                                              {:fn fn-val}))))
+                          ;; Prepare to eval args
+                          (let [first-arg (first operands)
+                                rest-args (vec (rest operands))]
+                            (assoc state
+                              :control {:type :node, :id first-arg}
+                              :env env
+                              :stack (conj new-stack
+                                           {:type :app-args,
+                                            :fn fn-val,
+                                            :evaluated [],
+                                            :pending rest-args,
+                                            :env env})))))
+              :app-args
+                (let [{:keys [fn evaluated pending env]} frame
+                      new-evaluated (conj evaluated val)]
+                  (if (empty? pending)
+                    ;; All args evaluated, apply
+                    (if (fn? fn)
+                      (assoc state
+                        :control {:type :value, :val (apply fn new-evaluated)}
+                        :env env
+                        :stack new-stack)
+                      (if (= :closure (:type fn))
+                        (let [{:keys [params body-node env]} fn
+                              new-env (merge env (zipmap params new-evaluated))]
+                          (assoc state
+                            :control {:type :node, :id body-node}
+                            :env new-env ; Closure env + args
+                            :stack (conj new-stack
+                                         {:type :restore-env,
+                                          :env (:env frame)})))
+                        (throw (ex-info "Cannot apply non-function" {:fn fn}))))
+                    ;; More args to eval
+                    (let [next-arg (first pending)
+                          rest-pending (vec (rest pending))]
+                      (assoc state
+                        :control {:type :node, :id next-arg}
+                        :env env
+                        :stack (conj new-stack
+                                     (assoc frame
+                                       :evaluated new-evaluated
+                                       :pending rest-pending))))))
+              :restore-env (assoc state
+                             :control control ; Pass value up
+                             :env (:env frame) ; Restore caller env
+                             :stack new-stack)))))
+      ;; Handle node evaluation
+      (let [node-id (:id control)
+            node-map (get-node-attrs datoms node-id)
+            node-type (:yin/type node-map)]
+        (case node-type
+          :literal (assoc state
+                     :control {:type :value, :val (:yin/value node-map)})
+          :variable (assoc state
+                      :control {:type :value,
+                                :val (get env (:yin/name node-map))})
+          :lambda (assoc state
+                    :control {:type :value,
+                              :val {:type :closure,
+                                    :params (:yin/params node-map),
+                                    :body-node (:yin/body node-map),
+                                    :datoms datoms,
+                                    :env env}})
+          :if (assoc state
+                :control {:type :node, :id (:yin/test node-map)}
+                :stack (conj stack
+                             {:type :if,
+                              :cons (:yin/consequent node-map),
+                              :alt (:yin/alternate node-map),
+                              :env env}))
+          :application (assoc state
+                         :control {:type :node, :id (:yin/operator node-map)}
+                         :stack (conj stack
+                                      {:type :app-op,
+                                       :operands (:yin/operands node-map),
+                                       :env env}))
+          (throw (ex-info "Unknown node type" {:node-map node-map})))))))
+
+
+(defn semantic-run
+  "Run semantic VM to completion."
+  [state]
+  (loop [s state] (if (:halted s) (:value s) (recur (semantic-step s)))))
+
+
 (defn run-semantic
   "Execute :yin/ datoms starting from a root node.
 
    Traverses the datom graph by following entity references.
    Takes {:node root-entity-id :datoms [[e a v ...] ...]} and an env map."
   ([compiled] (run-semantic compiled {}))
-  ([{:keys [node datoms]} env]
-   (let [node-map (get-node-attrs datoms node)
-         node-type (:yin/type node-map)]
-     (case node-type
-       :literal (:yin/value node-map)
-       :variable (get env (:yin/name node-map))
-       :lambda {:type :closure,
-                :params (:yin/params node-map),
-                :body-node (:yin/body node-map),
-                :datoms datoms,
-                :env env}
-       :application
-         (let [fn-val (run-semantic {:node (:yin/operator node-map),
-                                     :datoms datoms}
-                                    env)
-               args (mapv #(run-semantic {:node %, :datoms datoms} env)
-                      (:yin/operands node-map))]
-           (cond (fn? fn-val) (apply fn-val args)
-                 (= :closure (:type fn-val))
-                   (let [{:keys [params body-node datoms env]} fn-val
-                         new-env (merge env (zipmap params args))]
-                     (run-semantic {:node body-node, :datoms datoms} new-env))
-                 :else (throw (ex-info "Cannot apply non-function"
-                                       {:fn fn-val}))))
-       :if (let [test-val (run-semantic {:node (:yin/test node-map),
-                                         :datoms datoms}
-                                        env)]
-             (if test-val
-               (run-semantic {:node (:yin/consequent node-map), :datoms datoms}
-                             env)
-               (run-semantic {:node (:yin/alternate node-map), :datoms datoms}
-                             env)))
-       (throw (ex-info "Unknown node type"
-                       {:node-map node-map, :type node-type}))))))
+  ([compiled env] (semantic-run (make-semantic-state compiled env))))
 
 
 ;; =============================================================================
