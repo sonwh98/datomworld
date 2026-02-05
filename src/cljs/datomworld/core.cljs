@@ -55,6 +55,7 @@
      :query-result nil,
      :error nil,
      :ui-positions default-positions,
+     :z-order (vec (keys default-positions)),
      :collapsed #{},
      :drag-state nil,
      :resize-state nil}))
@@ -447,19 +448,32 @@
    (fn [ex] (swap! app-state assoc :query-text (:query ex)))])
 
 
+(defn bring-to-front!
+  [id]
+  (swap! app-state update
+    :z-order
+    (fn [order] (conj (vec (remove #(= % id) order)) id))))
+
+
 (defn draggable-card
   [id title content]
   (let [positions (r/cursor app-state [:ui-positions])
+        z-order (r/cursor app-state [:z-order])
         collapsed-state (r/cursor app-state [:collapsed])
         drag-state (r/cursor app-state [:drag-state])
         resize-state (r/cursor app-state [:resize-state])
         pos (get @positions id)
         collapsed? (contains? @collapsed-state id)
-        z-index (cond (= (:id @drag-state) id) 100
-                      (= (:id @resize-state) id) 100
-                      :else 10)]
+        base-z (or (some-> @z-order
+                           (.indexOf id)
+                           (+ 10))
+                   10)
+        z-index (cond (= (:id @drag-state) id) 1000
+                      (= (:id @resize-state) id) 1000
+                      :else base-z)]
     [:div
-     {:style {:position "absolute",
+     {:on-mouse-down #(bring-to-front! id),
+      :style {:position "absolute",
               :left (:x pos),
               :top (:y pos),
               :width (:w pos),
