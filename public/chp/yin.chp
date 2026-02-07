@@ -19,7 +19,7 @@
         [:div.section-inner
          [:h2 "Main ideas"]
          [:ul.bulleted
-          [:li [:strong "Universal AST"] " : designed as a compiler target, datoms capture syntax, semantics, and metadata across languages with an optional map projection."]
+          [:li [:strong "Universal AST (ASG)"] " : while called an AST for familiarity, Yin uses an Abstract Semantic Graph where datoms capture syntax, semantics, and metadata across languages."]
           [:li [:strong "Persistent CESK"] " : control, environment, store, and continuation reuse structure for speed."]
           [:li [:strong "First-class continuations"] " : computation pauses, migrates, and resumes anywhere, even across network boundaries."]
           [:li [:strong "Unified call constructs"] " : functions, closures, and continuations are the same reified execution context."]
@@ -27,14 +27,14 @@
           [:li [:strong "Runtime macros & distribution"] " : ASTs transform themselves locally or across nodes."]]]]
        [:section.section-dark
         [:div.section-inner
-         [:h2 "Universal AST: Datoms with a Map Projection"]
+         [:h2 "Universal AST: The Abstract Semantic Graph"]
          [:p
-          "Every program Yin runs is expressed as the Universal AST: a language-agnostic representation "
-          "that records syntax, semantics, and metadata in immutable data. Python, JavaScript, Java, and Clojure can all "
-          "compile into this canonical form via the " [:a {:href "/yang.chp"} "Yang compiler"] " (launching with Clojure support first)."]
+          "Every program Yin runs is expressed as the Universal AST (Abstract Syntax Tree): a language-agnostic representation "
+          "that records syntax, semantics, and metadata in immutable data. "
+          "Traditional compilers treat ASTs as transient trees. In Yin, the AST is a persistent, queryable graph where "
+          "meaning is encoded directly in the relationships between datoms. It is, therefore, more accurate to call it an Abstract Semantic Graph (ASG) but we will call it AST for familarity"]
          [:p
-          "But there's a fundamental truth: "
-          [:strong "the Universal AST is a construction from datoms"]
+          [:strong "The Universal AST is a construction of datoms"]
           ". The datom is " [:em "always"] " the source of truth. "
           "What appears as a nested map structure in Yin.vm's surface API is an interpretation of the underlying datoms. "
           "The AST is deconstructed into datoms for storage in DaoDB, and reconstructed when needed. "
@@ -61,8 +61,10 @@
           [:a {:href "/blog/universal-ast-vs-assembly.blog"} "Universal AST vs Assembly"]
           " for why this matters."]
          [:p
-          "This decomposition transforms a hierarchical tree into a flat, queryable graph where any node can be accessed directly, "
-          "parent-child relationships are explicit edges, and the entire AST becomes a knowledge graph navigable via Datalog queries."]
+          "This decomposition transforms the code from a hierarchical tree into a flat, queryable Abstract Semantic Graph (ASG). "
+          "Any node can be accessed directly, parent-child relationships are explicit edges, "
+          "and the entire code structure becomes a knowledge graph navigable via Datalog queries. "
+          "While it serves the role of an AST, it operates as an ASG where structure and meaning are preserved as durable relationships between datoms."]
          [:p
           "This changes how code is analyzed and transformed. Traditional compilers and VMs build custom data structures: "
           "symbol tables, control flow graphs, dominance trees, call graphs, each requiring specialized traversal algorithms. "
@@ -143,7 +145,7 @@
           [:li [:strong "AI-assisted modification"] " : LLMs can read, understand, and transform continuations and runtime state"]]
          [:p
           "The same DaoDB holds AST nodes, bytecode, continuation frames, CESK state, type information, and runtime facts. "
-          "Just as AST trees decompose into datoms (entity-attribute-value facts), so do continuations, environments, and stores. "
+          "Just as the AST graph decomposes into datoms (entity-attribute-value facts), so do continuations, environments, and stores. "
           "Code, data, and execution state share a unified representation as queryable, versioned facts in the same knowledge graph."]
          [:p
           "Traditional compilers require custom visitor patterns, tree walkers, and specialized data structures for each analysis pass. "
@@ -230,7 +232,7 @@
          [:h2 "In summary"]
          [:p
           "Yin turns code into data and data into computation. "
-          "The Universal AST anchors every stage, persistent data structures make CESK state efficient and immutable, "
+          "The Universal ASG anchors every stage, persistent data structures make CESK state efficient and immutable, "
           "and the unification of functions, closures, and continuations makes agents mobile by design. "
           "One primitive: continuation manipulation, replaces dozens of special-purpose constructs. "
           "Eval is the machine, runtime macros stay reversible, and distributed AST transformation keeps teams iterating together."]
