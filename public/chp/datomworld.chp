@@ -117,7 +117,12 @@
           [:a {:href "/blog/datalog-compiler-infrastructure.blog"} "Compilers and languages"] " themselves are being rebuilt as queryable datom fabrics: Yin.vm expresses programs as Datalog facts, DaoDB turns optimizations into queries, and DaoStream carries execution as continuations. "
           "Recomposing the web therefore also means recomposing the tools that build it."]
          [:p
-          "This is the internet reimagined: not a web of documents or servers, but a living organism where streams carry data through time, continuations carry computation through space, and both flow together through the same fabric. "
-          "Software that breathes, pausing and resuming as resources become available, collaborating across devices and people without central coordination. "
-          "Self-organizing, adaptive, and resilient."]]])}
+          "The same decomposition can even be recomposed into a single address space operating system. As described in "
+          [:a {:href "/blog/tao-kernel.blog"} "The Tao Kernel"]
+          ", discarding the legacy abstractions of virtual memory and context switching in favor of stream interpretation and first-class continuations allows the OS to operate as a unified semantic heap, where security is enforced by fine-grained capabilities rather than hardware rings."]
+         [:p
+          "This is not just the internet reimagined; it is software reimagined. "
+          "Any software, whether it's an operating system,a compiler, a database, a GPU calculation, a 3D game, or an AI agent, fundamentally boils down to writing interpreters of datom streams. "
+          "Instead of siloed applications managing private state, we build interpreters that observe, transform, and visualize shared streams. "
+          "This unifies the entire stack into a single, cohesive fabric where data flows through time, continuations flow through space, and intelligence emerges from the network itself."]]])}
     template))
