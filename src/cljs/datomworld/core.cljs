@@ -427,7 +427,8 @@
                                                    "")]
                                 (reader/read-string (str "[" input-text "]"))))
                  args (into [query db] extra-vals)
-                 result (apply vm/q args)]
+                 result []
+                 #_(apply vm/q args)]
              (swap! app-state assoc :query-result result :error nil))
            (catch js/Error e
              (swap! app-state assoc

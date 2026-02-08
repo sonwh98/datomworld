@@ -88,12 +88,6 @@
     datoms))
 
 
-(defn q
-  "Run a Datalog query against a DataScript db value."
-  [query db]
-  (d/q query db))
-
-
 (defn ast->datoms
   "Convert AST map into lazy-seq of datoms. A datom is [e a v t m].
 
