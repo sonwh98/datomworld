@@ -12,7 +12,8 @@
             [yang.clojure :as yang]
             [yang.python :as py]
             [yin.asm :as asm]
-            [yin.vm :as vm]))
+            [yin.vm :as vm]
+            [yin.vm.register :as register]))
 
 
 (defn pretty-print
@@ -449,8 +450,8 @@
             results
               (mapv (fn [ast]
                       (let [datoms (vm/ast->datoms ast)
-                            asm (vm/ast-datoms->register-assembly datoms)
-                            result (vm/register-assembly->bytecode asm)
+                            asm (register/ast-datoms->register-assembly datoms)
+                            result (register/register-assembly->bytecode asm)
                             bc (:bc result)
                             pool (:pool result)
                             source-map (:source-map result)]
@@ -459,9 +460,9 @@
             ;; Initialize VM state from last compiled result
             last-result (last results)
             initial-state (when last-result
-                            (vm/make-rbc-bc-state {:bc (:bc last-result),
-                                                   :pool (:pool last-result)}
-                                                  vm/primitives))]
+                            (register/make-rbc-bc-state
+                              {:bc (:bc last-result), :pool (:pool last-result)}
+                              vm/primitives))]
         (swap! app-state assoc
           :register-asm (mapv :asm results)
           :register-bc (mapv :bc results)
@@ -493,9 +494,10 @@
     (when (seq compiled-results)
       (try (let [initial-env vm/primitives
                  results (mapv (fn [compiled]
-                                 (let [state (vm/make-rbc-bc-state compiled
-                                                                   initial-env)
-                                       final-state (vm/rbc-run-bc state)]
+                                 (let [state (register/make-rbc-bc-state
+                                               compiled
+                                               initial-env)
+                                       final-state (register/rbc-run-bc state)]
                                    (:value final-state)))
                            compiled-results)]
              (swap! app-state assoc :register-result (last results) :error nil))
@@ -511,7 +513,7 @@
   (let [state (get-in @app-state [:vm-states :register :state])]
     (when (and state (not (:halted state)))
       (try
-        (let [new-state (vm/rbc-step-bc state)]
+        (let [new-state (register/rbc-step-bc state)]
           (swap! app-state assoc-in [:vm-states :register :state] new-state)
           (when (:halted new-state)
             (swap! app-state assoc :register-result (:value new-state))
@@ -529,8 +531,8 @@
   (let [bc (last (:register-bc @app-state))
         pool (last (:register-pool @app-state))]
     (when (and bc pool)
-      (let [initial-state (vm/make-rbc-bc-state {:bc bc, :pool pool}
-                                                vm/primitives)]
+      (let [initial-state (register/make-rbc-bc-state {:bc bc, :pool pool}
+                                                      vm/primitives)]
         (swap! app-state assoc-in [:vm-states :register :state] initial-state)
         (swap! app-state assoc-in [:vm-states :register :running] false)
         (swap! app-state assoc :register-result nil)))))
@@ -564,7 +566,7 @@
                         [:vm-states :register :running]
                         false))
                   (js/requestAnimationFrame run-register-loop)))
-            (recur (inc i) (vm/rbc-step-bc state))))
+            (recur (inc i) (register/rbc-step-bc state))))
         (catch js/Error e
           (swap! app-state assoc
             :error

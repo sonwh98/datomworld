@@ -1,7 +1,8 @@
 (ns yin.vm-test
   (:require #?(:clj [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
-            [yin.vm :as vm]))
+            [yin.vm :as vm]
+            [yin.vm.register :as register]))
 
 
 (deftest test-literal-evaluation
@@ -238,22 +239,22 @@
 
 (deftest test-register-bytecode-shape
   (testing "Literal produces loadk + return"
-    (let [bc (vm/ast-datoms->register-assembly (vm/ast->datoms {:type :literal,
-                                                                :value 42}))]
+    (let [bc (register/ast-datoms->register-assembly
+               (vm/ast->datoms {:type :literal, :value 42}))]
       (is (vector? bc))
       (is (= 2 (count bc)))
       (is (= :loadk (first (first bc))) "First instruction should be :loadk")
       (is (= 42 (nth (first bc) 2)) "Should load the value 42")
       (is (= :return (first (last bc))) "Last instruction should be :return")))
   (testing "Variable produces loadv + return"
-    (let [bc (vm/ast-datoms->register-assembly (vm/ast->datoms {:type :variable,
-                                                                :name 'x}))]
+    (let [bc (register/ast-datoms->register-assembly
+               (vm/ast->datoms {:type :variable, :name 'x}))]
       (is (= 2 (count bc)))
       (is (= :loadv (first (first bc))))
       (is (= 'x (nth (first bc) 2)))
       (is (= :return (first (last bc))))))
   (testing "All instructions are vectors"
-    (let [bc (vm/ast-datoms->register-assembly
+    (let [bc (register/ast-datoms->register-assembly
                (vm/ast->datoms {:type :application,
                                 :operator {:type :variable, :name '+},
                                 :operands [{:type :literal, :value 1}
@@ -263,7 +264,7 @@
 
 (deftest test-register-bytecode-application
   (testing "Application produces loadk, loadv, call, and return"
-    (let [bc (vm/ast-datoms->register-assembly
+    (let [bc (register/ast-datoms->register-assembly
                (vm/ast->datoms {:type :application,
                                 :operator {:type :variable, :name '+},
                                 :operands [{:type :literal, :value 1}
@@ -276,7 +277,7 @@
       (is (= :call (first (nth bc 3))))
       (is (= :return (first (nth bc 4))))))
   (testing "Call instruction references correct registers"
-    (let [bc (vm/ast-datoms->register-assembly
+    (let [bc (register/ast-datoms->register-assembly
                (vm/ast->datoms {:type :application,
                                 :operator {:type :variable, :name '+},
                                 :operands [{:type :literal, :value 1}
@@ -292,7 +293,7 @@
 
 (deftest test-register-bytecode-lambda
   (testing "Lambda produces closure, jump, body, and return"
-    (let [bc (vm/ast-datoms->register-assembly
+    (let [bc (register/ast-datoms->register-assembly
                (vm/ast->datoms {:type :lambda,
                                 :params ['x],
                                 :body {:type :variable, :name 'x}}))]
@@ -303,7 +304,7 @@
       (is (= :loadv (first (nth bc 2))) "Body should start with :loadv")
       (is (= :return (first (nth bc 3))) "Body should end with :return")))
   (testing "Closure body address points to correct instruction"
-    (let [bc (vm/ast-datoms->register-assembly
+    (let [bc (register/ast-datoms->register-assembly
                (vm/ast->datoms {:type :lambda,
                                 :params ['x],
                                 :body {:type :variable, :name 'x}}))
@@ -311,7 +312,7 @@
       (is (= 2 body-addr)
           "Body should start at instruction 2 (after closure + jump)")))
   (testing "Jump skips over body to return"
-    (let [bc (vm/ast-datoms->register-assembly
+    (let [bc (register/ast-datoms->register-assembly
                (vm/ast->datoms {:type :lambda,
                                 :params ['x],
                                 :body {:type :variable, :name 'x}}))
@@ -324,7 +325,7 @@
 
 (deftest test-register-bytecode-conditional
   (testing "If produces branch, both branches, and move instructions"
-    (let [bc (vm/ast-datoms->register-assembly
+    (let [bc (register/ast-datoms->register-assembly
                (vm/ast->datoms {:type :if,
                                 :test {:type :literal, :value true},
                                 :consequent {:type :literal, :value 1},
@@ -342,36 +343,36 @@
 
 (deftest test-register-bytecode-execution-literal
   (testing "Literal through full pipeline"
-    (let [bc (vm/ast-datoms->register-assembly (vm/ast->datoms {:type :literal,
-                                                                :value 42}))
-          result (vm/rbc-run (vm/make-rbc-state bc))]
+    (let [bc (register/ast-datoms->register-assembly
+               (vm/ast->datoms {:type :literal, :value 42}))
+          result (register/rbc-run (register/make-rbc-state bc))]
       (is (= 42 (:value result))))))
 
 
 (deftest test-register-bytecode-execution-addition
   (testing "(+ 1 2) through full pipeline"
-    (let [bc (vm/ast-datoms->register-assembly
+    (let [bc (register/ast-datoms->register-assembly
                (vm/ast->datoms {:type :application,
                                 :operator {:type :variable, :name '+},
                                 :operands [{:type :literal, :value 1}
                                            {:type :literal, :value 2}]}))
-          result (vm/rbc-run (vm/make-rbc-state bc {'+ +}))]
-      (is (= 3 (vm/rbc-get-reg result 3)) "(+ 1 2) should produce 3"))))
+          result (register/rbc-run (register/make-rbc-state bc {'+ +}))]
+      (is (= 3 (register/rbc-get-reg result 3)) "(+ 1 2) should produce 3"))))
 
 
 (deftest test-register-bytecode-execution-closure
   (testing "((fn [x] x) 42) through full pipeline"
-    (let [bc (vm/ast-datoms->register-assembly
+    (let [bc (register/ast-datoms->register-assembly
                (vm/ast->datoms {:type :application,
                                 :operator {:type :lambda,
                                            :params ['x],
                                            :body {:type :variable, :name 'x}},
                                 :operands [{:type :literal, :value 42}]}))
-          result (vm/rbc-run (vm/make-rbc-state bc))]
+          result (register/rbc-run (register/make-rbc-state bc))]
       (is (= 42 (:value result))
           "Identity closure should return its argument")))
   (testing "((fn [x] (+ x 1)) 5) through full pipeline"
-    (let [bc (vm/ast-datoms->register-assembly
+    (let [bc (register/ast-datoms->register-assembly
                (vm/ast->datoms
                  {:type :application,
                   :operator {:type :lambda,
@@ -381,32 +382,32 @@
                                     :operands [{:type :variable, :name 'x}
                                                {:type :literal, :value 1}]}},
                   :operands [{:type :literal, :value 5}]}))
-          result (vm/rbc-run (vm/make-rbc-state bc {'+ +}))]
+          result (register/rbc-run (register/make-rbc-state bc {'+ +}))]
       (is (= 6 (:value result)) "((fn [x] (+ x 1)) 5) should produce 6"))))
 
 
 (deftest test-register-bytecode-execution-conditional
   (testing "(if true 1 0) through full pipeline"
-    (let [bc (vm/ast-datoms->register-assembly
+    (let [bc (register/ast-datoms->register-assembly
                (vm/ast->datoms {:type :if,
                                 :test {:type :literal, :value true},
                                 :consequent {:type :literal, :value 1},
                                 :alternate {:type :literal, :value 0}}))
-          result (vm/rbc-run (vm/make-rbc-state bc))]
+          result (register/rbc-run (register/make-rbc-state bc))]
       (is (= 1 (:value result)) "True branch should be taken")))
   (testing "(if false 1 0) through full pipeline"
-    (let [bc (vm/ast-datoms->register-assembly
+    (let [bc (register/ast-datoms->register-assembly
                (vm/ast->datoms {:type :if,
                                 :test {:type :literal, :value false},
                                 :consequent {:type :literal, :value 1},
                                 :alternate {:type :literal, :value 0}}))
-          result (vm/rbc-run (vm/make-rbc-state bc))]
+          result (register/rbc-run (register/make-rbc-state bc))]
       (is (= 0 (:value result)) "False branch should be taken"))))
 
 
 (deftest test-register-bytecode-execution-nested
   (testing "((fn [x y] (+ x y)) 3 5) through full pipeline"
-    (let [bc (vm/ast-datoms->register-assembly
+    (let [bc (register/ast-datoms->register-assembly
                (vm/ast->datoms
                  {:type :application,
                   :operator {:type :lambda,
@@ -417,22 +418,23 @@
                                                {:type :variable, :name 'y}]}},
                   :operands [{:type :literal, :value 3}
                              {:type :literal, :value 5}]}))
-          result (vm/rbc-run (vm/make-rbc-state bc {'+ +}))]
+          result (register/rbc-run (register/make-rbc-state bc {'+ +}))]
       (is (= 8 (:value result)) "((fn [x y] (+ x y)) 3 5) should produce 8"))))
 
 
 (deftest test-register-bytecode-continuation-is-data
   (testing "Continuation frame is created during closure call"
-    (let [bc (vm/ast-datoms->register-assembly
+    (let [bc (register/ast-datoms->register-assembly
                (vm/ast->datoms {:type :application,
                                 :operator {:type :lambda,
                                            :params ['x],
                                            :body {:type :variable, :name 'x}},
                                 :operands [{:type :literal, :value 42}]}))
           ;; Step until we're inside the closure body
-          states (loop [s (vm/make-rbc-state bc)
-                        acc []]
-                   (if (:halted s) acc (recur (vm/rbc-step s) (conj acc s))))
+          states
+            (loop [s (register/make-rbc-state bc)
+                   acc []]
+              (if (:halted s) acc (recur (register/rbc-step s) (conj acc s))))
           ;; Find state where :k is non-nil (inside closure)
           inside-closure (first (filter :k states))]
       (is (some? inside-closure)

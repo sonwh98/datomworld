@@ -3,22 +3,7 @@
   (:require [datascript.core :as d]
             #?@(:cljs [[datascript.db :as db] [datascript.query :as dq]])
             [yin.module :as module]
-            [yin.stream :as stream]
-            [yin.vm.register :as register]))
-
-
-;; Re-export register VM public API for backward compatibility
-(def opcode-table register/opcode-table)
-(def reverse-opcode-table register/reverse-opcode-table)
-(def ast-datoms->register-assembly register/ast-datoms->register-assembly)
-(def register-assembly->bytecode register/register-assembly->bytecode)
-(def make-rbc-state register/make-rbc-state)
-(def rbc-get-reg register/rbc-get-reg)
-(def rbc-step register/rbc-step)
-(def rbc-run register/rbc-run)
-(def make-rbc-bc-state register/make-rbc-bc-state)
-(def rbc-step-bc register/rbc-step-bc)
-(def rbc-run-bc register/rbc-run-bc)
+            [yin.stream :as stream]))
 
 
 ;; Fix DataScript query under Closure advanced compilation.

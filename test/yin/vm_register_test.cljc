@@ -1,15 +1,16 @@
 (ns yin.vm-register-test
   (:require [clojure.test :refer [deftest is testing]]
-            [yin.vm :as vm]))
+            [yin.vm :as vm]
+            [yin.vm.register :as register]))
 
 
 (defn compile-and-run
   [ast]
   (let [datoms (vm/ast->datoms ast)
-        asm (vm/ast-datoms->register-assembly datoms)
-        bytecode (vm/register-assembly->bytecode asm)
-        state (vm/make-rbc-bc-state bytecode vm/primitives)
-        result (vm/rbc-run-bc state)]
+        asm (register/ast-datoms->register-assembly datoms)
+        bytecode (register/register-assembly->bytecode asm)
+        state (register/make-rbc-bc-state bytecode vm/primitives)
+        result (register/rbc-run-bc state)]
     (:value result)))
 
 
@@ -79,10 +80,10 @@
 (defn compile-and-run-bc
   [ast]
   (let [datoms (vm/ast->datoms ast)
-        asm (vm/ast-datoms->register-assembly datoms)
-        compiled (vm/register-assembly->bytecode asm)
-        state (vm/make-rbc-bc-state compiled vm/primitives)
-        result (vm/rbc-run-bc state)]
+        asm (register/ast-datoms->register-assembly datoms)
+        compiled (register/register-assembly->bytecode asm)
+        state (register/make-rbc-bc-state compiled vm/primitives)
+        result (register/rbc-run-bc state)]
     (:value result)))
 
 
