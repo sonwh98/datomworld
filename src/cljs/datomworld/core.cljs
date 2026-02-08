@@ -13,6 +13,7 @@
             [yang.python :as py]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as walker]
+            [yin.vm.protocols :as proto]
             [yin.vm.register :as register]
             [yin.vm.semantic :as semantic]
             [yin.vm.stack :as stack]))
@@ -26,10 +27,10 @@
 
 (def default-positions
   {:source {:x 20, :y 180, :w 350, :h 450},
-   :ast {:x 420, :y 180, :w 380, :h 450},
    :semantic {:x 900, :y 180, :w 400, :h 450},
    :register {:x 1400, :y 80, :w 350, :h 450},
    :stack {:x 1400, :y 650, :w 350, :h 450},
+   :walker {:x 420, :y 180, :w 380, :h 450},
    :query {:x 900, :y 650, :w 400, :h 450}})
 
 
@@ -38,7 +39,7 @@
     {:source-lang :clojure,
      :source-code "(+ 4 5)",
      :ast-as-text "",
-     :result nil,
+     :walker-result nil,
      :semantic-result nil,
      :datoms nil,
      :ds-db nil,
@@ -65,7 +66,8 @@
      ;; Per-window VM states for stepping execution
      :vm-states {:register {:state nil, :running false, :expanded false},
                  :stack {:state nil, :running false, :expanded false},
-                 :semantic {:state nil, :running false, :expanded false}}}))
+                 :semantic {:state nil, :running false, :expanded false},
+                 :walker {:state nil, :running false, :expanded false}}}))
 
 
 (when (or (nil? (:ui-positions @app-state))
@@ -124,20 +126,6 @@
                                                 :border "1px solid #2d3b55",
                                                 :overflow "hidden"}
                                                style)}])})))
-
-
-(defn walk-ast
-  []
-  (let [input (:ast-as-text @app-state)]
-    (try (let [forms (reader/read-string (str "[" input "]"))
-               initial-env vm/primitives
-               initial-state (walker/make-state initial-env)
-               final-state (reduce (fn [state form] (walker/run state form))
-                             initial-state
-                             forms)]
-           (swap! app-state assoc :result (:value final-state) :error nil))
-         (catch js/Error e
-           (swap! app-state assoc :error (.-message e) :result nil)))))
 
 
 (defn compile-stack
@@ -267,6 +255,77 @@
         (catch js/Error e
           (swap! app-state assoc :error (str "Stack VM Error: " (.-message e)))
           (swap! app-state assoc-in [:vm-states :stack :running] false))))))
+
+
+(defn reset-walker
+  "Reset AST Walker VM to initial state."
+  []
+  (let [input (:ast-as-text @app-state)]
+    (try (let [forms (reader/read-string (str "[" input "]"))
+               last-form (last forms)
+               initial-env vm/primitives
+               vm (walker/create initial-env)
+               vm-loaded (proto/load-program vm last-form)]
+           (swap! app-state assoc-in [:vm-states :walker :state] vm-loaded)
+           (swap! app-state assoc-in [:vm-states :walker :running] false)
+           (swap! app-state assoc :walker-result nil))
+         (catch js/Error e
+           (swap! app-state assoc
+             :error
+             (str "AST Walker Reset Error: " (.-message e)))))))
+
+
+(defn step-walker
+  "Execute one instruction in the AST Walker VM."
+  []
+  (let [state (get-in @app-state [:vm-states :walker :state])]
+    (when (and state (not (proto/halted? state)))
+      (try (let [new-state (proto/step state)]
+             (swap! app-state assoc-in [:vm-states :walker :state] new-state)
+             (when (proto/halted? new-state)
+               (swap! app-state assoc :walker-result (proto/value new-state))
+               (swap! app-state assoc-in [:vm-states :walker :running] false)))
+           (catch js/Error e
+             (swap! app-state assoc
+               :error
+               (str "AST Walker Step Error: " (.-message e)))
+             (swap! app-state assoc-in [:vm-states :walker :running] false))))))
+
+
+(declare run-walker-loop)
+
+
+(defn toggle-run-walker
+  "Toggle auto-stepping for AST Walker VM."
+  []
+  (let [running (get-in @app-state [:vm-states :walker :running])]
+    (swap! app-state assoc-in [:vm-states :walker :running] (not running))
+    (when (not running) (run-walker-loop))))
+
+
+(defn run-walker-loop
+  "Auto-step loop for AST Walker VM using requestAnimationFrame."
+  []
+  (let [running (get-in @app-state [:vm-states :walker :running])
+        initial-state (get-in @app-state [:vm-states :walker :state])]
+    (when (and running initial-state (not (proto/halted? initial-state)))
+      (try
+        (loop [i 0
+               state initial-state]
+          (if (or (>= i steps-per-frame) (proto/halted? state))
+            (do (swap! app-state assoc-in [:vm-states :walker :state] state)
+                (if (proto/halted? state)
+                  (do (swap! app-state assoc :walker-result (proto/value state))
+                      (swap! app-state assoc-in
+                        [:vm-states :walker :running]
+                        false))
+                  (js/requestAnimationFrame run-walker-loop)))
+            (recur (inc i) (proto/step state))))
+        (catch js/Error e
+          (swap! app-state assoc
+            :error
+            (str "AST Walker VM Error: " (.-message e)))
+          (swap! app-state assoc-in [:vm-states :walker :running] false))))))
 
 
 (defn compile-ast
@@ -875,6 +934,52 @@
           [:div "Stack depth: " (count (:stack state))]])])))
 
 
+(defn ast-walker-state-display
+  "Display current state of AST Walker VM."
+  []
+  (let [vm-state (get-in @app-state [:vm-states :walker])
+        state (:state vm-state)
+        expanded (:expanded vm-state)]
+    (when state
+      [:div
+       {:style {:margin-top "5px",
+                :padding "5px",
+                :background "#0d1117",
+                :border "1px solid #30363d",
+                :font-size "11px",
+                :font-family "monospace",
+                :overflow "auto",
+                :max-height "150px"}}
+       [:div
+        {:style {:display "flex",
+                 :justify-content "space-between",
+                 :align-items "center"}}
+        [:span {:style {:color "#8b949e"}}
+         (if (proto/halted? state)
+           "HALTED"
+           (let [ctrl (:control state)]
+             (if ctrl (str "Control: " (:type ctrl)) "Returning...")))]
+        [:button
+         {:on-click
+            #(swap! app-state update-in [:vm-states :walker :expanded] not),
+          :style {:background "none",
+                  :border "none",
+                  :color "#58a6ff",
+                  :cursor "pointer",
+                  :font-size "10px"}} (if expanded "Collapse" "Expand")]]
+       (when (and state (not (proto/halted? state)))
+         (let [ctrl (:control state)]
+           (when ctrl [:div {:style {:color "#c5c6c7"}} (pr-str ctrl)])))
+       (when expanded
+         [:div {:style {:margin-top "5px", :color "#8b949e"}}
+          [:div "Env keys: " (pr-str (keys (:environment state)))]
+          [:div "Continuation depth: "
+           (loop [c (:continuation state)
+                  depth 0]
+             (if c (recur (:parent c) (inc depth)) depth))]
+          [:div "Value: " (pr-str (:value state))]])])))
+
+
 (defn bring-to-front!
   [id]
   (swap! app-state update
@@ -1141,8 +1246,8 @@
                       :height "100%",
                       :pointer-events "none",
                       :z-index 0}}
-             [connection-line :source :ast "AST ->" compile-source]
-             [connection-line :ast :semantic "Sem ->" compile-ast]
+             [connection-line :source :walker "AST ->" compile-source]
+             [connection-line :walker :semantic "Sem ->" compile-ast]
              [connection-line :semantic :register "Reg ->" compile-register]
              [connection-line :semantic :stack "Stack ->" compile-stack]
              [connection-line :semantic :query "d/q ->" run-query]]
@@ -1176,7 +1281,7 @@
               [:div
                {:style {:marginTop "10px", :fontSize "0.8em", :color "#8b949e"}}
                "Select examples from the menu ☰ above."]]]
-            [draggable-card :ast "AST Walker"
+            [draggable-card :walker "AST Walker"
              [:div
               {:style {:display "flex",
                        :flex-direction "column",
@@ -1185,22 +1290,19 @@
               [codemirror-editor
                {:value (:ast-as-text @app-state),
                 :on-change (fn [v] (swap! app-state assoc :ast-as-text v))}]
-              [:button
-               {:on-click walk-ast,
-                :style {:marginTop "5px",
-                        :background "#238636",
-                        :color "#fff",
-                        :border "none",
-                        :padding "5px 10px",
-                        :border-radius "4px",
-                        :cursor "pointer"}} "Run AST"]
-              (when (:result @app-state)
-                [:div
-                 {:style {:marginTop "5px",
-                          :background "#0d1117",
-                          :padding "5px",
-                          :border "1px solid #30363d"}}
-                 (pr-str (:result @app-state))])]]
+              [vm-control-buttons
+               {:vm-key :walker,
+                :step-fn step-walker,
+                :toggle-run-fn toggle-run-walker,
+                :reset-fn reset-walker}] [ast-walker-state-display]
+              (let [vm-state (get-in @app-state [:vm-states :walker :state])]
+                (when (and vm-state (proto/halted? vm-state))
+                  [:div
+                   {:style {:marginTop "5px",
+                            :background "#0d1117",
+                            :padding "5px",
+                            :border "1px solid #30363d"}} [:strong "Result: "]
+                   (pr-str (proto/value vm-state))]))]]
             [draggable-card :semantic "Semantic VM"
              [:div
               {:style {:display "flex",
