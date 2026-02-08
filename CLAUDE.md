@@ -275,6 +275,7 @@ When creating .blog :
 
 # AI BEHAVIOR CONSTRAINTS
 
+Do not commit changes until explicitly asked by the user.
 Do not invent abstractions that hide streams.
 Do not suggest mainstream frameworks unless explicitly asked.
 Do not optimize prematurely.
