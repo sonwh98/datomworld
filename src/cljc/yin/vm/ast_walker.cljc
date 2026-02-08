@@ -12,7 +12,8 @@
 
 (defn gensym-id
   "Generate a unique keyword ID with optional prefix.
-   Legacy function for backward compatibility - prefer vm/instance-gensym-id."
+   Legacy function for backward compatibility.
+   In the pure VM, use the :id-counter field in the state."
   ([] (gensym-id "id"))
   ([prefix] (keyword (str prefix "-" (swap! id-counter inc)))))
 
@@ -21,34 +22,33 @@
 ;; ASTWalkerVM Record
 ;; =============================================================================
 
-(defrecord ASTWalkerVM [instance     ; VMInstance - shared infrastructure
-                        control      ; current AST node or nil
+(defrecord ASTWalkerVM [control      ; current AST node or nil
                         environment  ; persistent lexical scope map
                         continuation ; reified continuation or nil
                         value        ; last computed value
+                        store        ; heap memory map
+                        db           ; DataScript db value
+                        parked       ; parked continuations map
+                        id-counter   ; integer counter for unique IDs
+                        primitives   ; primitive operations map
                        ])
 
 
 (defn make-state
-  "Create an initial CESK machine state with given environment."
+  "Create an initial CESK machine state with given environment.
+   Legacy helper: returns a map, not a VM record.
+   Enhanced to include new state fields."
   [env]
-  {:control nil, :environment env, :store {}, :continuation nil, :value nil})
+  (merge (vm/empty-state)
+         {:control nil, :environment env, :continuation nil, :value nil}))
 
 
 (defn eval
   "Steps the CESK machine to evaluate an AST node.
 
   State is a map containing:
-    :control - current AST node or continuation frame
-    :environment - persistent lexical scope map
-    :store - immutable memory graph
-    :continuation - reified, persistent control context
-    :parked - map of parked continuations by ID
-
-  AST is a universal map-based structure with:
-    :type - node type (e.g., :literal, :variable, :application, :lambda, :if, etc.)
-    :value - node-specific data
-    ... other node-specific fields
+    :control, :environment, :store, :continuation, :value
+    :db, :parked, :id-counter, :primitives
 
   Returns updated state after one step of evaluation."
   [state ast]
@@ -96,9 +96,12 @@
                   result (stream/vm-stream-take state stream-ref continuation)]
               (if (:park result)
                 ;; Need to park - add continuation to takers
-                (let [stream-id (:stream-id result)
+                (let [gen-id-fn (fn [prefix]
+                                  (keyword
+                                    (str prefix "-" (:id-counter state))))
+                      stream-id (:stream-id result)
                       parked-cont {:type :parked-continuation,
-                                   :id (gensym-id "taker"),
+                                   :id (gen-id-fn "taker"),
                                    :continuation (:parent continuation),
                                    :environment environment}
                       store (:store state)
@@ -108,7 +111,8 @@
                     :store new-store
                     :value :yin/blocked
                     :control nil
-                    :continuation nil))
+                    :continuation nil
+                    :id-counter (inc (:id-counter state))))
                 ;; Got value
                 (assoc (:state result)
                   :control nil
@@ -151,9 +155,10 @@
         ;; Variable lookup
         :variable (let [{:keys [name]} node
                         ;; Check local environment, then store (global),
-                        ;; then module system
+                        ;; then module system (via primitives)
                         value (or (get environment name)
                                   (get store name)
+                                  (get (:primitives state) name)
                                   (module/resolve-symbol name))]
                     (assoc state
                       :value value
@@ -193,11 +198,16 @@
                                             :value value
                                             :control nil))
                           :stream/make
-                            (let [[stream-ref new-state]
-                                    (stream/handle-make state result gensym-id)]
+                            (let [gen-id-fn
+                                    (fn [prefix]
+                                      (keyword
+                                        (str prefix "-" (:id-counter state))))
+                                  [stream-ref new-state]
+                                    (stream/handle-make state result gen-id-fn)]
                               (assoc new-state
                                 :value stream-ref
-                                :control nil))
+                                :control nil
+                                :id-counter (inc (:id-counter state))))
                           :stream/put (let [effect-result
                                               (stream/handle-put state result)]
                                         (assoc (:state effect-result)
@@ -208,9 +218,14 @@
                                                                     result)]
                               (if (:park effect-result)
                                 ;; Need to park
-                                (let [stream-id (:stream-id effect-result)
+                                (let [gen-id-fn (fn [prefix]
+                                                  (keyword (str prefix
+                                                                "-"
+                                                                (:id-counter
+                                                                  state))))
+                                      stream-id (:stream-id effect-result)
                                       parked-cont {:type :parked-continuation,
-                                                   :id (gensym-id "taker"),
+                                                   :id (gen-id-fn "taker"),
                                                    :continuation continuation,
                                                    :environment environment}
                                       new-store (update-in store
@@ -221,7 +236,8 @@
                                     :store new-store
                                     :value :yin/blocked
                                     :control nil
-                                    :continuation nil))
+                                    :continuation nil
+                                    :id-counter (inc (:id-counter state))))
                                 ;; Got value
                                 (assoc (:state effect-result)
                                   :value (:value effect-result)
@@ -285,10 +301,11 @@
         ;; ============================================================
         ;; Generate unique ID
         :vm/gensym (let [prefix (or (:prefix node) "id")
-                         id (gensym-id prefix)]
+                         id (keyword (str prefix "-" (:id-counter state)))]
                      (assoc state
                        :value id
-                       :control nil))
+                       :control nil
+                       :id-counter (inc (:id-counter state))))
         ;; Read from store
         :vm/store-get (let [key (:key node)
                             value (get store key)]
@@ -324,7 +341,7 @@
                                            :environment environment}
                                    :control nil)
         ;; Park (suspend) - saves current continuation and halts
-        :vm/park (let [park-id (gensym-id "parked")
+        :vm/park (let [park-id (keyword (str "parked-" (:id-counter state)))
                        parked-cont {:type :parked-continuation,
                                     :id park-id,
                                     :continuation continuation,
@@ -335,7 +352,8 @@
                      :parked new-parked
                      :value parked-cont
                      :control nil
-                     :continuation nil)) ; Halt execution
+                     :continuation nil ; Halt execution
+                     :id-counter (inc (:id-counter state))))
         ;; Resume a parked continuation with a value
         :vm/resume (let [parked-id (:parked-id node)
                          resume-value (:val node)
@@ -410,35 +428,27 @@
   [^ASTWalkerVM vm]
   {:control (:control vm),
    :environment (:environment vm),
-   :store (if-let [inst (:instance vm)]
-            @(:store inst)
-            {}),
+   :store (:store vm),
    :continuation (:continuation vm),
    :value (:value vm),
-   :parked (if-let [inst (:instance vm)]
-             @(:parked inst)
-             {})})
+   :db (:db vm),
+   :parked (:parked vm),
+   :id-counter (:id-counter vm),
+   :primitives (:primitives vm)})
 
 
 (defn- state->vm
   "Convert legacy state map back to ASTWalkerVM."
   [^ASTWalkerVM vm state]
-  (when-let [inst (:instance vm)]
-    (reset! (:store inst) (:store state))
-    (reset! (:parked inst) (or (:parked state) {})))
-  (->ASTWalkerVM (:instance vm)
-                 (:control state)
+  (->ASTWalkerVM (:control state)
                  (:environment state)
                  (:continuation state)
-                 (:value state)))
-
-
-(defn- vm-gensym-id
-  "Generate a unique ID using instance or fallback to legacy."
-  [^ASTWalkerVM vm prefix]
-  (if-let [inst (:instance vm)]
-    (vm/instance-gensym-id inst prefix)
-    (gensym-id prefix)))
+                 (:value state)
+                 (:store state)
+                 (:db state)
+                 (:parked state)
+                 (:id-counter state)
+                 (:primitives state)))
 
 
 (defn vm-step
@@ -473,7 +483,7 @@
 (defn vm-load-program
   "Load an AST into the VM."
   [^ASTWalkerVM vm ast]
-  (->ASTWalkerVM (:instance vm) ast (:environment vm) nil nil))
+  (assoc vm :control ast))
 
 
 (extend-type ASTWalkerVM
@@ -489,6 +499,11 @@
 
 
 (defn create
-  "Create a new ASTWalkerVM with an instance and optional environment."
-  ([instance] (create instance {}))
-  ([instance env] (->ASTWalkerVM instance nil env nil nil)))
+  "Create a new ASTWalkerVM with optional environment."
+  ([] (create {}))
+  ([env]
+   (let [base (vm/empty-state)]
+     (map->ASTWalkerVM
+       (merge
+         base
+         {:control nil, :environment env, :continuation nil, :value nil})))))

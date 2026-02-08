@@ -77,8 +77,7 @@
 ;; VM Records
 ;; =============================================================================
 
-(defrecord StackVM [instance   ; VMInstance - shared infrastructure
-                    pc         ; program counter
+(defrecord StackVM [pc         ; program counter
                     bytes      ; bytecode vector
                     stack      ; operand stack
                     env        ; lexical environment
@@ -86,17 +85,26 @@
                     pool       ; constant pool
                     halted     ; true if execution completed
                     value      ; final result value
+                    store      ; heap memory
+                    db         ; DataScript db value
+                    parked     ; parked continuations
+                    id-counter ; unique ID counter
+                    primitives ; primitive operations
                    ])
 
 
-(defrecord SemanticVM [instance ; VMInstance - shared infrastructure
-                       control  ; current control state {:type
-                                ; :node/:value, ...}
-                       env      ; lexical environment
-                       stack    ; continuation stack
-                       datoms   ; AST datoms
-                       halted   ; true if execution completed
-                       value    ; final result value
+(defrecord SemanticVM [control    ; current control state {:type
+                                  ; :node/:value, ...}
+                       env        ; lexical environment
+                       stack      ; continuation stack
+                       datoms     ; AST datoms
+                       halted     ; true if execution completed
+                       value      ; final result value
+                       store      ; heap memory
+                       db         ; DataScript db value
+                       parked     ; parked continuations
+                       id-counter ; unique ID counter
+                       primitives ; primitive operations
                       ])
 
 
@@ -115,12 +123,13 @@
 (defn make-semantic-state
   "Create initial state for stepping the semantic (datom) VM."
   [{:keys [node datoms]} env]
-  {:control {:type :node, :id node},
-   :env env,
-   :stack [],
-   :datoms datoms,
-   :halted false,
-   :value nil})
+  (merge (vm/empty-state)
+         {:control {:type :node, :id node},
+          :env env,
+          :stack [],
+          :datoms datoms,
+          :halted false,
+          :value nil}))
 
 
 (defn semantic-step
@@ -441,14 +450,15 @@
   "Create initial stack VM state for stepping execution."
   ([bytes constant-pool] (make-stack-state bytes constant-pool {}))
   ([bytes constant-pool env]
-   {:pc 0,
-    :bytes (vec bytes),
-    :stack [],
-    :env env,
-    :call-stack [],
-    :pool constant-pool,
-    :halted false,
-    :value nil}))
+   (merge (vm/empty-state)
+          {:pc 0,
+           :bytes (vec bytes),
+           :stack [],
+           :env env,
+           :call-stack [],
+           :pool constant-pool,
+           :halted false,
+           :value nil})))
 
 
 (defn stack-step
@@ -579,21 +589,30 @@
    :call-stack (:call-stack vm),
    :pool (:pool vm),
    :halted (:halted vm),
-   :value (:value vm)})
+   :value (:value vm),
+   :store (:store vm),
+   :db (:db vm),
+   :parked (:parked vm),
+   :id-counter (:id-counter vm),
+   :primitives (:primitives vm)})
 
 
 (defn- state->stack-vm
   "Convert legacy state map back to StackVM."
   [^StackVM vm state]
-  (->StackVM (:instance vm)
-             (:pc state)
+  (->StackVM (:pc state)
              (:bytes state)
              (:stack state)
              (:env state)
              (:call-stack state)
              (:pool state)
              (:halted state)
-             (:value state)))
+             (:value state)
+             (:store state)
+             (:db state)
+             (:parked state)
+             (:id-counter state)
+             (:primitives state)))
 
 
 (defn stack-vm-step
@@ -632,7 +651,14 @@
   "Load bytecode into the VM.
    Expects {:bc [...] :pool [...]}."
   [^StackVM vm {:keys [bc pool]}]
-  (->StackVM (:instance vm) 0 (vec bc) [] (:env vm) [] pool false nil))
+  (map->StackVM (merge (stack-vm->state vm)
+                       {:pc 0,
+                        :bytes (vec bc),
+                        :stack [],
+                        :call-stack [],
+                        :pool pool,
+                        :halted false,
+                        :value nil})))
 
 
 (extend-type StackVM
@@ -648,9 +674,18 @@
 
 
 (defn create-stack-vm
-  "Create a new StackVM with an instance and optional environment."
-  ([instance] (create-stack-vm instance {}))
-  ([instance env] (->StackVM instance 0 [] [] env [] [] false nil)))
+  "Create a new StackVM with optional environment."
+  ([] (create-stack-vm {}))
+  ([env]
+   (map->StackVM (merge (vm/empty-state)
+                        {:pc 0,
+                         :bytes [],
+                         :stack [],
+                         :env env,
+                         :call-stack [],
+                         :pool [],
+                         :halted false,
+                         :value nil}))))
 
 
 ;; =============================================================================
@@ -665,19 +700,28 @@
    :stack (:stack vm),
    :datoms (:datoms vm),
    :halted (:halted vm),
-   :value (:value vm)})
+   :value (:value vm),
+   :store (:store vm),
+   :db (:db vm),
+   :parked (:parked vm),
+   :id-counter (:id-counter vm),
+   :primitives (:primitives vm)})
 
 
 (defn- state->semantic-vm
   "Convert legacy state map back to SemanticVM."
   [^SemanticVM vm state]
-  (->SemanticVM (:instance vm)
-                (:control state)
+  (->SemanticVM (:control state)
                 (:env state)
                 (:stack state)
                 (:datoms state)
                 (:halted state)
-                (:value state)))
+                (:value state)
+                (:store state)
+                (:db state)
+                (:parked state)
+                (:id-counter state)
+                (:primitives state)))
 
 
 (defn semantic-vm-step
@@ -719,13 +763,12 @@
   "Load datoms into the VM.
    Expects {:node root-id :datoms [...]}."
   [^SemanticVM vm {:keys [node datoms]}]
-  (->SemanticVM (:instance vm)
-                {:type :node, :id node}
-                (:env vm)
-                []
-                datoms
-                false
-                nil))
+  (map->SemanticVM (merge (semantic-vm->state vm)
+                          {:control {:type :node, :id node},
+                           :stack [],
+                           :datoms datoms,
+                           :halted false,
+                           :value nil})))
 
 
 (extend-type SemanticVM
@@ -741,6 +784,13 @@
 
 
 (defn create-semantic-vm
-  "Create a new SemanticVM with an instance and optional environment."
-  ([instance] (create-semantic-vm instance {}))
-  ([instance env] (->SemanticVM instance nil env [] nil false nil)))
+  "Create a new SemanticVM with optional environment."
+  ([] (create-semantic-vm {}))
+  ([env]
+   (map->SemanticVM (merge (vm/empty-state)
+                           {:control nil,
+                            :env env,
+                            :stack [],
+                            :datoms [],
+                            :halted false,
+                            :value nil}))))

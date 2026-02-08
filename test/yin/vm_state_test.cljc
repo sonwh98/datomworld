@@ -141,7 +141,8 @@
             "State should capture the environment bindings"))
       (testing "State structure can be inspected"
         (is (map? state) "State should be a map")
-        (is (= #{:control :environment :store :continuation :value}
+        (is (= #{:control :environment :store :continuation :value :db :parked
+                 :id-counter :primitives}
                (set (keys state)))
             "State should have all CESK fields")))))
 

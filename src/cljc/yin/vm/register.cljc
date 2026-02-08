@@ -48,17 +48,22 @@
 ;; RegisterVM Record
 ;; =============================================================================
 
-(defrecord RegisterVM [instance ; VMInstance - shared infrastructure
-                       regs     ; virtual registers vector
-                       k        ; continuation (call frame stack)
-                       env      ; lexical environment
-                       ip       ; instruction pointer
-                       bytecode ; symbolic instruction vector (for assembly
-                                ; VM)
-                       bc       ; numeric bytecode vector (for bytecode VM)
-                       pool     ; constant pool (for bytecode VM)
-                       halted   ; true if execution completed
-                       value    ; final result value
+(defrecord RegisterVM [regs       ; virtual registers vector
+                       k          ; continuation (call frame stack)
+                       env        ; lexical environment
+                       ip         ; instruction pointer
+                       bytecode   ; symbolic instruction vector (for
+                                  ; assembly VM)
+                       bc         ; numeric bytecode vector (for bytecode
+                                  ; VM)
+                       pool       ; constant pool (for bytecode VM)
+                       halted     ; true if execution completed
+                       value      ; final result value
+                       store      ; heap memory
+                       db         ; DataScript db value
+                       parked     ; parked continuations
+                       id-counter ; unique ID counter
+                       primitives ; primitive operations
                       ])
 
 
@@ -342,13 +347,13 @@
   "Create initial register-based assembly VM state."
   ([bytecode] (make-rbc-state bytecode {}))
   ([bytecode env]
-   {:regs [],           ; virtual registers (grows as needed)
-    :k nil,             ; continuation (always explicit)
-    :env env,           ; lexical environment
-    :store {},          ; global store
-    :ip 0,              ; instruction pointer
-    :bytecode bytecode, ; instruction vector
-    :parked {}}))
+   (merge (vm/empty-state)
+          {:regs [],          ; virtual registers (grows as needed)
+           :k nil,            ; continuation (always explicit)
+           :env env,          ; lexical environment
+           :ip 0,             ; instruction pointer
+           :bytecode bytecode ; instruction vector
+          })))
 
 
 (defn rbc-get-reg
@@ -388,6 +393,7 @@
           :loadv (let [[rd name] args
                        v (or (get env name)
                              (get store name)
+                             (get (:primitives state) name)
                              (module/resolve-symbol name))]
                    (-> state
                        (rbc-set-reg rd v)
@@ -551,14 +557,8 @@
   "Create initial bytecode VM state from {:bc [...] :pool [...]}."
   ([compiled] (make-rbc-bc-state compiled {}))
   ([{:keys [bc pool]} env]
-   {:regs [],
-    :k nil,
-    :env env,
-    :store {},
-    :ip 0,
-    :bc bc,
-    :pool pool,
-    :parked {}}))
+   (merge (vm/empty-state)
+          {:regs [], :k nil, :env env, :ip 0, :bc bc, :pool pool})))
 
 
 (defn rbc-step-bc
@@ -580,6 +580,7 @@
                 name (get pool (get bc (+ ip 2)))
                 v (or (get env name)
                       (get store name)
+                      (get (:primitives state) name)
                       (module/resolve-symbol name))]
             (-> state
                 (rbc-set-reg rd v)
@@ -713,13 +714,17 @@
 (defn- vm->state
   "Convert RegisterVM to legacy state map."
   [^RegisterVM vm]
-  (let [inst (:instance vm)
-        base {:regs (:regs vm),
+  (let [base {:regs (:regs vm),
               :k (:k vm),
               :env (:env vm),
               :ip (:ip vm),
               :halted (:halted vm),
-              :value (:value vm)}]
+              :value (:value vm),
+              :store (:store vm),
+              :db (:db vm),
+              :parked (:parked vm),
+              :id-counter (:id-counter vm),
+              :primitives (:primitives vm)}]
     (if (:bc vm)
       (assoc base
         :bc (:bc vm)
@@ -730,8 +735,7 @@
 (defn- state->vm
   "Convert legacy state map back to RegisterVM."
   [^RegisterVM vm state]
-  (->RegisterVM (:instance vm)
-                (:regs state)
+  (->RegisterVM (:regs state)
                 (:k state)
                 (:env state)
                 (:ip state)
@@ -739,7 +743,12 @@
                 (:bc state)
                 (:pool state)
                 (:halted state)
-                (:value state)))
+                (:value state)
+                (:store state)
+                (:db state)
+                (:parked state)
+                (:id-counter state)
+                (:primitives state)))
 
 
 (defn reg-vm-step
@@ -778,18 +787,25 @@
   [^RegisterVM vm program]
   (if (map? program)
     ;; Numeric bytecode with pool
-    (->RegisterVM (:instance vm)
-                  []
-                  nil
-                  (:env vm)
-                  0
-                  nil
-                  (:bc program)
-                  (:pool program)
-                  false
-                  nil)
+    (map->RegisterVM (merge (vm->state vm)
+                            {:regs [],
+                             :k nil,
+                             :ip 0,
+                             :bytecode nil,
+                             :bc (:bc program),
+                             :pool (:pool program),
+                             :halted false,
+                             :value nil}))
     ;; Symbolic bytecode
-    (->RegisterVM (:instance vm) [] nil (:env vm) 0 program nil nil false nil)))
+    (map->RegisterVM (merge (vm->state vm)
+                            {:regs [],
+                             :k nil,
+                             :ip 0,
+                             :bytecode program,
+                             :bc nil,
+                             :pool nil,
+                             :halted false,
+                             :value nil}))))
 
 
 (extend-type RegisterVM
@@ -805,6 +821,16 @@
 
 
 (defn create
-  "Create a new RegisterVM with an instance and optional environment."
-  ([instance] (create instance {}))
-  ([instance env] (->RegisterVM instance [] nil env 0 nil nil nil false nil)))
+  "Create a new RegisterVM with optional environment."
+  ([] (create {}))
+  ([env]
+   (map->RegisterVM (merge (vm/empty-state)
+                           {:regs [],
+                            :k nil,
+                            :env env,
+                            :ip 0,
+                            :bytecode nil,
+                            :bc nil,
+                            :pool nil,
+                            :halted false,
+                            :value nil}))))

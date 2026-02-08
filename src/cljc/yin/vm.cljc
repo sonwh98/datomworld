@@ -1,17 +1,12 @@
 (ns yin.vm
+  "Defines the canonical data model (Datoms), schema, and primitives for the Yin Abstract Machine.
+   This namespace acts as the shared kernel/substrate for all execution engines (stack, register, walker)."
   (:refer-clojure :exclude [eval])
   (:require [datascript.core :as d]
-            #?@(:cljs [[datascript.db :as db] [datascript.query :as dq]])
-            [yin.module :as module]))
+            #?@(:cljs [[datascript.db :as db] [datascript.query :as dq]])))
 
 
 ;; Fix DataScript query under Closure advanced compilation.
-;; ClojureScript uses .v for protocol bitmaps on all types. Under :advanced,
-;; the Closure Compiler renames Datom's value field from .v to avoid collision,
-;; but DataScript's query engine accesses it via raw JS bracket notation
-;; datom["v"], which returns the protocol bitmap (an integer) instead of the
-;; actual value. Fix: convert Datom tuples to JS arrays using nth (which goes
-;; through IIndexed and resolves the renamed field correctly).
 #?(:cljs (let [original-lookup dq/lookup-pattern-db
                prop->idx {"e" 0, "a" 1, "v" 2, "tx" 3}]
            (set! dq/lookup-pattern-db
@@ -77,7 +72,7 @@
 
 
 (def ^:private cardinality-many-attrs
-  "Attributes with :db.cardinality/many \u2014 their values are vectors of refs
+  "Attributes with :db.cardinality/many — their values are vectors of refs
    that must be expanded into individual :db/add assertions."
   #{:yin/operands})
 
@@ -196,110 +191,13 @@
        (convert ast)))))
 
 
-;; =============================================================================
-;; VMInstance - Shared VM Infrastructure
-;; =============================================================================
-;;
-;; VMInstance is the shared substrate for all VM types:
-;; - db-conn: atom containing DataScript db value
-;; - store: atom containing global store map
-;; - parked: atom containing parked continuations by ID
-;; - primitives: immutable map of primitive operations
-;; - gensym-counter: atom for generating unique IDs
-;;
-;; Multiple VMs can share a single VMInstance, enabling:
-;; - Shared store across VM boundaries
-;; - Unified gensym counter
-;; - Cross-VM continuation parking
-
-(defrecord VMInstance [db-conn        ; atom containing DataScript db value
-                       store          ; atom containing global store map
-                       parked         ; atom containing parked
-                                      ; continuations by ID
-                       primitives     ; immutable map of primitive ops
-                       gensym-counter ; atom for unique IDs
-                      ])
-
-
-(defn create-instance
-  "Create a new VMInstance with optional primitives.
-   Defaults to yin.vm/primitives if not specified."
-  ([] (create-instance {}))
-  ([opts]
-   (let [prims (or (:primitives opts) primitives)]
-     (->VMInstance (atom (d/empty-db schema))
-                   (atom {})
-                   (atom {})
-                   prims
-                   (atom 0)))))
-
-
-(defn instance-gensym-id
-  "Generate a unique keyword ID with optional prefix."
-  ([instance] (instance-gensym-id instance "id"))
-  ([instance prefix]
-   (keyword (str prefix "-" (swap! (:gensym-counter instance) inc)))))
-
-
-(defn instance-store-get
-  "Get a value from the shared store."
-  [instance k]
-  (get @(:store instance) k))
-
-
-(defn instance-store-put!
-  "Put a value into the shared store. Returns the value."
-  [instance k v]
-  (swap! (:store instance) assoc k v)
-  v)
-
-
-(defn instance-store-update!
-  "Update a value in the shared store with a function."
-  [instance k f & args]
-  (let [result (apply swap! (:store instance) update k f args)] (get result k)))
-
-
-(defn instance-transact-ast!
-  "Transact AST datoms into the instance's DataScript db.
-   Returns {:db db :tempids tempids}."
-  [instance datoms]
-  (let [tx-data (datoms->tx-data datoms)
-        db @(:db-conn instance)
-        conn (d/conn-from-db db)
-        {:keys [tempids]} (d/transact! conn tx-data)]
-    (reset! (:db-conn instance) @conn)
-    {:db @(:db-conn instance), :tempids tempids}))
-
-
-(defn instance-park!
-  "Park a continuation with the given ID."
-  [instance park-id continuation]
-  (swap! (:parked instance) assoc park-id continuation)
-  park-id)
-
-
-(defn instance-unpark!
-  "Unpark and return a continuation by ID, removing it from parked."
-  [instance park-id]
-  (let [cont (get @(:parked instance) park-id)]
-    (swap! (:parked instance) dissoc park-id)
-    cont))
-
-
-(defn instance-parked?
-  "Returns true if the instance has any parked continuations."
-  [instance]
-  (boolean (seq @(:parked instance))))
-
-
-(defn instance-parked-ids
-  "Returns the IDs of all parked continuations."
-  [instance]
-  (keys @(:parked instance)))
-
-
-(defn instance-resolve-var
-  "Resolve a variable name in the instance's primitives."
-  [instance name]
-  (get (:primitives instance) name))
+(defn empty-state
+  "Return an initial immutable VM state map.
+   Contains: :db (DataScript), :store {}, :parked {}, :id-counter 0, :primitives map."
+  ([] (empty-state primitives))
+  ([prims]
+   {:db (d/empty-db schema),
+    :store {},
+    :parked {},
+    :id-counter 0,
+    :primitives prims}))
