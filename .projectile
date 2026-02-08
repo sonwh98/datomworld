@@ -8,3 +8,5 @@
 -static/videos
 -.clj-kondo/*
 -.lsp
+-.dart_tool/*
+-build/*
