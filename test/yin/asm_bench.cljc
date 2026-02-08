@@ -1,8 +1,8 @@
 (ns yin.asm-bench
   (:require #?(:clj [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
-            [yin.asm :as asm]
-            [yin.vm :as vm]))
+            [yin.vm :as vm]
+            [yin.vm.stack :as stack]))
 
 
 (defn now-us
@@ -81,16 +81,16 @@
   [name ast iterations]
   (let [compiled (compile-to-datoms ast)
         datoms (vm/ast->datoms ast)
-        asm-instrs (asm/ast-datoms->stack-assembly datoms)
-        {:keys [bc pool]} (asm/stack-assembly->bytecode asm-instrs)
+        asm-instrs (stack/ast-datoms->stack-assembly datoms)
+        {:keys [bc pool]} (stack/stack-assembly->bytecode asm-instrs)
         sem-compile (benchmark #(compile-to-datoms ast) iterations)
         stack-compile (benchmark #(let [d (vm/ast->datoms ast)]
                                     (-> d
-                                        asm/ast-datoms->stack-assembly
-                                        asm/stack-assembly->bytecode))
+                                        stack/ast-datoms->stack-assembly
+                                        stack/stack-assembly->bytecode))
                                  iterations)
-        sem-run (benchmark #(asm/run-semantic compiled primitives) iterations)
-        stack-run (benchmark #(asm/run-bytes bc pool primitives) iterations)]
+        sem-run (benchmark #(stack/run-semantic compiled primitives) iterations)
+        stack-run (benchmark #(stack/run-bytes bc pool primitives) iterations)]
     {:name name,
      :compile-semantic sem-compile,
      :compile-stack stack-compile,
@@ -136,13 +136,13 @@
       (compile-to-datoms nested-ast)
       (let [d (vm/ast->datoms nested-ast)]
         (-> d
-            asm/ast-datoms->stack-assembly
-            asm/stack-assembly->bytecode))
-      (asm/run-semantic (compile-to-datoms nested-ast) primitives)
+            stack/ast-datoms->stack-assembly
+            stack/stack-assembly->bytecode))
+      (stack/run-semantic (compile-to-datoms nested-ast) primitives)
       (let [d (vm/ast->datoms nested-ast)
-            i (asm/ast-datoms->stack-assembly d)
-            {:keys [bc pool]} (asm/stack-assembly->bytecode i)]
-        (asm/run-bytes bc pool primitives)))
+            i (stack/ast-datoms->stack-assembly d)
+            {:keys [bc pool]} (stack/stack-assembly->bytecode i)]
+        (stack/run-bytes bc pool primitives)))
     (println "done.")
     (println "")
     (let [iterations 5000
@@ -162,23 +162,23 @@
       (println "--- Query Operations (semantic only) ---")
       (let [compiled (compile-to-datoms nested-ast)
             datoms (:datoms compiled)]
-        (let [q (benchmark #(asm/find-applications datoms) iterations)]
+        (let [q (benchmark #(stack/find-applications datoms) iterations)]
           (println (str "  find-applications:  "
                         (fmt q)
                         " us -> "
-                        (count (asm/find-applications datoms))
+                        (count (stack/find-applications datoms))
                         " found")))
-        (let [q (benchmark #(asm/find-lambdas datoms) iterations)]
+        (let [q (benchmark #(stack/find-lambdas datoms) iterations)]
           (println (str "  find-lambdas:       "
                         (fmt q)
                         " us -> "
-                        (count (asm/find-lambdas datoms))
+                        (count (stack/find-lambdas datoms))
                         " found")))
-        (let [q (benchmark #(asm/find-variables datoms) iterations)]
+        (let [q (benchmark #(stack/find-variables datoms) iterations)]
           (println (str "  find-variables:     "
                         (fmt q)
                         " us -> "
-                        (count (asm/find-variables datoms))
+                        (count (stack/find-variables datoms))
                         " found"))))
       (println "")
       (println "Summary: Semantic trades speed for queryability")

@@ -11,9 +11,9 @@
             [reagent.dom :as rdom]
             [yang.clojure :as yang]
             [yang.python :as py]
-            [yin.asm :as asm]
             [yin.vm :as vm]
-            [yin.vm.register :as register]))
+            [yin.vm.register :as register]
+            [yin.vm.stack :as stack]))
 
 
 (defn pretty-print
@@ -146,8 +146,8 @@
             results
               (mapv (fn [ast]
                       (let [datoms (vm/ast->datoms ast)
-                            asm (asm/ast-datoms->stack-assembly datoms)
-                            result (asm/stack-assembly->bytecode asm)
+                            asm (stack/ast-datoms->stack-assembly datoms)
+                            result (stack/stack-assembly->bytecode asm)
                             bc (:bc result)
                             pool (:pool result)
                             source-map (:source-map result)]
@@ -156,9 +156,9 @@
             ;; Initialize VM state from last compiled result
             last-result (last results)
             initial-state (when last-result
-                            (asm/make-stack-state (:bc last-result)
-                                                  (:pool last-result)
-                                                  vm/primitives))]
+                            (stack/make-stack-state (:bc last-result)
+                                                    (:pool last-result)
+                                                    vm/primitives))]
         (swap! app-state assoc
           :stack-asm (mapv :asm results)
           :stack-bc (mapv :bc results)
@@ -191,8 +191,8 @@
         (let [initial-env vm/primitives
               run-results
                 (mapv (fn [[bytes pool]]
-                        (asm/stack-run
-                          (asm/make-stack-state bytes pool initial-env)))
+                        (stack/stack-run
+                          (stack/make-stack-state bytes pool initial-env)))
                   results)]
           (swap! app-state assoc :stack-result (last run-results) :error nil))
         (catch js/Error e
@@ -206,7 +206,7 @@
   []
   (let [state (get-in @app-state [:vm-states :stack :state])]
     (when (and state (not (:halted state)))
-      (try (let [new-state (asm/stack-step state)]
+      (try (let [new-state (stack/stack-step state)]
              (swap! app-state assoc-in [:vm-states :stack :state] new-state)
              (when (:halted new-state)
                (swap! app-state assoc :stack-result (:value new-state))
@@ -224,7 +224,7 @@
   (let [bc (last (:stack-bc @app-state))
         pool (last (:stack-pool @app-state))]
     (when (and bc pool)
-      (let [initial-state (asm/make-stack-state bc pool vm/primitives)]
+      (let [initial-state (stack/make-stack-state bc pool vm/primitives)]
         (swap! app-state assoc-in [:vm-states :stack :state] initial-state)
         (swap! app-state assoc-in [:vm-states :stack :running] false)
         (swap! app-state assoc :stack-result nil)))))
@@ -261,7 +261,7 @@
                         [:vm-states :stack :running]
                         false))
                   (js/requestAnimationFrame run-stack-loop)))
-            (recur (inc i) (asm/stack-step state))))
+            (recur (inc i) (stack/stack-step state))))
         (catch js/Error e
           (swap! app-state assoc :error (str "Stack VM Error: " (.-message e)))
           (swap! app-state assoc-in [:vm-states :stack :running] false))))))
@@ -282,10 +282,10 @@
             ;; (run-semantic)
             ;; root-eids are resolved DataScript entity IDs (for d/q)
             stats {:total-datoms (count all-datoms),
-                   :lambdas (count (asm/find-lambdas all-datoms)),
-                   :applications (count (asm/find-applications all-datoms)),
-                   :variables (count (asm/find-variables all-datoms)),
-                   :literals (count (asm/find-by-type all-datoms :literal))}]
+                   :lambdas (count (stack/find-lambdas all-datoms)),
+                   :applications (count (stack/find-applications all-datoms)),
+                   :variables (count (stack/find-variables all-datoms)),
+                   :literals (count (stack/find-by-type all-datoms :literal))}]
         (swap! app-state assoc
           :datoms all-datoms
           :ds-db db
@@ -296,9 +296,9 @@
         ;; Initialize stepping state
         (let [last-root (last root-ids)]
           (when last-root
-            (let [initial-state (asm/make-semantic-state {:node last-root,
-                                                          :datoms all-datoms}
-                                                         vm/primitives)]
+            (let [initial-state (stack/make-semantic-state {:node last-root,
+                                                            :datoms all-datoms}
+                                                           vm/primitives)]
               (swap! app-state assoc-in
                 [:vm-states :assembly :state]
                 initial-state)
@@ -326,9 +326,9 @@
     (when (and (seq datoms) (seq root-ids))
       (try (let [initial-env vm/primitives
                  results (mapv (fn [root-id]
-                                 (asm/run-semantic {:node root-id,
-                                                    :datoms datoms}
-                                                   initial-env))
+                                 (stack/run-semantic {:node root-id,
+                                                      :datoms datoms}
+                                                     initial-env))
                            root-ids)]
              (swap! app-state assoc :assembly-result (last results) :error nil))
            (catch js/Error e
@@ -343,7 +343,7 @@
   (let [state (get-in @app-state [:vm-states :assembly :state])]
     (when (and state (not (:halted state)))
       (try
-        (let [new-state (asm/semantic-step state)]
+        (let [new-state (stack/semantic-step state)]
           (swap! app-state assoc-in [:vm-states :assembly :state] new-state)
           (when (:halted new-state)
             (swap! app-state assoc :assembly-result (:value new-state))
@@ -362,9 +362,9 @@
         root-ids (:root-ids @app-state)
         last-root (last root-ids)]
     (when (and datoms last-root)
-      (let [initial-state (asm/make-semantic-state {:node last-root,
-                                                    :datoms datoms}
-                                                   vm/primitives)]
+      (let [initial-state (stack/make-semantic-state {:node last-root,
+                                                      :datoms datoms}
+                                                     vm/primitives)]
         (swap! app-state assoc-in [:vm-states :assembly :state] initial-state)
         (swap! app-state assoc-in [:vm-states :assembly :running] false)
         (swap! app-state assoc :assembly-result nil)))))
@@ -398,7 +398,7 @@
                         [:vm-states :assembly :running]
                         false))
                   (js/requestAnimationFrame run-assembly-loop)))
-            (recur (inc i) (asm/semantic-step state))))
+            (recur (inc i) (stack/semantic-step state))))
         (catch js/Error e
           (swap! app-state assoc
             :error
@@ -870,8 +870,8 @@
        (when (and state (not (:halted state)))
          (let [ctrl (:control state)
                info (if (= :node (:type ctrl))
-                      (let [attrs (asm/get-node-attrs (:datoms state)
-                                                      (:id ctrl))]
+                      (let [attrs (stack/get-node-attrs (:datoms state)
+                                                        (:id ctrl))]
                         (str (:yin/type attrs)))
                       "Returning...")]
            [:div {:style {:color "#c5c6c7"}} info]))

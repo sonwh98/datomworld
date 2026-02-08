@@ -1,7 +1,7 @@
 (ns yin.asm-test
   (:require [clojure.test :refer [deftest is testing]]
-            [yin.asm :as asm]
-            [yin.vm :as vm]))
+            [yin.vm :as vm]
+            [yin.vm.stack :as stack]))
 
 
 (def primitives {'+ +, '- -, '* *, '/ /})
@@ -27,9 +27,10 @@
       (is (contains? compiled :node))
       (is (contains? compiled :datoms))
       ;; Verify execution
-      (is (= 42 (asm/run-semantic compiled)))
+      (is (= 42 (stack/run-semantic compiled)))
       ;; Verify queryability
-      (let [node-attrs (asm/get-node-attrs (:datoms compiled) (:node compiled))]
+      (let [node-attrs (stack/get-node-attrs (:datoms compiled)
+                                             (:node compiled))]
         (is (= :literal (:yin/type node-attrs)))))))
 
 
@@ -37,9 +38,9 @@
   (testing "Variable lookup with semantic assembly"
     (let [ast {:type :variable, :name 'a}
           compiled (compile-to-datoms ast)]
-      (is (= 100 (asm/run-semantic compiled {'a 100})))
+      (is (= 100 (stack/run-semantic compiled {'a 100})))
       ;; Query: find all variable references
-      (is (= 1 (count (asm/find-variables (:datoms compiled))))))))
+      (is (= 1 (count (stack/find-variables (:datoms compiled))))))))
 
 
 (deftest semantic-application-test
@@ -50,9 +51,9 @@
                           {:type :literal, :value 20}]}
           compiled (compile-to-datoms ast)]
       ;; Execution
-      (is (= 30 (asm/run-semantic compiled primitives)))
+      (is (= 30 (stack/run-semantic compiled primitives)))
       ;; Query: find all applications
-      (let [apps (asm/find-applications (:datoms compiled))]
+      (let [apps (stack/find-applications (:datoms compiled))]
         (is (= 1 (count apps)))))))
 
 
@@ -68,13 +69,13 @@
                :operands [{:type :literal, :value 10}]}
           compiled (compile-to-datoms ast)]
       ;; Execution
-      (is (= 11 (asm/run-semantic compiled primitives)))
+      (is (= 11 (stack/run-semantic compiled primitives)))
       ;; Query: find all lambdas
-      (let [lambdas (asm/find-lambdas (:datoms compiled))]
+      (let [lambdas (stack/find-lambdas (:datoms compiled))]
         (is (= 1 (count lambdas)))
         ;; Verify lambda attributes are preserved
-        (let [lambda-attrs (asm/get-node-attrs (:datoms compiled)
-                                               (first lambdas))]
+        (let [lambda-attrs (stack/get-node-attrs (:datoms compiled)
+                                                 (first lambdas))]
           (is (= ['x] (:yin/params lambda-attrs))))))))
 
 
@@ -85,14 +86,14 @@
                :consequent {:type :literal, :value :yes},
                :alternate {:type :literal, :value :no}}
           compiled (compile-to-datoms ast)]
-      (is (= :yes (asm/run-semantic compiled)))))
+      (is (= :yes (stack/run-semantic compiled)))))
   (testing "Conditional with semantic assembly (false branch)"
     (let [ast {:type :if,
                :test {:type :literal, :value false},
                :consequent {:type :literal, :value :yes},
                :alternate {:type :literal, :value :no}}
           compiled (compile-to-datoms ast)]
-      (is (= :no (asm/run-semantic compiled))))))
+      (is (= :no (stack/run-semantic compiled))))))
 
 
 ;; =============================================================================
@@ -118,13 +119,13 @@
                :operands [{:type :literal, :value 10}]}
           compiled (compile-to-datoms ast)]
       ;; Execution
-      (is (= 16 (asm/run-semantic compiled primitives)))
+      (is (= 16 (stack/run-semantic compiled primitives)))
       ;; Query: find all applications (should be 3: outer call, +, *)
-      (is (= 3 (count (asm/find-applications (:datoms compiled)))))
+      (is (= 3 (count (stack/find-applications (:datoms compiled)))))
       ;; Query: find all variables
-      (is (= 3 (count (asm/find-variables (:datoms compiled)))))
+      (is (= 3 (count (stack/find-variables (:datoms compiled)))))
       ;; Query: find all lambdas
-      (is (= 1 (count (asm/find-lambdas (:datoms compiled))))))))
+      (is (= 1 (count (stack/find-lambdas (:datoms compiled))))))))
 
 
 (deftest query-by-attribute-test
@@ -140,10 +141,10 @@
                           {:type :literal, :value 4}]}
           compiled (compile-to-datoms ast)]
       ;; Execution
-      (is (= 7 (asm/run-semantic compiled primitives)))
+      (is (= 7 (stack/run-semantic compiled primitives)))
       ;; Query: find lambda with 2 params
-      (let [lambda-node (first (asm/find-lambdas (:datoms compiled)))
-            attrs (asm/get-node-attrs (:datoms compiled) lambda-node)]
+      (let [lambda-node (first (stack/find-lambdas (:datoms compiled)))
+            attrs (stack/get-node-attrs (:datoms compiled) lambda-node)]
         (is (= ['a 'b] (:yin/params attrs)))))))
 
 
@@ -154,9 +155,9 @@
 (deftest stack-assembly-literal-test
   (testing "Stack assembly from :yin/ datoms - literal"
     (let [datoms (vm/ast->datoms {:type :literal, :value 42})
-          asm-instrs (asm/ast-datoms->stack-assembly datoms)
-          {:keys [bc pool]} (asm/stack-assembly->bytecode asm-instrs)]
-      (is (= 42 (asm/run-bytes bc pool))))))
+          asm-instrs (stack/ast-datoms->stack-assembly datoms)
+          {:keys [bc pool]} (stack/stack-assembly->bytecode asm-instrs)]
+      (is (= 42 (stack/run-bytes bc pool))))))
 
 
 (deftest stack-assembly-application-test
@@ -165,9 +166,9 @@
                                   :operator {:type :variable, :name '+},
                                   :operands [{:type :literal, :value 10}
                                              {:type :literal, :value 20}]})
-          asm-instrs (asm/ast-datoms->stack-assembly datoms)
-          {:keys [bc pool]} (asm/stack-assembly->bytecode asm-instrs)]
-      (is (= 30 (asm/run-bytes bc pool primitives))))))
+          asm-instrs (stack/ast-datoms->stack-assembly datoms)
+          {:keys [bc pool]} (stack/stack-assembly->bytecode asm-instrs)]
+      (is (= 30 (stack/run-bytes bc pool primitives))))))
 
 
 (deftest stack-assembly-lambda-test
@@ -181,9 +182,9 @@
                                       :operands [{:type :variable, :name 'x}
                                                  {:type :literal, :value 1}]}},
                     :operands [{:type :literal, :value 10}]})
-          asm-instrs (asm/ast-datoms->stack-assembly datoms)
-          {:keys [bc pool]} (asm/stack-assembly->bytecode asm-instrs)]
-      (is (= 11 (asm/run-bytes bc pool primitives))))))
+          asm-instrs (stack/ast-datoms->stack-assembly datoms)
+          {:keys [bc pool]} (stack/stack-assembly->bytecode asm-instrs)]
+      (is (= 11 (stack/run-bytes bc pool primitives))))))
 
 
 (deftest stack-assembly-conditional-test
@@ -192,14 +193,14 @@
                                   :test {:type :literal, :value true},
                                   :consequent {:type :literal, :value :yes},
                                   :alternate {:type :literal, :value :no}})
-          asm-instrs (asm/ast-datoms->stack-assembly datoms)
-          {:keys [bc pool]} (asm/stack-assembly->bytecode asm-instrs)]
-      (is (= :yes (asm/run-bytes bc pool)))))
+          asm-instrs (stack/ast-datoms->stack-assembly datoms)
+          {:keys [bc pool]} (stack/stack-assembly->bytecode asm-instrs)]
+      (is (= :yes (stack/run-bytes bc pool)))))
   (testing "Stack assembly from :yin/ datoms - conditional false"
     (let [datoms (vm/ast->datoms {:type :if,
                                   :test {:type :literal, :value false},
                                   :consequent {:type :literal, :value :yes},
                                   :alternate {:type :literal, :value :no}})
-          asm-instrs (asm/ast-datoms->stack-assembly datoms)
-          {:keys [bc pool]} (asm/stack-assembly->bytecode asm-instrs)]
-      (is (= :no (asm/run-bytes bc pool))))))
+          asm-instrs (stack/ast-datoms->stack-assembly datoms)
+          {:keys [bc pool]} (stack/stack-assembly->bytecode asm-instrs)]
+      (is (= :no (stack/run-bytes bc pool))))))
