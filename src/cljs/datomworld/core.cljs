@@ -277,12 +277,6 @@
             all-datom-groups (mapv vm/ast->datoms forms)
             all-datoms (vec (mapcat identity all-datom-groups))
             root-ids (mapv ffirst all-datom-groups)
-            ;; Transact into DataScript
-            {:keys [db tempids]} (vm/transact! all-datoms)
-            root-eids (mapv #(get tempids %) root-ids)
-            ;; root-ids are tempids for raw datom traversal
-            ;; (run-semantic)
-            ;; root-eids are resolved DataScript entity IDs (for d/q)
             stats
               {:total-datoms (count all-datoms),
                :lambdas (count (semantic/find-lambdas all-datoms)),
@@ -291,9 +285,7 @@
                :literals (count (semantic/find-by-type all-datoms :literal))}]
         (swap! app-state assoc
           :datoms all-datoms
-          :ds-db db
           :root-ids root-ids
-          :root-eids root-eids
           :semantic-stats stats
           :error nil)
         ;; Initialize stepping state
@@ -313,9 +305,7 @@
         (swap! app-state assoc
           :error (.-message e)
           :datoms nil
-          :ds-db nil
           :root-ids nil
-          :root-eids nil
           :semantic-stats nil)
         (swap! app-state assoc-in [:vm-states :semantic :state] nil)
         nil))))
@@ -428,7 +418,7 @@
   (let [db (:ds-db @app-state)]
     (if (nil? db)
       (swap! app-state assoc
-        :error "No DataScript db. Click \"Asm ->\" first."
+        :error "No DataScript db. Click \"Sem ->\" first."
         :query-result nil)
       (try (let [query (reader/read-string (:query-text @app-state))
                  extra-bindings (parse-in-bindings query)

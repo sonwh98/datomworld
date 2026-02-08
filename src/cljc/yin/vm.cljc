@@ -88,16 +88,6 @@
     datoms))
 
 
-(defn transact!
-  "Create a DataScript connection, transact datoms, return {:db db :tempids tempids}.
-   Encapsulates DataScript as an implementation detail."
-  [datoms]
-  (let [tx-data (datoms->tx-data datoms)
-        conn (d/create-conn schema)
-        {:keys [tempids]} (d/transact! conn tx-data)]
-    {:db @conn, :tempids tempids}))
-
-
 (defn q
   "Run a Datalog query against a DataScript db value."
   [query db]
