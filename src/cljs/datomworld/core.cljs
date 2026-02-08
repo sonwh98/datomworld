@@ -27,7 +27,7 @@
 (def default-positions
   {:source {:x 20, :y 180, :w 350, :h 450},
    :ast {:x 420, :y 180, :w 380, :h 450},
-   :assembly {:x 900, :y 180, :w 400, :h 450},
+   :semantic {:x 900, :y 180, :w 400, :h 450},
    :register {:x 1400, :y 80, :w 350, :h 450},
    :stack {:x 1400, :y 650, :w 350, :h 450},
    :query {:x 900, :y 650, :w 400, :h 450}})
@@ -39,12 +39,12 @@
      :source-code "(+ 4 5)",
      :ast-as-text "",
      :result nil,
-     :assembly-result nil,
+     :semantic-result nil,
      :datoms nil,
      :ds-db nil,
      :root-ids nil,
      :root-eids nil,
-     :assembly-stats nil,
+     :semantic-stats nil,
      :register-asm nil,
      :register-bc nil,
      :register-result nil,
@@ -65,7 +65,7 @@
      ;; Per-window VM states for stepping execution
      :vm-states {:register {:state nil, :running false, :expanded false},
                  :stack {:state nil, :running false, :expanded false},
-                 :assembly {:state nil, :running false, :expanded false}}}))
+                 :semantic {:state nil, :running false, :expanded false}}}))
 
 
 (when (or (nil? (:ui-positions @app-state))
@@ -126,7 +126,7 @@
                                                style)}])})))
 
 
-(defn evaluate-ast
+(defn walk-ast
   []
   (let [input (:ast-as-text @app-state)]
     (try (let [forms (reader/read-string (str "[" input "]"))
@@ -294,7 +294,7 @@
           :ds-db db
           :root-ids root-ids
           :root-eids root-eids
-          :assembly-stats stats
+          :semantic-stats stats
           :error nil)
         ;; Initialize stepping state
         (let [last-root (last root-ids)]
@@ -303,10 +303,10 @@
                                   {:node last-root, :datoms all-datoms}
                                   vm/primitives)]
               (swap! app-state assoc-in
-                [:vm-states :assembly :state]
+                [:vm-states :semantic :state]
                 initial-state)
               (swap! app-state assoc-in
-                [:vm-states :assembly :running]
+                [:vm-states :semantic :running]
                 false))))
         all-datoms)
       (catch js/Error e
@@ -316,12 +316,12 @@
           :ds-db nil
           :root-ids nil
           :root-eids nil
-          :assembly-stats nil)
-        (swap! app-state assoc-in [:vm-states :assembly :state] nil)
+          :semantic-stats nil)
+        (swap! app-state assoc-in [:vm-states :semantic :state] nil)
         nil))))
 
 
-(defn run-assembly
+(defn run-semantic
   []
   (let [datoms (:datoms @app-state)
         datoms (or datoms (compile-ast))
@@ -333,32 +333,32 @@
                                                          :datoms datoms}
                                                         initial-env))
                            root-ids)]
-             (swap! app-state assoc :assembly-result (last results) :error nil))
+             (swap! app-state assoc :semantic-result (last results) :error nil))
            (catch js/Error e
              (swap! app-state assoc
-               :error (str "Assembly Error: " (.-message e))
-               :assembly-result nil))))))
+               :error (str "Semantic VM Error: " (.-message e))
+               :semantic-result nil))))))
 
 
-(defn step-assembly
+(defn step-semantic
   "Execute one instruction in the semantic VM."
   []
-  (let [state (get-in @app-state [:vm-states :assembly :state])]
+  (let [state (get-in @app-state [:vm-states :semantic :state])]
     (when (and state (not (:halted state)))
       (try
         (let [new-state (semantic/semantic-step state)]
-          (swap! app-state assoc-in [:vm-states :assembly :state] new-state)
+          (swap! app-state assoc-in [:vm-states :semantic :state] new-state)
           (when (:halted new-state)
-            (swap! app-state assoc :assembly-result (:value new-state))
-            (swap! app-state assoc-in [:vm-states :assembly :running] false)))
+            (swap! app-state assoc :semantic-result (:value new-state))
+            (swap! app-state assoc-in [:vm-states :semantic :running] false)))
         (catch js/Error e
           (swap! app-state assoc
             :error
-            (str "Assembly VM Step Error: " (.-message e)))
-          (swap! app-state assoc-in [:vm-states :assembly :running] false))))))
+            (str "Semantic VM Step Error: " (.-message e)))
+          (swap! app-state assoc-in [:vm-states :semantic :running] false))))))
 
 
-(defn reset-assembly
+(defn reset-semantic
   "Reset semantic VM to initial state."
   []
   (let [datoms (:datoms @app-state)
@@ -368,45 +368,45 @@
       (let [initial-state (semantic/make-semantic-state {:node last-root,
                                                          :datoms datoms}
                                                         vm/primitives)]
-        (swap! app-state assoc-in [:vm-states :assembly :state] initial-state)
-        (swap! app-state assoc-in [:vm-states :assembly :running] false)
-        (swap! app-state assoc :assembly-result nil)))))
+        (swap! app-state assoc-in [:vm-states :semantic :state] initial-state)
+        (swap! app-state assoc-in [:vm-states :semantic :running] false)
+        (swap! app-state assoc :semantic-result nil)))))
 
 
-(declare run-assembly-loop)
+(declare run-semantic-loop)
 
 
-(defn toggle-run-assembly
+(defn toggle-run-semantic
   "Toggle auto-stepping for semantic VM."
   []
-  (let [running (get-in @app-state [:vm-states :assembly :running])]
-    (swap! app-state assoc-in [:vm-states :assembly :running] (not running))
-    (when (not running) (run-assembly-loop))))
+  (let [running (get-in @app-state [:vm-states :semantic :running])]
+    (swap! app-state assoc-in [:vm-states :semantic :running] (not running))
+    (when (not running) (run-semantic-loop))))
 
 
-(defn run-assembly-loop
+(defn run-semantic-loop
   "Auto-step loop for semantic VM using requestAnimationFrame."
   []
-  (let [running (get-in @app-state [:vm-states :assembly :running])
-        initial-state (get-in @app-state [:vm-states :assembly :state])]
+  (let [running (get-in @app-state [:vm-states :semantic :running])
+        initial-state (get-in @app-state [:vm-states :semantic :state])]
     (when (and running initial-state (not (:halted initial-state)))
       (try
         (loop [i 0
                state initial-state]
           (if (or (>= i steps-per-frame) (:halted state))
-            (do (swap! app-state assoc-in [:vm-states :assembly :state] state)
+            (do (swap! app-state assoc-in [:vm-states :semantic :state] state)
                 (if (:halted state)
-                  (do (swap! app-state assoc :assembly-result (:value state))
+                  (do (swap! app-state assoc :semantic-result (:value state))
                       (swap! app-state assoc-in
-                        [:vm-states :assembly :running]
+                        [:vm-states :semantic :running]
                         false))
-                  (js/requestAnimationFrame run-assembly-loop)))
+                  (js/requestAnimationFrame run-semantic-loop)))
             (recur (inc i) (semantic/semantic-step state))))
         (catch js/Error e
           (swap! app-state assoc
             :error
-            (str "Assembly VM Error: " (.-message e)))
-          (swap! app-state assoc-in [:vm-states :assembly :running] false))))))
+            (str "Semantic VM Error: " (.-message e)))
+          (swap! app-state assoc-in [:vm-states :semantic :running] false))))))
 
 
 (defn- parse-in-bindings
@@ -838,7 +838,7 @@
 (defn semantic-vm-state-display
   "Display current state of semantic VM."
   []
-  (let [vm-state (get-in @app-state [:vm-states :assembly])
+  (let [vm-state (get-in @app-state [:vm-states :semantic])
         state (:state vm-state)
         expanded (:expanded vm-state)]
     (when state
@@ -864,7 +864,7 @@
                (str "Val: " (pr-str (:val ctrl))))))]
         [:button
          {:on-click
-            #(swap! app-state update-in [:vm-states :assembly :expanded] not),
+            #(swap! app-state update-in [:vm-states :semantic :expanded] not),
           :style {:background "none",
                   :border "none",
                   :color "#58a6ff",
@@ -985,7 +985,7 @@
         to (get positions to-id)]
     (when (and from to)
       (let [from-collapsed? (contains? collapsed from-id)
-            vertical? (and (= from-id :assembly) (= to-id :query))
+            vertical? (and (= from-id :semantic) (= to-id :query))
             from-h (if from-collapsed? 35 (:h from))
             start-x (if vertical?
                       (+ (:x from) (/ (:w from) 2))
@@ -1116,7 +1116,7 @@
          (js/window.removeEventListener "mouseup" handle-mouse-up)),
      :reagent-render
        (fn []
-         (let [asm-vm-state (get-in @app-state [:vm-states :assembly :state])
+         (let [asm-vm-state (get-in @app-state [:vm-states :semantic :state])
                asm-control (:control asm-vm-state)
                active-asm-id (when (= :node (:type asm-control))
                                (:id asm-control))
@@ -1151,10 +1151,10 @@
                       :pointer-events "none",
                       :z-index 0}}
              [connection-line :source :ast "AST ->" compile-source]
-             [connection-line :ast :assembly "Asm ->" compile-ast]
-             [connection-line :assembly :register "Reg ->" compile-register]
-             [connection-line :assembly :stack "Stack ->" compile-stack]
-             [connection-line :assembly :query "d/q ->" run-query]]
+             [connection-line :ast :semantic "Sem ->" compile-ast]
+             [connection-line :semantic :register "Reg ->" compile-register]
+             [connection-line :semantic :stack "Stack ->" compile-stack]
+             [connection-line :semantic :query "d/q ->" run-query]]
             [draggable-card :source "Source Code"
              [:div
               {:style {:display "flex",
@@ -1185,7 +1185,7 @@
               [:div
                {:style {:marginTop "10px", :fontSize "0.8em", :color "#8b949e"}}
                "Select examples from the menu ☰ above."]]]
-            [draggable-card :ast "Yin AST"
+            [draggable-card :ast "AST Walker"
              [:div
               {:style {:display "flex",
                        :flex-direction "column",
@@ -1195,7 +1195,7 @@
                {:value (:ast-as-text @app-state),
                 :on-change (fn [v] (swap! app-state assoc :ast-as-text v))}]
               [:button
-               {:on-click evaluate-ast,
+               {:on-click walk-ast,
                 :style {:marginTop "5px",
                         :background "#238636",
                         :color "#fff",
@@ -1210,7 +1210,7 @@
                           :padding "5px",
                           :border "1px solid #30363d"}}
                  (pr-str (:result @app-state))])]]
-            [draggable-card :assembly "Assembly (Datoms)"
+            [draggable-card :semantic "Semantic VM"
              [:div
               {:style {:display "flex",
                        :flex-direction "column",
@@ -1218,10 +1218,10 @@
                        :overflow "hidden"}}
               [datom-list-view (:datoms @app-state) active-asm-id]
               [vm-control-buttons
-               {:vm-key :assembly,
-                :step-fn step-assembly,
-                :toggle-run-fn toggle-run-assembly,
-                :reset-fn reset-assembly}] [semantic-vm-state-display]
+               {:vm-key :semantic,
+                :step-fn step-semantic,
+                :toggle-run-fn toggle-run-semantic,
+                :reset-fn reset-semantic}] [semantic-vm-state-display]
               (when (and asm-vm-state (:halted asm-vm-state))
                 [:div
                  {:style {:marginTop "5px",
