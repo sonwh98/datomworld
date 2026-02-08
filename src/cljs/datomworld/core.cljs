@@ -14,6 +14,7 @@
             [yin.vm :as vm]
             [yin.vm.ast-walker :as walker]
             [yin.vm.register :as register]
+            [yin.vm.semantic :as semantic]
             [yin.vm.stack :as stack]))
 
 
@@ -282,11 +283,12 @@
             ;; root-ids are tempids for raw datom traversal
             ;; (run-semantic)
             ;; root-eids are resolved DataScript entity IDs (for d/q)
-            stats {:total-datoms (count all-datoms),
-                   :lambdas (count (stack/find-lambdas all-datoms)),
-                   :applications (count (stack/find-applications all-datoms)),
-                   :variables (count (stack/find-variables all-datoms)),
-                   :literals (count (stack/find-by-type all-datoms :literal))}]
+            stats
+              {:total-datoms (count all-datoms),
+               :lambdas (count (semantic/find-lambdas all-datoms)),
+               :applications (count (semantic/find-applications all-datoms)),
+               :variables (count (semantic/find-variables all-datoms)),
+               :literals (count (semantic/find-by-type all-datoms :literal))}]
         (swap! app-state assoc
           :datoms all-datoms
           :ds-db db
@@ -297,9 +299,9 @@
         ;; Initialize stepping state
         (let [last-root (last root-ids)]
           (when last-root
-            (let [initial-state (stack/make-semantic-state {:node last-root,
-                                                            :datoms all-datoms}
-                                                           vm/primitives)]
+            (let [initial-state (semantic/make-semantic-state
+                                  {:node last-root, :datoms all-datoms}
+                                  vm/primitives)]
               (swap! app-state assoc-in
                 [:vm-states :assembly :state]
                 initial-state)
@@ -327,9 +329,9 @@
     (when (and (seq datoms) (seq root-ids))
       (try (let [initial-env vm/primitives
                  results (mapv (fn [root-id]
-                                 (stack/run-semantic {:node root-id,
-                                                      :datoms datoms}
-                                                     initial-env))
+                                 (semantic/run-semantic {:node root-id,
+                                                         :datoms datoms}
+                                                        initial-env))
                            root-ids)]
              (swap! app-state assoc :assembly-result (last results) :error nil))
            (catch js/Error e
@@ -344,7 +346,7 @@
   (let [state (get-in @app-state [:vm-states :assembly :state])]
     (when (and state (not (:halted state)))
       (try
-        (let [new-state (stack/semantic-step state)]
+        (let [new-state (semantic/semantic-step state)]
           (swap! app-state assoc-in [:vm-states :assembly :state] new-state)
           (when (:halted new-state)
             (swap! app-state assoc :assembly-result (:value new-state))
@@ -363,9 +365,9 @@
         root-ids (:root-ids @app-state)
         last-root (last root-ids)]
     (when (and datoms last-root)
-      (let [initial-state (stack/make-semantic-state {:node last-root,
-                                                      :datoms datoms}
-                                                     vm/primitives)]
+      (let [initial-state (semantic/make-semantic-state {:node last-root,
+                                                         :datoms datoms}
+                                                        vm/primitives)]
         (swap! app-state assoc-in [:vm-states :assembly :state] initial-state)
         (swap! app-state assoc-in [:vm-states :assembly :running] false)
         (swap! app-state assoc :assembly-result nil)))))
@@ -399,7 +401,7 @@
                         [:vm-states :assembly :running]
                         false))
                   (js/requestAnimationFrame run-assembly-loop)))
-            (recur (inc i) (stack/semantic-step state))))
+            (recur (inc i) (semantic/semantic-step state))))
         (catch js/Error e
           (swap! app-state assoc
             :error
@@ -871,8 +873,8 @@
        (when (and state (not (:halted state)))
          (let [ctrl (:control state)
                info (if (= :node (:type ctrl))
-                      (let [attrs (stack/get-node-attrs (:datoms state)
-                                                        (:id ctrl))]
+                      (let [attrs (semantic/get-node-attrs (:datoms state)
+                                                           (:id ctrl))]
                         (str (:yin/type attrs)))
                       "Returning...")]
            [:div {:style {:color "#c5c6c7"}} info]))

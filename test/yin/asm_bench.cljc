@@ -3,6 +3,7 @@
                :cljs [cljs.test :refer-macros [deftest is testing]])
             [yin.vm :as vm]
             [yin.vm.ast-walker :as walker]
+            [yin.vm.semantic :as semantic]
             [yin.vm.stack :as stack]))
 
 
@@ -90,7 +91,8 @@
                                         stack/ast-datoms->asm
                                         stack/stack-assembly->bytecode))
                                  iterations)
-        sem-run (benchmark #(stack/run-semantic compiled primitives) iterations)
+        sem-run (benchmark #(semantic/run-semantic compiled primitives)
+                           iterations)
         stack-run (benchmark #(stack/run-bytes bc pool primitives) iterations)]
     {:name name,
      :compile-semantic sem-compile,
@@ -139,7 +141,7 @@
         (-> d
             stack/ast-datoms->asm
             stack/stack-assembly->bytecode))
-      (stack/run-semantic (compile-to-datoms nested-ast) primitives)
+      (semantic/run-semantic (compile-to-datoms nested-ast) primitives)
       (let [d (vm/ast->datoms nested-ast)
             i (stack/ast-datoms->asm d)
             {:keys [bc pool]} (stack/stack-assembly->bytecode i)]
@@ -163,23 +165,23 @@
       (println "--- Query Operations (semantic only) ---")
       (let [compiled (compile-to-datoms nested-ast)
             datoms (:datoms compiled)]
-        (let [q (benchmark #(stack/find-applications datoms) iterations)]
+        (let [q (benchmark #(semantic/find-applications datoms) iterations)]
           (println (str "  find-applications:  "
                         (fmt q)
                         " us -> "
-                        (count (stack/find-applications datoms))
+                        (count (semantic/find-applications datoms))
                         " found")))
-        (let [q (benchmark #(stack/find-lambdas datoms) iterations)]
+        (let [q (benchmark #(semantic/find-lambdas datoms) iterations)]
           (println (str "  find-lambdas:       "
                         (fmt q)
                         " us -> "
-                        (count (stack/find-lambdas datoms))
+                        (count (semantic/find-lambdas datoms))
                         " found")))
-        (let [q (benchmark #(stack/find-variables datoms) iterations)]
+        (let [q (benchmark #(semantic/find-variables datoms) iterations)]
           (println (str "  find-variables:     "
                         (fmt q)
                         " us -> "
-                        (count (stack/find-variables datoms))
+                        (count (semantic/find-variables datoms))
                         " found"))))
       (println "")
       (println "Summary: Semantic trades speed for queryability")
