@@ -1,5 +1,6 @@
 (ns yin.vm.stack
-  (:require [yin.vm :as vm]
+  (:require [datascript.core :as d]
+            [yin.vm :as vm]
             [yin.vm.protocols :as proto]))
 
 
@@ -94,7 +95,7 @@
 
 
 (defrecord SemanticVM [control    ; current control state {:type
-                                  ; :node/:value, ...}
+                       ;; :node/:value, ...}
                        env        ; lexical environment
                        stack      ; continuation stack
                        datoms     ; AST datoms
@@ -661,6 +662,21 @@
                         :value nil})))
 
 
+(defn stack-vm-transact!
+  "Transact datoms into the VM's DataScript db."
+  [^StackVM vm datoms]
+  (let [tx-data (vm/datoms->tx-data datoms)
+        conn (d/conn-from-db (:db vm))
+        {:keys [tempids]} (d/transact! conn tx-data)]
+    {:vm (assoc vm :db @conn), :tempids tempids}))
+
+
+(defn stack-vm-q
+  "Run a Datalog query against the VM's db."
+  [^StackVM vm args]
+  (apply d/q (first args) (:db vm) (rest args)))
+
+
 (extend-type StackVM
   proto/IVMStep
     (step [vm] (stack-vm-step vm))
@@ -670,7 +686,10 @@
   proto/IVMRun
     (run [vm] (stack-vm-run vm))
   proto/IVMLoad
-    (load-program [vm program] (stack-vm-load-program vm program)))
+    (load-program [vm program] (stack-vm-load-program vm program))
+  proto/IVMDataScript
+    (transact! [vm datoms] (stack-vm-transact! vm datoms))
+    (q [vm args] (stack-vm-q vm args)))
 
 
 (defn create-stack-vm
@@ -771,6 +790,21 @@
                            :value nil})))
 
 
+(defn semantic-vm-transact!
+  "Transact datoms into the VM's DataScript db."
+  [^SemanticVM vm datoms]
+  (let [tx-data (vm/datoms->tx-data datoms)
+        conn (d/conn-from-db (:db vm))
+        {:keys [tempids]} (d/transact! conn tx-data)]
+    {:vm (assoc vm :db @conn), :tempids tempids}))
+
+
+(defn semantic-vm-q
+  "Run a Datalog query against the VM's db."
+  [^SemanticVM vm args]
+  (apply d/q (first args) (:db vm) (rest args)))
+
+
 (extend-type SemanticVM
   proto/IVMStep
     (step [vm] (semantic-vm-step vm))
@@ -780,7 +814,10 @@
   proto/IVMRun
     (run [vm] (semantic-vm-run vm))
   proto/IVMLoad
-    (load-program [vm program] (semantic-vm-load-program vm program)))
+    (load-program [vm program] (semantic-vm-load-program vm program))
+  proto/IVMDataScript
+    (transact! [vm datoms] (semantic-vm-transact! vm datoms))
+    (q [vm args] (semantic-vm-q vm args)))
 
 
 (defn create-semantic-vm

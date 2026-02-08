@@ -19,7 +19,8 @@
      [:return rs]            - return value in rs
      [:branch rt then else]  - conditional jump
      [:jump addr]            - unconditional jump"
-  (:require [yin.module :as module]
+  (:require [datascript.core :as d]
+            [yin.module :as module]
             [yin.vm :as vm]
             [yin.vm.protocols :as proto]))
 
@@ -48,23 +49,24 @@
 ;; RegisterVM Record
 ;; =============================================================================
 
-(defrecord RegisterVM [regs       ; virtual registers vector
-                       k          ; continuation (call frame stack)
-                       env        ; lexical environment
-                       ip         ; instruction pointer
-                       bytecode   ; symbolic instruction vector (for
-                                  ; assembly VM)
-                       bc         ; numeric bytecode vector (for bytecode
-                                  ; VM)
-                       pool       ; constant pool (for bytecode VM)
-                       halted     ; true if execution completed
-                       value      ; final result value
-                       store      ; heap memory
-                       db         ; DataScript db value
-                       parked     ; parked continuations
-                       id-counter ; unique ID counter
-                       primitives ; primitive operations
-                      ])
+(defrecord RegisterVM
+  [regs       ; virtual registers vector
+   k          ; continuation (call frame stack)
+   env        ; lexical environment
+   ip         ; instruction pointer
+   bytecode   ; symbolic instruction vector (for
+   ;; assembly VM)
+   bc         ; numeric bytecode vector (for bytecode
+   ;; VM)
+   pool       ; constant pool (for bytecode VM)
+   halted     ; true if execution completed
+   value      ; final result value
+   store      ; heap memory
+   db         ; DataScript db value
+   parked     ; parked continuations
+   id-counter ; unique ID counter
+   primitives ; primitive operations
+  ])
 
 
 (defn ast-datoms->asm
@@ -808,6 +810,21 @@
                              :value nil}))))
 
 
+(defn reg-vm-transact!
+  "Transact datoms into the VM's DataScript db."
+  [^RegisterVM vm datoms]
+  (let [tx-data (vm/datoms->tx-data datoms)
+        conn (d/conn-from-db (:db vm))
+        {:keys [tempids]} (d/transact! conn tx-data)]
+    {:vm (assoc vm :db @conn), :tempids tempids}))
+
+
+(defn reg-vm-q
+  "Run a Datalog query against the VM's db."
+  [^RegisterVM vm args]
+  (apply d/q (first args) (:db vm) (rest args)))
+
+
 (extend-type RegisterVM
   proto/IVMStep
     (step [vm] (reg-vm-step vm))
@@ -817,7 +834,10 @@
   proto/IVMRun
     (run [vm] (reg-vm-run vm))
   proto/IVMLoad
-    (load-program [vm program] (reg-vm-load-program vm program)))
+    (load-program [vm program] (reg-vm-load-program vm program))
+  proto/IVMDataScript
+    (transact! [vm datoms] (reg-vm-transact! vm datoms))
+    (q [vm args] (reg-vm-q vm args)))
 
 
 (defn create

@@ -1,6 +1,7 @@
 (ns yin.vm.ast-walker
   (:refer-clojure :exclude [eval])
-  (:require [yin.module :as module]
+  (:require [datascript.core :as d]
+            [yin.module :as module]
             [yin.stream :as stream]
             [yin.vm :as vm]
             [yin.vm.protocols :as proto]))
@@ -486,6 +487,21 @@
   (assoc vm :control ast))
 
 
+(defn vm-transact!
+  "Transact datoms into the VM's DataScript db."
+  [^ASTWalkerVM vm datoms]
+  (let [tx-data (vm/datoms->tx-data datoms)
+        conn (d/conn-from-db (:db vm))
+        {:keys [tempids]} (d/transact! conn tx-data)]
+    {:vm (assoc vm :db @conn), :tempids tempids}))
+
+
+(defn vm-q
+  "Run a Datalog query against the VM's db."
+  [^ASTWalkerVM vm args]
+  (apply d/q (first args) (:db vm) (rest args)))
+
+
 (extend-type ASTWalkerVM
   proto/IVMStep
     (step [vm] (vm-step vm))
@@ -495,7 +511,10 @@
   proto/IVMRun
     (run [vm] (vm-run vm))
   proto/IVMLoad
-    (load-program [vm program] (vm-load-program vm program)))
+    (load-program [vm program] (vm-load-program vm program))
+  proto/IVMDataScript
+    (transact! [vm datoms] (vm-transact! vm datoms))
+    (q [vm args] (vm-q vm args)))
 
 
 (defn create

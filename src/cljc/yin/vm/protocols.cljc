@@ -39,3 +39,16 @@
      - StackVM: {:bc [...] :pool [...]}
      - SemanticVM: {:node root-id :datoms [...]}
      Returns new VM with program loaded."))
+
+
+(defprotocol IVMDataScript
+  "DataScript operations protocol.
+   VMs expose their internal DataScript db through this interface."
+  (transact! [vm datoms]
+    "Transact datoms into the VM's DataScript db.
+     Returns {:vm updated-vm :tempids tempid-map}.")
+  (q [vm args]
+    "Run a Datalog query against the VM's db.
+     args is [query & inputs] where query is the Datalog query
+     and inputs are additional bindings (db is provided by the VM).
+     Returns query results."))
