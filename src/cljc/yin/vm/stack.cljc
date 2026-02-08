@@ -250,7 +250,7 @@
 ;; Datoms -> Stack Assembly
 ;; =============================================================================
 
-(defn ast-datoms->stack-assembly
+(defn ast-datoms->asm
   "Project :yin/ datoms to symbolic stack assembly.
 
    Instructions:

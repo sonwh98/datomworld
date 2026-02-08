@@ -232,29 +232,29 @@
 
 
 ;; =============================================================================
-;; ast-datoms->register-assembly tests
+;; ast-datoms->asm tests
 ;; =============================================================================
 ;; These test the compilation pipeline: AST -> datoms -> register bytecode
 ;; and end-to-end execution via rbc-run.
 
 (deftest test-register-bytecode-shape
   (testing "Literal produces loadk + return"
-    (let [bc (register/ast-datoms->register-assembly
-               (vm/ast->datoms {:type :literal, :value 42}))]
+    (let [bc (register/ast-datoms->asm (vm/ast->datoms {:type :literal,
+                                                        :value 42}))]
       (is (vector? bc))
       (is (= 2 (count bc)))
       (is (= :loadk (first (first bc))) "First instruction should be :loadk")
       (is (= 42 (nth (first bc) 2)) "Should load the value 42")
       (is (= :return (first (last bc))) "Last instruction should be :return")))
   (testing "Variable produces loadv + return"
-    (let [bc (register/ast-datoms->register-assembly
-               (vm/ast->datoms {:type :variable, :name 'x}))]
+    (let [bc (register/ast-datoms->asm (vm/ast->datoms {:type :variable,
+                                                        :name 'x}))]
       (is (= 2 (count bc)))
       (is (= :loadv (first (first bc))))
       (is (= 'x (nth (first bc) 2)))
       (is (= :return (first (last bc))))))
   (testing "All instructions are vectors"
-    (let [bc (register/ast-datoms->register-assembly
+    (let [bc (register/ast-datoms->asm
                (vm/ast->datoms {:type :application,
                                 :operator {:type :variable, :name '+},
                                 :operands [{:type :literal, :value 1}
@@ -264,7 +264,7 @@
 
 (deftest test-register-bytecode-application
   (testing "Application produces loadk, loadv, call, and return"
-    (let [bc (register/ast-datoms->register-assembly
+    (let [bc (register/ast-datoms->asm
                (vm/ast->datoms {:type :application,
                                 :operator {:type :variable, :name '+},
                                 :operands [{:type :literal, :value 1}
@@ -277,7 +277,7 @@
       (is (= :call (first (nth bc 3))))
       (is (= :return (first (nth bc 4))))))
   (testing "Call instruction references correct registers"
-    (let [bc (register/ast-datoms->register-assembly
+    (let [bc (register/ast-datoms->asm
                (vm/ast->datoms {:type :application,
                                 :operator {:type :variable, :name '+},
                                 :operands [{:type :literal, :value 1}
@@ -293,10 +293,10 @@
 
 (deftest test-register-bytecode-lambda
   (testing "Lambda produces closure, jump, body, and return"
-    (let [bc (register/ast-datoms->register-assembly
-               (vm/ast->datoms {:type :lambda,
-                                :params ['x],
-                                :body {:type :variable, :name 'x}}))]
+    (let [bc (register/ast-datoms->asm (vm/ast->datoms {:type :lambda,
+                                                        :params ['x],
+                                                        :body {:type :variable,
+                                                               :name 'x}}))]
       (is (= :closure (first (nth bc 0)))
           "First instruction should be :closure")
       (is (= :jump (first (nth bc 1)))
@@ -304,18 +304,18 @@
       (is (= :loadv (first (nth bc 2))) "Body should start with :loadv")
       (is (= :return (first (nth bc 3))) "Body should end with :return")))
   (testing "Closure body address points to correct instruction"
-    (let [bc (register/ast-datoms->register-assembly
-               (vm/ast->datoms {:type :lambda,
-                                :params ['x],
-                                :body {:type :variable, :name 'x}}))
+    (let [bc (register/ast-datoms->asm (vm/ast->datoms {:type :lambda,
+                                                        :params ['x],
+                                                        :body {:type :variable,
+                                                               :name 'x}}))
           [_ _rd _params body-addr] (first bc)]
       (is (= 2 body-addr)
           "Body should start at instruction 2 (after closure + jump)")))
   (testing "Jump skips over body to return"
-    (let [bc (register/ast-datoms->register-assembly
-               (vm/ast->datoms {:type :lambda,
-                                :params ['x],
-                                :body {:type :variable, :name 'x}}))
+    (let [bc (register/ast-datoms->asm (vm/ast->datoms {:type :lambda,
+                                                        :params ['x],
+                                                        :body {:type :variable,
+                                                               :name 'x}}))
           [_ jump-addr] (nth bc 1)
           ;; Jump should land on the :return that follows the closure body
           jump-target (get bc jump-addr)]
@@ -325,7 +325,7 @@
 
 (deftest test-register-bytecode-conditional
   (testing "If produces branch, both branches, and move instructions"
-    (let [bc (register/ast-datoms->register-assembly
+    (let [bc (register/ast-datoms->asm
                (vm/ast->datoms {:type :if,
                                 :test {:type :literal, :value true},
                                 :consequent {:type :literal, :value 1},
@@ -343,15 +343,15 @@
 
 (deftest test-register-bytecode-execution-literal
   (testing "Literal through full pipeline"
-    (let [bc (register/ast-datoms->register-assembly
-               (vm/ast->datoms {:type :literal, :value 42}))
+    (let [bc (register/ast-datoms->asm (vm/ast->datoms {:type :literal,
+                                                        :value 42}))
           result (register/rbc-run (register/make-rbc-state bc))]
       (is (= 42 (:value result))))))
 
 
 (deftest test-register-bytecode-execution-addition
   (testing "(+ 1 2) through full pipeline"
-    (let [bc (register/ast-datoms->register-assembly
+    (let [bc (register/ast-datoms->asm
                (vm/ast->datoms {:type :application,
                                 :operator {:type :variable, :name '+},
                                 :operands [{:type :literal, :value 1}
@@ -362,7 +362,7 @@
 
 (deftest test-register-bytecode-execution-closure
   (testing "((fn [x] x) 42) through full pipeline"
-    (let [bc (register/ast-datoms->register-assembly
+    (let [bc (register/ast-datoms->asm
                (vm/ast->datoms {:type :application,
                                 :operator {:type :lambda,
                                            :params ['x],
@@ -372,7 +372,7 @@
       (is (= 42 (:value result))
           "Identity closure should return its argument")))
   (testing "((fn [x] (+ x 1)) 5) through full pipeline"
-    (let [bc (register/ast-datoms->register-assembly
+    (let [bc (register/ast-datoms->asm
                (vm/ast->datoms
                  {:type :application,
                   :operator {:type :lambda,
@@ -388,7 +388,7 @@
 
 (deftest test-register-bytecode-execution-conditional
   (testing "(if true 1 0) through full pipeline"
-    (let [bc (register/ast-datoms->register-assembly
+    (let [bc (register/ast-datoms->asm
                (vm/ast->datoms {:type :if,
                                 :test {:type :literal, :value true},
                                 :consequent {:type :literal, :value 1},
@@ -396,7 +396,7 @@
           result (register/rbc-run (register/make-rbc-state bc))]
       (is (= 1 (:value result)) "True branch should be taken")))
   (testing "(if false 1 0) through full pipeline"
-    (let [bc (register/ast-datoms->register-assembly
+    (let [bc (register/ast-datoms->asm
                (vm/ast->datoms {:type :if,
                                 :test {:type :literal, :value false},
                                 :consequent {:type :literal, :value 1},
@@ -407,7 +407,7 @@
 
 (deftest test-register-bytecode-execution-nested
   (testing "((fn [x y] (+ x y)) 3 5) through full pipeline"
-    (let [bc (register/ast-datoms->register-assembly
+    (let [bc (register/ast-datoms->asm
                (vm/ast->datoms
                  {:type :application,
                   :operator {:type :lambda,
@@ -424,7 +424,7 @@
 
 (deftest test-register-bytecode-continuation-is-data
   (testing "Continuation frame is created during closure call"
-    (let [bc (register/ast-datoms->register-assembly
+    (let [bc (register/ast-datoms->asm
                (vm/ast->datoms {:type :application,
                                 :operator {:type :lambda,
                                            :params ['x],

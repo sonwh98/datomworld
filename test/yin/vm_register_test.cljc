@@ -7,7 +7,7 @@
 (defn compile-and-run
   [ast]
   (let [datoms (vm/ast->datoms ast)
-        asm (register/ast-datoms->register-assembly datoms)
+        asm (register/ast-datoms->asm datoms)
         bytecode (register/register-assembly->bytecode asm)
         state (register/make-rbc-bc-state bytecode vm/primitives)
         result (register/rbc-run-bc state)]
@@ -80,7 +80,7 @@
 (defn compile-and-run-bc
   [ast]
   (let [datoms (vm/ast->datoms ast)
-        asm (register/ast-datoms->register-assembly datoms)
+        asm (register/ast-datoms->asm datoms)
         compiled (register/register-assembly->bytecode asm)
         state (register/make-rbc-bc-state compiled vm/primitives)
         result (register/rbc-run-bc state)]

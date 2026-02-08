@@ -42,7 +42,7 @@
 (def reverse-opcode-table (into {} (map (fn [[k v]] [v k]) opcode-table)))
 
 
-(defn ast-datoms->register-assembly
+(defn ast-datoms->asm
   "Takes the AST as datoms and transforms it to register-based assembly.
 
    Assembly is a vector of symbolic instructions (keyword mnemonics, not numeric
@@ -192,38 +192,35 @@
 
 
 (comment
-  ;; ast-datoms->register-assembly exploration
-  ;; Pipeline: AST map -> datoms -> register assembly
-  ;; Simple literal
-  (ast-datoms->register-assembly (ast->datoms {:type :literal, :value 42}))
+  ;; ast-datoms->asm exploration. Pipeline: AST map -> datoms -> register
+  ;; assembly. Simple literal
+  (ast-datoms->asm (ast->datoms {:type :literal, :value 42}))
   ;; => [[:loadk 0 42]]
   ;; Variable reference
-  (ast-datoms->register-assembly (ast->datoms {:type :variable, :name 'x}))
+  (ast-datoms->asm (ast->datoms {:type :variable, :name 'x}))
   ;; => [[:loadv 0 x]]
   ;; Application (+ 1 2)
-  (ast-datoms->register-assembly (ast->datoms
-                                   {:type :application,
-                                    :operator {:type :variable, :name '+},
-                                    :operands [{:type :literal, :value 1}
-                                               {:type :literal, :value 2}]}))
+  (ast-datoms->asm (ast->datoms {:type :application,
+                                 :operator {:type :variable, :name '+},
+                                 :operands [{:type :literal, :value 1}
+                                            {:type :literal, :value 2}]}))
   ;; => [[:loadk 0 1]        ; r0 = 1
   ;;     [:loadk 1 2]        ; r1 = 2
   ;;     [:loadv 2 +]        ; r2 = +
   ;;     [:call 3 2 [0 1]]]  ; r3 = r2(r0, r1)
   ;; Lambda (fn [x] x)
-  (ast-datoms->register-assembly
-    (ast->datoms
-      {:type :lambda, :params ['x], :body {:type :variable, :name 'x}}))
+  (ast-datoms->asm (ast->datoms {:type :lambda,
+                                 :params ['x],
+                                 :body {:type :variable, :name 'x}}))
   ;; => [[:closure 0 [x] 2]  ; r0 = closure, body at addr 2
   ;;     [:jump 4]           ; skip body
   ;;     [:loadv 0 x]        ; body: r0 = x
   ;;     [:return 0]]        ; return r0
   ;; Conditional (if true 1 2)
-  (ast-datoms->register-assembly (ast->datoms
-                                   {:type :if,
-                                    :test {:type :literal, :value true},
-                                    :consequent {:type :literal, :value 1},
-                                    :alternate {:type :literal, :value 2}}))
+  (ast-datoms->asm (ast->datoms {:type :if,
+                                 :test {:type :literal, :value true},
+                                 :consequent {:type :literal, :value 1},
+                                 :alternate {:type :literal, :value 2}}))
   ;; => [[:loadk 0 true]     ; r0 = test
   ;;     [:branch 0 2 5]     ; if r0 goto 2 else 5
   ;;     [:loadk 2 1]        ; r2 = 1 (consequent)
@@ -235,7 +232,7 @@
   (let [ast {:type :application,
              :operator {:type :variable, :name '+},
              :operands [{:type :literal, :value 1} {:type :literal, :value 2}]}
-        bytecode (ast-datoms->register-assembly (ast->datoms ast))
+        bytecode (ast-datoms->asm (ast->datoms ast))
         state (make-rbc-state bytecode {'+ +})
         result (rbc-run state)]
     (:value result))
@@ -680,7 +677,7 @@
   (let [ast {:type :application,
              :operator {:type :variable, :name '+},
              :operands [{:type :literal, :value 1} {:type :literal, :value 2}]}
-        asm (ast-datoms->register-assembly (ast->datoms ast))
+        asm (ast-datoms->asm (ast->datoms ast))
         compiled (register-assembly->bytecode asm)
         state (make-rbc-bc-state compiled {'+ +})
         result (rbc-run-bc state)]

@@ -190,8 +190,8 @@ Pipeline topology:
     -> vm/ast->datoms: AST -> datom stream [e a v t m] with :yin/ attributes and negative tempids
     -> Three independent projections from the same datom stream:
        1. asm/compile: datoms -> semantic bytecode (:op/ triples, queryable via Datalog)
-       2. asm/ast-datoms->stack-assembly: datoms -> stack assembly ([:push v] [:load x] [:call n])
-       3. vm/ast-datoms->register-assembly: datoms -> register assembly ([:loadk rd v] [:call rd rf args])
+       2. stack/ast-datoms->asm: datoms -> stack assembly ([:push v] [:load x] [:call n])
+       3. register/ast-datoms->asm: datoms -> register assembly ([:loadk rd v] [:call rd rf args])
     -> Assembly -> bytecode: numeric encoding with constant pools
     -> VM execution: bytecode stream -> value + effect descriptors
 
