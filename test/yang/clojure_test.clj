@@ -2,7 +2,8 @@
   (:require [clojure.test :refer :all]
             [yang.clojure :as yang]
             [yin.stream]
-            [yin.vm :as vm]))
+            [yin.vm :as vm]
+            [yin.vm.ast-walker :as walker]))
 
 
 (defn make-state
@@ -125,58 +126,58 @@
   (testing "Compile and execute with Yin VM"
     (testing "Simple literal"
       (let [ast (yang/compile 42)
-            result (vm/run (make-state {}) ast)]
+            result (walker/run (walker/make-state {}) ast)]
         (is (= 42 (:value result)))))
     (testing "Variable lookup"
       (let [ast (yang/compile 'x)
-            result (vm/run (make-state {'x 100}) ast)]
+            result (walker/run (walker/make-state {'x 100}) ast)]
         (is (= 100 (:value result)))))
     (testing "Simple addition"
       (let [ast (yang/compile '(+ 1 2))
-            result (vm/run (make-state vm/primitives) ast)]
+            result (walker/run (walker/make-state vm/primitives) ast)]
         (is (= 3 (:value result)))))
     (testing "Lambda application"
       (let [ast (yang/compile '((fn [x] (* x 2)) 21))
-            result (vm/run (make-state vm/primitives) ast)]
+            result (walker/run (walker/make-state vm/primitives) ast)]
         (is (= 42 (:value result)))))
     (testing "Nested application"
       (let [ast (yang/compile '(+ (* 2 3) 4))
-            result (vm/run (make-state vm/primitives) ast)]
+            result (walker/run (walker/make-state vm/primitives) ast)]
         (is (= 10 (:value result)))))
     (testing "Conditional - true branch"
       (let [ast (yang/compile '(if true 1 2))
-            result (vm/run (make-state {}) ast)]
+            result (walker/run (walker/make-state {}) ast)]
         (is (= 1 (:value result)))))
     (testing "Conditional - false branch"
       (let [ast (yang/compile '(if false 1 2))
-            result (vm/run (make-state {}) ast)]
+            result (walker/run (walker/make-state {}) ast)]
         (is (= 2 (:value result)))))
     (testing "Let binding"
       (let [ast (yang/compile '(let [x 5] (+ x 3)))
-            result (vm/run (make-state vm/primitives) ast)]
+            result (walker/run (walker/make-state vm/primitives) ast)]
         (is (= 8 (:value result)))))
     (testing "Multiple let bindings"
       (let [ast (yang/compile '(let [x 2 y 3] (* x y)))
-            result (vm/run (make-state vm/primitives) ast)]
+            result (walker/run (walker/make-state vm/primitives) ast)]
         (is (= 6 (:value result)))))
     (testing "Lambda with multiple parameters"
       (let [ast (yang/compile '((fn [x y] (+ x y)) 10 20))
-            result (vm/run (make-state vm/primitives) ast)]
+            result (walker/run (walker/make-state vm/primitives) ast)]
         (is (= 30 (:value result)))))
     (testing "Higher-order functions"
       (let [ast (yang/compile '((fn [f x] (f x)) (fn [n] (* n 2)) 21))
-            result (vm/run (make-state vm/primitives) ast)]
+            result (walker/run (walker/make-state vm/primitives) ast)]
         (is (= 42 (:value result)))))
     (testing "Nested let bindings"
       (let [ast (yang/compile '(let [x 1] (let [y 2] (+ x y))))
-            result (vm/run (make-state vm/primitives) ast)]
+            result (walker/run (walker/make-state vm/primitives) ast)]
         (is (= 3 (:value result)))))
     (testing "Complex expression"
       (let [ast (yang/compile '(let
                                 [double (fn [x] (* x 2)) triple
                                  (fn [x] (* x 3))]
                                 (+ (double 5) (triple 4))))
-            result (vm/run (make-state vm/primitives) ast)]
+            result (walker/run (walker/make-state vm/primitives) ast)]
         (is (= 22 (:value result)))))))
 
 
@@ -238,12 +239,12 @@
       (let [ast
               (yang/compile
                 '(let [s (stream/make 5)] (stream/put! s 42) (stream/take! s)))
-            result (vm/run (make-state vm/primitives) ast)]
+            result (walker/run (walker/make-state vm/primitives) ast)]
         (is (= 42 (:value result)))))
     (testing "Without buffer size (uses default)"
       (let [ast (yang/compile
                   '(let [s (stream/make)] (stream/put! s 99) (stream/take! s)))
-            result (vm/run (make-state vm/primitives) ast)]
+            result (walker/run (walker/make-state vm/primitives) ast)]
         (is (= 99 (:value result)))))
     (testing "Multiple values FIFO"
       (let [ast (yang/compile '(let
@@ -252,14 +253,14 @@
                                 (stream/put! s 2)
                                 (stream/put! s 3)
                                 (stream/take! s)))
-            result (vm/run (make-state vm/primitives) ast)]
+            result (walker/run (walker/make-state vm/primitives) ast)]
         (is (= 1 (:value result)))))))
 
 
 (deftest test-lambda-with-multi-expression-body
   (testing "Lambda with multiple expressions in body"
     (let [ast (yang/compile '(fn [x] (+ x 1) (+ x 2) (* x 3)))
-          result (vm/run (make-state vm/primitives) ast)]
+          result (walker/run (walker/make-state vm/primitives) ast)]
       ;; Should create a closure
       (is (= :closure (get-in result [:value :type]))))))
 
@@ -267,6 +268,6 @@
 (deftest test-let-with-multi-expression-body
   (testing "Let with multiple expressions in body"
     (let [ast (yang/compile '(let [x 5] (+ x 1) (+ x 2) (* x 3)))
-          result (vm/run (make-state vm/primitives) ast)]
+          result (walker/run (walker/make-state vm/primitives) ast)]
       ;; Should evaluate to the last expression
       (is (= 15 (:value result))))))

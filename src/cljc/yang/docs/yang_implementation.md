@@ -170,7 +170,7 @@ Using `.cljc` files enables true code portability:
 (def ast (yang/compile '((fn [x] (* x 2)) 21)))
 
 ;; Execute
-(def result (vm/run {:control nil
+(def result (walker/run {:control nil
                      :environment vm/primitives
                      :store {}
                      :continuation nil

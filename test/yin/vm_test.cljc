@@ -2,17 +2,18 @@
   (:require #?(:clj [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
             [yin.vm :as vm]
+            [yin.vm.ast-walker :as walker]
             [yin.vm.register :as register]))
 
 
 (deftest test-literal-evaluation
   (testing "Integer literal evaluation"
     (let [ast {:type :literal, :value 42}
-          result (vm/run (vm/make-state {}) ast)]
+          result (walker/run (walker/make-state {}) ast)]
       (is (= 42 (:value result)) "Integer literal should evaluate to itself")))
   (testing "String literal evaluation"
     (let [ast {:type :literal, :value "hello"}
-          result (vm/run (vm/make-state {}) ast)]
+          result (walker/run (walker/make-state {}) ast)]
       (is (= "hello" (:value result))
           "String literal should evaluate to itself"))))
 
@@ -20,11 +21,11 @@
 (deftest test-variable-lookup
   (testing "Single variable lookup in environment"
     (let [ast {:type :variable, :name 'x}
-          result (vm/run (vm/make-state {'x 100}) ast)]
+          result (walker/run (walker/make-state {'x 100}) ast)]
       (is (= 100 (:value result)) "Should lookup variable x in environment")))
   (testing "Multiple variables in environment"
     (let [ast {:type :variable, :name 'z}
-          result (vm/run (vm/make-state {'x 10, 'y 20, 'z 30}) ast)]
+          result (walker/run (walker/make-state {'x 10, 'y 20, 'z 30}) ast)]
       (is (= 30 (:value result))
           "Should lookup variable z from environment with multiple bindings"))))
 
@@ -32,7 +33,7 @@
 (deftest test-lambda-closure
   (testing "Lambda creates a closure"
     (let [ast {:type :lambda, :params ['x], :body {:type :variable, :name 'x}}
-          result (vm/run (vm/make-state {'y 50}) ast)]
+          result (walker/run (walker/make-state {'y 50}) ast)]
       (is (= :closure (:type (:value result))) "Lambda should create a closure")
       (is (= ['x] (:params (:value result)))
           "Closure should have correct parameters"))))
@@ -44,7 +45,7 @@
                :test {:type :literal, :value true},
                :consequent {:type :literal, :value "yes"},
                :alternate {:type :literal, :value "no"}}
-          result (vm/eval (vm/make-state {}) ast)]
+          result (walker/eval (walker/make-state {}) ast)]
       (is (= {:type :literal, :value true} (:control result))
           "First step should evaluate the test expression"))))
 
@@ -56,7 +57,7 @@
                :operator {:type :literal, :value add-fn},
                :operands [{:type :literal, :value 10}
                           {:type :literal, :value 20}]}
-          result (vm/run (vm/make-state {}) ast)]
+          result (walker/run (walker/make-state {}) ast)]
       (is (= 30 (:value result)) "Direct call to + primitive: 10 + 20 = 30"))))
 
 
@@ -73,7 +74,7 @@
                                             {:type :variable, :name 'y}]}},
                :operands [{:type :literal, :value 3}
                           {:type :literal, :value 5}]}
-          result (vm/run (vm/make-state {'+ add-fn}) ast)]
+          result (walker/run (walker/make-state {'+ add-fn}) ast)]
       (is (= 8 (:value result))
           "Lambda application: ((lambda (x y) (+ x y)) 3 5) = 8"))))
 
@@ -90,17 +91,17 @@
                                  :operands [{:type :variable, :name 'x}
                                             {:type :literal, :value 1}]}},
                :operands [{:type :literal, :value 5}]}
-          initial-state (assoc (vm/make-state {'+ add-fn}) :control ast)]
+          initial-state (assoc (walker/make-state {'+ add-fn}) :control ast)]
       (testing "Multiple evaluation steps occur"
         (let [step-count (loop [state initial-state
                                 steps 0]
                            (if (or (:control state) (:continuation state))
-                             (recur (vm/eval state nil) (inc steps))
+                             (recur (walker/eval state nil) (inc steps))
                              steps))]
           (is (> step-count 5)
               "Should take multiple steps to evaluate lambda application")))
       (testing "Final result is correct"
-        (let [result (vm/run (vm/make-state {'+ add-fn}) ast)]
+        (let [result (walker/run (walker/make-state {'+ add-fn}) ast)]
           (is (= 6 (:value result))
               "((lambda (x) (+ x 1)) 5) should evaluate to 6"))))))
 
@@ -465,9 +466,9 @@
      :store {},
      :continuation nil,
      :value nil})
-  (vm/eval my-state nil)
+  (walker/eval my-state nil)
   ;; Run to completion
-  (vm/run (vm/make-state {}) {:type :literal, :value 99})
+  (walker/run (walker/make-state {}) {:type :literal, :value 99})
   ;; Test lambda addition manually
   (def add-fn (get vm/primitives '+))
   (def add-lambda-ast
@@ -479,4 +480,4 @@
                        :operands [{:type :variable, :name 'x}
                                   {:type :variable, :name 'y}]}},
      :operands [{:type :literal, :value 3} {:type :literal, :value 5}]})
-  (vm/run (vm/make-state {'+ add-fn}) add-lambda-ast))
+  (walker/run (walker/make-state {'+ add-fn}) add-lambda-ast))

@@ -1,6 +1,7 @@
 (ns yin.vm-register-test
   (:require [clojure.test :refer [deftest is testing]]
             [yin.vm :as vm]
+            [yin.vm.ast-walker :as walker]
             [yin.vm.register :as register]))
 
 

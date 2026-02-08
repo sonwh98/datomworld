@@ -2,6 +2,7 @@
   (:require ["package:flutter/material.dart" :as m]
             [clojure.edn :as edn]
             [yin.vm :as vm]
+            [yin.vm.ast-walker :as walker]
             [yang.clojure :as yang]))
 
 (def default-clojure "(+ 30 20)")
@@ -73,8 +74,8 @@
              (fn []
                (let [input (.-text ast-controller)]
                  (try (let [ast (edn/read-string input)
-                            state (vm/make-state vm/primitives)
-                            final-state (vm/run state ast)
+                            state (walker/make-state vm/primitives)
+                            final-state (walker/run state ast)
                             res (:value final-state)]
                         (set! (.-value result-notifier) (str res)))
                       (catch Object e

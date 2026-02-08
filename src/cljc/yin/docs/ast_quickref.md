@@ -72,18 +72,16 @@ Quick reference for the Universal AST node types. See [ast.md](ast.md) for detai
 
 ### Evaluate a Literal
 ```clojure
-(require '[yin.vm :as vm])
+(require '[yin.vm :as vm]
+         '[yin.vm.ast-walker :as walker])
 
-(defn make-state [env]
-  {:control nil :environment env :store {} :continuation nil :value nil})
-
-(vm/run (make-state {}) {:type :literal :value 42})
+(walker/run (walker/make-state {}) {:type :literal :value 42})
 ;; => {:value 42, ...}
 ```
 
 ### Test in REPL
 ```bash
-clj -e "(require '[yin.vm :as vm]) (defn eval-ast [ast] (:value (vm/run {:control nil :environment {} :store {} :continuation nil :value nil} ast))) (eval-ast {:type :literal :value 42})"
+clj -e "(require '[yin.vm :as vm] '[yin.vm.ast-walker :as walker]) (defn eval-ast [ast] (:value (walker/run (walker/make-state {}) ast))) (eval-ast {:type :literal :value 42})"
 ```
 
 ---

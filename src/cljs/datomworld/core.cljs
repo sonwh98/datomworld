@@ -12,6 +12,7 @@
             [yang.clojure :as yang]
             [yang.python :as py]
             [yin.vm :as vm]
+            [yin.vm.ast-walker :as walker]
             [yin.vm.register :as register]
             [yin.vm.stack :as stack]))
 
@@ -129,8 +130,8 @@
   (let [input (:ast-as-text @app-state)]
     (try (let [forms (reader/read-string (str "[" input "]"))
                initial-env vm/primitives
-               initial-state (vm/make-state initial-env)
-               final-state (reduce (fn [state form] (vm/run state form))
+               initial-state (walker/make-state initial-env)
+               final-state (reduce (fn [state form] (walker/run state form))
                              initial-state
                              forms)]
            (swap! app-state assoc :result (:value final-state) :error nil))

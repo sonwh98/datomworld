@@ -224,7 +224,7 @@ When evaluation is complete:
 (def state-0 {:control ast, :value nil, ...})
 
 ;; Evaluate one step
-(def state-1 (vm/eval state-0 nil))
+(def state-1 (walker/eval state-0 nil))
 
 ;; state-0 is unchanged!
 (= state-0 {:control ast, :value nil, ...})  ;; => true
@@ -245,29 +245,20 @@ When evaluation is complete:
 ### Creating Initial State
 
 ```clojure
-(defn make-state
-  "Create an initial state with given environment."
-  [env]
-  {:control nil
-   :environment env
-   :store {}
-   :continuation nil
-   :value nil})
-
 ;; Usage
-(make-state {})                    ; Empty environment
-(make-state {'x 10 'y 20})        ; With variables
-(make-state {'+ (get vm/primitives '+)})  ; With primitives
+(walker/make-state {})                    ; Empty environment
+(walker/make-state {'x 10 'y 20})        ; With variables
+(walker/make-state {'+ (get vm/primitives '+)})  ; With primitives
 ```
 
 ### Starting Evaluation
 
 ```clojure
 ;; Set control and run
-(vm/run (assoc (make-state env) :control ast))
+(walker/run (assoc (walker/make-state env) :control ast))
 
-;; Or use vm/run directly
-(vm/run (make-state env) ast)
+;; Or use walker/run directly
+(walker/run (walker/make-state env) ast)
 ```
 
 ## State Transitions
@@ -350,7 +341,7 @@ When evaluation is complete:
   (when (or (:control state) (:continuation state))
     (println "Step" step)
     (print-state state)
-    (recur (vm/eval state nil) (inc step))))
+    (recur (walker/eval state nil) (inc step))))
 ```
 
 ## State Serialization
@@ -399,7 +390,7 @@ The `:value` field is an implementation detail that holds temporary results betw
 (make-state {'x 10})
 
 ;; Set control explicitly
-(assoc (make-state env) :control ast)
+(assoc (walker/make-state env) :control ast)
 ```
 
 ❌ **Don't:**
@@ -443,12 +434,13 @@ The `:value` field is an implementation detail that holds temporary results betw
 ### Simple Evaluation
 
 ```clojure
-(require '[yin.vm :as vm])
+(require '[yin.vm :as vm]
+         '[yin.vm.ast-walker :as walker])
 
 ;; Evaluate a literal
-(def state (make-state {}))
+(def state (walker/make-state {}))
 (def ast {:type :literal :value 42})
-(def result (vm/run state ast))
+(def result (walker/run state ast))
 
 (:value result)  ;; => 42
 (:control result)  ;; => nil (done)
@@ -458,9 +450,9 @@ The `:value` field is an implementation detail that holds temporary results betw
 
 ```clojure
 ;; Evaluate variable lookup
-(def state (make-state {'x 100}))
+(def state (walker/make-state {'x 100}))
 (def ast {:type :variable :name 'x})
-(def result (vm/run state ast))
+(def result (walker/run state ast))
 
 (:value result)  ;; => 100
 ```
@@ -472,11 +464,11 @@ The `:value` field is an implementation detail that holds temporary results betw
   (loop [state (assoc initial-state :control ast)
          states []]
     (if (or (:control state) (:continuation state))
-      (recur (vm/eval state nil) (conj states state))
+      (recur (walker/eval state nil) (conj states state))
       (conj states state))))
 
 ;; Get all states during evaluation
-(def states (capture-states (make-state {}) ast))
+(def states (capture-states (walker/make-state {}) ast))
 
 ;; Inspect any state
 (nth states 5)

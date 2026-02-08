@@ -51,7 +51,7 @@ Each test follows the standard `clojure.test` pattern:
 (deftest test-name
   (testing "Description"
     (let [ast {...}
-          result (vm/run (make-state env) ast)]
+          result (walker/run (walker/make-state env) ast)]
       (is (= expected (:value result))
           "Assertion message"))))
 ```

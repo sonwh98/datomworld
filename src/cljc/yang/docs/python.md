@@ -104,7 +104,7 @@ This is the **Python compiler** in the Yang compiler collection. It parses Pytho
 (def ast (py/compile "(lambda x, y: x + y)(10, 20)"))
 
 ;; Execute with Yin VM
-(def result (vm/run {:control nil
+(def result (walker/run {:control nil
                      :environment vm/primitives
                      :store {}
                      :continuation nil
@@ -136,7 +136,7 @@ This is the **Python compiler** in the Yang compiler collection. It parses Pytho
                :operator py-double
                :operands [{:type :literal :value 5}]}]})
 
-(vm/run initial-state composed)
+(walker/run initial-state composed)
 ;; => {:value 20 ...}  ;; add10(double(5)) = add10(10) = 20
 ```
 

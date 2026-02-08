@@ -1,7 +1,8 @@
 (ns yin.vm-continuation-test
   (:require #?(:clj [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
-            [yin.vm :as vm]))
+            [yin.vm :as vm]
+            [yin.vm.ast-walker :as walker]))
 
 
 (deftest test-simple-increment
@@ -16,7 +17,7 @@
                                  :operands [{:type :variable, :name 'x}
                                             {:type :literal, :value 1}]}},
                :operands [{:type :literal, :value 5}]}
-          result (vm/run (vm/make-state {'+ add-fn}) ast)]
+          result (walker/run (walker/make-state {'+ add-fn}) ast)]
       (is (= 6 (:value result)) "Should increment 5 to 6"))))
 
 
@@ -31,11 +32,11 @@
                                  :operands [{:type :variable, :name 'x}
                                             {:type :literal, :value 1}]}},
                :operands [{:type :literal, :value 5}]}
-          initial-state (assoc (vm/make-state {'+ add-fn}) :control ast)
+          initial-state (assoc (walker/make-state {'+ add-fn}) :control ast)
           step-count (loop [state initial-state
                             steps 0]
                        (if (or (:control state) (:continuation state))
-                         (recur (vm/eval state nil) (inc steps))
+                         (recur (walker/eval state nil) (inc steps))
                          steps))]
       (is (= 17 step-count) "Should take exactly 17 steps to evaluate"))))
 
@@ -51,12 +52,12 @@
                                  :operands [{:type :variable, :name 'x}
                                             {:type :literal, :value 1}]}},
                :operands [{:type :literal, :value 5}]}
-          initial-state (assoc (vm/make-state {'+ add-fn}) :control ast)
+          initial-state (assoc (walker/make-state {'+ add-fn}) :control ast)
           ;; Collect all states during execution
           all-states (loop [state initial-state
                             states []]
                        (if (or (:control state) (:continuation state))
-                         (recur (vm/eval state nil) (conj states state))
+                         (recur (walker/eval state nil) (conj states state))
                          (conj states state)))]
       (testing "First state has control"
         (is (some? (:control (first all-states)))
@@ -89,7 +90,7 @@
                                                 {:type :literal, :value 1}]}
                                     {:type :literal, :value 1}]}},
                :operands [{:type :literal, :value 10}]}
-          result (vm/run (vm/make-state {'+ add-fn}) ast)]
+          result (walker/run (walker/make-state {'+ add-fn}) ast)]
       (is (= 12 (:value result)) "Should increment 10 by 2 to get 12"))))
 
 
@@ -106,14 +107,21 @@
                                      :operands [{:type :variable, :name 'x}
                                                 {:type :literal, :value 1}]}},
                            :operands [{:type :literal, :value n}]})]
-      (is (= 1 (:value (vm/run (vm/make-state {'+ add-fn}) (increment-ast 0))))
+      (is (= 1
+             (:value (walker/run (walker/make-state {'+ add-fn})
+                                 (increment-ast 0))))
           "0 + 1 = 1")
-      (is (= 6 (:value (vm/run (vm/make-state {'+ add-fn}) (increment-ast 5))))
+      (is (= 6
+             (:value (walker/run (walker/make-state {'+ add-fn})
+                                 (increment-ast 5))))
           "5 + 1 = 6")
       (is (= 101
-             (:value (vm/run (vm/make-state {'+ add-fn}) (increment-ast 100))))
+             (:value (walker/run (walker/make-state {'+ add-fn})
+                                 (increment-ast 100))))
           "100 + 1 = 101")
-      (is (= 0 (:value (vm/run (vm/make-state {'+ add-fn}) (increment-ast -1))))
+      (is (= 0
+             (:value (walker/run (walker/make-state {'+ add-fn})
+                                 (increment-ast -1))))
           "-1 + 1 = 0"))))
 
 
@@ -128,12 +136,12 @@
                                  :operands [{:type :variable, :name 'x}
                                             {:type :literal, :value 1}]}},
                :operands [{:type :literal, :value 5}]}
-          initial-state (assoc (vm/make-state {'+ add-fn}) :control ast)
+          initial-state (assoc (walker/make-state {'+ add-fn}) :control ast)
           ;; Collect continuation types during execution
           continuation-types (loop [state initial-state
                                     types []]
                                (if (or (:control state) (:continuation state))
-                                 (recur (vm/eval state nil)
+                                 (recur (walker/eval state nil)
                                         (conj types
                                               (:type (:continuation state))))
                                  types))

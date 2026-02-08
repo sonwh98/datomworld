@@ -52,7 +52,7 @@ Literals are self-evaluating values - they evaluate to themselves.
 **Evaluation:**
 ```clojure
 (def ast {:type :literal :value 42})
-(vm/run (make-state {}) ast)
+(walker/run (walker/make-state {}) ast)
 ;; => {:value 42, :control nil, ...}
 ```
 
@@ -66,7 +66,7 @@ Literals are self-evaluating values - they evaluate to themselves.
 **Evaluation:**
 ```clojure
 (def ast {:type :literal :value "hello world"})
-(vm/run (make-state {}) ast)
+(walker/run (walker/make-state {}) ast)
 ;; => {:value "hello world", :control nil, ...}
 ```
 
@@ -135,12 +135,12 @@ From [test/yin/vm_basic_test.clj](../../../test/yin/vm_basic_test.clj):
   (testing "Literal values evaluate to themselves"
     ;; Integer literal
     (let [ast {:type :literal :value 42}
-          result (vm/run (make-state {}) ast)]
+          result (walker/run (walker/make-state {}) ast)]
       (is (= 42 (:value result))))
 
     ;; String literal
     (let [ast {:type :literal :value "hello"}
-          result (vm/run (make-state {}) ast)]
+          result (walker/run (walker/make-state {}) ast)]
       (is (= "hello" (:value result))))))
 ```
 
@@ -161,7 +161,7 @@ Try these in a REPL:
 
 ;; Helper function
 (defn eval-literal [value]
-  (vm/run {:control nil :environment {} :store {} :continuation nil :value nil}
+  (walker/run {:control nil :environment {} :store {} :continuation nil :value nil}
           {:type :literal :value value}))
 
 ;; Evaluate different literals

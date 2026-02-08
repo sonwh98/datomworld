@@ -194,6 +194,7 @@ Pipeline topology:
        3. register/ast-datoms->asm: datoms -> register assembly ([:loadk rd v] [:call rd rf args])
     -> Assembly -> bytecode: numeric encoding with constant pools
     -> VM execution: bytecode stream -> value + effect descriptors
+    -> AST execution: universal AST -> walker/run -> value + effect descriptors
 
 Same datoms, multiple interpreters.
 The datom stream from ast->datoms is the shared substrate.

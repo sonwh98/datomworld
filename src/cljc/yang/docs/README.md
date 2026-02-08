@@ -154,7 +154,7 @@ The Yang compiler produces Universal AST nodes that conform to the Yin VM specif
 (def ast (yang/compile '((fn [x y] (+ x y)) 10 20)))
 
 ;; Execute with Yin VM
-(def result (vm/run {:control nil
+(def result (walker/run {:control nil
                      :environment vm/primitives
                      :store {}
                      :continuation nil

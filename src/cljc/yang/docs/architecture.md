@@ -29,7 +29,7 @@ The first compiler in the Yang collection. Transforms Clojure s-expressions into
 
 ;; Execute with Yin VM
 (require '[yin.vm :as vm])
-(vm/run initial-state ast)
+(walker/run initial-state ast)
 ```
 
 ## Design Philosophy
@@ -173,7 +173,7 @@ The Universal AST serves as the **lingua franca** (common language) for all sour
                :operands [{:type :literal :value 5}]}]})
 
 ;; Execute: double(triple(5)) = double(15) = 30
-(vm/run initial-state composed-ast)
+(walker/run initial-state composed-ast)
 ;; => {:value 30 ...}
 ```
 

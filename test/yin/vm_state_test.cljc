@@ -1,12 +1,13 @@
 (ns yin.vm-state-test
   (:require #?(:clj [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
-            [yin.vm :as vm]))
+            [yin.vm :as vm]
+            [yin.vm.ast-walker :as walker]))
 
 
 (deftest test-state-structure
   (testing "State has all required fields"
-    (let [state (vm/make-state {})]
+    (let [state (walker/make-state {})]
       (is (contains? state :control) "State should have :control field")
       (is (contains? state :environment) "State should have :environment field")
       (is (contains? state :store) "State should have :store field")
@@ -17,7 +18,7 @@
 
 (deftest test-initial-state
   (testing "Initial state has correct default values"
-    (let [state (vm/make-state {})]
+    (let [state (walker/make-state {})]
       (is (nil? (:control state)) "Initial control should be nil")
       (is (empty? (:environment state)) "Initial environment should be empty")
       (is (empty? (:store state)) "Initial store should be empty")
@@ -27,7 +28,7 @@
 
 (deftest test-state-with-environment
   (testing "State can have initial environment bindings"
-    (let [state (vm/make-state {'x 10, 'y 20})]
+    (let [state (walker/make-state {'x 10, 'y 20})]
       (is (= 10 (get-in state [:environment 'x]))
           "Environment should contain x binding")
       (is (= 20 (get-in state [:environment 'y]))
@@ -37,8 +38,8 @@
 (deftest test-state-immutability
   (testing "State is immutable - eval creates new state"
     (let [ast {:type :literal, :value 42}
-          state-0 (assoc (vm/make-state {}) :control ast)
-          state-1 (vm/eval state-0 nil)]
+          state-0 (assoc (walker/make-state {}) :control ast)
+          state-1 (walker/eval state-0 nil)]
       (is (not= state-0 state-1) "Eval should create a new state")
       (is (= ast (:control state-0))
           "Original state control should be unchanged")
@@ -50,12 +51,12 @@
 (deftest test-state-transitions-literal
   (testing "State transitions for literal evaluation"
     (let [ast {:type :literal, :value 42}
-          state-0 (assoc (vm/make-state {}) :control ast)]
+          state-0 (assoc (walker/make-state {}) :control ast)]
       (testing "Initial state"
         (is (some? (:control state-0)) "Initial state should have control")
         (is (nil? (:value state-0)) "Initial state should have no value"))
       (testing "After one step"
-        (let [state-1 (vm/eval state-0 nil)]
+        (let [state-1 (walker/eval state-0 nil)]
           (is (nil? (:control state-1)) "After eval, control should be nil")
           (is (= 42 (:value state-1)) "After eval, value should be 42"))))))
 
@@ -72,12 +73,12 @@
                                  :operands [{:type :variable, :name 'x}
                                             {:type :literal, :value 1}]}},
                :operands [{:type :literal, :value 5}]}
-          initial-state (assoc (vm/make-state {'+ add-fn}) :control ast)
+          initial-state (assoc (walker/make-state {'+ add-fn}) :control ast)
           ;; Collect all states
           all-states (loop [state initial-state
                             states []]
                        (if (or (:control state) (:continuation state))
-                         (recur (vm/eval state nil) (conj states state))
+                         (recur (walker/eval state nil) (conj states state))
                          (conj states state)))]
       (testing "Initial state has control"
         (is (some? (:control (first all-states)))
@@ -108,7 +109,7 @@
                                  :operands [{:type :variable, :name 'x}
                                             {:type :literal, :value 1}]}},
                :operands [{:type :literal, :value 5}]}
-          initial-state (assoc (vm/make-state {'+ add-fn}) :control ast)
+          initial-state (assoc (walker/make-state {'+ add-fn}) :control ast)
           ;; Collect continuation types
           cont-types (loop [state initial-state
                             types #{}]
@@ -116,7 +117,7 @@
                          (let [cont-type (:type (:continuation state))
                                new-types
                                  (if cont-type (conj types cont-type) types)]
-                           (recur (vm/eval state nil) new-types))
+                           (recur (walker/eval state nil) new-types))
                          types))]
       (is (contains? cont-types :eval-operator)
           "Should use :eval-operator continuation")
@@ -131,7 +132,7 @@
                :operator {:type :variable, :name '+},
                :operands [{:type :literal, :value 10}
                           {:type :literal, :value 20}]}
-          state (assoc (vm/make-state {'+ add-fn}) :control ast)]
+          state (assoc (walker/make-state {'+ add-fn}) :control ast)]
       (testing "State captures control"
         (is (= :application (:type (:control state)))
             "State should capture the AST being evaluated"))
@@ -156,11 +157,11 @@
                                  :operands [{:type :variable, :name 'x}
                                             {:type :literal, :value 1}]}},
                :operands [{:type :literal, :value 5}]}
-          initial-state (assoc (vm/make-state {'+ add-fn}) :control ast)
+          initial-state (assoc (walker/make-state {'+ add-fn}) :control ast)
           step-count (loop [state initial-state
                             steps 0]
                        (if (or (:control state) (:continuation state))
-                         (recur (vm/eval state nil) (inc steps))
+                         (recur (walker/eval state nil) (inc steps))
                          steps))]
       (is (= 17 step-count) "Should take exactly 17 steps to evaluate"))))
 
@@ -173,12 +174,12 @@
                           :params ['x],
                           :body {:type :variable, :name 'x}},
                :operands [{:type :literal, :value 5}]}
-          initial-state (assoc (vm/make-state {'+ add-fn}) :control ast)
+          initial-state (assoc (walker/make-state {'+ add-fn}) :control ast)
           ;; Find state where environment has 'x bound
           states (loop [state initial-state
                         collected []]
                    (if (or (:control state) (:continuation state))
-                     (recur (vm/eval state nil) (conj collected state))
+                     (recur (walker/eval state nil) (conj collected state))
                      (conj collected state)))
           state-with-x (some #(when (contains? (:environment %) 'x) %) states)]
       (is (some? state-with-x) "Should find a state with x in environment")

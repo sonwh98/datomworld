@@ -2,7 +2,8 @@
   (:require [clojure.test :refer :all]
             [yang.clojure :as clj]
             [yang.python :as py]
-            [yin.vm :as vm]))
+            [yin.vm :as vm]
+            [yin.vm.ast-walker :as walker]))
 
 
 (defn make-state
@@ -121,19 +122,19 @@
   (testing "Compile and execute Python code with Yin VM"
     (testing "Simple literal"
       (let [ast (py/compile "42")
-            result (vm/run (make-state {}) ast)]
+            result (walker/run (walker/make-state {}) ast)]
         (is (= 42 (:value result)))))
     (testing "Variable lookup"
       (let [ast (py/compile "x")
-            result (vm/run (make-state {'x 100}) ast)]
+            result (walker/run (walker/make-state {'x 100}) ast)]
         (is (= 100 (:value result)))))
     (testing "Simple addition"
       (let [ast (py/compile "1 + 2")
-            result (vm/run (make-state vm/primitives) ast)]
+            result (walker/run (walker/make-state vm/primitives) ast)]
         (is (= 3 (:value result)))))
     (testing "Lambda application"
       (let [ast (py/compile "(lambda x: x * 2)(21)")
-            result (vm/run (make-state vm/primitives) ast)]
+            result (walker/run (walker/make-state vm/primitives) ast)]
         (is (= 42 (:value result)))))
     (testing "Def statement as lambda"
       (let [ast (py/compile "def double(x): return x * 2")
@@ -141,35 +142,35 @@
             app-ast {:type :application,
                      :operator ast,
                      :operands [{:type :literal, :value 21}]}
-            result (vm/run (make-state vm/primitives) app-ast)]
+            result (walker/run (walker/make-state vm/primitives) app-ast)]
         (is (= 42 (:value result)))))
     (testing "Multiple parameters"
       (let [ast (py/compile "(lambda x, y: x + y)(10, 20)")
-            result (vm/run (make-state vm/primitives) ast)]
+            result (walker/run (walker/make-state vm/primitives) ast)]
         (is (= 30 (:value result)))))
     (testing "Operator precedence"
       (let [ast (py/compile "2 + 3 * 4")
-            result (vm/run (make-state vm/primitives) ast)]
+            result (walker/run (walker/make-state vm/primitives) ast)]
         (is (= 14 (:value result)))))
     (testing "Nested operations"
       (let [ast (py/compile "(2 + 3) * 4")
-            result (vm/run (make-state vm/primitives) ast)]
+            result (walker/run (walker/make-state vm/primitives) ast)]
         (is (= 20 (:value result)))))
     (testing "Comparison"
       (let [ast (py/compile "3 < 5")
-            result (vm/run (make-state vm/primitives) ast)]
+            result (walker/run (walker/make-state vm/primitives) ast)]
         (is (= true (:value result)))))
     (testing "If expression - true branch"
       (let [ast (py/compile "10 if True else 20")
-            result (vm/run (make-state {}) ast)]
+            result (walker/run (walker/make-state {}) ast)]
         (is (= 10 (:value result)))))
     (testing "If expression - false branch"
       (let [ast (py/compile "10 if False else 20")
-            result (vm/run (make-state {}) ast)]
+            result (walker/run (walker/make-state {}) ast)]
         (is (= 20 (:value result)))))
     (testing "If with comparison"
       (let [ast (py/compile "100 if 3 < 5 else 200")
-            result (vm/run (make-state vm/primitives) ast)]
+            result (walker/run (walker/make-state vm/primitives) ast)]
         (is (= 100 (:value result)))))))
 
 
@@ -206,15 +207,16 @@
     (testing "Higher-order function simulation"
       ;; Python: (lambda f: f(5))(lambda x: x * 2)
       (let [ast (py/compile "(lambda f: f(5))(lambda x: x * 2)")
-            result (vm/run (make-state vm/primitives) ast)]
+            result (walker/run (walker/make-state vm/primitives) ast)]
         (is (= 10 (:value result)))))
     (testing "Nested if expressions"
       ;; Python: (1 if x < 5 else 2) if True else 3
       (let [ast (py/compile "(1 if x < 5 else 2) if True else 3")
-            result (vm/run (make-state (merge vm/primitives {'x 3})) ast)]
+            result (walker/run (walker/make-state (merge vm/primitives {'x 3}))
+                               ast)]
         (is (= 1 (:value result)))))
     (testing "Multiple operations"
       (let [ast (py/compile "10 + 20 * 3 - 5")
-            result (vm/run (make-state vm/primitives) ast)]
+            result (walker/run (walker/make-state vm/primitives) ast)]
         ;; 10 + (20 * 3) - 5 = 10 + 60 - 5 = 65
         (is (= 65 (:value result)))))))

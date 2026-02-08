@@ -1,20 +1,21 @@
 (ns yin.vm-stream-test
   (:require #?(:clj [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
-            [yin.vm :as vm]))
+            [yin.vm :as vm]
+            [yin.vm.ast-walker :as walker]))
 
 
 (deftest test-stream-make
   (testing "stream/make creates a stream reference"
     (let [ast {:type :stream/make, :buffer 10}
-          result (vm/run (vm/make-state {}) ast)]
+          result (walker/run (walker/make-state {}) ast)]
       (is (= :stream-ref (:type (:value result)))
           "Should return a stream reference")
       (is (keyword? (:id (:value result)))
           "Stream reference should have a keyword id")))
   (testing "stream/make with default buffer"
     (let [ast {:type :stream/make}
-          result (vm/run (vm/make-state {}) ast)
+          result (walker/run (walker/make-state {}) ast)
           stream-id (:id (:value result))
           stream (get-in result [:store stream-id])]
       (is (= :stream (:type stream)) "Store should contain stream")
@@ -26,32 +27,32 @@
   (testing "stream/put adds value to stream buffer"
     (let [;; First create a stream
           make-ast {:type :stream/make, :buffer 5}
-          state-with-stream (vm/run (vm/make-state {}) make-ast)
+          state-with-stream (walker/run (walker/make-state {}) make-ast)
           stream-ref (:value state-with-stream)
           stream-id (:id stream-ref)
           ;; Then put a value
           put-ast {:type :stream/put,
                    :target {:type :literal, :value stream-ref},
                    :val {:type :literal, :value 42}}
-          result (vm/run state-with-stream put-ast)
+          result (walker/run state-with-stream put-ast)
           stream (get-in result [:store stream-id])]
       (is (= 42 (:value result)) "Put should return the value put")
       (is (= [42] (:buffer stream)) "Stream buffer should contain the value")))
   (testing "stream/put multiple values"
     (let [make-ast {:type :stream/make, :buffer 10}
-          state-with-stream (vm/run (vm/make-state {}) make-ast)
+          state-with-stream (walker/run (walker/make-state {}) make-ast)
           stream-ref (:value state-with-stream)
           stream-id (:id stream-ref)
           ;; Put first value
           put1-ast {:type :stream/put,
                     :target {:type :literal, :value stream-ref},
                     :val {:type :literal, :value 1}}
-          state-after-put1 (vm/run state-with-stream put1-ast)
+          state-after-put1 (walker/run state-with-stream put1-ast)
           ;; Put second value
           put2-ast {:type :stream/put,
                     :target {:type :literal, :value stream-ref},
                     :val {:type :literal, :value 2}}
-          state-after-put2 (vm/run state-after-put1 put2-ast)
+          state-after-put2 (walker/run state-after-put1 put2-ast)
           stream (get-in state-after-put2 [:store stream-id])]
       (is (= [1 2] (:buffer stream))
           "Stream buffer should contain both values in order"))))
@@ -61,27 +62,27 @@
   (testing "stream/take retrieves value from stream buffer"
     (let [;; Create stream and put a value
           make-ast {:type :stream/make, :buffer 5}
-          state-with-stream (vm/run (vm/make-state {}) make-ast)
+          state-with-stream (walker/run (walker/make-state {}) make-ast)
           stream-ref (:value state-with-stream)
           stream-id (:id stream-ref)
           put-ast {:type :stream/put,
                    :target {:type :literal, :value stream-ref},
                    :val {:type :literal, :value 99}}
-          state-after-put (vm/run state-with-stream put-ast)
+          state-after-put (walker/run state-with-stream put-ast)
           ;; Take the value
           take-ast {:type :stream/take,
                     :source {:type :literal, :value stream-ref}}
-          result (vm/run state-after-put take-ast)
+          result (walker/run state-after-put take-ast)
           stream (get-in result [:store stream-id])]
       (is (= 99 (:value result)) "Take should return the value from buffer")
       (is (= [] (:buffer stream)) "Buffer should be empty after take")))
   (testing "stream/take from empty stream blocks"
     (let [make-ast {:type :stream/make, :buffer 5}
-          state-with-stream (vm/run (vm/make-state {}) make-ast)
+          state-with-stream (walker/run (walker/make-state {}) make-ast)
           stream-ref (:value state-with-stream)
           take-ast {:type :stream/take,
                     :source {:type :literal, :value stream-ref}}
-          result (vm/run state-with-stream take-ast)]
+          result (walker/run state-with-stream take-ast)]
       (is (= :yin/blocked (:value result))
           "Take from empty stream should block"))))
 
@@ -89,15 +90,15 @@
 (deftest test-stream-fifo-ordering
   (testing "stream maintains FIFO order"
     (let [make-ast {:type :stream/make, :buffer 10}
-          state-with-stream (vm/run (vm/make-state {}) make-ast)
+          state-with-stream (walker/run (walker/make-state {}) make-ast)
           stream-ref (:value state-with-stream)
           stream-id (:id stream-ref)
           ;; Put three values
           put-val (fn [state val]
-                    (vm/run state
-                            {:type :stream/put,
-                             :target {:type :literal, :value stream-ref},
-                             :val {:type :literal, :value val}}))
+                    (walker/run state
+                                {:type :stream/put,
+                                 :target {:type :literal, :value stream-ref},
+                                 :val {:type :literal, :value val}}))
           state-after-puts (-> state-with-stream
                                (put-val :first)
                                (put-val :second)
@@ -105,9 +106,9 @@
           ;; Take values one by one
           take-ast {:type :stream/take,
                     :source {:type :literal, :value stream-ref}}
-          result1 (vm/run state-after-puts take-ast)
-          result2 (vm/run result1 take-ast)
-          result3 (vm/run result2 take-ast)]
+          result1 (walker/run state-after-puts take-ast)
+          result2 (walker/run result1 take-ast)
+          result3 (walker/run result2 take-ast)]
       (is (= :first (:value result1)) "First take should return first value")
       (is (= :second (:value result2)) "Second take should return second value")
       (is (= :third (:value result3)) "Third take should return third value"))))
@@ -124,7 +125,7 @@
                                  :target {:type :variable, :name 's},
                                  :val {:type :literal, :value 42}}},
                :operands [{:type :stream/make, :buffer 5}]}
-          result (vm/run (vm/make-state {}) ast)]
+          result (walker/run (walker/make-state {}) ast)]
       (is (= 42 (:value result)) "Lambda should be able to put to stream"))))
 
 
@@ -146,7 +147,7 @@
                                      :target {:type :variable, :name 's},
                                      :val {:type :literal, :value 42}}]}},
                :operands [{:type :stream/make, :buffer 5}]}
-          result (vm/run (vm/make-state {}) ast)]
+          result (walker/run (walker/make-state {}) ast)]
       (is (= 42 (:value result)) "Should put 42 and take 42 back"))))
 
 

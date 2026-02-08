@@ -2,6 +2,7 @@
   (:require #?(:clj [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
             [yin.vm :as vm]
+            [yin.vm.ast-walker :as walker]
             [yin.vm.stack :as stack]))
 
 
