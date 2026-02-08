@@ -1,17 +1,32 @@
 (ns yin.vm.ast-walker
   (:refer-clojure :exclude [eval])
   (:require [yin.module :as module]
-            [yin.stream :as stream]))
+            [yin.stream :as stream]
+            [yin.vm :as vm]
+            [yin.vm.protocols :as proto]))
 
 
-;; Counter for generating unique IDs
+;; Counter for generating unique IDs (legacy, for backward compatibility)
 (def ^:private id-counter (atom 0))
 
 
 (defn gensym-id
-  "Generate a unique keyword ID with optional prefix."
+  "Generate a unique keyword ID with optional prefix.
+   Legacy function for backward compatibility - prefer vm/instance-gensym-id."
   ([] (gensym-id "id"))
   ([prefix] (keyword (str prefix "-" (swap! id-counter inc)))))
+
+
+;; =============================================================================
+;; ASTWalkerVM Record
+;; =============================================================================
+
+(defrecord ASTWalkerVM [instance     ; VMInstance - shared infrastructure
+                        control      ; current AST node or nil
+                        environment  ; persistent lexical scope map
+                        continuation ; reified continuation or nil
+                        value        ; last computed value
+                       ])
 
 
 (defn make-state
@@ -384,3 +399,96 @@
   "Returns the IDs of all parked continuations."
   [state]
   (keys (:parked state)))
+
+
+;; =============================================================================
+;; ASTWalkerVM Protocol Implementation
+;; =============================================================================
+
+(defn- vm->state
+  "Convert ASTWalkerVM to legacy state map for eval."
+  [^ASTWalkerVM vm]
+  {:control (:control vm),
+   :environment (:environment vm),
+   :store (if-let [inst (:instance vm)]
+            @(:store inst)
+            {}),
+   :continuation (:continuation vm),
+   :value (:value vm),
+   :parked (if-let [inst (:instance vm)]
+             @(:parked inst)
+             {})})
+
+
+(defn- state->vm
+  "Convert legacy state map back to ASTWalkerVM."
+  [^ASTWalkerVM vm state]
+  (when-let [inst (:instance vm)]
+    (reset! (:store inst) (:store state))
+    (reset! (:parked inst) (or (:parked state) {})))
+  (->ASTWalkerVM (:instance vm)
+                 (:control state)
+                 (:environment state)
+                 (:continuation state)
+                 (:value state)))
+
+
+(defn- vm-gensym-id
+  "Generate a unique ID using instance or fallback to legacy."
+  [^ASTWalkerVM vm prefix]
+  (if-let [inst (:instance vm)]
+    (vm/instance-gensym-id inst prefix)
+    (gensym-id prefix)))
+
+
+(defn vm-step
+  "Execute one step of ASTWalkerVM. Returns updated VM."
+  [^ASTWalkerVM vm]
+  (let [state (vm->state vm)
+        new-state (eval state nil)]
+    (state->vm vm new-state)))
+
+
+(defn vm-halted?
+  "Returns true if VM has halted."
+  [^ASTWalkerVM vm]
+  (and (nil? (:control vm)) (nil? (:continuation vm))))
+
+
+(defn vm-blocked?
+  "Returns true if VM is blocked."
+  [^ASTWalkerVM vm]
+  (= :yin/blocked (:value vm)))
+
+
+(defn vm-value "Returns the current value." [^ASTWalkerVM vm] (:value vm))
+
+
+(defn vm-run
+  "Run ASTWalkerVM until halted or blocked."
+  [^ASTWalkerVM vm]
+  (loop [v vm] (if (or (vm-halted? v) (vm-blocked? v)) v (recur (vm-step v)))))
+
+
+(defn vm-load-program
+  "Load an AST into the VM."
+  [^ASTWalkerVM vm ast]
+  (->ASTWalkerVM (:instance vm) ast (:environment vm) nil nil))
+
+
+(extend-type ASTWalkerVM
+  proto/IVMStep
+    (step [vm] (vm-step vm))
+    (halted? [vm] (vm-halted? vm))
+    (blocked? [vm] (vm-blocked? vm))
+    (value [vm] (vm-value vm))
+  proto/IVMRun
+    (run [vm] (vm-run vm))
+  proto/IVMLoad
+    (load-program [vm program] (vm-load-program vm program)))
+
+
+(defn create
+  "Create a new ASTWalkerVM with an instance and optional environment."
+  ([instance] (create instance {}))
+  ([instance env] (->ASTWalkerVM instance nil env nil nil)))

@@ -19,7 +19,9 @@
      [:return rs]            - return value in rs
      [:branch rt then else]  - conditional jump
      [:jump addr]            - unconditional jump"
-  (:require [yin.module :as module]))
+  (:require [yin.module :as module]
+            [yin.vm :as vm]
+            [yin.vm.protocols :as proto]))
 
 
 (def opcode-table
@@ -40,6 +42,24 @@
 
 
 (def reverse-opcode-table (into {} (map (fn [[k v]] [v k]) opcode-table)))
+
+
+;; =============================================================================
+;; RegisterVM Record
+;; =============================================================================
+
+(defrecord RegisterVM [instance ; VMInstance - shared infrastructure
+                       regs     ; virtual registers vector
+                       k        ; continuation (call frame stack)
+                       env      ; lexical environment
+                       ip       ; instruction pointer
+                       bytecode ; symbolic instruction vector (for assembly
+                                ; VM)
+                       bc       ; numeric bytecode vector (for bytecode VM)
+                       pool     ; constant pool (for bytecode VM)
+                       halted   ; true if execution completed
+                       value    ; final result value
+                      ])
 
 
 (defn ast-datoms->asm
@@ -684,3 +704,107 @@
     (:value result))
   ;; => 3
 )
+
+
+;; =============================================================================
+;; RegisterVM Protocol Implementation
+;; =============================================================================
+
+(defn- vm->state
+  "Convert RegisterVM to legacy state map."
+  [^RegisterVM vm]
+  (let [inst (:instance vm)
+        base {:regs (:regs vm),
+              :k (:k vm),
+              :env (:env vm),
+              :ip (:ip vm),
+              :halted (:halted vm),
+              :value (:value vm)}]
+    (if (:bc vm)
+      (assoc base
+        :bc (:bc vm)
+        :pool (:pool vm))
+      (assoc base :bytecode (:bytecode vm)))))
+
+
+(defn- state->vm
+  "Convert legacy state map back to RegisterVM."
+  [^RegisterVM vm state]
+  (->RegisterVM (:instance vm)
+                (:regs state)
+                (:k state)
+                (:env state)
+                (:ip state)
+                (:bytecode state)
+                (:bc state)
+                (:pool state)
+                (:halted state)
+                (:value state)))
+
+
+(defn reg-vm-step
+  "Execute one step of RegisterVM. Returns updated VM."
+  [^RegisterVM vm]
+  (let [state (vm->state vm)
+        new-state (if (:bc vm) (rbc-step-bc state) (rbc-step state))]
+    (state->vm vm new-state)))
+
+
+(defn reg-vm-halted?
+  "Returns true if VM has halted."
+  [^RegisterVM vm]
+  (boolean (:halted vm)))
+
+
+(defn reg-vm-blocked?
+  "Returns true if VM is blocked."
+  [^RegisterVM vm]
+  (= :yin/blocked (:value vm)))
+
+
+(defn reg-vm-value "Returns the current value." [^RegisterVM vm] (:value vm))
+
+
+(defn reg-vm-run
+  "Run RegisterVM until halted or blocked."
+  [^RegisterVM vm]
+  (loop [v vm]
+    (if (or (reg-vm-halted? v) (reg-vm-blocked? v)) v (recur (reg-vm-step v)))))
+
+
+(defn reg-vm-load-program
+  "Load bytecode into the VM.
+   Accepts either symbolic bytecode vector or {:bc [...] :pool [...]}."
+  [^RegisterVM vm program]
+  (if (map? program)
+    ;; Numeric bytecode with pool
+    (->RegisterVM (:instance vm)
+                  []
+                  nil
+                  (:env vm)
+                  0
+                  nil
+                  (:bc program)
+                  (:pool program)
+                  false
+                  nil)
+    ;; Symbolic bytecode
+    (->RegisterVM (:instance vm) [] nil (:env vm) 0 program nil nil false nil)))
+
+
+(extend-type RegisterVM
+  proto/IVMStep
+    (step [vm] (reg-vm-step vm))
+    (halted? [vm] (reg-vm-halted? vm))
+    (blocked? [vm] (reg-vm-blocked? vm))
+    (value [vm] (reg-vm-value vm))
+  proto/IVMRun
+    (run [vm] (reg-vm-run vm))
+  proto/IVMLoad
+    (load-program [vm program] (reg-vm-load-program vm program)))
+
+
+(defn create
+  "Create a new RegisterVM with an instance and optional environment."
+  ([instance] (create instance {}))
+  ([instance env] (->RegisterVM instance [] nil env 0 nil nil nil false nil)))

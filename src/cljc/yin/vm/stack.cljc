@@ -1,4 +1,6 @@
-(ns yin.vm.stack)
+(ns yin.vm.stack
+  (:require [yin.vm :as vm]
+            [yin.vm.protocols :as proto]))
 
 
 ;; =============================================================================
@@ -69,6 +71,33 @@
   "Find all variable references in the datoms."
   [datoms]
   (find-by-type datoms :variable))
+
+
+;; =============================================================================
+;; VM Records
+;; =============================================================================
+
+(defrecord StackVM [instance   ; VMInstance - shared infrastructure
+                    pc         ; program counter
+                    bytes      ; bytecode vector
+                    stack      ; operand stack
+                    env        ; lexical environment
+                    call-stack ; call frames for function returns
+                    pool       ; constant pool
+                    halted     ; true if execution completed
+                    value      ; final result value
+                   ])
+
+
+(defrecord SemanticVM [instance ; VMInstance - shared infrastructure
+                       control  ; current control state {:type
+                                ; :node/:value, ...}
+                       env      ; lexical environment
+                       stack    ; continuation stack
+                       datoms   ; AST datoms
+                       halted   ; true if execution completed
+                       value    ; final result value
+                      ])
 
 
 ;; =============================================================================
@@ -534,3 +563,184 @@
   ([bytes constant-pool] (run-bytes bytes constant-pool {}))
   ([bytes constant-pool env]
    (stack-run (make-stack-state bytes constant-pool env))))
+
+
+;; =============================================================================
+;; StackVM Protocol Implementation
+;; =============================================================================
+
+(defn- stack-vm->state
+  "Convert StackVM to legacy state map."
+  [^StackVM vm]
+  {:pc (:pc vm),
+   :bytes (:bytes vm),
+   :stack (:stack vm),
+   :env (:env vm),
+   :call-stack (:call-stack vm),
+   :pool (:pool vm),
+   :halted (:halted vm),
+   :value (:value vm)})
+
+
+(defn- state->stack-vm
+  "Convert legacy state map back to StackVM."
+  [^StackVM vm state]
+  (->StackVM (:instance vm)
+             (:pc state)
+             (:bytes state)
+             (:stack state)
+             (:env state)
+             (:call-stack state)
+             (:pool state)
+             (:halted state)
+             (:value state)))
+
+
+(defn stack-vm-step
+  "Execute one step of StackVM. Returns updated VM."
+  [^StackVM vm]
+  (let [state (stack-vm->state vm)
+        new-state (stack-step state)]
+    (state->stack-vm vm new-state)))
+
+
+(defn stack-vm-halted?
+  "Returns true if VM has halted."
+  [^StackVM vm]
+  (boolean (:halted vm)))
+
+
+(defn stack-vm-blocked?
+  "Returns true if VM is blocked."
+  [^StackVM vm]
+  (= :yin/blocked (:value vm)))
+
+
+(defn stack-vm-value "Returns the current value." [^StackVM vm] (:value vm))
+
+
+(defn stack-vm-run
+  "Run StackVM until halted or blocked."
+  [^StackVM vm]
+  (loop [v vm]
+    (if (or (stack-vm-halted? v) (stack-vm-blocked? v))
+      v
+      (recur (stack-vm-step v)))))
+
+
+(defn stack-vm-load-program
+  "Load bytecode into the VM.
+   Expects {:bc [...] :pool [...]}."
+  [^StackVM vm {:keys [bc pool]}]
+  (->StackVM (:instance vm) 0 (vec bc) [] (:env vm) [] pool false nil))
+
+
+(extend-type StackVM
+  proto/IVMStep
+    (step [vm] (stack-vm-step vm))
+    (halted? [vm] (stack-vm-halted? vm))
+    (blocked? [vm] (stack-vm-blocked? vm))
+    (value [vm] (stack-vm-value vm))
+  proto/IVMRun
+    (run [vm] (stack-vm-run vm))
+  proto/IVMLoad
+    (load-program [vm program] (stack-vm-load-program vm program)))
+
+
+(defn create-stack-vm
+  "Create a new StackVM with an instance and optional environment."
+  ([instance] (create-stack-vm instance {}))
+  ([instance env] (->StackVM instance 0 [] [] env [] [] false nil)))
+
+
+;; =============================================================================
+;; SemanticVM Protocol Implementation
+;; =============================================================================
+
+(defn- semantic-vm->state
+  "Convert SemanticVM to legacy state map."
+  [^SemanticVM vm]
+  {:control (:control vm),
+   :env (:env vm),
+   :stack (:stack vm),
+   :datoms (:datoms vm),
+   :halted (:halted vm),
+   :value (:value vm)})
+
+
+(defn- state->semantic-vm
+  "Convert legacy state map back to SemanticVM."
+  [^SemanticVM vm state]
+  (->SemanticVM (:instance vm)
+                (:control state)
+                (:env state)
+                (:stack state)
+                (:datoms state)
+                (:halted state)
+                (:value state)))
+
+
+(defn semantic-vm-step
+  "Execute one step of SemanticVM. Returns updated VM."
+  [^SemanticVM vm]
+  (let [state (semantic-vm->state vm)
+        new-state (semantic-step state)]
+    (state->semantic-vm vm new-state)))
+
+
+(defn semantic-vm-halted?
+  "Returns true if VM has halted."
+  [^SemanticVM vm]
+  (boolean (:halted vm)))
+
+
+(defn semantic-vm-blocked?
+  "Returns true if VM is blocked."
+  [^SemanticVM vm]
+  (= :yin/blocked (:value vm)))
+
+
+(defn semantic-vm-value
+  "Returns the current value."
+  [^SemanticVM vm]
+  (:value vm))
+
+
+(defn semantic-vm-run
+  "Run SemanticVM until halted or blocked."
+  [^SemanticVM vm]
+  (loop [v vm]
+    (if (or (semantic-vm-halted? v) (semantic-vm-blocked? v))
+      v
+      (recur (semantic-vm-step v)))))
+
+
+(defn semantic-vm-load-program
+  "Load datoms into the VM.
+   Expects {:node root-id :datoms [...]}."
+  [^SemanticVM vm {:keys [node datoms]}]
+  (->SemanticVM (:instance vm)
+                {:type :node, :id node}
+                (:env vm)
+                []
+                datoms
+                false
+                nil))
+
+
+(extend-type SemanticVM
+  proto/IVMStep
+    (step [vm] (semantic-vm-step vm))
+    (halted? [vm] (semantic-vm-halted? vm))
+    (blocked? [vm] (semantic-vm-blocked? vm))
+    (value [vm] (semantic-vm-value vm))
+  proto/IVMRun
+    (run [vm] (semantic-vm-run vm))
+  proto/IVMLoad
+    (load-program [vm program] (semantic-vm-load-program vm program)))
+
+
+(defn create-semantic-vm
+  "Create a new SemanticVM with an instance and optional environment."
+  ([instance] (create-semantic-vm instance {}))
+  ([instance env] (->SemanticVM instance nil env [] nil false nil)))
