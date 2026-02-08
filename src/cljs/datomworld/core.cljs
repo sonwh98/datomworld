@@ -266,10 +266,12 @@
                initial-env vm/primitives
                vm (walker/create initial-env)
                vm-loaded (proto/load-program vm last-form)]
+           (.log js/console "Resetting walker with AST:" (clj->js last-form))
            (swap! app-state assoc-in [:vm-states :walker :state] vm-loaded)
            (swap! app-state assoc-in [:vm-states :walker :running] false)
            (swap! app-state assoc :walker-result nil))
          (catch js/Error e
+           (.error js/console "AST Walker Reset Error:" e)
            (swap! app-state assoc
              :error
              (str "AST Walker Reset Error: " (.-message e)))))))
@@ -281,11 +283,13 @@
   (let [state (get-in @app-state [:vm-states :walker :state])]
     (when (and state (not (proto/halted? state)))
       (try (let [new-state (proto/step state)]
+             (.log js/console "Stepped walker:" (clj->js new-state))
              (swap! app-state assoc-in [:vm-states :walker :state] new-state)
              (when (proto/halted? new-state)
                (swap! app-state assoc :walker-result (proto/value new-state))
                (swap! app-state assoc-in [:vm-states :walker :running] false)))
            (catch js/Error e
+             (.error js/console "AST Walker Step Error:" e)
              (swap! app-state assoc
                :error
                (str "AST Walker Step Error: " (.-message e)))
@@ -639,7 +643,15 @@
                    :python (let [ast (py/compile input)] [ast]))
             ast-strings (map pretty-print asts)
             result-text (str/join "\n" ast-strings)]
-        (swap! app-state assoc :ast-as-text result-text :error nil))
+        (swap! app-state assoc :ast-as-text result-text :error nil)
+        ;; Initialize AST Walker state
+        (let [last-ast (last asts)
+              initial-env vm/primitives
+              vm (walker/create initial-env)
+              vm-loaded (proto/load-program vm last-ast)]
+          (swap! app-state assoc-in [:vm-states :walker :state] vm-loaded)
+          (swap! app-state assoc-in [:vm-states :walker :running] false)
+          (swap! app-state assoc :walker-result nil)))
       (catch js/Error e
         (swap! app-state assoc :error (str "Compile Error: " (.-message e)))))))
 
@@ -767,7 +779,11 @@
   (let [vm-state (get-in @app-state [:vm-states vm-key])
         running (:running vm-state)
         state (:state vm-state)
-        halted (when state (:halted state))]
+        halted (when state
+                 (try (if (satisfies? proto/IVMStep state)
+                        (proto/halted? state)
+                        (or (:halted state) false))
+                      (catch js/Error _ (or (:halted state) false))))]
     [:div {:style {:display "flex", :gap "5px", :margin-top "5px"}}
      [:button
       {:on-click step-fn,
@@ -955,10 +971,14 @@
                  :justify-content "space-between",
                  :align-items "center"}}
         [:span {:style {:color "#8b949e"}}
-         (if (proto/halted? state)
-           "HALTED"
-           (let [ctrl (:control state)]
-             (if ctrl (str "Control: " (:type ctrl)) "Returning...")))]
+         (cond (proto/halted? state) "HALTED"
+               (:control state) (str "Control: "
+                                     (or (get-in state [:control :type])
+                                         (pr-str (:control state))))
+               (:continuation state)
+                 (str "Cont: "
+                      (or (get-in state [:continuation :type]) "pending"))
+               :else "Returning...")]
         [:button
          {:on-click
             #(swap! app-state update-in [:vm-states :walker :expanded] not),
