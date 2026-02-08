@@ -1,12 +1,15 @@
 (ns datomworld.core
   (:require ["@codemirror/lang-python" :refer [python]]
-            ["@codemirror/state" :refer [EditorState]]
+            ["@codemirror/state" :refer
+             [EditorState StateField StateEffect RangeSet]]
             ["@codemirror/theme-one-dark" :refer [oneDark]]
+            ["@codemirror/view" :refer [EditorView Decoration]]
             ["@nextjournal/lang-clojure" :refer [clojure]]
-            ["codemirror" :refer [basicSetup EditorView]]
+            ["codemirror" :refer [basicSetup]]
             [cljs.pprint :as pprint]
             [cljs.reader :as reader]
             [clojure.string :as str]
+            [clojure.walk :as walk]
             [reagent.core :as r]
             [reagent.dom :as rdom]
             [yang.clojure :as yang]
@@ -23,6 +26,88 @@
   [data]
   (binding [pprint/*print-right-margin* 60]
     (with-out-str (pprint/pprint data))))
+
+
+(defn add-yin-ids
+  "Recursively add unique :yin/id to every AST node."
+  [ast]
+  (let [id (atom 0)]
+    (walk/postwalk
+      (fn [x] (if (and (map? x) (:type x)) (assoc x :yin/id (swap! id inc)) x))
+      ast)))
+
+
+(defn ast->text-with-map
+  "Generate pretty-printed text for AST and a source map of node IDs to ranges."
+  [ast]
+  (let [source-map (atom {})
+        out (atom "")]
+    (letfn
+      [(emit [s] (swap! out str s)) (pos [] (count @out))
+       (indent-str [n] (apply str (repeat (* n 2) " ")))
+       (print-node [node indent]
+         (let [start (pos)
+               id (:yin/id node)]
+           (emit "{")
+           (let [ks (keys (dissoc node :yin/id))
+                 sorted-ks (cons :type (sort (remove #(= :type %) ks)))]
+             (doseq [[i k] (map-indexed vector sorted-ks)]
+               (if (> i 0)
+                 (do (emit "\n") (emit (indent-str (inc indent))))
+                 (emit " "))
+               (emit (str k " "))
+               (let [v (get node k)]
+                 (cond (and (map? v) (:type v)) (print-node v (inc indent))
+                       (vector? v) (do
+                                     (emit "[")
+                                     (let [long-vec? (> (count v) 1)]
+                                       (doseq [[j item] (map-indexed vector v)]
+                                         (if (and long-vec? (> j 0))
+                                           (do (emit "\n")
+                                               (emit (indent-str (+ indent 2))))
+                                           (when long-vec? (emit " ")))
+                                         (if (and (map? item) (:type item))
+                                           (print-node item (+ indent 2))
+                                           (emit (pr-str item)))))
+                                     (if (> (count v) 1)
+                                       (do (emit "\n")
+                                           (emit (indent-str (inc indent)))
+                                           (emit "]"))
+                                       (emit " ]")))
+                       :else (emit (pr-str v))))))
+           (emit " }")
+           (when id (swap! source-map assoc id [start (pos)]))))]
+      (print-node ast 0) {:text @out, :source-map @source-map})))
+
+
+(def highlight-decoration (.mark Decoration #js {:class "cm-highlight-node"}))
+
+
+(def set-highlight (.define StateEffect))
+
+
+(def highlight-field
+  (.define StateField
+           #js {:create (fn [] (.-none Decoration)),
+                :update (fn [decorations tr]
+                          (let [effects (.-effects tr)]
+                            (reduce (fn [decs effect]
+                                      (if (.is effect set-highlight)
+                                        (let [v (.-value effect)]
+                                          (if (and (vector? v) (= 2 (count v)))
+                                            (let [[start end] v]
+                                              (try (.of RangeSet
+                                                        #js
+                                                         [(.range
+                                                            highlight-decoration
+                                                            start
+                                                            end)])
+                                                   (catch js/Error _ decs)))
+                                            (.-none Decoration)))
+                                        decs))
+                              decorations
+                              effects))),
+                :provide (fn [f] (.from (.-decorations EditorView) f))}))
 
 
 (def default-positions
@@ -63,6 +148,7 @@
      :collapsed #{},
      :drag-state nil,
      :resize-state nil,
+     :walker-source-map nil,
      ;; Per-window VM states for stepping execution
      :vm-states {:register {:state nil, :running false, :expanded false},
                  :stack {:state nil, :running false, :expanded false},
@@ -77,7 +163,7 @@
 
 
 (defn codemirror-editor
-  [{:keys [value on-change read-only language]}]
+  [{:keys [value on-change read-only language highlight-range]}]
   (let [view-ref (r/atom nil)
         el-ref (atom nil)]
     (r/create-class
@@ -90,7 +176,8 @@
                                  #js {"&" #js {:height "100%"},
                                       ".cm-scroller" #js {:overflow "auto"}})
                    extensions
-                     (cond-> #js [basicSetup lang-ext oneDark theme]
+                     (cond-> #js [basicSetup lang-ext oneDark theme
+                                  highlight-field]
                        read-only (.concat #js [(.of (.-editable EditorView)
                                                     false)])
                        on-change
@@ -104,10 +191,15 @@
                    state (.create EditorState
                                   #js {:doc value, :extensions extensions})
                    view (new EditorView #js {:state state, :parent node})]
+               (when highlight-range
+                 (.dispatch view
+                            #js {:effects #js [(.of set-highlight
+                                                    highlight-range)]}))
                (reset! view-ref view)))),
        :component-did-update
          (fn [this old-argv]
-           (let [{:keys [value language]} (r/props this)]
+           (let [{:keys [value highlight-range]} (r/props this)
+                 old-highlight-range (:highlight-range (second old-argv))]
              (when-let [view @view-ref]
                (let [current-value (.. view -state -doc toString)]
                  (when (not= value current-value)
@@ -115,7 +207,18 @@
                               #js {:changes #js
                                              {:from 0,
                                               :to (.. view -state -doc -length),
-                                              :insert value}})))))),
+                                              :insert value}})))
+               (when (not= highlight-range old-highlight-range)
+                 (let [effects #js [(.of set-highlight highlight-range)]
+                       effects (if (and highlight-range
+                                        (not= highlight-range
+                                              old-highlight-range))
+                                 (.concat effects
+                                          #js [(.scrollIntoView
+                                                 EditorView
+                                                 (first highlight-range))])
+                                 effects)]
+                   (.dispatch view #js {:effects effects})))))),
        :component-will-unmount (fn [this]
                                  (when-let [view @view-ref] (.destroy view))),
        :reagent-render
@@ -261,20 +364,24 @@
   "Reset AST Walker VM to initial state."
   []
   (let [input (:ast-as-text @app-state)]
-    (try (let [forms (reader/read-string (str "[" input "]"))
-               last-form (last forms)
-               initial-env vm/primitives
-               vm (walker/create initial-env)
-               vm-loaded (proto/load-program vm last-form)]
-           (.log js/console "Resetting walker with AST:" (clj->js last-form))
-           (swap! app-state assoc-in [:vm-states :walker :state] vm-loaded)
-           (swap! app-state assoc-in [:vm-states :walker :running] false)
-           (swap! app-state assoc :walker-result nil))
-         (catch js/Error e
-           (.error js/console "AST Walker Reset Error:" e)
-           (swap! app-state assoc
-             :error
-             (str "AST Walker Reset Error: " (.-message e)))))))
+    (try
+      (let [forms (reader/read-string (str "[" input "]"))
+            last-form (last forms)
+            ast-with-ids (add-yin-ids last-form)
+            {:keys [text source-map]} (ast->text-with-map ast-with-ids)
+            initial-env vm/primitives
+            vm (walker/create initial-env)
+            vm-loaded (proto/load-program vm ast-with-ids)]
+        (.log js/console "Resetting walker with AST:" (clj->js ast-with-ids))
+        (swap! app-state assoc :ast-as-text text :walker-source-map source-map)
+        (swap! app-state assoc-in [:vm-states :walker :state] vm-loaded)
+        (swap! app-state assoc-in [:vm-states :walker :running] false)
+        (swap! app-state assoc :walker-result nil))
+      (catch js/Error e
+        (.error js/console "AST Walker Reset Error:" e)
+        (swap! app-state assoc
+          :error
+          (str "AST Walker Reset Error: " (.-message e)))))))
 
 
 (defn step-walker
@@ -641,14 +748,17 @@
                                           (str "[" input "]"))]
                               [(yang/compile-program forms)])
                    :python (let [ast (py/compile input)] [ast]))
-            ast-strings (map pretty-print asts)
-            result-text (str/join "\n" ast-strings)]
-        (swap! app-state assoc :ast-as-text result-text :error nil)
+            last-ast (last asts)
+            ast-with-ids (add-yin-ids last-ast)
+            {:keys [text source-map]} (ast->text-with-map ast-with-ids)]
+        (swap! app-state assoc
+          :ast-as-text text
+          :walker-source-map source-map
+          :error nil)
         ;; Initialize AST Walker state
-        (let [last-ast (last asts)
-              initial-env vm/primitives
+        (let [initial-env vm/primitives
               vm (walker/create initial-env)
-              vm-loaded (proto/load-program vm last-ast)]
+              vm-loaded (proto/load-program vm ast-with-ids)]
           (swap! app-state assoc-in [:vm-states :walker :state] vm-loaded)
           (swap! app-state assoc-in [:vm-states :walker :running] false)
           (swap! app-state assoc :walker-result nil)))
@@ -1219,7 +1329,7 @@
       (str i ": " (pr-str instr))])])
 
 
-(defn hello-world
+(defn main-view
   []
   (r/create-class
     {:component-did-mount
@@ -1302,27 +1412,33 @@
                {:style {:marginTop "10px", :fontSize "0.8em", :color "#8b949e"}}
                "Select examples from the menu ☰ above."]]]
             [draggable-card :walker "AST Walker"
-             [:div
-              {:style {:display "flex",
-                       :flex-direction "column",
-                       :flex "1",
-                       :overflow "hidden"}}
-              [codemirror-editor
-               {:value (:ast-as-text @app-state),
-                :on-change (fn [v] (swap! app-state assoc :ast-as-text v))}]
-              [vm-control-buttons
-               {:vm-key :walker,
-                :step-fn step-walker,
-                :toggle-run-fn toggle-run-walker,
-                :reset-fn reset-walker}] [ast-walker-state-display]
-              (let [vm-state (get-in @app-state [:vm-states :walker :state])]
-                (when (and vm-state (proto/halted? vm-state))
-                  [:div
-                   {:style {:marginTop "5px",
-                            :background "#0d1117",
-                            :padding "5px",
-                            :border "1px solid #30363d"}} [:strong "Result: "]
-                   (pr-str (proto/value vm-state))]))]]
+             (let [walker-vm-state (get-in @app-state
+                                           [:vm-states :walker :state])
+                   walker-ctrl (:control walker-vm-state)
+                   walker-id (:yin/id walker-ctrl)
+                   walker-range (get (:walker-source-map @app-state) walker-id)]
+               [:div
+                {:style {:display "flex",
+                         :flex-direction "column",
+                         :flex "1",
+                         :overflow "hidden"}}
+                [codemirror-editor
+                 {:value (:ast-as-text @app-state),
+                  :highlight-range walker-range,
+                  :on-change (fn [v] (swap! app-state assoc :ast-as-text v))}]
+                [vm-control-buttons
+                 {:vm-key :walker,
+                  :step-fn step-walker,
+                  :toggle-run-fn toggle-run-walker,
+                  :reset-fn reset-walker}] [ast-walker-state-display]
+                (let [vm-state (get-in @app-state [:vm-states :walker :state])]
+                  (when (and vm-state (proto/halted? vm-state))
+                    [:div
+                     {:style {:marginTop "5px",
+                              :background "#0d1117",
+                              :padding "5px",
+                              :border "1px solid #30363d"}} [:strong "Result: "]
+                     (pr-str (proto/value vm-state))]))])]
             [draggable-card :semantic "Semantic VM"
              [:div
               {:style {:display "flex",
@@ -1452,5 +1568,4 @@
 
 (defn init
   []
-  (let [app (js/document.getElementById "app")]
-    (rdom/render [hello-world] app)))
+  (let [app (js/document.getElementById "app")] (rdom/render [main-view] app)))

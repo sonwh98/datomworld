@@ -913,3 +913,8 @@ table tbody tr:hover {
     width: 100%;
   }
 }
+
+.cm-highlight-node {
+  background-color: #264f78 !important;
+  border-radius: 2px;
+}
