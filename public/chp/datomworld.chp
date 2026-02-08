@@ -52,7 +52,7 @@
            [:h3 "2. Everything is a Continuation"]
            [:p "If streams are how data flows, continuations are how computation flows. Every running process is a " [:strong "continuation"] ": a serializable snapshot that can pause, migrate, and resume anywhere."]
            [:p "Built on " [:a {:href "/yin.chp"} "Yin"] ", your code becomes portable and secure. Start on your phone, continue on an edge server, finish on a GPU cluster. Enables true code mobility (Python to C++ with state intact), extreme fault tolerance, Airbnb-style compute (rent anyone's hardware with mutual security), and never losing context (resume on any device)."]
-           [:p.learn-more "Learn more: " [:a {:href "/blog/unitarity-and-communication-limits.blog"} "Unitarity, π-Calculus, and the Cosmic Speed Limit"] "."]]
+           [:p.learn-more "Learn more: " [:a {:href "/blog/computation-moves-data-stays.blog"} "Computation Moves, Data Stays"] "."]]
           [:article.concept-card
            [:h3 "3. Interpretation Creates Meaning"]
            [:p [:strong "Meaning only emerges through interpretation"] ". Data is just syntax; semantics are created when an interpreter observes and acts on it. This is the " [:strong "\"one truth, many perspectives\""] " principle: a single stream of datoms (one truth) can be interpreted differently by different observers (many perspectives), each extracting their own valid meaning."]
