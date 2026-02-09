@@ -3,7 +3,7 @@ java = ["21", "17"]
 cljstyle = "0.17.642"
 zprint = "1.3.0"
 clojure = "1.12.4.1582"
-node = "22.21.1"
+node = "22.22.0"
 android-sdk = "latest"
 flutter = { version = "3.38.9-stable", platforms = """
 [linux-x64]
