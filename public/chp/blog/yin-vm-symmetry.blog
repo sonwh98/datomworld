@@ -1,0 +1,57 @@
+#:blog{:title "Yin.VM and Symmetry"
+       :date #inst "2026-02-10T00:00:00.000-00:00"
+       :abstract [:p "Yin.VM starts from invariance, not language. This essay frames the AST as the invariant and compilation as symmetry preserving transformation."]
+       :content [:section.blog-article
+                 [:div.section-inner
+                  [:article
+                   :$blog-title
+                   :$blog-date
+                   [:p "Most programming systems start from languages. Yin.VM starts from invariance. This difference sounds subtle, but it shifts the perspective from viewing the AST as a transient artifact to be discarded after compilation, to viewing it as the permanent foundation from which all execution models are projected."]
+                   [:h2 "Symmetry Is Relational"]
+                   [:p "An object is a singular thing (not in the object-oriented sense, but as an abstract entity). Symmetry is not a property that lives inside it. Instead, symmetry appears when we discover a transformation that leaves the object unchanged. The space of possible transformations is unbounded; therefore, the space of possible symmetries is never fixed."]
+                   [:p "What we often call an intrinsic property is actually a relationship between an object and a chosen transformation space. Change the transformation set, and the symmetry changes, even if the object does not. Symmetry is discovered, not embedded."]
+                   [:h2 "Scalars, Values, and Invariance"]
+                   [:p "In physics, a scalar is a quantity that remains unchanged under coordinate transformations. The components of a vector may shift as the axes rotate, but the scalar length is invariant. Its defining property is not its simplicity, but its persistence."]
+                   [:p "This is more than a mathematical convenience; it is a biological necessity. The human mind evolved to detect persistent invariants in a chaotic, noisy world. Identifying what stays the same while everything else moves is how we distinguish objects from background noise, and signal from entropy."]
+                   [:p "Invariance is not limited to physics or biology:"]
+                   [:ul
+                    [:li "Data structures can be invariant under memory reorganization."]
+                    [:li "Semantic graphs can be invariant under structural rewrites."]
+                    [:li "Programs can be invariant under compilation."]]
+                   [:p "Anything can be a value if it is held invariant. In Yin.VM, the AST is that value: the scalar that survives the transformations of compilation."]
+                   [:h2 "The Core Insight Behind Yin.VM"]
+                   [:p "Yin.VM applies this relational logic to code: the AST is the invariant. Constructed from immutable datoms, it serves as the fixed point from which multiple execution models are projected. In this model, languages and compilers are merely transformations that act upon the substrate."]
+                   [:p "This removes the primacy of syntax. The AST is semantic structure. If two surface languages map to the same datom-constellation, they are the same program. The representation may change, but the value persists."]
+                   [:h2 "Compilers as Symmetry Preserving Transformations"]
+                   [:p "In Yin.VM, a compiler is not defined by its output format. A compiler is defined by a single constraint: does it preserve the AST invariant?"]
+                   [:p "Stack machines, register machines, bytecode interpreters, and native code generators are not targets. They are representations of the AST. The compilers that map between them are the elements of the symmetry group. If a transformation preserves meaning, it belongs. If it mutates meaning, it is not compilation. It is a semantic change."]
+                   [:h2 "Why There Is No Symmetry Enumeration Algorithm"]
+                   [:p "Given an arbitrary object, there is no algorithm that can enumerate all symmetry preserving transformations. This is not a limitation of tooling. It is a fundamental boundary of computation."]
+                   [:p "Instead, symmetry is found by:"]
+                   [:ul
+                    [:li "Defining a transformation language."]
+                    [:li "Defining what invariant means."]
+                    [:li "Solving the constraint:"]]
+                   [:p "interpret ∘ transform = interpret."]
+                   [:p "This is the fundamental definition of a compiler in Yin.VM: a transformation that leaves the interpretation (the meaning) invariant. Symmetry is characterized, not listed. Because we cannot enumerate all possible symmetries in advance, Yin.VM must remain open-ended. It embraces this reality by:"]
+                   [:ul
+                    [:li "Keeping the invariant explicit."]
+                    [:li "Allowing multiple interpreters."]
+                    [:li "Refusing to privilege a single execution model."]]
+                   [:h2 "Continuations as Control Invariants"]
+                   [:p "The same principle explains why everything in Yin.VM is a continuation. A continuation is invariant across:"]
+                   [:ul
+                    [:li "Stacks."]
+                    [:li "Registers."]
+                    [:li "CPS."]
+                    [:li "Suspension."]
+                    [:li "Distribution."]]
+                   [:p "Execution strategies differ. The control structure does not. Continuations are the symmetry preserving core of control flow. Because both the AST and the continuation state are stored as immutable datoms, this invariance is not an abstraction: it is a property of the data itself."]
+                   [:h2 "Symmetry Breaking Is Optional, and Reversible"]
+                   [:p "If computation is the pursuit of invariance, optimization is the necessary act of symmetry breaking. Lowering and specialization are choices to discard general-purpose symmetry in favor of hardware-specific performance. Most systems break symmetry early and permanently."]
+                   [:p "Yin.VM delays symmetry breaking as long as possible, and keeps the invariant intact. That makes reversible compilation, multi-backend execution, and semantic comparison feasible in ways traditional VMs cannot support."]
+                   [:h2 "What Yin.VM Is Actually Claiming"]
+                   [:p "Yin.VM is not claiming to be faster, smaller, or simpler. It is claiming something more basic: programming languages are views. The AST is the invariant. Compilation is symmetry preserving transformation."]
+                   [:p "Once you adopt that framing, multilingual input, distributed execution, and semantic mobility stop being features and start being consequences."]
+                   [:h2 "The Foundation of Invariance"]
+                   [:p "Symmetry does not belong to objects. It belongs to relationships. Yin.VM is built on that premise. Everything else follows."]]]]}
