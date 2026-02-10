@@ -55,4 +55,24 @@
                    [:p "Yin.VM is not claiming to be faster, smaller, or simpler. It is claiming something more basic: programming languages are views. The AST is the invariant. Compilation is the act of building specialized structure by breaking the symmetry of the invariant while preserving its semantic value."]
                    [:p "Once you adopt that framing, multilingual input, distributed execution, and semantic mobility stop being features and start being consequences."]
                    [:h2 "The Foundation of Invariance"]
-                   [:p "Symmetry does not belong to objects. It belongs to relationships. Yin.VM is built on that premise. Everything else follows."]]]]}
+                   [:p "Symmetry does not belong to objects. It belongs to relationships. Yin.VM is built on that premise. Everything else follows."]
+                   [:p [:strong "Related Reading:"]]
+                   [:ul.bulleted
+                    [:li
+                     [:a {:href "/blog/yin-vm-daodb-architecture.blog"}
+                      "Yin.VM and DaoDB: How Persistent ASTs Make Self-Modification Practical"]]
+                    [:li
+                     [:a {:href "/blog/continuations-universal-semantic-kernel.blog"}
+                      "Why Continuations Are the Universal Semantic Kernel"]]
+                    [:li
+                     [:a {:href "/blog/many-syntaxes-one-ast.blog"}
+                      "Many Syntaxes, One AST: The Non-Deterministic Rendering Problem"]]
+                    [:li
+                     [:a {:href "/blog/universal-ast-vs-assembly.blog"}
+                      "Universal AST vs Assembly: High-Level Semantics in Low-Level Form"]]
+                    [:li
+                     [:a {:href "/blog/ast-datom-streams-bytecode-performance.blog"}
+                      "AST Datom Streams: Bytecode Performance with Semantic Preservation"]]
+                    [:li
+                     [:a {:href "/blog/computation-dimensional-expansion-compression.blog"}
+                      "What Is Computation?"]]]]]]}
