@@ -323,14 +323,6 @@
 ;; IP indexes into the flat int vector, not an instruction vector.
 ;; =============================================================================
 
-(defn make-bc-state
-  "Create initial bytecode VM state from {:bytecode [...] :pool [...]}."
-  ([compiled] (make-bc-state compiled {}))
-  ([{:keys [bytecode pool]} env]
-   (merge (vm/empty-state)
-          {:regs [], :k nil, :env env, :ip 0, :bytecode bytecode, :pool pool})))
-
-
 (defn step-bc
   "Execute one bytecode instruction. Returns updated state."
   [state]
