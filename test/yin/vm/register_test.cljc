@@ -1,4 +1,4 @@
-(ns yin.vm-register-test
+(ns yin.vm.register-test
   (:require [clojure.test :refer [deftest is testing]]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as walker]

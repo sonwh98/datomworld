@@ -7,10 +7,10 @@
             [yin.vm-basic-test]
             [yin.vm-continuation-test]
             [yin.vm-literal-test]
-            [yin.vm-register-test]
             [yin.vm-state-test]
             [yin.vm-stream-test]
-            [yin.vm-test]))
+            [yin.vm-test]
+            [yin.vm.register-test]))
 
 
 (defn -main
@@ -25,7 +25,7 @@
              'yin.asm-bench
              'yin.vm-continuation-test
              'yin.vm-stream-test
-             'yin.vm-register-test))
+             'yin.vm.register-test))
 
 
 (set! *main-cli-fn* -main)
