@@ -218,58 +218,6 @@
         @bytecode))))
 
 
-(comment
-  ;; ast-datoms->asm exploration. Pipeline: AST map -> datoms -> register
-  ;; assembly. Simple literal
-  (ast-datoms->asm (ast->datoms {:type :literal, :value 42}))
-  ;; => [[:loadk 0 42]]
-  ;; Variable reference
-  (ast-datoms->asm (ast->datoms {:type :variable, :name 'x}))
-  ;; => [[:loadv 0 x]]
-  ;; Application (+ 1 2)
-  (ast-datoms->asm (ast->datoms {:type :application,
-                                 :operator {:type :variable, :name '+},
-                                 :operands [{:type :literal, :value 1}
-                                            {:type :literal, :value 2}]}))
-  ;; => [[:loadk 0 1]        ; r0 = 1
-  ;;     [:loadk 1 2]        ; r1 = 2
-  ;;     [:loadv 2 +]        ; r2 = +
-  ;;     [:call 3 2 [0 1]]]  ; r3 = r2(r0, r1)
-  ;; Lambda (fn [x] x)
-  (ast-datoms->asm (ast->datoms {:type :lambda,
-                                 :params ['x],
-                                 :body {:type :variable, :name 'x}}))
-  ;; => [[:closure 0 [x] 2]  ; r0 = closure, body at addr 2
-  ;;     [:jump 4]           ; skip body
-  ;;     [:loadv 0 x]        ; body: r0 = x
-  ;;     [:return 0]]        ; return r0
-  ;; Conditional (if true 1 2)
-  (ast-datoms->asm (ast->datoms {:type :if,
-                                 :test {:type :literal, :value true},
-                                 :consequent {:type :literal, :value 1},
-                                 :alternate {:type :literal, :value 2}}))
-  ;; => [[:loadk 0 true]     ; r0 = test
-  ;;     [:branch 0 2 5]     ; if r0 goto 2 else 5
-  ;;     [:loadk 2 1]        ; r2 = 1 (consequent)
-  ;;     [:move 1 2]         ; r1 = r2 (result)
-  ;;     [:jump 7]           ; skip alternate
-  ;;     [:loadk 3 2]        ; r3 = 2 (alternate)
-  ;;     [:move 1 3]]        ; r1 = r3 (result)
-  ;; Full pipeline: AST -> datoms -> register assembly -> execute
-  (let [ast {:type :application,
-             :operator {:type :variable, :name '+},
-             :operands [{:type :literal, :value 1} {:type :literal, :value 2}]}
-        bytecode (ast-datoms->asm (ast->datoms ast))
-        state (make-state bytecode {'+ +})
-        result (run state)]
-    (:value result))
-  ;; => 3
-)
-
-
-
-
-
 (defn assembly->bytecode
   "Convert register assembly (keyword mnemonics) to numeric bytecode.
 
@@ -633,23 +581,6 @@
   [state]
   (loop [s state]
     (if (or (:halted s) (= :yin/blocked (:value s))) s (recur (step-bc s)))))
-
-
-(comment
-  ;; Bytecode VM exploration. Assembly -> bytecode conversion
-  (assembly->bytecode [[:loadk 0 42] [:return 0]])
-  ;; => {:bytecode [0 0 0, 5 0], :pool [42]}
-  ;; Full pipeline: AST -> datoms -> assembly -> bytecode -> execute
-  (let [ast {:type :application,
-             :operator {:type :variable, :name '+},
-             :operands [{:type :literal, :value 1} {:type :literal, :value 2}]}
-        asm (ast-datoms->asm (ast->datoms ast))
-        compiled (assembly->bytecode asm)
-        state (make-bc-state compiled {'+ +})
-        result (run-bc state)]
-    (:value result))
-  ;; => 3
-)
 
 
 ;; =============================================================================
