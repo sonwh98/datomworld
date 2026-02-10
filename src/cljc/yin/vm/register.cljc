@@ -293,7 +293,7 @@
       {:bytecode fixed, :pool @pool, :source-map source-map})))
 
 
-(defn get-reg
+(defn- get-reg
   "Get value from register. Returns nil if register not yet allocated."
   [state r]
   (get (:regs state) r))
@@ -323,7 +323,7 @@
 ;; IP indexes into the flat int vector, not an instruction vector.
 ;; =============================================================================
 
-(defn step-bc
+(defn- step-bc
   "Execute one bytecode instruction. Returns updated state."
   [state]
   (let [{:keys [bytecode pool ip regs env store k]} state
@@ -483,7 +483,7 @@
                 (:primitives state)))
 
 
-(defn reg-vm-step
+(defn- reg-vm-step
   "Execute one step of RegisterVM. Returns updated VM."
   [^RegisterVM vm]
   (let [state (vm->state vm)
@@ -491,29 +491,29 @@
     (state->vm vm new-state)))
 
 
-(defn reg-vm-halted?
+(defn- reg-vm-halted?
   "Returns true if VM has halted."
   [^RegisterVM vm]
   (boolean (:halted vm)))
 
 
-(defn reg-vm-blocked?
+(defn- reg-vm-blocked?
   "Returns true if VM is blocked."
   [^RegisterVM vm]
   (= :yin/blocked (:value vm)))
 
 
-(defn reg-vm-value "Returns the current value." [^RegisterVM vm] (:value vm))
+(defn- reg-vm-value "Returns the current value." [^RegisterVM vm] (:value vm))
 
 
-(defn reg-vm-run
+(defn- reg-vm-run
   "Run RegisterVM until halted or blocked."
   [^RegisterVM vm]
   (loop [v vm]
     (if (or (reg-vm-halted? v) (reg-vm-blocked? v)) v (recur (reg-vm-step v)))))
 
 
-(defn reg-vm-reset
+(defn- reg-vm-reset
   "Reset RegisterVM execution state to initial baseline, preserving loaded program."
   [^RegisterVM vm]
   (assoc vm
@@ -524,7 +524,7 @@
     :value nil))
 
 
-(defn reg-vm-load-program
+(defn- reg-vm-load-program
   "Load bytecode into the VM.
    Accepts {:bytecode [...] :pool [...]}."
   [^RegisterVM vm program]
@@ -538,7 +538,7 @@
                            :value nil})))
 
 
-(defn reg-vm-transact!
+(defn- reg-vm-transact!
   "Transact datoms into the VM's DataScript db."
   [^RegisterVM vm datoms]
   (let [tx-data (vm/datoms->tx-data datoms)
@@ -547,7 +547,7 @@
     {:vm (assoc vm :db @conn), :tempids tempids}))
 
 
-(defn reg-vm-q
+(defn- reg-vm-q
   "Run a Datalog query against the VM's db."
   [^RegisterVM vm args]
   (apply d/q (first args) (:db vm) (rest args)))
