@@ -271,29 +271,6 @@
         nil))))
 
 
-(defn run-stack
-  "Run stack VM to completion (legacy behavior)."
-  []
-  (let [compiled (:stack-bc @app-state)
-        pools (:stack-pool @app-state)
-        results (if (and (seq compiled) (seq pools))
-                  (mapv vector compiled pools)
-                  (mapv (juxt :bc :pool) (compile-stack)))]
-    (when (seq results)
-      (try
-        (let [initial-env vm/primitives
-              run-results
-                (mapv (fn [[bytes pool]]
-                        (stack/stack-run
-                          (stack/make-stack-state bytes pool initial-env)))
-                  results)]
-          (swap! app-state assoc :stack-result (last run-results) :error nil))
-        (catch js/Error e
-          (swap! app-state assoc
-            :error (str "Stack VM Error: " (.-message e))
-            :stack-result nil))))))
-
-
 (defn step-stack
   "Execute one instruction in the stack VM."
   []
@@ -481,25 +458,6 @@
         nil))))
 
 
-(defn run-semantic
-  []
-  (let [datoms (:datoms @app-state)
-        datoms (or datoms (compile-ast))
-        root-ids (:root-ids @app-state)]
-    (when (and (seq datoms) (seq root-ids))
-      (try (let [initial-env vm/primitives
-                 results (mapv (fn [root-id]
-                                 (semantic/run-semantic {:node root-id,
-                                                         :datoms datoms}
-                                                        initial-env))
-                           root-ids)]
-             (swap! app-state assoc :semantic-result (last results) :error nil))
-           (catch js/Error e
-             (swap! app-state assoc
-               :error (str "Semantic VM Error: " (.-message e))
-               :semantic-result nil))))))
-
-
 (defn step-semantic
   "Execute one instruction in the semantic VM."
   []
@@ -624,9 +582,10 @@
             ;; Initialize VM state from last compiled result
             last-result (last results)
             initial-state (when last-result
-                            (register/make-rbc-bc-state
-                              {:bc (:bc last-result), :pool (:pool last-result)}
-                              vm/primitives))]
+                            (-> (register/create vm/primitives)
+                                (proto/load-program {:bc (:bc last-result),
+                                                     :pool (:pool
+                                                             last-result)})))]
         (swap! app-state assoc
           :register-asm (mapv :asm results)
           :register-bc (mapv :bc results)
@@ -644,31 +603,6 @@
           :register-bc nil)
         (swap! app-state assoc-in [:vm-states :register :state] nil)
         nil))))
-
-
-(defn run-register
-  "Run register VM to completion (legacy behavior)."
-  []
-  (let [compiled (:register-bc @app-state)
-        pools (:register-pool @app-state)
-        compiled-results
-          (if (and (seq compiled) (seq pools))
-            (mapv (fn [bc pool] {:bc bc, :pool pool}) compiled pools)
-            (map (fn [r] {:bc (:bc r), :pool (:pool r)}) (compile-register)))]
-    (when (seq compiled-results)
-      (try (let [initial-env vm/primitives
-                 results (mapv (fn [compiled]
-                                 (let [state (register/make-rbc-bc-state
-                                               compiled
-                                               initial-env)
-                                       final-state (register/rbc-run-bc state)]
-                                   (:value final-state)))
-                           compiled-results)]
-             (swap! app-state assoc :register-result (last results) :error nil))
-           (catch js/Error e
-             (swap! app-state assoc
-               :error (str "Register VM Error: " (.-message e))
-               :register-result nil))))))
 
 
 (defn step-register
