@@ -39,7 +39,9 @@
                     :jvm-opts ["-Dconfig=config.clj"]
                     :main-opts ["-m" "world.server"]}
            :fmt {:extra-paths ["src/dev"]
-                 :exec-fn tasks/fix-all}}}
+                 :exec-fn tasks/fix-all}
+           :kondo {:extra-deps {clj-kondo/clj-kondo {:mvn/version "2024.05.29"}}
+                   :main-opts ["-m" "clj-kondo.main"]}}}
 
 
 ;; clj -X:fmt
