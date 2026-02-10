@@ -2,6 +2,7 @@
   (:require [clojure.test :refer [deftest is testing]]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as walker]
+            [yin.vm.protocols :as proto]
             [yin.vm.register :as register]))
 
 
@@ -9,10 +10,11 @@
   [ast]
   (let [datoms (vm/ast->datoms ast)
         asm (register/ast-datoms->asm datoms)
-        bytecode (register/register-assembly->bytecode asm)
-        state (register/make-rbc-bc-state bytecode vm/primitives)
-        result (register/rbc-run-bc state)]
-    (:value result)))
+        vm (register/create vm/primitives)]
+    (-> vm
+        (proto/load-program asm)
+        (proto/run)
+        (proto/value))))
 
 
 (deftest compiler-basic-test
@@ -83,9 +85,11 @@
   (let [datoms (vm/ast->datoms ast)
         asm (register/ast-datoms->asm datoms)
         compiled (register/register-assembly->bytecode asm)
-        state (register/make-rbc-bc-state compiled vm/primitives)
-        result (register/rbc-run-bc state)]
-    (:value result)))
+        vm (register/create vm/primitives)]
+    (-> vm
+        (proto/load-program compiled)
+        (proto/run)
+        (proto/value))))
 
 
 (deftest bytecode-basic-test
@@ -146,3 +150,15 @@
                            :operands [{:type :literal, :value 2}
                                       {:type :literal, :value 3}]}]}]
       (is (= 6 (compile-and-run-bc ast))))))
+
+
+(comment
+  ;; Example: Creating a RegisterVM and loading/running a program manually
+  (let [vm (register/create vm/primitives)
+        ;; Symbolic program
+        program [[:loadk 0 42] [:return 0]]
+        vm-loaded (proto/load-program vm program)
+        vm-final (proto/run vm-loaded)]
+    (proto/value vm-final))
+  ;; => 42
+)
