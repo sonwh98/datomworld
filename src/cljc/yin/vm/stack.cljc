@@ -24,7 +24,7 @@
 ;; =============================================================================
 
 (defrecord StackVM [pc         ; program counter
-                    bytes      ; bytecode vector
+                    bytecode   ; bytecode vector
                     stack      ; operand stack
                     env        ; lexical environment
                     call-stack ; call frames for function returns
@@ -227,7 +227,7 @@
   ([bytes constant-pool env]
    (merge (vm/empty-state)
           {:pc 0,
-           :bytes (vec bytes),
+           :bytecode (vec bytes),
            :stack [],
            :env env,
            :call-stack [],
@@ -240,8 +240,8 @@
   "Execute one stack VM instruction. Returns updated state.
    When execution completes, :halted is true and :value contains the result."
   [state]
-  (let [{:keys [pc bytes stack env call-stack pool]} state]
-    (if (>= pc (count bytes))
+  (let [{:keys [pc bytecode stack env call-stack pool]} state]
+    (if (>= pc (count bytecode))
       ;; End of bytes: return top of stack or pop frame
       (let [result (peek stack)]
         (if (empty? call-stack)
@@ -252,29 +252,29 @@
                 rest-frames (pop call-stack)]
             (assoc state
               :pc (:pc frame)
-              :bytes (:bytes frame)
+              :bytecode (:bytecode frame)
               :stack (conj (:stack frame) result)
               :env (:env frame)
               :call-stack rest-frames))))
-      (let [op (nth bytes pc)]
+      (let [op (nth bytecode pc)]
         (condp = op
-          OP_LITERAL (let [val-idx (nth bytes (inc pc))
+          OP_LITERAL (let [val-idx (nth bytecode (inc pc))
                            val (nth pool val-idx)]
                        (assoc state
                          :pc (+ pc 2)
                          :stack (conj stack val)))
-          OP_LOAD_VAR (let [sym-idx (nth bytes (inc pc))
+          OP_LOAD_VAR (let [sym-idx (nth bytecode (inc pc))
                             sym (nth pool sym-idx)
                             val (get env sym)]
                         (assoc state
                           :pc (+ pc 2)
                           :stack (conj stack val)))
-          OP_LAMBDA (let [params-idx (nth bytes (inc pc))
+          OP_LAMBDA (let [params-idx (nth bytecode (inc pc))
                           params (nth pool params-idx)
-                          body-len (fetch-short bytes (+ pc 2))
+                          body-len (fetch-short bytecode (+ pc 2))
                           body-start (+ pc 4)
                           body-bytes
-                            (subvec bytes body-start (+ body-start body-len))
+                            (subvec bytecode body-start (+ body-start body-len))
                           closure {:type :closure,
                                    :params params,
                                    :body-bytes body-bytes,
@@ -282,7 +282,7 @@
                       (assoc state
                         :pc (+ pc 4 body-len)
                         :stack (conj stack closure)))
-          OP_APPLY (let [argc (nth bytes (inc pc))
+          OP_APPLY (let [argc (nth bytecode (inc pc))
                          args (vec (take-last argc stack))
                          stack-minus-args (vec (drop-last argc stack))
                          fn-val (peek stack-minus-args)
@@ -299,24 +299,24 @@
                                    new-env (merge clo-env
                                                   (zipmap clo-params args))
                                    frame {:pc (+ pc 2),
-                                          :bytes bytes,
+                                          :bytecode bytecode,
                                           :stack stack-rest,
                                           :env env}]
                                (assoc state
                                  :pc 0
-                                 :bytes clo-body
+                                 :bytecode clo-body
                                  :stack []
                                  :env new-env
                                  :call-stack (conj call-stack frame)))
                            :else (throw (ex-info "Cannot apply non-function"
                                                  {:fn fn-val}))))
-          OP_JUMP_IF_FALSE (let [offset (fetch-short bytes (inc pc))
+          OP_JUMP_IF_FALSE (let [offset (fetch-short bytecode (inc pc))
                                  condition (peek stack)
                                  new-stack (pop stack)]
                              (assoc state
                                :pc (if condition (+ pc 3) (+ pc 3 offset))
                                :stack new-stack))
-          OP_JUMP (let [offset (fetch-short bytes (inc pc))]
+          OP_JUMP (let [offset (fetch-short bytecode (inc pc))]
                     (assoc state :pc (+ pc 3 offset)))
           OP_RETURN (let [result (peek stack)]
                       (if (empty? call-stack)
@@ -327,7 +327,7 @@
                               rest-frames (pop call-stack)]
                           (assoc state
                             :pc (:pc frame)
-                            :bytes (:bytes frame)
+                            :bytecode (:bytecode frame)
                             :stack (conj (:stack frame) result)
                             :env (:env frame)
                             :call-stack rest-frames))))
@@ -358,7 +358,7 @@
   "Convert StackVM to legacy state map."
   [^StackVM vm]
   {:pc (:pc vm),
-   :bytes (:bytes vm),
+   :bytecode (:bytecode vm),
    :stack (:stack vm),
    :env (:env vm),
    :call-stack (:call-stack vm),
@@ -376,7 +376,7 @@
   "Convert legacy state map back to StackVM."
   [^StackVM vm state]
   (->StackVM (:pc state)
-             (:bytes state)
+             (:bytecode state)
              (:stack state)
              (:env state)
              (:call-stack state)
@@ -428,7 +428,7 @@
   [^StackVM vm {:keys [bc pool]}]
   (map->StackVM (merge (stack-vm->state vm)
                        {:pc 0,
-                        :bytes (vec bc),
+                        :bytecode (vec bc),
                         :stack [],
                         :call-stack [],
                         :pool pool,
@@ -472,7 +472,7 @@
   ([env]
    (map->StackVM (merge (vm/empty-state)
                         {:pc 0,
-                         :bytes [],
+                         :bytecode [],
                          :stack [],
                          :env env,
                          :call-stack [],
