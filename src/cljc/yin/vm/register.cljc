@@ -484,64 +484,6 @@
                           {:op op, :instr instr})))))))
 
 
-(defn run
-  "Run register assembly VM to completion or until blocked."
-  [state]
-  (loop [s state]
-    (if (or (:halted s) (= :yin/blocked (:value s))) s (recur (step s)))))
-
-
-(comment
-  ;; Register assembly VM exploration. Simple: load constant
-  (let [bytecode [[:loadk 0 42]]
-        state (make-state bytecode)
-        result (run state)]
-    (:value result))
-  ;; => 42
-  ;; Primitive call: (+ 1 2)
-  (let [bytecode [[:loadk 0 1] [:loadk 1 2] [:loadv 2 '+] [:call 3 2 [0 1]]]
-        state (make-state bytecode {'+ +})
-        result (run state)]
-    (get-reg result 3))
-  ;; => 3
-  ;; Closure call: ((fn [x] x) 42)
-  (let [bytecode [[:loadk 0 42]       ; r0 = 42
-                  [:closure 1 ['x] 4] ; r1 = closure, body at 4
-                  [:call 2 1 [0]]     ; r2 = r1(r0)
-                  [:jump 6]           ; skip closure body
-                  [:loadv 0 'x]       ; body: r0 = x
-                  [:return 0]]        ; return r0
-        state (make-state bytecode)
-        result (run state)]
-    (:value result))
-  ;; => 42
-  ;; Closure with arithmetic: ((fn [x] (+ x 1)) 5)
-  (let [bytecode [[:loadk 0 5]        ; r0 = 5
-                  [:closure 1 ['x] 4] ; r1 = closure
-                  [:call 2 1 [0]]     ; r2 = r1(r0)
-                  [:jump 9]           ; skip body
-                  ;; Closure body at addr 4
-                  [:loadv 0 'x]       ; r0 = x
-                  [:loadk 1 1]        ; r1 = 1
-                  [:loadv 2 '+]       ; r2 = +
-                  [:call 3 2 [0 1]]   ; r3 = +(r0, r1)
-                  [:return 3]]        ; return r3
-        state (make-state bytecode {'+ +})
-        result (run state)]
-    (:value result))
-  ;; => 6
-  ;; Conditional: (if true 1 2)
-  (let [bytecode [[:loadk 0 true] ; r0 = true
-                  [:branch 0 2 3] ; if r0 goto 2 else 3
-                  [:loadk 1 1]    ; r1 = 1 (then)
-                  [:loadk 1 2]]   ; r1 = 2 (else)
-        state (make-state bytecode)
-        result (run state)]
-    (get-reg result 1))
-  ;; => 1 (because we branched to addr 2)
-)
-
-
 ;; =============================================================================
 ;; Register Bytecode VM (numeric opcodes, flat int vector, constant pool)
 ;; =============================================================================
