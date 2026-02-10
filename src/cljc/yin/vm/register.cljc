@@ -260,8 +260,8 @@
              :operator {:type :variable, :name '+},
              :operands [{:type :literal, :value 1} {:type :literal, :value 2}]}
         bytecode (ast-datoms->asm (ast->datoms ast))
-        state (make-rbc-state bytecode {'+ +})
-        result (rbc-run state)]
+        state (make-state bytecode {'+ +})
+        result (run state)]
     (:value result))
   ;; => 3
 )
@@ -345,9 +345,9 @@
       {:bc fixed, :pool @pool, :source-map source-map})))
 
 
-(defn make-rbc-state
+(defn make-state
   "Create initial register-based assembly VM state."
-  ([bytecode] (make-rbc-state bytecode {}))
+  ([bytecode] (make-state bytecode {}))
   ([bytecode env]
    (merge (vm/empty-state)
           {:regs [],          ; virtual registers (grows as needed)
@@ -358,13 +358,13 @@
           })))
 
 
-(defn rbc-get-reg
+(defn get-reg
   "Get value from register. Returns nil if register not yet allocated."
   [state r]
   (get (:regs state) r))
 
 
-(defn- rbc-set-reg
+(defn- set-reg
   "Set register to value. Grows register vector if needed."
   [state r v]
   (let [regs (:regs state)
@@ -375,7 +375,7 @@
     (assoc state :regs (assoc regs r v))))
 
 
-(defn rbc-step
+(defn step
   "Execute one assembly instruction. Returns updated state."
   [state]
   (let [{:keys [bytecode ip regs env store k]} state
@@ -389,7 +389,7 @@
           ;; Load constant into register
           :loadk (let [[rd v] args]
                    (-> state
-                       (rbc-set-reg rd v)
+                       (set-reg rd v)
                        (update :ip inc)))
           ;; Load variable from environment/store
           :loadv (let [[rd name] args
@@ -398,12 +398,12 @@
                              (get (:primitives state) name)
                              (module/resolve-symbol name))]
                    (-> state
-                       (rbc-set-reg rd v)
+                       (set-reg rd v)
                        (update :ip inc)))
           ;; Move register to register
           :move (let [[rd rs] args]
                   (-> state
-                      (rbc-set-reg rd (rbc-get-reg state rs))
+                      (set-reg rd (get-reg state rs))
                       (update :ip inc)))
           ;; Create closure
           :closure (let [[rd params body-addr] args
@@ -413,12 +413,12 @@
                                   :env env,
                                   :bytecode bytecode}]
                      (-> state
-                         (rbc-set-reg rd closure)
+                         (set-reg rd closure)
                          (update :ip inc)))
           ;; Function call
           :call (let [[rd rf arg-regs] args
-                      fn-val (rbc-get-reg state rf)
-                      fn-args (mapv #(rbc-get-reg state %) arg-regs)]
+                      fn-val (get-reg state rf)
+                      fn-args (mapv #(get-reg state %) arg-regs)]
                   (cond
                     ;; Primitive function
                     (fn? fn-val)
@@ -429,14 +429,14 @@
                             :vm/store-put (-> state
                                               (assoc-in [:store (:key result)]
                                                         (:val result))
-                                              (rbc-set-reg rd (:val result))
+                                              (set-reg rd (:val result))
                                               (update :ip inc))
                             ;; Other effects...
-                            (throw (ex-info "Unhandled effect in rbc-step"
+                            (throw (ex-info "Unhandled effect in step"
                                             {:effect result})))
                           ;; Regular value
                           (-> state
-                              (rbc-set-reg rd result)
+                              (set-reg rd result)
                               (update :ip inc))))
                     ;; User-defined closure
                     (= :rbc-closure (:type fn-val))
@@ -458,7 +458,7 @@
                                           {:fn fn-val}))))
           ;; Return from function
           :return (let [[rs] args
-                        result (rbc-get-reg state rs)]
+                        result (get-reg state rs)]
                     (if (nil? k)
                       ;; Top level - halt with result
                       (assoc state
@@ -475,7 +475,7 @@
                             (assoc :ip return-ip)))))
           ;; Conditional branch
           :branch (let [[rt then-addr else-addr] args
-                        test-val (rbc-get-reg state rt)]
+                        test-val (get-reg state rt)]
                     (assoc state :ip (if test-val then-addr else-addr)))
           ;; Unconditional jump
           :jump (let [[addr] args] (assoc state :ip addr))
@@ -484,25 +484,25 @@
                           {:op op, :instr instr})))))))
 
 
-(defn rbc-run
+(defn run
   "Run register assembly VM to completion or until blocked."
   [state]
   (loop [s state]
-    (if (or (:halted s) (= :yin/blocked (:value s))) s (recur (rbc-step s)))))
+    (if (or (:halted s) (= :yin/blocked (:value s))) s (recur (step s)))))
 
 
 (comment
   ;; Register assembly VM exploration. Simple: load constant
   (let [bytecode [[:loadk 0 42]]
-        state (make-rbc-state bytecode)
-        result (rbc-run state)]
+        state (make-state bytecode)
+        result (run state)]
     (:value result))
   ;; => 42
   ;; Primitive call: (+ 1 2)
   (let [bytecode [[:loadk 0 1] [:loadk 1 2] [:loadv 2 '+] [:call 3 2 [0 1]]]
-        state (make-rbc-state bytecode {'+ +})
-        result (rbc-run state)]
-    (rbc-get-reg result 3))
+        state (make-state bytecode {'+ +})
+        result (run state)]
+    (get-reg result 3))
   ;; => 3
   ;; Closure call: ((fn [x] x) 42)
   (let [bytecode [[:loadk 0 42]       ; r0 = 42
@@ -511,8 +511,8 @@
                   [:jump 6]           ; skip closure body
                   [:loadv 0 'x]       ; body: r0 = x
                   [:return 0]]        ; return r0
-        state (make-rbc-state bytecode)
-        result (rbc-run state)]
+        state (make-state bytecode)
+        result (run state)]
     (:value result))
   ;; => 42
   ;; Closure with arithmetic: ((fn [x] (+ x 1)) 5)
@@ -526,8 +526,8 @@
                   [:loadv 2 '+]       ; r2 = +
                   [:call 3 2 [0 1]]   ; r3 = +(r0, r1)
                   [:return 3]]        ; return r3
-        state (make-rbc-state bytecode {'+ +})
-        result (rbc-run state)]
+        state (make-state bytecode {'+ +})
+        result (run state)]
     (:value result))
   ;; => 6
   ;; Conditional: (if true 1 2)
@@ -535,9 +535,9 @@
                   [:branch 0 2 3] ; if r0 goto 2 else 3
                   [:loadk 1 1]    ; r1 = 1 (then)
                   [:loadk 1 2]]   ; r1 = 2 (else)
-        state (make-rbc-state bytecode)
-        result (rbc-run state)]
-    (rbc-get-reg result 1))
+        state (make-state bytecode)
+        result (run state)]
+    (get-reg result 1))
   ;; => 1 (because we branched to addr 2)
 )
 
@@ -555,15 +555,15 @@
 ;; IP indexes into the flat int vector, not an instruction vector.
 ;; =============================================================================
 
-(defn make-rbc-bc-state
+(defn make-bc-state
   "Create initial bytecode VM state from {:bc [...] :pool [...]}."
-  ([compiled] (make-rbc-bc-state compiled {}))
+  ([compiled] (make-bc-state compiled {}))
   ([{:keys [bc pool]} env]
    (merge (vm/empty-state)
           {:regs [], :k nil, :env env, :ip 0, :bc bc, :pool pool})))
 
 
-(defn rbc-step-bc
+(defn step-bc
   "Execute one bytecode instruction. Returns updated state."
   [state]
   (let [{:keys [bc pool ip regs env store k]} state
@@ -575,7 +575,7 @@
         0 (let [rd (get bc (+ ip 1))
                 v (get pool (get bc (+ ip 2)))]
             (-> state
-                (rbc-set-reg rd v)
+                (set-reg rd v)
                 (assoc :ip (+ ip 3))))
         ;; loadv: rd = env/store lookup of pool[const-idx]
         1 (let [rd (get bc (+ ip 1))
@@ -585,13 +585,13 @@
                       (get (:primitives state) name)
                       (module/resolve-symbol name))]
             (-> state
-                (rbc-set-reg rd v)
+                (set-reg rd v)
                 (assoc :ip (+ ip 3))))
         ;; move: rd = rs
         2 (let [rd (get bc (+ ip 1))
                 rs (get bc (+ ip 2))]
             (-> state
-                (rbc-set-reg rd (rbc-get-reg state rs))
+                (set-reg rd (get-reg state rs))
                 (assoc :ip (+ ip 3))))
         ;; closure: rd = closure{params=pool[idx], body-addr, env}
         3 (let [rd (get bc (+ ip 1))
@@ -604,7 +604,7 @@
                          :bc bc,
                          :pool pool}]
             (-> state
-                (rbc-set-reg rd closure)
+                (set-reg rd closure)
                 (assoc :ip (+ ip 4))))
         ;; call: rd = fn(args...)
         4 (let [rd (get bc (+ ip 1))
@@ -615,10 +615,9 @@
                           (if (< i argc)
                             (recur (inc i)
                                    (conj! args
-                                          (rbc-get-reg state
-                                                       (get bc (+ ip 4 i)))))
+                                          (get-reg state (get bc (+ ip 4 i)))))
                             (persistent! args)))
-                fn-val (rbc-get-reg state rf)
+                fn-val (get-reg state rf)
                 next-ip (+ ip 4 argc)]
             (cond (fn? fn-val)
                     (let [result (apply fn-val fn-args)]
@@ -627,12 +626,12 @@
                           :vm/store-put (-> state
                                             (assoc-in [:store (:key result)]
                                                       (:val result))
-                                            (rbc-set-reg rd (:val result))
+                                            (set-reg rd (:val result))
                                             (assoc :ip next-ip))
-                          (throw (ex-info "Unhandled effect in rbc-step-bc"
+                          (throw (ex-info "Unhandled effect in step-bc"
                                           {:effect result})))
                         (-> state
-                            (rbc-set-reg rd result)
+                            (set-reg rd result)
                             (assoc :ip next-ip))))
                   (= :rbc-closure (:type fn-val))
                     (let [{:keys [params body-addr env bc pool]} fn-val
@@ -656,7 +655,7 @@
                                         {:fn fn-val}))))
         ;; return
         5 (let [rs (get bc (+ ip 1))
-                result (rbc-get-reg state rs)]
+                result (get-reg state rs)]
             (if (nil? k)
               (assoc state
                 :halted true
@@ -675,7 +674,7 @@
         6 (let [rt (get bc (+ ip 1))
                 then-addr (get bc (+ ip 2))
                 else-addr (get bc (+ ip 3))
-                test-val (rbc-get-reg state rt)]
+                test-val (get-reg state rt)]
             (assoc state :ip (if test-val then-addr else-addr)))
         ;; jump
         7 (let [addr (get bc (+ ip 1))] (assoc state :ip addr))
@@ -683,13 +682,11 @@
         (throw (ex-info "Unknown bytecode opcode" {:op op, :ip ip}))))))
 
 
-(defn rbc-run-bc
+(defn run-bc
   "Run bytecode VM to completion or until blocked."
   [state]
   (loop [s state]
-    (if (or (:halted s) (= :yin/blocked (:value s)))
-      s
-      (recur (rbc-step-bc s)))))
+    (if (or (:halted s) (= :yin/blocked (:value s))) s (recur (step-bc s)))))
 
 
 (comment
@@ -702,8 +699,8 @@
              :operands [{:type :literal, :value 1} {:type :literal, :value 2}]}
         asm (ast-datoms->asm (ast->datoms ast))
         compiled (register-assembly->bytecode asm)
-        state (make-rbc-bc-state compiled {'+ +})
-        result (rbc-run-bc state)]
+        state (make-bc-state compiled {'+ +})
+        result (run-bc state)]
     (:value result))
   ;; => 3
 )
@@ -757,7 +754,7 @@
   "Execute one step of RegisterVM. Returns updated VM."
   [^RegisterVM vm]
   (let [state (vm->state vm)
-        new-state (if (:bc vm) (rbc-step-bc state) (rbc-step state))]
+        new-state (if (:bc vm) (step-bc state) (step state))]
     (state->vm vm new-state)))
 
 

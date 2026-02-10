@@ -611,7 +611,7 @@
   (let [state (get-in @app-state [:vm-states :register :state])]
     (when (and state (not (:halted state)))
       (try
-        (let [new-state (register/rbc-step-bc state)]
+        (let [new-state (register/step-bc state)]
           (swap! app-state assoc-in [:vm-states :register :state] new-state)
           (when (:halted new-state)
             (swap! app-state assoc :register-result (:value new-state))
@@ -629,8 +629,8 @@
   (let [bc (last (:register-bc @app-state))
         pool (last (:register-pool @app-state))]
     (when (and bc pool)
-      (let [initial-state (register/make-rbc-bc-state {:bc bc, :pool pool}
-                                                      vm/primitives)]
+      (let [initial-state (register/make-bc-state {:bc bc, :pool pool}
+                                                  vm/primitives)]
         (swap! app-state assoc-in [:vm-states :register :state] initial-state)
         (swap! app-state assoc-in [:vm-states :register :running] false)
         (swap! app-state assoc :register-result nil)))))
@@ -664,7 +664,7 @@
                         [:vm-states :register :running]
                         false))
                   (js/requestAnimationFrame run-register-loop)))
-            (recur (inc i) (register/rbc-step-bc state))))
+            (recur (inc i) (register/step-bc state))))
         (catch js/Error e
           (swap! app-state assoc
             :error

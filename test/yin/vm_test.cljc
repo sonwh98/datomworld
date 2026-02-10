@@ -346,7 +346,7 @@
   (testing "Literal through full pipeline"
     (let [bc (register/ast-datoms->asm (vm/ast->datoms {:type :literal,
                                                         :value 42}))
-          result (register/rbc-run (register/make-rbc-state bc))]
+          result (register/run (register/make-state bc))]
       (is (= 42 (:value result))))))
 
 
@@ -357,8 +357,8 @@
                                 :operator {:type :variable, :name '+},
                                 :operands [{:type :literal, :value 1}
                                            {:type :literal, :value 2}]}))
-          result (register/rbc-run (register/make-rbc-state bc {'+ +}))]
-      (is (= 3 (register/rbc-get-reg result 3)) "(+ 1 2) should produce 3"))))
+          result (register/run (register/make-state bc {'+ +}))]
+      (is (= 3 (register/get-reg result 3)) "(+ 1 2) should produce 3"))))
 
 
 (deftest test-register-bytecode-execution-closure
@@ -369,7 +369,7 @@
                                            :params ['x],
                                            :body {:type :variable, :name 'x}},
                                 :operands [{:type :literal, :value 42}]}))
-          result (register/rbc-run (register/make-rbc-state bc))]
+          result (register/run (register/make-state bc))]
       (is (= 42 (:value result))
           "Identity closure should return its argument")))
   (testing "((fn [x] (+ x 1)) 5) through full pipeline"
@@ -383,7 +383,7 @@
                                     :operands [{:type :variable, :name 'x}
                                                {:type :literal, :value 1}]}},
                   :operands [{:type :literal, :value 5}]}))
-          result (register/rbc-run (register/make-rbc-state bc {'+ +}))]
+          result (register/run (register/make-state bc {'+ +}))]
       (is (= 6 (:value result)) "((fn [x] (+ x 1)) 5) should produce 6"))))
 
 
@@ -394,7 +394,7 @@
                                 :test {:type :literal, :value true},
                                 :consequent {:type :literal, :value 1},
                                 :alternate {:type :literal, :value 0}}))
-          result (register/rbc-run (register/make-rbc-state bc))]
+          result (register/run (register/make-state bc))]
       (is (= 1 (:value result)) "True branch should be taken")))
   (testing "(if false 1 0) through full pipeline"
     (let [bc (register/ast-datoms->asm
@@ -402,7 +402,7 @@
                                 :test {:type :literal, :value false},
                                 :consequent {:type :literal, :value 1},
                                 :alternate {:type :literal, :value 0}}))
-          result (register/rbc-run (register/make-rbc-state bc))]
+          result (register/run (register/make-state bc))]
       (is (= 0 (:value result)) "False branch should be taken"))))
 
 
@@ -419,7 +419,7 @@
                                                {:type :variable, :name 'y}]}},
                   :operands [{:type :literal, :value 3}
                              {:type :literal, :value 5}]}))
-          result (register/rbc-run (register/make-rbc-state bc {'+ +}))]
+          result (register/run (register/make-state bc {'+ +}))]
       (is (= 8 (:value result)) "((fn [x y] (+ x y)) 3 5) should produce 8"))))
 
 
@@ -432,10 +432,9 @@
                                            :body {:type :variable, :name 'x}},
                                 :operands [{:type :literal, :value 42}]}))
           ;; Step until we're inside the closure body
-          states
-            (loop [s (register/make-rbc-state bc)
-                   acc []]
-              (if (:halted s) acc (recur (register/rbc-step s) (conj acc s))))
+          states (loop [s (register/make-state bc)
+                        acc []]
+                   (if (:halted s) acc (recur (register/step s) (conj acc s))))
           ;; Find state where :k is non-nil (inside closure)
           inside-closure (first (filter :k states))]
       (is (some? inside-closure)
