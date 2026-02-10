@@ -451,13 +451,6 @@
         (throw (ex-info "Unknown bytecode opcode" {:op op, :ip ip}))))))
 
 
-(defn run-bc
-  "Run bytecode VM to completion or until blocked."
-  [state]
-  (loop [s state]
-    (if (or (:halted s) (= :yin/blocked (:value s))) s (recur (step-bc s)))))
-
-
 ;; =============================================================================
 ;; RegisterVM Protocol Implementation
 ;; =============================================================================
