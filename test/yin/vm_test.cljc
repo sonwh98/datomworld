@@ -6,6 +6,14 @@
             [yin.vm.register :as register]))
 
 
+(defn run-assembly-state
+  [state]
+  (loop [s state]
+    (if (or (:halted s) (= :yin/blocked (:value s)))
+      s
+      (recur (register/step s)))))
+
+
 (deftest test-literal-evaluation
   (testing "Integer literal evaluation"
     (let [ast {:type :literal, :value 42}
@@ -346,7 +354,10 @@
   (testing "Literal through full pipeline"
     (let [bc (register/ast-datoms->asm (vm/ast->datoms {:type :literal,
                                                         :value 42}))
-          result (register/run (register/make-state bc))]
+          result (loop [s (register/make-state bc)]
+                   (if (or (:halted s) (= :yin/blocked (:value s)))
+                     s
+                     (recur (register/step s))))]
       (is (= 42 (:value result))))))
 
 
@@ -357,7 +368,7 @@
                                 :operator {:type :variable, :name '+},
                                 :operands [{:type :literal, :value 1}
                                            {:type :literal, :value 2}]}))
-          result (register/run (register/make-state bc {'+ +}))]
+          result (run-assembly-state (register/make-state bc {'+ +}))]
       (is (= 3 (register/get-reg result 3)) "(+ 1 2) should produce 3"))))
 
 
@@ -369,7 +380,7 @@
                                            :params ['x],
                                            :body {:type :variable, :name 'x}},
                                 :operands [{:type :literal, :value 42}]}))
-          result (register/run (register/make-state bc))]
+          result (run-assembly-state (register/make-state bc))]
       (is (= 42 (:value result))
           "Identity closure should return its argument")))
   (testing "((fn [x] (+ x 1)) 5) through full pipeline"
@@ -383,7 +394,7 @@
                                     :operands [{:type :variable, :name 'x}
                                                {:type :literal, :value 1}]}},
                   :operands [{:type :literal, :value 5}]}))
-          result (register/run (register/make-state bc {'+ +}))]
+          result (run-assembly-state (register/make-state bc {'+ +}))]
       (is (= 6 (:value result)) "((fn [x] (+ x 1)) 5) should produce 6"))))
 
 
@@ -394,7 +405,7 @@
                                 :test {:type :literal, :value true},
                                 :consequent {:type :literal, :value 1},
                                 :alternate {:type :literal, :value 0}}))
-          result (register/run (register/make-state bc))]
+          result (run-assembly-state (register/make-state bc))]
       (is (= 1 (:value result)) "True branch should be taken")))
   (testing "(if false 1 0) through full pipeline"
     (let [bc (register/ast-datoms->asm
@@ -402,7 +413,7 @@
                                 :test {:type :literal, :value false},
                                 :consequent {:type :literal, :value 1},
                                 :alternate {:type :literal, :value 0}}))
-          result (register/run (register/make-state bc))]
+          result (run-assembly-state (register/make-state bc))]
       (is (= 0 (:value result)) "False branch should be taken"))))
 
 
@@ -419,7 +430,7 @@
                                                {:type :variable, :name 'y}]}},
                   :operands [{:type :literal, :value 3}
                              {:type :literal, :value 5}]}))
-          result (register/run (register/make-state bc {'+ +}))]
+          result (run-assembly-state (register/make-state bc {'+ +}))]
       (is (= 8 (:value result)) "((fn [x y] (+ x y)) 3 5) should produce 8"))))
 
 
