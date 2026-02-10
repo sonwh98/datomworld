@@ -49,24 +49,23 @@
 ;; RegisterVM Record
 ;; =============================================================================
 
-(defrecord RegisterVM
-  [regs       ; virtual registers vector
-   k          ; continuation (call frame stack)
-   env        ; lexical environment
-   ip         ; instruction pointer
-   bytecode   ; symbolic instruction vector (for
-   ;; assembly VM)
-   bc         ; numeric bytecode vector (for bytecode
-   ;; VM)
-   pool       ; constant pool (for bytecode VM)
-   halted     ; true if execution completed
-   value      ; final result value
-   store      ; heap memory
-   db         ; DataScript db value
-   parked     ; parked continuations
-   id-counter ; unique ID counter
-   primitives ; primitive operations
-  ])
+(defrecord RegisterVM [regs       ; virtual registers vector
+                       k          ; continuation (call frame stack)
+                       env        ; lexical environment
+                       ip         ; instruction pointer
+                       assembly   ; symbolic instruction vector (for
+                                  ; assembly VM)
+                       bytecode   ; numeric bytecode vector (for bytecode
+                                  ; VM)
+                       pool       ; constant pool (for bytecode VM)
+                       halted     ; true if execution completed
+                       value      ; final result value
+                       store      ; heap memory
+                       db         ; DataScript db value
+                       parked     ; parked continuations
+                       id-counter ; unique ID counter
+                       primitives ; primitive operations
+                      ])
 
 
 (defn ast-datoms->asm
@@ -270,7 +269,7 @@
 (defn register-assembly->bytecode
   "Convert register assembly (keyword mnemonics) to numeric bytecode.
 
-   Returns {:bc [int...] :pool [value...]}
+   Returns {:bytecode [int...] :pool [value...]}
 
    The bytecode is a flat vector of integers. The pool holds all
    non-register operands (literals, symbols, param vectors).
@@ -342,19 +341,19 @@
                   @bytecode
                   @fixups)
           source-map (into {} (map (fn [[k v]] [v k]) offsets))]
-      {:bc fixed, :pool @pool, :source-map source-map})))
+      {:bytecode fixed, :pool @pool, :source-map source-map})))
 
 
 (defn make-state
   "Create initial register-based assembly VM state."
-  ([bytecode] (make-state bytecode {}))
-  ([bytecode env]
+  ([assembly] (make-state assembly {}))
+  ([assembly env]
    (merge (vm/empty-state)
           {:regs [],          ; virtual registers (grows as needed)
            :k nil,            ; continuation (always explicit)
            :env env,          ; lexical environment
            :ip 0,             ; instruction pointer
-           :bytecode bytecode ; instruction vector
+           :assembly assembly ; instruction vector
           })))
 
 
@@ -378,8 +377,8 @@
 (defn step
   "Execute one assembly instruction. Returns updated state."
   [state]
-  (let [{:keys [bytecode ip regs env store k]} state
-        instr (get bytecode ip)]
+  (let [{:keys [assembly ip regs env store k]} state
+        instr (get assembly ip)]
     (if (nil? instr)
       ;; End of assembly without :return - should not happen with compiled
       ;; assembly
@@ -411,7 +410,7 @@
                                   :params params,
                                   :body-addr body-addr,
                                   :env env,
-                                  :bytecode bytecode}]
+                                  :assembly assembly}]
                      (-> state
                          (set-reg rd closure)
                          (update :ip inc)))
@@ -493,35 +492,35 @@
 ;; Opcodes are integers (see opcode-table). Non-integer operands (literals,
 ;; symbols, param vectors) live in a constant pool referenced by index.
 ;;
-;; State uses :bc and :pool instead of :bytecode.
+;; State uses :bytecode and :pool instead of :assembly.
 ;; IP indexes into the flat int vector, not an instruction vector.
 ;; =============================================================================
 
 (defn make-bc-state
-  "Create initial bytecode VM state from {:bc [...] :pool [...]}."
+  "Create initial bytecode VM state from {:bytecode [...] :pool [...]}."
   ([compiled] (make-bc-state compiled {}))
-  ([{:keys [bc pool]} env]
+  ([{:keys [bytecode pool]} env]
    (merge (vm/empty-state)
-          {:regs [], :k nil, :env env, :ip 0, :bc bc, :pool pool})))
+          {:regs [], :k nil, :env env, :ip 0, :bytecode bytecode, :pool pool})))
 
 
 (defn step-bc
   "Execute one bytecode instruction. Returns updated state."
   [state]
-  (let [{:keys [bc pool ip regs env store k]} state
-        op (get bc ip)]
+  (let [{:keys [bytecode pool ip regs env store k]} state
+        op (get bytecode ip)]
     (if (nil? op)
       (throw (ex-info "Bytecode ended without return instruction" {:ip ip}))
       (case (int op)
         ;; loadk: rd = pool[const-idx]
-        0 (let [rd (get bc (+ ip 1))
-                v (get pool (get bc (+ ip 2)))]
+        0 (let [rd (get bytecode (+ ip 1))
+                v (get pool (get bytecode (+ ip 2)))]
             (-> state
                 (set-reg rd v)
                 (assoc :ip (+ ip 3))))
         ;; loadv: rd = env/store lookup of pool[const-idx]
-        1 (let [rd (get bc (+ ip 1))
-                name (get pool (get bc (+ ip 2)))
+        1 (let [rd (get bytecode (+ ip 1))
+                name (get pool (get bytecode (+ ip 2)))
                 v (or (get env name)
                       (get store name)
                       (get (:primitives state) name)
@@ -530,34 +529,35 @@
                 (set-reg rd v)
                 (assoc :ip (+ ip 3))))
         ;; move: rd = rs
-        2 (let [rd (get bc (+ ip 1))
-                rs (get bc (+ ip 2))]
+        2 (let [rd (get bytecode (+ ip 1))
+                rs (get bytecode (+ ip 2))]
             (-> state
                 (set-reg rd (get-reg state rs))
                 (assoc :ip (+ ip 3))))
         ;; closure: rd = closure{params=pool[idx], body-addr, env}
-        3 (let [rd (get bc (+ ip 1))
-                params (get pool (get bc (+ ip 2)))
-                body-addr (get bc (+ ip 3))
+        3 (let [rd (get bytecode (+ ip 1))
+                params (get pool (get bytecode (+ ip 2)))
+                body-addr (get bytecode (+ ip 3))
                 closure {:type :rbc-closure,
                          :params params,
                          :body-addr body-addr,
                          :env env,
-                         :bc bc,
+                         :bytecode bytecode,
                          :pool pool}]
             (-> state
                 (set-reg rd closure)
                 (assoc :ip (+ ip 4))))
         ;; call: rd = fn(args...)
-        4 (let [rd (get bc (+ ip 1))
-                rf (get bc (+ ip 2))
-                argc (get bc (+ ip 3))
+        4 (let [rd (get bytecode (+ ip 1))
+                rf (get bytecode (+ ip 2))
+                argc (get bytecode (+ ip 3))
                 fn-args (loop [i 0
                                args (transient [])]
                           (if (< i argc)
                             (recur (inc i)
                                    (conj! args
-                                          (get-reg state (get bc (+ ip 4 i)))))
+                                          (get-reg state
+                                                   (get bytecode (+ ip 4 i)))))
                             (persistent! args)))
                 fn-val (get-reg state rf)
                 next-ip (+ ip 4 argc)]
@@ -576,13 +576,13 @@
                             (set-reg rd result)
                             (assoc :ip next-ip))))
                   (= :rbc-closure (:type fn-val))
-                    (let [{:keys [params body-addr env bc pool]} fn-val
+                    (let [{:keys [params body-addr env bytecode pool]} fn-val
                           new-frame {:type :call-frame,
                                      :return-reg rd,
                                      :return-ip next-ip,
                                      :saved-regs regs,
                                      :saved-env (:env state),
-                                     :saved-bc (:bc state),
+                                     :saved-bytecode (:bytecode state),
                                      :saved-pool (:pool state),
                                      :parent k}
                           new-env (merge env (zipmap params fn-args))]
@@ -590,36 +590,36 @@
                           (assoc :regs [])
                           (assoc :k new-frame)
                           (assoc :env new-env)
-                          (assoc :bc bc)
+                          (assoc :bytecode bytecode)
                           (assoc :pool pool)
                           (assoc :ip body-addr)))
                   :else (throw (ex-info "Cannot call non-function"
                                         {:fn fn-val}))))
         ;; return
-        5 (let [rs (get bc (+ ip 1))
+        5 (let [rs (get bytecode (+ ip 1))
                 result (get-reg state rs)]
             (if (nil? k)
               (assoc state
                 :halted true
                 :value result)
-              (let [{:keys [return-reg return-ip saved-regs saved-env saved-bc
-                            saved-pool parent]}
+              (let [{:keys [return-reg return-ip saved-regs saved-env
+                            saved-bytecode saved-pool parent]}
                       k]
                 (-> state
                     (assoc :regs (assoc saved-regs return-reg result))
                     (assoc :k parent)
                     (assoc :env saved-env)
-                    (assoc :bc (or saved-bc (:bc state)))
+                    (assoc :bytecode (or saved-bytecode (:bytecode state)))
                     (assoc :pool (or saved-pool (:pool state)))
                     (assoc :ip return-ip)))))
         ;; branch
-        6 (let [rt (get bc (+ ip 1))
-                then-addr (get bc (+ ip 2))
-                else-addr (get bc (+ ip 3))
+        6 (let [rt (get bytecode (+ ip 1))
+                then-addr (get bytecode (+ ip 2))
+                else-addr (get bytecode (+ ip 3))
                 test-val (get-reg state rt)]
             (assoc state :ip (if test-val then-addr else-addr)))
         ;; jump
-        7 (let [addr (get bc (+ ip 1))] (assoc state :ip addr))
+        7 (let [addr (get bytecode (+ ip 1))] (assoc state :ip addr))
         ;; Unknown opcode
         (throw (ex-info "Unknown bytecode opcode" {:op op, :ip ip}))))))
 
@@ -634,7 +634,7 @@
 (comment
   ;; Bytecode VM exploration. Assembly -> bytecode conversion
   (register-assembly->bytecode [[:loadk 0 42] [:return 0]])
-  ;; => {:bc [0 0 0, 5 0], :pool [42]}
+  ;; => {:bytecode [0 0 0, 5 0], :pool [42]}
   ;; Full pipeline: AST -> datoms -> assembly -> bytecode -> execute
   (let [ast {:type :application,
              :operator {:type :variable, :name '+},
@@ -666,11 +666,11 @@
               :parked (:parked vm),
               :id-counter (:id-counter vm),
               :primitives (:primitives vm)}]
-    (if (:bc vm)
+    (if (:bytecode vm)
       (assoc base
-        :bc (:bc vm)
+        :bytecode (:bytecode vm)
         :pool (:pool vm))
-      (assoc base :bytecode (:bytecode vm)))))
+      (assoc base :assembly (:assembly vm)))))
 
 
 (defn- state->vm
@@ -680,8 +680,8 @@
                 (:k state)
                 (:env state)
                 (:ip state)
+                (:assembly state)
                 (:bytecode state)
-                (:bc state)
                 (:pool state)
                 (:halted state)
                 (:value state)
@@ -696,7 +696,7 @@
   "Execute one step of RegisterVM. Returns updated VM."
   [^RegisterVM vm]
   (let [state (vm->state vm)
-        new-state (if (:bc vm) (step-bc state) (step state))]
+        new-state (if (:bytecode vm) (step-bc state) (step state))]
     (state->vm vm new-state)))
 
 
@@ -735,7 +735,7 @@
 
 (defn reg-vm-load-program
   "Load bytecode into the VM.
-   Accepts either symbolic bytecode vector or {:bc [...] :pool [...]}."
+   Accepts either symbolic assembly vector or {:bytecode [...] :pool [...]}."
   [^RegisterVM vm program]
   (if (map? program)
     ;; Numeric bytecode with pool
@@ -743,18 +743,18 @@
                             {:regs [],
                              :k nil,
                              :ip 0,
-                             :bytecode nil,
-                             :bc (:bc program),
+                             :assembly nil,
+                             :bytecode (:bytecode program),
                              :pool (:pool program),
                              :halted false,
                              :value nil}))
-    ;; Symbolic bytecode
+    ;; Symbolic assembly
     (map->RegisterVM (merge (vm->state vm)
                             {:regs [],
                              :k nil,
                              :ip 0,
-                             :bytecode program,
-                             :bc nil,
+                             :assembly program,
+                             :bytecode nil,
                              :pool nil,
                              :halted false,
                              :value nil}))))
@@ -801,8 +801,8 @@
                             :k nil,
                             :env env,
                             :ip 0,
+                            :assembly nil,
                             :bytecode nil,
-                            :bc nil,
                             :pool nil,
                             :halted false,
                             :value nil}))))

@@ -132,7 +132,7 @@
      :root-eids nil,
      :semantic-stats nil,
      :register-asm nil,
-     :register-bc nil,
+     :register-bytecode nil,
      :register-result nil,
      :register-source-map nil,
      :stack-asm nil,
@@ -569,26 +569,29 @@
   (let [input (:ast-as-text @app-state)]
     (try
       (let [forms (reader/read-string (str "[" input "]"))
-            results
-              (mapv (fn [ast]
-                      (let [datoms (vm/ast->datoms ast)
-                            asm (register/ast-datoms->asm datoms)
-                            result (register/register-assembly->bytecode asm)
-                            bc (:bc result)
-                            pool (:pool result)
-                            source-map (:source-map result)]
-                        {:asm asm, :bc bc, :pool pool, :source-map source-map}))
-                forms)
+            results (mapv (fn [ast]
+                            (let [datoms (vm/ast->datoms ast)
+                                  asm (register/ast-datoms->asm datoms)
+                                  result (register/register-assembly->bytecode
+                                           asm)
+                                  bytecode (:bytecode result)
+                                  pool (:pool result)
+                                  source-map (:source-map result)]
+                              {:asm asm,
+                               :bytecode bytecode,
+                               :pool pool,
+                               :source-map source-map}))
+                      forms)
             ;; Initialize VM state from last compiled result
             last-result (last results)
             initial-state (when last-result
                             (-> (register/create vm/primitives)
-                                (proto/load-program {:bc (:bc last-result),
-                                                     :pool (:pool
-                                                             last-result)})))]
+                                (proto/load-program
+                                  {:bytecode (:bytecode last-result),
+                                   :pool (:pool last-result)})))]
         (swap! app-state assoc
           :register-asm (mapv :asm results)
-          :register-bc (mapv :bc results)
+          :register-bytecode (mapv :bytecode results)
           :register-pool (mapv :pool results)
           :register-source-map (mapv :source-map results)
           :error nil)
@@ -600,7 +603,7 @@
         (swap! app-state assoc
           :error (str "Register Compile Error: " (.-message e))
           :register-asm nil
-          :register-bc nil)
+          :register-bytecode nil)
         (swap! app-state assoc-in [:vm-states :register :state] nil)
         nil))))
 
@@ -626,10 +629,11 @@
 (defn reset-register
   "Reset register VM to initial state from compiled bytecode."
   []
-  (let [bc (last (:register-bc @app-state))
+  (let [bytecode (last (:register-bytecode @app-state))
         pool (last (:register-pool @app-state))]
-    (when (and bc pool)
-      (let [initial-state (register/make-bc-state {:bc bc, :pool pool}
+    (when (and bytecode pool)
+      (let [initial-state (register/make-bc-state {:bytecode bytecode,
+                                                   :pool pool}
                                                   vm/primitives)]
         (swap! app-state assoc-in [:vm-states :register :state] initial-state)
         (swap! app-state assoc-in [:vm-states :register :running] false)
