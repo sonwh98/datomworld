@@ -49,23 +49,24 @@
 ;; RegisterVM Record
 ;; =============================================================================
 
-(defrecord RegisterVM [regs       ; virtual registers vector
-                       k          ; continuation (call frame stack)
-                       env        ; lexical environment
-                       ip         ; instruction pointer
-                       assembly   ; symbolic instruction vector (for
-                                  ; assembly VM)
-                       bytecode   ; numeric bytecode vector (for bytecode
-                                  ; VM)
-                       pool       ; constant pool (for bytecode VM)
-                       halted     ; true if execution completed
-                       value      ; final result value
-                       store      ; heap memory
-                       db         ; DataScript db value
-                       parked     ; parked continuations
-                       id-counter ; unique ID counter
-                       primitives ; primitive operations
-                      ])
+(defrecord RegisterVM
+  [regs       ; virtual registers vector
+   k          ; continuation (call frame stack)
+   env        ; lexical environment
+   ip         ; instruction pointer
+   assembly   ; symbolic instruction vector (for
+   ;; assembly VM)
+   bytecode   ; numeric bytecode vector (for bytecode
+   ;; VM)
+   pool       ; constant pool (for bytecode VM)
+   halted     ; true if execution completed
+   value      ; final result value
+   store      ; heap memory
+   db         ; DataScript db value
+   parked     ; parked continuations
+   id-counter ; unique ID counter
+   primitives ; primitive operations
+  ])
 
 
 (defn ast-datoms->asm
@@ -266,7 +267,10 @@
 )
 
 
-(defn register-assembly->bytecode
+
+
+
+(defn assembly->bytecode
   "Convert register assembly (keyword mnemonics) to numeric bytecode.
 
    Returns {:bytecode [int...] :pool [value...]}
@@ -488,7 +492,7 @@
 ;; =============================================================================
 ;;
 ;; Bytecode is a flat vector of integers produced by
-;; register-assembly->bytecode.
+;; assembly->bytecode.
 ;; Opcodes are integers (see opcode-table). Non-integer operands (literals,
 ;; symbols, param vectors) live in a constant pool referenced by index.
 ;;
@@ -633,14 +637,14 @@
 
 (comment
   ;; Bytecode VM exploration. Assembly -> bytecode conversion
-  (register-assembly->bytecode [[:loadk 0 42] [:return 0]])
+  (assembly->bytecode [[:loadk 0 42] [:return 0]])
   ;; => {:bytecode [0 0 0, 5 0], :pool [42]}
   ;; Full pipeline: AST -> datoms -> assembly -> bytecode -> execute
   (let [ast {:type :application,
              :operator {:type :variable, :name '+},
              :operands [{:type :literal, :value 1} {:type :literal, :value 2}]}
         asm (ast-datoms->asm (ast->datoms ast))
-        compiled (register-assembly->bytecode asm)
+        compiled (assembly->bytecode asm)
         state (make-bc-state compiled {'+ +})
         result (run-bc state)]
     (:value result))

@@ -84,7 +84,7 @@
   [ast]
   (let [datoms (vm/ast->datoms ast)
         asm (register/ast-datoms->asm datoms)
-        compiled (register/register-assembly->bytecode asm)
+        compiled (register/assembly->bytecode asm)
         vm (register/create vm/primitives)]
     (-> vm
         (proto/load-program compiled)
