@@ -611,12 +611,12 @@
   "Execute one instruction in the register VM."
   []
   (let [state (get-in @app-state [:vm-states :register :state])]
-    (when (and state (not (:halted state)))
+    (when (and state (not (proto/halted? state)))
       (try
-        (let [new-state (register/step-bc state)]
+        (let [new-state (proto/step state)]
           (swap! app-state assoc-in [:vm-states :register :state] new-state)
-          (when (:halted new-state)
-            (swap! app-state assoc :register-result (:value new-state))
+          (when (proto/halted? new-state)
+            (swap! app-state assoc :register-result (proto/value new-state))
             (swap! app-state assoc-in [:vm-states :register :running] false)))
         (catch js/Error e
           (swap! app-state assoc
@@ -629,11 +629,14 @@
   "Reset register VM to initial state from compiled bytecode."
   []
   (let [bytecode (last (:register-bytecode @app-state))
-        pool (last (:register-pool @app-state))]
+        pool (last (:register-pool @app-state))
+        state (get-in @app-state [:vm-states :register :state])]
     (when (and bytecode pool)
-      (let [initial-state (register/make-bc-state {:bytecode bytecode,
-                                                   :pool pool}
-                                                  vm/primitives)]
+      (let [initial-state (if (and state (satisfies? proto/IVMReset state))
+                            (proto/reset state)
+                            (-> (register/create vm/primitives)
+                                (proto/load-program {:bytecode bytecode,
+                                                     :pool pool})))]
         (swap! app-state assoc-in [:vm-states :register :state] initial-state)
         (swap! app-state assoc-in [:vm-states :register :running] false)
         (swap! app-state assoc :register-result nil)))))
@@ -655,19 +658,20 @@
   []
   (let [running (get-in @app-state [:vm-states :register :running])
         initial-state (get-in @app-state [:vm-states :register :state])]
-    (when (and running initial-state (not (:halted initial-state)))
+    (when (and running initial-state (not (proto/halted? initial-state)))
       (try
         (loop [i 0
                state initial-state]
-          (if (or (>= i steps-per-frame) (:halted state))
+          (if (or (>= i steps-per-frame) (proto/halted? state))
             (do (swap! app-state assoc-in [:vm-states :register :state] state)
-                (if (:halted state)
-                  (do (swap! app-state assoc :register-result (:value state))
-                      (swap! app-state assoc-in
-                        [:vm-states :register :running]
-                        false))
+                (if (proto/halted? state)
+                  (do
+                    (swap! app-state assoc :register-result (proto/value state))
+                    (swap! app-state assoc-in
+                      [:vm-states :register :running]
+                      false))
                   (js/requestAnimationFrame run-register-loop)))
-            (recur (inc i) (register/step-bc state))))
+            (recur (inc i) (proto/step state))))
         (catch js/Error e
           (swap! app-state assoc
             :error
