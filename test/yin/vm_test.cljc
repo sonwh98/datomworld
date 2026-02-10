@@ -3,15 +3,8 @@
                :cljs [cljs.test :refer-macros [deftest is testing]])
             [yin.vm :as vm]
             [yin.vm.ast-walker :as walker]
+            [yin.vm.protocols :as proto]
             [yin.vm.register :as register]))
-
-
-(defn run-assembly-state
-  [state]
-  (loop [s state]
-    (if (or (:halted s) (= :yin/blocked (:value s)))
-      s
-      (recur (register/step s)))))
 
 
 (deftest test-literal-evaluation
@@ -346,108 +339,24 @@
           "Should contain move instructions for result register"))))
 
 
-;; =============================================================================
-;; End-to-end: AST -> datoms -> register bytecode -> rbc-run
-;; =============================================================================
-
-(deftest test-register-bytecode-execution-literal
-  (testing "Literal through full pipeline"
-    (let [bc (register/ast-datoms->asm (vm/ast->datoms {:type :literal,
-                                                        :value 42}))
-          result (loop [s (register/make-state bc)]
-                   (if (or (:halted s) (= :yin/blocked (:value s)))
-                     s
-                     (recur (register/step s))))]
-      (is (= 42 (:value result))))))
-
-
-(deftest test-register-bytecode-execution-addition
-  (testing "(+ 1 2) through full pipeline"
-    (let [bc (register/ast-datoms->asm
-               (vm/ast->datoms {:type :application,
-                                :operator {:type :variable, :name '+},
-                                :operands [{:type :literal, :value 1}
-                                           {:type :literal, :value 2}]}))
-          result (run-assembly-state (register/make-state bc {'+ +}))]
-      (is (= 3 (register/get-reg result 3)) "(+ 1 2) should produce 3"))))
-
-
-(deftest test-register-bytecode-execution-closure
-  (testing "((fn [x] x) 42) through full pipeline"
-    (let [bc (register/ast-datoms->asm
-               (vm/ast->datoms {:type :application,
-                                :operator {:type :lambda,
-                                           :params ['x],
-                                           :body {:type :variable, :name 'x}},
-                                :operands [{:type :literal, :value 42}]}))
-          result (run-assembly-state (register/make-state bc))]
-      (is (= 42 (:value result))
-          "Identity closure should return its argument")))
-  (testing "((fn [x] (+ x 1)) 5) through full pipeline"
-    (let [bc (register/ast-datoms->asm
-               (vm/ast->datoms
-                 {:type :application,
-                  :operator {:type :lambda,
-                             :params ['x],
-                             :body {:type :application,
-                                    :operator {:type :variable, :name '+},
-                                    :operands [{:type :variable, :name 'x}
-                                               {:type :literal, :value 1}]}},
-                  :operands [{:type :literal, :value 5}]}))
-          result (run-assembly-state (register/make-state bc {'+ +}))]
-      (is (= 6 (:value result)) "((fn [x] (+ x 1)) 5) should produce 6"))))
-
-
-(deftest test-register-bytecode-execution-conditional
-  (testing "(if true 1 0) through full pipeline"
-    (let [bc (register/ast-datoms->asm
-               (vm/ast->datoms {:type :if,
-                                :test {:type :literal, :value true},
-                                :consequent {:type :literal, :value 1},
-                                :alternate {:type :literal, :value 0}}))
-          result (run-assembly-state (register/make-state bc))]
-      (is (= 1 (:value result)) "True branch should be taken")))
-  (testing "(if false 1 0) through full pipeline"
-    (let [bc (register/ast-datoms->asm
-               (vm/ast->datoms {:type :if,
-                                :test {:type :literal, :value false},
-                                :consequent {:type :literal, :value 1},
-                                :alternate {:type :literal, :value 0}}))
-          result (run-assembly-state (register/make-state bc))]
-      (is (= 0 (:value result)) "False branch should be taken"))))
-
-
-(deftest test-register-bytecode-execution-nested
-  (testing "((fn [x y] (+ x y)) 3 5) through full pipeline"
-    (let [bc (register/ast-datoms->asm
-               (vm/ast->datoms
-                 {:type :application,
-                  :operator {:type :lambda,
-                             :params ['x 'y],
-                             :body {:type :application,
-                                    :operator {:type :variable, :name '+},
-                                    :operands [{:type :variable, :name 'x}
-                                               {:type :variable, :name 'y}]}},
-                  :operands [{:type :literal, :value 3}
-                             {:type :literal, :value 5}]}))
-          result (run-assembly-state (register/make-state bc {'+ +}))]
-      (is (= 8 (:value result)) "((fn [x y] (+ x y)) 3 5) should produce 8"))))
-
-
 (deftest test-register-bytecode-continuation-is-data
   (testing "Continuation frame is created during closure call"
-    (let [bc (register/ast-datoms->asm
-               (vm/ast->datoms {:type :application,
-                                :operator {:type :lambda,
-                                           :params ['x],
-                                           :body {:type :variable, :name 'x}},
-                                :operands [{:type :literal, :value 42}]}))
+    (let [asm (register/ast-datoms->asm
+                (vm/ast->datoms {:type :application,
+                                 :operator {:type :lambda,
+                                            :params ['x],
+                                            :body {:type :variable, :name 'x}},
+                                 :operands [{:type :literal, :value 42}]}))
+          compiled (register/assembly->bytecode asm)
+          vm (register/create)
+          vm-loaded (proto/load-program vm compiled)
           ;; Step until we're inside the closure body
-          states (loop [s (register/make-state bc)
-                        acc []]
-                   (if (:halted s) acc (recur (register/step s) (conj acc s))))
+          states
+            (loop [v vm-loaded
+                   acc []]
+              (if (proto/halted? v) acc (recur (proto/step v) (conj acc v))))
           ;; Find state where :k is non-nil (inside closure)
-          inside-closure (first (filter :k states))]
+          inside-closure (first (filter #(:k %) states))]
       (is (some? inside-closure)
           "Should have a state with non-nil continuation")
       (is (= :call-frame (:type (:k inside-closure)))

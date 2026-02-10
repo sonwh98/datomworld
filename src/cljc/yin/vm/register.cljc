@@ -1,5 +1,5 @@
 (ns yin.vm.register
-  "Register-based assembly VM for the Yin language.
+  "Register-based bytecode VM for the Yin language.
 
    A register machine implementation of the CESK model where:
    - Virtual registers (r0, r1, r2...) hold intermediate values
@@ -8,9 +8,10 @@
    - Continuation :k is always first-class and explicit
    - No implicit call stack - continuation IS the stack
 
-   Assembly is symbolic (keyword mnemonics). Bytecode is numeric opcodes.
+   Executes numeric bytecode produced by assembly->bytecode.
+   The compilation pipeline is: AST datoms -> ast-datoms->asm (symbolic IR) -> assembly->bytecode (numeric).
 
-   Assembly instructions:
+   Assembly IR instructions (produced by ast-datoms->asm, consumed by assembly->bytecode):
      [:loadk rd v]           - rd := literal v
      [:loadv rd name]        - rd := lookup name in env/store
      [:move rd rs]           - rd := rs
@@ -49,24 +50,20 @@
 ;; RegisterVM Record
 ;; =============================================================================
 
-(defrecord RegisterVM
-  [regs       ; virtual registers vector
-   k          ; continuation (call frame stack)
-   env        ; lexical environment
-   ip         ; instruction pointer
-   assembly   ; symbolic instruction vector (for
-   ;; assembly VM)
-   bytecode   ; numeric bytecode vector (for bytecode
-   ;; VM)
-   pool       ; constant pool (for bytecode VM)
-   halted     ; true if execution completed
-   value      ; final result value
-   store      ; heap memory
-   db         ; DataScript db value
-   parked     ; parked continuations
-   id-counter ; unique ID counter
-   primitives ; primitive operations
-  ])
+(defrecord RegisterVM [regs       ; virtual registers vector
+                       k          ; continuation (call frame stack)
+                       env        ; lexical environment
+                       ip         ; instruction pointer
+                       bytecode   ; numeric bytecode vector
+                       pool       ; constant pool
+                       halted     ; true if execution completed
+                       value      ; final result value
+                       store      ; heap memory
+                       db         ; DataScript db value
+                       parked     ; parked continuations
+                       id-counter ; unique ID counter
+                       primitives ; primitive operations
+                      ])
 
 
 (defn ast-datoms->asm
@@ -296,19 +293,6 @@
       {:bytecode fixed, :pool @pool, :source-map source-map})))
 
 
-(defn make-state
-  "Create initial register-based assembly VM state."
-  ([assembly] (make-state assembly {}))
-  ([assembly env]
-   (merge (vm/empty-state)
-          {:regs [],          ; virtual registers (grows as needed)
-           :k nil,            ; continuation (always explicit)
-           :env env,          ; lexical environment
-           :ip 0,             ; instruction pointer
-           :assembly assembly ; instruction vector
-          })))
-
-
 (defn get-reg
   "Get value from register. Returns nil if register not yet allocated."
   [state r]
@@ -324,115 +308,6 @@
                (into regs (repeat (- (inc r) (count regs)) nil))
                regs)]
     (assoc state :regs (assoc regs r v))))
-
-
-(defn step
-  "Execute one assembly instruction. Returns updated state."
-  [state]
-  (let [{:keys [assembly ip regs env store k]} state
-        instr (get assembly ip)]
-    (if (nil? instr)
-      ;; End of assembly without :return - should not happen with compiled
-      ;; assembly
-      (throw (ex-info "Assembly ended without :return instruction" {:ip ip}))
-      (let [[op & args] instr]
-        (case op
-          ;; Load constant into register
-          :loadk (let [[rd v] args]
-                   (-> state
-                       (set-reg rd v)
-                       (update :ip inc)))
-          ;; Load variable from environment/store
-          :loadv (let [[rd name] args
-                       v (or (get env name)
-                             (get store name)
-                             (get (:primitives state) name)
-                             (module/resolve-symbol name))]
-                   (-> state
-                       (set-reg rd v)
-                       (update :ip inc)))
-          ;; Move register to register
-          :move (let [[rd rs] args]
-                  (-> state
-                      (set-reg rd (get-reg state rs))
-                      (update :ip inc)))
-          ;; Create closure
-          :closure (let [[rd params body-addr] args
-                         closure {:type :rbc-closure,
-                                  :params params,
-                                  :body-addr body-addr,
-                                  :env env,
-                                  :assembly assembly}]
-                     (-> state
-                         (set-reg rd closure)
-                         (update :ip inc)))
-          ;; Function call
-          :call (let [[rd rf arg-regs] args
-                      fn-val (get-reg state rf)
-                      fn-args (mapv #(get-reg state %) arg-regs)]
-                  (cond
-                    ;; Primitive function
-                    (fn? fn-val)
-                      (let [result (apply fn-val fn-args)]
-                        (if (module/effect? result)
-                          ;; Handle effect
-                          (case (:effect result)
-                            :vm/store-put (-> state
-                                              (assoc-in [:store (:key result)]
-                                                        (:val result))
-                                              (set-reg rd (:val result))
-                                              (update :ip inc))
-                            ;; Other effects...
-                            (throw (ex-info "Unhandled effect in step"
-                                            {:effect result})))
-                          ;; Regular value
-                          (-> state
-                              (set-reg rd result)
-                              (update :ip inc))))
-                    ;; User-defined closure
-                    (= :rbc-closure (:type fn-val))
-                      (let [{:keys [params body-addr env bytecode]} fn-val
-                            new-frame {:type :call-frame,
-                                       :return-reg rd,
-                                       :return-ip (inc ip),
-                                       :saved-regs regs,
-                                       :saved-env (:env state),
-                                       :parent k}
-                            new-env (merge env (zipmap params fn-args))]
-                        (-> state
-                            (assoc :regs []) ; fresh register frame (grows
-                            ;; as needed)
-                            (assoc :k new-frame)
-                            (assoc :env new-env)
-                            (assoc :ip body-addr)))
-                    :else (throw (ex-info "Cannot call non-function"
-                                          {:fn fn-val}))))
-          ;; Return from function
-          :return (let [[rs] args
-                        result (get-reg state rs)]
-                    (if (nil? k)
-                      ;; Top level - halt with result
-                      (assoc state
-                        :halted true
-                        :value result)
-                      ;; Restore caller context
-                      (let [{:keys [return-reg return-ip saved-regs saved-env
-                                    parent]}
-                              k]
-                        (-> state
-                            (assoc :regs (assoc saved-regs return-reg result))
-                            (assoc :k parent)
-                            (assoc :env saved-env)
-                            (assoc :ip return-ip)))))
-          ;; Conditional branch
-          :branch (let [[rt then-addr else-addr] args
-                        test-val (get-reg state rt)]
-                    (assoc state :ip (if test-val then-addr else-addr)))
-          ;; Unconditional jump
-          :jump (let [[addr] args] (assoc state :ip addr))
-          ;; Unknown instruction
-          (throw (ex-info "Unknown assembly instruction"
-                          {:op op, :instr instr})))))))
 
 
 ;; =============================================================================
@@ -588,34 +463,30 @@
 ;; =============================================================================
 
 (defn- vm->state
-  "Convert RegisterVM to legacy state map."
+  "Convert RegisterVM to state map for step-bc."
   [^RegisterVM vm]
-  (let [base {:regs (:regs vm),
-              :k (:k vm),
-              :env (:env vm),
-              :ip (:ip vm),
-              :halted (:halted vm),
-              :value (:value vm),
-              :store (:store vm),
-              :db (:db vm),
-              :parked (:parked vm),
-              :id-counter (:id-counter vm),
-              :primitives (:primitives vm)}]
-    (if (:bytecode vm)
-      (assoc base
-        :bytecode (:bytecode vm)
-        :pool (:pool vm))
-      (assoc base :assembly (:assembly vm)))))
+  {:regs (:regs vm),
+   :k (:k vm),
+   :env (:env vm),
+   :ip (:ip vm),
+   :bytecode (:bytecode vm),
+   :pool (:pool vm),
+   :halted (:halted vm),
+   :value (:value vm),
+   :store (:store vm),
+   :db (:db vm),
+   :parked (:parked vm),
+   :id-counter (:id-counter vm),
+   :primitives (:primitives vm)})
 
 
 (defn- state->vm
-  "Convert legacy state map back to RegisterVM."
+  "Convert state map back to RegisterVM."
   [^RegisterVM vm state]
   (->RegisterVM (:regs state)
                 (:k state)
                 (:env state)
                 (:ip state)
-                (:assembly state)
                 (:bytecode state)
                 (:pool state)
                 (:halted state)
@@ -631,7 +502,7 @@
   "Execute one step of RegisterVM. Returns updated VM."
   [^RegisterVM vm]
   (let [state (vm->state vm)
-        new-state (if (:bytecode vm) (step-bc state) (step state))]
+        new-state (step-bc state)]
     (state->vm vm new-state)))
 
 
@@ -670,29 +541,16 @@
 
 (defn reg-vm-load-program
   "Load bytecode into the VM.
-   Accepts either symbolic assembly vector or {:bytecode [...] :pool [...]}."
+   Accepts {:bytecode [...] :pool [...]}."
   [^RegisterVM vm program]
-  (if (map? program)
-    ;; Numeric bytecode with pool
-    (map->RegisterVM (merge (vm->state vm)
-                            {:regs [],
-                             :k nil,
-                             :ip 0,
-                             :assembly nil,
-                             :bytecode (:bytecode program),
-                             :pool (:pool program),
-                             :halted false,
-                             :value nil}))
-    ;; Symbolic assembly
-    (map->RegisterVM (merge (vm->state vm)
-                            {:regs [],
-                             :k nil,
-                             :ip 0,
-                             :assembly program,
-                             :bytecode nil,
-                             :pool nil,
-                             :halted false,
-                             :value nil}))))
+  (map->RegisterVM (merge (vm->state vm)
+                          {:regs [],
+                           :k nil,
+                           :ip 0,
+                           :bytecode (:bytecode program),
+                           :pool (:pool program),
+                           :halted false,
+                           :value nil})))
 
 
 (defn reg-vm-transact!
@@ -736,7 +594,6 @@
                             :k nil,
                             :env env,
                             :ip 0,
-                            :assembly nil,
                             :bytecode nil,
                             :pool nil,
                             :halted false,
