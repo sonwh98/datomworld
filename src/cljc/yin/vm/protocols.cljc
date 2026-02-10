@@ -9,7 +9,8 @@
 
    All VMs implement:
    - IVMStep: single-step execution
-   - IVMRun: run to completion or blocked state")
+   - IVMRun: run to completion or blocked state
+   - IVMReset: reset execution state to a known baseline")
 
 
 (defprotocol IVMStep
@@ -28,6 +29,12 @@
   "Run VM to completion protocol."
   (run [vm]
     "Run VM until halted or blocked. Returns final VM state."))
+
+
+(defprotocol IVMReset
+  "Reset VM execution protocol."
+  (reset [vm]
+    "Reset execution state to a known initial state, preserving loaded program."))
 
 
 (defprotocol IVMLoad

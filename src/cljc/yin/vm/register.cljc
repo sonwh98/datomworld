@@ -783,6 +783,17 @@
     (if (or (reg-vm-halted? v) (reg-vm-blocked? v)) v (recur (reg-vm-step v)))))
 
 
+(defn reg-vm-reset
+  "Reset RegisterVM execution state to initial baseline, preserving loaded program."
+  [^RegisterVM vm]
+  (assoc vm
+    :regs []
+    :k nil
+    :ip 0
+    :halted false
+    :value nil))
+
+
 (defn reg-vm-load-program
   "Load bytecode into the VM.
    Accepts either symbolic bytecode vector or {:bc [...] :pool [...]}."
@@ -833,6 +844,8 @@
     (value [vm] (reg-vm-value vm))
   proto/IVMRun
     (run [vm] (reg-vm-run vm))
+  proto/IVMReset
+    (reset [vm] (reg-vm-reset vm))
   proto/IVMLoad
     (load-program [vm program] (reg-vm-load-program vm program))
   proto/IVMDataScript
