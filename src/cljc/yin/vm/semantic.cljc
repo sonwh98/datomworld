@@ -95,21 +95,22 @@
 
 
 (defn- semantic-step
-  "Execute one step of the semantic VM."
-  [state]
-  (let [{:keys [control env stack datoms]} state]
+  "Execute one step of the semantic VM.
+   Operates directly on SemanticVM record (assoc preserves record type)."
+  [^SemanticVM vm]
+  (let [{:keys [control env stack datoms]} vm]
     (if (= :value (:type control))
       ;; Handle return value from previous step
       (let [val (:val control)]
         (if (empty? stack)
-          (assoc state
+          (assoc vm
             :halted true
             :value val)
           (let [frame (peek stack)
                 new-stack (pop stack)]
             (case (:type frame)
               :if (let [{:keys [cons alt env]} frame]
-                    (assoc state
+                    (assoc vm
                       :control {:type :node, :id (if val cons alt)}
                       :env env
                       :stack new-stack))
@@ -118,13 +119,13 @@
                         (if (empty? operands)
                           ;; 0-arity call
                           (if (fn? fn-val)
-                            (assoc state
+                            (assoc vm
                               :control {:type :value, :val (fn-val)}
                               :env env
                               :stack new-stack)
                             (if (= :closure (:type fn-val))
                               (let [{:keys [body-node env]} fn-val]
-                                (assoc state
+                                (assoc vm
                                   :control {:type :node, :id body-node}
                                   :env env ; Switch to closure env
                                   :stack (conj new-stack
@@ -135,7 +136,7 @@
                           ;; Prepare to eval args
                           (let [first-arg (first operands)
                                 rest-args (vec (rest operands))]
-                            (assoc state
+                            (assoc vm
                               :control {:type :node, :id first-arg}
                               :env env
                               :stack (conj new-stack
@@ -150,14 +151,14 @@
                   (if (empty? pending)
                     ;; All args evaluated, apply
                     (if (fn? fn)
-                      (assoc state
+                      (assoc vm
                         :control {:type :value, :val (apply fn new-evaluated)}
                         :env env
                         :stack new-stack)
                       (if (= :closure (:type fn))
                         (let [{:keys [params body-node env]} fn
                               new-env (merge env (zipmap params new-evaluated))]
-                          (assoc state
+                          (assoc vm
                             :control {:type :node, :id body-node}
                             :env new-env ; Closure env + args
                             :stack (conj new-stack
@@ -167,14 +168,14 @@
                     ;; More args to eval
                     (let [next-arg (first pending)
                           rest-pending (vec (rest pending))]
-                      (assoc state
+                      (assoc vm
                         :control {:type :node, :id next-arg}
                         :env env
                         :stack (conj new-stack
                                      (assoc frame
                                        :evaluated new-evaluated
                                        :pending rest-pending))))))
-              :restore-env (assoc state
+              :restore-env (assoc vm
                              :control control ; Pass value up
                              :env (:env frame) ; Restore caller env
                              :stack new-stack)))))
@@ -183,26 +184,26 @@
             node-map (get-node-attrs datoms node-id)
             node-type (:yin/type node-map)]
         (case node-type
-          :literal (assoc state
+          :literal (assoc vm
                      :control {:type :value, :val (:yin/value node-map)})
-          :variable (assoc state
+          :variable (assoc vm
                       :control {:type :value,
                                 :val (get env (:yin/name node-map))})
-          :lambda (assoc state
+          :lambda (assoc vm
                     :control {:type :value,
                               :val {:type :closure,
                                     :params (:yin/params node-map),
                                     :body-node (:yin/body node-map),
                                     :datoms datoms,
                                     :env env}})
-          :if (assoc state
+          :if (assoc vm
                 :control {:type :node, :id (:yin/test node-map)}
                 :stack (conj stack
                              {:type :if,
                               :cons (:yin/consequent node-map),
                               :alt (:yin/alternate node-map),
                               :env env}))
-          :application (assoc state
+          :application (assoc vm
                          :control {:type :node, :id (:yin/operator node-map)}
                          :stack (conj stack
                                       {:type :app-op,
@@ -215,44 +216,10 @@
 ;; SemanticVM Protocol Implementation
 ;; =============================================================================
 
-(defn- semantic-vm->state
-  "Convert SemanticVM to legacy state map."
-  [^SemanticVM vm]
-  {:control (:control vm),
-   :env (:env vm),
-   :stack (:stack vm),
-   :datoms (:datoms vm),
-   :halted (:halted vm),
-   :value (:value vm),
-   :store (:store vm),
-   :db (:db vm),
-   :parked (:parked vm),
-   :id-counter (:id-counter vm),
-   :primitives (:primitives vm)})
-
-
-(defn- state->semantic-vm
-  "Convert legacy state map back to SemanticVM."
-  [^SemanticVM vm state]
-  (->SemanticVM (:control state)
-                (:env state)
-                (:stack state)
-                (:datoms state)
-                (:halted state)
-                (:value state)
-                (:store state)
-                (:db state)
-                (:parked state)
-                (:id-counter state)
-                (:primitives state)))
-
-
 (defn- semantic-vm-step
   "Execute one step of SemanticVM. Returns updated VM."
   [^SemanticVM vm]
-  (let [state (semantic-vm->state vm)
-        new-state (semantic-step state)]
-    (state->semantic-vm vm new-state)))
+  (semantic-step vm))
 
 
 (defn- semantic-vm-halted?
@@ -286,12 +253,12 @@
   "Load datoms into the VM.
    Expects {:node root-id :datoms [...]}."
   [^SemanticVM vm {:keys [node datoms]}]
-  (map->SemanticVM (merge (semantic-vm->state vm)
-                          {:control {:type :node, :id node},
-                           :stack [],
-                           :datoms datoms,
-                           :halted false,
-                           :value nil})))
+  (assoc vm
+    :control {:type :node, :id node}
+    :stack []
+    :datoms datoms
+    :halted false
+    :value nil))
 
 
 (defn- semantic-vm-transact!
