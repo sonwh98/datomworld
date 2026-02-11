@@ -485,9 +485,9 @@
         root-ids (:root-ids @app-state)
         last-root (last root-ids)]
     (when (and datoms last-root)
-      (let [initial-state (semantic/make-semantic-state {:node last-root,
-                                                         :datoms datoms}
-                                                        vm/primitives)]
+      (let [initial-state (-> (semantic/create-vm vm/primitives)
+                              (proto/load-program {:node last-root,
+                                                   :datoms datoms}))]
         (swap! app-state assoc-in [:vm-states :semantic :state] initial-state)
         (swap! app-state assoc-in [:vm-states :semantic :running] false)
         (swap! app-state assoc :semantic-result nil)))))
