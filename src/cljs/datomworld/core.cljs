@@ -347,7 +347,7 @@
             ast-with-ids (add-yin-ids last-form)
             {:keys [text source-map]} (ast->text-with-map ast-with-ids)
             initial-env vm/primitives
-            vm (walker/create initial-env)
+            vm (walker/create-vm initial-env)
             vm-loaded (vm/load-program vm ast-with-ids)]
         (.log js/console "Resetting walker with AST:" (clj->js ast-with-ids))
         (swap! app-state assoc :ast-as-text text :walker-source-map source-map)
@@ -696,7 +696,7 @@
           :error nil)
         ;; Initialize AST Walker state
         (let [initial-env vm/primitives
-              vm (walker/create initial-env)
+              vm (walker/create-vm initial-env)
               vm-loaded (vm/load-program vm ast-with-ids)]
           (swap! app-state assoc-in [:vm-states :walker :state] vm-loaded)
           (swap! app-state assoc-in [:vm-states :walker :running] false)
