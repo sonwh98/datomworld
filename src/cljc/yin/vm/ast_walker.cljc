@@ -22,18 +22,6 @@
 ;; =============================================================================
 
 
-;; Counter for generating unique IDs (legacy, for backward compatibility)
-(def ^:private id-counter (atom 0))
-
-
-(defn- gensym-id
-  "Generate a unique keyword ID with optional prefix.
-   Legacy function for backward compatibility.
-   In the pure VM, use the :id-counter field in the state."
-  ([] (gensym-id "id"))
-  ([prefix] (keyword (str prefix "-" (swap! id-counter inc)))))
-
-
 ;; =============================================================================
 ;; ASTWalkerVM Record
 ;; =============================================================================

@@ -46,10 +46,6 @@
 (def OP_RETURN 6)        ; [OP_RETURN]
 (def OP_JUMP 7)          ; [OP_JUMP] [offset-hi] [offset-lo]
 
-(defn- add-constant-legacy
-  [pool val]
-  (let [idx (count pool)] [(conj pool val) idx]))
-
 
 ;; =============================================================================
 ;; Datoms -> Stack Assembly
