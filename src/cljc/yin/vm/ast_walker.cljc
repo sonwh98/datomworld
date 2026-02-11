@@ -6,6 +6,22 @@
             [yin.vm :as vm]))
 
 
+;; =============================================================================
+;; AST Walker VM
+;; =============================================================================
+;;
+;; Interprets raw AST maps directly (e.g., {:type :literal, :value 42}).
+;; Traverses the in-memory tree via direct map field access
+;; (:operator, :operands, :body).
+;;
+;; Continuations are a linked list with :parent pointers:
+;;   {:type :eval-operand, :frame ..., :parent cont}
+;; Control is the AST node itself, or nil when awaiting continuation.
+;;
+;; Full feature scope: core language + streams, store ops, park/resume.
+;; =============================================================================
+
+
 ;; Counter for generating unique IDs (legacy, for backward compatibility)
 (def ^:private id-counter (atom 0))
 

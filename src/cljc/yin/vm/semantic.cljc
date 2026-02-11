@@ -7,10 +7,18 @@
 ;; Semantic VM
 ;; =============================================================================
 ;;
-;; The AST as :yin/ datoms (from vm/ast->datoms) is the canonical
-;; representation. This namespace provides:
-;;   1. Query helpers for :yin/ datoms
-;;   2. A SemanticVM that executes :yin/ datoms by graph traversal
+;; Interprets datom 5-tuples [e a v t m] (from vm/ast->datoms) by graph
+;; traversal. Looks up node attributes via entity ID scanning the datom set.
+;;
+;; Continuations are an explicit stack (vector of frames):
+;;   [{:type :app-op}, {:type :app-args}, {:type :if}, {:type :restore-env}]
+;; Control is {:type :node, :id eid} or {:type :value, :val v} (two-phase
+;; dispatch: handle return values vs evaluate nodes).
+;;
+;; Core language only: literal, variable, lambda, if, application.
+;;
+;; Proves the same computation can be recovered purely from the datom stream
+;; without reconstructing the original AST maps.
 ;; =============================================================================
 
 
