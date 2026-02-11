@@ -207,3 +207,131 @@
                :operands [{:type :literal, :value 10}
                           {:type :literal, :value 5}]}]
       (is (= 14 (compile-and-run-bc ast))))))
+
+
+;; =============================================================================
+;; Register bytecode compilation shape tests
+;; =============================================================================
+;; These test the compilation pipeline: AST -> datoms -> register bytecode
+
+(deftest register-bytecode-shape-test
+  (testing "Literal produces loadk + return"
+    (let [bc (register/ast-datoms->asm (vm/ast->datoms {:type :literal,
+                                                        :value 42}))]
+      (is (vector? bc))
+      (is (= 2 (count bc)))
+      (is (= :loadk (first (first bc))) "First instruction should be :loadk")
+      (is (= 42 (nth (first bc) 2)) "Should load the value 42")
+      (is (= :return (first (last bc))) "Last instruction should be :return")))
+  (testing "Variable produces loadv + return"
+    (let [bc (register/ast-datoms->asm (vm/ast->datoms {:type :variable,
+                                                        :name 'x}))]
+      (is (= 2 (count bc)))
+      (is (= :loadv (first (first bc))))
+      (is (= 'x (nth (first bc) 2)))
+      (is (= :return (first (last bc))))))
+  (testing "All instructions are vectors"
+    (let [bc (register/ast-datoms->asm
+               (vm/ast->datoms {:type :application,
+                                :operator {:type :variable, :name '+},
+                                :operands [{:type :literal, :value 1}
+                                           {:type :literal, :value 2}]}))]
+      (is (every? vector? bc)))))
+
+
+(deftest register-bytecode-application-test
+  (testing "Application produces loadk, loadv, call, and return"
+    (let [bc (register/ast-datoms->asm
+               (vm/ast->datoms {:type :application,
+                                :operator {:type :variable, :name '+},
+                                :operands [{:type :literal, :value 1}
+                                           {:type :literal, :value 2}]}))]
+      (is (= 5 (count bc)))
+      (is (= :loadk (first (nth bc 0))))
+      (is (= :loadk (first (nth bc 1))))
+      (is (= :loadv (first (nth bc 2))))
+      (is (= :call (first (nth bc 3))))
+      (is (= :return (first (nth bc 4))))))
+  (testing "Call instruction references correct registers"
+    (let [bc (register/ast-datoms->asm
+               (vm/ast->datoms {:type :application,
+                                :operator {:type :variable, :name '+},
+                                :operands [{:type :literal, :value 1}
+                                           {:type :literal, :value 2}]}))
+          call-instr (nth bc 3)
+          [op rd rf arg-regs] call-instr]
+      (is (= :call op))
+      (is (integer? rd) "Result register should be an integer")
+      (is (integer? rf) "Function register should be an integer")
+      (is (vector? arg-regs) "Arg registers should be a vector")
+      (is (= 2 (count arg-regs)) "Should have 2 arg registers"))))
+
+
+(deftest register-bytecode-lambda-test
+  (testing "Lambda produces closure, jump, body, and return"
+    (let [bc (register/ast-datoms->asm (vm/ast->datoms {:type :lambda,
+                                                        :params ['x],
+                                                        :body {:type :variable,
+                                                               :name 'x}}))]
+      (is (= :closure (first (nth bc 0)))
+          "First instruction should be :closure")
+      (is (= :jump (first (nth bc 1)))
+          "Second instruction should be :jump over body")
+      (is (= :loadv (first (nth bc 2))) "Body should start with :loadv")
+      (is (= :return (first (nth bc 3))) "Body should end with :return")))
+  (testing "Closure body address points to correct instruction"
+    (let [bc (register/ast-datoms->asm (vm/ast->datoms {:type :lambda,
+                                                        :params ['x],
+                                                        :body {:type :variable,
+                                                               :name 'x}}))
+          [_ _rd _params body-addr] (first bc)]
+      (is (= 2 body-addr)
+          "Body should start at instruction 2 (after closure + jump)")))
+  (testing "Jump skips over body to return"
+    (let [bc (register/ast-datoms->asm (vm/ast->datoms {:type :lambda,
+                                                        :params ['x],
+                                                        :body {:type :variable,
+                                                               :name 'x}}))
+          [_ jump-addr] (nth bc 1)
+          jump-target (get bc jump-addr)]
+      (is (= :return (first jump-target))
+          "Jump should land on the final :return"))))
+
+
+(deftest register-bytecode-conditional-test
+  (testing "If produces branch, both branches, and move instructions"
+    (let [bc (register/ast-datoms->asm
+               (vm/ast->datoms {:type :if,
+                                :test {:type :literal, :value true},
+                                :consequent {:type :literal, :value 1},
+                                :alternate {:type :literal, :value 0}}))]
+      (is (= :loadk (first (first bc))) "Should start with test expression")
+      (is (some #(= :branch (first %)) bc)
+          "Should contain a branch instruction")
+      (is (some #(= :move (first %)) bc)
+          "Should contain move instructions for result register"))))
+
+
+(deftest register-bytecode-continuation-is-data-test
+  (testing "Continuation frame is created during closure call"
+    (let [asm (register/ast-datoms->asm
+                (vm/ast->datoms {:type :application,
+                                 :operator {:type :lambda,
+                                            :params ['x],
+                                            :body {:type :variable, :name 'x}},
+                                 :operands [{:type :literal, :value 42}]}))
+          compiled (register/assembly->bytecode asm)
+          vm-inst (register/create-vm)
+          vm-loaded (vm/load-program vm-inst compiled)
+          states (loop [v vm-loaded
+                        acc []]
+                   (if (vm/halted? v) acc (recur (vm/step v) (conj acc v))))
+          inside-closure (first (filter #(some? (vm/continuation %)) states))]
+      (is (some? inside-closure)
+          "Should have a state with non-nil continuation")
+      (is (= :call-frame (:type (vm/continuation inside-closure)))
+          "Continuation should be a :call-frame")
+      (is (vector? (:saved-regs (vm/continuation inside-closure)))
+          "Continuation should save caller registers")
+      (is (integer? (:return-ip (vm/continuation inside-closure)))
+          "Continuation should have a return IP"))))

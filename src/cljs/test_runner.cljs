@@ -1,11 +1,6 @@
 (ns test-runner
   (:require [cljs.test :refer-macros [run-tests]]
             [daodb.core-test]
-            [yin.vm-continuation-test]
-
-            [yin.vm-state-test]
-            [yin.vm-stream-test]
-            [yin.vm-test]
             [yin.vm.ast-walker-test]
             [yin.vm.register-test]
             [yin.vm.semantic-test]
@@ -15,11 +10,6 @@
 (defn -main
   []
   (run-tests 'daodb.core-test
-             'yin.vm-test
-
-             'yin.vm-state-test
-             'yin.vm-continuation-test
-             'yin.vm-stream-test
              'yin.vm.ast-walker-test
              'yin.vm.register-test
              'yin.vm.semantic-test

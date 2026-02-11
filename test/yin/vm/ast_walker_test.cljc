@@ -44,15 +44,10 @@
 
 (deftest literal-types-test
   (testing "All value types work as literals"
-    (doseq [[desc value] [["string" "hello world"]
-                          ["boolean true" true]
-                          ["boolean false" false]
-                          ["nil" nil]
-                          ["float" 3.14159]
-                          ["negative" -99]
-                          ["vector" [1 2 3]]
-                          ["map" {:x 10, :y 20}]
-                          ["keyword" :status]
+    (doseq [[desc value] [["string" "hello world"] ["boolean true" true]
+                          ["boolean false" false] ["nil" nil] ["float" 3.14159]
+                          ["negative" -99] ["vector" [1 2 3]]
+                          ["map" {:x 10, :y 20}] ["keyword" :status]
                           ["set" #{1 2}]]]
       (testing desc
         (is (= value (compile-and-run {:type :literal, :value value})))))))
@@ -221,3 +216,280 @@
                :operands [{:type :literal, :value 10}
                           {:type :literal, :value 5}]}]
       (is (= 14 (compile-and-run ast))))))
+
+
+;; =============================================================================
+;; ast->datoms contract tests
+;; =============================================================================
+;; These test the CONTRACT, not implementation details:
+;; - Datoms are 5-tuples [e a v t m]
+;; - Entity IDs are tempids (negative integers)
+;; - Attributes use :yin/ namespace
+;; - Entity references correctly link parent to child nodes
+
+(deftest ast->datoms-shape-test
+  (testing "All datoms are 5-tuples [e a v t m]"
+    (let [datoms (vec (vm/ast->datoms {:type :literal, :value 42}))]
+      (is (every? #(= 5 (count %)) datoms) "Every datom must be a 5-tuple")))
+  (testing "Entity IDs are tempids (negative integers)"
+    (let [datoms (vec (vm/ast->datoms {:type :literal, :value 42}))]
+      (is (every? #(neg-int? (first %)) datoms)
+          "Entity ID (position 0) must be a negative integer tempid")))
+  (testing "Attributes use :yin/ namespace"
+    (let [datoms (vec (vm/ast->datoms {:type :literal, :value 42}))
+          attrs (map second datoms)]
+      (is (every? #(= "yin" (namespace %)) attrs)
+          "All attributes must be in :yin/ namespace")))
+  (testing "Transaction ID and metadata default to 0"
+    (let [datoms (vec (vm/ast->datoms {:type :literal, :value 42}))]
+      (is (every? #(= 0 (nth % 3)) datoms)
+          "Transaction ID (position 3) defaults to 0")
+      (is (every? #(= 0 (nth % 4)) datoms)
+          "Metadata (position 4) defaults to 0 (nil metadata entity)"))))
+
+
+(deftest ast->datoms-entity-references-test
+  (testing "Lambda body is referenced by tempid"
+    (let [datoms (vec (vm/ast->datoms {:type :lambda,
+                                       :params ['x],
+                                       :body {:type :variable, :name 'x}}))
+          lambda-datoms (filter #(= :lambda (nth % 2)) datoms)
+          body-ref-datom (first (filter #(= :yin/body (second %)) datoms))]
+      (is (= 1 (count lambda-datoms)) "Should have one lambda node")
+      (is (some? body-ref-datom) "Lambda should have :yin/body attribute")
+      (is (neg-int? (nth body-ref-datom 2))
+          ":yin/body value should be a tempid reference (negative integer)")))
+  (testing "Application operands are vector of tempid references"
+    (let [datoms (vec (vm/ast->datoms {:type :application,
+                                       :operator {:type :variable, :name '+},
+                                       :operands [{:type :literal, :value 1}
+                                                  {:type :literal, :value 2}]}))
+          operands-datom (first (filter #(= :yin/operands (second %)) datoms))]
+      (is (some? operands-datom)
+          "Application should have :yin/operands attribute")
+      (is (vector? (nth operands-datom 2)) ":yin/operands should be a vector")
+      (is
+        (every? neg-int? (nth operands-datom 2))
+        ":yin/operands should contain tempid references (negative integers)"))))
+
+
+(deftest ast->datoms-options-test
+  (testing "Custom transaction ID"
+    (let [datoms (vec (vm/ast->datoms {:type :literal, :value 42} {:t 1000}))]
+      (is (every? #(= 1000 (nth % 3)) datoms) "Transaction ID should be 1000")))
+  (testing "Custom metadata entity"
+    (let [datoms (vec (vm/ast->datoms {:type :literal, :value 42} {:m 5}))]
+      (is (every? #(= 5 (nth % 4)) datoms) "Metadata entity should be 5"))))
+
+
+(deftest ast->datoms-fibonacci-test
+  (testing "Fibonacci lambda produces valid datoms"
+    (let [fib-ast
+            {:type :lambda,
+             :params ['n],
+             :body {:type :if,
+                    :test {:type :application,
+                           :operator {:type :variable, :name '<},
+                           :operands [{:type :variable, :name 'n}
+                                      {:type :literal, :value 2}]},
+                    :consequent {:type :variable, :name 'n},
+                    :alternate
+                      {:type :application,
+                       :operator {:type :variable, :name '+},
+                       :operands
+                         [{:type :application,
+                           :operator {:type :variable, :name 'fib},
+                           :operands [{:type :application,
+                                       :operator {:type :variable, :name '-},
+                                       :operands [{:type :variable, :name 'n}
+                                                  {:type :literal, :value 1}]}]}
+                          {:type :application,
+                           :operator {:type :variable, :name 'fib},
+                           :operands [{:type :application,
+                                       :operator {:type :variable, :name '-},
+                                       :operands [{:type :variable, :name 'n}
+                                                  {:type :literal,
+                                                   :value 2}]}]}]}}}
+          datoms (vec (vm/ast->datoms fib-ast))]
+      (testing "All datoms are valid 5-tuples"
+        (is (every? #(= 5 (count %)) datoms) "Every datom must be a 5-tuple")
+        (is (every? #(neg-int? (first %)) datoms)
+            "All entity IDs must be negative integer tempids")
+        (is (every? #(= "yin" (namespace (second %))) datoms)
+            "All attributes must be in :yin/ namespace"))
+      (testing "Contains expected node types"
+        (let [types (->> datoms
+                         (filter #(= :yin/type (second %)))
+                         (map #(nth % 2))
+                         frequencies)]
+          (is (= 1 (get types :lambda)) "Should have 1 lambda")
+          (is (= 1 (get types :if)) "Should have 1 if")
+          (is (= 6 (get types :application))
+              "Should have 6 applications: <, +, fib, -, fib, -")
+          (is (= 10 (get types :variable))
+              "Should have 10 variables: <, n, n, +, fib, -, n, fib, -, n")
+          (is (= 3 (get types :literal)) "Should have 3 literals: 2, 1, 2")))
+      (testing "Entity references form valid graph"
+        (let [entity-ids (set (map first datoms))
+              refs (->> datoms
+                        (filter #(#{:yin/body :yin/operator :yin/test
+                                    :yin/consequent :yin/alternate}
+                                   (second %)))
+                        (map #(nth % 2)))]
+          (is (every? #(contains? entity-ids %) refs)
+              "All entity references should point to existing entities"))))))
+
+
+;; =============================================================================
+;; Stream operation tests (AST walker specific)
+;; =============================================================================
+
+(deftest stream-make-test
+  (testing "stream/make creates a stream reference"
+    (let [vm (-> (ast-walker/create-vm)
+                 (vm/load-program {:type :stream/make, :buffer 10})
+                 (vm/run))]
+      (is (= :stream-ref (:type (vm/value vm))))
+      (is (keyword? (:id (vm/value vm))))))
+  (testing "stream/make with default buffer"
+    (let [vm (-> (ast-walker/create-vm)
+                 (vm/load-program {:type :stream/make})
+                 (vm/run))
+          stream-id (:id (vm/value vm))
+          stream (get (vm/store vm) stream-id)]
+      (is (= :stream (:type stream)))
+      (is (= 1024 (:capacity stream)))
+      (is (= [] (:buffer stream))))))
+
+
+(deftest stream-put-test
+  (testing "stream/put adds value to stream buffer"
+    (let [vm-with-stream (-> (ast-walker/create-vm)
+                             (vm/load-program {:type :stream/make, :buffer 5})
+                             (vm/run))
+          stream-ref (vm/value vm-with-stream)
+          stream-id (:id stream-ref)
+          vm-after-put (-> vm-with-stream
+                           (vm/load-program {:type :stream/put,
+                                             :target {:type :literal,
+                                                      :value stream-ref},
+                                             :val {:type :literal, :value 42}})
+                           (vm/run))
+          stream (get (vm/store vm-after-put) stream-id)]
+      (is (= 42 (vm/value vm-after-put)))
+      (is (= [42] (:buffer stream)))))
+  (testing "stream/put multiple values"
+    (let [vm-with-stream (-> (ast-walker/create-vm)
+                             (vm/load-program {:type :stream/make, :buffer 10})
+                             (vm/run))
+          stream-ref (vm/value vm-with-stream)
+          stream-id (:id stream-ref)
+          put-ast (fn [val]
+                    {:type :stream/put,
+                     :target {:type :literal, :value stream-ref},
+                     :val {:type :literal, :value val}})
+          vm-after-puts (-> vm-with-stream
+                            (vm/load-program (put-ast 1))
+                            (vm/run)
+                            (vm/load-program (put-ast 2))
+                            (vm/run))
+          stream (get (vm/store vm-after-puts) stream-id)]
+      (is (= [1 2] (:buffer stream))))))
+
+
+(deftest stream-take-test
+  (testing "stream/take retrieves value from stream buffer"
+    (let [vm-with-stream (-> (ast-walker/create-vm)
+                             (vm/load-program {:type :stream/make, :buffer 5})
+                             (vm/run))
+          stream-ref (vm/value vm-with-stream)
+          stream-id (:id stream-ref)
+          vm-after-put (-> vm-with-stream
+                           (vm/load-program {:type :stream/put,
+                                             :target {:type :literal,
+                                                      :value stream-ref},
+                                             :val {:type :literal, :value 99}})
+                           (vm/run))
+          vm-after-take (-> vm-after-put
+                            (vm/load-program {:type :stream/take,
+                                              :source {:type :literal,
+                                                       :value stream-ref}})
+                            (vm/run))
+          stream (get (vm/store vm-after-take) stream-id)]
+      (is (= 99 (vm/value vm-after-take)))
+      (is (= [] (:buffer stream)))))
+  (testing "stream/take from empty stream blocks"
+    (let [vm-with-stream (-> (ast-walker/create-vm)
+                             (vm/load-program {:type :stream/make, :buffer 5})
+                             (vm/run))
+          stream-ref (vm/value vm-with-stream)
+          vm-after-take (-> vm-with-stream
+                            (vm/load-program {:type :stream/take,
+                                              :source {:type :literal,
+                                                       :value stream-ref}})
+                            (vm/run))]
+      (is (= :yin/blocked (vm/value vm-after-take))))))
+
+
+(deftest stream-fifo-ordering-test
+  (testing "stream maintains FIFO order"
+    (let [vm-with-stream (-> (ast-walker/create-vm)
+                             (vm/load-program {:type :stream/make, :buffer 10})
+                             (vm/run))
+          stream-ref (vm/value vm-with-stream)
+          put-ast (fn [val]
+                    {:type :stream/put,
+                     :target {:type :literal, :value stream-ref},
+                     :val {:type :literal, :value val}})
+          take-ast {:type :stream/take,
+                    :source {:type :literal, :value stream-ref}}
+          vm-after-puts (-> vm-with-stream
+                            (vm/load-program (put-ast :first))
+                            (vm/run)
+                            (vm/load-program (put-ast :second))
+                            (vm/run)
+                            (vm/load-program (put-ast :third))
+                            (vm/run))
+          vm-take1 (-> vm-after-puts
+                       (vm/load-program take-ast)
+                       (vm/run))
+          vm-take2 (-> vm-take1
+                       (vm/load-program take-ast)
+                       (vm/run))
+          vm-take3 (-> vm-take2
+                       (vm/load-program take-ast)
+                       (vm/run))]
+      (is (= :first (vm/value vm-take1)))
+      (is (= :second (vm/value vm-take2)))
+      (is (= :third (vm/value vm-take3))))))
+
+
+(deftest stream-with-lambda-test
+  (testing "stream operations within lambda application"
+    (let [ast {:type :application,
+               :operator {:type :lambda,
+                          :params ['s],
+                          :body {:type :stream/put,
+                                 :target {:type :variable, :name 's},
+                                 :val {:type :literal, :value 42}}},
+               :operands [{:type :stream/make, :buffer 5}]}]
+      (is (= 42 (compile-and-run ast))))))
+
+
+(deftest stream-put-take-roundtrip-test
+  (testing "put then take roundtrip within nested lambdas"
+    (let [ast {:type :application,
+               :operator {:type :lambda,
+                          :params ['s],
+                          :body {:type :application,
+                                 :operator {:type :lambda,
+                                            :params ['_],
+                                            :body {:type :stream/take,
+                                                   :source {:type :variable,
+                                                            :name 's}}},
+                                 :operands
+                                   [{:type :stream/put,
+                                     :target {:type :variable, :name 's},
+                                     :val {:type :literal, :value 42}}]}},
+               :operands [{:type :stream/make, :buffer 5}]}]
+      (is (= 42 (compile-and-run ast))))))
