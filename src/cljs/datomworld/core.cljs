@@ -889,6 +889,7 @@
                 :font-size "11px",
                 :font-family "monospace",
                 :overflow "auto",
+                :height "150px",
                 :max-height "150px"}}
        [:div
         {:style {:display "flex",
@@ -929,6 +930,7 @@
                 :font-size "11px",
                 :font-family "monospace",
                 :overflow "auto",
+                :height "150px",
                 :max-height "150px"}}
        [:div
         {:style {:display "flex",
@@ -970,6 +972,7 @@
                 :font-size "11px",
                 :font-family "monospace",
                 :overflow "auto",
+                :height "150px",
                 :max-height "150px"}}
        [:div
         {:style {:display "flex",
@@ -1019,6 +1022,7 @@
                 :font-size "11px",
                 :font-family "monospace",
                 :overflow "auto",
+                :height "150px",
                 :max-height "150px"}}
        [:div
         {:style {:display "flex",
