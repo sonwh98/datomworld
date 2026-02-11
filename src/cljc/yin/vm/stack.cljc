@@ -113,7 +113,7 @@
       (compile-node root-id) @instructions)))
 
 
-(defn assembly->bytecode
+(defn asm->bytecode
   "Convert symbolic stack assembly to numeric bytecode.
    Returns {:bc bytes :pool pool :source-map {byte-offset instr-index}}."
   [instructions]

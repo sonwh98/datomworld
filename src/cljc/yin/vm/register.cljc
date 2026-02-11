@@ -8,8 +8,8 @@
    - Continuation :k is always first-class and explicit
    - No implicit call stack - continuation IS the stack
 
-   Executes numeric bytecode produced by assembly->bytecode.
-   The compilation pipeline is: AST datoms -> ast-datoms->asm (symbolic IR) -> assembly->bytecode (numeric).
+   Executes numeric bytecode produced by asm->bytecode.
+   The compilation pipeline is: AST datoms -> ast-datoms->asm (symbolic IR) -> asm->bytecode (numeric).
    See ast-datoms->asm docstring for the full instruction set."
   (:require [datascript.core :as d]
             [yin.module :as module]
@@ -68,7 +68,7 @@
   "Takes the AST as datoms and transforms it to register-based assembly.
 
    Assembly is a vector of symbolic instructions (keyword mnemonics, not numeric
-   opcodes). A separate assembly->bytecode pass would encode these as numbers.
+   opcodes). A separate asm->bytecode pass would encode these as numbers.
 
    Instructions:
      [:loadk rd v]              - rd := literal value v
@@ -213,7 +213,7 @@
         @bytecode))))
 
 
-(defn assembly->bytecode
+(defn asm->bytecode
   "Convert register assembly (keyword mnemonics) to numeric bytecode.
 
    Returns {:bytecode [int...] :pool [value...] :source-map {byte-offset instr-index}}
@@ -313,7 +313,7 @@
 ;; =============================================================================
 ;;
 ;; Bytecode is a flat vector of integers produced by
-;; assembly->bytecode.
+;; asm->bytecode.
 ;; Opcodes are integers (see opcode-table). Non-integer operands (literals,
 ;; symbols, param vectors) live in a constant pool referenced by index.
 ;;

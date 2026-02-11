@@ -12,7 +12,7 @@
   [ast]
   (let [datoms (vm/ast->datoms ast)
         asm (stack/ast-datoms->asm datoms)
-        compiled (stack/assembly->bytecode asm)
+        compiled (stack/asm->bytecode asm)
         vm (stack/create-vm vm/primitives)]
     (-> vm
         (vm/load-program compiled)
@@ -24,7 +24,7 @@
   [ast]
   (let [datoms (vm/ast->datoms ast)
         asm (stack/ast-datoms->asm datoms)
-        compiled (stack/assembly->bytecode asm)]
+        compiled (stack/asm->bytecode asm)]
     (-> (stack/create-vm vm/primitives)
         (vm/load-program compiled))))
 

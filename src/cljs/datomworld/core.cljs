@@ -239,7 +239,7 @@
               (mapv (fn [ast]
                       (let [datoms (vm/ast->datoms ast)
                             asm (stack/ast-datoms->asm datoms)
-                            result (stack/assembly->bytecode asm)
+                            result (stack/asm->bytecode asm)
                             bc (:bc result)
                             pool (:pool result)
                             source-map (:source-map result)]
@@ -571,7 +571,7 @@
             results (mapv (fn [ast]
                             (let [datoms (vm/ast->datoms ast)
                                   asm (register/ast-datoms->asm datoms)
-                                  result (register/assembly->bytecode asm)
+                                  result (register/asm->bytecode asm)
                                   bytecode (:bytecode result)
                                   pool (:pool result)
                                   source-map (:source-map result)]

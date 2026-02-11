@@ -12,7 +12,7 @@
   [ast]
   (let [datoms (vm/ast->datoms ast)
         asm (register/ast-datoms->asm datoms)
-        compiled (register/assembly->bytecode asm)
+        compiled (register/asm->bytecode asm)
         vm (register/create-vm vm/primitives)]
     (-> vm
         (vm/load-program compiled)
@@ -24,7 +24,7 @@
   [ast]
   (let [datoms (vm/ast->datoms ast)
         asm (register/ast-datoms->asm datoms)
-        compiled (register/assembly->bytecode asm)]
+        compiled (register/asm->bytecode asm)]
     (-> (register/create-vm vm/primitives)
         (vm/load-program compiled))))
 
@@ -320,7 +320,7 @@
                                             :params ['x],
                                             :body {:type :variable, :name 'x}},
                                  :operands [{:type :literal, :value 42}]}))
-          compiled (register/assembly->bytecode asm)
+          compiled (register/asm->bytecode asm)
           vm-inst (register/create-vm)
           vm-loaded (vm/load-program vm-inst compiled)
           states (loop [v vm-loaded
