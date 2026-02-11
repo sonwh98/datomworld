@@ -38,7 +38,7 @@
        set))
 
 
-(defn find-by-attr
+(defn- find-by-attr
   "Find all datoms with a given attribute.
    Works with both 3-tuples and 5-tuples."
   [datoms attr]
@@ -97,7 +97,7 @@
 ;; The VM interprets :yin/ datoms by traversing node references (graph walk).
 ;; No program counter, no constant pool — values are inline in the datoms.
 
-(defn make-semantic-state
+(defn- make-semantic-state
   "Create initial state for stepping the semantic (datom) VM."
   [{:keys [node datoms]} env]
   (merge (vm/empty-state)
@@ -109,7 +109,7 @@
           :value nil}))
 
 
-(defn semantic-step
+(defn- semantic-step
   "Execute one step of the semantic VM."
   [state]
   (let [{:keys [control env stack datoms]} state]
@@ -226,13 +226,13 @@
           (throw (ex-info "Unknown node type" {:node-map node-map})))))))
 
 
-(defn semantic-run
+(defn- semantic-run
   "Run semantic VM to completion."
   [state]
   (loop [s state] (if (:halted s) (:value s) (recur (semantic-step s)))))
 
 
-(defn run-semantic
+(defn- run-semantic
   "Execute :yin/ datoms starting from a root node.
 
    Traverses the datom graph by following entity references.
@@ -277,7 +277,7 @@
                 (:primitives state)))
 
 
-(defn semantic-vm-step
+(defn- semantic-vm-step
   "Execute one step of SemanticVM. Returns updated VM."
   [^SemanticVM vm]
   (let [state (semantic-vm->state vm)
@@ -285,25 +285,25 @@
     (state->semantic-vm vm new-state)))
 
 
-(defn semantic-vm-halted?
+(defn- semantic-vm-halted?
   "Returns true if VM has halted."
   [^SemanticVM vm]
   (boolean (:halted vm)))
 
 
-(defn semantic-vm-blocked?
+(defn- semantic-vm-blocked?
   "Returns true if VM is blocked."
   [^SemanticVM vm]
   (= :yin/blocked (:value vm)))
 
 
-(defn semantic-vm-value
+(defn- semantic-vm-value
   "Returns the current value."
   [^SemanticVM vm]
   (:value vm))
 
 
-(defn semantic-vm-run
+(defn- semantic-vm-run
   "Run SemanticVM until halted or blocked."
   [^SemanticVM vm]
   (loop [v vm]
@@ -312,7 +312,7 @@
       (recur (semantic-vm-step v)))))
 
 
-(defn semantic-vm-load-program
+(defn- semantic-vm-load-program
   "Load datoms into the VM.
    Expects {:node root-id :datoms [...]}."
   [^SemanticVM vm {:keys [node datoms]}]
@@ -324,7 +324,7 @@
                            :value nil})))
 
 
-(defn semantic-vm-transact!
+(defn- semantic-vm-transact!
   "Transact datoms into the VM's DataScript db."
   [^SemanticVM vm datoms]
   (let [tx-data (vm/datoms->tx-data datoms)
@@ -333,7 +333,7 @@
     {:vm (assoc vm :db @conn), :tempids tempids}))
 
 
-(defn semantic-vm-q
+(defn- semantic-vm-q
   "Run a Datalog query against the VM's db."
   [^SemanticVM vm args]
   (apply d/q (first args) (:db vm) (rest args)))
