@@ -232,15 +232,6 @@
   (loop [s state] (if (:halted s) (:value s) (recur (semantic-step s)))))
 
 
-(defn- run-semantic
-  "Execute :yin/ datoms starting from a root node.
-
-   Traverses the datom graph by following entity references.
-   Takes {:node root-entity-id :datoms [[e a v ...] ...]} and an env map."
-  ([compiled] (run-semantic compiled {}))
-  ([compiled env] (semantic-run (make-semantic-state compiled env))))
-
-
 ;; =============================================================================
 ;; SemanticVM Protocol Implementation
 ;; =============================================================================
