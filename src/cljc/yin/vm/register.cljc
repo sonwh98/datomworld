@@ -23,7 +23,8 @@
   (:require [datascript.core :as d]
             [yin.module :as module]
             [yin.vm :as vm]
-            [yin.vm.protocols :as proto]))
+            [yin.vm.protocols :as proto])
+  #?(:cljs (:require-macros [yin.vm.register :refer [opcase]])))
 
 
 (def opcode-table
@@ -43,7 +44,14 @@
    :stream-take 13})
 
 
-(def reverse-opcode-table (into {} (map (fn [[k v]] [v k]) opcode-table)))
+#?(:clj (defmacro opcase
+          [op-expr & clauses]
+          (let [default (when (odd? (count clauses)) (last clauses))
+                paired (if default (butlast clauses) clauses)
+                pairs (partition 2 paired)
+                resolved (mapcat (fn [[kw body]] [(get opcode-table kw) body])
+                           pairs)]
+            `(case (int ~op-expr) ~@resolved ~@(when default [default])))))
 
 
 ;; =============================================================================
@@ -330,116 +338,116 @@
         op (get bytecode ip)]
     (if (nil? op)
       (throw (ex-info "Bytecode ended without return instruction" {:ip ip}))
-      (case (int op)
-        ;; loadk: rd = pool[const-idx]
-        0 (let [rd (get bytecode (+ ip 1))
-                v (get pool (get bytecode (+ ip 2)))]
-            (-> state
-                (set-reg rd v)
-                (assoc :ip (+ ip 3))))
-        ;; loadv: rd = env/store lookup of pool[const-idx]
-        1 (let [rd (get bytecode (+ ip 1))
-                name (get pool (get bytecode (+ ip 2)))
-                v (or (get env name)
-                      (get store name)
-                      (get (:primitives state) name)
-                      (module/resolve-symbol name))]
-            (-> state
-                (set-reg rd v)
-                (assoc :ip (+ ip 3))))
-        ;; move: rd = rs
-        2 (let [rd (get bytecode (+ ip 1))
-                rs (get bytecode (+ ip 2))]
-            (-> state
-                (set-reg rd (get-reg state rs))
-                (assoc :ip (+ ip 3))))
-        ;; closure: rd = closure{params=pool[idx], body-addr, env}
-        3 (let [rd (get bytecode (+ ip 1))
-                params (get pool (get bytecode (+ ip 2)))
-                body-addr (get bytecode (+ ip 3))
-                closure {:type :rbc-closure,
-                         :params params,
-                         :body-addr body-addr,
-                         :env env,
-                         :bytecode bytecode,
-                         :pool pool}]
-            (-> state
-                (set-reg rd closure)
-                (assoc :ip (+ ip 4))))
-        ;; call: rd = fn(args...)
-        4 (let [rd (get bytecode (+ ip 1))
-                rf (get bytecode (+ ip 2))
-                argc (get bytecode (+ ip 3))
-                fn-args (loop [i 0
-                               args (transient [])]
-                          (if (< i argc)
-                            (recur (inc i)
-                                   (conj! args
-                                          (get-reg state
-                                                   (get bytecode (+ ip 4 i)))))
-                            (persistent! args)))
-                fn-val (get-reg state rf)
-                next-ip (+ ip 4 argc)]
-            (cond (fn? fn-val)
-                    (let [result (apply fn-val fn-args)]
-                      (if (module/effect? result)
-                        (case (:effect result)
-                          :vm/store-put (-> state
-                                            (assoc-in [:store (:key result)]
-                                                      (:val result))
-                                            (set-reg rd (:val result))
-                                            (assoc :ip next-ip))
-                          (throw (ex-info "Unhandled effect in step-bc"
-                                          {:effect result})))
-                        (-> state
-                            (set-reg rd result)
-                            (assoc :ip next-ip))))
-                  (= :rbc-closure (:type fn-val))
-                    (let [{:keys [params body-addr env bytecode pool]} fn-val
-                          new-frame {:type :call-frame,
-                                     :return-reg rd,
-                                     :return-ip next-ip,
-                                     :saved-regs regs,
-                                     :saved-env (:env state),
-                                     :saved-bytecode (:bytecode state),
-                                     :saved-pool (:pool state),
-                                     :parent k}
-                          new-env (merge env (zipmap params fn-args))]
-                      (-> state
-                          (assoc :regs [])
-                          (assoc :k new-frame)
-                          (assoc :env new-env)
-                          (assoc :bytecode bytecode)
-                          (assoc :pool pool)
-                          (assoc :ip body-addr)))
-                  :else (throw (ex-info "Cannot call non-function"
-                                        {:fn fn-val}))))
-        ;; return
-        5 (let [rs (get bytecode (+ ip 1))
-                result (get-reg state rs)]
-            (if (nil? k)
-              (assoc state
-                :halted true
-                :value result)
-              (let [{:keys [return-reg return-ip saved-regs saved-env
-                            saved-bytecode saved-pool parent]}
-                      k]
-                (-> state
-                    (assoc :regs (assoc saved-regs return-reg result))
-                    (assoc :k parent)
-                    (assoc :env saved-env)
-                    (assoc :bytecode (or saved-bytecode (:bytecode state)))
-                    (assoc :pool (or saved-pool (:pool state)))
-                    (assoc :ip return-ip)))))
-        ;; branch
-        6 (let [rt (get bytecode (+ ip 1))
-                then-addr (get bytecode (+ ip 2))
-                else-addr (get bytecode (+ ip 3))
-                test-val (get-reg state rt)]
-            (assoc state :ip (if test-val then-addr else-addr)))
-        ;; jump
-        7 (let [addr (get bytecode (+ ip 1))] (assoc state :ip addr))
-        ;; Unknown opcode
+      (opcase
+        op
+        :loadk
+        (let [rd (get bytecode (+ ip 1))
+              v (get pool (get bytecode (+ ip 2)))]
+          (-> state
+              (set-reg rd v)
+              (assoc :ip (+ ip 3))))
+        :loadv
+        (let [rd (get bytecode (+ ip 1))
+              name (get pool (get bytecode (+ ip 2)))
+              v (or (get env name)
+                    (get store name)
+                    (get (:primitives state) name)
+                    (module/resolve-symbol name))]
+          (-> state
+              (set-reg rd v)
+              (assoc :ip (+ ip 3))))
+        :move
+        (let [rd (get bytecode (+ ip 1))
+              rs (get bytecode (+ ip 2))]
+          (-> state
+              (set-reg rd (get-reg state rs))
+              (assoc :ip (+ ip 3))))
+        :closure
+        (let [rd (get bytecode (+ ip 1))
+              params (get pool (get bytecode (+ ip 2)))
+              body-addr (get bytecode (+ ip 3))
+              closure {:type :rbc-closure,
+                       :params params,
+                       :body-addr body-addr,
+                       :env env,
+                       :bytecode bytecode,
+                       :pool pool}]
+          (-> state
+              (set-reg rd closure)
+              (assoc :ip (+ ip 4))))
+        :call
+        (let [rd (get bytecode (+ ip 1))
+              rf (get bytecode (+ ip 2))
+              argc (get bytecode (+ ip 3))
+              fn-args (loop [i 0
+                             args (transient [])]
+                        (if (< i argc)
+                          (recur (inc i)
+                                 (conj! args
+                                        (get-reg state
+                                                 (get bytecode (+ ip 4 i)))))
+                          (persistent! args)))
+              fn-val (get-reg state rf)
+              next-ip (+ ip 4 argc)]
+          (cond (fn? fn-val) (let [result (apply fn-val fn-args)]
+                               (if (module/effect? result)
+                                 (case (:effect result)
+                                   :vm/store-put (-> state
+                                                     (assoc-in [:store
+                                                                (:key result)]
+                                                               (:val result))
+                                                     (set-reg rd (:val result))
+                                                     (assoc :ip next-ip))
+                                   (throw (ex-info "Unhandled effect in step-bc"
+                                                   {:effect result})))
+                                 (-> state
+                                     (set-reg rd result)
+                                     (assoc :ip next-ip))))
+                (= :rbc-closure (:type fn-val))
+                  (let [{:keys [params body-addr env bytecode pool]} fn-val
+                        new-frame {:type :call-frame,
+                                   :return-reg rd,
+                                   :return-ip next-ip,
+                                   :saved-regs regs,
+                                   :saved-env (:env state),
+                                   :saved-bytecode (:bytecode state),
+                                   :saved-pool (:pool state),
+                                   :parent k}
+                        new-env (merge env (zipmap params fn-args))]
+                    (-> state
+                        (assoc :regs [])
+                        (assoc :k new-frame)
+                        (assoc :env new-env)
+                        (assoc :bytecode bytecode)
+                        (assoc :pool pool)
+                        (assoc :ip body-addr)))
+                :else (throw (ex-info "Cannot call non-function"
+                                      {:fn fn-val}))))
+        :return
+        (let [rs (get bytecode (+ ip 1))
+              result (get-reg state rs)]
+          (if (nil? k)
+            (assoc state
+              :halted true
+              :value result)
+            (let [{:keys [return-reg return-ip saved-regs saved-env
+                          saved-bytecode saved-pool parent]}
+                    k]
+              (-> state
+                  (assoc :regs (assoc saved-regs return-reg result))
+                  (assoc :k parent)
+                  (assoc :env saved-env)
+                  (assoc :bytecode (or saved-bytecode (:bytecode state)))
+                  (assoc :pool (or saved-pool (:pool state)))
+                  (assoc :ip return-ip)))))
+        :branch
+        (let [rt (get bytecode (+ ip 1))
+              then-addr (get bytecode (+ ip 2))
+              else-addr (get bytecode (+ ip 3))
+              test-val (get-reg state rt)]
+          (assoc state :ip (if test-val then-addr else-addr)))
+        :jump
+        (let [addr (get bytecode (+ ip 1))] (assoc state :ip addr))
         (throw (ex-info "Unknown bytecode opcode" {:op op, :ip ip}))))))
 
 
