@@ -133,6 +133,19 @@ Agents do not own state: they read/write streams.
 Agent identity must not imply trust.
 Capability tokens define authority, not identity.
 
+Continuation Migration:
+  When a continuation migrates, the AST datoms are the canonical payload.
+  Bytecode is a projection of the datoms for a specific execution model.
+  Migrating bytecode alone would force the destination to use the same VM.
+  Migrating datoms lets the destination project into whatever model it prefers.
+  The AST datoms can travel alone, giving the destination freedom to compile as needed.
+  Bytecode may accompany the datoms as a cache, but never travels without them.
+  If the destination runs the same VM model, it can use the bytecode directly.
+  If it doesn't, it recompiles from the datoms.
+  Closure fields like :body-bytes and :body-addr are ephemeral, local to the VM instance.
+  What survives migration: the datom stream, the captured environment bindings,
+  and the continuation structure (where execution was suspended).
+
 # CAPABILITIES & TRUST
 
 Possession of a capability is necessary but not sufficient for trust.
