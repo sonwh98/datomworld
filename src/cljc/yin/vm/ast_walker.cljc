@@ -3,8 +3,7 @@
   (:require [datascript.core :as d]
             [yin.module :as module]
             [yin.stream :as stream]
-            [yin.vm :as vm]
-            [yin.vm :as proto]))
+            [yin.vm :as vm]))
 
 
 ;; Counter for generating unique IDs (legacy, for backward compatibility)
@@ -503,16 +502,16 @@
 
 
 (extend-type ASTWalkerVM
-  proto/IVMStep
+  vm/IVMStep
     (step [vm] (vm-step vm))
     (halted? [vm] (vm-halted? vm))
     (blocked? [vm] (vm-blocked? vm))
     (value [vm] (vm-value vm))
-  proto/IVMRun
+  vm/IVMRun
     (run [vm] (vm-run vm))
-  proto/IVMLoad
+  vm/IVMLoad
     (load-program [vm program] (vm-load-program vm program))
-  proto/IVMDataScript
+  vm/IVMDataScript
     (transact! [vm datoms] (vm-transact! vm datoms))
     (q [vm args] (vm-q vm args)))
 

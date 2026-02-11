@@ -13,8 +13,7 @@
    See ast-datoms->asm docstring for the full instruction set."
   (:require [datascript.core :as d]
             [yin.module :as module]
-            [yin.vm :as vm]
-            [yin.vm :as proto])
+            [yin.vm :as vm])
   #?(:cljs (:require-macros [yin.vm.register :refer [opcase]])))
 
 
@@ -553,18 +552,18 @@
 
 
 (extend-type RegisterVM
-  proto/IVMStep
+  vm/IVMStep
     (step [vm] (reg-vm-step vm))
     (halted? [vm] (reg-vm-halted? vm))
     (blocked? [vm] (reg-vm-blocked? vm))
     (value [vm] (reg-vm-value vm))
-  proto/IVMRun
+  vm/IVMRun
     (run [vm] (reg-vm-run vm))
-  proto/IVMReset
+  vm/IVMReset
     (reset [vm] (reg-vm-reset vm))
-  proto/IVMLoad
+  vm/IVMLoad
     (load-program [vm program] (reg-vm-load-program vm program))
-  proto/IVMDataScript
+  vm/IVMDataScript
     (transact! [vm datoms] (reg-vm-transact! vm datoms))
     (q [vm args] (reg-vm-q vm args)))
 

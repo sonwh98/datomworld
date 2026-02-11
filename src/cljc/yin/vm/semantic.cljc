@@ -1,7 +1,6 @@
 (ns yin.vm.semantic
   (:require [datascript.core :as d]
-            [yin.vm :as vm]
-            [yin.vm :as proto]))
+            [yin.vm :as vm]))
 
 
 ;; =============================================================================
@@ -303,16 +302,16 @@
 
 
 (extend-type SemanticVM
-  proto/IVMStep
+  vm/IVMStep
     (step [vm] (semantic-vm-step vm))
     (halted? [vm] (semantic-vm-halted? vm))
     (blocked? [vm] (semantic-vm-blocked? vm))
     (value [vm] (semantic-vm-value vm))
-  proto/IVMRun
+  vm/IVMRun
     (run [vm] (semantic-vm-run vm))
-  proto/IVMLoad
+  vm/IVMLoad
     (load-program [vm program] (semantic-vm-load-program vm program))
-  proto/IVMDataScript
+  vm/IVMDataScript
     (transact! [vm datoms] (semantic-vm-transact! vm datoms))
     (q [vm args] (semantic-vm-q vm args)))
 

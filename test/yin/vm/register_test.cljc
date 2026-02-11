@@ -1,7 +1,6 @@
 (ns yin.vm.register-test
   (:require [clojure.test :refer [deftest is testing]]
             [yin.vm :as vm]
-            [yin.vm :as proto]
             [yin.vm.register :as register]))
 
 
@@ -16,9 +15,9 @@
         compiled (register/assembly->bytecode asm)
         vm (register/create-vm vm/primitives)]
     (-> vm
-        (proto/load-program compiled)
-        (proto/run)
-        (proto/value))))
+        (vm/load-program compiled)
+        (vm/run)
+        (vm/value))))
 
 
 (deftest bytecode-basic-test
@@ -86,8 +85,8 @@
   (let [vm (register/create-vm vm/primitives)
         ;; Bytecode program: loadk r0 pool[0], return r0; pool = [42]
         program {:bytecode [0 0 0 5 0], :pool [42]}
-        vm-loaded (proto/load-program vm program)
-        vm-final (proto/run vm-loaded)]
-    (proto/value vm-final))
+        vm-loaded (vm/load-program vm program)
+        vm-final (vm/run vm-loaded)]
+    (vm/value vm-final))
   ;; => 42
 )

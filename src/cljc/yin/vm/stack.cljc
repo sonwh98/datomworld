@@ -1,7 +1,6 @@
 (ns yin.vm.stack
   (:require [datascript.core :as d]
-            [yin.vm :as vm]
-            [yin.vm :as proto]))
+            [yin.vm :as vm]))
 
 
 ;; =============================================================================
@@ -425,16 +424,16 @@
 
 
 (extend-type StackVM
-  proto/IVMStep
+  vm/IVMStep
     (step [vm] (stack-vm-step vm))
     (halted? [vm] (stack-vm-halted? vm))
     (blocked? [vm] (stack-vm-blocked? vm))
     (value [vm] (stack-vm-value vm))
-  proto/IVMRun
+  vm/IVMRun
     (run [vm] (stack-vm-run vm))
-  proto/IVMLoad
+  vm/IVMLoad
     (load-program [vm program] (stack-vm-load-program vm program))
-  proto/IVMDataScript
+  vm/IVMDataScript
     (transact! [vm datoms] (stack-vm-transact! vm datoms))
     (q [vm args] (stack-vm-q vm args)))
 

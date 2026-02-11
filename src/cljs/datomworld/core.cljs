@@ -16,7 +16,6 @@
             [yang.python :as py]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as walker]
-            [yin.vm :as proto]
             [yin.vm.register :as register]
             [yin.vm.semantic :as semantic]
             [yin.vm.stack :as stack]))
@@ -250,9 +249,8 @@
             last-result (last results)
             initial-state (when last-result
                             (-> (stack/create-vm vm/primitives)
-                                (proto/load-program {:bc (:bc last-result),
-                                                     :pool (:pool
-                                                             last-result)})))]
+                                (vm/load-program {:bc (:bc last-result),
+                                                  :pool (:pool last-result)})))]
         (swap! app-state assoc
           :stack-asm (mapv :asm results)
           :stack-bc (mapv :bc results)
@@ -276,11 +274,11 @@
   "Execute one instruction in the stack VM."
   []
   (let [state (get-in @app-state [:vm-states :stack :state])]
-    (when (and state (not (proto/halted? state)))
-      (try (let [new-state (proto/step state)]
+    (when (and state (not (vm/halted? state)))
+      (try (let [new-state (vm/step state)]
              (swap! app-state assoc-in [:vm-states :stack :state] new-state)
-             (when (proto/halted? new-state)
-               (swap! app-state assoc :stack-result (proto/value new-state))
+             (when (vm/halted? new-state)
+               (swap! app-state assoc :stack-result (vm/value new-state))
                (swap! app-state assoc-in [:vm-states :stack :running] false)))
            (catch js/Error e
              (swap! app-state assoc
@@ -296,7 +294,7 @@
         pool (last (:stack-pool @app-state))]
     (when (and bc pool)
       (let [initial-state (-> (stack/create-vm vm/primitives)
-                              (proto/load-program {:bc bc, :pool pool}))]
+                              (vm/load-program {:bc bc, :pool pool}))]
         (swap! app-state assoc-in [:vm-states :stack :state] initial-state)
         (swap! app-state assoc-in [:vm-states :stack :running] false)
         (swap! app-state assoc :stack-result nil)))))
@@ -321,19 +319,19 @@
   []
   (let [running (get-in @app-state [:vm-states :stack :running])
         initial-state (get-in @app-state [:vm-states :stack :state])]
-    (when (and running initial-state (not (proto/halted? initial-state)))
+    (when (and running initial-state (not (vm/halted? initial-state)))
       (try
         (loop [i 0
                state initial-state]
-          (if (or (>= i steps-per-frame) (proto/halted? state))
+          (if (or (>= i steps-per-frame) (vm/halted? state))
             (do (swap! app-state assoc-in [:vm-states :stack :state] state)
-                (if (proto/halted? state)
-                  (do (swap! app-state assoc :stack-result (proto/value state))
+                (if (vm/halted? state)
+                  (do (swap! app-state assoc :stack-result (vm/value state))
                       (swap! app-state assoc-in
                         [:vm-states :stack :running]
                         false))
                   (js/requestAnimationFrame run-stack-loop)))
-            (recur (inc i) (proto/step state))))
+            (recur (inc i) (vm/step state))))
         (catch js/Error e
           (swap! app-state assoc :error (str "Stack VM Error: " (.-message e)))
           (swap! app-state assoc-in [:vm-states :stack :running] false))))))
@@ -350,7 +348,7 @@
             {:keys [text source-map]} (ast->text-with-map ast-with-ids)
             initial-env vm/primitives
             vm (walker/create initial-env)
-            vm-loaded (proto/load-program vm ast-with-ids)]
+            vm-loaded (vm/load-program vm ast-with-ids)]
         (.log js/console "Resetting walker with AST:" (clj->js ast-with-ids))
         (swap! app-state assoc :ast-as-text text :walker-source-map source-map)
         (swap! app-state assoc-in [:vm-states :walker :state] vm-loaded)
@@ -367,12 +365,12 @@
   "Execute one instruction in the AST Walker VM."
   []
   (let [state (get-in @app-state [:vm-states :walker :state])]
-    (when (and state (not (proto/halted? state)))
-      (try (let [new-state (proto/step state)]
+    (when (and state (not (vm/halted? state)))
+      (try (let [new-state (vm/step state)]
              (.log js/console "Stepped walker:" (clj->js new-state))
              (swap! app-state assoc-in [:vm-states :walker :state] new-state)
-             (when (proto/halted? new-state)
-               (swap! app-state assoc :walker-result (proto/value new-state))
+             (when (vm/halted? new-state)
+               (swap! app-state assoc :walker-result (vm/value new-state))
                (swap! app-state assoc-in [:vm-states :walker :running] false)))
            (catch js/Error e
              (.error js/console "AST Walker Step Error:" e)
@@ -398,24 +396,23 @@
   []
   (let [running (get-in @app-state [:vm-states :walker :running])
         initial-state (get-in @app-state [:vm-states :walker :state])]
-    (when (and running initial-state (not (proto/halted? initial-state)))
-      (try
-        (loop [i 0
-               state initial-state]
-          (if (or (>= i steps-per-frame) (proto/halted? state))
-            (do (swap! app-state assoc-in [:vm-states :walker :state] state)
-                (if (proto/halted? state)
-                  (do (swap! app-state assoc :walker-result (proto/value state))
-                      (swap! app-state assoc-in
-                        [:vm-states :walker :running]
-                        false))
-                  (js/requestAnimationFrame run-walker-loop)))
-            (recur (inc i) (proto/step state))))
-        (catch js/Error e
-          (swap! app-state assoc
-            :error
-            (str "AST Walker VM Error: " (.-message e)))
-          (swap! app-state assoc-in [:vm-states :walker :running] false))))))
+    (when (and running initial-state (not (vm/halted? initial-state)))
+      (try (loop [i 0
+                  state initial-state]
+             (if (or (>= i steps-per-frame) (vm/halted? state))
+               (do (swap! app-state assoc-in [:vm-states :walker :state] state)
+                   (if (vm/halted? state)
+                     (do (swap! app-state assoc :walker-result (vm/value state))
+                         (swap! app-state assoc-in
+                           [:vm-states :walker :running]
+                           false))
+                     (js/requestAnimationFrame run-walker-loop)))
+               (recur (inc i) (vm/step state))))
+           (catch js/Error e
+             (swap! app-state assoc
+               :error
+               (str "AST Walker VM Error: " (.-message e)))
+             (swap! app-state assoc-in [:vm-states :walker :running] false))))))
 
 
 (defn compile-ast
@@ -441,8 +438,8 @@
         (let [last-root (last root-ids)]
           (when last-root
             (let [initial-state (-> (semantic/create-vm vm/primitives)
-                                    (proto/load-program {:node last-root,
-                                                         :datoms all-datoms}))]
+                                    (vm/load-program {:node last-root,
+                                                      :datoms all-datoms}))]
               (swap! app-state assoc-in
                 [:vm-states :semantic :state]
                 initial-state)
@@ -464,12 +461,12 @@
   "Execute one instruction in the semantic VM."
   []
   (let [state (get-in @app-state [:vm-states :semantic :state])]
-    (when (and state (not (proto/halted? state)))
+    (when (and state (not (vm/halted? state)))
       (try
-        (let [new-state (proto/step state)]
+        (let [new-state (vm/step state)]
           (swap! app-state assoc-in [:vm-states :semantic :state] new-state)
-          (when (proto/halted? new-state)
-            (swap! app-state assoc :semantic-result (proto/value new-state))
+          (when (vm/halted? new-state)
+            (swap! app-state assoc :semantic-result (vm/value new-state))
             (swap! app-state assoc-in [:vm-states :semantic :running] false)))
         (catch js/Error e
           (swap! app-state assoc
@@ -486,8 +483,8 @@
         last-root (last root-ids)]
     (when (and datoms last-root)
       (let [initial-state (-> (semantic/create-vm vm/primitives)
-                              (proto/load-program {:node last-root,
-                                                   :datoms datoms}))]
+                              (vm/load-program {:node last-root,
+                                                :datoms datoms}))]
         (swap! app-state assoc-in [:vm-states :semantic :state] initial-state)
         (swap! app-state assoc-in [:vm-states :semantic :running] false)
         (swap! app-state assoc :semantic-result nil)))))
@@ -509,20 +506,19 @@
   []
   (let [running (get-in @app-state [:vm-states :semantic :running])
         initial-state (get-in @app-state [:vm-states :semantic :state])]
-    (when (and running initial-state (not (proto/halted? initial-state)))
+    (when (and running initial-state (not (vm/halted? initial-state)))
       (try
         (loop [i 0
                state initial-state]
-          (if (or (>= i steps-per-frame) (proto/halted? state))
+          (if (or (>= i steps-per-frame) (vm/halted? state))
             (do (swap! app-state assoc-in [:vm-states :semantic :state] state)
-                (if (proto/halted? state)
-                  (do
-                    (swap! app-state assoc :semantic-result (proto/value state))
-                    (swap! app-state assoc-in
-                      [:vm-states :semantic :running]
-                      false))
+                (if (vm/halted? state)
+                  (do (swap! app-state assoc :semantic-result (vm/value state))
+                      (swap! app-state assoc-in
+                        [:vm-states :semantic :running]
+                        false))
                   (js/requestAnimationFrame run-semantic-loop)))
-            (recur (inc i) (proto/step state))))
+            (recur (inc i) (vm/step state))))
         (catch js/Error e
           (swap! app-state assoc
             :error
@@ -588,9 +584,9 @@
             last-result (last results)
             initial-state (when last-result
                             (-> (register/create-vm vm/primitives)
-                                (proto/load-program
-                                  {:bytecode (:bytecode last-result),
-                                   :pool (:pool last-result)})))]
+                                (vm/load-program {:bytecode (:bytecode
+                                                              last-result),
+                                                  :pool (:pool last-result)})))]
         (swap! app-state assoc
           :register-asm (mapv :asm results)
           :register-bytecode (mapv :bytecode results)
@@ -614,12 +610,12 @@
   "Execute one instruction in the register VM."
   []
   (let [state (get-in @app-state [:vm-states :register :state])]
-    (when (and state (not (proto/halted? state)))
+    (when (and state (not (vm/halted? state)))
       (try
-        (let [new-state (proto/step state)]
+        (let [new-state (vm/step state)]
           (swap! app-state assoc-in [:vm-states :register :state] new-state)
-          (when (proto/halted? new-state)
-            (swap! app-state assoc :register-result (proto/value new-state))
+          (when (vm/halted? new-state)
+            (swap! app-state assoc :register-result (vm/value new-state))
             (swap! app-state assoc-in [:vm-states :register :running] false)))
         (catch js/Error e
           (swap! app-state assoc
@@ -635,11 +631,11 @@
         pool (last (:register-pool @app-state))
         state (get-in @app-state [:vm-states :register :state])]
     (when (and bytecode pool)
-      (let [initial-state (if (and state (satisfies? proto/IVMReset state))
-                            (proto/reset state)
+      (let [initial-state (if (and state (satisfies? vm/IVMReset state))
+                            (vm/reset state)
                             (-> (register/create-vm vm/primitives)
-                                (proto/load-program {:bytecode bytecode,
-                                                     :pool pool})))]
+                                (vm/load-program {:bytecode bytecode,
+                                                  :pool pool})))]
         (swap! app-state assoc-in [:vm-states :register :state] initial-state)
         (swap! app-state assoc-in [:vm-states :register :running] false)
         (swap! app-state assoc :register-result nil)))))
@@ -661,20 +657,19 @@
   []
   (let [running (get-in @app-state [:vm-states :register :running])
         initial-state (get-in @app-state [:vm-states :register :state])]
-    (when (and running initial-state (not (proto/halted? initial-state)))
+    (when (and running initial-state (not (vm/halted? initial-state)))
       (try
         (loop [i 0
                state initial-state]
-          (if (or (>= i steps-per-frame) (proto/halted? state))
+          (if (or (>= i steps-per-frame) (vm/halted? state))
             (do (swap! app-state assoc-in [:vm-states :register :state] state)
-                (if (proto/halted? state)
-                  (do
-                    (swap! app-state assoc :register-result (proto/value state))
-                    (swap! app-state assoc-in
-                      [:vm-states :register :running]
-                      false))
+                (if (vm/halted? state)
+                  (do (swap! app-state assoc :register-result (vm/value state))
+                      (swap! app-state assoc-in
+                        [:vm-states :register :running]
+                        false))
                   (js/requestAnimationFrame run-register-loop)))
-            (recur (inc i) (proto/step state))))
+            (recur (inc i) (vm/step state))))
         (catch js/Error e
           (swap! app-state assoc
             :error
@@ -702,7 +697,7 @@
         ;; Initialize AST Walker state
         (let [initial-env vm/primitives
               vm (walker/create initial-env)
-              vm-loaded (proto/load-program vm ast-with-ids)]
+              vm-loaded (vm/load-program vm ast-with-ids)]
           (swap! app-state assoc-in [:vm-states :walker :state] vm-loaded)
           (swap! app-state assoc-in [:vm-states :walker :running] false)
           (swap! app-state assoc :walker-result nil)))
@@ -834,8 +829,8 @@
         running (:running vm-state)
         state (:state vm-state)
         halted (when state
-                 (try (if (satisfies? proto/IVMStep state)
-                        (proto/halted? state)
+                 (try (if (satisfies? vm/IVMStep state)
+                        (vm/halted? state)
                         (or (:halted state) false))
                       (catch js/Error _ (or (:halted state) false))))]
     [:div {:style {:display "flex", :gap "5px", :margin-top "5px"}}
@@ -1235,7 +1230,7 @@
                 [vm-state-display
                  {:vm-key :walker,
                   :status-fn (fn [state]
-                               (cond (proto/halted? state) "HALTED"
+                               (cond (vm/halted? state) "HALTED"
                                      (:control state)
                                        (str "Control: "
                                             (or (get-in state [:control :type])
@@ -1247,7 +1242,7 @@
                                                 "pending"))
                                      :else "Returning...")),
                   :summary-fn (fn [state]
-                                (when (not (proto/halted? state))
+                                (when (not (vm/halted? state))
                                   (let [ctrl (:control state)]
                                     (when ctrl
                                       [:div {:style {:color "#c5c6c7"}}
@@ -1262,13 +1257,13 @@
                           (if c (recur (:parent c) (inc depth)) depth))]
                        [:div "Value: " (pr-str (:value state))]])}]
                 (let [vm-state (get-in @app-state [:vm-states :walker :state])]
-                  (when (and vm-state (proto/halted? vm-state))
+                  (when (and vm-state (vm/halted? vm-state))
                     [:div
                      {:style {:marginTop "5px",
                               :background "#0d1117",
                               :padding "5px",
                               :border "1px solid #30363d"}} [:strong "Result: "]
-                     (pr-str (proto/value vm-state))]))])]
+                     (pr-str (vm/value vm-state))]))])]
             [draggable-card :semantic "Semantic VM"
              [:div
               {:style {:display "flex",

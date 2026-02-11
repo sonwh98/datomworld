@@ -3,7 +3,6 @@
                :cljs [cljs.test :refer-macros [deftest is testing]])
             [yin.vm :as vm]
             [yin.vm.ast-walker :as walker]
-            [yin.vm :as proto]
             [yin.vm.register :as register]))
 
 
@@ -349,12 +348,11 @@
                                  :operands [{:type :literal, :value 42}]}))
           compiled (register/assembly->bytecode asm)
           vm (register/create-vm)
-          vm-loaded (proto/load-program vm compiled)
+          vm-loaded (vm/load-program vm compiled)
           ;; Step until we're inside the closure body
-          states
-            (loop [v vm-loaded
-                   acc []]
-              (if (proto/halted? v) acc (recur (proto/step v) (conj acc v))))
+          states (loop [v vm-loaded
+                        acc []]
+                   (if (vm/halted? v) acc (recur (vm/step v) (conj acc v))))
           ;; Find state where :k is non-nil (inside closure)
           inside-closure (first (filter #(:k %) states))]
       (is (some? inside-closure)
