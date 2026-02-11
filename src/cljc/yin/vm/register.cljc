@@ -356,7 +356,7 @@
         (let [rd (get bytecode (+ ip 1))
               params (get pool (get bytecode (+ ip 2)))
               body-addr (get bytecode (+ ip 3))
-              closure {:type :rbc-closure,
+              closure {:type :closure,
                        :params params,
                        :body-addr body-addr,
                        :env env,
@@ -393,7 +393,7 @@
                                  (-> state
                                      (set-reg rd result)
                                      (assoc :ip next-ip))))
-                (= :rbc-closure (:type fn-val))
+                (= :closure (:type fn-val))
                   (let [{:keys [params body-addr env bytecode pool]} fn-val
                         new-frame {:type :call-frame,
                                    :return-reg rd,
