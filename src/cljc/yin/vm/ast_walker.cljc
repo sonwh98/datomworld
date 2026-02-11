@@ -10,7 +10,7 @@
 (def ^:private id-counter (atom 0))
 
 
-(defn gensym-id
+(defn- gensym-id
   "Generate a unique keyword ID with optional prefix.
    Legacy function for backward compatibility.
    In the pure VM, use the :id-counter field in the state."
@@ -34,7 +34,7 @@
                        ])
 
 
-(defn eval
+(defn- eval
   "Steps the CESK machine to evaluate an AST node.
 
   State is a map containing:
@@ -386,14 +386,14 @@
 
 
 ;; Helper to check if VM is parked (blocked)
-(defn parked?
+(defn- parked?
   "Returns true if the VM has parked continuations waiting."
   [state]
   (boolean (seq (:parked state))))
 
 
 ;; Helper to get parked continuation IDs
-(defn parked-ids
+(defn- parked-ids
   "Returns the IDs of all parked continuations."
   [state]
   (keys (:parked state)))
@@ -431,7 +431,7 @@
                  (:primitives state)))
 
 
-(defn vm-step
+(defn- vm-step
   "Execute one step of ASTWalkerVM. Returns updated VM."
   [^ASTWalkerVM vm]
   (let [state (vm->state vm)
@@ -439,34 +439,34 @@
     (state->vm vm new-state)))
 
 
-(defn vm-halted?
+(defn- vm-halted?
   "Returns true if VM has halted."
   [^ASTWalkerVM vm]
   (and (nil? (:control vm)) (nil? (:continuation vm))))
 
 
-(defn vm-blocked?
+(defn- vm-blocked?
   "Returns true if VM is blocked."
   [^ASTWalkerVM vm]
   (= :yin/blocked (:value vm)))
 
 
-(defn vm-value "Returns the current value." [^ASTWalkerVM vm] (:value vm))
+(defn- vm-value "Returns the current value." [^ASTWalkerVM vm] (:value vm))
 
 
-(defn vm-run
+(defn- vm-run
   "Run ASTWalkerVM until halted or blocked."
   [^ASTWalkerVM vm]
   (loop [v vm] (if (or (vm-halted? v) (vm-blocked? v)) v (recur (vm-step v)))))
 
 
-(defn vm-load-program
+(defn- vm-load-program
   "Load an AST into the VM."
   [^ASTWalkerVM vm ast]
   (assoc vm :control ast))
 
 
-(defn vm-transact!
+(defn- vm-transact!
   "Transact datoms into the VM's DataScript db."
   [^ASTWalkerVM vm datoms]
   (let [tx-data (vm/datoms->tx-data datoms)
@@ -475,7 +475,7 @@
     {:vm (assoc vm :db @conn), :tempids tempids}))
 
 
-(defn vm-q
+(defn- vm-q
   "Run a Datalog query against the VM's db."
   [^ASTWalkerVM vm args]
   (apply d/q (first args) (:db vm) (rest args)))
