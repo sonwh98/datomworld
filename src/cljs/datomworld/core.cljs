@@ -292,23 +292,6 @@
         nil))))
 
 
-(defn step-stack
-  "Execute one instruction in the stack VM."
-  []
-  (let [state (get-in @app-state [:vm-states :stack :state])]
-    (when (and state (not (vm/halted? state)))
-      (try (let [new-state (vm/step state)]
-             (swap! app-state assoc-in [:vm-states :stack :state] new-state)
-             (when (vm/halted? new-state)
-               (swap! app-state assoc :stack-result (vm/value new-state))
-               (swap! app-state assoc-in [:vm-states :stack :running] false)))
-           (catch js/Error e
-             (swap! app-state assoc
-               :error
-               (str "Stack VM Step Error: " (.-message e)))
-             (swap! app-state assoc-in [:vm-states :stack :running] false))))))
-
-
 (defn reset-stack
   "Reset stack VM to initial state from compiled bytecode."
   []
@@ -322,41 +305,57 @@
         (swap! app-state assoc :stack-result nil)))))
 
 
-(declare run-stack-loop)
-
-
 (def steps-per-frame 100)
 
 
-(defn toggle-run-stack
-  "Toggle auto-stepping for stack VM."
-  []
-  (let [running (get-in @app-state [:vm-states :stack :running])]
-    (swap! app-state assoc-in [:vm-states :stack :running] (not running))
-    (when (not running) (run-stack-loop))))
+(defn step-vm
+  "Execute one instruction in the given VM."
+  [vm-key result-key]
+  (let [state (get-in @app-state [:vm-states vm-key :state])]
+    (when (and state (not (vm/halted? state)))
+      (try (let [new-state (vm/step state)]
+             (swap! app-state assoc-in [:vm-states vm-key :state] new-state)
+             (when (vm/halted? new-state)
+               (swap! app-state assoc result-key (vm/value new-state))
+               (swap! app-state assoc-in [:vm-states vm-key :running] false)))
+           (catch js/Error e
+             (swap! app-state assoc
+               :error
+               (str (name vm-key) " VM Step Error: " (.-message e)))
+             (swap! app-state assoc-in [:vm-states vm-key :running] false))))))
 
 
-(defn run-stack-loop
-  "Auto-step loop for stack VM using requestAnimationFrame."
-  []
-  (let [running (get-in @app-state [:vm-states :stack :running])
-        initial-state (get-in @app-state [:vm-states :stack :state])]
+(defn run-vm-loop
+  "Auto-step loop for the given VM using requestAnimationFrame."
+  [vm-key result-key]
+  (let [running (get-in @app-state [:vm-states vm-key :running])
+        initial-state (get-in @app-state [:vm-states vm-key :state])]
     (when (and running initial-state (not (vm/halted? initial-state)))
-      (try
-        (loop [i 0
-               state initial-state]
-          (if (or (>= i steps-per-frame) (vm/halted? state))
-            (do (swap! app-state assoc-in [:vm-states :stack :state] state)
-                (if (vm/halted? state)
-                  (do (swap! app-state assoc :stack-result (vm/value state))
-                      (swap! app-state assoc-in
-                        [:vm-states :stack :running]
-                        false))
-                  (js/requestAnimationFrame run-stack-loop)))
-            (recur (inc i) (vm/step state))))
-        (catch js/Error e
-          (swap! app-state assoc :error (str "Stack VM Error: " (.-message e)))
-          (swap! app-state assoc-in [:vm-states :stack :running] false))))))
+      (try (loop [i 0
+                  state initial-state]
+             (if (or (>= i steps-per-frame) (vm/halted? state))
+               (do (swap! app-state assoc-in [:vm-states vm-key :state] state)
+                   (if (vm/halted? state)
+                     (do (swap! app-state assoc result-key (vm/value state))
+                         (swap! app-state assoc-in
+                           [:vm-states vm-key :running]
+                           false))
+                     (js/requestAnimationFrame #(run-vm-loop vm-key
+                                                             result-key))))
+               (recur (inc i) (vm/step state))))
+           (catch js/Error e
+             (swap! app-state assoc
+               :error
+               (str (name vm-key) " VM Error: " (.-message e)))
+             (swap! app-state assoc-in [:vm-states vm-key :running] false))))))
+
+
+(defn toggle-run-vm
+  "Toggle auto-stepping for the given VM."
+  [vm-key result-key]
+  (let [running (get-in @app-state [:vm-states vm-key :running])]
+    (swap! app-state assoc-in [:vm-states vm-key :running] (not running))
+    (when (not running) (run-vm-loop vm-key result-key))))
 
 
 (defn reset-walker
@@ -381,60 +380,6 @@
         (swap! app-state assoc
           :error
           (str "AST Walker Reset Error: " (.-message e)))))))
-
-
-(defn step-walker
-  "Execute one instruction in the AST Walker VM."
-  []
-  (let [state (get-in @app-state [:vm-states :walker :state])]
-    (when (and state (not (vm/halted? state)))
-      (try (let [new-state (vm/step state)]
-             (.log js/console "Stepped walker:" (clj->js new-state))
-             (swap! app-state assoc-in [:vm-states :walker :state] new-state)
-             (when (vm/halted? new-state)
-               (swap! app-state assoc :walker-result (vm/value new-state))
-               (swap! app-state assoc-in [:vm-states :walker :running] false)))
-           (catch js/Error e
-             (.error js/console "AST Walker Step Error:" e)
-             (swap! app-state assoc
-               :error
-               (str "AST Walker Step Error: " (.-message e)))
-             (swap! app-state assoc-in [:vm-states :walker :running] false))))))
-
-
-(declare run-walker-loop)
-
-
-(defn toggle-run-walker
-  "Toggle auto-stepping for AST Walker VM."
-  []
-  (let [running (get-in @app-state [:vm-states :walker :running])]
-    (swap! app-state assoc-in [:vm-states :walker :running] (not running))
-    (when (not running) (run-walker-loop))))
-
-
-(defn run-walker-loop
-  "Auto-step loop for AST Walker VM using requestAnimationFrame."
-  []
-  (let [running (get-in @app-state [:vm-states :walker :running])
-        initial-state (get-in @app-state [:vm-states :walker :state])]
-    (when (and running initial-state (not (vm/halted? initial-state)))
-      (try (loop [i 0
-                  state initial-state]
-             (if (or (>= i steps-per-frame) (vm/halted? state))
-               (do (swap! app-state assoc-in [:vm-states :walker :state] state)
-                   (if (vm/halted? state)
-                     (do (swap! app-state assoc :walker-result (vm/value state))
-                         (swap! app-state assoc-in
-                           [:vm-states :walker :running]
-                           false))
-                     (js/requestAnimationFrame run-walker-loop)))
-               (recur (inc i) (vm/step state))))
-           (catch js/Error e
-             (swap! app-state assoc
-               :error
-               (str "AST Walker VM Error: " (.-message e)))
-             (swap! app-state assoc-in [:vm-states :walker :running] false))))))
 
 
 (defn compile-ast
@@ -479,24 +424,6 @@
         nil))))
 
 
-(defn step-semantic
-  "Execute one instruction in the semantic VM."
-  []
-  (let [state (get-in @app-state [:vm-states :semantic :state])]
-    (when (and state (not (vm/halted? state)))
-      (try
-        (let [new-state (vm/step state)]
-          (swap! app-state assoc-in [:vm-states :semantic :state] new-state)
-          (when (vm/halted? new-state)
-            (swap! app-state assoc :semantic-result (vm/value new-state))
-            (swap! app-state assoc-in [:vm-states :semantic :running] false)))
-        (catch js/Error e
-          (swap! app-state assoc
-            :error
-            (str "Semantic VM Step Error: " (.-message e)))
-          (swap! app-state assoc-in [:vm-states :semantic :running] false))))))
-
-
 (defn reset-semantic
   "Reset semantic VM to initial state."
   []
@@ -510,42 +437,6 @@
         (swap! app-state assoc-in [:vm-states :semantic :state] initial-state)
         (swap! app-state assoc-in [:vm-states :semantic :running] false)
         (swap! app-state assoc :semantic-result nil)))))
-
-
-(declare run-semantic-loop)
-
-
-(defn toggle-run-semantic
-  "Toggle auto-stepping for semantic VM."
-  []
-  (let [running (get-in @app-state [:vm-states :semantic :running])]
-    (swap! app-state assoc-in [:vm-states :semantic :running] (not running))
-    (when (not running) (run-semantic-loop))))
-
-
-(defn run-semantic-loop
-  "Auto-step loop for semantic VM using requestAnimationFrame."
-  []
-  (let [running (get-in @app-state [:vm-states :semantic :running])
-        initial-state (get-in @app-state [:vm-states :semantic :state])]
-    (when (and running initial-state (not (vm/halted? initial-state)))
-      (try
-        (loop [i 0
-               state initial-state]
-          (if (or (>= i steps-per-frame) (vm/halted? state))
-            (do (swap! app-state assoc-in [:vm-states :semantic :state] state)
-                (if (vm/halted? state)
-                  (do (swap! app-state assoc :semantic-result (vm/value state))
-                      (swap! app-state assoc-in
-                        [:vm-states :semantic :running]
-                        false))
-                  (js/requestAnimationFrame run-semantic-loop)))
-            (recur (inc i) (vm/step state))))
-        (catch js/Error e
-          (swap! app-state assoc
-            :error
-            (str "Semantic VM Error: " (.-message e)))
-          (swap! app-state assoc-in [:vm-states :semantic :running] false))))))
 
 
 (defn- parse-in-bindings
@@ -628,24 +519,6 @@
         nil))))
 
 
-(defn step-register
-  "Execute one instruction in the register VM."
-  []
-  (let [state (get-in @app-state [:vm-states :register :state])]
-    (when (and state (not (vm/halted? state)))
-      (try
-        (let [new-state (vm/step state)]
-          (swap! app-state assoc-in [:vm-states :register :state] new-state)
-          (when (vm/halted? new-state)
-            (swap! app-state assoc :register-result (vm/value new-state))
-            (swap! app-state assoc-in [:vm-states :register :running] false)))
-        (catch js/Error e
-          (swap! app-state assoc
-            :error
-            (str "Register VM Step Error: " (.-message e)))
-          (swap! app-state assoc-in [:vm-states :register :running] false))))))
-
-
 (defn reset-register
   "Reset register VM to initial state from compiled bytecode."
   []
@@ -661,42 +534,6 @@
         (swap! app-state assoc-in [:vm-states :register :state] initial-state)
         (swap! app-state assoc-in [:vm-states :register :running] false)
         (swap! app-state assoc :register-result nil)))))
-
-
-(declare run-register-loop)
-
-
-(defn toggle-run-register
-  "Toggle auto-stepping for register VM."
-  []
-  (let [running (get-in @app-state [:vm-states :register :running])]
-    (swap! app-state assoc-in [:vm-states :register :running] (not running))
-    (when (not running) (run-register-loop))))
-
-
-(defn run-register-loop
-  "Auto-step loop for register VM using requestAnimationFrame."
-  []
-  (let [running (get-in @app-state [:vm-states :register :running])
-        initial-state (get-in @app-state [:vm-states :register :state])]
-    (when (and running initial-state (not (vm/halted? initial-state)))
-      (try
-        (loop [i 0
-               state initial-state]
-          (if (or (>= i steps-per-frame) (vm/halted? state))
-            (do (swap! app-state assoc-in [:vm-states :register :state] state)
-                (if (vm/halted? state)
-                  (do (swap! app-state assoc :register-result (vm/value state))
-                      (swap! app-state assoc-in
-                        [:vm-states :register :running]
-                        false))
-                  (js/requestAnimationFrame run-register-loop)))
-            (recur (inc i) (vm/step state))))
-        (catch js/Error e
-          (swap! app-state assoc
-            :error
-            (str "Register VM Error: " (.-message e)))
-          (swap! app-state assoc-in [:vm-states :register :running] false))))))
 
 
 (defn compile-source
@@ -1246,8 +1083,8 @@
                   :on-change (fn [v] (swap! app-state assoc :ast-as-text v))}]
                 [vm-control-buttons
                  {:vm-key :walker,
-                  :step-fn step-walker,
-                  :toggle-run-fn toggle-run-walker,
+                  :step-fn #(step-vm :walker :walker-result),
+                  :toggle-run-fn #(toggle-run-vm :walker :walker-result),
                   :reset-fn reset-walker}]
                 [vm-state-display
                  {:vm-key :walker,
@@ -1295,8 +1132,8 @@
               [datom-list-view (:datoms @app-state) active-asm-id]
               [vm-control-buttons
                {:vm-key :semantic,
-                :step-fn step-semantic,
-                :toggle-run-fn toggle-run-semantic,
+                :step-fn #(step-vm :semantic :semantic-result),
+                :toggle-run-fn #(toggle-run-vm :semantic :semantic-result),
                 :reset-fn reset-semantic}]
               [vm-state-display
                {:vm-key :semantic,
@@ -1341,8 +1178,8 @@
               [instruction-list-view reg-asm active-reg-idx]
               [vm-control-buttons
                {:vm-key :register,
-                :step-fn step-register,
-                :toggle-run-fn toggle-run-register,
+                :step-fn #(step-vm :register :register-result),
+                :toggle-run-fn #(toggle-run-vm :register :register-result),
                 :reset-fn reset-register}]
               [vm-state-display
                {:vm-key :register,
@@ -1380,8 +1217,8 @@
               [instruction-list-view stack-asm active-stack-idx]
               [vm-control-buttons
                {:vm-key :stack,
-                :step-fn step-stack,
-                :toggle-run-fn toggle-run-stack,
+                :step-fn #(step-vm :stack :stack-result),
+                :toggle-run-fn #(toggle-run-vm :stack :stack-result),
                 :reset-fn reset-stack}]
               [vm-state-display
                {:vm-key :stack,
