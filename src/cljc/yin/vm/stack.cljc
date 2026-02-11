@@ -334,22 +334,6 @@
           (throw (ex-info "Unknown Opcode" {:op op, :pc pc})))))))
 
 
-(defn stack-run
-  "Run stack VM to completion. Returns final value."
-  [state]
-  (loop [s state] (if (:halted s) (:value s) (recur (stack-step s)))))
-
-
-(defn run-bytes
-  "Execute numeric bytecode to completion.
-   Note: This loses semantic information. You can't query the bytecode,
-   only execute it sequentially.
-   Delegates to make-stack-state and stack-run for backward compatibility."
-  ([bytes constant-pool] (run-bytes bytes constant-pool {}))
-  ([bytes constant-pool env]
-   (stack-run (make-stack-state bytes constant-pool env))))
-
-
 ;; =============================================================================
 ;; StackVM Protocol Implementation
 ;; =============================================================================
