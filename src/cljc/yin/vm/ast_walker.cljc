@@ -407,40 +407,11 @@
 ;; ASTWalkerVM Protocol Implementation
 ;; =============================================================================
 
-(defn- vm->state
-  "Convert ASTWalkerVM to legacy state map for eval."
-  [^ASTWalkerVM vm]
-  {:control (:control vm),
-   :environment (:environment vm),
-   :store (:store vm),
-   :continuation (:continuation vm),
-   :value (:value vm),
-   :db (:db vm),
-   :parked (:parked vm),
-   :id-counter (:id-counter vm),
-   :primitives (:primitives vm)})
-
-
-(defn- state->vm
-  "Convert legacy state map back to ASTWalkerVM."
-  [^ASTWalkerVM vm state]
-  (->ASTWalkerVM (:control state)
-                 (:environment state)
-                 (:continuation state)
-                 (:value state)
-                 (:store state)
-                 (:db state)
-                 (:parked state)
-                 (:id-counter state)
-                 (:primitives state)))
-
-
 (defn- vm-step
-  "Execute one step of ASTWalkerVM. Returns updated VM."
+  "Execute one step of ASTWalkerVM. Returns updated VM.
+   eval operates directly on the record (assoc preserves record type)."
   [^ASTWalkerVM vm]
-  (let [state (vm->state vm)
-        new-state (eval state nil)]
-    (state->vm vm new-state)))
+  (eval vm nil))
 
 
 (defn- vm-halted?
