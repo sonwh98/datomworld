@@ -516,9 +516,9 @@
     (q [vm args] (vm-q vm args)))
 
 
-(defn create
+(defn create-vm
   "Create a new ASTWalkerVM with optional environment."
-  ([] (create {}))
+  ([] (create-vm {}))
   ([env]
    (let [base (vm/empty-state)]
      (map->ASTWalkerVM

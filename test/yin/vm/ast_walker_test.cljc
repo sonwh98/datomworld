@@ -10,7 +10,7 @@
 
 (defn compile-and-run
   [ast]
-  (-> (ast-walker/create)
+  (-> (ast-walker/create-vm)
       (vm/load-program ast)
       (vm/run)
       (vm/value)))
