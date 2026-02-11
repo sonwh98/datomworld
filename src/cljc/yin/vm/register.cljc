@@ -578,9 +578,9 @@
     (q [vm args] (reg-vm-q vm args)))
 
 
-(defn create
+(defn create-vm
   "Create a new RegisterVM with optional environment."
-  ([] (create {}))
+  ([] (create-vm {}))
   ([env]
    (map->RegisterVM (merge (vm/empty-state)
                            {:regs [],

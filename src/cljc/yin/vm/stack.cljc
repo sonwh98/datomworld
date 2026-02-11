@@ -236,7 +236,7 @@
            :value nil})))
 
 
-(defn stack-step
+(defn- stack-step
   "Execute one stack VM instruction. Returns updated state.
    When execution completes, :halted is true and :value contains the result."
   [state]
@@ -450,9 +450,9 @@
     (q [vm args] (stack-vm-q vm args)))
 
 
-(defn- create-stack-vm
+(defn create-vm
   "Create a new StackVM with optional environment."
-  ([] (create-stack-vm {}))
+  ([] (create-vm {}))
   ([env]
    (map->StackVM (merge (vm/empty-state)
                         {:pc 0,

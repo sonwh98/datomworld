@@ -14,7 +14,7 @@
   (let [datoms (vm/ast->datoms ast)
         asm (register/ast-datoms->asm datoms)
         compiled (register/assembly->bytecode asm)
-        vm (register/create vm/primitives)]
+        vm (register/create-vm vm/primitives)]
     (-> vm
         (proto/load-program compiled)
         (proto/run)
@@ -83,7 +83,7 @@
 
 (comment
   ;; Example: Creating a RegisterVM and loading/running a program manually
-  (let [vm (register/create vm/primitives)
+  (let [vm (register/create-vm vm/primitives)
         ;; Bytecode program: loadk r0 pool[0], return r0; pool = [42]
         program {:bytecode [0 0 0 5 0], :pool [42]}
         vm-loaded (proto/load-program vm program)

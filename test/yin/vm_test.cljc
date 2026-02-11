@@ -348,7 +348,7 @@
                                             :body {:type :variable, :name 'x}},
                                  :operands [{:type :literal, :value 42}]}))
           compiled (register/assembly->bytecode asm)
-          vm (register/create)
+          vm (register/create-vm)
           vm-loaded (proto/load-program vm compiled)
           ;; Step until we're inside the closure body
           states
