@@ -10,6 +10,8 @@
             [cljs.reader :as reader]
             [clojure.string :as str]
             [clojure.walk :as walk]
+            [datascript.db :as db]
+            [datascript.query :as dq]
             [reagent.core :as r]
             [reagent.dom :as rdom]
             [yang.clojure :as yang]
@@ -19,6 +21,26 @@
             [yin.vm.register :as register]
             [yin.vm.semantic :as semantic]
             [yin.vm.stack :as stack]))
+
+
+;; Fix DataScript query under Closure advanced compilation.
+(let [original-lookup dq/lookup-pattern-db
+      prop->idx {"e" 0, "a" 1, "v" 2, "tx" 3}]
+  (set! dq/lookup-pattern-db
+        (fn [context db pattern]
+          (let [rel (original-lookup context db pattern)
+                tuples (:tuples rel)]
+            (if (and (seq tuples) (instance? db/Datom (first tuples)))
+              (let [new-attrs (reduce-kv (fn [m k v]
+                                           (assoc m k (get prop->idx v v)))
+                                         {}
+                                         (:attrs rel))
+                    new-tuples (mapv (fn [d]
+                                       (to-array [(nth d 0) (nth d 1) (nth d 2)
+                                                  (nth d 3) (nth d 4)]))
+                                 tuples)]
+                (dq/->Relation new-attrs new-tuples))
+              rel)))))
 
 
 (defn pretty-print

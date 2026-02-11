@@ -2,8 +2,7 @@
   "Defines the canonical data model (Datoms), schema, and primitives for the Yin Abstract Machine.
    This namespace acts as the shared kernel/substrate for all execution engines (stack, register, walker)."
   (:refer-clojure :exclude [eval])
-  (:require [datascript.core :as d]
-            #?@(:cljs [[datascript.db :as db] [datascript.query :as dq]])))
+  (:require [datascript.core :as d]))
 
 
 ;; =============================================================================
@@ -84,28 +83,6 @@
      args is [query & inputs] where query is the Datalog query
      and inputs are additional bindings (db is provided by the VM).
      Returns query results."))
-
-
-;; Fix DataScript query under Closure advanced compilation.
-#?(:cljs (let [original-lookup dq/lookup-pattern-db
-               prop->idx {"e" 0, "a" 1, "v" 2, "tx" 3}]
-           (set! dq/lookup-pattern-db
-                 (fn [context db pattern]
-                   (let [rel (original-lookup context db pattern)
-                         tuples (:tuples rel)]
-                     (if (and (seq tuples) (instance? db/Datom (first tuples)))
-                       (let [new-attrs (reduce-kv (fn [m k v]
-                                                    (assoc m
-                                                      k (get prop->idx v v)))
-                                                  {}
-                                                  (:attrs rel))
-                             new-tuples (mapv (fn [d]
-                                                (to-array [(nth d 0) (nth d 1)
-                                                           (nth d 2) (nth d 3)
-                                                           (nth d 4)]))
-                                          tuples)]
-                         (dq/->Relation new-attrs new-tuples))
-                       rel))))))
 
 
 ;; Primitive operations
