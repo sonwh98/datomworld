@@ -209,21 +209,6 @@
     (bit-or (bit-shift-left hi 8) lo)))
 
 
-(defn make-state
-  "Create initial stack VM state for stepping execution."
-  ([bytes constant-pool] (make-state bytes constant-pool {}))
-  ([bytes constant-pool env]
-   (merge (vm/empty-state)
-          {:pc 0,
-           :bytecode (vec bytes),
-           :stack [],
-           :env env,
-           :call-stack [],
-           :pool constant-pool,
-           :halted false,
-           :value nil})))
-
-
 (defn- stack-step
   "Execute one stack VM instruction. Returns updated state.
    When execution completes, :halted is true and :value contains the result."

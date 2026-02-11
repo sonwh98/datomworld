@@ -2,7 +2,7 @@
   (:require ["package:flutter/material.dart" :as m]
             [clojure.edn :as edn]
             [yin.vm :as vm]
-            [yin.vm.ast-walker :as walker]
+            [yin.vm.ast-walker :as ast-walker]
             [yang.clojure :as yang]))
 
 (def default-clojure "(+ 30 20)")
@@ -12,6 +12,13 @@
  :operator {:type :variable :name +}
  :operands [{:type :literal :value 30}
             {:type :literal :value 20}]}")
+
+(defn compile-and-run
+  [ast]
+  (-> (ast-walker/create-vm vm/primitives)
+      (vm/load-program ast)
+      (vm/run)
+      (vm/value)))
 
 (defn home-page
   []
@@ -74,9 +81,7 @@
              (fn []
                (let [input (.-text ast-controller)]
                  (try (let [ast (edn/read-string input)
-                            state (walker/make-state vm/primitives)
-                            final-state (walker/run state ast)
-                            res (:value final-state)]
+                            res (compile-and-run ast)]
                         (set! (.-value result-notifier) (str res)))
                       (catch Object e
                         (set! (.-value result-notifier) (str "Error: " e))))
@@ -113,5 +118,4 @@
                            (m/ThemeData .primarySwatch m.Colors/blue)
                            .home
                            (home-page))))
-
 
