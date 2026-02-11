@@ -5,17 +5,14 @@
 
 
 ;; =============================================================================
-;; Assembly: Datom Projections
+;; Stack VM
 ;; =============================================================================
 ;;
 ;; The AST as :yin/ datoms (from vm/ast->datoms) is the canonical
-;; representation.
-;; This namespace provides:
-;;   1. Stack assembly: project :yin/ datoms to stack machine bytecode
-;;   2. Numeric bytecode VM (run-bytes)
-;;
-;; All functions consume :yin/ datoms — either 5-tuples [e a v t m] or
-;; 3-tuples [e a v]. Vector destructuring [_ a v] handles both.
+;; representation. This namespace provides:
+;;   1. Stack assembly: project :yin/ datoms to symbolic stack instructions
+;;   2. Assembly to numeric bytecode encoding
+;;   3. Numeric bytecode VM (step, run via protocols)
 ;; =============================================================================
 
 
@@ -40,12 +37,8 @@
 
 
 ;; =============================================================================
-;; Legacy Numeric Bytecode (for comparison/compatibility)
+;; Numeric Opcodes
 ;; =============================================================================
-;; The following preserves the original numeric bytecode implementation.
-;; This shows the contrast: numeric bytecode loses semantic information.
-
-;; --- Numeric Opcodes ---
 (def OP_LITERAL 1)       ; [OP_LITERAL] [val-idx]
 (def OP_LOAD_VAR 2)      ; [OP_LOAD_VAR] [sym-idx]
 (def OP_LAMBDA 3)        ; [OP_LAMBDA] [arity] [body-len-hi] [body-len-lo] ...body...
@@ -209,10 +202,6 @@
           )))
       {:bc @bytes, :pool @pool, :source-map @source-map})))
 
-
-;; --- Numeric Bytecode VM ---
-;; This shows what information is LOST with numeric bytecode.
-;; You cannot query "find all lambdas" without parsing the byte stream.
 
 (defn- fetch-short
   [bytes pc]

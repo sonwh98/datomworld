@@ -5,17 +5,13 @@
 
 
 ;; =============================================================================
-;; Assembly: Datom Projections
+;; Semantic VM
 ;; =============================================================================
 ;;
 ;; The AST as :yin/ datoms (from vm/ast->datoms) is the canonical
-;; representation.
-;; This namespace provides:
+;; representation. This namespace provides:
 ;;   1. Query helpers for :yin/ datoms
 ;;   2. A SemanticVM that executes :yin/ datoms by graph traversal
-;;
-;; All functions consume :yin/ datoms — either 5-tuples [e a v t m] or
-;; 3-tuples [e a v]. Vector destructuring [_ a v] handles both.
 ;; =============================================================================
 
 

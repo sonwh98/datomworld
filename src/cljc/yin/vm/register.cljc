@@ -10,16 +10,7 @@
 
    Executes numeric bytecode produced by assembly->bytecode.
    The compilation pipeline is: AST datoms -> ast-datoms->asm (symbolic IR) -> assembly->bytecode (numeric).
-
-   Assembly IR instructions (produced by ast-datoms->asm, consumed by assembly->bytecode):
-     [:loadk rd v]           - rd := literal v
-     [:loadv rd name]        - rd := lookup name in env/store
-     [:move rd rs]           - rd := rs
-     [:closure rd params addr] - rd := closure capturing env
-     [:call rd rf args]      - call fn in rf with args, result to rd
-     [:return rs]            - return value in rs
-     [:branch rt then else]  - conditional jump
-     [:jump addr]            - unconditional jump"
+   See ast-datoms->asm docstring for the full instruction set."
   (:require [datascript.core :as d]
             [yin.module :as module]
             [yin.vm :as vm]
@@ -118,7 +109,7 @@
                        (swap! reg-counter inc)
                        r))
         reset-regs! (fn [] (reset! reg-counter 0))]
-    ;; Compile entity to bytecode, returns the register holding the result
+    ;; Compile entity to assembly, returns the register holding the result
     (letfn
       [(compile-node [e]
          (let [node-type (get-attr e :yin/type)]
@@ -226,7 +217,7 @@
 (defn assembly->bytecode
   "Convert register assembly (keyword mnemonics) to numeric bytecode.
 
-   Returns {:bytecode [int...] :pool [value...]}
+   Returns {:bytecode [int...] :pool [value...] :source-map {byte-offset instr-index}}
 
    The bytecode is a flat vector of integers. The pool holds all
    non-register operands (literals, symbols, param vectors).
@@ -235,7 +226,7 @@
    (instruction 0, 1, 2...). Bytecode addresses index into the flat
    int vector (byte offset 0, 3, 6...). All jump targets are rewritten."
   [asm-instructions]
-  (let [;; Phase 1 + 2 combined: build pool while emitting bytecode
+  (let [;; Build pool while emitting bytecode
         pool (atom [])
         pool-index (atom {})
         intern! (fn [v]
@@ -255,7 +246,7 @@
         emit-fixup! (fn [asm-addr]
                       (swap! fixups conj [(current-offset) asm-addr])
                       (swap! bytecode conj asm-addr))]
-    ;; Phase 2: Emit bytecode
+    ;; Emit bytecode
     (doseq [[idx instr] (map-indexed vector asm-instructions)]
       (swap! instr-offsets assoc idx (current-offset))
       (let [[op & args] instr]
@@ -291,7 +282,7 @@
                         (emit! (opcode-table :stream-put) rs rt))
           :stream-take (let [[rd rs] args]
                          (emit! (opcode-table :stream-take) rd rs)))))
-    ;; Phase 3: Fix addresses
+    ;; Fix addresses
     (let [offsets @instr-offsets
           fixed (reduce (fn [bc [pos asm-addr]]
                           (assoc bc pos (get offsets asm-addr asm-addr)))
