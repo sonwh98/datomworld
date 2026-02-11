@@ -354,9 +354,9 @@
     (q [vm args] (semantic-vm-q vm args)))
 
 
-(defn create-semantic-vm
+(defn create-vm
   "Create a new SemanticVM with optional environment."
-  ([] (create-semantic-vm {}))
+  ([] (create-vm {}))
   ([env]
    (map->SemanticVM (merge (vm/empty-state)
                            {:control nil,

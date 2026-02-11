@@ -464,12 +464,12 @@
   "Execute one instruction in the semantic VM."
   []
   (let [state (get-in @app-state [:vm-states :semantic :state])]
-    (when (and state (not (:halted state)))
+    (when (and state (not (proto/halted? state)))
       (try
-        (let [new-state (semantic/semantic-step state)]
+        (let [new-state (proto/step state)]
           (swap! app-state assoc-in [:vm-states :semantic :state] new-state)
-          (when (:halted new-state)
-            (swap! app-state assoc :semantic-result (:value new-state))
+          (when (proto/halted? new-state)
+            (swap! app-state assoc :semantic-result (proto/value new-state))
             (swap! app-state assoc-in [:vm-states :semantic :running] false)))
         (catch js/Error e
           (swap! app-state assoc
@@ -509,19 +509,20 @@
   []
   (let [running (get-in @app-state [:vm-states :semantic :running])
         initial-state (get-in @app-state [:vm-states :semantic :state])]
-    (when (and running initial-state (not (:halted initial-state)))
+    (when (and running initial-state (not (proto/halted? initial-state)))
       (try
         (loop [i 0
                state initial-state]
-          (if (or (>= i steps-per-frame) (:halted state))
+          (if (or (>= i steps-per-frame) (proto/halted? state))
             (do (swap! app-state assoc-in [:vm-states :semantic :state] state)
-                (if (:halted state)
-                  (do (swap! app-state assoc :semantic-result (:value state))
-                      (swap! app-state assoc-in
-                        [:vm-states :semantic :running]
-                        false))
+                (if (proto/halted? state)
+                  (do
+                    (swap! app-state assoc :semantic-result (proto/value state))
+                    (swap! app-state assoc-in
+                      [:vm-states :semantic :running]
+                      false))
                   (js/requestAnimationFrame run-semantic-loop)))
-            (recur (inc i) (semantic/semantic-step state))))
+            (recur (inc i) (proto/step state))))
         (catch js/Error e
           (swap! app-state assoc
             :error
