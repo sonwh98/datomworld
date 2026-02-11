@@ -440,9 +440,9 @@
         ;; Initialize stepping state
         (let [last-root (last root-ids)]
           (when last-root
-            (let [initial-state (semantic/make-semantic-state
-                                  {:node last-root, :datoms all-datoms}
-                                  vm/primitives)]
+            (let [initial-state (-> (semantic/create-vm vm/primitives)
+                                    (proto/load-program {:node last-root,
+                                                         :datoms all-datoms}))]
               (swap! app-state assoc-in
                 [:vm-states :semantic :state]
                 initial-state)
