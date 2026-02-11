@@ -240,7 +240,7 @@
               (mapv (fn [ast]
                       (let [datoms (vm/ast->datoms ast)
                             asm (stack/ast-datoms->asm datoms)
-                            result (stack/stack-assembly->bytecode asm)
+                            result (stack/assembly->bytecode asm)
                             bc (:bc result)
                             pool (:pool result)
                             source-map (:source-map result)]
@@ -249,9 +249,10 @@
             ;; Initialize VM state from last compiled result
             last-result (last results)
             initial-state (when last-result
-                            (stack/make-stack-state (:bc last-result)
-                                                    (:pool last-result)
-                                                    vm/primitives))]
+                            (-> (stack/create-vm vm/primitives)
+                                (proto/load-program {:bc (:bc last-result),
+                                                     :pool (:pool
+                                                             last-result)})))]
         (swap! app-state assoc
           :stack-asm (mapv :asm results)
           :stack-bc (mapv :bc results)
@@ -275,11 +276,11 @@
   "Execute one instruction in the stack VM."
   []
   (let [state (get-in @app-state [:vm-states :stack :state])]
-    (when (and state (not (:halted state)))
-      (try (let [new-state (stack/stack-step state)]
+    (when (and state (not (proto/halted? state)))
+      (try (let [new-state (proto/step state)]
              (swap! app-state assoc-in [:vm-states :stack :state] new-state)
-             (when (:halted new-state)
-               (swap! app-state assoc :stack-result (:value new-state))
+             (when (proto/halted? new-state)
+               (swap! app-state assoc :stack-result (proto/value new-state))
                (swap! app-state assoc-in [:vm-states :stack :running] false)))
            (catch js/Error e
              (swap! app-state assoc
@@ -294,7 +295,8 @@
   (let [bc (last (:stack-bc @app-state))
         pool (last (:stack-pool @app-state))]
     (when (and bc pool)
-      (let [initial-state (stack/make-stack-state bc pool vm/primitives)]
+      (let [initial-state (-> (stack/create-vm vm/primitives)
+                              (proto/load-program {:bc bc, :pool pool}))]
         (swap! app-state assoc-in [:vm-states :stack :state] initial-state)
         (swap! app-state assoc-in [:vm-states :stack :running] false)
         (swap! app-state assoc :stack-result nil)))))
@@ -319,19 +321,19 @@
   []
   (let [running (get-in @app-state [:vm-states :stack :running])
         initial-state (get-in @app-state [:vm-states :stack :state])]
-    (when (and running initial-state (not (:halted initial-state)))
+    (when (and running initial-state (not (proto/halted? initial-state)))
       (try
         (loop [i 0
                state initial-state]
-          (if (or (>= i steps-per-frame) (:halted state))
+          (if (or (>= i steps-per-frame) (proto/halted? state))
             (do (swap! app-state assoc-in [:vm-states :stack :state] state)
-                (if (:halted state)
-                  (do (swap! app-state assoc :stack-result (:value state))
+                (if (proto/halted? state)
+                  (do (swap! app-state assoc :stack-result (proto/value state))
                       (swap! app-state assoc-in
                         [:vm-states :stack :running]
                         false))
                   (js/requestAnimationFrame run-stack-loop)))
-            (recur (inc i) (stack/stack-step state))))
+            (recur (inc i) (proto/step state))))
         (catch js/Error e
           (swap! app-state assoc :error (str "Stack VM Error: " (.-message e)))
           (swap! app-state assoc-in [:vm-states :stack :running] false))))))
@@ -438,9 +440,9 @@
         ;; Initialize stepping state
         (let [last-root (last root-ids)]
           (when last-root
-            (let [initial-state (semantic/make-semantic-state
-                                  {:node last-root, :datoms all-datoms}
-                                  vm/primitives)]
+            (let [initial-state (-> (semantic/create-vm vm/primitives)
+                                    (proto/load-program {:node last-root,
+                                                         :datoms all-datoms}))]
               (swap! app-state assoc-in
                 [:vm-states :semantic :state]
                 initial-state)
@@ -462,12 +464,12 @@
   "Execute one instruction in the semantic VM."
   []
   (let [state (get-in @app-state [:vm-states :semantic :state])]
-    (when (and state (not (:halted state)))
+    (when (and state (not (proto/halted? state)))
       (try
-        (let [new-state (semantic/semantic-step state)]
+        (let [new-state (proto/step state)]
           (swap! app-state assoc-in [:vm-states :semantic :state] new-state)
-          (when (:halted new-state)
-            (swap! app-state assoc :semantic-result (:value new-state))
+          (when (proto/halted? new-state)
+            (swap! app-state assoc :semantic-result (proto/value new-state))
             (swap! app-state assoc-in [:vm-states :semantic :running] false)))
         (catch js/Error e
           (swap! app-state assoc
@@ -483,9 +485,9 @@
         root-ids (:root-ids @app-state)
         last-root (last root-ids)]
     (when (and datoms last-root)
-      (let [initial-state (semantic/make-semantic-state {:node last-root,
-                                                         :datoms datoms}
-                                                        vm/primitives)]
+      (let [initial-state (-> (semantic/create-vm vm/primitives)
+                              (proto/load-program {:node last-root,
+                                                   :datoms datoms}))]
         (swap! app-state assoc-in [:vm-states :semantic :state] initial-state)
         (swap! app-state assoc-in [:vm-states :semantic :running] false)
         (swap! app-state assoc :semantic-result nil)))))
@@ -507,19 +509,20 @@
   []
   (let [running (get-in @app-state [:vm-states :semantic :running])
         initial-state (get-in @app-state [:vm-states :semantic :state])]
-    (when (and running initial-state (not (:halted initial-state)))
+    (when (and running initial-state (not (proto/halted? initial-state)))
       (try
         (loop [i 0
                state initial-state]
-          (if (or (>= i steps-per-frame) (:halted state))
+          (if (or (>= i steps-per-frame) (proto/halted? state))
             (do (swap! app-state assoc-in [:vm-states :semantic :state] state)
-                (if (:halted state)
-                  (do (swap! app-state assoc :semantic-result (:value state))
-                      (swap! app-state assoc-in
-                        [:vm-states :semantic :running]
-                        false))
+                (if (proto/halted? state)
+                  (do
+                    (swap! app-state assoc :semantic-result (proto/value state))
+                    (swap! app-state assoc-in
+                      [:vm-states :semantic :running]
+                      false))
                   (js/requestAnimationFrame run-semantic-loop)))
-            (recur (inc i) (semantic/semantic-step state))))
+            (recur (inc i) (proto/step state))))
         (catch js/Error e
           (swap! app-state assoc
             :error
@@ -584,7 +587,7 @@
             ;; Initialize VM state from last compiled result
             last-result (last results)
             initial-state (when last-result
-                            (-> (register/create vm/primitives)
+                            (-> (register/create-vm vm/primitives)
                                 (proto/load-program
                                   {:bytecode (:bytecode last-result),
                                    :pool (:pool last-result)})))]
@@ -634,7 +637,7 @@
     (when (and bytecode pool)
       (let [initial-state (if (and state (satisfies? proto/IVMReset state))
                             (proto/reset state)
-                            (-> (register/create vm/primitives)
+                            (-> (register/create-vm vm/primitives)
                                 (proto/load-program {:bytecode bytecode,
                                                      :pool pool})))]
         (swap! app-state assoc-in [:vm-states :register :state] initial-state)

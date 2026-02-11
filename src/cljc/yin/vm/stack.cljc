@@ -121,7 +121,7 @@
       (compile-node root-id) @instructions)))
 
 
-(defn stack-assembly->bytecode
+(defn assembly->bytecode
   "Convert symbolic stack assembly to numeric bytecode.
    Returns {:bc bytes :pool pool :source-map {byte-offset instr-index}}."
   [instructions]
@@ -221,9 +221,9 @@
     (bit-or (bit-shift-left hi 8) lo)))
 
 
-(defn make-stack-state
+(defn make-state
   "Create initial stack VM state for stepping execution."
-  ([bytes constant-pool] (make-stack-state bytes constant-pool {}))
+  ([bytes constant-pool] (make-state bytes constant-pool {}))
   ([bytes constant-pool env]
    (merge (vm/empty-state)
           {:pc 0,
@@ -236,7 +236,7 @@
            :value nil})))
 
 
-(defn stack-step
+(defn- stack-step
   "Execute one stack VM instruction. Returns updated state.
    When execution completes, :halted is true and :value contains the result."
   [state]
@@ -334,22 +334,6 @@
           (throw (ex-info "Unknown Opcode" {:op op, :pc pc})))))))
 
 
-(defn stack-run
-  "Run stack VM to completion. Returns final value."
-  [state]
-  (loop [s state] (if (:halted s) (:value s) (recur (stack-step s)))))
-
-
-(defn run-bytes
-  "Execute numeric bytecode to completion.
-   Note: This loses semantic information. You can't query the bytecode,
-   only execute it sequentially.
-   Delegates to make-stack-state and stack-run for backward compatibility."
-  ([bytes constant-pool] (run-bytes bytes constant-pool {}))
-  ([bytes constant-pool env]
-   (stack-run (make-stack-state bytes constant-pool env))))
-
-
 ;; =============================================================================
 ;; StackVM Protocol Implementation
 ;; =============================================================================
@@ -390,7 +374,7 @@
              (:primitives state)))
 
 
-(defn stack-vm-step
+(defn- stack-vm-step
   "Execute one step of StackVM. Returns updated VM."
   [^StackVM vm]
   (let [state (stack-vm->state vm)
@@ -398,22 +382,22 @@
     (state->stack-vm vm new-state)))
 
 
-(defn stack-vm-halted?
+(defn- stack-vm-halted?
   "Returns true if VM has halted."
   [^StackVM vm]
   (boolean (:halted vm)))
 
 
-(defn stack-vm-blocked?
+(defn- stack-vm-blocked?
   "Returns true if VM is blocked."
   [^StackVM vm]
   (= :yin/blocked (:value vm)))
 
 
-(defn stack-vm-value "Returns the current value." [^StackVM vm] (:value vm))
+(defn- stack-vm-value "Returns the current value." [^StackVM vm] (:value vm))
 
 
-(defn stack-vm-run
+(defn- stack-vm-run
   "Run StackVM until halted or blocked."
   [^StackVM vm]
   (loop [v vm]
@@ -422,7 +406,7 @@
       (recur (stack-vm-step v)))))
 
 
-(defn stack-vm-load-program
+(defn- stack-vm-load-program
   "Load bytecode into the VM.
    Expects {:bc [...] :pool [...]}."
   [^StackVM vm {:keys [bc pool]}]
@@ -436,7 +420,7 @@
                         :value nil})))
 
 
-(defn stack-vm-transact!
+(defn- stack-vm-transact!
   "Transact datoms into the VM's DataScript db."
   [^StackVM vm datoms]
   (let [tx-data (vm/datoms->tx-data datoms)
@@ -445,7 +429,7 @@
     {:vm (assoc vm :db @conn), :tempids tempids}))
 
 
-(defn stack-vm-q
+(defn- stack-vm-q
   "Run a Datalog query against the VM's db."
   [^StackVM vm args]
   (apply d/q (first args) (:db vm) (rest args)))
@@ -466,9 +450,9 @@
     (q [vm args] (stack-vm-q vm args)))
 
 
-(defn create-stack-vm
+(defn create-vm
   "Create a new StackVM with optional environment."
-  ([] (create-stack-vm {}))
+  ([] (create-vm {}))
   ([env]
    (map->StackVM (merge (vm/empty-state)
                         {:pc 0,
