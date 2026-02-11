@@ -249,9 +249,9 @@
             ;; Initialize VM state from last compiled result
             last-result (last results)
             initial-state (when last-result
-                            (stack/make-stack-state (:bc last-result)
-                                                    (:pool last-result)
-                                                    vm/primitives))]
+                            (stack/make-state (:bc last-result)
+                                              (:pool last-result)
+                                              vm/primitives))]
         (swap! app-state assoc
           :stack-asm (mapv :asm results)
           :stack-bc (mapv :bc results)
@@ -294,7 +294,7 @@
   (let [bc (last (:stack-bc @app-state))
         pool (last (:stack-pool @app-state))]
     (when (and bc pool)
-      (let [initial-state (stack/make-stack-state bc pool vm/primitives)]
+      (let [initial-state (stack/make-state bc pool vm/primitives)]
         (swap! app-state assoc-in [:vm-states :stack :state] initial-state)
         (swap! app-state assoc-in [:vm-states :stack :running] false)
         (swap! app-state assoc :stack-result nil)))))

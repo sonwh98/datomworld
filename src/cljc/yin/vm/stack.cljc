@@ -221,9 +221,9 @@
     (bit-or (bit-shift-left hi 8) lo)))
 
 
-(defn make-stack-state
+(defn make-state
   "Create initial stack VM state for stepping execution."
-  ([bytes constant-pool] (make-stack-state bytes constant-pool {}))
+  ([bytes constant-pool] (make-state bytes constant-pool {}))
   ([bytes constant-pool env]
    (merge (vm/empty-state)
           {:pc 0,
