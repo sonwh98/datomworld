@@ -874,10 +874,13 @@
                :font-size "12px"}} "Reset"]]))
 
 
-(defn stack-vm-state-display
-  "Display current state of stack VM."
-  []
-  (let [vm-state (get-in @app-state [:vm-states :stack])
+(defn vm-state-display
+  "Common VM state display. Takes vm-key and three render fns:
+   - status-fn:   (fn [state] string) - status text for header
+   - summary-fn:  (fn [state] hiccup-or-nil) - summary below header
+   - expanded-fn: (fn [state] hiccup-or-nil) - expanded details"
+  [{:keys [vm-key status-fn summary-fn expanded-fn]}]
+  (let [vm-state (get-in @app-state [:vm-states vm-key])
         state (:state vm-state)
         expanded (:expanded vm-state)]
     (when state
@@ -895,167 +898,17 @@
         {:style {:display "flex",
                  :justify-content "space-between",
                  :align-items "center"}}
-        [:span {:style {:color "#8b949e"}}
-         (if (:halted state) "HALTED" (str "pc: " (:pc state)))]
+        [:span {:style {:color "#8b949e"}} (status-fn state)]
         [:button
          {:on-click
-            #(swap! app-state update-in [:vm-states :stack :expanded] not),
+            #(swap! app-state update-in [:vm-states vm-key :expanded] not),
           :style {:background "none",
                   :border "none",
                   :color "#58a6ff",
                   :cursor "pointer",
                   :font-size "10px"}} (if expanded "Collapse" "Expand")]]
-       [:div {:style {:color "#c5c6c7"}} "Stack: "
-        (pr-str (take-last 3 (:stack state)))
-        (when (> (count (:stack state)) 3) " ...")]
-       (when expanded
-         [:div {:style {:margin-top "5px", :color "#8b949e"}}
-          [:div "Full stack: " (pr-str (:stack state))]
-          [:div "Env: " (pr-str (keys (:env state)))]
-          [:div "Call stack depth: " (count (:call-stack state))]])])))
-
-
-(defn register-vm-state-display
-  "Display current state of register VM."
-  []
-  (let [vm-state (get-in @app-state [:vm-states :register])
-        state (:state vm-state)
-        expanded (:expanded vm-state)]
-    (when state
-      [:div
-       {:style {:margin-top "5px",
-                :padding "5px",
-                :background "#0d1117",
-                :border "1px solid #30363d",
-                :font-size "11px",
-                :font-family "monospace",
-                :overflow "auto",
-                :height "150px",
-                :max-height "150px"}}
-       [:div
-        {:style {:display "flex",
-                 :justify-content "space-between",
-                 :align-items "center"}}
-        [:span {:style {:color "#8b949e"}}
-         (if (:halted state) "HALTED" (str "ip: " (:ip state)))]
-        [:button
-         {:on-click
-            #(swap! app-state update-in [:vm-states :register :expanded] not),
-          :style {:background "none",
-                  :border "none",
-                  :color "#58a6ff",
-                  :cursor "pointer",
-                  :font-size "10px"}} (if expanded "Collapse" "Expand")]]
-       [:div {:style {:color "#c5c6c7"}} "Regs: "
-        (let [regs (:regs state)
-              active (filter (fn [[i v]] (some? v)) (map-indexed vector regs))]
-          (pr-str (into {} (take 4 active))))]
-       (when expanded
-         [:div {:style {:margin-top "5px", :color "#8b949e"}}
-          [:div "All regs: " (pr-str (:regs state))]
-          [:div "Env: " (pr-str (keys (:env state)))]
-          [:div "Continuation: " (if (:k state) "yes" "none")]])])))
-
-
-(defn semantic-vm-state-display
-  "Display current state of semantic VM."
-  []
-  (let [vm-state (get-in @app-state [:vm-states :semantic])
-        state (:state vm-state)
-        expanded (:expanded vm-state)]
-    (when state
-      [:div
-       {:style {:margin-top "5px",
-                :padding "5px",
-                :background "#0d1117",
-                :border "1px solid #30363d",
-                :font-size "11px",
-                :font-family "monospace",
-                :overflow "auto",
-                :height "150px",
-                :max-height "150px"}}
-       [:div
-        {:style {:display "flex",
-                 :justify-content "space-between",
-                 :align-items "center"}}
-        [:span {:style {:color "#8b949e"}}
-         (if (:halted state)
-           "HALTED"
-           (let [ctrl (:control state)]
-             (if (= :node (:type ctrl))
-               (str "Node: " (:id ctrl))
-               (str "Val: " (pr-str (:val ctrl))))))]
-        [:button
-         {:on-click
-            #(swap! app-state update-in [:vm-states :semantic :expanded] not),
-          :style {:background "none",
-                  :border "none",
-                  :color "#58a6ff",
-                  :cursor "pointer",
-                  :font-size "10px"}} (if expanded "Collapse" "Expand")]]
-       (when (and state (not (:halted state)))
-         (let [ctrl (:control state)
-               info (if (= :node (:type ctrl))
-                      (let [attrs (semantic/get-node-attrs (:datoms state)
-                                                           (:id ctrl))]
-                        (str (:yin/type attrs)))
-                      "Returning...")]
-           [:div {:style {:color "#c5c6c7"}} info]))
-       (when expanded
-         [:div {:style {:margin-top "5px", :color "#8b949e"}}
-          [:div "Env: " (pr-str (keys (:env state)))]
-          [:div "Stack depth: " (count (:stack state))]])])))
-
-
-(defn ast-walker-state-display
-  "Display current state of AST Walker VM."
-  []
-  (let [vm-state (get-in @app-state [:vm-states :walker])
-        state (:state vm-state)
-        expanded (:expanded vm-state)]
-    (when state
-      [:div
-       {:style {:margin-top "5px",
-                :padding "5px",
-                :background "#0d1117",
-                :border "1px solid #30363d",
-                :font-size "11px",
-                :font-family "monospace",
-                :overflow "auto",
-                :height "150px",
-                :max-height "150px"}}
-       [:div
-        {:style {:display "flex",
-                 :justify-content "space-between",
-                 :align-items "center"}}
-        [:span {:style {:color "#8b949e"}}
-         (cond (proto/halted? state) "HALTED"
-               (:control state) (str "Control: "
-                                     (or (get-in state [:control :type])
-                                         (pr-str (:control state))))
-               (:continuation state)
-                 (str "Cont: "
-                      (or (get-in state [:continuation :type]) "pending"))
-               :else "Returning...")]
-        [:button
-         {:on-click
-            #(swap! app-state update-in [:vm-states :walker :expanded] not),
-          :style {:background "none",
-                  :border "none",
-                  :color "#58a6ff",
-                  :cursor "pointer",
-                  :font-size "10px"}} (if expanded "Collapse" "Expand")]]
-       (when (and state (not (proto/halted? state)))
-         (let [ctrl (:control state)]
-           (when ctrl [:div {:style {:color "#c5c6c7"}} (pr-str ctrl)])))
-       (when expanded
-         [:div {:style {:margin-top "5px", :color "#8b949e"}}
-          [:div "Env keys: " (pr-str (keys (:environment state)))]
-          [:div "Continuation depth: "
-           (loop [c (:continuation state)
-                  depth 0]
-             (if c (recur (:parent c) (inc depth)) depth))]
-          [:div "Value: " (pr-str (:value state))]])])))
+       (when summary-fn (summary-fn state))
+       (when (and expanded expanded-fn) (expanded-fn state))])))
 
 
 (defn bring-to-front!
@@ -1378,7 +1231,36 @@
                  {:vm-key :walker,
                   :step-fn step-walker,
                   :toggle-run-fn toggle-run-walker,
-                  :reset-fn reset-walker}] [ast-walker-state-display]
+                  :reset-fn reset-walker}]
+                [vm-state-display
+                 {:vm-key :walker,
+                  :status-fn (fn [state]
+                               (cond (proto/halted? state) "HALTED"
+                                     (:control state)
+                                       (str "Control: "
+                                            (or (get-in state [:control :type])
+                                                (pr-str (:control state))))
+                                     (:continuation state)
+                                       (str "Cont: "
+                                            (or (get-in state
+                                                        [:continuation :type])
+                                                "pending"))
+                                     :else "Returning...")),
+                  :summary-fn (fn [state]
+                                (when (not (proto/halted? state))
+                                  (let [ctrl (:control state)]
+                                    (when ctrl
+                                      [:div {:style {:color "#c5c6c7"}}
+                                       (pr-str ctrl)])))),
+                  :expanded-fn
+                    (fn [state]
+                      [:div {:style {:margin-top "5px", :color "#8b949e"}}
+                       [:div "Env keys: " (pr-str (keys (:environment state)))]
+                       [:div "Continuation depth: "
+                        (loop [c (:continuation state)
+                               depth 0]
+                          (if c (recur (:parent c) (inc depth)) depth))]
+                       [:div "Value: " (pr-str (:value state))]])}]
                 (let [vm-state (get-in @app-state [:vm-states :walker :state])]
                   (when (and vm-state (proto/halted? vm-state))
                     [:div
@@ -1398,7 +1280,32 @@
                {:vm-key :semantic,
                 :step-fn step-semantic,
                 :toggle-run-fn toggle-run-semantic,
-                :reset-fn reset-semantic}] [semantic-vm-state-display]
+                :reset-fn reset-semantic}]
+              [vm-state-display
+               {:vm-key :semantic,
+                :status-fn (fn [state]
+                             (if (:halted state)
+                               "HALTED"
+                               (let [ctrl (:control state)]
+                                 (if (= :node (:type ctrl))
+                                   (str "Node: " (:id ctrl))
+                                   (str "Val: " (pr-str (:val ctrl))))))),
+                :summary-fn (fn [state]
+                              (when (not (:halted state))
+                                (let [ctrl (:control state)
+                                      info (if (= :node (:type ctrl))
+                                             (let [attrs
+                                                     (semantic/get-node-attrs
+                                                       (:datoms state)
+                                                       (:id ctrl))]
+                                               (str (:yin/type attrs)))
+                                             "Returning...")]
+                                  [:div {:style {:color "#c5c6c7"}} info]))),
+                :expanded-fn
+                  (fn [state] [:div
+                               {:style {:margin-top "5px", :color "#8b949e"}}
+                               [:div "Env: " (pr-str (keys (:env state)))]
+                               [:div "Stack depth: " (count (:stack state))]])}]
               (when (and asm-vm-state (:halted asm-vm-state))
                 [:div
                  {:style {:marginTop "5px",
@@ -1419,7 +1326,25 @@
                {:vm-key :register,
                 :step-fn step-register,
                 :toggle-run-fn toggle-run-register,
-                :reset-fn reset-register}] [register-vm-state-display]
+                :reset-fn reset-register}]
+              [vm-state-display
+               {:vm-key :register,
+                :status-fn
+                  (fn [state]
+                    (if (:halted state) "HALTED" (str "ip: " (:ip state)))),
+                :summary-fn (fn [state]
+                              [:div {:style {:color "#c5c6c7"}} "Regs: "
+                               (let [regs (:regs state)
+                                     active (filter (fn [[i v]] (some? v))
+                                              (map-indexed vector regs))]
+                                 (pr-str (into {} (take 4 active))))]),
+                :expanded-fn (fn [state]
+                               [:div
+                                {:style {:margin-top "5px", :color "#8b949e"}}
+                                [:div "All regs: " (pr-str (:regs state))]
+                                [:div "Env: " (pr-str (keys (:env state)))]
+                                [:div "Continuation: "
+                                 (if (:k state) "yes" "none")]])}]
               (when (and reg-state (:halted reg-state))
                 [:div
                  {:style {:marginTop "5px",
@@ -1440,7 +1365,23 @@
                {:vm-key :stack,
                 :step-fn step-stack,
                 :toggle-run-fn toggle-run-stack,
-                :reset-fn reset-stack}] [stack-vm-state-display]
+                :reset-fn reset-stack}]
+              [vm-state-display
+               {:vm-key :stack,
+                :status-fn
+                  (fn [state]
+                    (if (:halted state) "HALTED" (str "pc: " (:pc state)))),
+                :summary-fn
+                  (fn [state] [:div {:style {:color "#c5c6c7"}} "Stack: "
+                               (pr-str (take-last 3 (:stack state)))
+                               (when (> (count (:stack state)) 3) " ...")]),
+                :expanded-fn (fn [state]
+                               [:div
+                                {:style {:margin-top "5px", :color "#8b949e"}}
+                                [:div "Full stack: " (pr-str (:stack state))]
+                                [:div "Env: " (pr-str (keys (:env state)))]
+                                [:div "Call stack depth: "
+                                 (count (:call-stack state))]])}]
               (when (and stack-state (:halted stack-state))
                 [:div
                  {:style {:marginTop "5px",
