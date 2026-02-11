@@ -34,15 +34,6 @@
                        ])
 
 
-(defn make-state
-  "Create an initial CESK machine state with given environment.
-   Legacy helper: returns a map, not a VM record.
-   Enhanced to include new state fields."
-  [env]
-  (merge (vm/empty-state)
-         {:control nil, :environment env, :continuation nil, :value nil}))
-
-
 (defn eval
   "Steps the CESK machine to evaluate an AST node.
 
@@ -392,17 +383,6 @@
                                       :type :eval-stream-source})
         ;; Unknown node type
         (throw (ex-info "Unknown AST node type" {:type type, :node node}))))))
-
-
-;; Helper function to step the VM until completion
-(defn run
-  "Runs the CESK machine until the computation completes.
-  Returns the final state with the result in :value."
-  [initial-state ast]
-  (loop [state (assoc initial-state :control ast)]
-    (if (or (:control state) (:continuation state))
-      (recur (eval state nil))
-      state)))
 
 
 ;; Helper to check if VM is parked (blocked)

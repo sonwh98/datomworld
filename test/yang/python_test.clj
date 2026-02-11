@@ -3,13 +3,16 @@
             [yang.clojure :as clj]
             [yang.python :as py]
             [yin.vm :as vm]
-            [yin.vm.ast-walker :as walker]))
+            [yin.vm.ast-walker :as ast-walker]))
 
 
-(defn make-state
-  "Helper to create initial VM state."
-  [env]
-  {:control nil, :environment env, :store {}, :continuation nil, :value nil})
+(defn compile-and-run
+  ([ast] (compile-and-run ast {}))
+  ([ast env]
+   (-> (ast-walker/create-vm env)
+       (vm/load-program ast)
+       (vm/run)
+       (vm/value))))
 
 
 (deftest test-tokenize
@@ -120,58 +123,33 @@
 
 (deftest test-end-to-end-python
   (testing "Compile and execute Python code with Yin VM"
-    (testing "Simple literal"
-      (let [ast (py/compile "42")
-            result (walker/run (walker/make-state {}) ast)]
-        (is (= 42 (:value result)))))
+    (testing "Simple literal" (is (= 42 (compile-and-run (py/compile "42")))))
     (testing "Variable lookup"
-      (let [ast (py/compile "x")
-            result (walker/run (walker/make-state {'x 100}) ast)]
-        (is (= 100 (:value result)))))
+      (is (= 100 (compile-and-run (py/compile "x") {'x 100}))))
     (testing "Simple addition"
-      (let [ast (py/compile "1 + 2")
-            result (walker/run (walker/make-state vm/primitives) ast)]
-        (is (= 3 (:value result)))))
+      (is (= 3 (compile-and-run (py/compile "1 + 2")))))
     (testing "Lambda application"
-      (let [ast (py/compile "(lambda x: x * 2)(21)")
-            result (walker/run (walker/make-state vm/primitives) ast)]
-        (is (= 42 (:value result)))))
+      (is (= 42 (compile-and-run (py/compile "(lambda x: x * 2)(21)")))))
     (testing "Def statement as lambda"
       (let [ast (py/compile "def double(x): return x * 2")
             ;; The def compiles to a lambda, we need to apply it
             app-ast {:type :application,
                      :operator ast,
-                     :operands [{:type :literal, :value 21}]}
-            result (walker/run (walker/make-state vm/primitives) app-ast)]
-        (is (= 42 (:value result)))))
+                     :operands [{:type :literal, :value 21}]}]
+        (is (= 42 (compile-and-run app-ast)))))
     (testing "Multiple parameters"
-      (let [ast (py/compile "(lambda x, y: x + y)(10, 20)")
-            result (walker/run (walker/make-state vm/primitives) ast)]
-        (is (= 30 (:value result)))))
+      (is (= 30 (compile-and-run (py/compile "(lambda x, y: x + y)(10, 20)")))))
     (testing "Operator precedence"
-      (let [ast (py/compile "2 + 3 * 4")
-            result (walker/run (walker/make-state vm/primitives) ast)]
-        (is (= 14 (:value result)))))
+      (is (= 14 (compile-and-run (py/compile "2 + 3 * 4")))))
     (testing "Nested operations"
-      (let [ast (py/compile "(2 + 3) * 4")
-            result (walker/run (walker/make-state vm/primitives) ast)]
-        (is (= 20 (:value result)))))
-    (testing "Comparison"
-      (let [ast (py/compile "3 < 5")
-            result (walker/run (walker/make-state vm/primitives) ast)]
-        (is (= true (:value result)))))
+      (is (= 20 (compile-and-run (py/compile "(2 + 3) * 4")))))
+    (testing "Comparison" (is (= true (compile-and-run (py/compile "3 < 5")))))
     (testing "If expression - true branch"
-      (let [ast (py/compile "10 if True else 20")
-            result (walker/run (walker/make-state {}) ast)]
-        (is (= 10 (:value result)))))
+      (is (= 10 (compile-and-run (py/compile "10 if True else 20")))))
     (testing "If expression - false branch"
-      (let [ast (py/compile "10 if False else 20")
-            result (walker/run (walker/make-state {}) ast)]
-        (is (= 20 (:value result)))))
+      (is (= 20 (compile-and-run (py/compile "10 if False else 20")))))
     (testing "If with comparison"
-      (let [ast (py/compile "100 if 3 < 5 else 200")
-            result (walker/run (walker/make-state vm/primitives) ast)]
-        (is (= 100 (:value result)))))))
+      (is (= 100 (compile-and-run (py/compile "100 if 3 < 5 else 200")))))))
 
 
 (deftest test-python-to-clojure-equivalence
@@ -206,17 +184,13 @@
   (testing "Complex Python expressions"
     (testing "Higher-order function simulation"
       ;; Python: (lambda f: f(5))(lambda x: x * 2)
-      (let [ast (py/compile "(lambda f: f(5))(lambda x: x * 2)")
-            result (walker/run (walker/make-state vm/primitives) ast)]
-        (is (= 10 (:value result)))))
+      (is (= 10
+             (compile-and-run (py/compile
+                                "(lambda f: f(5))(lambda x: x * 2)")))))
     (testing "Nested if expressions"
       ;; Python: (1 if x < 5 else 2) if True else 3
-      (let [ast (py/compile "(1 if x < 5 else 2) if True else 3")
-            result (walker/run (walker/make-state (merge vm/primitives {'x 3}))
-                               ast)]
-        (is (= 1 (:value result)))))
+      (is (= 1
+             (compile-and-run (py/compile "(1 if x < 5 else 2) if True else 3")
+                              (merge vm/primitives {'x 3})))))
     (testing "Multiple operations"
-      (let [ast (py/compile "10 + 20 * 3 - 5")
-            result (walker/run (walker/make-state vm/primitives) ast)]
-        ;; 10 + (20 * 3) - 5 = 10 + 60 - 5 = 65
-        (is (= 65 (:value result)))))))
+      (is (= 65 (compile-and-run (py/compile "10 + 20 * 3 - 5")))))))
