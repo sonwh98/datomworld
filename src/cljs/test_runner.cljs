@@ -8,7 +8,10 @@
             [yin.vm-state-test]
             [yin.vm-stream-test]
             [yin.vm-test]
-            [yin.vm.register-test]))
+            [yin.vm.ast-walker-test]
+            [yin.vm.register-test]
+            [yin.vm.semantic-test]
+            [yin.vm.stack-test]))
 
 
 (defn -main
@@ -21,7 +24,10 @@
              'yin.vm-basic-test
              'yin.vm-continuation-test
              'yin.vm-stream-test
-             'yin.vm.register-test))
+             'yin.vm.ast-walker-test
+             'yin.vm.register-test
+             'yin.vm.semantic-test
+             'yin.vm.stack-test))
 
 
 (set! *main-cli-fn* -main)
