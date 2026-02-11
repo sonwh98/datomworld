@@ -12,19 +12,12 @@
 ;; representation.
 ;; This namespace provides:
 ;;   1. Query helpers for :yin/ datoms
-;;   2. run-semantic: execute :yin/ datoms by graph traversal
+;;   2. A SemanticVM that executes :yin/ datoms by graph traversal
 ;;
 ;; All functions consume :yin/ datoms — either 5-tuples [e a v t m] or
 ;; 3-tuples [e a v]. Vector destructuring [_ a v] handles both.
 ;; =============================================================================
 
-
-;; =============================================================================
-;; Querying Semantic Bytecode
-;; =============================================================================
-;; Because bytecode is now datoms, we can query it with Datalog-like patterns.
-;; This is the key insight from the blog: low-level form enables high-level
-;; queries.
 
 (defn find-by-type
   "Find all nodes of a given type.
@@ -96,17 +89,6 @@
 ;; =============================================================================
 ;; The VM interprets :yin/ datoms by traversing node references (graph walk).
 ;; No program counter, no constant pool — values are inline in the datoms.
-
-(defn- make-semantic-state
-  "Create initial state for stepping the semantic (datom) VM."
-  [{:keys [node datoms]} env]
-  (merge (vm/empty-state)
-         {:control {:type :node, :id node},
-          :env env,
-          :stack [],
-          :datoms datoms,
-          :halted false,
-          :value nil}))
 
 
 (defn- semantic-step
@@ -224,12 +206,6 @@
                                        :operands (:yin/operands node-map),
                                        :env env}))
           (throw (ex-info "Unknown node type" {:node-map node-map})))))))
-
-
-(defn- semantic-run
-  "Run semantic VM to completion."
-  [state]
-  (loop [s state] (if (:halted s) (:value s) (recur (semantic-step s)))))
 
 
 ;; =============================================================================
