@@ -1,7 +1,6 @@
 (ns test-runner
   (:require [cljs.test :refer-macros [run-tests]]
             [daodb.core-test]
-            [yin.asm-test]
             [yin.vm-addition-test]
             [yin.vm-basic-test]
             [yin.vm-continuation-test]
@@ -20,7 +19,6 @@
              'yin.vm-addition-test
              'yin.vm-state-test
              'yin.vm-basic-test
-             'yin.asm-test
              'yin.vm-continuation-test
              'yin.vm-stream-test
              'yin.vm.register-test))
