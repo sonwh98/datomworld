@@ -423,6 +423,9 @@
     (environment [vm] (:env vm))
     (store [vm] (:store vm))
     (continuation [vm] (:call-stack vm))
+  vm/IVMCompile
+    (ast-datoms->asm [vm datoms] (ast-datoms->asm datoms))
+    (asm->bytecode [vm asm] (asm->bytecode asm))
   vm/IVMDataScript
     (transact! [vm datoms] (stack-vm-transact! vm datoms))
     (q [vm args] (stack-vm-q vm args)))

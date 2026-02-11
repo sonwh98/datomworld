@@ -568,6 +568,9 @@
     (environment [vm] (:env vm))
     (store [vm] (:store vm))
     (continuation [vm] (:k vm))
+  vm/IVMCompile
+    (ast-datoms->asm [vm datoms] (ast-datoms->asm datoms))
+    (asm->bytecode [vm asm] (asm->bytecode asm))
   vm/IVMDataScript
     (transact! [vm datoms] (reg-vm-transact! vm datoms))
     (q [vm args] (reg-vm-q vm args)))
