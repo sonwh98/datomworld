@@ -374,7 +374,7 @@
              (:primitives state)))
 
 
-(defn stack-vm-step
+(defn- stack-vm-step
   "Execute one step of StackVM. Returns updated VM."
   [^StackVM vm]
   (let [state (stack-vm->state vm)
@@ -382,22 +382,22 @@
     (state->stack-vm vm new-state)))
 
 
-(defn stack-vm-halted?
+(defn- stack-vm-halted?
   "Returns true if VM has halted."
   [^StackVM vm]
   (boolean (:halted vm)))
 
 
-(defn stack-vm-blocked?
+(defn- stack-vm-blocked?
   "Returns true if VM is blocked."
   [^StackVM vm]
   (= :yin/blocked (:value vm)))
 
 
-(defn stack-vm-value "Returns the current value." [^StackVM vm] (:value vm))
+(defn- stack-vm-value "Returns the current value." [^StackVM vm] (:value vm))
 
 
-(defn stack-vm-run
+(defn- stack-vm-run
   "Run StackVM until halted or blocked."
   [^StackVM vm]
   (loop [v vm]
@@ -406,7 +406,7 @@
       (recur (stack-vm-step v)))))
 
 
-(defn stack-vm-load-program
+(defn- stack-vm-load-program
   "Load bytecode into the VM.
    Expects {:bc [...] :pool [...]}."
   [^StackVM vm {:keys [bc pool]}]
@@ -420,7 +420,7 @@
                         :value nil})))
 
 
-(defn stack-vm-transact!
+(defn- stack-vm-transact!
   "Transact datoms into the VM's DataScript db."
   [^StackVM vm datoms]
   (let [tx-data (vm/datoms->tx-data datoms)
@@ -429,7 +429,7 @@
     {:vm (assoc vm :db @conn), :tempids tempids}))
 
 
-(defn stack-vm-q
+(defn- stack-vm-q
   "Run a Datalog query against the VM's db."
   [^StackVM vm args]
   (apply d/q (first args) (:db vm) (rest args)))
@@ -450,7 +450,7 @@
     (q [vm args] (stack-vm-q vm args)))
 
 
-(defn create-stack-vm
+(defn- create-stack-vm
   "Create a new StackVM with optional environment."
   ([] (create-stack-vm {}))
   ([env]
