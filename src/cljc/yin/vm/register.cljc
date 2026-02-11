@@ -14,7 +14,7 @@
   (:require [datascript.core :as d]
             [yin.module :as module]
             [yin.vm :as vm]
-            [yin.vm.protocols :as proto])
+            [yin.vm :as proto])
   #?(:cljs (:require-macros [yin.vm.register :refer [opcase]])))
 
 

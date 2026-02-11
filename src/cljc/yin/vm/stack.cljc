@@ -1,7 +1,7 @@
 (ns yin.vm.stack
   (:require [datascript.core :as d]
             [yin.vm :as vm]
-            [yin.vm.protocols :as proto]))
+            [yin.vm :as proto]))
 
 
 ;; =============================================================================

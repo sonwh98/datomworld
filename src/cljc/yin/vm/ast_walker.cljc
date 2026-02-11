@@ -4,7 +4,7 @@
             [yin.module :as module]
             [yin.stream :as stream]
             [yin.vm :as vm]
-            [yin.vm.protocols :as proto]))
+            [yin.vm :as proto]))
 
 
 ;; Counter for generating unique IDs (legacy, for backward compatibility)

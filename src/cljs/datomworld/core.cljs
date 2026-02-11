@@ -16,7 +16,7 @@
             [yang.python :as py]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as walker]
-            [yin.vm.protocols :as proto]
+            [yin.vm :as proto]
             [yin.vm.register :as register]
             [yin.vm.semantic :as semantic]
             [yin.vm.stack :as stack]))
