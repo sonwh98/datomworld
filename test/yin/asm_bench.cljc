@@ -84,12 +84,12 @@
   (let [compiled (compile-to-datoms ast)
         datoms (vm/ast->datoms ast)
         asm-instrs (stack/ast-datoms->asm datoms)
-        {:keys [bc pool]} (stack/stack-assembly->bytecode asm-instrs)
+        {:keys [bc pool]} (stack/assembly->bytecode asm-instrs)
         sem-compile (benchmark #(compile-to-datoms ast) iterations)
         stack-compile (benchmark #(let [d (vm/ast->datoms ast)]
                                     (-> d
                                         stack/ast-datoms->asm
-                                        stack/stack-assembly->bytecode))
+                                        stack/assembly->bytecode))
                                  iterations)
         sem-run (benchmark #(semantic/run-semantic compiled primitives)
                            iterations)
@@ -140,11 +140,11 @@
       (let [d (vm/ast->datoms nested-ast)]
         (-> d
             stack/ast-datoms->asm
-            stack/stack-assembly->bytecode))
+            stack/assembly->bytecode))
       (semantic/run-semantic (compile-to-datoms nested-ast) primitives)
       (let [d (vm/ast->datoms nested-ast)
             i (stack/ast-datoms->asm d)
-            {:keys [bc pool]} (stack/stack-assembly->bytecode i)]
+            {:keys [bc pool]} (stack/assembly->bytecode i)]
         (stack/run-bytes bc pool primitives)))
     (println "done.")
     (println "")

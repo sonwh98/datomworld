@@ -158,7 +158,7 @@
   (testing "Stack assembly from :yin/ datoms - literal"
     (let [datoms (vm/ast->datoms {:type :literal, :value 42})
           asm-instrs (stack/ast-datoms->asm datoms)
-          {:keys [bc pool]} (stack/stack-assembly->bytecode asm-instrs)]
+          {:keys [bc pool]} (stack/assembly->bytecode asm-instrs)]
       (is (= 42 (stack/run-bytes bc pool))))))
 
 
@@ -169,7 +169,7 @@
                                   :operands [{:type :literal, :value 10}
                                              {:type :literal, :value 20}]})
           asm-instrs (stack/ast-datoms->asm datoms)
-          {:keys [bc pool]} (stack/stack-assembly->bytecode asm-instrs)]
+          {:keys [bc pool]} (stack/assembly->bytecode asm-instrs)]
       (is (= 30 (stack/run-bytes bc pool primitives))))))
 
 
@@ -185,7 +185,7 @@
                                                  {:type :literal, :value 1}]}},
                     :operands [{:type :literal, :value 10}]})
           asm-instrs (stack/ast-datoms->asm datoms)
-          {:keys [bc pool]} (stack/stack-assembly->bytecode asm-instrs)]
+          {:keys [bc pool]} (stack/assembly->bytecode asm-instrs)]
       (is (= 11 (stack/run-bytes bc pool primitives))))))
 
 
@@ -196,7 +196,7 @@
                                   :consequent {:type :literal, :value :yes},
                                   :alternate {:type :literal, :value :no}})
           asm-instrs (stack/ast-datoms->asm datoms)
-          {:keys [bc pool]} (stack/stack-assembly->bytecode asm-instrs)]
+          {:keys [bc pool]} (stack/assembly->bytecode asm-instrs)]
       (is (= :yes (stack/run-bytes bc pool)))))
   (testing "Stack assembly from :yin/ datoms - conditional false"
     (let [datoms (vm/ast->datoms {:type :if,
@@ -204,5 +204,5 @@
                                   :consequent {:type :literal, :value :yes},
                                   :alternate {:type :literal, :value :no}})
           asm-instrs (stack/ast-datoms->asm datoms)
-          {:keys [bc pool]} (stack/stack-assembly->bytecode asm-instrs)]
+          {:keys [bc pool]} (stack/assembly->bytecode asm-instrs)]
       (is (= :no (stack/run-bytes bc pool))))))
