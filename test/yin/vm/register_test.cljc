@@ -20,6 +20,36 @@
         (vm/value))))
 
 
+(defn- load-ast
+  [ast]
+  (let [datoms (vm/ast->datoms ast)
+        asm (register/ast-datoms->asm datoms)
+        compiled (register/assembly->bytecode asm)]
+    (-> (register/create-vm vm/primitives)
+        (vm/load-program compiled))))
+
+
+(deftest cesk-state-test
+  (testing "Initial state"
+    (let [vm (register/create-vm)]
+      (is (= {} (vm/store vm)))
+      (is (nil? (vm/continuation vm)))))
+  (testing "After load-program, control has bytecode"
+    (let [vm (load-ast {:type :literal, :value 42})
+          ctrl (vm/control vm)]
+      (is (= 0 (:ip ctrl)))
+      (is (seq (:bytecode ctrl)))))
+  (testing "After run, continuation is nil and store is empty"
+    (let [vm (-> (load-ast {:type :literal, :value 42})
+                 (vm/run))]
+      (is (nil? (vm/continuation vm)))
+      (is (= {} (vm/store vm)))
+      (is (= 42 (vm/value vm)))))
+  (testing "Environment contains primitives when provided"
+    (let [vm (register/create-vm vm/primitives)]
+      (is (fn? (get (vm/environment vm) '+))))))
+
+
 (deftest bytecode-basic-test
   (testing "Literal via bytecode"
     (is (= 42 (compile-and-run-bc {:type :literal, :value 42})))))

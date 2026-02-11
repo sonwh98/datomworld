@@ -311,6 +311,11 @@
     (run [vm] (semantic-vm-run vm))
   vm/IVMLoad
     (load-program [vm program] (semantic-vm-load-program vm program))
+  vm/IVMState
+    (control [vm] (:control vm))
+    (environment [vm] (:env vm))
+    (store [vm] (:store vm))
+    (continuation [vm] (:stack vm))
   vm/IVMDataScript
     (transact! [vm datoms] (semantic-vm-transact! vm datoms))
     (q [vm args] (semantic-vm-q vm args)))

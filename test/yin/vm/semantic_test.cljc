@@ -19,6 +19,34 @@
         (vm/value))))
 
 
+(defn- load-ast
+  [ast]
+  (let [datoms (vm/ast->datoms ast)
+        root-id (ffirst datoms)]
+    (-> (semantic/create-vm vm/primitives)
+        (vm/load-program {:node root-id, :datoms datoms}))))
+
+
+(deftest cesk-state-test
+  (testing "Initial state"
+    (let [vm (semantic/create-vm)]
+      (is (= {} (vm/store vm)))
+      (is (nil? (vm/control vm)))
+      (is (empty? (vm/continuation vm)))))
+  (testing "After load-program, control is non-nil"
+    (let [vm (load-ast {:type :literal, :value 42})]
+      (is (some? (vm/control vm)))))
+  (testing "After run, continuation is empty and store is empty"
+    (let [vm (-> (load-ast {:type :literal, :value 42})
+                 (vm/run))]
+      (is (empty? (vm/continuation vm)))
+      (is (= {} (vm/store vm)))
+      (is (= 42 (vm/value vm)))))
+  (testing "Environment contains primitives when provided"
+    (let [vm (semantic/create-vm vm/primitives)]
+      (is (fn? (get (vm/environment vm) '+))))))
+
+
 (deftest literal-test
   (testing "Literal via semantic VM"
     (is (= 42 (compile-and-run {:type :literal, :value 42})))))

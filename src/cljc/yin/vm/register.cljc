@@ -563,6 +563,11 @@
     (reset [vm] (reg-vm-reset vm))
   vm/IVMLoad
     (load-program [vm program] (reg-vm-load-program vm program))
+  vm/IVMState
+    (control [vm] {:ip (:ip vm), :bytecode (:bytecode vm), :regs (:regs vm)})
+    (environment [vm] (:env vm))
+    (store [vm] (:store vm))
+    (continuation [vm] (:k vm))
   vm/IVMDataScript
     (transact! [vm datoms] (reg-vm-transact! vm datoms))
     (q [vm args] (reg-vm-q vm args)))

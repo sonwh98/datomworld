@@ -16,6 +16,27 @@
       (vm/value)))
 
 
+(deftest cesk-state-test
+  (testing "Initial state"
+    (let [vm (ast-walker/create-vm)]
+      (is (= {} (vm/store vm)))
+      (is (nil? (vm/control vm)))
+      (is (nil? (vm/continuation vm)))))
+  (testing "After load-program, control is non-nil"
+    (let [vm (-> (ast-walker/create-vm)
+                 (vm/load-program {:type :literal, :value 42}))]
+      (is (some? (vm/control vm)))))
+  (testing "After run, continuation is nil and store is empty"
+    (let [vm (-> (ast-walker/create-vm)
+                 (vm/load-program {:type :literal, :value 42})
+                 (vm/run))]
+      (is (nil? (vm/continuation vm)))
+      (is (= {} (vm/store vm)))
+      (is (= 42 (vm/value vm)))))
+  (testing "Environment is empty by default (primitives resolved separately)"
+    (is (= {} (vm/environment (ast-walker/create-vm))))))
+
+
 (deftest literal-test
   (testing "Literal via AST walker"
     (is (= 42 (compile-and-run {:type :literal, :value 42})))))

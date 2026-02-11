@@ -511,6 +511,11 @@
     (run [vm] (vm-run vm))
   vm/IVMLoad
     (load-program [vm program] (vm-load-program vm program))
+  vm/IVMState
+    (control [vm] (:control vm))
+    (environment [vm] (:environment vm))
+    (store [vm] (:store vm))
+    (continuation [vm] (:continuation vm))
   vm/IVMDataScript
     (transact! [vm datoms] (vm-transact! vm datoms))
     (q [vm args] (vm-q vm args)))

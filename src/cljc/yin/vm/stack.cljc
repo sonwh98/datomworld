@@ -433,6 +433,11 @@
     (run [vm] (stack-vm-run vm))
   vm/IVMLoad
     (load-program [vm program] (stack-vm-load-program vm program))
+  vm/IVMState
+    (control [vm] {:pc (:pc vm), :bytecode (:bytecode vm)})
+    (environment [vm] (:env vm))
+    (store [vm] (:store vm))
+    (continuation [vm] (:call-stack vm))
   vm/IVMDataScript
     (transact! [vm datoms] (stack-vm-transact! vm datoms))
     (q [vm args] (stack-vm-q vm args)))

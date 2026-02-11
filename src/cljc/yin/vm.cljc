@@ -46,6 +46,22 @@
      Returns new VM with program loaded."))
 
 
+(defprotocol IVMState
+  "CESK state accessor protocol.
+   Exposes the four components of the CESK machine model.
+   Representations are VM-specific but the structure is universal."
+  (control [vm]
+    "Returns the current control state (what is being evaluated).
+     VM-specific: AST node, instruction pointer, node ID, etc.")
+  (environment [vm]
+    "Returns the current lexical environment (variable bindings).")
+  (store [vm]
+    "Returns the current store (heap/global state).")
+  (continuation [vm]
+    "Returns the current continuation (what to do next).
+     VM-specific: linked frames, stack vector, call-stack, etc."))
+
+
 (defprotocol IVMDataScript
   "DataScript operations protocol.
    VMs expose their internal DataScript db through this interface."
