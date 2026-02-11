@@ -42,6 +42,33 @@
     (is (= 42 (compile-and-run {:type :literal, :value 42})))))
 
 
+(deftest literal-types-test
+  (testing "All value types work as literals"
+    (doseq [[desc value] [["string" "hello world"]
+                          ["boolean true" true]
+                          ["boolean false" false]
+                          ["nil" nil]
+                          ["float" 3.14159]
+                          ["negative" -99]
+                          ["vector" [1 2 3]]
+                          ["map" {:x 10, :y 20}]
+                          ["keyword" :status]
+                          ["set" #{1 2}]]]
+      (testing desc
+        (is (= value (compile-and-run {:type :literal, :value value})))))))
+
+
+(deftest literal-single-step-test
+  (testing "Literal evaluation completes in one step"
+    (let [vm (-> (ast-walker/create-vm)
+                 (vm/load-program {:type :literal, :value 42})
+                 (vm/step))]
+      (is (= 42 (vm/value vm)))
+      (is (vm/halted? vm))
+      (is (nil? (vm/control vm)))
+      (is (nil? (vm/continuation vm))))))
+
+
 (deftest arithmetic-test
   (testing "Addition (+ 10 20) via AST walker"
     (let [ast {:type :application,
