@@ -1,7 +1,8 @@
 (ns datomworld.structural-editor
   (:require [cljs.pprint :as pprint]
             [reagent.core :as r]
-            [yin.vm :as vm]))
+            [yin.vm :as vm]
+            [yin.vm.ast-walker :as ast-walker]))
 
 
 ;; =============================================================================
@@ -120,7 +121,9 @@
                             (with-out-str (pprint/pprint ast)))
                  datoms (vec (vm/ast->datoms ast))
                  root-id (ffirst datoms)
-                 {:keys [db tempids]} (vm/transact! datoms)
+                 {:keys [vm tempids]} (vm/transact! (ast-walker/create-vm)
+                                                    datoms)
+                 db (:db vm)
                  root-eid (get tempids root-id)]
              (swap! app-state assoc
                :ast-as-text ast-text
