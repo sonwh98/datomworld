@@ -11,8 +11,7 @@
    Executes numeric bytecode produced by asm->bytecode.
    The compilation pipeline is: AST datoms -> ast-datoms->asm (symbolic IR) -> asm->bytecode (numeric).
    See ast-datoms->asm docstring for the full instruction set."
-  (:require [datascript.core :as d]
-            [yin.module :as module]
+  (:require [yin.module :as module]
             [yin.vm :as vm])
   #?(:cljs (:require-macros [yin.vm.register :refer [opcase]])))
 
@@ -57,7 +56,6 @@
                        halted     ; true if execution completed
                        value      ; final result value
                        store      ; heap memory
-                       db         ; DataScript db value
                        parked     ; parked continuations
                        id-counter ; unique ID counter
                        primitives ; primitive operations
@@ -457,7 +455,6 @@
    :halted (:halted vm),
    :value (:value vm),
    :store (:store vm),
-   :db (:db vm),
    :parked (:parked vm),
    :id-counter (:id-counter vm),
    :primitives (:primitives vm)})
@@ -475,7 +472,6 @@
                 (:halted state)
                 (:value state)
                 (:store state)
-                (:db state)
                 (:parked state)
                 (:id-counter state)
                 (:primitives state)))
@@ -536,21 +532,6 @@
                            :value nil})))
 
 
-(defn- reg-vm-transact!
-  "Transact datoms into the VM's DataScript db."
-  [^RegisterVM vm datoms]
-  (let [tx-data (vm/datoms->tx-data datoms)
-        conn (d/conn-from-db (:db vm))
-        {:keys [tempids]} (d/transact! conn tx-data)]
-    {:vm (assoc vm :db @conn), :tempids tempids}))
-
-
-(defn- reg-vm-q
-  "Run a Datalog query against the VM's db."
-  [^RegisterVM vm args]
-  (apply d/q (first args) (:db vm) (rest args)))
-
-
 (extend-type RegisterVM
   vm/IVMStep
     (step [vm] (reg-vm-step vm))
@@ -570,22 +551,21 @@
     (continuation [vm] (:k vm))
   vm/IVMCompile
     (ast-datoms->asm [vm datoms] (ast-datoms->asm datoms))
-    (asm->bytecode [vm asm] (asm->bytecode asm))
-  vm/IVMDataScript
-    (transact! [vm datoms] (reg-vm-transact! vm datoms))
-    (q [vm args] (reg-vm-q vm args)))
+    (asm->bytecode [vm asm] (asm->bytecode asm)))
 
 
 (defn create-vm
-  "Create a new RegisterVM with optional environment."
+  "Create a new RegisterVM with optional opts map.
+   Accepts {:env map, :primitives map}."
   ([] (create-vm {}))
-  ([env]
-   (map->RegisterVM (merge (vm/empty-state)
-                           {:regs [],
-                            :k nil,
-                            :env env,
-                            :ip 0,
-                            :bytecode nil,
-                            :pool nil,
-                            :halted false,
-                            :value nil}))))
+  ([opts]
+   (let [env (or (:env opts) {})]
+     (map->RegisterVM (merge (vm/empty-state (select-keys opts [:primitives]))
+                             {:regs [],
+                              :k nil,
+                              :env env,
+                              :ip 0,
+                              :bytecode nil,
+                              :pool nil,
+                              :halted false,
+                              :value nil})))))

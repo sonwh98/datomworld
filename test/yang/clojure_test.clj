@@ -9,7 +9,7 @@
 (defn compile-and-run
   ([form] (compile-and-run form {}))
   ([form env]
-   (-> (ast-walker/create-vm env)
+   (-> (ast-walker/create-vm {:env env})
        (vm/load-program (yang/compile form))
        (vm/run)
        (vm/value))))

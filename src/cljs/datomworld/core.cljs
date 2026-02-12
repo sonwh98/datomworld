@@ -270,7 +270,7 @@
             ;; Initialize VM state from last compiled result
             last-result (last results)
             initial-state (when last-result
-                            (-> (stack/create-vm vm/primitives)
+                            (-> (stack/create-vm {:env vm/primitives})
                                 (vm/load-program {:bc (:bc last-result),
                                                   :pool (:pool last-result)})))]
         (swap! app-state assoc
@@ -298,7 +298,7 @@
   (let [bc (last (:stack-bc @app-state))
         pool (last (:stack-pool @app-state))]
     (when (and bc pool)
-      (let [initial-state (-> (stack/create-vm vm/primitives)
+      (let [initial-state (-> (stack/create-vm {:env vm/primitives})
                               (vm/load-program {:bc bc, :pool pool}))]
         (swap! app-state assoc-in [:vm-states :stack :state] initial-state)
         (swap! app-state assoc-in [:vm-states :stack :running] false)
@@ -368,7 +368,7 @@
             ast-with-ids (add-yin-ids last-form)
             {:keys [text source-map]} (ast->text-with-map ast-with-ids)
             initial-env vm/primitives
-            vm (walker/create-vm initial-env)
+            vm (walker/create-vm {:env initial-env})
             vm-loaded (vm/load-program vm ast-with-ids)]
         (.log js/console "Resetting walker with AST:" (clj->js ast-with-ids))
         (swap! app-state assoc :ast-as-text text :walker-source-map source-map)
@@ -404,7 +404,7 @@
         ;; Initialize stepping state
         (let [last-root (last root-ids)]
           (when last-root
-            (let [initial-state (-> (semantic/create-vm vm/primitives)
+            (let [initial-state (-> (semantic/create-vm {:env vm/primitives})
                                     (vm/load-program {:node last-root,
                                                       :datoms all-datoms}))]
               (swap! app-state assoc-in
@@ -431,7 +431,7 @@
         root-ids (:root-ids @app-state)
         last-root (last root-ids)]
     (when (and datoms last-root)
-      (let [initial-state (-> (semantic/create-vm vm/primitives)
+      (let [initial-state (-> (semantic/create-vm {:env vm/primitives})
                               (vm/load-program {:node last-root,
                                                 :datoms datoms}))]
         (swap! app-state assoc-in [:vm-states :semantic :state] initial-state)
@@ -496,7 +496,7 @@
             ;; Initialize VM state from last compiled result
             last-result (last results)
             initial-state (when last-result
-                            (-> (register/create-vm vm/primitives)
+                            (-> (register/create-vm {:env vm/primitives})
                                 (vm/load-program {:bytecode (:bytecode
                                                               last-result),
                                                   :pool (:pool last-result)})))]
@@ -528,7 +528,7 @@
     (when (and bytecode pool)
       (let [initial-state (if (and state (satisfies? vm/IVMReset state))
                             (vm/reset state)
-                            (-> (register/create-vm vm/primitives)
+                            (-> (register/create-vm {:env vm/primitives})
                                 (vm/load-program {:bytecode bytecode,
                                                   :pool pool})))]
         (swap! app-state assoc-in [:vm-states :register :state] initial-state)
@@ -555,7 +555,7 @@
           :error nil)
         ;; Initialize AST Walker state
         (let [initial-env vm/primitives
-              vm (walker/create-vm initial-env)
+              vm (walker/create-vm {:env initial-env})
               vm-loaded (vm/load-program vm ast-with-ids)]
           (swap! app-state assoc-in [:vm-states :walker :state] vm-loaded)
           (swap! app-state assoc-in [:vm-states :walker :running] false)

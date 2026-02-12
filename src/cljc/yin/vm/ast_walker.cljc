@@ -1,7 +1,6 @@
 (ns yin.vm.ast-walker
   (:refer-clojure :exclude [eval])
-  (:require [datascript.core :as d]
-            [yin.module :as module]
+  (:require [yin.module :as module]
             [yin.stream :as stream]
             [yin.vm :as vm]))
 
@@ -31,7 +30,6 @@
                         continuation ; reified continuation or nil
                         value        ; last computed value
                         store        ; heap memory map
-                        db           ; DataScript db value
                         parked       ; parked continuations map
                         id-counter   ; integer counter for unique IDs
                         primitives   ; primitive operations map
@@ -441,21 +439,6 @@
   (assoc vm :control ast))
 
 
-(defn- vm-transact!
-  "Transact datoms into the VM's DataScript db."
-  [^ASTWalkerVM vm datoms]
-  (let [tx-data (vm/datoms->tx-data datoms)
-        conn (d/conn-from-db (:db vm))
-        {:keys [tempids]} (d/transact! conn tx-data)]
-    {:vm (assoc vm :db @conn), :tempids tempids}))
-
-
-(defn- vm-q
-  "Run a Datalog query against the VM's db."
-  [^ASTWalkerVM vm args]
-  (apply d/q (first args) (:db vm) (rest args)))
-
-
 (extend-type ASTWalkerVM
   vm/IVMStep
     (step [vm] (vm-step vm))
@@ -470,17 +453,16 @@
     (control [vm] (:control vm))
     (environment [vm] (:environment vm))
     (store [vm] (:store vm))
-    (continuation [vm] (:continuation vm))
-  vm/IVMDataScript
-    (transact! [vm datoms] (vm-transact! vm datoms))
-    (q [vm args] (vm-q vm args)))
+    (continuation [vm] (:continuation vm)))
 
 
 (defn create-vm
-  "Create a new ASTWalkerVM with optional environment."
+  "Create a new ASTWalkerVM with optional opts map.
+   Accepts {:env map, :primitives map}."
   ([] (create-vm {}))
-  ([env]
-   (let [base (vm/empty-state)]
+  ([opts]
+   (let [env (or (:env opts) {})
+         base (vm/empty-state (select-keys opts [:primitives]))]
      (map->ASTWalkerVM
        (merge
          base

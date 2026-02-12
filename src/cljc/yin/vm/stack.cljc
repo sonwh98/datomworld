@@ -1,6 +1,5 @@
 (ns yin.vm.stack
-  (:require [datascript.core :as d]
-            [yin.vm :as vm]))
+  (:require [yin.vm :as vm]))
 
 
 ;; =============================================================================
@@ -28,7 +27,6 @@
                     halted     ; true if execution completed
                     value      ; final result value
                     store      ; heap memory
-                    db         ; DataScript db value
                     parked     ; parked continuations
                     id-counter ; unique ID counter
                     primitives ; primitive operations
@@ -319,7 +317,6 @@
    :halted (:halted vm),
    :value (:value vm),
    :store (:store vm),
-   :db (:db vm),
    :parked (:parked vm),
    :id-counter (:id-counter vm),
    :primitives (:primitives vm)})
@@ -337,7 +334,6 @@
              (:halted state)
              (:value state)
              (:store state)
-             (:db state)
              (:parked state)
              (:id-counter state)
              (:primitives state)))
@@ -389,21 +385,6 @@
                         :value nil})))
 
 
-(defn- stack-vm-transact!
-  "Transact datoms into the VM's DataScript db."
-  [^StackVM vm datoms]
-  (let [tx-data (vm/datoms->tx-data datoms)
-        conn (d/conn-from-db (:db vm))
-        {:keys [tempids]} (d/transact! conn tx-data)]
-    {:vm (assoc vm :db @conn), :tempids tempids}))
-
-
-(defn- stack-vm-q
-  "Run a Datalog query against the VM's db."
-  [^StackVM vm args]
-  (apply d/q (first args) (:db vm) (rest args)))
-
-
 (extend-type StackVM
   vm/IVMStep
     (step [vm] (stack-vm-step vm))
@@ -421,22 +402,21 @@
     (continuation [vm] (:call-stack vm))
   vm/IVMCompile
     (ast-datoms->asm [vm datoms] (ast-datoms->asm datoms))
-    (asm->bytecode [vm asm] (asm->bytecode asm))
-  vm/IVMDataScript
-    (transact! [vm datoms] (stack-vm-transact! vm datoms))
-    (q [vm args] (stack-vm-q vm args)))
+    (asm->bytecode [vm asm] (asm->bytecode asm)))
 
 
 (defn create-vm
-  "Create a new StackVM with optional environment."
+  "Create a new StackVM with optional opts map.
+   Accepts {:env map, :primitives map}."
   ([] (create-vm {}))
-  ([env]
-   (map->StackVM (merge (vm/empty-state)
-                        {:pc 0,
-                         :bytecode [],
-                         :stack [],
-                         :env env,
-                         :call-stack [],
-                         :pool [],
-                         :halted false,
-                         :value nil}))))
+  ([opts]
+   (let [env (or (:env opts) {})]
+     (map->StackVM (merge (vm/empty-state (select-keys opts [:primitives]))
+                          {:pc 0,
+                           :bytecode [],
+                           :stack [],
+                           :env env,
+                           :call-stack [],
+                           :pool [],
+                           :halted false,
+                           :value nil})))))

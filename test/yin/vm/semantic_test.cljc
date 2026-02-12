@@ -12,7 +12,7 @@
   [ast]
   (let [datoms (vm/ast->datoms ast)
         root-id (ffirst datoms)
-        vm (semantic/create-vm vm/primitives)]
+        vm (semantic/create-vm {:env vm/primitives})]
     (-> vm
         (vm/load-program {:node root-id, :datoms datoms})
         (vm/run)
@@ -23,7 +23,7 @@
   [ast]
   (let [datoms (vm/ast->datoms ast)
         root-id (ffirst datoms)]
-    (-> (semantic/create-vm vm/primitives)
+    (-> (semantic/create-vm {:env vm/primitives})
         (vm/load-program {:node root-id, :datoms datoms}))))
 
 
@@ -43,7 +43,7 @@
       (is (= {} (vm/store vm)))
       (is (= 42 (vm/value vm)))))
   (testing "Environment contains primitives when provided"
-    (let [vm (semantic/create-vm vm/primitives)]
+    (let [vm (semantic/create-vm {:env vm/primitives})]
       (is (fn? (get (vm/environment vm) '+))))))
 
 

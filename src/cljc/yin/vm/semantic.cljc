@@ -1,6 +1,5 @@
 (ns yin.vm.semantic
-  (:require [datascript.core :as d]
-            [yin.vm :as vm]))
+  (:require [yin.vm :as vm]))
 
 
 ;; =============================================================================
@@ -80,7 +79,6 @@
                        halted     ; true if execution completed
                        value      ; final result value
                        store      ; heap memory
-                       db         ; DataScript db value
                        parked     ; parked continuations
                        id-counter ; unique ID counter
                        primitives ; primitive operations
@@ -261,21 +259,6 @@
     :value nil))
 
 
-(defn- semantic-vm-transact!
-  "Transact datoms into the VM's DataScript db."
-  [^SemanticVM vm datoms]
-  (let [tx-data (vm/datoms->tx-data datoms)
-        conn (d/conn-from-db (:db vm))
-        {:keys [tempids]} (d/transact! conn tx-data)]
-    {:vm (assoc vm :db @conn), :tempids tempids}))
-
-
-(defn- semantic-vm-q
-  "Run a Datalog query against the VM's db."
-  [^SemanticVM vm args]
-  (apply d/q (first args) (:db vm) (rest args)))
-
-
 (extend-type SemanticVM
   vm/IVMStep
     (step [vm] (semantic-vm-step vm))
@@ -290,20 +273,19 @@
     (control [vm] (:control vm))
     (environment [vm] (:env vm))
     (store [vm] (:store vm))
-    (continuation [vm] (:stack vm))
-  vm/IVMDataScript
-    (transact! [vm datoms] (semantic-vm-transact! vm datoms))
-    (q [vm args] (semantic-vm-q vm args)))
+    (continuation [vm] (:stack vm)))
 
 
 (defn create-vm
-  "Create a new SemanticVM with optional environment."
+  "Create a new SemanticVM with optional opts map.
+   Accepts {:env map, :primitives map}."
   ([] (create-vm {}))
-  ([env]
-   (map->SemanticVM (merge (vm/empty-state)
-                           {:control nil,
-                            :env env,
-                            :stack [],
-                            :datoms [],
-                            :halted false,
-                            :value nil}))))
+  ([opts]
+   (let [env (or (:env opts) {})]
+     (map->SemanticVM (merge (vm/empty-state (select-keys opts [:primitives]))
+                             {:control nil,
+                              :env env,
+                              :stack [],
+                              :datoms [],
+                              :halted false,
+                              :value nil})))))

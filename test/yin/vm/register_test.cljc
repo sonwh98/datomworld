@@ -13,7 +13,7 @@
   (let [datoms (vm/ast->datoms ast)
         asm (register/ast-datoms->asm datoms)
         compiled (register/asm->bytecode asm)
-        vm (register/create-vm vm/primitives)]
+        vm (register/create-vm {:env vm/primitives})]
     (-> vm
         (vm/load-program compiled)
         (vm/run)
@@ -25,7 +25,7 @@
   (let [datoms (vm/ast->datoms ast)
         asm (register/ast-datoms->asm datoms)
         compiled (register/asm->bytecode asm)]
-    (-> (register/create-vm vm/primitives)
+    (-> (register/create-vm {:env vm/primitives})
         (vm/load-program compiled))))
 
 
@@ -46,7 +46,7 @@
       (is (= {} (vm/store vm)))
       (is (= 42 (vm/value vm)))))
   (testing "Environment contains primitives when provided"
-    (let [vm (register/create-vm vm/primitives)]
+    (let [vm (register/create-vm {:env vm/primitives})]
       (is (fn? (get (vm/environment vm) '+))))))
 
 

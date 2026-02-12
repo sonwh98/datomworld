@@ -72,19 +72,6 @@
     "Encode assembly instructions to bytecode (numeric format with constant pool)."))
 
 
-(defprotocol IVMDataScript
-  "DataScript operations protocol.
-   VMs expose their internal DataScript db through this interface."
-  (transact! [vm datoms]
-    "Transact datoms into the VM's DataScript db.
-     Returns {:vm updated-vm :tempids tempid-map}.")
-  (q [vm args]
-    "Run a Datalog query against the VM's db.
-     args is [query & inputs] where query is the Datalog query
-     and inputs are additional bindings (db is provided by the VM).
-     Returns query results."))
-
-
 ;; Primitive operations
 ;; Wrapped in (fn ...) to normalize VM semantics:
 ;; - enforce fixed arities (host ops like + are variadic),
@@ -147,6 +134,28 @@
               (map (fn [ref] [:db/add e a ref]) v)
               [[:db/add e a v]]))
     datoms))
+
+
+(def ^:dynamic *db*
+  "Dynamic binding for the DataScript db value.
+   Bind before calling transact! or q."
+  nil)
+
+
+(defn transact!
+  "Transact datoms into *db*. Returns {:db updated-db :tempids tempid-map}."
+  [datoms]
+  (let [tx-data (datoms->tx-data datoms)
+        conn (d/conn-from-db *db*)
+        {:keys [tempids]} (d/transact! conn tx-data)]
+    {:db @conn, :tempids tempids}))
+
+
+(defn q
+  "Run a Datalog query against *db*.
+   args is [query & inputs]."
+  [& args]
+  (apply d/q (first args) *db* (rest args)))
 
 
 (defn ast->datoms
@@ -238,11 +247,10 @@
 
 (defn empty-state
   "Return an initial immutable VM state map.
-   Contains: :db (DataScript), :store {}, :parked {}, :id-counter 0, :primitives map."
-  ([] (empty-state primitives))
-  ([prims]
-   {:db (d/empty-db schema),
-    :store {},
+   Contains: :store {}, :parked {}, :id-counter 0, :primitives map."
+  ([] (empty-state {}))
+  ([opts]
+   {:store {},
     :parked {},
     :id-counter 0,
-    :primitives prims}))
+    :primitives (or (:primitives opts) primitives)}))
