@@ -1052,7 +1052,11 @@
                       :left "0",
                       :pointer-events "none",
                       :color "#f1f5ff",
-                      :z-index "100"}} "Datomworld Yin VM Compilation Pipeline"]
+                      :z-index "100"}}
+             [:a {:href "https://datom.world", :style {:pointer-events "auto"}}
+              "Datom.world "]
+             [:a {:href "/yin.chp", :style {:pointer-events "auto"}} "Yin VM "
+              "Compilation Pipeline"]]
             (let [pos (:ui-positions @app-state)
                   src (:source pos)
                   walk (:walker pos)
