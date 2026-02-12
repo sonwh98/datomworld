@@ -121,8 +121,8 @@
                             (with-out-str (pprint/pprint ast)))
                  datoms (vec (vm/ast->datoms ast))
                  root-id (ffirst datoms)
-                 {:keys [db tempids]} (binding [vm/*db* (d/empty-db vm/schema)]
-                                        (vm/transact! datoms))
+                 {:keys [db tempids]} (vm/transact! (d/empty-db vm/schema)
+                                                    datoms)
                  root-eid (get tempids root-id)]
              (swap! app-state assoc
                :ast-as-text ast-text

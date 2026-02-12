@@ -136,26 +136,20 @@
     datoms))
 
 
-(def ^:dynamic *db*
-  "Dynamic binding for the DataScript db value.
-   Bind before calling transact! or q."
-  nil)
-
-
 (defn transact!
-  "Transact datoms into *db*. Returns {:db updated-db :tempids tempid-map}."
-  [datoms]
+  "Transact datoms into db. Returns {:db updated-db :tempids tempid-map}."
+  [db datoms]
   (let [tx-data (datoms->tx-data datoms)
-        conn (d/conn-from-db *db*)
+        conn (d/conn-from-db db)
         {:keys [tempids]} (d/transact! conn tx-data)]
     {:db @conn, :tempids tempids}))
 
 
 (defn q
-  "Run a Datalog query against *db*.
+  "Run a Datalog query against db.
    args is [query & inputs]."
-  [& args]
-  (apply d/q (first args) *db* (rest args)))
+  [db & args]
+  (apply d/q (first args) db (rest args)))
 
 
 (defn ast->datoms
