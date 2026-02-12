@@ -10,6 +10,7 @@
             [cljs.reader :as reader]
             [clojure.string :as str]
             [clojure.walk :as walk]
+            [datascript.core :as d]
             [datascript.db :as db]
             [datascript.query :as dq]
             [reagent.core :as r]
@@ -132,12 +133,12 @@
 
 
 (def default-positions
-  {:source {:x 20, :y 180, :w 350, :h 450},
-   :semantic {:x 900, :y 180, :w 400, :h 450},
-   :register {:x 1400, :y 80, :w 350, :h 450},
-   :stack {:x 1400, :y 650, :w 350, :h 450},
-   :walker {:x 420, :y 180, :w 380, :h 450},
-   :query {:x 900, :y 650, :w 400, :h 450}})
+  {:source {:x 50, :y 250, :w 350, :h 450},
+   :walker {:x 600, :y 50, :w 400, :h 450},
+   :semantic {:x 600, :y 550, :w 400, :h 450},
+   :register {:x 1200, :y 300, :w 350, :h 450},
+   :stack {:x 1200, :y 800, :w 350, :h 450},
+   :query {:x 50, :y 750, :w 350, :h 450}})
 
 
 (defonce app-state
@@ -179,7 +180,7 @@
 
 (when (or (nil? (:ui-positions @app-state))
           (not (:h (:source (:ui-positions @app-state))))
-          (= 80 (:y (:source (:ui-positions @app-state)))))
+          (= 750 (:y (:query (:ui-positions @app-state)))))
   (swap! app-state assoc :ui-positions default-positions))
 
 
@@ -390,6 +391,9 @@
             all-datom-groups (mapv vm/ast->datoms forms)
             all-datoms (vec (mapcat identity all-datom-groups))
             root-ids (mapv ffirst all-datom-groups)
+            empty-db (d/empty-db vm/schema)
+            {:keys [db tempids]} (vm/transact! empty-db all-datoms)
+            root-eids (mapv #(get tempids %) root-ids)
             stats
               {:total-datoms (count all-datoms),
                :lambdas (count (semantic/find-lambdas all-datoms)),
@@ -398,7 +402,9 @@
                :literals (count (semantic/find-by-type all-datoms :literal))}]
         (swap! app-state assoc
           :datoms all-datoms
+          :ds-db db
           :root-ids root-ids
+          :root-eids root-eids
           :semantic-stats stats
           :error nil)
         ;; Initialize stepping state
@@ -418,6 +424,7 @@
         (swap! app-state assoc
           :error (.-message e)
           :datoms nil
+          :ds-db nil
           :root-ids nil
           :semantic-stats nil)
         (swap! app-state assoc-in [:vm-states :semantic :state] nil)
@@ -458,7 +465,7 @@
   (let [db (:ds-db @app-state)]
     (if (nil? db)
       (swap! app-state assoc
-        :error "No DataScript db. Click \"Sem ->\" first."
+        :error "No DataScript db. Click \"Compile ->\" first."
         :query-result nil)
       (try (let [query (reader/read-string (:query-text @app-state))
                  extra-bindings (parse-in-bindings query)
@@ -466,9 +473,7 @@
                               (let [input-text (or (:query-inputs @app-state)
                                                    "")]
                                 (reader/read-string (str "[" input-text "]"))))
-                 args (into [query db] extra-vals)
-                 result []
-                 #_(apply vm/q args)]
+                 result (apply vm/q db query extra-vals)]
              (swap! app-state assoc :query-result result :error nil))
            (catch js/Error e
              (swap! app-state assoc
@@ -862,19 +867,27 @@
   [from-id to-id label on-click]
   (let [positions (:ui-positions @app-state)
         collapsed (:collapsed @app-state)
-        from (get positions from-id)
-        to (get positions to-id)]
+        from (if (map? from-id) from-id (get positions from-id))
+        to (if (map? to-id) to-id (get positions to-id))]
     (when (and from to)
-      (let [from-collapsed? (contains? collapsed from-id)
+      (let [from-is-map? (map? from-id)
+            to-is-map? (map? to-id)
+            from-collapsed? (and (not from-is-map?)
+                                 (contains? collapsed from-id))
             vertical? (and (= from-id :semantic) (= to-id :query))
-            from-h (if from-collapsed? 35 (:h from))
-            start-x (if vertical?
-                      (+ (:x from) (/ (:w from) 2))
-                      (+ (:x from) (:w from)))
-            start-y
-              (if vertical? (+ (:y from) from-h) (+ (:y from) (/ from-h 2)))
-            end-x (if vertical? (+ (:x to) (/ (:w to) 2)) (:x to))
-            end-y (if vertical? (:y to) (+ (:y to) 20))
+            from-h (if from-collapsed? 35 (or (:h from) 0))
+            start-x (cond from-is-map? (:x from)
+                          vertical? (+ (:x from) (/ (:w from) 2))
+                          :else (+ (:x from) (:w from)))
+            start-y (cond from-is-map? (:y from)
+                          vertical? (+ (:y from) from-h)
+                          :else (+ (:y from) (/ from-h 2)))
+            end-x (cond to-is-map? (:x to)
+                        vertical? (+ (:x to) (/ (:w to) 2))
+                        :else (:x to))
+            end-y (cond to-is-map? (:y to)
+                        vertical? (:y to)
+                        :else (+ (:y to) 20))
             dx (Math/abs (- end-x start-x))
             dy (Math/abs (- end-y start-y))
             cp1-x (if vertical? start-x (+ start-x (/ dx 2)))
@@ -893,22 +906,24 @@
             mid-y (+ start-y (/ (- end-y start-y) 2))]
         [:g
          [:path {:d path-d, :fill "none", :stroke "#444c56", :stroke-width "2"}]
-         [:circle {:cx end-x, :cy end-y, :r "4", :fill "#444c56"}]
-         [:foreignObject
-          {:x (- mid-x 40),
-           :y (- mid-y 15),
-           :width "80",
-           :height "30",
-           :style {:pointer-events "auto"}}
-          [:div {:style {:display "flex", :justify-content "center"}}
-           [:button
-            {:on-click on-click,
-             :style {:background "#0e1328",
-                     :border "1px solid #2d3b55",
-                     :border-radius "4px",
-                     :cursor "pointer",
-                     :font-size "12px",
-                     :color "#c5c6c7"}} label]]]]))))
+         (when-not to-is-map?
+           [:circle {:cx end-x, :cy end-y, :r "4", :fill "#444c56"}])
+         (when (and label on-click)
+           [:foreignObject
+            {:x (- mid-x 40),
+             :y (- mid-y 15),
+             :width "80",
+             :height "30",
+             :style {:pointer-events "auto"}}
+            [:div {:style {:display "flex", :justify-content "center"}}
+             [:button
+              {:on-click on-click,
+               :style {:background "#0e1328",
+                       :border "1px solid #2d3b55",
+                       :border-radius "4px",
+                       :cursor "pointer",
+                       :font-size "12px",
+                       :color "#c5c6c7"}} label]]])]))))
 
 
 (defn handle-mouse-move
@@ -1012,6 +1027,10 @@
                stack-pc (:pc stack-state)
                stack-asm (last (:stack-asm @app-state))
                stack-map (last (:stack-source-map @app-state))
+               stack-state (get-in @app-state [:vm-states :stack :state])
+               stack-pc (:pc stack-state)
+               stack-asm (last (:stack-asm @app-state))
+               stack-map (last (:stack-source-map @app-state))
                active-stack-idx (get stack-map stack-pc)]
            [:div
             {:style {:width "100%",
@@ -1023,19 +1042,42 @@
             [:h1
              {:style {:margin "20px", :pointer-events "none", :color "#f1f5ff"}}
              "Datomworld Yin VM Compilation Pipeline"]
-            [:svg
-             {:style {:position "absolute",
-                      :top 0,
-                      :left 0,
-                      :width "100%",
-                      :height "100%",
-                      :pointer-events "none",
-                      :z-index 0}}
-             [connection-line :source :walker "AST ->" compile-source]
-             [connection-line :walker :semantic "Sem ->" compile-ast]
-             [connection-line :semantic :register "Reg ->" compile-register]
-             [connection-line :semantic :stack "Stack ->" compile-stack]
-             [connection-line :semantic :query "d/q ->" run-query]]
+            (let [pos (:ui-positions @app-state)
+                  src (:source pos)
+                  walk (:walker pos)
+                  sem (:semantic pos)
+                  reg (:register pos)
+                  ;; Calculate where the Compile button would be
+                  start-x (+ (:x src) (:w src))
+                  start-y (+ (:y src) (/ (:h src) 2))
+                  end-x (:x walk)
+                  end-y (+ (:y walk) 20)
+                  fork-point {:x (+ start-x (/ (- end-x start-x) 2)),
+                              :y (+ start-y (/ (- end-y start-y) 2))}
+                  ;; Calculate where the Bytecode button would be
+                  b-start-x (+ (:x sem) (:w sem))
+                  b-start-y (+ (:y sem) (/ (:h sem) 2))
+                  b-end-x (:x reg)
+                  bytecode-fork-point {:x (+ b-start-x
+                                             (/ (- b-end-x b-start-x) 2)),
+                                       :y b-start-y}]
+              [:svg
+               {:style {:position "absolute",
+                        :top 0,
+                        :left 0,
+                        :width "100%",
+                        :height "100%",
+                        :pointer-events "none",
+                        :z-index 0}}
+               [connection-line :source fork-point "Compile ->"
+                (fn [] (compile-source) (compile-ast))]
+               [connection-line fork-point :walker nil nil]
+               [connection-line fork-point :semantic nil nil]
+               [connection-line :semantic bytecode-fork-point "-> Bytecode"
+                (fn [] (compile-register) (compile-stack))]
+               [connection-line bytecode-fork-point :register nil nil]
+               [connection-line bytecode-fork-point :stack nil nil]
+               [connection-line :semantic :query "d/q ->" run-query]])
             [draggable-card :source "Source Code"
              [:div
               {:style {:display "flex",
