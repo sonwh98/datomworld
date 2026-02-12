@@ -86,6 +86,10 @@
 
 
 ;; Primitive operations
+;; Wrapped in (fn ...) to normalize VM semantics:
+;; - enforce fixed arities (host ops like + are variadic),
+;; - expose macro-like forms (and/or) as callable values,
+;; - shape return values/effects for VM contracts (e.g. rest, yin/def).
 (def primitives
   {'+ (fn [a b] (+ a b)),
    '- (fn [a b] (- a b)),
