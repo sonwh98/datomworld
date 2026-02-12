@@ -1031,17 +1031,28 @@
                stack-pc (:pc stack-state)
                stack-asm (last (:stack-asm @app-state))
                stack-map (last (:stack-source-map @app-state))
-               active-stack-idx (get stack-map stack-pc)]
+               active-stack-idx (get stack-map stack-pc)
+               max-dims (reduce (fn [acc [_ p]]
+                                  {:w (max (:w acc) (+ (:x p) (:w p) 100)),
+                                   :h (max (:h acc) (+ (:y p) (:h p) 100))})
+                          {:w 0, :h 0}
+                          (:ui-positions @app-state))
+               width (max js/window.innerWidth (:w max-dims))
+               height (max js/window.innerHeight (:h max-dims))]
            [:div
-            {:style {:width "100%",
-                     :height "100vh",
+            {:style {:width width,
+                     :height height,
                      :position "relative",
-                     :overflow "hidden",
                      :background "#060817",
                      :color "#c5c6c7"}}
             [:h1
-             {:style {:margin "20px", :pointer-events "none", :color "#f1f5ff"}}
-             "Datomworld Yin VM Compilation Pipeline"]
+             {:style {:margin "20px",
+                      :position "absolute",
+                      :top "0",
+                      :left "0",
+                      :pointer-events "none",
+                      :color "#f1f5ff",
+                      :z-index "100"}} "Datomworld Yin VM Compilation Pipeline"]
             (let [pos (:ui-positions @app-state)
                   src (:source pos)
                   walk (:walker pos)
@@ -1077,7 +1088,7 @@
                 (fn [] (compile-register) (compile-stack))]
                [connection-line bytecode-fork-point :register nil nil]
                [connection-line bytecode-fork-point :stack nil nil]
-               [connection-line :semantic :query "d/q ->" run-query]])
+               #_[connection-line :semantic :query "d/q ->" run-query]])
             [draggable-card :source "Source Code"
              [:div
               {:style {:display "flex",
