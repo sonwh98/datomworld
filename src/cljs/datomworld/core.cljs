@@ -133,8 +133,8 @@
 
 
 (def default-positions
-  {:source {:x 50, :y 250, :w 350, :h 450},
-   :walker {:x 600, :y 50, :w 400, :h 450},
+  {:source {:x 50, :y 150, :w 350, :h 450},
+   :walker {:x 600, :y 100, :w 400, :h 450},
    :semantic {:x 600, :y 550, :w 400, :h 450},
    :register {:x 1200, :y 300, :w 350, :h 450},
    :stack {:x 1200, :y 800, :w 350, :h 450},
