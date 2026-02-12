@@ -40,7 +40,7 @@
                     :main-opts ["-m" "world.server"]}
            :fmt {:extra-paths ["src/dev"]
                  :exec-fn tasks/fix-all}
-           :kondo {:extra-deps {clj-kondo/clj-kondo {:mvn/version "2024.05.29"}}
+           :kondo {:extra-deps {clj-kondo/clj-kondo {:mvn/version "2026.01.19"}}
                    :main-opts ["-m" "clj-kondo.main"]}}}
 
 

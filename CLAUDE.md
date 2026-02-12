@@ -317,7 +317,7 @@ because the resulting forms are syntactically valid but semantically broken
 When brackets are suspected to be wrong:
 
 1. Run clj-kondo first:
-     clj-kondo --lint path/to/file.cljs
+   clj -M:kondo --lint path/to/file.cljs
    clj-kondo reports mismatched brackets with line numbers.
    Zero errors means brackets are balanced. Warnings are separate.
 
