@@ -98,6 +98,123 @@
 ;; No program counter, no constant pool — values are inline in the datoms.
 
 
+(defn- handle-return-value
+  [vm]
+  (let [{:keys [control env stack datoms]} vm
+        val (:val control)]
+    (if (empty? stack)
+      (assoc vm
+        :halted true
+        :value val)
+      (let [frame (peek stack)
+            new-stack (pop stack)]
+        (case (:type frame)
+          :if (let [{:keys [cons alt env]} frame]
+                (assoc vm
+                  :control {:type :node, :id (if val cons alt)}
+                  :env env
+                  :stack new-stack))
+          :app-op
+            (let [{:keys [operands env]} frame
+                  fn-val val]
+              (if (empty? operands)
+                ;; 0-arity call
+                (if (fn? fn-val)
+                  (assoc vm
+                    :control {:type :value, :val (fn-val)}
+                    :env env
+                    :stack new-stack)
+                  (if (= :closure (:type fn-val))
+                    (let [{:keys [body-node env]} fn-val]
+                      (assoc vm
+                        :control {:type :node, :id body-node}
+                        :env env ; Switch to closure env
+                        :stack (conj new-stack
+                                     {:type :restore-env, :env (:env frame)})))
+                    (throw (ex-info "Cannot apply non-function" {:fn fn-val}))))
+                ;; Prepare to eval args
+                (let [first-arg (first operands)
+                      rest-args (vec (rest operands))]
+                  (assoc vm
+                    :control {:type :node, :id first-arg}
+                    :env env
+                    :stack (conj new-stack
+                                 {:type :app-args,
+                                  :fn fn-val,
+                                  :evaluated [],
+                                  :pending rest-args,
+                                  :env env})))))
+          :app-args
+            (let [{:keys [fn evaluated pending env]} frame
+                  new-evaluated (conj evaluated val)]
+              (if (empty? pending)
+                ;; All args evaluated, apply
+                (if (fn? fn)
+                  (assoc vm
+                    :control {:type :value, :val (apply fn new-evaluated)}
+                    :env env
+                    :stack new-stack)
+                  (if (= :closure (:type fn))
+                    (let [{:keys [params body-node env]} fn
+                          new-env (merge env (zipmap params new-evaluated))]
+                      (assoc vm
+                        :control {:type :node, :id body-node}
+                        :env new-env ; Closure env + args
+                        :stack (conj new-stack
+                                     {:type :restore-env, :env (:env frame)})))
+                    (throw (ex-info "Cannot apply non-function" {:fn fn}))))
+                ;; More args to eval
+                (let [next-arg (first pending)
+                      rest-pending (vec (rest pending))]
+                  (assoc vm
+                    :control {:type :node, :id next-arg}
+                    :env env
+                    :stack (conj new-stack
+                                 (assoc frame
+                                   :evaluated new-evaluated
+                                   :pending rest-pending))))))
+          :restore-env (assoc vm
+                         :control control ; Pass value up
+                         :env (:env frame) ; Restore caller env
+                         :stack new-stack))))))
+
+
+(defn handle-node-eval
+  [vm]
+  (let [{:keys [control env stack datoms]} vm
+        node-id (:id control)
+        tx-data (vm/datoms->tx-data datoms)
+        conn (d/conn-from-db (d/empty-db vm/schema))
+        _ (d/transact! conn tx-data)
+        node-map (get-node-attrs @conn node-id)
+        node-type (:yin/type node-map)]
+    (case node-type
+      :literal (assoc vm :control {:type :value, :val (:yin/value node-map)})
+      :variable (assoc vm
+                  :control {:type :value, :val (get env (:yin/name node-map))})
+      :lambda (assoc vm
+                :control {:type :value,
+                          :val {:type :closure,
+                                :params (:yin/params node-map),
+                                :body-node (:yin/body node-map),
+                                :datoms datoms,
+                                :env env}})
+      :if (assoc vm
+            :control {:type :node, :id (:yin/test node-map)}
+            :stack (conj stack
+                         {:type :if,
+                          :cons (:yin/consequent node-map),
+                          :alt (:yin/alternate node-map),
+                          :env env}))
+      :application (assoc vm
+                     :control {:type :node, :id (:yin/operator node-map)}
+                     :stack (conj stack
+                                  {:type :app-op,
+                                   :operands (:yin/operands node-map),
+                                   :env env}))
+      (throw (ex-info "Unknown node type" {:node-map node-map})))))
+
+
 (defn- semantic-step
   "Execute one step of the semantic VM.
    Operates directly on SemanticVM record (assoc preserves record type)."
@@ -105,118 +222,9 @@
   (let [{:keys [control env stack datoms]} vm]
     (if (= :value (:type control))
       ;; Handle return value from previous step
-      (let [val (:val control)]
-        (if (empty? stack)
-          (assoc vm
-            :halted true
-            :value val)
-          (let [frame (peek stack)
-                new-stack (pop stack)]
-            (case (:type frame)
-              :if (let [{:keys [cons alt env]} frame]
-                    (assoc vm
-                      :control {:type :node, :id (if val cons alt)}
-                      :env env
-                      :stack new-stack))
-              :app-op (let [{:keys [operands env]} frame
-                            fn-val val]
-                        (if (empty? operands)
-                          ;; 0-arity call
-                          (if (fn? fn-val)
-                            (assoc vm
-                              :control {:type :value, :val (fn-val)}
-                              :env env
-                              :stack new-stack)
-                            (if (= :closure (:type fn-val))
-                              (let [{:keys [body-node env]} fn-val]
-                                (assoc vm
-                                  :control {:type :node, :id body-node}
-                                  :env env ; Switch to closure env
-                                  :stack (conj new-stack
-                                               {:type :restore-env,
-                                                :env (:env frame)})))
-                              (throw (ex-info "Cannot apply non-function"
-                                              {:fn fn-val}))))
-                          ;; Prepare to eval args
-                          (let [first-arg (first operands)
-                                rest-args (vec (rest operands))]
-                            (assoc vm
-                              :control {:type :node, :id first-arg}
-                              :env env
-                              :stack (conj new-stack
-                                           {:type :app-args,
-                                            :fn fn-val,
-                                            :evaluated [],
-                                            :pending rest-args,
-                                            :env env})))))
-              :app-args
-                (let [{:keys [fn evaluated pending env]} frame
-                      new-evaluated (conj evaluated val)]
-                  (if (empty? pending)
-                    ;; All args evaluated, apply
-                    (if (fn? fn)
-                      (assoc vm
-                        :control {:type :value, :val (apply fn new-evaluated)}
-                        :env env
-                        :stack new-stack)
-                      (if (= :closure (:type fn))
-                        (let [{:keys [params body-node env]} fn
-                              new-env (merge env (zipmap params new-evaluated))]
-                          (assoc vm
-                            :control {:type :node, :id body-node}
-                            :env new-env ; Closure env + args
-                            :stack (conj new-stack
-                                         {:type :restore-env,
-                                          :env (:env frame)})))
-                        (throw (ex-info "Cannot apply non-function" {:fn fn}))))
-                    ;; More args to eval
-                    (let [next-arg (first pending)
-                          rest-pending (vec (rest pending))]
-                      (assoc vm
-                        :control {:type :node, :id next-arg}
-                        :env env
-                        :stack (conj new-stack
-                                     (assoc frame
-                                       :evaluated new-evaluated
-                                       :pending rest-pending))))))
-              :restore-env (assoc vm
-                             :control control ; Pass value up
-                             :env (:env frame) ; Restore caller env
-                             :stack new-stack)))))
+      (handle-return-value vm)
       ;; Handle node evaluation
-      (let [node-id (:id control)
-            tx-data (vm/datoms->tx-data datoms)
-            conn (d/conn-from-db (d/empty-db vm/schema))
-            _ (d/transact! conn tx-data)
-            node-map (get-node-attrs @conn node-id)
-            node-type (:yin/type node-map)]
-        (case node-type
-          :literal (assoc vm
-                     :control {:type :value, :val (:yin/value node-map)})
-          :variable (assoc vm
-                      :control {:type :value,
-                                :val (get env (:yin/name node-map))})
-          :lambda (assoc vm
-                    :control {:type :value,
-                              :val {:type :closure,
-                                    :params (:yin/params node-map),
-                                    :body-node (:yin/body node-map),
-                                    :datoms datoms,
-                                    :env env}})
-          :if (assoc vm
-                :control {:type :node, :id (:yin/test node-map)}
-                :stack (conj stack
-                             {:type :if,
-                              :cons (:yin/consequent node-map),
-                              :alt (:yin/alternate node-map),
-                              :env env}))
-          :application (assoc vm
-                         :control {:type :node, :id (:yin/operator node-map)}
-                         :stack (conj stack
-                                      {:type :app-op,
-                                       :operands (:yin/operands node-map),
-                                       :env env}))
-          (throw (ex-info "Unknown node type" {:node-map node-map})))))))
+      (handle-node-eval vm))))
 
 
 ;; =============================================================================
