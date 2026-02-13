@@ -127,12 +127,19 @@
 
 (defn datoms->tx-data
   "Convert [e a v t m] datoms to DataScript tx-data [:db/add e a v].
-   Expands cardinality-many vector values into individual assertions."
+   Expands cardinality-many vector values into individual assertions.
+
+   DataScript does not allow nil as a stored value, so nil-valued assertions
+   are omitted in this index projection. The canonical datom stream remains
+   unchanged and still carries the original nil facts."
   [datoms]
   (mapcat (fn [[e a v _t _m]]
-            (if (and (contains? cardinality-many-attrs a) (vector? v))
-              (map (fn [ref] [:db/add e a ref]) v)
-              [[:db/add e a v]]))
+            (cond (and (contains? cardinality-many-attrs a) (vector? v))
+                    (->> v
+                         (remove nil?)
+                         (map (fn [ref] [:db/add e a ref])))
+                  (nil? v) []
+                  :else [[:db/add e a v]]))
     datoms))
 
 

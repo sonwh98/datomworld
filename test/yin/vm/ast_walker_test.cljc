@@ -1,5 +1,6 @@
 (ns yin.vm.ast-walker-test
   (:require [clojure.test :refer [deftest is testing]]
+            [datascript.core :as d]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]))
 
@@ -280,6 +281,19 @@
   (testing "Custom metadata entity"
     (let [datoms (vec (vm/ast->datoms {:type :literal, :value 42} {:m 5}))]
       (is (every? #(= 5 (nth % 4)) datoms) "Metadata entity should be 5"))))
+
+
+(deftest datoms->tx-data-nil-value-test
+  (testing
+    "Transacting nil literals succeeds by omitting nil :db/add assertions"
+    (let [datoms (vec (vm/ast->datoms {:type :literal, :value nil}))
+          tx-data (vec (vm/datoms->tx-data datoms))
+          {:keys [db]} (vm/transact! (d/empty-db vm/schema) datoms)]
+      (is (some #(= :yin/type (nth % 2)) tx-data)
+          "Type assertion should still be projected to tx-data")
+      (is (not-any? #(and (= :yin/value (nth % 2)) (nil? (nth % 3))) tx-data)
+          "Nil-valued assertions should be omitted from tx-data")
+      (is (some? db) "Transaction should succeed and return a db"))))
 
 
 (deftest ast->datoms-fibonacci-test
