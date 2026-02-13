@@ -521,45 +521,76 @@
                                                style)}])})))
 
 
-(defn compile-stack
+(defn- read-ast-forms
   []
   (let [{:keys [compiled-asts ast-as-text]} @app-state]
-    (try
-      (let [forms (or compiled-asts
-                      (reader/read-string (str "[" ast-as-text "]")))
-            results
-              (mapv (fn [ast]
-                      (let [datoms (vm/ast->datoms ast)
-                            asm (stack/ast-datoms->asm datoms)
-                            result (stack/asm->bytecode asm)
-                            bc (:bc result)
-                            pool (:pool result)
-                            source-map (:source-map result)]
-                        {:asm asm, :bc bc, :pool pool, :source-map source-map}))
-                forms)
-            ;; Initialize VM state from last compiled result
-            last-result (last results)
-            initial-state (when last-result
-                            (-> (stack/create-vm {:env vm/primitives})
-                                (vm/load-program {:bc (:bc last-result),
-                                                  :pool (:pool last-result)})))]
-        (swap! app-state assoc
-          :stack-asm (mapv :asm results)
-          :stack-bc (mapv :bc results)
-          :stack-pool (mapv :pool results)
-          :stack-source-map (mapv :source-map results)
-          :error nil)
-        ;; Initialize stepping state
-        (swap! app-state assoc-in [:vm-states :stack :state] initial-state)
-        (swap! app-state assoc-in [:vm-states :stack :running] false)
-        results)
-      (catch :default e
-        (swap! app-state assoc
-          :error (str "Stack Compile Error: " (.-message e))
-          :stack-asm nil
-          :stack-bc nil)
-        (swap! app-state assoc-in [:vm-states :stack :state] nil)
-        nil))))
+    (or compiled-asts (reader/read-string (str "[" ast-as-text "]")))))
+
+
+(defn- set-vm-state!
+  [vm-key state]
+  (swap! app-state assoc-in [:vm-states vm-key :state] state)
+  (swap! app-state assoc-in [:vm-states vm-key :running] false))
+
+
+(defn- clear-vm-state! [vm-key] (set-vm-state! vm-key nil))
+
+
+(defn- load-stack-state
+  [bc pool]
+  (-> (stack/create-vm {:env vm/primitives})
+      (vm/load-program {:bc bc, :pool pool})))
+
+
+(defn- load-register-state
+  [bytecode pool]
+  (-> (register/create-vm {:env vm/primitives})
+      (vm/load-program {:bytecode bytecode, :pool pool})))
+
+
+(defn- load-semantic-state
+  [root-id datoms]
+  (-> (semantic/create-vm {:env vm/primitives})
+      (vm/load-program {:node root-id, :datoms datoms})))
+
+
+(defn- load-walker-state
+  [ast]
+  (-> (walker/create-vm {:env vm/primitives})
+      (vm/load-program ast)))
+
+
+(defn compile-stack
+  []
+  (try (let [forms (read-ast-forms)
+             results (mapv (fn [ast]
+                             (let [datoms (vm/ast->datoms ast)
+                                   asm (stack/ast-datoms->asm datoms)
+                                   result (stack/asm->bytecode asm)]
+                               {:asm asm,
+                                :bc (:bc result),
+                                :pool (:pool result),
+                                :source-map (:source-map result)}))
+                       forms)
+             last-result (last results)
+             initial-state (when last-result
+                             (load-stack-state (:bc last-result)
+                                               (:pool last-result)))]
+         (swap! app-state assoc
+           :stack-asm (mapv :asm results)
+           :stack-bc (mapv :bc results)
+           :stack-pool (mapv :pool results)
+           :stack-source-map (mapv :source-map results)
+           :error nil)
+         (set-vm-state! :stack initial-state)
+         results)
+       (catch :default e
+         (swap! app-state assoc
+           :error (str "Stack Compile Error: " (.-message e))
+           :stack-asm nil
+           :stack-bc nil)
+         (clear-vm-state! :stack)
+         nil)))
 
 
 (defn reset-stack
@@ -568,10 +599,8 @@
   (let [bc (last (:stack-bc @app-state))
         pool (last (:stack-pool @app-state))]
     (when (and bc pool)
-      (let [initial-state (-> (stack/create-vm {:env vm/primitives})
-                              (vm/load-program {:bc bc, :pool pool}))]
-        (swap! app-state assoc-in [:vm-states :stack :state] initial-state)
-        (swap! app-state assoc-in [:vm-states :stack :running] false)
+      (let [initial-state (load-stack-state bc pool)]
+        (set-vm-state! :stack initial-state)
         (swap! app-state assoc :stack-result nil)))))
 
 
@@ -637,13 +666,9 @@
             last-form (last forms)
             ast-with-ids (add-yin-ids last-form)
             {:keys [text source-map]} (ast->text-with-map ast-with-ids)
-            initial-env vm/primitives
-            vm (walker/create-vm {:env initial-env})
-            vm-loaded (vm/load-program vm ast-with-ids)]
-        (.log js/console "Resetting walker with AST:" (clj->js ast-with-ids))
+            vm-loaded (load-walker-state ast-with-ids)]
         (swap! app-state assoc :ast-as-text text :walker-source-map source-map)
-        (swap! app-state assoc-in [:vm-states :walker :state] vm-loaded)
-        (swap! app-state assoc-in [:vm-states :walker :running] false)
+        (set-vm-state! :walker vm-loaded)
         (swap! app-state assoc :walker-result nil))
       (catch js/Error e
         (.error js/console "AST Walker Reset Error:" e)
@@ -654,51 +679,40 @@
 
 (defn compile-ast
   []
-  (let [{:keys [compiled-asts ast-as-text]} @app-state]
-    (try
-      (let [forms (or compiled-asts
-                      (reader/read-string (str "[" ast-as-text "]")))
-            all-datom-groups (mapv vm/ast->datoms forms)
-            all-datoms (vec (mapcat identity all-datom-groups))
-            root-ids (mapv ffirst all-datom-groups)
-            empty-db (d/empty-db vm/schema)
-            {:keys [db tempids]} (vm/transact! empty-db all-datoms)
-            root-eids (mapv #(get tempids %) root-ids)
-            stats
-              {:total-datoms (count all-datoms),
-               :lambdas (count (semantic/find-lambdas all-datoms)),
-               :applications (count (semantic/find-applications all-datoms)),
-               :variables (count (semantic/find-variables all-datoms)),
-               :literals (count (semantic/find-by-type all-datoms :literal))}]
-        (swap! app-state assoc
-          :datoms all-datoms
-          :ds-db db
-          :root-ids root-ids
-          :root-eids root-eids
-          :semantic-stats stats
-          :error nil)
-        ;; Initialize stepping state
-        (let [last-root (last root-ids)]
-          (when last-root
-            (let [initial-state (-> (semantic/create-vm {:env vm/primitives})
-                                    (vm/load-program {:node last-root,
-                                                      :datoms all-datoms}))]
-              (swap! app-state assoc-in
-                [:vm-states :semantic :state]
-                initial-state)
-              (swap! app-state assoc-in
-                [:vm-states :semantic :running]
-                false))))
-        all-datoms)
-      (catch :default e
-        (swap! app-state assoc
-          :error (.-message e)
-          :datoms nil
-          :ds-db nil
-          :root-ids nil
-          :semantic-stats nil)
-        (swap! app-state assoc-in [:vm-states :semantic :state] nil)
-        nil))))
+  (try
+    (let [forms (read-ast-forms)
+          all-datom-groups (mapv vm/ast->datoms forms)
+          all-datoms (vec (mapcat identity all-datom-groups))
+          root-ids (mapv ffirst all-datom-groups)
+          empty-db (d/empty-db vm/schema)
+          {:keys [db tempids]} (vm/transact! empty-db all-datoms)
+          root-eids (mapv #(get tempids %) root-ids)
+          stats {:total-datoms (count all-datoms),
+                 :lambdas (count (semantic/find-lambdas all-datoms)),
+                 :applications (count (semantic/find-applications all-datoms)),
+                 :variables (count (semantic/find-variables all-datoms)),
+                 :literals (count (semantic/find-by-type all-datoms :literal))}
+          last-root (last root-ids)
+          initial-state (when last-root
+                          (load-semantic-state last-root all-datoms))]
+      (swap! app-state assoc
+        :datoms all-datoms
+        :ds-db db
+        :root-ids root-ids
+        :root-eids root-eids
+        :semantic-stats stats
+        :error nil)
+      (set-vm-state! :semantic initial-state)
+      all-datoms)
+    (catch :default e
+      (swap! app-state assoc
+        :error (.-message e)
+        :datoms nil
+        :ds-db nil
+        :root-ids nil
+        :semantic-stats nil)
+      (clear-vm-state! :semantic)
+      nil)))
 
 
 (defn reset-semantic
@@ -708,11 +722,8 @@
         root-ids (:root-ids @app-state)
         last-root (last root-ids)]
     (when (and datoms last-root)
-      (let [initial-state (-> (semantic/create-vm {:env vm/primitives})
-                              (vm/load-program {:node last-root,
-                                                :datoms datoms}))]
-        (swap! app-state assoc-in [:vm-states :semantic :state] initial-state)
-        (swap! app-state assoc-in [:vm-states :semantic :running] false)
+      (let [initial-state (load-semantic-state last-root datoms)]
+        (set-vm-state! :semantic initial-state)
         (swap! app-state assoc :semantic-result nil)))))
 
 
@@ -753,46 +764,35 @@
 
 (defn compile-register
   []
-  (let [{:keys [compiled-asts ast-as-text]} @app-state]
-    (try
-      (let [forms (or compiled-asts
-                      (reader/read-string (str "[" ast-as-text "]")))
-            results (mapv (fn [ast]
-                            (let [datoms (vm/ast->datoms ast)
-                                  asm (register/ast-datoms->asm datoms)
-                                  result (register/asm->bytecode asm)
-                                  bytecode (:bytecode result)
-                                  pool (:pool result)
-                                  source-map (:source-map result)]
-                              {:asm asm,
-                               :bytecode bytecode,
-                               :pool pool,
-                               :source-map source-map}))
-                      forms)
-            ;; Initialize VM state from last compiled result
-            last-result (last results)
-            initial-state (when last-result
-                            (-> (register/create-vm {:env vm/primitives})
-                                (vm/load-program {:bytecode (:bytecode
-                                                              last-result),
-                                                  :pool (:pool last-result)})))]
-        (swap! app-state assoc
-          :register-asm (mapv :asm results)
-          :register-bytecode (mapv :bytecode results)
-          :register-pool (mapv :pool results)
-          :register-source-map (mapv :source-map results)
-          :error nil)
-        ;; Initialize stepping state
-        (swap! app-state assoc-in [:vm-states :register :state] initial-state)
-        (swap! app-state assoc-in [:vm-states :register :running] false)
-        results)
-      (catch :default e
-        (swap! app-state assoc
-          :error (str "Register Compile Error: " (.-message e))
-          :register-asm nil
-          :register-bytecode nil)
-        (swap! app-state assoc-in [:vm-states :register :state] nil)
-        nil))))
+  (try (let [forms (read-ast-forms)
+             results (mapv (fn [ast]
+                             (let [datoms (vm/ast->datoms ast)
+                                   asm (register/ast-datoms->asm datoms)
+                                   result (register/asm->bytecode asm)]
+                               {:asm asm,
+                                :bytecode (:bytecode result),
+                                :pool (:pool result),
+                                :source-map (:source-map result)}))
+                       forms)
+             last-result (last results)
+             initial-state (when last-result
+                             (load-register-state (:bytecode last-result)
+                                                  (:pool last-result)))]
+         (swap! app-state assoc
+           :register-asm (mapv :asm results)
+           :register-bytecode (mapv :bytecode results)
+           :register-pool (mapv :pool results)
+           :register-source-map (mapv :source-map results)
+           :error nil)
+         (set-vm-state! :register initial-state)
+         results)
+       (catch :default e
+         (swap! app-state assoc
+           :error (str "Register Compile Error: " (.-message e))
+           :register-asm nil
+           :register-bytecode nil)
+         (clear-vm-state! :register)
+         nil)))
 
 
 (defn reset-register
@@ -804,11 +804,8 @@
     (when (and bytecode pool)
       (let [initial-state (if (and state (satisfies? vm/IVMReset state))
                             (vm/reset state)
-                            (-> (register/create-vm {:env vm/primitives})
-                                (vm/load-program {:bytecode bytecode,
-                                                  :pool pool})))]
-        (swap! app-state assoc-in [:vm-states :register :state] initial-state)
-        (swap! app-state assoc-in [:vm-states :register :running] false)
+                            (load-register-state bytecode pool))]
+        (set-vm-state! :register initial-state)
         (swap! app-state assoc :register-result nil)))))
 
 
@@ -830,13 +827,8 @@
              :compiled-asts asts
              :walker-source-map source-map
              :error nil)
-           ;; Initialize AST Walker state
-           (let [initial-env vm/primitives
-                 vm (walker/create-vm {:env initial-env})
-                 vm-loaded (vm/load-program vm ast-with-ids)]
-             (swap! app-state assoc-in [:vm-states :walker :state] vm-loaded)
-             (swap! app-state assoc-in [:vm-states :walker :running] false)
-             (swap! app-state assoc :walker-result nil)))
+           (set-vm-state! :walker (load-walker-state ast-with-ids))
+           (swap! app-state assoc :walker-result nil))
          (catch :default e
            (swap! app-state assoc
              :error (str "Compile Error: " (.-message e))
@@ -1364,6 +1356,22 @@
       (str i ": " (pr-str instr))])])
 
 
+(defn- active-reg-idx
+  []
+  (let [reg-state (get-in @app-state [:vm-states :register :state])
+        reg-ip (:ip reg-state)
+        reg-map (last (:register-source-map @app-state))]
+    (get reg-map reg-ip)))
+
+
+(defn- active-stack-idx
+  []
+  (let [stack-state (get-in @app-state [:vm-states :stack :state])
+        stack-pc (:pc stack-state)
+        stack-map (last (:stack-source-map @app-state))]
+    (get stack-map stack-pc)))
+
+
 (defn main-view
   []
   (r/create-class
@@ -1384,22 +1392,12 @@
                asm-control (:control asm-vm-state)
                active-asm-id (when (= :node (:type asm-control))
                                (:id asm-control))
-               ;; Register VM state
                reg-state (get-in @app-state [:vm-states :register :state])
-               reg-ip (:ip reg-state)
                reg-asm (last (:register-asm @app-state))
-               reg-map (last (:register-source-map @app-state))
-               active-reg-idx (get reg-map reg-ip)
-               ;; Stack VM state
                stack-state (get-in @app-state [:vm-states :stack :state])
-               stack-pc (:pc stack-state)
                stack-asm (last (:stack-asm @app-state))
-               stack-map (last (:stack-source-map @app-state))
-               stack-state (get-in @app-state [:vm-states :stack :state])
-               stack-pc (:pc stack-state)
-               stack-asm (last (:stack-asm @app-state))
-               stack-map (last (:stack-source-map @app-state))
-               active-stack-idx (get stack-map stack-pc)
+               active-reg-instr (active-reg-idx)
+               active-stack-instr (active-stack-idx)
                max-dims (reduce (fn [acc [_ p]]
                                   {:w (max (:w acc) (+ (:x p) (:w p) 100)),
                                    :h (max (:h acc) (+ (:y p) (:h p) 100))})
@@ -1629,7 +1627,7 @@
                        :overflow "hidden"}}
               [:div
                {:style {:flex "0 0 60%", :min-height "0", :overflow "hidden"}}
-               [instruction-list-view reg-asm active-reg-idx]]
+               [instruction-list-view reg-asm active-reg-instr]]
               [:div
                {:style {:flex "0 0 30%",
                         :min-height "0",
@@ -1675,7 +1673,7 @@
                        :overflow "hidden"}}
               [:div
                {:style {:flex "0 0 60%", :min-height "0", :overflow "hidden"}}
-               [instruction-list-view stack-asm active-stack-idx]]
+               [instruction-list-view stack-asm active-stack-instr]]
               [:div
                {:style {:flex "0 0 30%",
                         :min-height "0",
