@@ -1,5 +1,6 @@
 (ns datomworld.core
-  (:require ["@codemirror/lang-python" :refer [python]]
+  (:require ["@codemirror/lang-php" :refer [php]]
+            ["@codemirror/lang-python" :refer [python]]
             ["@codemirror/state" :refer
              [EditorState StateField StateEffect RangeSet]]
             ["@codemirror/theme-one-dark" :refer [oneDark]]
@@ -16,6 +17,7 @@
             [reagent.core :as r]
             [reagent.dom :as rdom]
             [yang.clojure :as yang]
+            [yang.php :as php-comp]
             [yang.python :as py]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as walker]
@@ -193,7 +195,10 @@
        :component-did-mount
          (fn [this]
            (when-let [node @el-ref]
-             (let [lang-ext (if (= language :python) (python) (clojure))
+             (let [lang-ext (case language
+                              :python (python)
+                              :php (php)
+                              (clojure))
                    theme (.theme EditorView
                                  #js {"&" #js {:height "100%"},
                                       ".cm-scroller" #js {:overflow "auto"}})
@@ -550,7 +555,8 @@
                    :clojure (let [forms (reader/read-string
                                           (str "[" input "]"))]
                               [(yang/compile-program forms)])
-                   :python (let [ast (py/compile input)] [ast]))
+                   :python (let [ast (py/compile input)] [ast])
+                   :php (let [ast (php-comp/compile input)] [ast]))
             last-ast (last asts)
             ast-with-ids (add-yin-ids last-ast)
             {:keys [text source-map]} (ast->text-with-map ast-with-ids)]
@@ -587,7 +593,16 @@
    {:name "Python: Fibonacci",
     :lang :python,
     :code
-      "def fib(n):\n  if n < 2:\n    return n\n  else:\n    return fib(n-1) + fib(n-2)\nfib(7)"}])
+      "def fib(n):\n  if n < 2:\n    return n\n  else:\n    return fib(n-1) + fib(n-2)\nfib(7)"}
+   {:name "PHP: Basic Math", :lang :php, :code "10 + 20;"}
+   {:name "PHP: Factorial",
+    :lang :php,
+    :code
+      "function fact($n) {\n  if ($n == 0) {\n    return 1;\n  } else {\n    return $n * fact($n - 1);\n  }\n}\nfact(5);"}
+   {:name "PHP: Fibonacci",
+    :lang :php,
+    :code
+      "function fib($n) {\n  if ($n < 2) {\n    return $n;\n  } else {\n    return fib($n - 1) + fib($n - 2);\n  }\n}\nfib(7);"}])
 
 
 (defn dropdown-menu
@@ -1114,7 +1129,8 @@
                          :color "#c5c6c7",
                          :border "1px solid #2d3b55"}}
                 [:option {:value "clojure"} "Clojure"]
-                [:option {:value "python"} "Python"]] [hamburger-menu]]
+                [:option {:value "python"} "Python"]
+                [:option {:value "php"} "PHP"]] [hamburger-menu]]
               [codemirror-editor
                {:key (:source-lang @app-state),
                 :value (:source-code @app-state),
