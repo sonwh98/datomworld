@@ -104,6 +104,9 @@
       (print-node ast 0) {:text @out, :source-map @source-map})))
 
 
+(defn ast->pretty-text [ast] (pretty-print ast))
+
+
 (def highlight-decoration (.mark Decoration #js {:class "cm-highlight-node"}))
 
 
@@ -654,20 +657,19 @@
   "Reset AST Walker VM to initial state."
   []
   (let [input (:ast-as-text @app-state)]
-    (try
-      (let [forms (reader/read-string (str "[" input "]"))
-            last-form (last forms)
-            ast-with-ids (add-yin-ids last-form)
-            {:keys [text source-map]} (ast->text-with-map ast-with-ids)
-            vm-loaded (load-walker-state ast-with-ids)]
-        (swap! app-state assoc :ast-as-text text :walker-source-map source-map)
-        (set-vm-state! :walker vm-loaded)
-        (swap! app-state assoc :walker-result nil))
-      (catch js/Error e
-        (.error js/console "AST Walker Reset Error:" e)
-        (swap! app-state assoc
-          :error
-          (str "AST Walker Reset Error: " (.-message e)))))))
+    (try (let [forms (reader/read-string (str "[" input "]"))
+               last-form (last forms)
+               ast-with-ids (add-yin-ids last-form)
+               text (ast->pretty-text ast-with-ids)
+               vm-loaded (load-walker-state ast-with-ids)]
+           (swap! app-state assoc :ast-as-text text :walker-source-map nil)
+           (set-vm-state! :walker vm-loaded)
+           (swap! app-state assoc :walker-result nil))
+         (catch js/Error e
+           (.error js/console "AST Walker Reset Error:" e)
+           (swap! app-state assoc
+             :error
+             (str "AST Walker Reset Error: " (.-message e)))))))
 
 
 (defn compile-ast
@@ -820,11 +822,11 @@
                       :php (let [ast (php-comp/compile input)] [ast]))
                last-ast (last asts)
                ast-with-ids (add-yin-ids last-ast)
-               {:keys [text source-map]} (ast->text-with-map ast-with-ids)]
+               text (ast->pretty-text ast-with-ids)]
            (swap! app-state assoc
              :ast-as-text text
              :compiled-asts asts
-             :walker-source-map source-map
+             :walker-source-map nil
              :error nil)
            (set-vm-state! :walker (load-walker-state ast-with-ids))
            (swap! app-state assoc :walker-result nil))
