@@ -573,6 +573,30 @@
       (vm/load-program ast)))
 
 
+(defn- resolve-eid [tempids x] (if (integer? x) (get tempids x x) x))
+
+
+(defn- ref-attr?
+  [attr]
+  (= :db.type/ref (get-in vm/schema [attr :db/valueType])))
+
+
+(defn- resolve-datom
+  "Project pre-transaction datom [e a v t m] to committed IDs.
+   Keeps order and t/m, while resolving e/m and ref-valued v fields."
+  [tempids [e a v t m]]
+  (let [e* (resolve-eid tempids e)
+        v* (if (ref-attr? a)
+             (cond (vector? v) (mapv #(resolve-eid tempids %) v)
+                   :else (resolve-eid tempids v))
+             v)
+        m* (resolve-eid tempids m)]
+    [e* a v* t m*]))
+
+
+(defn- resolve-datoms [tempids datoms] (mapv #(resolve-datom tempids %) datoms))
+
+
 (defn compile-stack
   []
   (try (let [forms (read-ast-forms)
@@ -695,17 +719,18 @@
   (try
     (let [forms (read-ast-forms)
           all-datom-groups (mapv vm/ast->datoms forms)
-          all-datoms (vec (mapcat identity all-datom-groups))
+          all-datoms-before (vec (mapcat identity all-datom-groups))
           root-ids (mapv ffirst all-datom-groups)
           empty-db (d/empty-db vm/schema)
-          {:keys [db tempids]} (vm/transact! empty-db all-datoms)
-          root-eids (mapv #(get tempids %) root-ids)
+          {:keys [db tempids]} (vm/transact! empty-db all-datoms-before)
+          all-datoms (resolve-datoms tempids all-datoms-before)
+          root-eids (mapv #(get tempids % %) root-ids)
           stats {:total-datoms (count all-datoms),
                  :lambdas (count (semantic/find-lambdas all-datoms)),
                  :applications (count (semantic/find-applications all-datoms)),
                  :variables (count (semantic/find-variables all-datoms)),
                  :literals (count (semantic/find-by-type all-datoms :literal))}
-          last-root (last root-ids)
+          last-root (last root-eids)
           initial-state (when last-root
                           (load-semantic-state last-root all-datoms))]
       (swap! app-state assoc
@@ -732,7 +757,7 @@
   "Reset semantic VM to initial state."
   []
   (let [datoms (:datoms @app-state)
-        root-ids (:root-ids @app-state)
+        root-ids (or (:root-eids @app-state) (:root-ids @app-state))
         last-root (last root-ids)]
     (when (and datoms last-root)
       (let [initial-state (load-semantic-state last-root datoms)]
