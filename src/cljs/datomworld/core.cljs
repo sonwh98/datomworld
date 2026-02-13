@@ -138,9 +138,7 @@
 
 
 (def layout-style-options
-  [{:id :circuit, :label "Circuit Board"} {:id :organic, :label "Organic"}
-   {:id :network, :label "Network"} {:id :hierarchy, :label "Hierarchy"}
-   {:id :circular, :label "Circular"}])
+  [{:id :circuit, :label "Circuit Board"} {:id :circular, :label "Circular"}])
 
 
 (def layout-pairs
@@ -227,24 +225,6 @@
 (defn- style-anchors
   [layout-style]
   (case layout-style
-    :organic {:source [0.13 0.28],
-              :walker [0.54 0.16],
-              :semantic [0.52 0.56],
-              :register [0.86 0.31],
-              :stack [0.8 0.74],
-              :query [0.24 0.79]}
-    :network {:source [0.18 0.29],
-              :walker [0.56 0.17],
-              :semantic [0.54 0.5],
-              :register [0.86 0.3],
-              :stack [0.84 0.69],
-              :query [0.24 0.74]}
-    :hierarchy {:source [0.5 0.12],
-                :walker [0.3 0.38],
-                :semantic [0.7 0.38],
-                :query [0.2 0.7],
-                :register [0.62 0.7],
-                :stack [0.82 0.7]}
     :circular {:source [0.23 0.48],
                :walker [0.5 0.16],
                :semantic [0.56 0.5],
