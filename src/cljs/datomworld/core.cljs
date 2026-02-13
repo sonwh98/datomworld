@@ -1024,7 +1024,7 @@
                         (vm/halted? state)
                         (or (:halted state) false))
                       (catch js/Error _ (or (:halted state) false))))]
-    [:div {:style {:display "flex", :gap "5px", :margin-top "5px"}}
+    [:div {:style {:display "flex", :gap "5px", :margin-bottom "4px"}}
      [:button
       {:on-click step-fn,
        :disabled (or running halted (nil? state)),
@@ -1063,38 +1063,61 @@
 (defn vm-state-display
   "Common VM state display. Takes vm-key and three render fns:
    - status-fn:   (fn [state] string) - status text for header
-   - summary-fn:  (fn [state] hiccup-or-nil) - summary below header
-   - expanded-fn: (fn [state] hiccup-or-nil) - expanded details"
+   - summary-fn:  (fn [state] data-or-nil) - collapsed editor content
+   - expanded-fn: (fn [state] data-or-nil) - expanded editor content"
   [{:keys [vm-key status-fn summary-fn expanded-fn]}]
   (let [vm-state (get-in @app-state [:vm-states vm-key])
         state (:state vm-state)
         expanded (:expanded vm-state)]
     (when state
-      [:div
-       {:style {:margin-top "5px",
-                :padding "5px",
-                :background "#0d1117",
-                :border "1px solid #30363d",
-                :font-size "11px",
-                :font-family "monospace",
-                :overflow "auto",
-                :height "150px",
-                :max-height "150px"}}
-       [:div
-        {:style {:display "flex",
-                 :justify-content "space-between",
-                 :align-items "center"}}
-        [:span {:style {:color "#8b949e"}} (status-fn state)]
-        [:button
-         {:on-click
-            #(swap! app-state update-in [:vm-states vm-key :expanded] not),
-          :style {:background "none",
-                  :border "none",
-                  :color "#58a6ff",
-                  :cursor "pointer",
-                  :font-size "10px"}} (if expanded "Collapse" "Expand")]]
-       (when summary-fn (summary-fn state))
-       (when (and expanded expanded-fn) (expanded-fn state))])))
+      (let [display-data (or (when (and expanded expanded-fn)
+                               (expanded-fn state))
+                             (when summary-fn (summary-fn state))
+                             state)]
+        [:div
+         {:style {:padding "5px",
+                  :background "#0d1117",
+                  :border "1px solid #30363d",
+                  :display "flex",
+                  :flex-direction "column",
+                  :overflow "hidden",
+                  :height "100%",
+                  :min-height "0"}}
+         [:div
+          {:style {:display "flex",
+                   :justify-content "space-between",
+                   :align-items "center"}}
+          [:span {:style {:color "#8b949e"}} (status-fn state)]
+          [:button
+           {:on-click
+              #(swap! app-state update-in [:vm-states vm-key :expanded] not),
+            :style {:background "none",
+                    :border "none",
+                    :color "#58a6ff",
+                    :cursor "pointer",
+                    :font-size "10px"}} (if expanded "Collapse" "Expand")]]
+         [codemirror-editor
+          {:value (pretty-print display-data),
+           :read-only true,
+           :style {:flex "1", :min-height "0", :margin-top "5px"}}]]))))
+
+
+(defn vm-result-editor
+  [value show-result?]
+  [:div
+   {:style {:background "#0d1117",
+            :padding "4px",
+            :border "1px solid #30363d",
+            :display "flex",
+            :flex-direction "column",
+            :overflow "hidden",
+            :height "100%",
+            :min-height "0"}}
+   [:strong {:style {:margin-bottom "3px", :font-size "11px"}} "Result:"]
+   [codemirror-editor
+    {:value (if show-result? (pretty-print value) ""),
+     :read-only true,
+     :style {:flex "1", :min-height "0"}}]])
 
 
 (defn bring-to-front!
@@ -1474,188 +1497,220 @@
                                            [:vm-states :walker :state])
                    walker-ctrl (:control walker-vm-state)
                    walker-id (:yin/id walker-ctrl)
-                   walker-range (get (:walker-source-map @app-state) walker-id)]
+                   walker-range (get (:walker-source-map @app-state) walker-id)
+                   walker-halted? (and walker-vm-state
+                                       (vm/halted? walker-vm-state))
+                   walker-value (when walker-halted?
+                                  (vm/value walker-vm-state))]
                [:div
                 {:style {:display "flex",
                          :flex-direction "column",
                          :flex "1",
                          :overflow "hidden"}}
-                [codemirror-editor
-                 {:value (:ast-as-text @app-state),
-                  :highlight-range walker-range,
-                  :on-change (fn [v]
-                               ;; Keep compiled ASTs when this change is
-                               ;; just a programmatic refresh from
-                               ;; compile-source.
-                               (if (= v (:ast-as-text @app-state))
-                                 (swap! app-state assoc :ast-as-text v)
-                                 (swap! app-state assoc
-                                   :ast-as-text v
-                                   :compiled-asts nil)))}]
-                [vm-control-buttons
-                 {:vm-key :walker,
-                  :step-fn #(step-vm :walker :walker-result),
-                  :toggle-run-fn #(toggle-run-vm :walker :walker-result),
-                  :reset-fn reset-walker}]
-                [vm-state-display
-                 {:vm-key :walker,
-                  :status-fn (fn [state]
-                               (cond (vm/halted? state) "HALTED"
-                                     (:control state)
-                                       (str "Control: "
-                                            (or (get-in state [:control :type])
-                                                (pr-str (:control state))))
-                                     (:continuation state)
-                                       (str "Cont: "
-                                            (or (get-in state
-                                                        [:continuation :type])
-                                                "pending"))
-                                     :else "Returning...")),
-                  :summary-fn (fn [state]
-                                (when (not (vm/halted? state))
-                                  (let [ctrl (:control state)]
-                                    (when ctrl
-                                      [:div {:style {:color "#c5c6c7"}}
-                                       (pr-str ctrl)])))),
-                  :expanded-fn
-                    (fn [state]
-                      [:div {:style {:margin-top "5px", :color "#8b949e"}}
-                       [:div "Env keys: " (pr-str (keys (:environment state)))]
-                       [:div "Continuation depth: "
-                        (loop [c (:continuation state)
-                               depth 0]
-                          (if c (recur (:parent c) (inc depth)) depth))]
-                       [:div "Value: " (pr-str (:value state))]])}]
-                (let [vm-state (get-in @app-state [:vm-states :walker :state])]
-                  (when (and vm-state (vm/halted? vm-state))
-                    [:div
-                     {:style {:marginTop "5px",
-                              :background "#0d1117",
-                              :padding "5px",
-                              :border "1px solid #30363d"}} [:strong "Result: "]
-                     (pr-str (vm/value vm-state))]))])]
+                [:div
+                 {:style {:flex "0 0 60%", :min-height "0", :overflow "hidden"}}
+                 [codemirror-editor
+                  {:value (:ast-as-text @app-state),
+                   :highlight-range walker-range,
+                   :on-change (fn [v]
+                                ;; Keep compiled ASTs when this change is
+                                ;; just a programmatic refresh from
+                                ;; compile-source.
+                                (if (= v (:ast-as-text @app-state))
+                                  (swap! app-state assoc :ast-as-text v)
+                                  (swap! app-state assoc
+                                    :ast-as-text v
+                                    :compiled-asts nil)))}]]
+                [:div
+                 {:style {:flex "0 0 30%",
+                          :min-height "0",
+                          :display "flex",
+                          :flex-direction "column",
+                          :padding-top "4px",
+                          :overflow "hidden"}}
+                 [vm-control-buttons
+                  {:vm-key :walker,
+                   :step-fn #(step-vm :walker :walker-result),
+                   :toggle-run-fn #(toggle-run-vm :walker :walker-result),
+                   :reset-fn reset-walker}]
+                 [:div {:style {:flex "1", :min-height "0", :overflow "hidden"}}
+                  [vm-state-display
+                   {:vm-key :walker,
+                    :status-fn
+                      (fn [state]
+                        (cond (vm/halted? state) "HALTED"
+                              (:control state)
+                                (str "Control: "
+                                     (or (get-in state [:control :type])
+                                         (pr-str (:control state))))
+                              (:continuation state)
+                                (str "Cont: "
+                                     (or (get-in state [:continuation :type])
+                                         "pending"))
+                              :else "Returning...")),
+                    :summary-fn (fn [state]
+                                  (when (not (vm/halted? state))
+                                    (let [ctrl (:control state)]
+                                      (when ctrl {:control ctrl})))),
+                    :expanded-fn
+                      (fn [state]
+                        {:control (:control state),
+                         :env-keys (vec (keys (:environment state))),
+                         :continuation-depth
+                           (loop [c (:continuation state)
+                                  depth 0]
+                             (if c (recur (:parent c) (inc depth)) depth)),
+                         :value (:value state)})}]]]
+                [:div
+                 {:style {:flex "0 0 10%",
+                          :min-height "0",
+                          :padding-top "4px",
+                          :overflow "hidden"}}
+                 [vm-result-editor walker-value walker-halted?]]])]
             [draggable-card :semantic "Semantic VM"
              [:div
               {:style {:display "flex",
                        :flex-direction "column",
                        :flex "1",
                        :overflow "hidden"}}
-              [datom-list-view (:datoms @app-state) active-asm-id]
-              [vm-control-buttons
-               {:vm-key :semantic,
-                :step-fn #(step-vm :semantic :semantic-result),
-                :toggle-run-fn #(toggle-run-vm :semantic :semantic-result),
-                :reset-fn reset-semantic}]
-              [vm-state-display
-               {:vm-key :semantic,
-                :status-fn (fn [state]
-                             (if (:halted state)
-                               "HALTED"
-                               (let [ctrl (:control state)]
-                                 (if (= :node (:type ctrl))
-                                   (str "Node: " (:id ctrl))
-                                   (str "Val: " (pr-str (:val ctrl))))))),
-                :summary-fn (fn [state]
-                              (when (not (:halted state))
-                                (let [ctrl (:control state)
-                                      info (if (= :node (:type ctrl))
-                                             (let [attrs
-                                                     (semantic/get-node-attrs
-                                                       (:datoms state)
-                                                       (:id ctrl))]
-                                               (str (:yin/type attrs)))
-                                             "Returning...")]
-                                  [:div {:style {:color "#c5c6c7"}} info]))),
-                :expanded-fn
-                  (fn [state] [:div
-                               {:style {:margin-top "5px", :color "#8b949e"}}
-                               [:div "Env: " (pr-str (keys (:env state)))]
-                               [:div "Stack depth: " (count (:stack state))]])}]
-              (when (and asm-vm-state (:halted asm-vm-state))
-                [:div
-                 {:style {:marginTop "5px",
-                          :background "#0d1117",
-                          :padding "5px",
-                          :border "1px solid #30363d",
-                          :overflow "auto",
-                          :max-height "150px"}} [:strong "Result: "]
-                 (pr-str (:value asm-vm-state))])]]
+              [:div
+               {:style {:flex "0 0 60%", :min-height "0", :overflow "hidden"}}
+               [datom-list-view (:datoms @app-state) active-asm-id]]
+              [:div
+               {:style {:flex "0 0 30%",
+                        :min-height "0",
+                        :display "flex",
+                        :flex-direction "column",
+                        :padding-top "4px",
+                        :overflow "hidden"}}
+               [vm-control-buttons
+                {:vm-key :semantic,
+                 :step-fn #(step-vm :semantic :semantic-result),
+                 :toggle-run-fn #(toggle-run-vm :semantic :semantic-result),
+                 :reset-fn reset-semantic}]
+               [:div {:style {:flex "1", :min-height "0", :overflow "hidden"}}
+                [vm-state-display
+                 {:vm-key :semantic,
+                  :status-fn (fn [state]
+                               (if (:halted state)
+                                 "HALTED"
+                                 (let [ctrl (:control state)]
+                                   (if (= :node (:type ctrl))
+                                     (str "Node: " (:id ctrl))
+                                     (str "Val: " (pr-str (:val ctrl))))))),
+                  :summary-fn (fn [state]
+                                (when (not (:halted state))
+                                  (let [ctrl (:control state)
+                                        info (if (= :node (:type ctrl))
+                                               (let [attrs
+                                                       (semantic/get-node-attrs
+                                                         (:datoms state)
+                                                         (:id ctrl))]
+                                                 (str (:yin/type attrs)))
+                                               "Returning...")]
+                                    {:control ctrl, :info info}))),
+                  :expanded-fn (fn [state]
+                                 {:control (:control state),
+                                  :env-keys (vec (keys (:env state))),
+                                  :stack-depth (count (:stack state)),
+                                  :value (:value state)})}]]]
+              [:div
+               {:style {:flex "0 0 10%",
+                        :min-height "0",
+                        :padding-top "4px",
+                        :overflow "hidden"}}
+               [vm-result-editor (:value asm-vm-state)
+                (boolean (and asm-vm-state (:halted asm-vm-state)))]]]]
             [draggable-card :register "Register VM"
              [:div
               {:style {:display "flex",
                        :flex-direction "column",
                        :flex "1",
                        :overflow "hidden"}}
-              [instruction-list-view reg-asm active-reg-idx]
-              [vm-control-buttons
-               {:vm-key :register,
-                :step-fn #(step-vm :register :register-result),
-                :toggle-run-fn #(toggle-run-vm :register :register-result),
-                :reset-fn reset-register}]
-              [vm-state-display
-               {:vm-key :register,
-                :status-fn
-                  (fn [state]
-                    (if (:halted state) "HALTED" (str "ip: " (:ip state)))),
-                :summary-fn (fn [state]
-                              [:div {:style {:color "#c5c6c7"}} "Regs: "
-                               (let [regs (:regs state)
-                                     active (filter (fn [[i v]] (some? v))
-                                              (map-indexed vector regs))]
-                                 (pr-str (into {} (take 4 active))))]),
-                :expanded-fn (fn [state]
-                               [:div
-                                {:style {:margin-top "5px", :color "#8b949e"}}
-                                [:div "All regs: " (pr-str (:regs state))]
-                                [:div "Env: " (pr-str (keys (:env state)))]
-                                [:div "Continuation: "
-                                 (if (:k state) "yes" "none")]])}]
-              (when (and reg-state (:halted reg-state))
-                [:div
-                 {:style {:marginTop "5px",
-                          :background "#0d1117",
-                          :padding "5px",
-                          :border "1px solid #30363d",
-                          :overflow "auto",
-                          :max-height "150px"}} [:strong "Result: "]
-                 (pr-str (:value reg-state))])]]
+              [:div
+               {:style {:flex "0 0 60%", :min-height "0", :overflow "hidden"}}
+               [instruction-list-view reg-asm active-reg-idx]]
+              [:div
+               {:style {:flex "0 0 30%",
+                        :min-height "0",
+                        :display "flex",
+                        :flex-direction "column",
+                        :padding-top "4px",
+                        :overflow "hidden"}}
+               [vm-control-buttons
+                {:vm-key :register,
+                 :step-fn #(step-vm :register :register-result),
+                 :toggle-run-fn #(toggle-run-vm :register :register-result),
+                 :reset-fn reset-register}]
+               [:div {:style {:flex "1", :min-height "0", :overflow "hidden"}}
+                [vm-state-display
+                 {:vm-key :register,
+                  :status-fn
+                    (fn [state]
+                      (if (:halted state) "HALTED" (str "ip: " (:ip state)))),
+                  :summary-fn (fn [state]
+                                (let [regs (:regs state)
+                                      active (filter (fn [[i v]] (some? v))
+                                               (map-indexed vector regs))]
+                                  {:ip (:ip state),
+                                   :active-regs (into {} (take 4 active))})),
+                  :expanded-fn (fn [state]
+                                 {:ip (:ip state),
+                                  :regs (:regs state),
+                                  :env-keys (vec (keys (:env state))),
+                                  :continuation? (boolean (:k state)),
+                                  :value (:value state)})}]]]
+              [:div
+               {:style {:flex "0 0 10%",
+                        :min-height "0",
+                        :padding-top "4px",
+                        :overflow "hidden"}}
+               [vm-result-editor (:value reg-state)
+                (boolean (and reg-state (:halted reg-state)))]]]]
             [draggable-card :stack "Stack VM"
              [:div
               {:style {:display "flex",
                        :flex-direction "column",
                        :flex "1",
                        :overflow "hidden"}}
-              [instruction-list-view stack-asm active-stack-idx]
-              [vm-control-buttons
-               {:vm-key :stack,
-                :step-fn #(step-vm :stack :stack-result),
-                :toggle-run-fn #(toggle-run-vm :stack :stack-result),
-                :reset-fn reset-stack}]
-              [vm-state-display
-               {:vm-key :stack,
-                :status-fn
-                  (fn [state]
-                    (if (:halted state) "HALTED" (str "pc: " (:pc state)))),
-                :summary-fn
-                  (fn [state] [:div {:style {:color "#c5c6c7"}} "Stack: "
-                               (pr-str (take-last 3 (:stack state)))
-                               (when (> (count (:stack state)) 3) " ...")]),
-                :expanded-fn (fn [state]
-                               [:div
-                                {:style {:margin-top "5px", :color "#8b949e"}}
-                                [:div "Full stack: " (pr-str (:stack state))]
-                                [:div "Env: " (pr-str (keys (:env state)))]
-                                [:div "Call stack depth: "
-                                 (count (:call-stack state))]])}]
-              (when (and stack-state (:halted stack-state))
-                [:div
-                 {:style {:marginTop "5px",
-                          :background "#0d1117",
-                          :padding "5px",
-                          :border "1px solid #30363d",
-                          :overflow "auto",
-                          :max-height "150px"}} [:strong "Result: "]
-                 (pr-str (:value stack-state))])]]
+              [:div
+               {:style {:flex "0 0 60%", :min-height "0", :overflow "hidden"}}
+               [instruction-list-view stack-asm active-stack-idx]]
+              [:div
+               {:style {:flex "0 0 30%",
+                        :min-height "0",
+                        :display "flex",
+                        :flex-direction "column",
+                        :padding-top "4px",
+                        :overflow "hidden"}}
+               [vm-control-buttons
+                {:vm-key :stack,
+                 :step-fn #(step-vm :stack :stack-result),
+                 :toggle-run-fn #(toggle-run-vm :stack :stack-result),
+                 :reset-fn reset-stack}]
+               [:div {:style {:flex "1", :min-height "0", :overflow "hidden"}}
+                [vm-state-display
+                 {:vm-key :stack,
+                  :status-fn
+                    (fn [state]
+                      (if (:halted state) "HALTED" (str "pc: " (:pc state)))),
+                  :summary-fn (fn [state]
+                                {:pc (:pc state),
+                                 :stack-tail (vec (take-last 3 (:stack state))),
+                                 :stack-size (count (:stack state))}),
+                  :expanded-fn (fn [state]
+                                 {:pc (:pc state),
+                                  :stack (:stack state),
+                                  :env-keys (vec (keys (:env state))),
+                                  :call-stack-depth (count (:call-stack state)),
+                                  :value (:value state)})}]]]
+              [:div
+               {:style {:flex "0 0 10%",
+                        :min-height "0",
+                        :padding-top "4px",
+                        :overflow "hidden"}}
+               [vm-result-editor (:value stack-state)
+                (boolean (and stack-state (:halted stack-state)))]]]]
             [draggable-card :query "Datalog Query"
              [:div
               {:style {:display "flex",
