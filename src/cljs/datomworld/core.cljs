@@ -291,7 +291,7 @@
         (swap! app-state assoc-in [:vm-states :stack :state] initial-state)
         (swap! app-state assoc-in [:vm-states :stack :running] false)
         results)
-      (catch js/Error e
+      (catch :default e
         (swap! app-state assoc
           :error (str "Stack Compile Error: " (.-message e))
           :stack-asm nil
@@ -428,7 +428,7 @@
                 [:vm-states :semantic :running]
                 false))))
         all-datoms)
-      (catch js/Error e
+      (catch :default e
         (swap! app-state assoc
           :error (.-message e)
           :datoms nil
@@ -524,7 +524,7 @@
         (swap! app-state assoc-in [:vm-states :register :state] initial-state)
         (swap! app-state assoc-in [:vm-states :register :running] false)
         results)
-      (catch js/Error e
+      (catch :default e
         (swap! app-state assoc
           :error (str "Register Compile Error: " (.-message e))
           :register-asm nil
@@ -554,36 +554,39 @@
   []
   (let [input (:source-code @app-state)
         lang (:source-lang @app-state)]
-    (try
-      (let [asts (case lang
-                   :clojure (let [forms (reader/read-string
-                                          (str "[" input "]"))]
-                              [(yang/compile-program forms)])
-                   :python (let [ast (py/compile input)] [ast])
-                   :php (let [ast (php-comp/compile input)] [ast]))
-            last-ast (last asts)
-            ast-with-ids (add-yin-ids last-ast)
-            {:keys [text source-map]} (ast->text-with-map ast-with-ids)]
-        (swap! app-state assoc
-          :ast-as-text text
-          :compiled-asts asts
-          :walker-source-map source-map
-          :error nil)
-        ;; Initialize AST Walker state
-        (let [initial-env vm/primitives
-              vm (walker/create-vm {:env initial-env})
-              vm-loaded (vm/load-program vm ast-with-ids)]
-          (swap! app-state assoc-in [:vm-states :walker :state] vm-loaded)
-          (swap! app-state assoc-in [:vm-states :walker :running] false)
-          (swap! app-state assoc :walker-result nil)))
-      (catch js/Error e
-        (swap! app-state assoc
-          :error (str "Compile Error: " (.-message e))
-          :compiled-asts nil)))))
+    (try (let [asts (case lang
+                      :clojure (let [forms (reader/read-string
+                                             (str "[" input "]"))]
+                                 [(yang/compile-program forms)])
+                      :python (let [ast (py/compile input)] [ast])
+                      :php (let [ast (php-comp/compile input)] [ast]))
+               last-ast (last asts)
+               ast-with-ids (add-yin-ids last-ast)
+               {:keys [text source-map]} (ast->text-with-map ast-with-ids)]
+           (swap! app-state assoc
+             :ast-as-text text
+             :compiled-asts asts
+             :walker-source-map source-map
+             :error nil)
+           ;; Initialize AST Walker state
+           (let [initial-env vm/primitives
+                 vm (walker/create-vm {:env initial-env})
+                 vm-loaded (vm/load-program vm ast-with-ids)]
+             (swap! app-state assoc-in [:vm-states :walker :state] vm-loaded)
+             (swap! app-state assoc-in [:vm-states :walker :running] false)
+             (swap! app-state assoc :walker-result nil)))
+         (catch :default e
+           (swap! app-state assoc
+             :error (str "Compile Error: " (.-message e))
+             :compiled-asts nil)))))
 
 
 (def code-examples
   [{:name "Clojure: Basic Math", :lang :clojure, :code "(+ 10 20)"}
+   {:name "Clojure: Closure Power",
+    :lang :clojure,
+    :code
+      "(def make-power\n  (fn [e]\n    (fn [b]\n      (if (= e 0)\n        1\n        (* b ((make-power (- e 1)) b))))))\n((make-power 3) 2)"}
    {:name "Clojure: Factorial",
     :lang :clojure,
     :code
@@ -593,6 +596,10 @@
     :code
       "(def fib (fn [n]\n  (if (< n 2)\n    n\n    (+ (fib (- n 1)) (fib (- n 2))))))\n(fib 7)"}
    {:name "Python: Basic Math", :lang :python, :code "10 + 20"}
+   {:name "Python: Closure Power",
+    :lang :python,
+    :code
+      "def make_power(e):\n  return lambda b: 1 if e == 0 else b * (make_power(e - 1))(b)\n(make_power(3))(2)\n"}
    {:name "Python: Factorial",
     :lang :python,
     :code
@@ -602,6 +609,10 @@
     :code
       "def fib(n):\n  if n < 2:\n    return n\n  else:\n    return fib(n-1) + fib(n-2)\nfib(7)"}
    {:name "PHP: Basic Math", :lang :php, :code "10 + 20;"}
+   {:name "PHP: Closure Power",
+    :lang :php,
+    :code
+      "$makePower = function (int $exponent) {\n  return function (int $base) use ($exponent): int {\n    $result = 1;\n    for ($i = 0; $i < $exponent; $i++) {\n      $result *= $base;\n    }\n    return $result;\n  };\n};\n$cube = $makePower(3);\n$cube(2);"}
    {:name "PHP: Factorial",
     :lang :php,
     :code
@@ -1161,9 +1172,14 @@
                  {:value (:ast-as-text @app-state),
                   :highlight-range walker-range,
                   :on-change (fn [v]
-                               (swap! app-state assoc
-                                 :ast-as-text v
-                                 :compiled-asts nil))}]
+                               ;; Keep compiled ASTs when this change is
+                               ;; just a programmatic refresh from
+                               ;; compile-source.
+                               (if (= v (:ast-as-text @app-state))
+                                 (swap! app-state assoc :ast-as-text v)
+                                 (swap! app-state assoc
+                                   :ast-as-text v
+                                   :compiled-asts nil)))}]
                 [vm-control-buttons
                  {:vm-key :walker,
                   :step-fn #(step-vm :walker :walker-result),

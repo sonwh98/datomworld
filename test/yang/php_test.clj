@@ -162,7 +162,23 @@
         ;; This simplified version (no for loop yet in test, and result is
         ;; just result * base)
         ;; should at least compile and run.
-        (is (= 3 (compile-and-run ast)))))))
+        (is (= 3 (compile-and-run ast)))))
+    (testing "Closure with for loop and augmented assignment"
+      (let
+        [source
+           "$makePower = function (int $exponent) {
+                      return function (int $base) use ($exponent): int {
+                          $result = 1;
+                          for ($i = 0; $i < $exponent; $i++) {
+                              $result *= $base;
+                          }
+                          return $result;
+                      };
+                    };
+                    $cube = $makePower(3);
+                    $cube(2);"
+         ast (php/compile source)]
+        (is (= 8 (compile-and-run ast)))))))
 
 
 (deftest test-php-to-clojure-equivalence

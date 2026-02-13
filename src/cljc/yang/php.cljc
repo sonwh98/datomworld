@@ -158,45 +158,43 @@
 (defn parse-php-primary
   [tokens]
   (let [[type val] (first tokens)]
-    (cond (and (= :keyword type) (= "function" val))
-            (let [tokens (rest tokens)
-                  tokens (expect tokens :lparen)
-                  {:keys [params remaining]} (parse-params tokens)
-                  tokens (expect remaining :rparen)
-                  ;; Optional 'use' clause
-                  {:keys [use-vars rem-after-use]}
-                    (if (match? (first tokens) :keyword "use")
-                      (let [after-lparen (expect (rest tokens) :lparen)
-                            {:keys [params remaining]}
-                              (parse-params after-lparen)]
-                        {:use-vars params,
-                         :rem-after-use (expect remaining :rparen)})
-                      {:use-vars [], :rem-after-use tokens})
-                  tokens rem-after-use
-                  ;; Optional return type
-                  tokens (if (match? (first tokens) :colon)
-                           (skip-type-hint (rest tokens))
-                           tokens)
-                  {:keys [ast remaining]} (parse-php-block tokens)]
-              {:ast {:php-type :lambda,
-                     :params params,
-                     :use-vars use-vars,
-                     :body ast},
-               :remaining remaining})
-          (#{:number :string} type) {:ast (parse-php-literal (first tokens)),
-                                     :remaining (rest tokens)}
-          (and (= :keyword type) (#{"true" "false" "null"} val))
-            {:ast (parse-php-literal (first tokens)), :remaining (rest tokens)}
-          (= :variable type) {:ast {:php-type :variable,
-                                    :name (symbol (subs val 1))},
-                              :remaining (rest tokens)}
-          (= :identifier type) {:ast {:php-type :variable, :name (symbol val)},
-                                :remaining (rest tokens)}
-          (= :lparen type) (let [{:keys [ast remaining]} (parse-php-expr
-                                                           (rest tokens))]
-                             {:ast ast, :remaining (expect remaining :rparen)})
-          :else (throw (ex-info "Expected primary expression"
-                                {:token (first tokens)})))))
+    (cond
+      (and (= :keyword type) (= "function" val))
+        (let [tokens (rest tokens)
+              tokens (expect tokens :lparen)
+              {:keys [params remaining]} (parse-params tokens)
+              tokens (expect remaining :rparen)
+              ;; Optional 'use' clause
+              {:keys [use-vars rem-after-use]}
+                (if (match? (first tokens) :keyword "use")
+                  (let [after-lparen (expect (rest tokens) :lparen)
+                        {:keys [params remaining]} (parse-params after-lparen)]
+                    {:use-vars params,
+                     :rem-after-use (expect remaining :rparen)})
+                  {:use-vars [], :rem-after-use tokens})
+              tokens rem-after-use
+              ;; Optional return type
+              tokens (if (match? (first tokens) :colon)
+                       (skip-type-hint (rest tokens))
+                       tokens)
+              {:keys [ast remaining]} (parse-php-block tokens)]
+          {:ast
+             {:php-type :lambda, :params params, :use-vars use-vars, :body ast},
+           :remaining remaining})
+      (#{:number :string} type) {:ast (parse-php-literal (first tokens)),
+                                 :remaining (rest tokens)}
+      (and (= :keyword type) (#{"true" "false" "null"} val))
+        {:ast (parse-php-literal (first tokens)), :remaining (rest tokens)}
+      (= :variable type) {:ast {:php-type :variable,
+                                :name (symbol (subs val 1))},
+                          :remaining (rest tokens)}
+      (= :identifier type) {:ast {:php-type :variable, :name (symbol val)},
+                            :remaining (rest tokens)}
+      (= :lparen type) (let [{:keys [ast remaining]} (parse-php-expr (rest
+                                                                       tokens))]
+                         {:ast ast, :remaining (expect remaining :rparen)})
+      :else (throw (ex-info "Expected primary expression"
+                            {:token (first tokens)})))))
 
 
 (defn parse-php-call
@@ -435,6 +433,16 @@
    "!" 'not})
 
 
+(defn- for-threaded-var
+  "If loop body is a single assignment statement, return its target var.
+   This lets for-lowering thread that value through recursion."
+  [for-node]
+  (let [body-stmts (:stmts (:body for-node))]
+    (when (and (= 1 (count body-stmts))
+               (= :assignment (:php-type (first body-stmts))))
+      (:name (first body-stmts)))))
+
+
 (def Z-combinator
   {:type :lambda,
    :params ['f],
@@ -466,6 +474,41 @@
                                        :operator {:type :variable, :name 'x},
                                        :operands [{:type :variable, :name 'x}]},
                             :operands [{:type :variable, :name 'v}]}}]}}]}})
+
+
+(def Z2-combinator
+  {:type :lambda,
+   :params ['f],
+   :body
+     {:type :application,
+      :operator {:type :lambda,
+                 :params ['x],
+                 :body {:type :application,
+                        :operator {:type :variable, :name 'f},
+                        :operands
+                          [{:type :lambda,
+                            :params ['a 'b],
+                            :body {:type :application,
+                                   :operator
+                                     {:type :application,
+                                      :operator {:type :variable, :name 'x},
+                                      :operands [{:type :variable, :name 'x}]},
+                                   :operands [{:type :variable, :name 'a}
+                                              {:type :variable, :name 'b}]}}]}},
+      :operands
+        [{:type :lambda,
+          :params ['x],
+          :body {:type :application,
+                 :operator {:type :variable, :name 'f},
+                 :operands
+                   [{:type :lambda,
+                     :params ['a 'b],
+                     :body {:type :application,
+                            :operator {:type :application,
+                                       :operator {:type :variable, :name 'x},
+                                       :operands [{:type :variable, :name 'x}]},
+                            :operands [{:type :variable, :name 'a}
+                                       {:type :variable, :name 'b}]}}]}}]}})
 
 
 (defn compile-stmt
@@ -504,31 +547,38 @@
     :for (let [init (:init node)
                var-name (:name init)
                init-val (compile-stmt (:value init))
+               threaded-var (for-threaded-var node)
+               fixpoint (if threaded-var Z2-combinator Z-combinator)
+               loop-params (if threaded-var [var-name threaded-var] [var-name])
+               initial-operands (if threaded-var
+                                  [init-val
+                                   {:type :variable, :name threaded-var}]
+                                  [init-val])
+               recur-operands (if threaded-var
+                                [(compile-stmt (:update node))
+                                 (compile-suite (:body node))]
+                                [(compile-stmt (:update node))])
+               alternate (if threaded-var
+                           {:type :variable, :name threaded-var}
+                           {:type :literal, :value nil})
                loop-fn (gensym "loop")]
            {:type :application,
-            :operator
-              {:type :application,
-               :operator Z-combinator,
-               :operands
-                 [{:type :lambda,
-                   :params [loop-fn],
-                   :body {:type :lambda,
-                          :params [var-name],
-                          :body {:type :if,
-                                 :test (compile-stmt (:test node)),
-                                 :consequent
-                                   {:type :application,
-                                    :operator
-                                      {:type :lambda,
-                                       :params ['_],
-                                       :body {:type :application,
-                                              :operator {:type :variable,
-                                                         :name loop-fn},
-                                              :operands [(compile-stmt
-                                                           (:update node))]}},
-                                    :operands [(compile-suite (:body node))]},
-                                 :alternate {:type :literal, :value nil}}}}]},
-            :operands [init-val]})
+            :operator {:type :application,
+                       :operator fixpoint,
+                       :operands [{:type :lambda,
+                                   :params [loop-fn],
+                                   :body {:type :lambda,
+                                          :params loop-params,
+                                          :body {:type :if,
+                                                 :test (compile-stmt (:test
+                                                                       node)),
+                                                 :consequent
+                                                   {:type :application,
+                                                    :operator {:type :variable,
+                                                               :name loop-fn},
+                                                    :operands recur-operands},
+                                                 :alternate alternate}}}]},
+            :operands initial-operands})
     (throw (ex-info "Unknown node" {:node node}))))
 
 
@@ -547,10 +597,19 @@
                         :params [(:name head)],
                         :body (compile-suite rest-suite)},
              :operands [(compile-stmt head)]}
-            {:type :application,
-             :operator
-               {:type :lambda, :params ['_], :body (compile-suite rest-suite)},
-             :operands [(compile-stmt head)]}))))))
+            (let [threaded-var (when (= :for (:php-type head))
+                                 (for-threaded-var head))]
+              (if threaded-var
+                {:type :application,
+                 :operator {:type :lambda,
+                            :params [threaded-var],
+                            :body (compile-suite rest-suite)},
+                 :operands [(compile-stmt head)]}
+                {:type :application,
+                 :operator {:type :lambda,
+                            :params ['_],
+                            :body (compile-suite rest-suite)},
+                 :operands [(compile-stmt head)]}))))))))
 
 
 (defn compile-program
