@@ -288,7 +288,9 @@
     "Transacting nil literals succeeds by omitting nil :db/add assertions"
     (let [datoms (vec (vm/ast->datoms {:type :literal, :value nil}))
           tx-data (vec (vm/datoms->tx-data datoms))
-          {:keys [db]} (vm/transact! (d/empty-db vm/schema) datoms)]
+          conn (d/conn-from-db (d/empty-db vm/schema))
+          _ (d/transact! conn tx-data)
+          db @conn]
       (is (some #(= :yin/type (nth % 2)) tx-data)
           "Type assertion should still be projected to tx-data")
       (is (not-any? #(and (= :yin/value (nth % 2)) (nil? (nth % 3))) tx-data)

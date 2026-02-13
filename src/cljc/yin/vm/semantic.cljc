@@ -55,6 +55,23 @@
          {})))
 
 
+(defn- datom-node-attrs
+  "Get node attributes directly from raw [e a v t m] datoms.
+   Semantic VM control IDs are stream-local tempids, so traversal must stay
+   in the same ID space as the source datom stream."
+  [datoms node-id]
+  (reduce (fn [m [e a v _t _m]]
+            (if (= e node-id)
+              (if (contains? cardinality-many-attrs a)
+                (if (vector? v)
+                  (update m a (fnil into []) v)
+                  (update m a (fnil conj []) v))
+                (assoc m a v))
+              m))
+    {}
+    datoms))
+
+
 (defn find-applications
   "Find all function applications in the db."
   [db]
@@ -183,10 +200,7 @@
   [vm]
   (let [{:keys [control env stack datoms]} vm
         node-id (:id control)
-        tx-data (vm/datoms->tx-data datoms)
-        conn (d/conn-from-db (d/empty-db vm/schema))
-        _ (d/transact! conn tx-data)
-        node-map (get-node-attrs @conn node-id)
+        node-map (datom-node-attrs datoms node-id)
         node-type (:yin/type node-map)]
     (case node-type
       :literal (assoc vm :control {:type :value, :val (:yin/value node-map)})
