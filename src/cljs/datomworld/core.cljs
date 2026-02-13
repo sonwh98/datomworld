@@ -367,6 +367,13 @@
     (responsive-layout :circuit width height)))
 
 
+(def default-vm-pane-ratios
+  {:walker {:top 0.6, :middle 0.3, :bottom 0.1},
+   :semantic {:top 0.6, :middle 0.3, :bottom 0.1},
+   :register {:top 0.6, :middle 0.3, :bottom 0.1},
+   :stack {:top 0.6, :middle 0.3, :bottom 0.1}})
+
+
 (defonce app-state
   (r/atom
     {:source-lang :clojure,
@@ -399,6 +406,8 @@
      :collapsed #{},
      :drag-state nil,
      :resize-state nil,
+     :panel-resize-state nil,
+     :vm-pane-ratios default-vm-pane-ratios,
      :walker-source-map nil,
      ;; Per-window VM states for stepping execution
      :vm-states {:register {:state nil, :running false, :expanded false},
@@ -419,6 +428,10 @@
 
 (when (nil? (:layout-touched? @app-state))
   (swap! app-state assoc :layout-touched? false))
+
+
+(when (nil? (:vm-pane-ratios @app-state))
+  (swap! app-state assoc :vm-pane-ratios default-vm-pane-ratios))
 
 
 (defn relayout-ui!
@@ -1054,7 +1067,7 @@
 
 (defn vm-state-display
   "Common VM state display. Takes vm-key and three render fns:
-   - status-fn:   (fn [state] string) - status text for header
+   - status-fn:   (fn [state] any) - status data rendered in CodeMirror
    - summary-fn:  (fn [state] data-or-nil) - collapsed editor content
    - expanded-fn: (fn [state] data-or-nil) - expanded editor content"
   [{:keys [vm-key status-fn summary-fn expanded-fn]}]
@@ -1062,7 +1075,9 @@
         state (:state vm-state)
         expanded (:expanded vm-state)]
     (when state
-      (let [display-data (or (when (and expanded expanded-fn)
+      (let [status-data (when status-fn (status-fn state))
+            status-value (if (nil? status-data) "" (pretty-print status-data))
+            display-data (or (when (and expanded expanded-fn)
                                (expanded-fn state))
                              (when summary-fn (summary-fn state))
                              state)]
@@ -1077,9 +1092,8 @@
                   :min-height "0"}}
          [:div
           {:style {:display "flex",
-                   :justify-content "space-between",
+                   :justify-content "flex-end",
                    :align-items "center"}}
-          [:span {:style {:color "#8b949e"}} (status-fn state)]
           [:button
            {:on-click
               #(swap! app-state update-in [:vm-states vm-key :expanded] not),
@@ -1088,6 +1102,10 @@
                     :color "#58a6ff",
                     :cursor "pointer",
                     :font-size "10px"}} (if expanded "Collapse" "Expand")]]
+         [codemirror-editor
+          {:value status-value,
+           :read-only true,
+           :style {:flex "0 0 44px", :min-height "44px", :margin-top "5px"}}]
          [codemirror-editor
           {:value (pretty-print display-data),
            :read-only true,
@@ -1110,6 +1128,86 @@
     {:value (if show-result? (pretty-print value) ""),
      :read-only true,
      :style {:flex "1", :min-height "0"}}]])
+
+
+(def pane-min-ratio 0.12)
+
+
+(defn- clamp-pane-ratios
+  [{:keys [top middle]}]
+  (let [top* (clamp top pane-min-ratio (- 1 (* 2 pane-min-ratio)))
+        middle* (clamp middle pane-min-ratio (- 1 top* pane-min-ratio))
+        bottom* (max pane-min-ratio (- 1 top* middle*))
+        sum (+ top* middle* bottom*)]
+    {:top (/ top* sum), :middle (/ middle* sum), :bottom (/ bottom* sum)}))
+
+
+(defn- resize-pane-ratios
+  [ratios divider dy container-height]
+  (let [{:keys [top middle bottom]} (clamp-pane-ratios ratios)
+        delta (/ dy (max 1 container-height))]
+    (if (= divider :top-middle)
+      (let [new-top
+              (clamp (+ top delta) pane-min-ratio (- 1 pane-min-ratio bottom))
+            new-middle (- 1 bottom new-top)]
+        (clamp-pane-ratios {:top new-top, :middle new-middle, :bottom bottom}))
+      (let [new-middle
+              (clamp (+ middle delta) pane-min-ratio (- 1 pane-min-ratio top))
+            new-bottom (- 1 top new-middle)]
+        (clamp-pane-ratios
+          {:top top, :middle new-middle, :bottom new-bottom})))))
+
+
+(defn start-panel-resize!
+  [e vm-key divider]
+  (.preventDefault e)
+  (.stopPropagation e)
+  (let [container (.-parentElement (.-currentTarget e))
+        height (or (some-> container
+                           .-clientHeight)
+                   1)
+        ratios (get-in @app-state
+                       [:vm-pane-ratios vm-key]
+                       (get default-vm-pane-ratios vm-key))]
+    (swap! app-state assoc
+      :panel-resize-state
+      {:vm-key vm-key,
+       :divider divider,
+       :start-y (.-clientY e),
+       :height height,
+       :ratios ratios})))
+
+
+(defn vm-divider
+  [vm-key divider]
+  [:div
+   {:style {:height "8px",
+            :cursor "ns-resize",
+            :background "#121a30",
+            :border-top "1px solid #2d3b55",
+            :border-bottom "1px solid #2d3b55"},
+    :on-mouse-down #(start-panel-resize! % vm-key divider)}])
+
+
+(defn vm-split-layout
+  [vm-key top-content middle-content bottom-content]
+  (let [ratios (get-in @app-state
+                       [:vm-pane-ratios vm-key]
+                       (get default-vm-pane-ratios vm-key))
+        {:keys [top middle bottom]} (clamp-pane-ratios ratios)]
+    [:div
+     {:style {:display "grid",
+              :grid-template-rows
+                (str top "fr 8px " middle "fr 8px " bottom "fr"),
+              :gap "0",
+              :flex "1",
+              :min-height "0",
+              :overflow "hidden"}}
+     [:div {:style {:min-height "0", :overflow "hidden"}} top-content]
+     [vm-divider vm-key :top-middle]
+     [:div {:style {:min-height "0", :overflow "hidden"}} middle-content]
+     [vm-divider vm-key :middle-bottom]
+     [:div {:style {:min-height "0", :overflow "hidden"}} bottom-content]]))
 
 
 (defn bring-to-front!
@@ -1270,32 +1368,42 @@
 
 (defn handle-mouse-move
   [e]
-  (let [drag (:drag-state @app-state)
+  (let [panel (:panel-resize-state @app-state)
+        drag (:drag-state @app-state)
         resize (:resize-state @app-state)]
-    (cond drag (let [dx (- (.-clientX e) (:start-x drag))
-                     dy (- (.-clientY e) (:start-y drag))
-                     new-x (+ (:x (:initial-pos drag)) dx)
-                     new-y (+ (:y (:initial-pos drag)) dy)]
-                 (when (or (not= dx 0) (not= dy 0))
-                   (swap! app-state assoc :layout-touched? true))
-                 (swap! app-state assoc-in [:ui-positions (:id drag) :x] new-x)
-                 (swap! app-state assoc-in [:ui-positions (:id drag) :y] new-y))
-          resize
-            (let [dx (- (.-clientX e) (:start-x resize))
-                  dy (- (.-clientY e) (:start-y resize))
-                  new-w (max 200 (+ (:w (:initial-pos resize)) dx))
-                  new-h (max 150 (+ (:h (:initial-pos resize)) dy))]
-              (when (or (not= dx 0) (not= dy 0))
-                (swap! app-state assoc :layout-touched? true))
-              (swap! app-state assoc-in [:ui-positions (:id resize) :w] new-w)
-              (swap! app-state assoc-in
-                [:ui-positions (:id resize) :h]
-                new-h)))))
+    (cond
+      panel
+        (let [dy (- (.-clientY e) (:start-y panel))
+              vm-key (:vm-key panel)
+              divider (:divider panel)
+              new-ratios
+                (resize-pane-ratios (:ratios panel) divider dy (:height panel))]
+          (swap! app-state assoc-in [:vm-pane-ratios vm-key] new-ratios))
+      drag (let [dx (- (.-clientX e) (:start-x drag))
+                 dy (- (.-clientY e) (:start-y drag))
+                 new-x (+ (:x (:initial-pos drag)) dx)
+                 new-y (+ (:y (:initial-pos drag)) dy)]
+             (when (or (not= dx 0) (not= dy 0))
+               (swap! app-state assoc :layout-touched? true))
+             (swap! app-state assoc-in [:ui-positions (:id drag) :x] new-x)
+             (swap! app-state assoc-in [:ui-positions (:id drag) :y] new-y))
+      resize
+        (let [dx (- (.-clientX e) (:start-x resize))
+              dy (- (.-clientY e) (:start-y resize))
+              new-w (max 200 (+ (:w (:initial-pos resize)) dx))
+              new-h (max 150 (+ (:h (:initial-pos resize)) dy))]
+          (when (or (not= dx 0) (not= dy 0))
+            (swap! app-state assoc :layout-touched? true))
+          (swap! app-state assoc-in [:ui-positions (:id resize) :w] new-w)
+          (swap! app-state assoc-in [:ui-positions (:id resize) :h] new-h)))))
 
 
 (defn handle-mouse-up
   [e]
-  (swap! app-state assoc :drag-state nil :resize-state nil))
+  (swap! app-state assoc
+    :panel-resize-state nil
+    :drag-state nil
+    :resize-state nil))
 
 
 (defonce resize-raf-id (atom nil))
@@ -1500,30 +1608,24 @@
                                        (vm/halted? walker-vm-state))
                    walker-value (when walker-halted?
                                   (vm/value walker-vm-state))]
-               [:div
-                {:style {:display "flex",
-                         :flex-direction "column",
-                         :flex "1",
-                         :overflow "hidden"}}
+               [vm-split-layout :walker
+                [codemirror-editor
+                 {:value (:ast-as-text @app-state),
+                  :highlight-range walker-range,
+                  :on-change (fn [v]
+                               ;; Keep compiled ASTs when this change is
+                               ;; just a programmatic refresh from
+                               ;; compile-source.
+                               (if (= v (:ast-as-text @app-state))
+                                 (swap! app-state assoc :ast-as-text v)
+                                 (swap! app-state assoc
+                                   :ast-as-text v
+                                   :compiled-asts nil)))}]
                 [:div
-                 {:style {:flex "0 0 60%", :min-height "0", :overflow "hidden"}}
-                 [codemirror-editor
-                  {:value (:ast-as-text @app-state),
-                   :highlight-range walker-range,
-                   :on-change (fn [v]
-                                ;; Keep compiled ASTs when this change is
-                                ;; just a programmatic refresh from
-                                ;; compile-source.
-                                (if (= v (:ast-as-text @app-state))
-                                  (swap! app-state assoc :ast-as-text v)
-                                  (swap! app-state assoc
-                                    :ast-as-text v
-                                    :compiled-asts nil)))}]]
-                [:div
-                 {:style {:flex "0 0 30%",
-                          :min-height "0",
-                          :display "flex",
+                 {:style {:display "flex",
                           :flex-direction "column",
+                          :height "100%",
+                          :min-height "0",
                           :padding-top "4px",
                           :overflow "hidden"}}
                  [vm-control-buttons
@@ -1559,26 +1661,15 @@
                                   depth 0]
                              (if c (recur (:parent c) (inc depth)) depth)),
                          :value (:value state)})}]]]
-                [:div
-                 {:style {:flex "0 0 10%",
-                          :min-height "0",
-                          :padding-top "4px",
-                          :overflow "hidden"}}
-                 [vm-result-editor walker-value walker-halted?]]])]
+                [vm-result-editor walker-value walker-halted?]])]
             [draggable-card :semantic "Semantic VM"
-             [:div
-              {:style {:display "flex",
-                       :flex-direction "column",
-                       :flex "1",
-                       :overflow "hidden"}}
+             [vm-split-layout :semantic
+              [datom-list-view (:datoms @app-state) active-asm-id]
               [:div
-               {:style {:flex "0 0 60%", :min-height "0", :overflow "hidden"}}
-               [datom-list-view (:datoms @app-state) active-asm-id]]
-              [:div
-               {:style {:flex "0 0 30%",
-                        :min-height "0",
-                        :display "flex",
+               {:style {:display "flex",
                         :flex-direction "column",
+                        :height "100%",
+                        :min-height "0",
                         :padding-top "4px",
                         :overflow "hidden"}}
                [vm-control-buttons
@@ -1612,27 +1703,16 @@
                                   :env-keys (vec (keys (:env state))),
                                   :stack-depth (count (:stack state)),
                                   :value (:value state)})}]]]
-              [:div
-               {:style {:flex "0 0 10%",
-                        :min-height "0",
-                        :padding-top "4px",
-                        :overflow "hidden"}}
-               [vm-result-editor (:value asm-vm-state)
-                (boolean (and asm-vm-state (:halted asm-vm-state)))]]]]
+              [vm-result-editor (:value asm-vm-state)
+               (boolean (and asm-vm-state (:halted asm-vm-state)))]]]
             [draggable-card :register "Register VM"
-             [:div
-              {:style {:display "flex",
-                       :flex-direction "column",
-                       :flex "1",
-                       :overflow "hidden"}}
+             [vm-split-layout :register
+              [instruction-list-view reg-asm active-reg-instr]
               [:div
-               {:style {:flex "0 0 60%", :min-height "0", :overflow "hidden"}}
-               [instruction-list-view reg-asm active-reg-instr]]
-              [:div
-               {:style {:flex "0 0 30%",
-                        :min-height "0",
-                        :display "flex",
+               {:style {:display "flex",
                         :flex-direction "column",
+                        :height "100%",
+                        :min-height "0",
                         :padding-top "4px",
                         :overflow "hidden"}}
                [vm-control-buttons
@@ -1658,27 +1738,16 @@
                                   :env-keys (vec (keys (:env state))),
                                   :continuation? (boolean (:k state)),
                                   :value (:value state)})}]]]
-              [:div
-               {:style {:flex "0 0 10%",
-                        :min-height "0",
-                        :padding-top "4px",
-                        :overflow "hidden"}}
-               [vm-result-editor (:value reg-state)
-                (boolean (and reg-state (:halted reg-state)))]]]]
+              [vm-result-editor (:value reg-state)
+               (boolean (and reg-state (:halted reg-state)))]]]
             [draggable-card :stack "Stack VM"
-             [:div
-              {:style {:display "flex",
-                       :flex-direction "column",
-                       :flex "1",
-                       :overflow "hidden"}}
+             [vm-split-layout :stack
+              [instruction-list-view stack-asm active-stack-instr]
               [:div
-               {:style {:flex "0 0 60%", :min-height "0", :overflow "hidden"}}
-               [instruction-list-view stack-asm active-stack-instr]]
-              [:div
-               {:style {:flex "0 0 30%",
-                        :min-height "0",
-                        :display "flex",
+               {:style {:display "flex",
                         :flex-direction "column",
+                        :height "100%",
+                        :min-height "0",
                         :padding-top "4px",
                         :overflow "hidden"}}
                [vm-control-buttons
@@ -1702,13 +1771,8 @@
                                   :env-keys (vec (keys (:env state))),
                                   :call-stack-depth (count (:call-stack state)),
                                   :value (:value state)})}]]]
-              [:div
-               {:style {:flex "0 0 10%",
-                        :min-height "0",
-                        :padding-top "4px",
-                        :overflow "hidden"}}
-               [vm-result-editor (:value stack-state)
-                (boolean (and stack-state (:halted stack-state)))]]]]
+              [vm-result-editor (:value stack-state)
+               (boolean (and stack-state (:halted stack-state)))]]]
             [draggable-card :query "Datalog Query"
              [:div
               {:style {:display "flex",
