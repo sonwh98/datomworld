@@ -1,5 +1,6 @@
 (ns yin.vm.semantic
-  (:require [yin.vm :as vm]))
+  (:require [datascript.core :as d]
+            [yin.vm :as vm]))
 
 
 ;; =============================================================================
@@ -21,50 +22,55 @@
 ;; =============================================================================
 
 
-(defn find-by-type
-  "Find all nodes of a given type.
-   Works with both 3-tuples [e a v] and 5-tuples [e a v t m].
+(def ^:private cardinality-many-attrs
+  "Attributes materialized as repeated datoms in DataScript."
+  #{:yin/operands})
 
-   Example: (find-by-type datoms :lambda) => all lambda nodes"
-  [datoms node-type]
-  (->> datoms
-       (filter (fn [[_ a v]] (and (= a :yin/type) (= v node-type))))
+
+(defn find-by-type
+  "Find all nodes of a given type from a DataScript db."
+  [db node-type]
+  (->> (d/q '[:find ?e :in $ ?node-type :where [?e :yin/type ?node-type]]
+            db
+            node-type)
        (map first)
        set))
 
 
 (defn- find-by-attr
-  "Find all datoms with a given attribute.
-   Works with both 3-tuples and 5-tuples."
-  [datoms attr]
-  (filter (fn [[_ a _]] (= a attr)) datoms))
+  "Find all datoms with a given attribute from a DataScript db."
+  [db attr]
+  (mapv (fn [[e v]] [e attr v])
+    (d/q '[:find ?e ?v :in $ ?attr :where [?e ?attr ?v]] db attr)))
 
 
 (defn get-node-attrs
-  "Get all attributes for a node as a map.
-   Works with both 3-tuples [e a v] and 5-tuples [e a v t m]."
-  [datoms node-id]
-  (->> datoms
-       (filter (fn [[e _ _]] (= e node-id)))
-       (reduce (fn [m [_ a v]] (assoc m a v)) {})))
+  "Get all attributes for a node as a map via DataScript."
+  [db node-id]
+  (->> (d/q '[:find ?a ?v :in $ ?e :where [?e ?a ?v]] db node-id)
+       (reduce (fn [m [a v]]
+                 (if (contains? cardinality-many-attrs a)
+                   (update m a (fnil conj []) v)
+                   (assoc m a v)))
+         {})))
 
 
 (defn find-applications
-  "Find all function applications in the datoms."
-  [datoms]
-  (find-by-type datoms :application))
+  "Find all function applications in the db."
+  [db]
+  (find-by-type db :application))
 
 
 (defn find-lambdas
-  "Find all lambda definitions in the datoms."
-  [datoms]
-  (find-by-type datoms :lambda))
+  "Find all lambda definitions in the db."
+  [db]
+  (find-by-type db :lambda))
 
 
 (defn find-variables
-  "Find all variable references in the datoms."
-  [datoms]
-  (find-by-type datoms :variable))
+  "Find all variable references in the db."
+  [db]
+  (find-by-type db :variable))
 
 
 ;; =============================================================================
@@ -179,7 +185,10 @@
                              :stack new-stack)))))
       ;; Handle node evaluation
       (let [node-id (:id control)
-            node-map (get-node-attrs datoms node-id)
+            tx-data (vm/datoms->tx-data datoms)
+            conn (d/conn-from-db (d/empty-db vm/schema))
+            _ (d/transact! conn tx-data)
+            node-map (get-node-attrs @conn node-id)
             node-type (:yin/type node-map)]
         (case node-type
           :literal (assoc vm

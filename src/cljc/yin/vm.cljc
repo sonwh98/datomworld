@@ -72,6 +72,16 @@
     "Encode assembly instructions to bytecode (numeric format with constant pool)."))
 
 
+(defprotocol IDaoDb
+  "Data access protocol for DaoDB/DataScript-backed structures."
+  (transact! [db datoms]
+    "Transact datoms and return {:db ... :tempids ...}.")
+  (q [db query inputs]
+    "Run a Datalog query in db context.")
+  (datoms [db index]
+    "Return datoms for index (:eavt/:aevt/:avet/:vaet)."))
+
+
 ;; Primitive operations
 ;; Wrapped in (fn ...) to normalize VM semantics:
 ;; - enforce fixed arities (host ops like + are variadic),
@@ -143,20 +153,13 @@
     datoms))
 
 
-(defn transact!
+(defn- transact-db!
   "Transact datoms into db. Returns {:db updated-db :tempids tempid-map}."
   [db datoms]
   (let [tx-data (datoms->tx-data datoms)
         conn (d/conn-from-db db)
         {:keys [tempids]} (d/transact! conn tx-data)]
     {:db @conn, :tempids tempids}))
-
-
-(defn q
-  "Run a Datalog query against db.
-   args is [query & inputs]."
-  [db & args]
-  (apply d/q (first args) db (rest args)))
 
 
 (defn ast->datoms

@@ -698,16 +698,19 @@
           all-datoms-before (vec (mapcat identity all-datom-groups))
           root-ids (mapv ffirst all-datom-groups)
           empty-db (d/empty-db vm/schema)
-          {:keys [db tempids]} (vm/transact! empty-db all-datoms-before)
+          tx-data (vm/datoms->tx-data all-datoms-before)
+          conn (d/conn-from-db empty-db)
+          {:keys [tempids]} (d/transact! conn tx-data)
+          db @conn
           all-datoms (mapv (fn [d] [(nth d 0) (nth d 1) (nth d 2) (nth d 3)
                                     nil])
                        (d/datoms db :eavt))
           root-eids (mapv #(get tempids % %) root-ids)
           stats {:total-datoms (count all-datoms),
-                 :lambdas (count (semantic/find-lambdas all-datoms)),
-                 :applications (count (semantic/find-applications all-datoms)),
-                 :variables (count (semantic/find-variables all-datoms)),
-                 :literals (count (semantic/find-by-type all-datoms :literal))}
+                 :lambdas (count (semantic/find-lambdas db)),
+                 :applications (count (semantic/find-applications db)),
+                 :variables (count (semantic/find-variables db)),
+                 :literals (count (semantic/find-by-type db :literal))}
           last-root (last root-eids)
           initial-state (when last-root
                           (load-semantic-state last-root all-datoms))]
@@ -770,7 +773,7 @@
                               (let [input-text (or (:query-inputs @app-state)
                                                    "")]
                                 (reader/read-string (str "[" input-text "]"))))
-                 result (apply vm/q db query extra-vals)]
+                 result (apply d/q query db (or extra-vals []))]
              (swap! app-state assoc :query-result result :error nil))
            (catch js/Error e
              (swap! app-state assoc
@@ -1683,17 +1686,24 @@
                                    (if (= :node (:type ctrl))
                                      (str "Node: " (:id ctrl))
                                      (str "Val: " (pr-str (:val ctrl))))))),
-                  :summary-fn (fn [state]
-                                (when (not (:halted state))
-                                  (let [ctrl (:control state)
-                                        info (if (= :node (:type ctrl))
-                                               (let [attrs
-                                                       (semantic/get-node-attrs
-                                                         (:datoms state)
-                                                         (:id ctrl))]
-                                                 (str (:yin/type attrs)))
-                                               "Returning...")]
-                                    {:control ctrl, :info info}))),
+                  :summary-fn
+                    (fn [state]
+                      (when (not (:halted state))
+                        (let [ctrl (:control state)
+                              info (if (= :node (:type ctrl))
+                                     (let [attrs
+                                             (let [tx-data (vm/datoms->tx-data
+                                                             (:datoms state))
+                                                   conn (d/conn-from-db
+                                                          (d/empty-db
+                                                            vm/schema))
+                                                   _ (d/transact! conn tx-data)]
+                                               (semantic/get-node-attrs
+                                                 @conn
+                                                 (:id ctrl)))]
+                                       (str (:yin/type attrs)))
+                                     "Returning...")]
+                          {:control ctrl, :info info}))),
                   :expanded-fn (fn [state]
                                  {:control (:control state),
                                   :env-keys (vec (keys (:env state))),
