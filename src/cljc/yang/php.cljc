@@ -45,7 +45,7 @@
             [:variable #"^\$[a-zA-Z_][a-zA-Z0-9_]*"]
             [:identifier #"^[a-zA-Z_][a-zA-Z0-9_]*"]
             [:operator
-             #"^(==|!=|<=|>=|<|>|\+\+|\-\-|\+=|\-=|\*=|\/=|\+|-|\*|/|&&|\|\||!|=)"]
+             #"^(==|!=|<=|>=|<|>|\+\+|\-\-|\+=|\-=|\*=|/=|\+|-|\*|/|&&|\|\||!|=)"]
             [:lparen #"^\("] [:rparen #"^\)"] [:lbrace #"^\{"] [:rbrace #"^\}"]
             [:comma #"^,"] [:semicolon #"^;"] [:colon #"^:"]
             [:whitespace #"^[ \t\n\r]+"]]
@@ -166,9 +166,11 @@
                   ;; Optional 'use' clause
                   {:keys [use-vars rem-after-use]}
                     (if (match? (first tokens) :keyword "use")
-                      (let [rem (expect (rest tokens) :lparen)
-                            {:keys [params rem]} (parse-params rem)]
-                        {:use-vars params, :rem-after-use (expect rem :rparen)})
+                      (let [after-lparen (expect (rest tokens) :lparen)
+                            {:keys [params remaining]}
+                              (parse-params after-lparen)]
+                        {:use-vars params,
+                         :rem-after-use (expect remaining :rparen)})
                       {:use-vars [], :rem-after-use tokens})
                   tokens rem-after-use
                   ;; Optional return type

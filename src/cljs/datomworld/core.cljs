@@ -148,6 +148,7 @@
     {:source-lang :clojure,
      :source-code "(+ 4 5)",
      :ast-as-text "",
+     :compiled-asts nil,
      :walker-result nil,
      :semantic-result nil,
      :datoms nil,
@@ -260,9 +261,10 @@
 
 (defn compile-stack
   []
-  (let [input (:ast-as-text @app-state)]
+  (let [{:keys [compiled-asts ast-as-text]} @app-state]
     (try
-      (let [forms (reader/read-string (str "[" input "]"))
+      (let [forms (or compiled-asts
+                      (reader/read-string (str "[" ast-as-text "]")))
             results
               (mapv (fn [ast]
                       (let [datoms (vm/ast->datoms ast)
@@ -390,9 +392,10 @@
 
 (defn compile-ast
   []
-  (let [input (:ast-as-text @app-state)]
+  (let [{:keys [compiled-asts ast-as-text]} @app-state]
     (try
-      (let [forms (reader/read-string (str "[" input "]"))
+      (let [forms (or compiled-asts
+                      (reader/read-string (str "[" ast-as-text "]")))
             all-datom-groups (mapv vm/ast->datoms forms)
             all-datoms (vec (mapcat identity all-datom-groups))
             root-ids (mapv ffirst all-datom-groups)
@@ -488,9 +491,10 @@
 
 (defn compile-register
   []
-  (let [input (:ast-as-text @app-state)]
+  (let [{:keys [compiled-asts ast-as-text]} @app-state]
     (try
-      (let [forms (reader/read-string (str "[" input "]"))
+      (let [forms (or compiled-asts
+                      (reader/read-string (str "[" ast-as-text "]")))
             results (mapv (fn [ast]
                             (let [datoms (vm/ast->datoms ast)
                                   asm (register/ast-datoms->asm datoms)
@@ -562,6 +566,7 @@
             {:keys [text source-map]} (ast->text-with-map ast-with-ids)]
         (swap! app-state assoc
           :ast-as-text text
+          :compiled-asts asts
           :walker-source-map source-map
           :error nil)
         ;; Initialize AST Walker state
@@ -572,7 +577,9 @@
           (swap! app-state assoc-in [:vm-states :walker :running] false)
           (swap! app-state assoc :walker-result nil)))
       (catch js/Error e
-        (swap! app-state assoc :error (str "Compile Error: " (.-message e)))))))
+        (swap! app-state assoc
+          :error (str "Compile Error: " (.-message e))
+          :compiled-asts nil)))))
 
 
 (def code-examples
@@ -1153,7 +1160,10 @@
                 [codemirror-editor
                  {:value (:ast-as-text @app-state),
                   :highlight-range walker-range,
-                  :on-change (fn [v] (swap! app-state assoc :ast-as-text v))}]
+                  :on-change (fn [v]
+                               (swap! app-state assoc
+                                 :ast-as-text v
+                                 :compiled-asts nil))}]
                 [vm-control-buttons
                  {:vm-key :walker,
                   :step-fn #(step-vm :walker :walker-result),
