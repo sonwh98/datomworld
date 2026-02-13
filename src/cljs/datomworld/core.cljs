@@ -134,13 +134,237 @@
                 :provide (fn [f] (.from (.-decorations EditorView) f))}))
 
 
+(def card-order [:source :walker :semantic :register :stack :query])
+
+
+(def layout-style-options
+  [{:id :circuit, :label "Circuit Board"} {:id :organic, :label "Organic"}
+   {:id :network, :label "Network"} {:id :hierarchy, :label "Hierarchy"}
+   {:id :circular, :label "Circular"}])
+
+
+(def layout-pairs
+  (vec (for [i (range (count card-order))
+             j (range (inc i) (count card-order))]
+         [(nth card-order i) (nth card-order j)])))
+
+
+(defn- clamp
+  [n low high]
+  (if (< high low)
+    low
+    (-> n
+        (max low)
+        (min high))))
+
+
+(defn- rounded [n] (js/Math.round n))
+
+
+(defn- compact-layout
+  [width height]
+  (let [padding-x 16
+        top 80
+        gap 20
+        card-w (-> (- width (* 2 padding-x))
+                   (clamp 280 720)
+                   rounded)
+        can-two-cols? (>= width (+ (* 2 card-w) (* 3 padding-x)))
+        x-single (rounded (clamp (/ (- width card-w) 2)
+                                 padding-x
+                                 (- width card-w padding-x)))
+        x-left (if can-two-cols? padding-x x-single)
+        x-right (if can-two-cols? (- width card-w padding-x) x-single)
+        row-h (-> (/ (- height 180) 3)
+                  (clamp 230 340)
+                  rounded)
+        heights {:source (+ row-h 20),
+                 :walker (+ row-h 20),
+                 :semantic row-h,
+                 :register row-h,
+                 :stack row-h,
+                 :query row-h}
+        x-by-id {:source x-left,
+                 :walker x-right,
+                 :semantic x-left,
+                 :register x-right,
+                 :stack x-left,
+                 :query x-right}]
+    (loop [ids card-order
+           y top
+           acc {}]
+      (if-let [id (first ids)]
+        (let [h (get heights id row-h)]
+          (recur (rest ids)
+                 (+ y h gap)
+                 (assoc acc
+                   id {:x (get x-by-id id x-left), :y y, :w card-w, :h h})))
+        acc))))
+
+
+(defn- card-size-profile
+  [width height]
+  (let [main-w (-> (/ width 4.4)
+                   (clamp 280 390)
+                   rounded)
+        side-w (-> (/ width 5.2)
+                   (clamp 250 340)
+                   rounded)
+        main-h (-> (/ height 2.65)
+                   (clamp 290 430)
+                   rounded)
+        side-h (-> (/ height 3.25)
+                   (clamp 230 330)
+                   rounded)]
+    {:source {:w main-w, :h main-h},
+     :walker {:w main-w, :h main-h},
+     :semantic {:w main-w, :h main-h},
+     :register {:w side-w, :h side-h},
+     :stack {:w side-w, :h side-h},
+     :query {:w side-w, :h side-h}}))
+
+
+(defn- style-anchors
+  [layout-style]
+  (case layout-style
+    :organic {:source [0.13 0.28],
+              :walker [0.54 0.16],
+              :semantic [0.52 0.56],
+              :register [0.86 0.31],
+              :stack [0.8 0.74],
+              :query [0.24 0.79]}
+    :network {:source [0.18 0.29],
+              :walker [0.56 0.17],
+              :semantic [0.54 0.5],
+              :register [0.86 0.3],
+              :stack [0.84 0.69],
+              :query [0.24 0.74]}
+    :hierarchy {:source [0.5 0.12],
+                :walker [0.3 0.38],
+                :semantic [0.7 0.38],
+                :query [0.2 0.7],
+                :register [0.62 0.7],
+                :stack [0.82 0.7]}
+    :circular {:source [0.23 0.48],
+               :walker [0.5 0.16],
+               :semantic [0.56 0.5],
+               :register [0.82 0.28],
+               :stack [0.78 0.72],
+               :query [0.36 0.82]}
+    ;; Default to a circuit-board flow with explicit wire channels.
+    {:source [0.14 0.31],
+     :walker [0.57 0.16],
+     :semantic [0.5 0.57],
+     :register [0.87 0.26],
+     :stack [0.85 0.74],
+     :query [0.19 0.79]}))
+
+
+(defn- overlap-deltas
+  [a b gap]
+  (let [ax (+ (:x a) (/ (:w a) 2))
+        ay (+ (:y a) (/ (:h a) 2))
+        bx (+ (:x b) (/ (:w b) 2))
+        by (+ (:y b) (/ (:h b) 2))
+        dx (- ax bx)
+        dy (- ay by)
+        req-x (+ (/ (+ (:w a) (:w b)) 2) gap)
+        req-y (+ (/ (+ (:h a) (:h b)) 2) gap)
+        overlap-x (- req-x (js/Math.abs dx))
+        overlap-y (- req-y (js/Math.abs dy))]
+    (when (and (> overlap-x 0) (> overlap-y 0))
+      {:dx dx, :dy dy, :overlap-x overlap-x, :overlap-y overlap-y})))
+
+
+(defn- normalize-layout-bounds
+  [positions]
+  (reduce-kv (fn [acc id p]
+               (assoc acc
+                 id (-> p
+                        (update :x #(rounded (max 24 %)))
+                        (update :y #(rounded (max 84 %))))))
+             {}
+             positions))
+
+
+(defn- separate-overlap
+  [positions [id-a id-b] gap]
+  (let [a (get positions id-a)
+        b (get positions id-b)]
+    (if-let [{:keys [dx dy overlap-x overlap-y]}
+               (and a b (overlap-deltas a b gap))]
+      (let [move-x? (< overlap-x overlap-y)
+            idx-a (.indexOf card-order id-a)
+            idx-b (.indexOf card-order id-b)
+            dir-x (cond (> dx 0) 1
+                        (< dx 0) -1
+                        (< idx-a idx-b) -1
+                        :else 1)
+            dir-y (cond (> dy 0) 1
+                        (< dy 0) -1
+                        (< idx-a idx-b) -1
+                        :else 1)
+            shift (/ (+ (if move-x? overlap-x overlap-y) 2) 2)
+            [a* b*] (if move-x?
+                      [(update a :x + (* dir-x shift))
+                       (update b :x - (* dir-x shift))]
+                      [(update a :y + (* dir-y shift))
+                       (update b :y - (* dir-y shift))])]
+        (assoc positions
+          id-a a*
+          id-b b*))
+      positions)))
+
+
+(defn- resolve-overlaps
+  [positions gap]
+  (loop [i 0
+         pos (normalize-layout-bounds positions)]
+    (if (>= i 120)
+      (normalize-layout-bounds pos)
+      (let [next-pos (normalize-layout-bounds
+                       (reduce (fn [acc pair] (separate-overlap acc pair gap))
+                         pos
+                         layout-pairs))]
+        (if (= next-pos pos) next-pos (recur (inc i) next-pos))))))
+
+
+(defn responsive-layout
+  [layout-style width height]
+  (let [seed-positions (if (< width 980)
+                         (compact-layout width height)
+                         (let [anchors (style-anchors layout-style)
+                               sizes (card-size-profile width height)
+                               padding-x 24
+                               padding-top 84
+                               padding-bottom 24]
+                           (reduce-kv
+                             (fn [acc id [ax ay]]
+                               (let [{:keys [w h]} (get sizes id)
+                                     x (rounded (clamp (- (* width ax) (/ w 2))
+                                                       padding-x
+                                                       (- width w padding-x)))
+                                     y (rounded (clamp
+                                                  (- (* height ay) (/ h 2))
+                                                  padding-top
+                                                  (- height h padding-bottom)))]
+                                 (assoc acc id {:x x, :y y, :w w, :h h})))
+                             {}
+                             anchors)))
+        min-gap (cond (< width 1100) 24
+                      (< width 1500) 36
+                      :else 52)]
+    (resolve-overlaps seed-positions min-gap)))
+
+
 (def default-positions
-  {:source {:x 50, :y 150, :w 350, :h 450},
-   :walker {:x 600, :y 100, :w 400, :h 450},
-   :semantic {:x 600, :y 550, :w 400, :h 450},
-   :register {:x 1200, :y 300, :w 350, :h 450},
-   :stack {:x 1200, :y 800, :w 350, :h 450},
-   :query {:x 50, :y 750, :w 350, :h 450}})
+  (let [width (or (some-> js/window
+                          .-innerWidth)
+                  1600)
+        height (or (some-> js/window
+                           .-innerHeight)
+                   1000)]
+    (responsive-layout :circuit width height)))
 
 
 (defonce app-state
@@ -168,6 +392,8 @@
      :query-inputs "",
      :query-result nil,
      :error nil,
+     :layout-style :circuit,
+     :layout-touched? false,
      :ui-positions default-positions,
      :z-order (vec (keys default-positions)),
      :collapsed #{},
@@ -185,6 +411,42 @@
           (not (:h (:source (:ui-positions @app-state))))
           (= 750 (:y (:query (:ui-positions @app-state)))))
   (swap! app-state assoc :ui-positions default-positions))
+
+
+(when (nil? (:layout-style @app-state))
+  (swap! app-state assoc :layout-style :circuit))
+
+
+(when (nil? (:layout-touched? @app-state))
+  (swap! app-state assoc :layout-touched? false))
+
+
+(defn relayout-ui!
+  ([] (relayout-ui! {}))
+  ([{:keys [force? style mark-touched?],
+     :or {force? false, mark-touched? false}}]
+   (let [width (or (some-> js/window
+                           .-innerWidth)
+                   1600)
+         height (or (some-> js/window
+                            .-innerHeight)
+                    1000)]
+     (swap! app-state
+       (fn [state]
+         (let [layout-style (or style (:layout-style state) :circuit)
+               touched? (boolean (:layout-touched? state))
+               should-relayout? (or force? (not touched?))
+               positions (when should-relayout?
+                           (responsive-layout layout-style width height))]
+           (cond-> (assoc state :layout-style layout-style)
+             positions (assoc :ui-positions positions)
+             positions (update :z-order
+                               (fn [z-order]
+                                 (if (and (vector? z-order)
+                                          (= (set z-order) (set card-order)))
+                                   z-order
+                                   card-order)))
+             mark-touched? (assoc :layout-touched? true))))))))
 
 
 (defn codemirror-editor
@@ -719,6 +981,38 @@
    (fn [ex] (swap! app-state assoc :query-text (:query ex)))])
 
 
+(defn layout-controls
+  []
+  (let [layout-style (:layout-style @app-state)]
+    [:div
+     {:style {:position "absolute",
+              :top "16px",
+              :right "20px",
+              :display "flex",
+              :align-items "center",
+              :gap "8px",
+              :padding "6px 8px",
+              :background "rgba(14,19,40,0.9)",
+              :border "1px solid #2d3b55",
+              :border-radius "6px",
+              :z-index "140"}}
+     [:span {:style {:font-size "12px", :color "#8b949e"}} "Layout"]
+     [:select
+      {:value (name layout-style),
+       :on-change (fn [e]
+                    (let [next-style (keyword (.. e -target -value))]
+                      (relayout-ui! {:force? true,
+                                     :style next-style,
+                                     :mark-touched? true}))),
+       :style {:background "#0e1328",
+               :color "#c5c6c7",
+               :border "1px solid #2d3b55",
+               :font-size "12px",
+               :padding "2px 4px"}}
+      (for [{:keys [id label]} layout-style-options]
+        ^{:key (name id)} [:option {:value (name id)} label])]]))
+
+
 (defn vm-control-buttons
   "Render Step/Run/Reset buttons for a VM."
   [{:keys [vm-key step-fn toggle-run-fn reset-fn]}]
@@ -967,6 +1261,8 @@
                      dy (- (.-clientY e) (:start-y drag))
                      new-x (+ (:x (:initial-pos drag)) dx)
                      new-y (+ (:y (:initial-pos drag)) dy)]
+                 (when (or (not= dx 0) (not= dy 0))
+                   (swap! app-state assoc :layout-touched? true))
                  (swap! app-state assoc-in [:ui-positions (:id drag) :x] new-x)
                  (swap! app-state assoc-in [:ui-positions (:id drag) :y] new-y))
           resize
@@ -974,6 +1270,8 @@
                   dy (- (.-clientY e) (:start-y resize))
                   new-w (max 200 (+ (:w (:initial-pos resize)) dx))
                   new-h (max 150 (+ (:h (:initial-pos resize)) dy))]
+              (when (or (not= dx 0) (not= dy 0))
+                (swap! app-state assoc :layout-touched? true))
               (swap! app-state assoc-in [:ui-positions (:id resize) :w] new-w)
               (swap! app-state assoc-in
                 [:ui-positions (:id resize) :h]
@@ -983,6 +1281,17 @@
 (defn handle-mouse-up
   [e]
   (swap! app-state assoc :drag-state nil :resize-state nil))
+
+
+(defonce resize-raf-id (atom nil))
+
+
+(defn handle-window-resize
+  [e]
+  (when-not @resize-raf-id
+    (reset! resize-raf-id (js/requestAnimationFrame (fn []
+                                                      (reset! resize-raf-id nil)
+                                                      (relayout-ui!))))))
 
 
 (defn datom-list-view
@@ -1038,11 +1347,14 @@
     {:component-did-mount
        (fn []
          (js/window.addEventListener "mousemove" handle-mouse-move)
-         (js/window.addEventListener "mouseup" handle-mouse-up)),
+         (js/window.addEventListener "mouseup" handle-mouse-up)
+         (js/window.addEventListener "resize" handle-window-resize)
+         (relayout-ui!)),
      :component-will-unmount
        (fn []
          (js/window.removeEventListener "mousemove" handle-mouse-move)
-         (js/window.removeEventListener "mouseup" handle-mouse-up)),
+         (js/window.removeEventListener "mouseup" handle-mouse-up)
+         (js/window.removeEventListener "resize" handle-window-resize)),
      :reagent-render
        (fn []
          (let [asm-vm-state (get-in @app-state [:vm-states :semantic :state])
@@ -1089,7 +1401,7 @@
              [:a {:href "https://datom.world", :style {:pointer-events "auto"}}
               "Datom.world "]
              [:a {:href "/yin.chp", :style {:pointer-events "auto"}} "Yin VM "
-              "Compilation Pipeline"]]
+              "Compilation Pipeline"]] [layout-controls]
             (let [pos (:ui-positions @app-state)
                   src (:source pos)
                   walk (:walker pos)
