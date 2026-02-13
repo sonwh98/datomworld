@@ -573,30 +573,6 @@
       (vm/load-program ast)))
 
 
-(defn- resolve-eid [tempids x] (if (integer? x) (get tempids x x) x))
-
-
-(defn- ref-attr?
-  [attr]
-  (= :db.type/ref (get-in vm/schema [attr :db/valueType])))
-
-
-(defn- resolve-datom
-  "Project pre-transaction datom [e a v t m] to committed IDs.
-   Keeps order and t/m, while resolving e/m and ref-valued v fields."
-  [tempids [e a v t m]]
-  (let [e* (resolve-eid tempids e)
-        v* (if (ref-attr? a)
-             (cond (vector? v) (mapv #(resolve-eid tempids %) v)
-                   :else (resolve-eid tempids v))
-             v)
-        m* (resolve-eid tempids m)]
-    [e* a v* t m*]))
-
-
-(defn- resolve-datoms [tempids datoms] (mapv #(resolve-datom tempids %) datoms))
-
-
 (defn compile-stack
   []
   (try (let [forms (read-ast-forms)
@@ -723,7 +699,9 @@
           root-ids (mapv ffirst all-datom-groups)
           empty-db (d/empty-db vm/schema)
           {:keys [db tempids]} (vm/transact! empty-db all-datoms-before)
-          all-datoms (resolve-datoms tempids all-datoms-before)
+          all-datoms (mapv (fn [d] [(nth d 0) (nth d 1) (nth d 2) (nth d 3)
+                                    nil])
+                       (d/datoms db :eavt))
           root-eids (mapv #(get tempids % %) root-ids)
           stats {:total-datoms (count all-datoms),
                  :lambdas (count (semantic/find-lambdas all-datoms)),
