@@ -198,7 +198,7 @@
            (when-let [node @el-ref]
              (let [lang-ext (case language
                               :python (python)
-                              :php (php)
+                              :php (php #js {:plain true})
                               (clojure))
                    theme (.theme EditorView
                                  #js {"&" #js {:height "100%"},
