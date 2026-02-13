@@ -147,7 +147,7 @@
     ;; One sender will win
     (go (<! (async/timeout 10)) (>! c1 "from c1"))
     (go (<! (async/timeout 5)) (>! c2 "from c2")) ; This will win (sent
-                                                  ; first)
+    ;; first)
     result))
 
 
@@ -375,8 +375,7 @@
     ;; Source node: creates continuation and sends it
     (go (let [continuation
                 (fn [x] (println "Continuation executing with" x) (* x x))] ; Closure
-                                                                            ; captures
-                                                                            ; behavior
+          ;; captures behavior
           (println "Sending continuation to remote node")
           (>! migration-channel continuation)))
     ;; Destination node: receives and executes continuation
