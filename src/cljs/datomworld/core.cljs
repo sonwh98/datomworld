@@ -1067,17 +1067,14 @@
 
 (defn vm-state-display
   "Common VM state display. Takes vm-key and three render fns:
-   - status-fn:   (fn [state] any) - status data rendered in CodeMirror
    - summary-fn:  (fn [state] data-or-nil) - collapsed editor content
    - expanded-fn: (fn [state] data-or-nil) - expanded editor content"
-  [{:keys [vm-key status-fn summary-fn expanded-fn]}]
+  [{:keys [vm-key summary-fn expanded-fn]}]
   (let [vm-state (get-in @app-state [:vm-states vm-key])
         state (:state vm-state)
         expanded (:expanded vm-state)]
     (when state
-      (let [status-data (when status-fn (status-fn state))
-            status-value (if (nil? status-data) "" (pretty-print status-data))
-            display-data (or (when (and expanded expanded-fn)
+      (let [display-data (or (when (and expanded expanded-fn)
                                (expanded-fn state))
                              (when summary-fn (summary-fn state))
                              state)]
@@ -1102,10 +1099,6 @@
                     :color "#58a6ff",
                     :cursor "pointer",
                     :font-size "10px"}} (if expanded "Collapse" "Expand")]]
-         [codemirror-editor
-          {:value status-value,
-           :read-only true,
-           :style {:flex "0 0 44px", :min-height "44px", :margin-top "5px"}}]
          [codemirror-editor
           {:value (pretty-print display-data),
            :read-only true,
@@ -1420,7 +1413,7 @@
 (defn datom-list-view
   [datoms active-id]
   [:div
-   {:style {:flex "1",
+   {:style {:height "100%",
             :min-height "0",
             :overflow "auto",
             :font-family "monospace",
@@ -1443,7 +1436,7 @@
 (defn instruction-list-view
   [instructions active-idx]
   [:div
-   {:style {:flex "1",
+   {:style {:height "100%",
             :min-height "0",
             :overflow "auto",
             :font-family "monospace",
