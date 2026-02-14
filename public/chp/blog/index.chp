@@ -32,7 +32,7 @@
                                  "Unknown date")]]
             [:article.blog-card
              {:data-title (:blog/title blog)
-              :data-abstract (pr-str (second (:blog/abstract blog)))
+              :data-abstract (second (:blog/abstract blog))
               :data-date date-str}
              [:div.blog-meta
               [:span date-str]]
