@@ -14,7 +14,8 @@
          [:p
           "Together with the " [:a {:href "/yang.chp"} "Yang compiler"]
           " Yin forms a dual system: Yang generates and emits continuations from Clojure code, "
-          "while Yin receives, introspects, and executes them."]]]
+          "while Yin receives, introspects, and executes them."]
+         [:p [:a.cta-button {:href "/yin-yang-demo.html"} "Try the Live Demo"]]]]
        [:section.section-light
         [:div.section-inner
          [:h2 "Main ideas"]
