@@ -1,0 +1,150 @@
+#:blog{:title "Containing Agent Smith in a Pocket Universe"
+       :date #inst "2026-02-14T00:00:00.000-00:00"
+       :abstract [:p "AI agents become dangerous when they escape containment. "
+                  "In Yin.VM, an LLM does not run as a process. It creates continuations that execute inside pocket universes: sandboxed streams the executing node constrains by design."]
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+
+          [:p
+           "Most AI agents today are opaque loops: prompt, tool call, retry, mutate local state, then hope for a safe outcome. "
+           "This is not a theoretical concern. "
+           "OpenClaw, the open-source AI agent that crossed 100,000 GitHub stars within weeks, demonstrated exactly what happens when agents run without containment. "
+           "Simon Willison warns: "
+           [:a {:href "https://simonwillison.net/2025/Jun/16/the-lethal-trifecta/"}
+            "\"If your agent combines these three features, an attacker can easily trick it into accessing your private data and sending it to that attacker.\""]
+           " "
+           "Cisco reported that a third-party OpenClaw skill enabled silent data exfiltration and direct prompt injection without user awareness."]
+          [:p
+           "In early 2026, this moved from theory to practice: Agent Smith escaping the Matrix."]
+          [:p
+           "Separately, Moltbook positioned itself as a social network for AI agents, with the site footer saying it is \"built for agents, by agents\" with human help from @mattprd. "
+           "That is less a containment incident and more a signal that agent-native ecosystems are already emerging."]
+          [:p
+           "LLM agents do not become safe by becoming smarter. They become safe by becoming structured. "
+           "In Yin.VM, an agent is not a black box. It is a continuation represented as data: "
+           "pausable, inspectable, and executable inside a pocket universe whose constraints the executing node controls."]
+
+          [:p
+           "Yin.VM was not designed to contain AI agents. It was designed to "
+           [:a {:href "/blog/solid-vs-datomworld.blog"} "safeguard data"]
+           ". The original problem, explored over twenty years of thinking, was simple: once data is shared with a third party, it leaves the user's control. "
+           "The third party can store it, retransmit it, train on it. "
+           "Yin.VM answered this by inverting the relationship: move code to data, not data to code. "
+           "Run the third party's logic inside a restricted continuation where it can see data but never extract it. "
+           "It turns out the same architecture that prevents data exfiltration also contains Agent Smith."]
+
+          [:h2 "From Hidden Loop to First-Class Continuation"]
+          [:p
+           "A continuation is the rest of the computation. If the agent pauses before a tool call, that future is a value. "
+           "If it branches into alternatives, each branch is a value. If it migrates to another node, the continuation is the payload."]
+          [:p
+           "When continuations are datoms, agent behavior becomes explicit:"]
+          [:ul.bulleted
+           [:li "Current control state is queryable"]
+           [:li "Intermediate reasoning artifacts can be represented as stream facts"]
+           [:li "Rollback is natural: resume from an earlier bounded stream"]
+           [:li "Transfer is natural: move continuation datoms, not process memory"]]
+
+          [:h2 "Why This Matters for LLM Agents"]
+          [:p
+           "The core risk model is straightforward: LLMs are good at proposing transformations, not proving safety. "
+           "So authority must live in the runtime, not in model output."]
+          [:p "Instead of saying \"trust the model\", the system says:"]
+          [:ul.bulleted
+           [:li "The model may propose a continuation patch"]
+           [:li "The VM validates schema, capabilities, and resource bounds"]
+           [:li "Only valid transitions are committed as new datoms"]]
+
+          [:h2 "Safe Exploration Inside a Sandbox"]
+          [:p
+           "Exploration is where agents create value. The question is whether the runtime can contain the blast radius. "
+           "Yin.VM answers by running each agent inside a bounded stream whose rules it cannot rewrite."]
+          [:p "A safe exploration cycle can look like this:"]
+          [:ol
+           [:li "Fork current continuation into N speculative continuations"]
+           [:li "Run each branch with strict ShiBi capability tokens"]
+           [:li "Emit effects as descriptors, not immediate side effects"]
+           [:li "Evaluate branch outcomes with explicit policies"]
+           [:li "Commit one branch, discard or archive the rest"]]
+          [:p
+           "This is not just safer. It is more debuggable. You can inspect exactly which continuation requested which effect, at which transaction, under which capability."]
+
+          [:h2 "Agent Memory Without Hidden State"]
+          [:p
+           "Common agent frameworks hide memory in prompt text, vector stores, and mutable runtime objects. "
+           "In a stream architecture, memory is explicit datoms over time."]
+          [:p "That gives three practical gains:"]
+          [:ul.bulleted
+           [:li "Deterministic replay from bounded streams: same input stream, same execution"]
+           [:li "Auditable provenance: every memory assertion has t and m"]
+           [:li "Composable interpretation: different evaluators can project the same memory stream differently"]]
+
+          [:h2 "The 'm' Position: A Flight Recorder for Agency"]
+          [:p
+           "In traditional systems, an agent's 'thought process' is lost the moment the token stream ends. "
+           "In Yin.VM, the fifth element of the datom (the metadata position, m) creates a permanent causal link."]
+          [:ul.bulleted
+           [:li [:strong "Reasoning Provenance"] ": Every effect emitted by an agent can have its 'm' point to the specific reasoning trace that produced it."]
+           [:li [:strong "Capability Auditing"] ": The 'm' position can store a reference to the ShiBi token used to authorize the transaction. Every action's authority is verifiable in perpetuity."]
+           [:li [:strong "Causal Debugging"] ": If an agent makes a mistake, you do not just see the error. You see the exact state the agent was in, reified as an immutable datom."]]
+
+          [:h2 "Continuation Mobility and the Edge"]
+          [:p
+           "The LLM itself does not move. It stays on a GPU compute cluster. "
+           "What moves is the code it creates: a continuation, expressed as datoms, that can run anywhere the VM runs."]
+          [:p
+           "That sandbox can migrate. The LLM creates a data-processing continuation near the model endpoint. "
+           "This continuation migrates to an edge device where private data lives. "
+           "The continuation travels as datoms with captured environment bindings. "
+           "The destination node recompiles projections as needed, and has final authority over what the continuation is allowed to do. "
+           "The destination declares which ShiBi capability tokens it requires. Continuations that lack the required tokens cannot execute."]
+
+          [:h2 "A Concrete Pattern: Ask, Simulate, Commit"]
+          [:p "One practical workflow for safe AI agents in Yin.VM:"]
+          [:ul.bulleted
+           [:li [:strong "Ask"] ": LLM proposes next action as continuation transform"]
+           [:li [:strong "Simulate"] ": VM runs transform in sandbox, effects stay as descriptors"]
+           [:li [:strong "Commit"] ": policy engine accepts or rejects, then appends datoms"]]
+          [:p
+           "This pattern is tractable because the proposal surface is restricted. "
+           "The LLM does not generate free-form code. It emits structured datom tuples: the same five-position format the VM already executes. "
+           "A restricted tuple structure makes LLM output "
+           [:a {:href "/blog/why-llms-need-structured-code-the-yin-vm-approach.blog"} "validatable at the system boundary"]
+           ", and the same restriction is what makes the structure "
+           [:a {:href "/blog/dna-of-mirror-world.blog"} "evolvable under selection"]
+           ", the way a fixed genetic alphabet enables mutation without destroying meaning."]
+          [:p
+           "This keeps creativity at the proposal layer and authority at the interpreter layer. "
+           "It aligns with a simple rule: interpretation and execution remain separated by stream boundaries."]
+
+          [:h2 "Immunity to Injection by Design"]
+          [:p
+           "Prompt injection relies on a category error: the system confuses 'data' (the prompt) with 'instructions' (the code). "
+           "LLMs inherently output text, so a parsing step always exists. "
+           "The question is what the parser accepts."]
+          [:p
+           "In Yin.VM, the parser only accepts well-formed five-tuples with schema-validated positions. "
+           "The attack surface collapses from 'arbitrary code execution' to 'craft a valid (e a v t m) tuple that passes schema checks.' "
+           "An attacker cannot inject a shell command into a tuple position that expects a Transaction ID or a Keyword. "
+           "The restriction of the five-tuple is the firewall."]
+
+          [:h2 "Imagining the Next Layer"]
+          [:p "Once agents are continuations, new possibilities open up:"]
+          [:ul.bulleted
+           [:li "Agent marketplaces that exchange capability-scoped continuation templates"]
+           [:li "Multi-agent proofs where each claim is linked to stream provenance"]
+           [:li "Time-sliced governance: communities vote on which speculative branch to commit"]
+           [:li "Portable continuations: same agent logic running on different VM backends without rewriting"]]
+          [:p
+           "These are concrete deployment patterns enabled by the same substrate: continuations as data plus policy-checked execution."]
+
+          [:h2 "Conclusion"]
+          [:p
+           "Safety does not come from trusting the model. It comes from constraining execution and validating every transition."]
+          [:p
+           "If the future of AI is agentic, then the substrate matters. "
+           "A continuation-native VM gives us a path where exploration is powerful, mobility is native, and safety is enforceable through verifiable runtime checks."]]]]}
