@@ -384,6 +384,7 @@
      :error nil,
      :layout-style :circuit,
      :layout-touched? false,
+     :show-explainer-video? false,
      :ui-positions default-positions,
      :z-order (vec (keys default-positions)),
      :collapsed #{},
@@ -1511,7 +1512,20 @@
              [:a {:href "https://datom.world", :style {:pointer-events "auto"}}
               "Datom.world "]
              [:a {:href "/yin.chp", :style {:pointer-events "auto"}} "Yin VM "
-              "Compilation Pipeline"]] [layout-controls]
+              "Compilation Pipeline"]]
+            [:button
+             {:on-click #(swap! app-state assoc :show-explainer-video? true),
+              :style {:position "absolute",
+                      :top "20px",
+                      :right "190px",
+                      :z-index "120",
+                      :background "#1f6feb",
+                      :color "#f1f5ff",
+                      :border "1px solid #2d3b55",
+                      :border-radius "6px",
+                      :padding "8px 12px",
+                      :cursor "pointer",
+                      :font-size "13px"}} "Explainer Video"] [layout-controls]
             (let [pos (:ui-positions @app-state)
                   src (:source pos)
                   walk (:walker pos)
@@ -1822,7 +1836,48 @@
                         :border "1px solid #da3633",
                         :padding "10px",
                         :color "#f85149"}} [:strong "Error: "]
-               (:error @app-state)])]))}))
+               (:error @app-state)])
+            (when (:show-explainer-video? @app-state)
+              [:div
+               {:style {:position "fixed",
+                        :inset 0,
+                        :z-index "300",
+                        :background "rgba(6, 8, 23, 0.88)",
+                        :display "flex",
+                        :align-items "center",
+                        :justify-content "center"},
+                :on-click #(swap! app-state assoc :show-explainer-video? false)}
+               [:div
+                {:style {:position "relative",
+                         :width "min(960px, 92vw)",
+                         :max-height "90vh",
+                         :background "#060817",
+                         :border "1px solid #2d3b55",
+                         :border-radius "10px",
+                         :padding "12px"},
+                 :on-click #(.stopPropagation %)}
+                [:button
+                 {:on-click
+                    #(swap! app-state assoc :show-explainer-video? false),
+                  :style {:position "absolute",
+                          :top "8px",
+                          :right "8px",
+                          :z-index "2",
+                          :background "#0e1328",
+                          :color "#f1f5ff",
+                          :border "1px solid #2d3b55",
+                          :border-radius "4px",
+                          :padding "4px 8px",
+                          :cursor "pointer"}} "Close"]
+                [:video
+                 {:src "/The_Performance_Paradox.mp4",
+                  :controls true,
+                  :autoPlay true,
+                  :style {:display "block",
+                          :width "100%",
+                          :height "auto",
+                          :max-height "82vh",
+                          :border-radius "6px"}}]]])]))}))
 
 
 (defn init
