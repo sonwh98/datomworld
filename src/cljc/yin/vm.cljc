@@ -69,16 +69,6 @@
      VM-specific: linked frames, stack vector, call-stack, etc."))
 
 
-(defprotocol IDaoDb
-  "Data access protocol for DaoDB/DataScript-backed structures."
-  (transact! [db datoms]
-    "Transact datoms and return {:db ... :tempids ...}.")
-  (q [db query inputs]
-    "Run a Datalog query in db context.")
-  (datoms [db index]
-    "Return datoms for index (:eavt/:aevt/:avet/:vaet)."))
-
-
 ;; Primitive operations
 ;; Wrapped in (fn ...) to normalize VM semantics:
 ;; - enforce fixed arities (host ops like + are variadic),
