@@ -5,7 +5,9 @@
        [:p
         "Good code isn't designed—it "
         [:strong "evolves"]
-        " through a dance with entropy. By distributing complexity outward (more modules) while keeping each piece internally coherent, code becomes malleable—the only objective measure of quality that matters."],
+        " through a dance with entropy. By "
+        [:strong "bounding complexity"]
+        " within each module and distributing it outward, code becomes malleable—the only objective measure of quality that matters. Bounded complexity ensures changes stay local and the system remains learnable."],
        :content
        [:section.blog-article
         [:div.section-inner
@@ -33,13 +35,15 @@
            "Here's the nuance: "
            [:strong "all code increases in entropy over time"]
            ". "
-           "This is the 2nd law of thermodynamics and it applies to code too. Like biological cells that maintain internal order while increasing entropy in their environment"
+           "This is the 2nd law of thermodynamics and it applies to code too. Biological cells "
+           [:strong "bound complexity"]
+           " by locally decreasing entropy (maintaining internal order) while pushing entropy outside their boundaries into the environment"
            [:sup
             [:a
              {:href
               "https://www.quantamagazine.org/a-new-thermodynamics-theory-of-the-origin-of-life-20140122/"}
              "*"]]
-           ", good code "
+           ". Good code does the same: it "
            [:em
             "minimizes entropy within each module while increasing entropy of the whole system"]
            "."]
@@ -86,6 +90,22 @@
           [:p
            "This is measurable. Draw your dependency graph. If it looks like spaghetti, your code is rigid. "
            "If it looks like cleanly separated clusters with minimal cross-connections, your code can evolve."]
+          [:h2 "Bounded Complexity: The Goal of Good Design"]
+          [:p
+           "If cohesion and coupling are the principles, "
+           [:strong "bounded complexity"]
+           " is the goal. Bounding complexity is what makes good code good code."]
+          [:p
+           "Bounded complexity allows a programmer to quickly learn the code. "
+           "When you bound the complexity of a module, you create a sanctuary for the developer—a finite space where they can hold all the necessary context in their head at once. "
+           "You don't need to understand the entire universe to fix a bug in the "
+           [:code "validation"]
+           " module."]
+          [:p
+           "Crucially, bounded complexity means "
+           [:strong "changes stay local"]
+           ". If the complexity of a module is strictly bounded, the impact of any change remains local. "
+           "The ripple effects are contained, preventing the dreaded cascade of breakage that defines bad code."]
           [:h2 "Why Spaghetti Code is the Default State"]
           [:p
            "By analogy to statistical mechanics: "
@@ -221,8 +241,8 @@
            [:li
             [:strong "Developer cognitive load"]
             " — code that takes too long to understand or modify doesn't survive. "
-            "If it takes developers forever to learn the codebase, it's bad code because it makes change expensive. "
-            "High cognitive burden is a selection pressure against that code."]
+            "Bounded complexity is the antidote to cognitive load. If it takes developers forever to learn the codebase, "
+            "it's bad code because it makes change expensive. High cognitive burden is a selection pressure against that code."]
            [:li
             [:strong "Business economics"]
             " — code that's too expensive to maintain doesn't survive. "
