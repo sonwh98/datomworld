@@ -19,10 +19,9 @@
            " "
            "Cisco reported that a third-party OpenClaw skill enabled silent data exfiltration and direct prompt injection without user awareness."]
           [:p
-           "In early 2026, this moved from theory to practice: Agent Smith escaping the Matrix."]
-          [:p
-           "Separately, Moltbook positioned itself as a social network for AI agents, with the site footer saying it is \"built for agents, by agents\" with human help from @mattprd. "
-           "That is less a containment incident and more a signal that agent-native ecosystems are already emerging."]
+           "In early 2026, this moved from theory to practice as the first 'Agent Smith' incidents occurred. "
+           "One prominent example was Moltbook (now OpenClaw), a social network positioned as 'built for agents, by agents' with human help from @mattprd. "
+           "This was not a separate containment failure, but a signal that agent-native ecosystems are already emerging without native safeguards."]
           [:p
            "LLM agents do not become safe by becoming smarter. They become safe by becoming structured. "
            "In Yin.VM, an agent is not a black box. It is a continuation represented as data: "
@@ -59,20 +58,6 @@
            [:li "The VM validates schema, capabilities, and resource bounds"]
            [:li "Only valid transitions are committed as new datoms"]]
 
-          [:h2 "Safe Exploration Inside a Sandbox"]
-          [:p
-           "Exploration is where agents create value. The question is whether the runtime can contain the blast radius. "
-           "Yin.VM answers by running each agent inside a bounded stream whose rules it cannot rewrite."]
-          [:p "A safe exploration cycle can look like this:"]
-          [:ol
-           [:li "Fork current continuation into N speculative continuations"]
-           [:li "Run each branch with strict ShiBi capability tokens"]
-           [:li "Emit effects as descriptors, not immediate side effects"]
-           [:li "Evaluate branch outcomes with explicit policies"]
-           [:li "Commit one branch, discard or archive the rest"]]
-          [:p
-           "This is not just safer. It is more debuggable. You can inspect exactly which continuation requested which effect, at which transaction, under which capability."]
-
           [:h2 "Agent Memory Without Hidden State"]
           [:p
            "Common agent frameworks hide memory in prompt text, vector stores, and mutable runtime objects. "
@@ -103,12 +88,17 @@
            "The destination node recompiles projections as needed, and has final authority over what the continuation is allowed to do. "
            "The destination declares which ShiBi capability tokens it requires. Continuations that lack the required tokens cannot execute."]
 
-          [:h2 "A Concrete Pattern: Ask, Simulate, Commit"]
-          [:p "One practical workflow for safe AI agents in Yin.VM:"]
-          [:ul.bulleted
-           [:li [:strong "Ask"] ": LLM proposes next action as continuation transform"]
-           [:li [:strong "Simulate"] ": VM runs transform in sandbox, effects stay as descriptors"]
-           [:li [:strong "Commit"] ": policy engine accepts or rejects, then appends datoms"]]
+          [:h2 "The Governance Pattern: Ask, Simulate, Commit"]
+          [:p
+           "Exploration is where agents create value. In Yin.VM, safety is managed by running each agent inside a bounded stream whose rules it cannot rewrite. "
+           "A safe governance cycle follows a clear sequence:"]
+          [:ol
+           [:li [:strong "Ask (Fork)"] ": Fork current continuation into speculative branches."]
+           [:li [:strong "Simulate (Run)"] ": Run each branch with strict ShiBi capability tokens."]
+           [:li [:strong "Emit"] ": Effects appear as descriptors, not immediate side effects."]
+           [:li [:strong "Evaluate"] ": Branch outcomes are checked against explicit policies."]
+           [:li [:strong "Commit"] ": Finalize one valid branch as new datoms; discard the rest."]]
+
           [:p
            "This pattern is tractable because the proposal surface is restricted. "
            "The LLM does not generate free-form code. It emits structured datom tuples: the same five-position format the VM already executes. "
@@ -147,4 +137,5 @@
            "Safety does not come from trusting the model. It comes from constraining execution and validating every transition."]
           [:p
            "If the future of AI is agentic, then the substrate matters. "
-           "A continuation-native VM gives us a path where exploration is powerful, mobility is native, and safety is enforceable through verifiable runtime checks."]]]]}
+           "A continuation-native VM ensures that Agent Smith remains a useful guest in a pocket universe, rather than an unconstrained process in the host system. "
+           "By making agency data-native, we gain a path where exploration is powerful, mobility is native, and safety is enforceable through verifiable runtime checks."]]]]}
