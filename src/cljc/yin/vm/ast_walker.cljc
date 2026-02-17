@@ -1,5 +1,4 @@
 (ns yin.vm.ast-walker
-  (:refer-clojure :exclude [eval])
   (:require [yin.module :as module]
             [yin.stream :as stream]
             [yin.vm :as vm]))
@@ -36,7 +35,7 @@
                        ])
 
 
-(defn- eval
+(defn- cesk-transition
   "Steps the CESK machine to evaluate an AST node.
 
   State is a map containing:
@@ -409,7 +408,7 @@
   "Execute one step of ASTWalkerVM. Returns updated VM.
    eval operates directly on the record (assoc preserves record type)."
   [^ASTWalkerVM vm]
-  (eval vm nil))
+  (cesk-transition vm nil))
 
 
 (defn- vm-halted?
@@ -427,16 +426,19 @@
 (defn- vm-value "Returns the current value." [^ASTWalkerVM vm] (:value vm))
 
 
-(defn- vm-run
-  "Run ASTWalkerVM until halted or blocked."
-  [^ASTWalkerVM vm]
-  (loop [v vm] (if (or (vm-halted? v) (vm-blocked? v)) v (recur (vm-step v)))))
-
-
 (defn- vm-load-program
   "Load an AST into the VM."
   [^ASTWalkerVM vm ast]
   (assoc vm :control ast))
+
+
+(defn- vm-eval
+  "Evaluate an AST. Owns the step loop.
+   When ast is non-nil, loads it first. When nil, resumes from current state."
+  [^ASTWalkerVM vm ast]
+  (let [v (if ast (vm-load-program vm ast) vm)]
+    (loop [v v]
+      (if (or (vm-halted? v) (vm-blocked? v)) v (recur (vm-step v))))))
 
 
 (extend-type ASTWalkerVM
@@ -446,9 +448,11 @@
     (blocked? [vm] (vm-blocked? vm))
     (value [vm] (vm-value vm))
   vm/IVMRun
-    (run [vm] (vm-run vm))
+    (run [vm] (vm/eval vm nil))
   vm/IVMLoad
     (load-program [vm program] (vm-load-program vm program))
+  vm/IVMEval
+    (eval [vm ast] (vm-eval vm ast))
   vm/IVMState
     (control [vm] (:control vm))
     (environment [vm] (:environment vm))

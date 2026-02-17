@@ -50,6 +50,28 @@
       (is (fn? (get (vm/environment vm) '+))))))
 
 
+;; =============================================================================
+;; IVMEval protocol tests
+;; =============================================================================
+
+(deftest eval-literal-test
+  (testing "vm/eval evaluates a literal AST directly"
+    (let [result (vm/eval (stack/create-vm {:env vm/primitives})
+                          {:type :literal, :value 42})]
+      (is (vm/halted? result))
+      (is (= 42 (vm/value result))))))
+
+
+(deftest eval-arithmetic-test-via-eval
+  (testing "vm/eval evaluates (+ 10 20) from AST directly"
+    (let [ast {:type :application,
+               :operator {:type :variable, :name '+},
+               :operands [{:type :literal, :value 10}
+                          {:type :literal, :value 20}]}
+          result (vm/eval (stack/create-vm {:env vm/primitives}) ast)]
+      (is (= 30 (vm/value result))))))
+
+
 (deftest literal-test
   (testing "Literal via stack VM"
     (is (= 42 (compile-and-run {:type :literal, :value 42})))))

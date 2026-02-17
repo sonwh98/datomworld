@@ -28,6 +28,14 @@
     "Run VM until halted or blocked. Returns final VM state."))
 
 
+(defprotocol IVMEval
+  "Evaluate an AST to a value."
+  (eval [vm ast]
+    "Load and evaluate an AST, running the VM to completion.
+     Returns the final VM state (from which value can be extracted),
+     or a blocked VM state if execution parks."))
+
+
 (defprotocol IVMReset
   "Reset VM execution protocol."
   (reset [vm]
