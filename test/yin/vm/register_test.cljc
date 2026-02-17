@@ -11,8 +11,8 @@
 (defn compile-and-run-bc
   [ast]
   (let [datoms (vm/ast->datoms ast)
-        asm (register/ast-datoms->asm datoms)
-        compiled (register/asm->bytecode asm)
+        {:keys [asm reg-count]} (register/ast-datoms->asm datoms)
+        compiled (assoc (register/asm->bytecode asm) :reg-count reg-count)
         vm (register/create-vm {:env vm/primitives})]
     (-> vm
         (vm/load-program compiled)
@@ -23,8 +23,8 @@
 (defn- load-ast
   [ast]
   (let [datoms (vm/ast->datoms ast)
-        asm (register/ast-datoms->asm datoms)
-        compiled (register/asm->bytecode asm)]
+        {:keys [asm reg-count]} (register/ast-datoms->asm datoms)
+        compiled (assoc (register/asm->bytecode asm) :reg-count reg-count)]
     (-> (register/create-vm {:env vm/primitives})
         (vm/load-program compiled))))
 
@@ -238,49 +238,54 @@
 
 (deftest register-bytecode-shape-test
   (testing "Literal produces loadk + return"
-    (let [bc (register/ast-datoms->asm (vm/ast->datoms {:type :literal,
-                                                        :value 42}))]
-      (is (vector? bc))
-      (is (= 2 (count bc)))
-      (is (= :loadk (first (first bc))) "First instruction should be :loadk")
-      (is (= 42 (nth (first bc) 2)) "Should load the value 42")
-      (is (= :return (first (last bc))) "Last instruction should be :return")))
+    (let [{:keys [asm reg-count]} (register/ast-datoms->asm (vm/ast->datoms
+                                                              {:type :literal,
+                                                               :value 42}))]
+      (is (vector? asm))
+      (is (= 2 (count asm)))
+      (is (= :loadk (first (first asm))) "First instruction should be :loadk")
+      (is (= 42 (nth (first asm) 2)) "Should load the value 42")
+      (is (= :return (first (last asm))) "Last instruction should be :return")))
   (testing "Variable produces loadv + return"
-    (let [bc (register/ast-datoms->asm (vm/ast->datoms {:type :variable,
-                                                        :name 'x}))]
-      (is (= 2 (count bc)))
-      (is (= :loadv (first (first bc))))
-      (is (= 'x (nth (first bc) 2)))
-      (is (= :return (first (last bc))))))
+    (let [{:keys [asm reg-count]} (register/ast-datoms->asm (vm/ast->datoms
+                                                              {:type :variable,
+                                                               :name 'x}))]
+      (is (= 2 (count asm)))
+      (is (= :loadv (first (first asm))))
+      (is (= 'x (nth (first asm) 2)))
+      (is (= :return (first (last asm))))))
   (testing "All instructions are vectors"
-    (let [bc (register/ast-datoms->asm
-               (vm/ast->datoms {:type :application,
-                                :operator {:type :variable, :name '+},
-                                :operands [{:type :literal, :value 1}
-                                           {:type :literal, :value 2}]}))]
-      (is (every? vector? bc)))))
+    (let [{:keys [asm reg-count]}
+            (register/ast-datoms->asm
+              (vm/ast->datoms {:type :application,
+                               :operator {:type :variable, :name '+},
+                               :operands [{:type :literal, :value 1}
+                                          {:type :literal, :value 2}]}))]
+      (is (every? vector? asm)))))
 
 
 (deftest register-bytecode-application-test
   (testing "Application produces loadk, loadv, call, and return"
-    (let [bc (register/ast-datoms->asm
-               (vm/ast->datoms {:type :application,
-                                :operator {:type :variable, :name '+},
-                                :operands [{:type :literal, :value 1}
-                                           {:type :literal, :value 2}]}))]
-      (is (= 5 (count bc)))
-      (is (= :loadk (first (nth bc 0))))
-      (is (= :loadk (first (nth bc 1))))
-      (is (= :loadv (first (nth bc 2))))
-      (is (= :call (first (nth bc 3))))
-      (is (= :return (first (nth bc 4))))))
+    (let [{:keys [asm reg-count]}
+            (register/ast-datoms->asm
+              (vm/ast->datoms {:type :application,
+                               :operator {:type :variable, :name '+},
+                               :operands [{:type :literal, :value 1}
+                                          {:type :literal, :value 2}]}))]
+      (is (= 5 (count asm)))
+      (is (= :loadk (first (nth asm 0))))
+      (is (= :loadk (first (nth asm 1))))
+      (is (= :loadv (first (nth asm 2))))
+      (is (= :call (first (nth asm 3))))
+      (is (= :return (first (nth asm 4))))))
   (testing "Call instruction references correct registers"
-    (let [bc (register/ast-datoms->asm
-               (vm/ast->datoms {:type :application,
-                                :operator {:type :variable, :name '+},
-                                :operands [{:type :literal, :value 1}
-                                           {:type :literal, :value 2}]}))
-          call-instr (nth bc 3)
+    (let [{:keys [asm reg-count]} (register/ast-datoms->asm
+                                    (vm/ast->datoms
+                                      {:type :application,
+                                       :operator {:type :variable, :name '+},
+                                       :operands [{:type :literal, :value 1}
+                                                  {:type :literal, :value 2}]}))
+          call-instr (nth asm 3)
           [op rd rf arg-regs] call-instr]
       (is (= :call op))
       (is (integer? rd) "Result register should be an integer")
@@ -291,58 +296,63 @@
 
 (deftest register-bytecode-lambda-test
   (testing "Lambda produces closure, jump, body, and return"
-    (let [bc (register/ast-datoms->asm (vm/ast->datoms {:type :lambda,
-                                                        :params ['x],
-                                                        :body {:type :variable,
-                                                               :name 'x}}))]
-      (is (= :closure (first (nth bc 0)))
+    (let [{:keys [asm reg-count]} (register/ast-datoms->asm
+                                    (vm/ast->datoms {:type :lambda,
+                                                     :params ['x],
+                                                     :body {:type :variable,
+                                                            :name 'x}}))]
+      (is (= :closure (first (nth asm 0)))
           "First instruction should be :closure")
-      (is (= :jump (first (nth bc 1)))
+      (is (= :jump (first (nth asm 1)))
           "Second instruction should be :jump over body")
-      (is (= :loadv (first (nth bc 2))) "Body should start with :loadv")
-      (is (= :return (first (nth bc 3))) "Body should end with :return")))
+      (is (= :loadv (first (nth asm 2))) "Body should start with :loadv")
+      (is (= :return (first (nth asm 3))) "Body should end with :return")))
   (testing "Closure body address points to correct instruction"
-    (let [bc (register/ast-datoms->asm (vm/ast->datoms {:type :lambda,
-                                                        :params ['x],
-                                                        :body {:type :variable,
-                                                               :name 'x}}))
-          [_ _rd _params body-addr] (first bc)]
-      (is (= 2 body-addr)
+    (let [{:keys [asm reg-count]} (register/ast-datoms->asm
+                                    (vm/ast->datoms {:type :lambda,
+                                                     :params ['x],
+                                                     :body {:type :variable,
+                                                            :name 'x}}))
+          [_ _rd _params _body-addr _reg-count] (first asm)]
+      (is (= 2 _body-addr)
           "Body should start at instruction 2 (after closure + jump)")))
   (testing "Jump skips over body to return"
-    (let [bc (register/ast-datoms->asm (vm/ast->datoms {:type :lambda,
-                                                        :params ['x],
-                                                        :body {:type :variable,
-                                                               :name 'x}}))
-          [_ jump-addr] (nth bc 1)
-          jump-target (get bc jump-addr)]
+    (let [{:keys [asm reg-count]} (register/ast-datoms->asm
+                                    (vm/ast->datoms {:type :lambda,
+                                                     :params ['x],
+                                                     :body {:type :variable,
+                                                            :name 'x}}))
+          [_ jump-addr] (nth asm 1)
+          jump-target (get asm jump-addr)]
       (is (= :return (first jump-target))
           "Jump should land on the final :return"))))
 
 
 (deftest register-bytecode-conditional-test
   (testing "If produces branch, both branches, and move instructions"
-    (let [bc (register/ast-datoms->asm
-               (vm/ast->datoms {:type :if,
-                                :test {:type :literal, :value true},
-                                :consequent {:type :literal, :value 1},
-                                :alternate {:type :literal, :value 0}}))]
-      (is (= :loadk (first (first bc))) "Should start with test expression")
-      (is (some #(= :branch (first %)) bc)
+    (let [{:keys [asm reg-count]} (register/ast-datoms->asm
+                                    (vm/ast->datoms
+                                      {:type :if,
+                                       :test {:type :literal, :value true},
+                                       :consequent {:type :literal, :value 1},
+                                       :alternate {:type :literal, :value 0}}))]
+      (is (= :loadk (first (first asm))) "Should start with test expression")
+      (is (some #(= :branch (first %)) asm)
           "Should contain a branch instruction")
-      (is (some #(= :move (first %)) bc)
+      (is (some #(= :move (first %)) asm)
           "Should contain move instructions for result register"))))
 
 
 (deftest register-bytecode-continuation-is-data-test
   (testing "Continuation frame is created during closure call"
-    (let [asm (register/ast-datoms->asm
-                (vm/ast->datoms {:type :application,
-                                 :operator {:type :lambda,
-                                            :params ['x],
-                                            :body {:type :variable, :name 'x}},
-                                 :operands [{:type :literal, :value 42}]}))
-          compiled (register/asm->bytecode asm)
+    (let [{:keys [asm reg-count]}
+            (register/ast-datoms->asm
+              (vm/ast->datoms {:type :application,
+                               :operator {:type :lambda,
+                                          :params ['x],
+                                          :body {:type :variable, :name 'x}},
+                               :operands [{:type :literal, :value 42}]}))
+          compiled (assoc (register/asm->bytecode asm) :reg-count reg-count)
           vm-inst (register/create-vm)
           vm-loaded (vm/load-program vm-inst compiled)
           states (loop [v vm-loaded

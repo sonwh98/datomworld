@@ -32,6 +32,7 @@
                         parked       ; parked continuations map
                         id-counter   ; integer counter for unique IDs
                         primitives   ; primitive operations map
+                        blocked      ; boolean, true if blocked
                        ])
 
 
@@ -44,7 +45,7 @@
 
   Returns updated state after one step of evaluation."
   [state ast]
-  (let [{:keys [control environment continuation store]} state
+  (let [{:keys [control environment continuation store primitives]} state
         {:keys [type], :as node} (or ast control)]
     ;; If control is nil but we have a continuation, handle it
     (if (and (nil? node) continuation)
@@ -102,6 +103,7 @@
                   (assoc state
                     :store new-store
                     :value :yin/blocked
+                    :blocked true
                     :control nil
                     :continuation nil
                     :id-counter (inc (:id-counter state))))
@@ -148,10 +150,12 @@
         :variable (let [{:keys [name]} node
                         ;; Check local environment, then store (global),
                         ;; then module system (via primitives)
-                        value (or (get environment name)
-                                  (get store name)
-                                  (get (:primitives state) name)
-                                  (module/resolve-symbol name))]
+                        value (if-let [pair (find environment name)]
+                                (val pair)
+                                (if-let [pair (find store name)]
+                                  (val pair)
+                                  (or (get primitives name)
+                                      (module/resolve-symbol name))))]
                     (assoc state
                       :value value
                       :control nil))
@@ -227,6 +231,7 @@
                                   (assoc state
                                     :store new-store
                                     :value :yin/blocked
+                                    :blocked true
                                     :control nil
                                     :continuation nil
                                     :id-counter (inc (:id-counter state))))
@@ -338,8 +343,7 @@
                                     :id park-id,
                                     :continuation continuation,
                                     :environment environment}
-                       new-parked (assoc (or (:parked state) {})
-                                    park-id parked-cont)]
+                       new-parked (assoc (:parked state) park-id parked-cont)]
                    (assoc state
                      :parked new-parked
                      :value parked-cont
@@ -420,7 +424,7 @@
 (defn- vm-blocked?
   "Returns true if VM is blocked."
   [^ASTWalkerVM vm]
-  (= :yin/blocked (:value vm)))
+  (boolean (:blocked vm)))
 
 
 (defn- vm-value "Returns the current value." [^ASTWalkerVM vm] (:value vm))
@@ -437,8 +441,7 @@
    When ast is non-nil, loads it first. When nil, resumes from current state."
   [^ASTWalkerVM vm ast]
   (let [v (if ast (vm-load-program vm ast) vm)]
-    (loop [v v]
-      (if (or (vm-halted? v) (vm-blocked? v)) v (recur (vm-step v))))))
+    (loop [v v] (if (or (vm-halted? v) (:blocked v)) v (recur (vm-step v))))))
 
 
 (extend-type ASTWalkerVM
@@ -467,7 +470,9 @@
   ([opts]
    (let [env (or (:env opts) {})
          base (vm/empty-state (select-keys opts [:primitives]))]
-     (map->ASTWalkerVM
-       (merge
-         base
-         {:control nil, :environment env, :continuation nil, :value nil})))))
+     (map->ASTWalkerVM (merge base
+                              {:control nil,
+                               :environment env,
+                               :continuation nil,
+                               :value nil,
+                               :blocked false})))))

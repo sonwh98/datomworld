@@ -150,7 +150,7 @@
 
 
 (defn ast->datoms
-  "Convert AST map into lazy-seq of datoms. A datom is [e a v t m].
+  "Convert AST map into a vector of datoms. A datom is [e a v t m].
 
    Entity IDs are tempids (negative integers: -1024, -1025, -1026...) that get resolved
    to actual entity IDs when transacted. The transactor assigns real positive IDs.
@@ -163,77 +163,59 @@
    (let [id-counter (atom -1024)
          t (or (:t opts) 0)
          m (or (:m opts) 0)
-         gen-id #(swap! id-counter dec)]
+         gen-id #(swap! id-counter dec)
+         datoms (atom [])
+         emit! (fn [e attr val] (swap! datoms conj [e attr val t m]))]
      (letfn
-       [(emit [e attr val] [e attr val t m])
-        (convert [node]
+       [(convert [node]
           (let [e (gen-id)
                 {:keys [type]} node]
             (case type
-              :literal (lazy-seq (list (emit e :yin/type :literal)
-                                       (emit e :yin/value (:value node))))
-              :variable (lazy-seq (list (emit e :yin/type :variable)
-                                        (emit e :yin/name (:name node))))
-              :lambda (let [body-datoms (convert (:body node))
-                            body-id (first (first body-datoms))]
-                        (lazy-cat (list (emit e :yin/type :lambda)
-                                        (emit e :yin/params (:params node))
-                                        (emit e :yin/body body-id))
-                                  body-datoms))
-              :application
-                (let [op-datoms (convert (:operator node))
-                      op-id (first (first op-datoms))
-                      operand-results (map convert (:operands node))
-                      operand-ids (map #(first (first %)) operand-results)]
-                  (lazy-cat (list (emit e :yin/type :application)
-                                  (emit e :yin/operator op-id)
-                                  (emit e :yin/operands (vec operand-ids)))
-                            op-datoms
-                            (apply concat operand-results)))
-              :if (let [test-datoms (convert (:test node))
-                        test-id (first (first test-datoms))
-                        cons-datoms (convert (:consequent node))
-                        cons-id (first (first cons-datoms))
-                        alt-datoms (convert (:alternate node))
-                        alt-id (first (first alt-datoms))]
-                    (lazy-cat (list (emit e :yin/type :if)
-                                    (emit e :yin/test test-id)
-                                    (emit e :yin/consequent cons-id)
-                                    (emit e :yin/alternate alt-id))
-                              test-datoms
-                              cons-datoms
-                              alt-datoms))
+              :literal (do (emit! e :yin/type :literal)
+                           (emit! e :yin/value (:value node)))
+              :variable (do (emit! e :yin/type :variable)
+                            (emit! e :yin/name (:name node)))
+              :lambda (do (emit! e :yin/type :lambda)
+                          (emit! e :yin/params (:params node))
+                          (let [body-id (convert (:body node))]
+                            (emit! e :yin/body body-id)))
+              :application (do (emit! e :yin/type :application)
+                               (let [op-id (convert (:operator node))
+                                     operand-ids (mapv convert
+                                                   (:operands node))]
+                                 (emit! e :yin/operator op-id)
+                                 (emit! e :yin/operands operand-ids)))
+              :if (do (emit! e :yin/type :if)
+                      (let [test-id (convert (:test node))
+                            cons-id (convert (:consequent node))
+                            alt-id (convert (:alternate node))]
+                        (emit! e :yin/test test-id)
+                        (emit! e :yin/consequent cons-id)
+                        (emit! e :yin/alternate alt-id)))
               ;; VM primitives
-              :vm/gensym (lazy-seq
-                           (list (emit e :yin/type :vm/gensym)
-                                 (emit e :yin/prefix (or (:prefix node) "id"))))
-              :vm/store-get (lazy-seq (list (emit e :yin/type :vm/store-get)
-                                            (emit e :yin/key (:key node))))
-              :vm/store-put (lazy-seq (list (emit e :yin/type :vm/store-put)
-                                            (emit e :yin/key (:key node))
-                                            (emit e :yin/val (:val node))))
+              :vm/gensym (do (emit! e :yin/type :vm/gensym)
+                             (emit! e :yin/prefix (or (:prefix node) "id")))
+              :vm/store-get (do (emit! e :yin/type :vm/store-get)
+                                (emit! e :yin/key (:key node)))
+              :vm/store-put (do (emit! e :yin/type :vm/store-put)
+                                (emit! e :yin/key (:key node))
+                                (emit! e :yin/val (:val node)))
               ;; Stream operations
-              :stream/make
-                (lazy-seq (list (emit e :yin/type :stream/make)
-                                (emit e :yin/buffer (or (:buffer node) 1024))))
-              :stream/put (let [target-datoms (convert (:target node))
-                                target-id (first (first target-datoms))
-                                val-datoms (convert (:val node))
-                                val-id (first (first val-datoms))]
-                            (lazy-cat (list (emit e :yin/type :stream/put)
-                                            (emit e :yin/target target-id)
-                                            (emit e :yin/val val-id))
-                                      target-datoms
-                                      val-datoms))
-              :stream/take (let [source-datoms (convert (:source node))
-                                 source-id (first (first source-datoms))]
-                             (lazy-cat (list (emit e :yin/type :stream/take)
-                                             (emit e :yin/source source-id))
-                                       source-datoms))
+              :stream/make (do (emit! e :yin/type :stream/make)
+                               (emit! e :yin/buffer (or (:buffer node) 1024)))
+              :stream/put (do (emit! e :yin/type :stream/put)
+                              (let [target-id (convert (:target node))
+                                    val-id (convert (:val node))]
+                                (emit! e :yin/target target-id)
+                                (emit! e :yin/val val-id)))
+              :stream/take (do (emit! e :yin/type :stream/take)
+                               (let [source-id (convert (:source node))]
+                                 (emit! e :yin/source source-id)))
               ;; Default
               (throw (ex-info "Unknown AST node type"
-                              {:type type, :node node})))))]
-       (convert ast)))))
+                              {:type type, :node node})))
+            e))]
+       (convert ast) @datoms))))
 
 
 (defn empty-state

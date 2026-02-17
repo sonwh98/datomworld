@@ -540,9 +540,9 @@
 
 
 (defn- load-register-state
-  [bytecode pool]
+  [bytecode pool reg-count]
   (-> (register/create-vm {:env vm/primitives})
-      (vm/load-program {:bytecode bytecode, :pool pool})))
+      (vm/load-program {:bytecode bytecode, :pool pool, :reg-count reg-count})))
 
 
 (defn- load-semantic-state
@@ -679,7 +679,7 @@
     (let [forms (read-ast-forms)
           all-datom-groups (mapv vm/ast->datoms forms)
           all-datoms-before (vec (mapcat identity all-datom-groups))
-          root-ids (mapv ffirst all-datom-groups)
+          root-ids (mapv (fn [dg] (apply max (map first dg))) all-datom-groups)
           empty-db (d/empty-db vm/schema)
           tx-data (vm/datoms->tx-data all-datoms-before)
           conn (d/conn-from-db empty-db)
@@ -766,35 +766,40 @@
 
 (defn compile-register
   []
-  (try (let [forms (read-ast-forms)
-             results (mapv (fn [ast]
-                             (let [datoms (vm/ast->datoms ast)
-                                   asm (register/ast-datoms->asm datoms)
-                                   result (register/asm->bytecode asm)]
-                               {:asm asm,
-                                :bytecode (:bytecode result),
-                                :pool (:pool result),
-                                :source-map (:source-map result)}))
-                       forms)
-             last-result (last results)
-             initial-state (when last-result
-                             (load-register-state (:bytecode last-result)
-                                                  (:pool last-result)))]
-         (swap! app-state assoc
-           :register-asm (mapv :asm results)
-           :register-bytecode (mapv :bytecode results)
-           :register-pool (mapv :pool results)
-           :register-source-map (mapv :source-map results)
-           :error nil)
-         (set-vm-state! :register initial-state)
-         results)
-       (catch :default e
-         (swap! app-state assoc
-           :error (str "Register Compile Error: " (.-message e))
-           :register-asm nil
-           :register-bytecode nil)
-         (clear-vm-state! :register)
-         nil)))
+  (try
+    (let [forms (read-ast-forms)
+          results (mapv (fn [ast]
+                          (let [datoms (vm/ast->datoms ast)
+                                {:keys [asm reg-count]}
+                                  (register/ast-datoms->asm datoms)
+                                result (register/asm->bytecode asm)]
+                            {:asm asm,
+                             :reg-count reg-count,
+                             :bytecode (:bytecode result),
+                             :pool (:pool result),
+                             :source-map (:source-map result)}))
+                    forms)
+          last-result (last results)
+          initial-state (when last-result
+                          (load-register-state (:bytecode last-result)
+                                               (:pool last-result)
+                                               (:reg-count last-result)))]
+      (swap! app-state assoc
+        :register-asm (mapv :asm results)
+        :register-bytecode (mapv :bytecode results)
+        :register-pool (mapv :pool results)
+        :register-reg-counts (mapv :reg-count results)
+        :register-source-map (mapv :source-map results)
+        :error nil)
+      (set-vm-state! :register initial-state)
+      results)
+    (catch :default e
+      (swap! app-state assoc
+        :error (str "Register Compile Error: " (.-message e))
+        :register-asm nil
+        :register-bytecode nil)
+      (clear-vm-state! :register)
+      nil)))
 
 
 (defn reset-register
@@ -802,11 +807,12 @@
   []
   (let [bytecode (last (:register-bytecode @app-state))
         pool (last (:register-pool @app-state))
+        reg-count (last (:register-reg-counts @app-state))
         state (get-in @app-state [:vm-states :register :state])]
     (when (and bytecode pool)
       (let [initial-state (if (and state (satisfies? vm/IVMReset state))
                             (vm/reset state)
-                            (load-register-state bytecode pool))]
+                            (load-register-state bytecode pool reg-count))]
         (set-vm-state! :register initial-state)
         (swap! app-state assoc :register-result nil)))))
 
