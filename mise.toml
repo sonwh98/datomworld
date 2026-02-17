@@ -2,10 +2,10 @@
 java = ["21", "17"]
 cljstyle = "0.17.642"
 zprint = "1.3.0"
-clojure = "1.12.4.1582"
-node = "22.22.0"
+clojure = "1.12.4.1602"
+node = "25.6.1"
 android-sdk = "latest"
-flutter = { version = "3.38.9-stable", platforms = """
+flutter = { version = "3.41.1-stable", platforms = """
 [linux-x64]
 url = "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_{{ version }}-stable.tar.xz"
 

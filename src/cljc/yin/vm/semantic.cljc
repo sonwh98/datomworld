@@ -269,15 +269,6 @@
   (:value vm))
 
 
-(defn- semantic-vm-run
-  "Run SemanticVM until halted or blocked."
-  [^SemanticVM vm]
-  (loop [v vm]
-    (if (or (semantic-vm-halted? v) (semantic-vm-blocked? v))
-      v
-      (recur (semantic-vm-step v)))))
-
-
 (defn- semantic-vm-load-program
   "Load datoms into the VM.
    Expects {:node root-id :datoms [...]}."
@@ -290,6 +281,21 @@
     :value nil))
 
 
+(defn- semantic-vm-eval
+  "Evaluate an AST. Owns the step loop.
+   When ast is non-nil, converts to datoms and loads. When nil, resumes."
+  [^SemanticVM vm ast]
+  (let [v (if ast
+            (let [datoms (vm/ast->datoms ast)
+                  root-id (ffirst datoms)]
+              (semantic-vm-load-program vm {:node root-id, :datoms datoms}))
+            vm)]
+    (loop [v v]
+      (if (or (semantic-vm-halted? v) (semantic-vm-blocked? v))
+        v
+        (recur (semantic-vm-step v))))))
+
+
 (extend-type SemanticVM
   vm/IVMStep
     (step [vm] (semantic-vm-step vm))
@@ -297,9 +303,11 @@
     (blocked? [vm] (semantic-vm-blocked? vm))
     (value [vm] (semantic-vm-value vm))
   vm/IVMRun
-    (run [vm] (semantic-vm-run vm))
+    (run [vm] (vm/eval vm nil))
   vm/IVMLoad
     (load-program [vm program] (semantic-vm-load-program vm program))
+  vm/IVMEval
+    (eval [vm ast] (semantic-vm-eval vm ast))
   vm/IVMState
     (control [vm] (:control vm))
     (environment [vm] (:env vm))

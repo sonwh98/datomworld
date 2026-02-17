@@ -305,48 +305,6 @@
 ;; StackVM Protocol Implementation
 ;; =============================================================================
 
-(defn- stack-vm->state
-  "Convert StackVM to legacy state map."
-  [^StackVM vm]
-  {:pc (:pc vm),
-   :bytecode (:bytecode vm),
-   :stack (:stack vm),
-   :env (:env vm),
-   :call-stack (:call-stack vm),
-   :pool (:pool vm),
-   :halted (:halted vm),
-   :value (:value vm),
-   :store (:store vm),
-   :parked (:parked vm),
-   :id-counter (:id-counter vm),
-   :primitives (:primitives vm)})
-
-
-(defn- state->stack-vm
-  "Convert legacy state map back to StackVM."
-  [^StackVM vm state]
-  (->StackVM (:pc state)
-             (:bytecode state)
-             (:stack state)
-             (:env state)
-             (:call-stack state)
-             (:pool state)
-             (:halted state)
-             (:value state)
-             (:store state)
-             (:parked state)
-             (:id-counter state)
-             (:primitives state)))
-
-
-(defn- stack-vm-step
-  "Execute one step of StackVM. Returns updated VM."
-  [^StackVM vm]
-  (let [state (stack-vm->state vm)
-        new-state (stack-step state)]
-    (state->stack-vm vm new-state)))
-
-
 (defn- stack-vm-halted?
   "Returns true if VM has halted."
   [^StackVM vm]
@@ -362,39 +320,49 @@
 (defn- stack-vm-value "Returns the current value." [^StackVM vm] (:value vm))
 
 
-(defn- stack-vm-run
-  "Run StackVM until halted or blocked."
-  [^StackVM vm]
-  (loop [v vm]
-    (if (or (stack-vm-halted? v) (stack-vm-blocked? v))
-      v
-      (recur (stack-vm-step v)))))
-
-
 (defn- stack-vm-load-program
   "Load bytecode into the VM.
    Expects {:bc [...] :pool [...]}."
   [^StackVM vm {:keys [bc pool]}]
-  (map->StackVM (merge (stack-vm->state vm)
-                       {:pc 0,
-                        :bytecode (vec bc),
-                        :stack [],
-                        :call-stack [],
-                        :pool pool,
-                        :halted false,
-                        :value nil})))
+  (assoc vm
+    :pc 0
+    :bytecode (vec bc)
+    :stack []
+    :call-stack []
+    :pool pool
+    :halted false
+    :value nil))
+
+
+(defn- stack-vm-eval
+  "Evaluate an AST. Owns the step loop and compilation pipeline.
+   When ast is non-nil, compiles through datoms -> asm -> bytecode and loads.
+   When nil, resumes from current state."
+  [^StackVM vm ast]
+  (let [v (if ast
+            (let [datoms (vm/ast->datoms ast)
+                  asm (ast-datoms->asm datoms)
+                  compiled (asm->bytecode asm)]
+              (stack-vm-load-program vm compiled))
+            vm)]
+    (loop [v v]
+      (if (or (stack-vm-halted? v) (stack-vm-blocked? v))
+        v
+        (recur (stack-step v))))))
 
 
 (extend-type StackVM
   vm/IVMStep
-    (step [vm] (stack-vm-step vm))
+    (step [vm] (stack-step vm))
     (halted? [vm] (stack-vm-halted? vm))
     (blocked? [vm] (stack-vm-blocked? vm))
     (value [vm] (stack-vm-value vm))
   vm/IVMRun
-    (run [vm] (stack-vm-run vm))
+    (run [vm] (vm/eval vm nil))
   vm/IVMLoad
     (load-program [vm program] (stack-vm-load-program vm program))
+  vm/IVMEval
+    (eval [vm ast] (stack-vm-eval vm ast))
   vm/IVMState
     (control [vm] {:pc (:pc vm), :bytecode (:bytecode vm)})
     (environment [vm] (:env vm))

@@ -443,48 +443,6 @@
 ;; RegisterVM Protocol Implementation
 ;; =============================================================================
 
-(defn- vm->state
-  "Convert RegisterVM to state map for step-bc."
-  [^RegisterVM vm]
-  {:regs (:regs vm),
-   :k (:k vm),
-   :env (:env vm),
-   :ip (:ip vm),
-   :bytecode (:bytecode vm),
-   :pool (:pool vm),
-   :halted (:halted vm),
-   :value (:value vm),
-   :store (:store vm),
-   :parked (:parked vm),
-   :id-counter (:id-counter vm),
-   :primitives (:primitives vm)})
-
-
-(defn- state->vm
-  "Convert state map back to RegisterVM."
-  [^RegisterVM vm state]
-  (->RegisterVM (:regs state)
-                (:k state)
-                (:env state)
-                (:ip state)
-                (:bytecode state)
-                (:pool state)
-                (:halted state)
-                (:value state)
-                (:store state)
-                (:parked state)
-                (:id-counter state)
-                (:primitives state)))
-
-
-(defn- reg-vm-step
-  "Execute one step of RegisterVM. Returns updated VM."
-  [^RegisterVM vm]
-  (let [state (vm->state vm)
-        new-state (step-bc state)]
-    (state->vm vm new-state)))
-
-
 (defn- reg-vm-halted?
   "Returns true if VM has halted."
   [^RegisterVM vm]
@@ -498,13 +456,6 @@
 
 
 (defn- reg-vm-value "Returns the current value." [^RegisterVM vm] (:value vm))
-
-
-(defn- reg-vm-run
-  "Run RegisterVM until halted or blocked."
-  [^RegisterVM vm]
-  (loop [v vm]
-    (if (or (reg-vm-halted? v) (reg-vm-blocked? v)) v (recur (reg-vm-step v)))))
 
 
 (defn- reg-vm-reset
@@ -522,28 +473,45 @@
   "Load bytecode into the VM.
    Accepts {:bytecode [...] :pool [...]}."
   [^RegisterVM vm program]
-  (map->RegisterVM (merge (vm->state vm)
-                          {:regs [],
-                           :k nil,
-                           :ip 0,
-                           :bytecode (:bytecode program),
-                           :pool (:pool program),
-                           :halted false,
-                           :value nil})))
+  (assoc vm
+    :regs []
+    :k nil
+    :ip 0
+    :bytecode (:bytecode program)
+    :pool (:pool program)
+    :halted false
+    :value nil))
+
+
+(defn- reg-vm-eval
+  "Evaluate an AST. Owns the step loop and compilation pipeline.
+   When ast is non-nil, compiles through datoms -> asm -> bytecode and loads.
+   When nil, resumes from current state."
+  [^RegisterVM vm ast]
+  (let [v (if ast
+            (let [datoms (vm/ast->datoms ast)
+                  asm (ast-datoms->asm datoms)
+                  compiled (asm->bytecode asm)]
+              (reg-vm-load-program vm compiled))
+            vm)]
+    (loop [v v]
+      (if (or (reg-vm-halted? v) (reg-vm-blocked? v)) v (recur (step-bc v))))))
 
 
 (extend-type RegisterVM
   vm/IVMStep
-    (step [vm] (reg-vm-step vm))
+    (step [vm] (step-bc vm))
     (halted? [vm] (reg-vm-halted? vm))
     (blocked? [vm] (reg-vm-blocked? vm))
     (value [vm] (reg-vm-value vm))
   vm/IVMRun
-    (run [vm] (reg-vm-run vm))
+    (run [vm] (vm/eval vm nil))
   vm/IVMReset
     (reset [vm] (reg-vm-reset vm))
   vm/IVMLoad
     (load-program [vm program] (reg-vm-load-program vm program))
+  vm/IVMEval
+    (eval [vm ast] (reg-vm-eval vm ast))
   vm/IVMState
     (control [vm] {:ip (:ip vm), :bytecode (:bytecode vm), :regs (:regs vm)})
     (environment [vm] (:env vm))

@@ -220,6 +220,41 @@
 
 
 ;; =============================================================================
+;; IVMEval protocol tests
+;; =============================================================================
+
+(deftest eval-literal-test
+  (testing "vm/eval evaluates a literal"
+    (let [result (vm/eval (ast-walker/create-vm) {:type :literal, :value 42})]
+      (is (vm/halted? result))
+      (is (= 42 (vm/value result))))))
+
+
+(deftest eval-arithmetic-test
+  (testing "vm/eval evaluates (+ 10 20)"
+    (let [ast {:type :application,
+               :operator {:type :variable, :name '+},
+               :operands [{:type :literal, :value 10}
+                          {:type :literal, :value 20}]}
+          result (vm/eval (ast-walker/create-vm) ast)]
+      (is (= 30 (vm/value result))))))
+
+
+(deftest eval-lambda-test
+  (testing "vm/eval evaluates ((fn [x] (+ x 1)) 10)"
+    (let [ast {:type :application,
+               :operator {:type :lambda,
+                          :params ['x],
+                          :body {:type :application,
+                                 :operator {:type :variable, :name '+},
+                                 :operands [{:type :variable, :name 'x}
+                                            {:type :literal, :value 1}]}},
+               :operands [{:type :literal, :value 10}]}
+          result (vm/eval (ast-walker/create-vm) ast)]
+      (is (= 11 (vm/value result))))))
+
+
+;; =============================================================================
 ;; ast->datoms contract tests
 ;; =============================================================================
 ;; These test the CONTRACT, not implementation details:
