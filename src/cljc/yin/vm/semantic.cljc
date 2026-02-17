@@ -1,5 +1,6 @@
 (ns yin.vm.semantic
   (:require [datascript.core :as d]
+            [yin.module :as module]
             [yin.vm :as vm]))
 
 
@@ -56,20 +57,16 @@
 
 
 (defn- datom-node-attrs
-  "Get node attributes directly from raw [e a v t m] datoms.
-   Semantic VM control IDs are stream-local tempids, so traversal must stay
-   in the same ID space as the source datom stream."
-  [datoms node-id]
+  "Get node attributes directly from indexed datoms."
+  [index node-id]
   (reduce (fn [m [e a v _t _m]]
-            (if (= e node-id)
-              (if (contains? cardinality-many-attrs a)
-                (if (vector? v)
-                  (update m a (fnil into []) v)
-                  (update m a (fnil conj []) v))
-                (assoc m a v))
-              m))
+            (if (contains? cardinality-many-attrs a)
+              (if (vector? v)
+                (update m a (fnil into []) v)
+                (update m a (fnil conj []) v))
+              (assoc m a v)))
     {}
-    datoms))
+    (get index node-id)))
 
 
 (defn find-applications
@@ -99,12 +96,14 @@
                        env        ; lexical environment
                        stack      ; continuation stack
                        datoms     ; AST datoms
+                       index      ; Entity index {eid [datom...]}
                        halted     ; true if execution completed
                        value      ; final result value
                        store      ; heap memory
                        parked     ; parked continuations
                        id-counter ; unique ID counter
                        primitives ; primitive operations
+                       blocked    ; true if blocked
                       ])
 
 
@@ -117,7 +116,7 @@
 
 (defn- handle-return-value
   [vm]
-  (let [{:keys [control env stack datoms]} vm
+  (let [{:keys [control env stack datoms index]} vm
         val (:val control)]
     (if (empty? stack)
       (assoc vm
@@ -151,7 +150,7 @@
                     (throw (ex-info "Cannot apply non-function" {:fn fn-val}))))
                 ;; Prepare to eval args
                 (let [first-arg (first operands)
-                      rest-args (vec (rest operands))]
+                      rest-args (subvec operands 1)]
                   (assoc vm
                     :control {:type :node, :id first-arg}
                     :env env
@@ -182,7 +181,7 @@
                     (throw (ex-info "Cannot apply non-function" {:fn fn}))))
                 ;; More args to eval
                 (let [next-arg (first pending)
-                      rest-pending (vec (rest pending))]
+                      rest-pending (subvec pending 1)]
                   (assoc vm
                     :control {:type :node, :id next-arg}
                     :env env
@@ -198,14 +197,20 @@
 
 (defn handle-node-eval
   [vm]
-  (let [{:keys [control env stack datoms]} vm
+  (let [{:keys [control env stack datoms index store primitives]} vm
         node-id (:id control)
-        node-map (datom-node-attrs datoms node-id)
+        node-map (datom-node-attrs index node-id)
         node-type (:yin/type node-map)]
     (case node-type
       :literal (assoc vm :control {:type :value, :val (:yin/value node-map)})
-      :variable (assoc vm
-                  :control {:type :value, :val (get env (:yin/name node-map))})
+      :variable (let [name (:yin/name node-map)
+                      val (if-let [pair (find env name)]
+                            (val pair)
+                            (if-let [pair (find store name)]
+                              (val pair)
+                              (or (get primitives name)
+                                  (module/resolve-symbol name))))]
+                  (assoc vm :control {:type :value, :val val}))
       :lambda (assoc vm
                 :control {:type :value,
                           :val {:type :closure,
@@ -260,7 +265,7 @@
 (defn- semantic-vm-blocked?
   "Returns true if VM is blocked."
   [^SemanticVM vm]
-  (= :yin/blocked (:value vm)))
+  (boolean (:blocked vm)))
 
 
 (defn- semantic-vm-value
@@ -277,8 +282,10 @@
     :control {:type :node, :id node}
     :stack []
     :datoms datoms
+    :index (group-by first datoms)
     :halted false
-    :value nil))
+    :value nil
+    :blocked false))
 
 
 (defn- semantic-vm-eval
@@ -287,13 +294,11 @@
   [^SemanticVM vm ast]
   (let [v (if ast
             (let [datoms (vm/ast->datoms ast)
-                  root-id (ffirst datoms)]
+                  root-id (apply max (map first datoms))]
               (semantic-vm-load-program vm {:node root-id, :datoms datoms}))
             vm)]
     (loop [v v]
-      (if (or (semantic-vm-halted? v) (semantic-vm-blocked? v))
-        v
-        (recur (semantic-vm-step v))))))
+      (if (or (:halted v) (:blocked v)) v (recur (semantic-vm-step v))))))
 
 
 (extend-type SemanticVM
@@ -326,5 +331,7 @@
                               :env env,
                               :stack [],
                               :datoms [],
+                              :index {},
                               :halted false,
-                              :value nil})))))
+                              :value nil,
+                              :blocked false})))))

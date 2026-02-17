@@ -1,5 +1,6 @@
 (ns yin.vm.stack
-  (:require [yin.vm :as vm]))
+  (:require [yin.module :as module]
+            [yin.vm :as vm]))
 
 
 ;; =============================================================================
@@ -30,6 +31,7 @@
                     parked     ; parked continuations
                     id-counter ; unique ID counter
                     primitives ; primitive operations
+                    blocked    ; true if blocked
                    ])
 
 
@@ -66,7 +68,7 @@
         by-entity (group-by first datoms)
         get-attr (fn [e attr]
                    (some (fn [[_ a v]] (when (= a attr) v)) (get by-entity e)))
-        root-id (ffirst datoms)
+        root-id (apply max (keys by-entity))
         instructions (atom [])
         emit! (fn [instr] (swap! instructions conj instr))
         label-counter (atom 0)
@@ -207,7 +209,7 @@
   "Execute one stack VM instruction. Returns updated state.
    When execution completes, :halted is true and :value contains the result."
   [state]
-  (let [{:keys [pc bytecode stack env call-stack pool]} state]
+  (let [{:keys [pc bytecode stack env call-stack pool store primitives]} state]
     (if (>= pc (count bytecode))
       ;; End of bytes: return top of stack or pop frame
       (let [result (peek stack)]
@@ -224,80 +226,91 @@
               :env (:env frame)
               :call-stack rest-frames))))
       (let [op (nth bytecode pc)]
-        (condp = op
-          OP_LITERAL (let [val-idx (nth bytecode (inc pc))
-                           val (nth pool val-idx)]
-                       (assoc state
-                         :pc (+ pc 2)
-                         :stack (conj stack val)))
-          OP_LOAD_VAR (let [sym-idx (nth bytecode (inc pc))
-                            sym (nth pool sym-idx)
-                            val (get env sym)]
-                        (assoc state
-                          :pc (+ pc 2)
-                          :stack (conj stack val)))
-          OP_LAMBDA (let [params-idx (nth bytecode (inc pc))
-                          params (nth pool params-idx)
-                          body-len (fetch-short bytecode (+ pc 2))
-                          body-start (+ pc 4)
-                          body-bytes
-                            (subvec bytecode body-start (+ body-start body-len))
-                          closure {:type :closure,
-                                   :params params,
-                                   :body-bytes body-bytes,
+        (case (int op)
+          1 ; OP_LITERAL
+            (let [val-idx (nth bytecode (inc pc))
+                  val (nth pool val-idx)]
+              (assoc state
+                :pc (+ pc 2)
+                :stack (conj stack val)))
+          2 ; OP_LOAD_VAR
+            (let [sym-idx (nth bytecode (inc pc))
+                  sym (nth pool sym-idx)
+                  val (if-let [pair (find env sym)]
+                        (val pair)
+                        (if-let [pair (find store sym)]
+                          (val pair)
+                          (or (get primitives sym)
+                              (module/resolve-symbol sym))))]
+              (assoc state
+                :pc (+ pc 2)
+                :stack (conj stack val)))
+          3 ; OP_LAMBDA
+            (let [params-idx (nth bytecode (inc pc))
+                  params (nth pool params-idx)
+                  body-len (fetch-short bytecode (+ pc 2))
+                  body-start (+ pc 4)
+                  body-bytes
+                    (subvec bytecode body-start (+ body-start body-len))
+                  closure {:type :closure,
+                           :params params,
+                           :body-bytes body-bytes,
+                           :env env}]
+              (assoc state
+                :pc (+ pc 4 body-len)
+                :stack (conj stack closure)))
+          4 ; OP_APPLY
+            (let [argc (nth bytecode (inc pc))
+                  n (count stack)
+                  args (subvec stack (- n argc) n)
+                  fn-val (nth stack (- n argc 1))
+                  stack-rest (subvec stack 0 (- n argc 1))]
+              (cond (fn? fn-val) (let [res (apply fn-val args)]
+                                   (assoc state
+                                     :pc (+ pc 2)
+                                     :stack (conj stack-rest res)))
+                    (= :closure (:type fn-val))
+                      (let [{clo-params :params,
+                             clo-body :body-bytes,
+                             clo-env :env}
+                              fn-val
+                            new-env (merge clo-env (zipmap clo-params args))
+                            frame {:pc (+ pc 2),
+                                   :bytecode bytecode,
+                                   :stack stack-rest,
                                    :env env}]
-                      (assoc state
-                        :pc (+ pc 4 body-len)
-                        :stack (conj stack closure)))
-          OP_APPLY (let [argc (nth bytecode (inc pc))
-                         args (vec (take-last argc stack))
-                         stack-minus-args (vec (drop-last argc stack))
-                         fn-val (peek stack-minus-args)
-                         stack-rest (pop stack-minus-args)]
-                     (cond (fn? fn-val) (let [res (apply fn-val args)]
-                                          (assoc state
-                                            :pc (+ pc 2)
-                                            :stack (conj stack-rest res)))
-                           (= :closure (:type fn-val))
-                             (let [{clo-params :params,
-                                    clo-body :body-bytes,
-                                    clo-env :env}
-                                     fn-val
-                                   new-env (merge clo-env
-                                                  (zipmap clo-params args))
-                                   frame {:pc (+ pc 2),
-                                          :bytecode bytecode,
-                                          :stack stack-rest,
-                                          :env env}]
-                               (assoc state
-                                 :pc 0
-                                 :bytecode clo-body
-                                 :stack []
-                                 :env new-env
-                                 :call-stack (conj call-stack frame)))
-                           :else (throw (ex-info "Cannot apply non-function"
-                                                 {:fn fn-val}))))
-          OP_JUMP_IF_FALSE (let [offset (fetch-short bytecode (inc pc))
-                                 condition (peek stack)
-                                 new-stack (pop stack)]
-                             (assoc state
-                               :pc (if condition (+ pc 3) (+ pc 3 offset))
-                               :stack new-stack))
-          OP_JUMP (let [offset (fetch-short bytecode (inc pc))]
-                    (assoc state :pc (+ pc 3 offset)))
-          OP_RETURN (let [result (peek stack)]
-                      (if (empty? call-stack)
                         (assoc state
-                          :halted true
-                          :value result)
-                        (let [frame (peek call-stack)
-                              rest-frames (pop call-stack)]
-                          (assoc state
-                            :pc (:pc frame)
-                            :bytecode (:bytecode frame)
-                            :stack (conj (:stack frame) result)
-                            :env (:env frame)
-                            :call-stack rest-frames))))
+                          :pc 0
+                          :bytecode clo-body
+                          :stack []
+                          :env new-env
+                          :call-stack (conj call-stack frame)))
+                    :else (throw (ex-info "Cannot apply non-function"
+                                          {:fn fn-val}))))
+          5 ; OP_JUMP_IF_FALSE
+            (let [offset (fetch-short bytecode (inc pc))
+                  condition (peek stack)
+                  new-stack (pop stack)]
+              (assoc state
+                :pc (if condition (+ pc 3) (+ pc 3 offset))
+                :stack new-stack))
+          7 ; OP_JUMP
+            (let [offset (fetch-short bytecode (inc pc))]
+              (assoc state :pc (+ pc 3 offset)))
+          6 ; OP_RETURN
+            (let [result (peek stack)]
+              (if (empty? call-stack)
+                (assoc state
+                  :halted true
+                  :value result)
+                (let [frame (peek call-stack)
+                      rest-frames (pop call-stack)]
+                  (assoc state
+                    :pc (:pc frame)
+                    :bytecode (:bytecode frame)
+                    :stack (conj (:stack frame) result)
+                    :env (:env frame)
+                    :call-stack rest-frames))))
           (throw (ex-info "Unknown Opcode" {:op op, :pc pc})))))))
 
 
@@ -314,7 +327,7 @@
 (defn- stack-vm-blocked?
   "Returns true if VM is blocked."
   [^StackVM vm]
-  (= :yin/blocked (:value vm)))
+  (boolean (:blocked vm)))
 
 
 (defn- stack-vm-value "Returns the current value." [^StackVM vm] (:value vm))
@@ -331,7 +344,8 @@
     :call-stack []
     :pool pool
     :halted false
-    :value nil))
+    :value nil
+    :blocked false))
 
 
 (defn- stack-vm-eval
@@ -345,10 +359,7 @@
                   compiled (asm->bytecode asm)]
               (stack-vm-load-program vm compiled))
             vm)]
-    (loop [v v]
-      (if (or (stack-vm-halted? v) (stack-vm-blocked? v))
-        v
-        (recur (stack-step v))))))
+    (loop [v v] (if (or (:halted v) (:blocked v)) v (recur (stack-step v))))))
 
 
 (extend-type StackVM
@@ -384,4 +395,5 @@
                            :call-stack [],
                            :pool [],
                            :halted false,
-                           :value nil})))))
+                           :value nil,
+                           :blocked false})))))
