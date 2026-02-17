@@ -319,7 +319,7 @@
 ;; IP indexes into the flat int vector, not an instruction vector.
 ;; =============================================================================
 
-(defn- step-bc
+(defn- reg-vm-step
   "Execute one bytecode instruction. Returns updated state."
   [state]
   (let [{:keys [bytecode pool ip regs env store k]} state
@@ -377,20 +377,20 @@
                           (persistent! args)))
               fn-val (get-reg state rf)
               next-ip (+ ip 4 argc)]
-          (cond (fn? fn-val) (let [result (apply fn-val fn-args)]
-                               (if (module/effect? result)
-                                 (case (:effect result)
-                                   :vm/store-put (-> state
-                                                     (assoc-in [:store
-                                                                (:key result)]
-                                                               (:val result))
-                                                     (set-reg rd (:val result))
-                                                     (assoc :ip next-ip))
-                                   (throw (ex-info "Unhandled effect in step-bc"
-                                                   {:effect result})))
-                                 (-> state
-                                     (set-reg rd result)
-                                     (assoc :ip next-ip))))
+          (cond (fn? fn-val)
+                  (let [result (apply fn-val fn-args)]
+                    (if (module/effect? result)
+                      (case (:effect result)
+                        :vm/store-put (-> state
+                                          (assoc-in [:store (:key result)]
+                                                    (:val result))
+                                          (set-reg rd (:val result))
+                                          (assoc :ip next-ip))
+                        (throw (ex-info "Unhandled effect in reg-vm-step"
+                                        {:effect result})))
+                      (-> state
+                          (set-reg rd result)
+                          (assoc :ip next-ip))))
                 (= :closure (:type fn-val))
                   (let [{:keys [params body-addr env bytecode pool]} fn-val
                         new-frame {:type :call-frame,
@@ -495,12 +495,14 @@
               (reg-vm-load-program vm compiled))
             vm)]
     (loop [v v]
-      (if (or (reg-vm-halted? v) (reg-vm-blocked? v)) v (recur (step-bc v))))))
+      (if (or (reg-vm-halted? v) (reg-vm-blocked? v))
+        v
+        (recur (reg-vm-step v))))))
 
 
 (extend-type RegisterVM
   vm/IVMStep
-    (step [vm] (step-bc vm))
+    (step [vm] (reg-vm-step vm))
     (halted? [vm] (reg-vm-halted? vm))
     (blocked? [vm] (reg-vm-blocked? vm))
     (value [vm] (reg-vm-value vm))
@@ -516,10 +518,7 @@
     (control [vm] {:ip (:ip vm), :bytecode (:bytecode vm), :regs (:regs vm)})
     (environment [vm] (:env vm))
     (store [vm] (:store vm))
-    (continuation [vm] (:k vm))
-  vm/IVMCompile
-    (ast-datoms->asm [vm datoms] (ast-datoms->asm datoms))
-    (asm->bytecode [vm asm] (asm->bytecode asm)))
+    (continuation [vm] (:k vm)))
 
 
 (defn create-vm

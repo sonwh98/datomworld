@@ -69,17 +69,6 @@
      VM-specific: linked frames, stack vector, call-stack, etc."))
 
 
-(defprotocol IVMCompile
-  "Bytecode compilation protocol.
-   Implemented by VMs that compile AST datoms through an assembly intermediate.
-   Not all VMs implement this: AST walker interprets directly, semantic VM
-   traverses the datom graph."
-  (ast-datoms->asm [vm datoms]
-    "Compile AST datoms to assembly instructions for this VM's backend.")
-  (asm->bytecode [vm asm]
-    "Encode assembly instructions to bytecode (numeric format with constant pool)."))
-
-
 (defprotocol IDaoDb
   "Data access protocol for DaoDB/DataScript-backed structures."
   (transact! [db datoms]
