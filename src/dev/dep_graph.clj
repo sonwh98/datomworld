@@ -153,8 +153,21 @@
 
 (defn generate-dot
   "Generate DOT string for the dependency graph."
-  [dep-map metrics]
+  [dep-map metrics {:keys [layout]}]
   (let [cycle-nodes (set (filter #(:circular? (metrics %)) (keys metrics)))
+        ca-values (map :ca (vals metrics))
+        max-ca (when (seq ca-values) (apply max ca-values))
+        min-ca (when (seq ca-values) (apply min ca-values))
+        top-ca-nodes
+        (set (for [[ns-sym m] metrics :when (= (:ca m) max-ca)] ns-sym))
+        bottom-ca-nodes
+        (set (for [[ns-sym m] metrics :when (= (:ca m) min-ca)] ns-sym))
+        ce-values (map :ce (vals metrics))
+        max-ce (when (seq ce-values) (apply max ce-values))
+        center-ce-node (when (seq ce-values)
+                         (first (sort (for [[ns-sym m] metrics
+                                            :when (= (:ce m) max-ce)]
+                                        ns-sym))))
         cycle-edges (set (for [ns-sym cycle-nodes
                                dep (get dep-map ns-sym #{})
                                :when (contains? cycle-nodes dep)]
@@ -162,10 +175,32 @@
         sb (StringBuilder.)]
     (.append sb "digraph deps {\n")
     (.append sb "  rankdir=TB;\n")
+    (when (and (= layout "twopi") center-ce-node)
+      ;; In twopi, `root` places this node at the radial center.
+      (.append sb (format "  root=\"%s\";\n" center-ce-node)))
+    (when (= layout "twopi")
+      ;; Spread concentric rings and siblings to reduce overlap.
+      (.append sb "  ranksep=2.0;\n")
+      (.append sb "  nodesep=0.9;\n")
+      (.append sb "  overlap=false;\n")
+      (.append sb "  splines=true;\n"))
     (.append
       sb
       "  node [shape=box style=filled fontname=\"Helvetica\" fontsize=10];\n")
     (.append sb "  edge [color=\"#666666\" arrowsize=0.7];\n\n")
+    ;; Pin highest-Ca nodes at the top and lowest-Ca nodes at the bottom.
+    (when (and (= layout "dot") (seq top-ca-nodes))
+      (.append
+        sb
+        (format "  { rank=min; %s; }\n"
+                (str/join " " (map #(format "\"%s\"" %) (sort top-ca-nodes))))))
+    (when (and (= layout "dot") (seq bottom-ca-nodes) (not= max-ca min-ca))
+      (.append sb
+               (format "  { rank=max; %s; }\n"
+                       (str/join " "
+                                 (map #(format "\"%s\"" %)
+                                      (sort bottom-ca-nodes))))))
+    (.append sb "\n")
     ;; Nodes
     (doseq [[ns-sym m] (sort-by (comp :instability val) > metrics)]
       (let [color (instability-color (:instability m))
@@ -187,11 +222,20 @@
     ;; Edges
     (doseq [[ns-sym deps] (sort-by key dep-map)
             dep (sort deps)]
-      (if (contains? cycle-edges [ns-sym dep])
-        (.append
-          sb
-          (format "  \"%s\" -> \"%s\" [color=red penwidth=2.0];\n" ns-sym dep))
-        (.append sb (format "  \"%s\" -> \"%s\";\n" ns-sym dep))))
+      (let [attrs (distinct (cond-> []
+                              (contains? cycle-edges [ns-sym dep])
+                              (conj "color=red" "penwidth=2.0")
+                              (contains? top-ca-nodes dep) (conj
+                                                             "constraint=false")
+                              (contains? bottom-ca-nodes ns-sym)
+                              (conj "constraint=false")))]
+        (if (seq attrs)
+          (.append sb
+                   (format "  \"%s\" -> \"%s\" [%s];\n"
+                           ns-sym
+                           dep
+                           (str/join " " attrs)))
+          (.append sb (format "  \"%s\" -> \"%s\";\n" ns-sym dep)))))
     (.append sb "}\n")
     (str sb)))
 
@@ -252,7 +296,7 @@
                  (into {} (filter (fn [[k _]] (re-find re (str k)))) dep-map))
                dep-map)
              metrics (compute-metrics dep-map)
-             dot-str (generate-dot dep-map metrics)
+             dot-str (generate-dot dep-map metrics {:layout layout})
              dot-file "dep-graph.dot"
              svg-file "dep-graph.svg"]
          (spit dot-file dot-str)
