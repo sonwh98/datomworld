@@ -1,0 +1,235 @@
+#:blog{:title "The CESK Machine: Control, Environment, Store, Continuation"
+       :date #inst "2026-02-19T00:00:00.000-00:00"
+       :abstract
+       [:p
+        "The CESK machine (Control, Environment, Store, Continuation) is the theoretical foundation of Yin.vm, but Yin.vm’s implementation flips the traditional model: instead of storing state inside the machine, it externalizes everything into queryable datom streams. This post traces CESK’s origins in semantic semantics, explains each component with concrete datom examples, and shows how Yin.vm’s stream‑based CESK enables lightweight continuation migration, full introspection, and time‑travel debugging."]
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+          [:p
+           "In the "
+           [:a {:href "/blog/continuations-universal-semantic-kernel.blog"} "first post of this series"]
+           ", we established continuations as the universal semantic kernel that unifies exceptions, async/await, generators, and actors. In the "
+           [:a {:href "/blog/computation-moves-data-stays.blog"} "second post"]
+           ", we saw how Yin.vm makes continuations mobile by externalizing state into streams. Now we dive into the machinery that makes this possible: the CESK machine."]
+          [:p
+           "CESK stands for Control, Environment, Store, Continuation—the four components that fully describe the state of a running program. Unlike traditional stack‑based VMs where the call stack is an implicit, hidden runtime construct, a CESK machine makes the stack explicit as a first‑class continuation. This architectural choice enables everything that makes Yin.vm unique: queryable execution, mobile agents, and deterministic replay."]
+          [:h2 "A Brief History of CESK"]
+          [:p
+           "The CESK machine descends from the tradition of "
+           [:strong "semantic semantics"]
+           "—the study of programming languages by constructing mathematical models of their meaning. In the 1970s, Gordon Plotkin’s "
+           [:a {:href "https://homepages.inf.ed.ac.uk/gdp/publications/LCF.pdf"} "LCF paper"]
+           " introduced the idea of a structured operational semantics (SOS), which describes program execution as a series of transitions between configurations. Later, Matthias Felleisen and Robert Hieb’s "
+           [:a {:href "https://www.cs.indiana.edu/~dyb/pubs/cesk-machine-jfp.pdf"} "The Revised Report on the Syntactic Theory of Sequential Control and State"]
+           " (1992) refined the CESK machine as a concrete implementation of such semantics."]
+          [:p
+           "The CESK machine became a standard tool in programming‑language research because it is both simple and expressive: it can model the full lambda calculus with side effects, exceptions, and first‑class continuations. Yet for decades, CESK remained an academic formalism—a model used to prove properties, not a runtime for actual programs."]
+          [:p
+           "Yin.vm changes that. It takes the CESK model literally and implements it with persistent data structures, turning the abstract machine into a practical virtual machine. But Yin.vm also extends the model in a crucial way: it externalizes the state components into "
+           [:strong "datom streams"]
+           ", making each component queryable, versionable, and mobile."]
+          [:h2 "The Four Components"]
+          [:p
+           "A CESK machine’s state is a tuple "
+           [:code "(C, E, S, K)"]
+           " where:"]
+          [:ul.bulleted
+           [:li [:strong "Control (C)"] " : what is being evaluated right now—an AST node, a bytecode instruction, or a value awaiting a continuation."]
+           [:li [:strong "Environment (E)"] " : the current lexical bindings—a map from variable names to values (or references into the store)."]
+           [:li [:strong "Store (S)"] " : the heap—a map from locations (addresses) to values, holding mutable data, closures, and other long‑lived objects."]
+           [:li [:strong "Continuation (K)"] " : the “rest of the computation”—a reified representation of the call stack, often a linked list of frames."]]
+          [:p
+           "Together, these four components contain all the information needed to pause a computation, serialize it, move it to another machine, and resume exactly where it left off. In a stack‑based VM like the JVM or CPython, the call stack is implicit in the program counter and stack pointer; you cannot capture it without invasive instrumentation. In a CESK machine, the continuation is explicit—it’s just another piece of data."]
+          [:h3 "1. Control"]
+          [:p
+           "Control is the “what now?” of the machine. In Yin.vm’s AST‑walker backend, control is an AST map:"]
+          [:pre
+           [:code
+            "{:type :application,
+ :operator {:type :variable, :name '+'},
+ :operands [{:type :literal, :value 1}
+            {:type :literal, :value 2}]}"]]
+          [:p
+           "In the register‑based backend, control is an instruction pointer ("
+           [:code ":ip"]
+           ") pointing into a bytecode vector. In the semantic backend, control is a datom entity ID. The key insight: control is a "
+           [:strong "reference to a piece of code"]
+           ", not the code itself. The actual AST or bytecode lives elsewhere—in a datom stream—and control merely points to the current position."]
+          [:h3 "2. Environment"]
+          [:p
+           "Environment maps variable names to values (or store references). In Yin.vm, environments are persistent hash maps built on Clojure’s persistent data structures. When a new binding is added ("
+           [:code "let"]
+           ", lambda application), the environment is updated via structural sharing:"]
+          [:pre
+           [:code
+            ";; Initial env
+env0 {}
+
+;; After (let [x 1] ...)
+env1 (assoc env0 'x 1)
+
+;; After nested let
+env2 (assoc env1 'y 2)"]]
+          [:p
+           "Because environments are immutable, they can be shared across continuations. A closure captures the environment at its creation point, but that environment never changes—new bindings create new environment maps, leaving the old ones intact for other closures."]
+          [:h3 "3. Store"]
+          [:p
+           "Store is the heap—where mutable data lives. In traditional CESK machines, the store is a mutable map updated in‑place. Yin.vm’s store is also a persistent map, but it’s rarely used directly. Instead, mutable state is represented as "
+           [:strong "datom streams"]
+           " in DaoDB. The store becomes a local cache of stream references, not the authoritative source of truth."]
+          [:p
+           "This is a key departure from classic CESK: Yin.vm externalizes the store into a stream of immutable facts. A “mutation” is the addition of a new datom; the store map is just a materialized view of the stream’s current state. This makes time‑travel trivial: to roll back a mutation, you simply revert to an earlier prefix of the stream."]
+          [:h3 "4. Continuation"]
+          [:p
+           "Continuation is the reified call stack. In Yin.vm’s AST‑walker, a continuation is a linked list of frames:"]
+          [:pre
+           [:code
+            "{:type :eval-operator,
+ :frame {:operator {:type :variable, :name '+'},
+         :operands [{:type :literal, :value 1}
+                    {:type :literal, :value 2}],
+         :operator-evaluated? false},
+ :parent nil}"]]
+          [:p
+           "Each frame records what remains to be done: evaluate an operator, evaluate an operand, evaluate a test, etc. The "
+           [:code ":parent"]
+           " pointer chains back to the previous continuation, forming a stack. Because continuations are immutable data structures, capturing a continuation is just taking a reference to the current continuation—no copying, no serialization overhead."]
+          [:h2 "The CESK Transition Function"]
+          [:p
+           "A CESK machine advances via a transition function "
+           [:code "δ(C, E, S, K) → (C′, E′, S′, K′)"]
+           ". Yin.vm implements this function in each backend (AST‑walker, register, stack, semantic). Here’s a simplified version of the AST‑walker’s transition function:"]
+          [:pre
+           [:code
+            "(defn- cesk-transition
+  [state ast]
+  (let [{:keys [control environment continuation store primitives]} state
+        {:keys [type], :as node} (or ast control)]
+    (case type
+      :literal
+        (assoc state :value (:value node) :control nil)
+      :variable
+        (let [val (if-let [pair (find environment (:name node))]
+                    (val pair)
+                    (if-let [pair (find store (:name node))]
+                      (val pair)
+                      (or (get primitives (:name node))
+                          (module/resolve-symbol (:name node)))))]
+          (assoc state :value val :control nil))
+      :application
+        (let [frame {:operator (:operator node),
+                     :operands (:operands node),
+                     :operator-evaluated? false}]
+          (assoc state
+            :control nil
+            :continuation {:type :eval-operator
+                           :frame frame
+                           :parent continuation}))
+      ;; ... many more cases
+      )))"]]
+          [:p
+           "The transition function pattern‑matches on the control node’s type and produces a new state. Notice how the continuation is extended or shrunk: for an application, we push an "
+           [:code ":eval-operator"]
+           " frame; when a value is produced, we pop the frame and continue with the next step."]
+          [:p
+           "This explicit, functional transition is what makes the CESK machine deterministic and replayable. Given the same initial state and the same transition function, execution will always follow the same path—a property that enables time‑travel debugging and secure auditing."]
+          [:h2 "How Yin.vm’s CESK Differs from the Classic Model"]
+          [:p
+           "The classic CESK machine described in academic papers assumes that all four components live together in a single machine’s memory. Yin.vm externalizes them:"]
+          [:table
+           [:thead
+            [:tr
+             [:th "Component"]
+             [:th "Classic CESK"]
+             [:th "Yin.vm CESK"]]]
+           [:tbody
+            [:tr
+             [:td [:strong "Control"]]
+             [:td "AST node in memory"]
+             [:td "Reference into datom stream (AST or bytecode)"]]
+            [:tr
+             [:td [:strong "Environment"]]
+             [:td "Mutable map, copied on closure creation"]
+             [:td "Persistent map, structurally shared across continuations"]]
+            [:tr
+             [:td [:strong "Store"]]
+             [:td "Mutable heap, updated in‑place"]
+             [:td "Materialized view of immutable datom stream"]]
+            [:tr
+             [:td [:strong "Continuation"]]
+             [:td "Linked list of frames in memory"]
+             [:td "Immutable linked list; frames reference stream entities"]]]]
+          [:p
+           "This externalization turns the CESK machine from a self‑contained interpreter into a "
+           [:strong "stream processor"]
+           ". The machine’s state is not the authoritative truth; the datom stream is. The CESK components become caches, projections of the stream optimized for fast stepping."]
+          [:h2 "Why CESK Matters for Mobile Agents"]
+          [:p
+           "As explained in "
+           [:a {:href "/blog/computation-moves-data-stays.blog"} "Computation Moves, Data Stays"]
+           ", mobile agents need lightweight continuations. If a continuation had to carry the entire heap, migration would be prohibitively expensive. Yin.vm’s externalized store solves this: the continuation carries only "
+           [:em "references"]
+           " to stream positions; the data stays behind, accessible via the stream protocol."]
+          [:p
+           "Similarly, because environments are persistent, a closure can reference an environment that lives on another node without copying it. The environment is just a map—if the remote node needs a value, it can fetch it lazily from the stream. This is the essence of “computation moves, data stays.”"]
+          [:h2 "CESK in Other Continuation Machines"]
+          [:p
+           "The "
+           [:a {:href "/blog/yin-yang-gambit-ribbit.blog"} "previous post"]
+           " compared Yin.vm with Gambit Scheme and Ribbit. Gambit implements first‑class continuations via stack copying—a different technique that still captures the implicit call stack, but copies it wholesale. Ribbit’s portable VM uses a heap‑allocated stack segment. Neither adopts the explicit CESK model, which is why their continuations are heavier and harder to introspect."]
+          [:p
+           "The CESK model is not the only way to implement first‑class continuations, but it is the most transparent: every piece of state is exposed as data, not hidden in runtime structures."]
+          [:h2 "Querying CESK State with Datalog"]
+          [:p
+           "Because Yin.vm’s CESK components are built from datoms, you can query them with Datalog. Want to know which variables are currently in scope?"]
+          [:pre
+           [:code
+            "[:find ?name ?value
+ :where
+ [?e :env/name ?name]
+ [?e :env/value ?value]]"]]
+          [:p
+           "Want to see the entire continuation chain?"]
+          [:pre
+           [:code
+            "[:find ?frame ?type
+ :where
+ [?frame :continuation/type ?type]
+ [?frame :continuation/parent ?parent]]"]]
+          [:p
+           "This queryability turns debugging into a data‑exploration problem. Instead of setting breakpoints and stepping, you can ask “show me all environments where variable "
+           [:code "total"]
+           " is greater than 100” or “list all function calls that haven’t returned yet.”"]
+          [:h2 "Conclusion"]
+          [:p
+           "The CESK machine is more than an academic curiosity; it’s a blueprint for building virtual machines that are transparent, mobile, and introspectable. Yin.vm’s implementation—externalizing control, environment, store, and continuation into datom streams—transforms the blueprint into a practical runtime that supports distributed agents, time‑travel debugging, and semantic tooling."]
+          [:p
+           "With CESK as the foundation, the next posts in this series will explore "
+           [:strong "capability‑based security"]
+           " (how to secure mobile continuations) and "
+           [:strong "continuation migration"]
+           " (how to move a running computation across the network)."]
+          [:h2 "Learn More"]
+          [:ul.bulleted
+           [:li
+            [:a {:href "/blog/continuations-universal-semantic-kernel.blog"} "Why Continuations Are the Universal Semantic Kernel"]
+            " – the series starter"]
+           [:li
+            [:a {:href "/blog/computation-moves-data-stays.blog"} "Computation Moves, Data Stays"]
+            " – how Yin.vm keeps continuations lightweight"]
+           [:li
+            [:a {:href "/blog/yin-yang-gambit-ribbit.blog"} "Three Continuation Machines: Yin.vm/Yang, Gambit Scheme, and Ribbit"]
+            " – comparative context"]
+           [:li
+            [:a {:href "/yin.chp"} "Yin VM documentation"]
+            " – includes a section on CESK"]
+           [:li
+            [:a {:href "https://www.cs.indiana.edu/~dyb/pubs/cesk-machine-jfp.pdf"} "The Revised Report on the Syntactic Theory of Sequential Control and State"]
+            " (PDF) – the classic CESK paper"]
+           [:li
+            [:a {:href "https://en.wikipedia.org/wiki/Continuation-passing_style"} "Continuation‑passing style"]
+            " – the transformation that makes CESK explicit"]]]]]}
