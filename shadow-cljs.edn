@@ -11,12 +11,12 @@
 
  :builds {:datomworld {:target :browser
                        :devtools {:use-document-protocol true}
-                       :modules {:main {:init-fn datomworld.core/init}}}
+                       :modules {:main {:init-fn datomworld.demo/init}}}
 
           :local {:target :browser
                   :devtools {:use-document-protocol true}
                   :closure-defines {datomworld.core/WEBSOCKET_PORT 8090}
-                  :modules {:main {:init-fn datomworld.core/init}}}
+                  :modules {:main {:init-fn datomworld.demo/init}}}
 
           :test {:target :node-script
                  :main test-runner/-main
