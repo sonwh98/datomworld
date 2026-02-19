@@ -1,299 +1,299 @@
 #:blog{:title "Beyond LSP: Queryable AST as the Universal Language Server"
-        :date #inst "2026-02-18T00:00:00.000-00:00"
-        :abstract
-        [:p
-         "The Language Server Protocol (LSP) treats code as text and IDE features as RPC calls. Yin.vm inverts this: the Universal AST stored as datoms makes the entire codebase a Datalog database. The IDE becomes a query interface: no per‑language servers, no text‑based diffs, just semantic queries across languages and time."]
-        :content
-        [:section.blog-article
-         [:div.section-inner
-          [:article
-           :$blog-title
-           :$blog-date
-           [:h2 "The LSP Model: Text‑Based RPC"]
-           [:p
-            "The Language Server Protocol, introduced by Microsoft in 2016, brought a welcome simplification: a single protocol for many IDEs to talk to many languages. Instead of each IDE writing a Python plugin, a Java plugin, a C++ plugin, they could all speak LSP to language‑specific servers."]
-           [:p "LSP is a JSON‑RPC protocol. The IDE sends requests like:"]
-           [:pre
-            [:code
-             "{\"method\": \"textDocument/definition\",\n \"params\": {\n   \"textDocument\": {\"uri\": \"file:///src/main.py\"},\n   \"position\": {\"line\": 10, \"character\": 5}\n },\n \"id\": 1}"]]
-           [:p "The language server parses the file, finds the definition, and replies with a line/column position in another file. The IDE then jumps there."]
-           [:p "This works. It's better than the pre‑LSP chaos. But LSP has fundamental limitations that stem from its core assumptions:"]
-           [:ul.bulleted
-            [:li [:strong "Code is text"] " :  operations are line/column positions, not semantic nodes"]
-            [:li [:strong "Per‑language servers"] " :  each language needs its own parser, its own index, its own cache"]
-            [:li [:strong "Request‑response"] " :  features are RPC calls, not queries over a shared database"]
-            [:li [:strong "No cross‑language awareness"] " :  a Python server doesn't know about the Java code calling it"]
-            [:li [:strong "No history"] " :  LSP sees the current snapshot, not how the code evolved"]]
-           [:p "LSP treats the symptom (many IDE‑language combinations) but not the disease: "
-            [:strong "code is not text"]
-            "."]
-           [:h2 "Yin.vm's Inversion: AST as Canonical, Text as View"]
-           [:p
-            "As explored in "
+       :date #inst "2026-02-18T00:00:00.000-00:00"
+       :abstract
+       [:p
+        "The Language Server Protocol (LSP) treats code as text and IDE features as RPC calls. Yin.vm inverts this: the Universal AST stored as datoms makes the entire codebase a Datalog database. The IDE becomes a query interface: no per‑language servers, no text‑based diffs, just semantic queries across languages and time."]
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+          [:h2 "The LSP Model: Text‑Based RPC"]
+          [:p
+           "The Language Server Protocol, introduced by Microsoft in 2016, brought a welcome simplification: a single protocol for many IDEs to talk to many languages. Instead of each IDE writing a Python plugin, a Java plugin, a C++ plugin, they could all speak LSP to language‑specific servers."]
+          [:p "LSP is a JSON‑RPC protocol. The IDE sends requests like:"]
+          [:pre
+           [:code
+            "{\"method\": \"textDocument/definition\",\n \"params\": {\n   \"textDocument\": {\"uri\": \"file:///src/main.py\"},\n   \"position\": {\"line\": 10, \"character\": 5}\n },\n \"id\": 1}"]]
+          [:p "The language server parses the file, finds the definition, and replies with a line/column position in another file. The IDE then jumps there."]
+          [:p "This works. It's better than the pre‑LSP chaos. But LSP has fundamental limitations that stem from its core assumptions:"]
+          [:ul.bulleted
+           [:li [:strong "Code is text"] " :  operations are line/column positions, not semantic nodes"]
+           [:li [:strong "Per‑language servers"] " :  each language needs its own parser, its own index, its own cache"]
+           [:li [:strong "Request‑response"] " :  features are RPC calls, not queries over a shared database"]
+           [:li [:strong "No cross‑language awareness"] " :  a Python server doesn't know about the Java code calling it"]
+           [:li [:strong "No history"] " :  LSP sees the current snapshot, not how the code evolved"]]
+          [:p "LSP treats the symptom (many IDE‑language combinations) but not the disease: "
+           [:strong "code is not text"]
+           "."]
+          [:h2 "Yin.vm's Inversion: AST as Canonical, Text as View"]
+          [:p
+           "As explored in "
+           [:a {:href "/blog/ide-edits-ast-not-text.blog"} "When the IDE Edits AST, Not Text"]
+           ", Yin.vm makes the Universal AST the canonical representation of code. Text is just a rendering: a view. The AST is stored as "
+           [:strong "datom streams"]
+           " in a Datalog database (DaoDB)."]
+          [:p "This changes everything. Instead of an IDE asking a language server \"where is the definition?\", the IDE runs a Datalog query:"]
+          [:pre
+           [:code
+            "[:find ?def-node\n :where\n [?ref-node :ast/type :variable-reference]\n [?ref-node :ast/name \"calculateTotal\"]\n [?def-node :ast/type :function-definition]\n [?def-node :ast/name \"calculateTotal\"]]"]]
+          [:p "The query returns the AST node ID of the definition. The IDE can then render that node in any syntax (Python, Java, Clojure) or jump directly to its location in the source view."]
+          [:p "This is not a faster LSP. It's a "
+           [:strong "different architectural layer"]
+           ":"]
+          [:table
+           [:thead
+            [:tr
+             [:th "Aspect"]
+             [:th "LSP"]
+             [:th "Yin.vm AST Database"]]]
+           [:tbody
+            [:tr
+             [:td [:strong "Data Model"]]
+             [:td "Text files (lines/columns)"]
+             [:td "Datom streams (AST nodes)"]]
+            [:tr
+             [:td [:strong "Protocol"]]
+             [:td "JSON‑RPC (request‑response)"]
+             [:td "Datalog queries (declarative)"]]
+            [:tr
+             [:td [:strong "Server"]]
+             [:td "Per‑language (Python, Java, …)"]
+             [:td "Single DaoDB (all languages)"]]
+            [:tr
+             [:td [:strong "Cross‑Language"]]
+             [:td "None (separate servers)"]
+             [:td "Native (same AST representation)"]]
+            [:tr
+             [:td [:strong "History"]]
+             [:td "None (current snapshot only)"]
+             [:td "Full versioning (every edit is a transaction)"]]
+            [:tr
+             [:td [:strong "Collaboration"]]
+             [:td "None (per‑editor state)"]
+             [:td "Built‑in (datom streams merge)"]]
+            [:tr
+             [:td [:strong "Tooling"]]
+             [:td "Language‑specific plugins"]
+             [:td "Universal queries (work on any language)"]]]]
+          [:h2 "From RPC Calls to Datalog Queries"]
+          [:p "Let's translate common IDE features from LSP requests to Datalog queries:"]
+          [:h3 "1. Go to Definition"]
+          [:p "LSP: " [:code "textDocument/definition"] " with line/column."]
+          [:p "Yin.vm:"]
+          [:pre
+           [:code
+            ";; Find the function definition a variable references\n[:find ?def\n :where\n [?ref :ast/type :variable-reference]\n [?ref :ast/name \"calculateTotal\"]\n [?def :ast/type :function-definition]\n [?def :ast/name \"calculateTotal\"]]"]]
+          [:h3 "2. Find All References"]
+          [:p "LSP: " [:code "textDocument/references"] "."]
+          [:p "Yin.vm:"]
+          [:pre
+           [:code
+            ";; Find all variable references to this function\n[:find ?ref\n :where\n [?def :ast/type :function-definition]\n [?def :ast/name \"calculateTotal\"]\n [?ref :ast/type :variable-reference]\n [?ref :ast/name \"calculateTotal\"]]"]]
+          [:h3 "3. Rename Symbol"]
+          [:p "LSP: " [:code "textDocument/rename"] ", returns text edits."]
+          [:p "Yin.vm: A transaction that updates all relevant datoms:"]
+          [:pre
+           [:code
+            ";; Find all nodes with the old name\n[:find ?node\n :where\n [?node :ast/name \"oldName\"]]\n\n;; Update them (simplified)\n(doseq [node nodes]\n  (transact! [node :ast/name \"newName\"]))"]]
+          [:p "Because the AST is canonical, renaming is "
+           [:strong "semantic"]
+           ", not textual. A variable "
+           [:code "user"]
+           " is different from a string literal "
+           [:code "\"user\""]
+           ". The query knows the difference."]
+          [:h3 "4. Hover (Show Type Information)"]
+          [:p "LSP: " [:code "textDocument/hover"] ", returns markdown."]
+          [:p "Yin.vm: Query type certainty metadata on the AST node:"]
+          [:pre
+           [:code
+            "[:find ?type ?certainty\n :where\n [?node :ast/type :variable-reference]\n [?node :ast/name \"total\"]\n [?node :ast/type-annotation ?type]\n [?node :ast/type-certainty ?certainty]]"]]
+          [:p "The type system is unified as certainty levels ("
+           [:code ":static"]
+           ", "
+           [:code ":dynamic"]
+           ", "
+           [:code ":unknown"]
+           "), as explained in "
+           [:a {:href "/blog/yin-vm-ast-chinese-characters.blog"} "Yin.vm: Chinese Characters for Programming Languages"]
+           "."]
+          [:h3 "5. Code Lens (References Count)"]
+          [:p "LSP: " [:code "textDocument/codeLens"] "."]
+          [:p "Yin.vm: Just count the results of the references query."]
+          [:pre
+           [:code
+            "[:find (count ?ref)\n :where\n [?def :ast/type :function-definition]\n [?def :ast/name \"calculateTotal\"]\n [?ref :ast/type :variable-reference]\n [?ref :ast/name \"calculateTotal\"]]"]]
+          [:p "Every IDE feature becomes a "
+           [:strong "query over the AST database"]
+           ". No language‑specific plugins. No RPC overhead."]
+          [:h2 "Cross‑Language Tooling: The Killer Feature"]
+          [:p "LSP servers are siloed. A Python server knows nothing about Java. A Java server knows nothing about C++. This mirrors how we write software: in separate language silos, with fragile glue code."]
+          [:p "Yin.vm's Universal AST breaks these siloes. Because all languages compile to the same AST representation, you can write queries that "
+           [:strong "span languages"]
+           ":"]
+          [:pre
+           [:code
+            ";; Find all functions that read from a network socket\n;; and write to a file, regardless of language\n[:find ?fn ?lang\n :where\n [?fn :ast/type :function-definition]\n [?fn :ast/language ?lang]\n [?fn :ast/body ?body]\n [?body :ast/contains ?socket-read]\n [?socket-read :ast/type :socket-read]\n [?body :ast/contains ?file-write]\n [?file-write :ast/type :file-write]]"]]
+          [:p "Or refactor across language boundaries:"]
+          [:pre
+           [:code
+            ";; Replace deprecated API calls in Python, Java, and C++\n[:find ?call ?file ?lang\n :where\n [?call :ast/type :function-call]\n [?call :ast/function-name \"oldDeprecatedAPI\"]\n [?call :ast/location ?file]\n [?file :file/language ?lang]]\n\n;; Update all to \"newRecommendedAPI\"\n(doseq [call calls]\n  (transact! [call :ast/function-name \"newRecommendedAPI\"]))"]]
+          [:p "This is impossible with LSP. Each language server owns its own index. There's no shared database to query across languages."]
+          [:h2 "Time‑Travel and Collaborative Editing Built‑In"]
+          [:p "LSP sees only the current snapshot. Yin.vm's datom streams preserve "
+           [:strong "every edit as a transaction"]
+           ". This enables features LSP can't touch:"]
+          [:h3 "1. Time‑Travel Debugging for Code"]
+          [:p "Query the AST as of any transaction:"]
+          [:pre
+           [:code
+            ";; What did this function look like 3 hours ago?\n[:find ?node ?name ?body\n :where\n [?node :ast/type :function-definition]\n [?node :ast/name \"calculateTotal\"]\n [?node :ast/body ?body]\n :at-tx 1500]   ;; transaction ID 1500"]]
+          [:h3 "2. Semantic Diff"]
+          [:p "Not just which lines changed, but which "
+           [:strong "semantic structures"]
+           " changed:"]
+          [:pre
+           [:code
+            ";; What functions changed between tx 1000 and 2000?\n[:find ?fn ?old-body ?new-body\n :where\n [?fn :ast/type :function-definition]\n [?fn :ast/body ?old-body :at-tx 1000]\n [?fn :ast/body ?new-body :at-tx 2000]\n [(not= ?old-body ?new-body)]]"]]
+          [:h3 "3. Collaborative Editing as Datom Merging"]
+          [:p "Two developers edit the same function. With LSP, you'd need operational transforms or CRDTs at the text level. With Yin.vm, edits are datom transactions that "
+           [:strong "merge semantically"]
+           ":"]
+          [:pre
+           [:code
+            ";; Developer A adds a parameter\n[fn-1 :ast/params [param-1 param-2 param-3] tx-1001]\n\n;; Developer B renames the function\n[fn-1 :ast/name \"calculateTotal\" tx-1002]\n\n;; Both transactions succeed: different parts of the AST"]]
+          [:p "Conflict resolution happens at the semantic level, not the text level. As shown in "
+           [:a {:href "/blog/ide-edits-ast-not-text.blog"} "the earlier blog post"]
+           ", this makes collaboration natural."]
+          [:h2 "No More Language Servers"]
+          [:p "Today, each language needs:"]
+          [:ul.bulleted
+           [:li "A parser (often several, for different IDE features)"]
+           [:li "An index (in‑memory or on‑disk)"]
+           [:li "A cache (for performance)"]
+           [:li "A language‑specific plugin (for edge cases)"]]
+          [:p "With Yin.vm, there's "
+           [:strong "one parser per language"]
+           " (to convert source text to Universal AST), but "
+           [:strong "one database for all languages"]
+           ". The parser's output is datoms, which go into DaoDB. From there, every IDE feature works the same way, regardless of language."]
+          [:p "This reduces complexity dramatically:"]
+          [:table
+           [:thead
+            [:tr
+             [:th "Component"]
+             [:th "LSP World"]
+             [:th "Yin.vm World"]]]
+           [:tbody
+            [:tr
+             [:td [:strong "Parser"]]
+             [:td "Per language, often multiple (syntax highlighting, AST, refactoring)"]
+             [:td "One per language, outputting Universal AST datoms"]]
+            [:tr
+             [:td [:strong "Index"]]
+             [:td "Per language server, in‑memory, rebuilt on change"]
+             [:td "Single DaoDB with persistent EAVT/AEVT/AVET/VAET indexes"]]
+            [:tr
+             [:td [:strong "Query Engine"]]
+             [:td "Language‑specific heuristics"]
+             [:td "Datalog (same for all languages)"]]
+            [:tr
+             [:td [:strong "Cache"]]
+             [:td "Memory‑resident, lost on restart"]
+             [:td "Persistent datom store, always available"]]
+            [:tr
+             [:td [:strong "Cross‑Language"]]
+             [:td "None (separate servers)"]
+             [:td "Native (same database)"]]
+            [:tr
+             [:td [:strong "Versioning"]]
+             [:td "None (current snapshot)"]
+             [:td "Built‑in (transaction log)"]]
+            [:tr
+             [:td [:strong "Collaboration"]]
+             [:td "None (per‑editor)"]
+             [:td "Built‑in (stream merging)"]]]]
+          [:p "The language server disappears. In its place: a "
+           [:strong "database of AST datoms"]
+           " and a "
+           [:strong "query engine"]
+           "."]
+          [:h2 "The IDE as Database Client"]
+          [:p "With Yin.vm, the IDE doesn't talk to a language server. It talks to DaoDB. It can:"]
+          [:ul.bulleted
+           [:li "Subscribe to datom streams (live updates as code changes)"]
+           [:li "Run Datalog queries (for navigation, refactoring, analysis)"]
+           [:li "Submit transactions (for edits)"]
+           [:li "Open historical views (time‑travel)"]]
+          [:p "This architecture enables entirely new kinds of IDE features:"]
+          [:h3 "Semantic Search"]
+          [:p "Not \"find string 'foo'\", but \"find functions that take a network socket and return a sorted list\"."]
+          [:h3 "Automated Refactoring Across Languages"]
+          [:p "Convert Python dictionaries to Java classes, updating all call sites in both languages."]
+          [:h3 "Live Type Migration"]
+          [:p "Change a type from dynamic to static and see all affected code across the entire polyglot codebase."]
+          [:h3 "Architecture Enforcement"]
+          [:p "Define rules like \"UI components must not import database modules\" and query for violations in real‑time."]
+          [:p "These aren't fantasies. They're "
+           [:strong "straightforward Datalog queries"]
+           " over the AST database."]
+          [:h2 "What About Performance?"]
+          [:p "LSP servers are notorious for memory usage and sluggishness. They parse entire codebases on startup and keep ASTs in memory. Yin.vm's DaoDB is a "
+           [:strong "persistent, indexed database"]
+           ". It doesn't need to parse on startup: the datoms are already there, indexed for fast queries."]
+          [:p "DaoDB's EAVT/AEVT/AVET/VAET covering indexes make queries like \"find all references\" O(log n), not O(n). The database is updated incrementally as datoms arrive, not rebuilt from scratch."]
+          [:p "For massive codebases, you can shard by project, module, or namespace. Datalog queries can run distributed. This is already how DaoDB scales for data; the same architecture works for code."]
+          [:h2 "The Universal Language Server Is a Database"]
+          [:p "LSP's great insight was standardization: one protocol for many IDEs and languages. Yin.vm's insight is deeper: "
+           [:strong "the language server shouldn't be a server at all"]
+           ". It should be a database."]
+          [:p "A database that:"]
+          [:ul.bulleted
+           [:li "Stores code as semantic ASTs, not text"]
+           [:li "Indexes everything for fast queries"]
+           [:li "Preserves full history automatically"]
+           [:li "Merges collaborative edits naturally"]
+           [:li "Works across all languages in the same way"]]
+          [:p "The IDE becomes a "
+           [:strong "database client"]
+           ". Language servers disappear. Language‑specific tooling disappears. What remains is a universal query interface over the semantic structure of code."]
+          [:p "This is the next step after LSP. Not a better protocol for talking to language servers, but "
+           [:strong "eliminating the need for language servers altogether"]
+           "."]
+          [:h2 "Getting There"]
+          [:p "The path from today's LSP‑based world to Yin.vm's query‑based world requires:"]
+          [:ol
+           [:li
+            [:strong "Universal AST adoption"]
+            " :  languages need parsers to Yin.vm's AST (like the "
+            [:a {:href "/yang.chp"} "Yang compiler"]
+            " for Clojure)"]
+           [:li
+            [:strong "IDE integration"]
+            " :  IDEs need to speak Datalog to DaoDB instead of JSON‑RPC to LSP"]
+           [:li
+            [:strong "Incremental migration"]
+            " :  tools that convert existing codebases to AST datoms"]]
+          [:p "But the payoff is immense: tooling that works across languages, understands code semantically, and preserves history automatically."]
+          [:p "LSP showed us the power of standardization. Yin.vm shows us the power of "
+           [:strong "semantic representation"]
+           ". When code is stored as queryable AST datoms, the language server protocol becomes obsolete."]
+          [:p [:strong "Learn more:"]]
+          [:ul.bulleted
+           [:li
             [:a {:href "/blog/ide-edits-ast-not-text.blog"} "When the IDE Edits AST, Not Text"]
-            ", Yin.vm makes the Universal AST the canonical representation of code. Text is just a rendering: a view. The AST is stored as "
-            [:strong "datom streams"]
-            " in a Datalog database (DaoDB)."]
-           [:p "This changes everything. Instead of an IDE asking a language server \"where is the definition?\", the IDE runs a Datalog query:"]
-           [:pre
-            [:code
-             "[:find ?def-node\n :where\n [?ref-node :ast/type :variable-reference]\n [?ref-node :ast/name \"calculateTotal\"]\n [?def-node :ast/type :function-definition]\n [?def-node :ast/name \"calculateTotal\"]]"]]
-           [:p "The query returns the AST node ID of the definition. The IDE can then render that node in any syntax (Python, Java, Clojure) or jump directly to its location in the source view."]
-           [:p "This is not a faster LSP. It's a "
-            [:strong "different architectural layer"]
-            ":"]
-           [:table
-            [:thead
-             [:tr
-              [:th "Aspect"]
-              [:th "LSP"]
-              [:th "Yin.vm AST Database"]]]
-            [:tbody
-             [:tr
-              [:td [:strong "Data Model"]]
-              [:td "Text files (lines/columns)"]
-              [:td "Datom streams (AST nodes)"]]
-             [:tr
-              [:td [:strong "Protocol"]]
-              [:td "JSON‑RPC (request‑response)"]
-              [:td "Datalog queries (declarative)"]]
-             [:tr
-              [:td [:strong "Server"]]
-              [:td "Per‑language (Python, Java, …)"]
-              [:td "Single DaoDB (all languages)"]]
-             [:tr
-              [:td [:strong "Cross‑Language"]]
-              [:td "None (separate servers)"]
-              [:td "Native (same AST representation)"]]
-             [:tr
-              [:td [:strong "History"]]
-              [:td "None (current snapshot only)"]
-              [:td "Full versioning (every edit is a transaction)"]]
-             [:tr
-              [:td [:strong "Collaboration"]]
-              [:td "None (per‑editor state)"]
-              [:td "Built‑in (datom streams merge)"]]
-             [:tr
-              [:td [:strong "Tooling"]]
-              [:td "Language‑specific plugins"]
-              [:td "Universal queries (work on any language)"]]]]
-           [:h2 "From RPC Calls to Datalog Queries"]
-           [:p "Let's translate common IDE features from LSP requests to Datalog queries:"]
-           [:h3 "1. Go to Definition"]
-           [:p "LSP: " [:code "textDocument/definition"] " with line/column."]
-           [:p "Yin.vm:"]
-           [:pre
-            [:code
-             ";; Find the function definition a variable references\n[:find ?def\n :where\n [?ref :ast/type :variable-reference]\n [?ref :ast/name \"calculateTotal\"]\n [?def :ast/type :function-definition]\n [?def :ast/name \"calculateTotal\"]]"]]
-           [:h3 "2. Find All References"]
-           [:p "LSP: " [:code "textDocument/references"] "."]
-           [:p "Yin.vm:"]
-           [:pre
-            [:code
-             ";; Find all variable references to this function\n[:find ?ref\n :where\n [?def :ast/type :function-definition]\n [?def :ast/name \"calculateTotal\"]\n [?ref :ast/type :variable-reference]\n [?ref :ast/name \"calculateTotal\"]]"]]
-           [:h3 "3. Rename Symbol"]
-           [:p "LSP: " [:code "textDocument/rename"] ", returns text edits."]
-           [:p "Yin.vm: A transaction that updates all relevant datoms:"]
-           [:pre
-            [:code
-             ";; Find all nodes with the old name\n[:find ?node\n :where\n [?node :ast/name \"oldName\"]]\n\n;; Update them (simplified)\n(doseq [node nodes]\n  (transact! [node :ast/name \"newName\"]))"]]
-           [:p "Because the AST is canonical, renaming is "
-            [:strong "semantic"]
-            ", not textual. A variable "
-            [:code "user"]
-            " is different from a string literal "
-            [:code "\"user\""]
-            ". The query knows the difference."]
-           [:h3 "4. Hover (Show Type Information)"]
-           [:p "LSP: " [:code "textDocument/hover"] ", returns markdown."]
-           [:p "Yin.vm: Query type certainty metadata on the AST node:"]
-           [:pre
-            [:code
-             "[:find ?type ?certainty\n :where\n [?node :ast/type :variable-reference]\n [?node :ast/name \"total\"]\n [?node :ast/type-annotation ?type]\n [?node :ast/type-certainty ?certainty]]"]]
-           [:p "The type system is unified as certainty levels ("
-            [:code ":static"]
-            ", "
-            [:code ":dynamic"]
-            ", "
-            [:code ":unknown"]
-            "), as explained in "
+            " (the AST‑native IDE vision)"]
+           [:li
             [:a {:href "/blog/yin-vm-ast-chinese-characters.blog"} "Yin.vm: Chinese Characters for Programming Languages"]
-            "."]
-           [:h3 "5. Code Lens (References Count)"]
-           [:p "LSP: " [:code "textDocument/codeLens"] "."]
-           [:p "Yin.vm: Just count the results of the references query."]
-           [:pre
-            [:code
-             "[:find (count ?ref)\n :where\n [?def :ast/type :function-definition]\n [?def :ast/name \"calculateTotal\"]\n [?ref :ast/type :variable-reference]\n [?ref :ast/name \"calculateTotal\"]]"]]
-           [:p "Every IDE feature becomes a "
-            [:strong "query over the AST database"]
-            ". No language‑specific plugins. No RPC overhead."]
-           [:h2 "Cross‑Language Tooling: The Killer Feature"]
-           [:p "LSP servers are siloed. A Python server knows nothing about Java. A Java server knows nothing about C++. This mirrors how we write software: in separate language silos, with fragile glue code."]
-           [:p "Yin.vm's Universal AST breaks these siloes. Because all languages compile to the same AST representation, you can write queries that "
-            [:strong "span languages"]
-            ":"]
-           [:pre
-            [:code
-             ";; Find all functions that read from a network socket\n;; and write to a file, regardless of language\n[:find ?fn ?lang\n :where\n [?fn :ast/type :function-definition]\n [?fn :ast/language ?lang]\n [?fn :ast/body ?body]\n [?body :ast/contains ?socket-read]\n [?socket-read :ast/type :socket-read]\n [?body :ast/contains ?file-write]\n [?file-write :ast/type :file-write]]"]]
-           [:p "Or refactor across language boundaries:"]
-           [:pre
-            [:code
-             ";; Replace deprecated API calls in Python, Java, and C++\n[:find ?call ?file ?lang\n :where\n [?call :ast/type :function-call]\n [?call :ast/function-name \"oldDeprecatedAPI\"]\n [?call :ast/location ?file]\n [?file :file/language ?lang]]\n\n;; Update all to \"newRecommendedAPI\"\n(doseq [call calls]\n  (transact! [call :ast/function-name \"newRecommendedAPI\"]))"]]
-           [:p "This is impossible with LSP. Each language server owns its own index. There's no shared database to query across languages."]
-           [:h2 "Time‑Travel and Collaborative Editing Built‑In"]
-           [:p "LSP sees only the current snapshot. Yin.vm's datom streams preserve "
-            [:strong "every edit as a transaction"]
-            ". This enables features LSP can't touch:"]
-           [:h3 "1. Time‑Travel Debugging for Code"]
-           [:p "Query the AST as of any transaction:"]
-           [:pre
-            [:code
-             ";; What did this function look like 3 hours ago?\n[:find ?node ?name ?body\n :where\n [?node :ast/type :function-definition]\n [?node :ast/name \"calculateTotal\"]\n [?node :ast/body ?body]\n :at-tx 1500]   ;; transaction ID 1500"]]
-           [:h3 "2. Semantic Diff"]
-           [:p "Not just which lines changed, but which "
-            [:strong "semantic structures"]
-            " changed:"]
-           [:pre
-            [:code
-             ";; What functions changed between tx 1000 and 2000?\n[:find ?fn ?old-body ?new-body\n :where\n [?fn :ast/type :function-definition]\n [?fn :ast/body ?old-body :at-tx 1000]\n [?fn :ast/body ?new-body :at-tx 2000]\n [(not= ?old-body ?new-body)]]"]]
-           [:h3 "3. Collaborative Editing as Datom Merging"]
-           [:p "Two developers edit the same function. With LSP, you'd need operational transforms or CRDTs at the text level. With Yin.vm, edits are datom transactions that "
-            [:strong "merge semantically"]
-            ":"]
-           [:pre
-            [:code
-             ";; Developer A adds a parameter\n[fn-1 :ast/params [param-1 param-2 param-3] tx-1001]\n\n;; Developer B renames the function\n[fn-1 :ast/name \"calculateTotal\" tx-1002]\n\n;; Both transactions succeed: different parts of the AST"]]
-           [:p "Conflict resolution happens at the semantic level, not the text level. As shown in "
-            [:a {:href "/blog/ide-edits-ast-not-text.blog"} "the earlier blog post"]
-            ", this makes collaboration natural."]
-           [:h2 "No More Language Servers"]
-           [:p "Today, each language needs:"]
-           [:ul.bulleted
-            [:li "A parser (often several, for different IDE features)"]
-            [:li "An index (in‑memory or on‑disk)"]
-            [:li "A cache (for performance)"]
-            [:li "A language‑specific plugin (for edge cases)"]]
-           [:p "With Yin.vm, there's "
-            [:strong "one parser per language"]
-            " (to convert source text to Universal AST), but "
-            [:strong "one database for all languages"]
-            ". The parser's output is datoms, which go into DaoDB. From there, every IDE feature works the same way, regardless of language."]
-           [:p "This reduces complexity dramatically:"]
-           [:table
-            [:thead
-             [:tr
-              [:th "Component"]
-              [:th "LSP World"]
-              [:th "Yin.vm World"]]]
-            [:tbody
-             [:tr
-              [:td [:strong "Parser"]]
-              [:td "Per language, often multiple (syntax highlighting, AST, refactoring)"]
-              [:td "One per language, outputting Universal AST datoms"]]
-             [:tr
-              [:td [:strong "Index"]]
-              [:td "Per language server, in‑memory, rebuilt on change"]
-              [:td "Single DaoDB with persistent EAVT/AEVT/AVET/VAET indexes"]]
-             [:tr
-              [:td [:strong "Query Engine"]]
-              [:td "Language‑specific heuristics"]
-              [:td "Datalog (same for all languages)"]]
-             [:tr
-              [:td [:strong "Cache"]]
-              [:td "Memory‑resident, lost on restart"]
-              [:td "Persistent datom store, always available"]]
-             [:tr
-              [:td [:strong "Cross‑Language"]]
-              [:td "None (separate servers)"]
-              [:td "Native (same database)"]]
-             [:tr
-              [:td [:strong "Versioning"]]
-              [:td "None (current snapshot)"]
-              [:td "Built‑in (transaction log)"]]
-             [:tr
-              [:td [:strong "Collaboration"]]
-              [:td "None (per‑editor)"]
-              [:td "Built‑in (stream merging)"]]]]
-           [:p "The language server disappears. In its place: a "
-            [:strong "database of AST datoms"]
-            " and a "
-            [:strong "query engine"]
-            "."]
-           [:h2 "The IDE as Database Client"]
-           [:p "With Yin.vm, the IDE doesn't talk to a language server. It talks to DaoDB. It can:"]
-           [:ul.bulleted
-            [:li "Subscribe to datom streams (live updates as code changes)"]
-            [:li "Run Datalog queries (for navigation, refactoring, analysis)"]
-            [:li "Submit transactions (for edits)"]
-            [:li "Open historical views (time‑travel)"]]
-           [:p "This architecture enables entirely new kinds of IDE features:"]
-           [:h3 "Semantic Search"]
-           [:p "Not \"find string 'foo'\", but \"find functions that take a network socket and return a sorted list\"."]
-           [:h3 "Automated Refactoring Across Languages"]
-           [:p "Convert Python dictionaries to Java classes, updating all call sites in both languages."]
-           [:h3 "Live Type Migration"]
-           [:p "Change a type from dynamic to static and see all affected code across the entire polyglot codebase."]
-           [:h3 "Architecture Enforcement"]
-           [:p "Define rules like \"UI components must not import database modules\" and query for violations in real‑time."]
-           [:p "These aren't fantasies. They're "
-            [:strong "straightforward Datalog queries"]
-            " over the AST database."]
-           [:h2 "What About Performance?"]
-           [:p "LSP servers are notorious for memory usage and sluggishness. They parse entire codebases on startup and keep ASTs in memory. Yin.vm's DaoDB is a "
-            [:strong "persistent, indexed database"]
-            ". It doesn't need to parse on startup: the datoms are already there, indexed for fast queries."]
-           [:p "DaoDB's EAVT/AEVT/AVET/VAET covering indexes make queries like \"find all references\" O(log n), not O(n). The database is updated incrementally as datoms arrive, not rebuilt from scratch."]
-           [:p "For massive codebases, you can shard by project, module, or namespace. Datalog queries can run distributed. This is already how DaoDB scales for data; the same architecture works for code."]
-           [:h2 "The Universal Language Server Is a Database"]
-           [:p "LSP's great insight was standardization: one protocol for many IDEs and languages. Yin.vm's insight is deeper: "
-            [:strong "the language server shouldn't be a server at all"]
-            ". It should be a database."]
-           [:p "A database that:"]
-           [:ul.bulleted
-            [:li "Stores code as semantic ASTs, not text"]
-            [:li "Indexes everything for fast queries"]
-            [:li "Preserves full history automatically"]
-            [:li "Merges collaborative edits naturally"]
-            [:li "Works across all languages in the same way"]]
-           [:p "The IDE becomes a "
-            [:strong "database client"]
-            ". Language servers disappear. Language‑specific tooling disappears. What remains is a universal query interface over the semantic structure of code."]
-           [:p "This is the next step after LSP. Not a better protocol for talking to language servers, but "
-            [:strong "eliminating the need for language servers altogether"]
-            "."]
-           [:h2 "Getting There"]
-           [:p "The path from today's LSP‑based world to Yin.vm's query‑based world requires:"]
-           [:ol
-            [:li
-             [:strong "Universal AST adoption"]
-             " :  languages need parsers to Yin.vm's AST (like the "
-             [:a {:href "/yang.chp"} "Yang compiler"]
-             " for Clojure)"]
-            [:li
-             [:strong "IDE integration"]
-             " :  IDEs need to speak Datalog to DaoDB instead of JSON‑RPC to LSP"]
-            [:li
-             [:strong "Incremental migration"]
-             " :  tools that convert existing codebases to AST datoms"]]
-           [:p "But the payoff is immense: tooling that works across languages, understands code semantically, and preserves history automatically."]
-           [:p "LSP showed us the power of standardization. Yin.vm shows us the power of "
-            [:strong "semantic representation"]
-            ". When code is stored as queryable AST datoms, the language server protocol becomes obsolete."]
-           [:p [:strong "Learn more:"]]
-           [:ul.bulleted
-            [:li
-             [:a {:href "/blog/ide-edits-ast-not-text.blog"} "When the IDE Edits AST, Not Text"]
-             " (the AST‑native IDE vision)"]
-            [:li
-             [:a {:href "/blog/yin-vm-ast-chinese-characters.blog"} "Yin.vm: Chinese Characters for Programming Languages"]
-             " (the Universal Semantic AST)"]
-            [:li
-             [:a {:href "/blog/universal-ast-vs-assembly.blog"} "Universal AST vs Assembly"]
-             " (low‑level form, high‑level semantics)"]
-            [:li
-             [:a {:href "/dao-db.chp"} "DaoDB"]
-             " (the Datalog database storing AST datoms)"]
-            [:li
-             [:a {:href "/yin.chp"} "Yin VM Documentation"]
-             " (technical deep dive)"]]]]]}
+            " (the Universal Semantic AST)"]
+           [:li
+            [:a {:href "/blog/universal-ast-vs-assembly.blog"} "Universal AST vs Assembly"]
+            " (low‑level form, high‑level semantics)"]
+           [:li
+            [:a {:href "/dao-db.chp"} "DaoDB"]
+            " (the Datalog database storing AST datoms)"]
+           [:li
+            [:a {:href "/yin.chp"} "Yin VM Documentation"]
+            " (technical deep dive)"]]]]]}
