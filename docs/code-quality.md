@@ -3,16 +3,34 @@
 ## Usage
 
 ```bash
-# Full report: prints metrics table, writes dep-graph.dot
+# Full report: prints metrics table, writes dep-graph.dot and dep-graph.svg
 clj -M:dep-graph
 
 # Filter to specific namespaces (regex)
 clj -M:dep-graph --filter "yin.*"
 clj -M:dep-graph --filter "daodb.*"
 
-# Render to SVG (requires Graphviz: brew install graphviz)
-dot -Tsvg dep-graph.dot -o dep-graph.svg
+# Choose Graphviz layout engine for SVG generation
+clj -M:dep-graph --layout dot
+clj -M:dep-graph --layout neato
+clj -M:dep-graph --layout fdp
+clj -M:dep-graph --layout sfdp
+clj -M:dep-graph --layout circo
+clj -M:dep-graph --layout twopi
 ```
+
+## Layout options
+
+`--layout` controls which Graphviz engine is used to render `dep-graph.svg`.
+
+| Layout | Best for |
+|--------|----------|
+| `dot` | Hierarchical, layered dependency graphs (default) |
+| `neato` | Force-directed layout for small/medium graphs |
+| `fdp` | Alternative force-directed layout |
+| `sfdp` | Large graphs with many nodes/edges |
+| `circo` | Circular/ring-like structure |
+| `twopi` | Radial layout from a center outward |
 
 ## Reading the output
 
