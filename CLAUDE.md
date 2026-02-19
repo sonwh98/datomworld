@@ -240,7 +240,7 @@ Invariant: every stage is a pure function from stream to stream.
 No stage mutates its input. Intermediate representations coexist.
 The AST persists alongside bytecode, alongside execution state.
 
-Visual reference: src/cljs/datomworld/core.cljs renders this pipeline as draggable cards
+Visual reference: src/cljs/datomworld/demo.cljs renders this pipeline as draggable cards
 connected by bezier curves. Each card is a stream stage. The connection-line buttons
 (AST ->, Asm ->, Reg ->, Stack ->) are the transducers. The UI makes the stream
 topology explicit and observable.

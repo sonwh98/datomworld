@@ -15,7 +15,7 @@
 
           :local {:target :browser
                   :devtools {:use-document-protocol true}
-                  :closure-defines {datomworld.core/WEBSOCKET_PORT 8090}
+                  :closure-defines {datomworld.demo/WEBSOCKET_PORT 8090}
                   :modules {:main {:init-fn datomworld.demo/init}}}
 
           :test {:target :node-script

@@ -1,4 +1,4 @@
-(ns datomworld.core
+(ns datomworld.demo
   (:require
     ["@codemirror/lang-php" :refer [php]]
     ["@codemirror/lang-python" :refer [python]]
