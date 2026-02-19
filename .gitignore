@@ -35,3 +35,5 @@ test/cljd-out/
 #*#
 build/
 *.iml
+dep-graph.dot
+dep-graph.svg

@@ -41,7 +41,10 @@
            :fmt {:extra-paths ["src/dev"]
                  :exec-fn tasks/fix-all}
            :kondo {:extra-deps {clj-kondo/clj-kondo {:mvn/version "2026.01.19"}}
-                   :main-opts ["-m" "clj-kondo.main"]}}}
+                   :main-opts ["-m" "clj-kondo.main"]}
+           :dep-graph {:extra-paths ["tools"]
+                       :extra-deps {org.clojure/tools.namespace {:mvn/version "1.5.0"}}
+                       :main-opts ["-m" "dep-graph"]}}}
 
 
 ;; clj -X:fmt
@@ -73,3 +76,7 @@
 ;; flutter emulators --launch Pixel_3_API_34
 ;; emulator -avd Pixel_3_API_34 -no-snapshot-load  
 ;; emulator -list-avds
+
+;;  clj -M:dep-graph                    # full report + dep-graph.dot
+;;  clj -M:dep-graph --filter "yin.*"   # only yin namespaces
+;;  dot -Tsvg dep-graph.dot -o dep-graph.svg   # render to SVG
