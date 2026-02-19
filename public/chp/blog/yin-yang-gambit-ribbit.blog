@@ -1,0 +1,220 @@
+#:blog{:title "Three Continuation Machines: Yin.vm/Yang, Gambit Scheme, and Ribbit"
+       :date #inst "2026-02-19T00:00:00.000-00:00"
+       :abstract
+       [:p
+        "Yin.vm/Yang, Gambit Scheme, and Ribbit all descend from the Scheme tradition of first‑class continuations, yet their designs diverge radically. This blog compares their philosophies, architectures, and tradeoffs: a data‑centric stream‑based VM for mobile agents, a high‑performance Scheme‑to‑C compiler, and a compact portable VM that targets 25+ host languages."]
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+          [:h2 "The Common Ancestor: Scheme’s First‑Class Continuations"]
+          [:p
+           "The "
+           [:a {:href "https://en.wikipedia.org/wiki/Continuation"} "continuation"]
+           ", as captured by "
+           [:code "call/cc"]
+           " in Scheme, represents “the rest of the computation from this point onward.” It’s a first‑class value that can be stored, passed, and resumed. From this shared foundation, three projects have taken radically different paths."]
+          [:p
+           "Each answers a different question: "
+           [:strong "What should a continuation‑based virtual machine do?"]
+           " Yin.vm/Yang says: "
+           [:em "Be a mobile, queryable stream processor"]
+           ". Gambit says: "
+           [:em "Run fast and portable"]
+           ". Ribbit says: "
+           [:em "Run everywhere, in the smallest footprint possible"]
+           "."]
+          [:h2 "Design Philosophy"]
+          [:p
+           "Their core goals dictate their architectures:"]
+          [:table
+           [:thead
+            [:tr
+             [:th "System"]
+             [:th "Primary Goal"]
+             [:th "Key Metaphor"]]]
+           [:tbody
+            [:tr
+             [:td [:strong "Yin.vm + Yang"]]
+             [:td "Everything is data. Unify code, runtime state, and continuations as immutable, queryable datom streams. Enable mobile agents, introspection, and multi‑language semantics."]
+             [:td "Stream‑based physics: the datom stream is the wave function; interpreters project different views."]]
+            [:tr
+             [:td [:strong "Gambit Scheme"]]
+             [:td "Performance and portability. Produce fast standalone executables via C compilation, with R4RS/R5RS compliance and green‑thread concurrency."]
+             [:td "Classic Scheme engine: compile to efficient C, leverage native optimizations."]]
+            [:tr
+             [:td [:strong "Ribbit"]]
+             [:td "Extreme portability and compactness. Compile R4RS Scheme to 25+ host languages while removing unused code. Target embedded, educational, and polyglot environments."]
+             [:td "Universal adapter: write once, run anywhere, with a tiny footprint."]]]]
+          [:h2 "Architecture Deep Dive"]
+          [:p
+           "How each system implements continuations, code representation, distribution, and interop:"]
+          [:table
+           [:thead
+            [:tr
+             [:th "Dimension"]
+             [:th "Yin.vm + Yang"]
+             [:th "Gambit Scheme"]
+             [:th "Ribbit"]]]
+           [:tbody
+            [:tr
+             [:td [:strong "Execution Model"]]
+             [:td "CESK machine (Control, Environment, Store, Continuation) with persistent data structures. No hidden stack; continuations are explicit, reified control contexts."]
+             [:td "Stack‑based execution via C compilation. First‑class continuations via heap‑allocated stack copying (" [:code "call/cc"] "). Green threads (chez‑threads)."]
+             [:td "Register‑based portable VM (RVM). Scheme source → compact bytecode interpreted by a tiny VM written in each host language."]]
+            [:tr
+             [:td [:strong "Continuations"]]
+             [:td "First‑class, serializable, migratable. Continuations are datoms capturing control state only; environments/stores live in external streams. Unifies functions, closures, and agents."]
+             [:td "First‑class via stack copying. Efficient within a single process but not designed for serialization or network migration. Termite variant adds Erlang‑style message‑passing actors."]
+             [:td "First‑class as required by R4RS. Implemented via heap‑allocated stack segments in the portable VM. No built‑in migration or serialization across hosts."]]
+            [:tr
+             [:td [:strong "Code Representation"]]
+             [:td "Universal AST (Abstract Semantic Graph) stored as datoms " [:code "[e a v t m]"] " in DaoDB. Queryable via Datalog. Multiple backends (stack, register, semantic) project the same datom stream."]
+             [:td "Traditional AST compiled to C intermediate representation, then to native code. No persistent queryable representation after compilation."]
+             [:td "Scheme source → RVM bytecode (compact, specialized). The compiler (" [:code "rsc.scm"] ") emits host‑language‑specific VM interpreters that execute the bytecode."]]
+            [:tr
+             [:td [:strong "Distribution"]]
+             [:td "Mobile agents: continuations carry capability tokens and migrate to data. Stream‑based IO; computation moves, data stays. Built for distributed, heterogeneous networks."]
+             [:td "Single‑node; Termite variant adds actor‑model message‑passing across processes (Erlang‑style), but no continuation migration."]
+             [:td "Single‑node per host. No built‑in distribution; focus is on cross‑language portability, not network‑transparent execution."]]
+            [:tr
+             [:td [:strong "Language Interop"]]
+             [:td "Yang is a multi‑language compiler collection (Clojure, Python, etc.). All compile to the same Universal AST, enabling seamless cross‑language function calls and data sharing."]
+             [:td "Scheme‑only. Extensive FFI to C/C++/Objective‑C libraries. No semantic integration with other high‑level languages."]
+             [:td "Host‑language primitives: can define primitives that interact directly with any of the 25+ host languages (e.g., embed Python or C code in Scheme)."]]
+            [:tr
+             [:td [:strong "Introspection"]]
+             [:td "Full Datalog querying over AST, bytecode, continuations, environments, and stores. Time‑travel debugging, hot‑code reload, and AI‑assisted modification are native."]
+             [:td "Limited introspection: debugger support, stack traces, and module reflection. No queryable runtime database."]
+             [:td "Minimal introspection: the REPL provides basic evaluation, but no deep querying of runtime state or execution history."]]
+            [:tr
+             [:td [:strong "Performance"]]
+             [:td "Prioritizes flexibility and mobility. JIT compilation from datom streams to bytecode is possible; structural sharing enables fast snapshots. Not optimized for raw speed."]
+             [:td "Optimized for speed: compiles Scheme to efficient C, leveraging native compiler optimizations. Lightweight green threads."]
+             [:td "Prioritizes compactness over speed. The generated VMs are tiny (7 KB for a full R4RS REPL) but interpreted, so slower than native compilation."]]
+            [:tr
+             [:td [:strong "Concurrency"]]
+             [:td "Continuation scheduling as primitive; async/await, generators, actors, and backtracking are patterns over continuation manipulation."]
+             [:td "Green threads (chez‑threads) and Termite’s actor model (message‑passing). No unified continuation‑based control‑flow."]
+             [:td "Single‑threaded interpreter. No built‑in concurrency; relies on host‑language threading if available."]]
+            [:tr
+             [:td [:strong "Storage Model"]]
+             [:td "Immutable datoms in DaoDB (covering indexes: EAVT, AEVT, AVET, VAET). All state is append‑only streams."]
+             [:td "Traditional mutable memory with garbage collection. No built‑in persistent storage or stream abstraction."]
+             [:td "Ephemeral VM heap; no persistent storage. I/O primitives delegate to host‑language file operations."]]
+            [:tr
+             [:td [:strong "Portability"]]
+             [:td "Runs on JVM and Node.js via Clojure/ClojureScript. The Universal AST is platform‑agnostic, but execution requires a Clojure runtime."]
+             [:td "Portable to any platform with a C compiler. Generates standalone executables for Linux, macOS, Windows, etc."]
+             [:td "Extreme portability: targets 25+ host languages (C, JavaScript, Python, Prolog, POSIX Shell, x86 Assembly, etc.). Write once, run anywhere."]]]]
+          [:h2 "Design Lineage"]
+          [:p
+           "These systems emerge from different branches of the Scheme/Lisp family tree:"]
+          [:pre
+           [:code
+            "Gambit (1988) → Termite (actors) → Ribbit (2020s)
+    Evolution: fast Scheme‑to‑C → actor‑based concurrency → extreme portability & compactness
+
+Yin.vm/Yang (separate lineage)
+    Influences: Clojure, Datomic, Plan 9, Smalltalk
+    Philosophy: streams, immutability, queryable knowledge graphs"]]
+          [:p
+           "Ribbit is a direct descendant of Gambit (both from Marc Feeley’s lab). Yin.vm/Yang draws from the Clojure/Datomic tradition, treating continuations as data in a global, versioned fact store."]
+          [:h2 "Key Contrasts"]
+          [:p
+           "Summary of tradeoffs:"]
+          [:table
+           [:thead
+            [:tr
+             [:th "Aspect"]
+             [:th "Yin.vm/Yang"]
+             [:th "Gambit"]
+             [:th "Ribbit"]]]
+           [:tbody
+            [:tr
+             [:td [:strong "Continuations"]]
+             [:td "Datoms, mobile, lightweight"]
+             [:td "Stack copies, efficient but local"]
+             [:td "VM‑level, portable but not migratable"]]
+            [:tr
+             [:td [:strong "Code as data"]]
+             [:td "AST is persistent, queryable datoms"]
+             [:td "AST discarded after compilation"]
+             [:td "Bytecode is compact, specialized per host"]]
+            [:tr
+             [:td [:strong "Distribution"]]
+             [:td "Agents migrate with capability tokens"]
+             [:td "Termite actors message across processes"]
+             [:td "No distribution; cross‑language portability"]]
+            [:tr
+             [:td [:strong "Language interop"]]
+             [:td "Semantic unification via Universal AST"]
+             [:td "FFI to C/C++/Objective‑C"]
+             [:td "Host‑language primitive embedding"]]
+            [:tr
+             [:td [:strong "Introspection"]]
+             [:td "Full Datalog querying over runtime state"]
+             [:td "Debugger and stack traces"]
+             [:td "Basic REPL, no deep querying"]]
+            [:tr
+             [:td [:strong "Portability"]]
+             [:td "JVM/Node.js"]
+             [:td "C compiler required"]
+             [:td "25+ host languages, extreme portability"]]
+            [:tr
+             [:td [:strong "Size/Footprint"]]
+             [:td "Moderate (Clojure runtime)"]
+             [:td "Moderate (generated C binary)"]
+             [:td "Extremely small (7 KB for R4RS REPL)"]]]]
+          [:h2 "When to Use Which"]
+          [:ul.bulleted
+           [:li
+            [:strong "Choose Yin.vm/Yang"]
+            " when you need distributed, queryable, multi‑language systems where code mobility and introspection are primary. Ideal for agent‑based simulations, collaborative coding environments, or systems that require time‑travel debugging and semantic versioning."]
+           [:li
+            [:strong "Choose Gambit"]
+            " when you need high‑performance Scheme applications as standalone binaries, with green‑thread concurrency and a mature FFI. Great for servers, command‑line tools, or embedding Scheme in larger C/C++ projects."]
+           [:li
+            [:strong "Choose Ribbit"]
+            " when footprint and host‑language reach matter most: educational tools, embedded scripting, polyglot research, or environments where installing a C compiler isn’t feasible. Perfect for “run this Scheme snippet in your browser, Python REPL, or Prolog interpreter.”"]]
+          [:h2 "Future Directions"]
+          [:p
+           "Could these designs inform each other? Imagine Ribbit’s multi‑host VM as a target for Yin.vm’s datom streams, enabling Yin agents to run on 25+ platforms without a Clojure runtime. Or Gambit’s Termite actors re‑expressed as mobile continuations, migrating across nodes while retaining their C‑level speed."]
+          [:p
+           "The deeper lesson: continuations are a "
+           [:strong "universal semantic kernel"]
+           " (see "
+           [:a {:href "/blog/continuations-universal-semantic-kernel.blog"} "Continuations as Universal Semantic Kernel"]
+           "). Whether you store them as datoms, copy them on the heap, or interpret them in a tiny VM, they remain the single primitive that can encode exceptions, async/await, generators, actors, and backtracking. The three systems simply optimize for different dimensions of the same core idea."]
+          [:h2 "Conclusion"]
+          [:p
+           "Yin.vm/Yang, Gambit, and Ribbit show three viable futures for continuation‑based VMs: "
+           [:strong "mobile‑first, speed‑first, and portable‑first"]
+           ". Each serves a distinct need, yet all share the same ancestral insight: that capturing “the rest of the computation” as a first‑class value unlocks profound architectural simplicity."]
+          [:p
+           "Which future you choose depends on what you value most: moving computation, running fast, or running everywhere."]
+          [:h2 "Learn More"]
+          [:ul.bulleted
+           [:li
+            [:a {:href "/yin.chp"} "Yin VM documentation"]
+            " – the stream‑based CESK machine"]
+           [:li
+            [:a {:href "/yang.chp"} "Yang compiler documentation"]
+            " – multi‑language to Universal AST"]
+           [:li
+            [:a {:href "https://gambitscheme.org"} "Gambit Scheme"]
+            " – high‑performance Scheme‑to‑C compiler"]
+           [:li
+            [:a {:href "https://github.com/udem-dlteam/ribbit"} "Ribbit on GitHub"]
+            " – compact, portable Scheme VM"]
+           [:li
+            [:a {:href "/blog/continuations-universal-semantic-kernel.blog"} "Continuations as Universal Semantic Kernel"]
+            " – why continuations unify control‑flow constructs"]
+           [:li
+            [:a {:href "/blog/computation-moves-data-stays.blog"} "Computation Moves, Data Stays"]
+            " – how Yin.vm keeps continuations lightweight"]
+           [:li
+            [:a {:href "/blog/universal-ast-vs-assembly.blog"} "Universal AST vs Assembly"]
+            " – low‑level form, high‑level semantics"]]]]]}
