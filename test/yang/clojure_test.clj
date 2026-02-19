@@ -1,9 +1,10 @@
 (ns yang.clojure-test
-  (:require [clojure.test :refer :all]
-            [yang.clojure :as yang]
-            [yin.stream]
-            [yin.vm :as vm]
-            [yin.vm.ast-walker :as ast-walker]))
+  (:require
+    [clojure.test :refer :all]
+    [yang.clojure :as yang]
+    [yin.stream]
+    [yin.vm :as vm]
+    [yin.vm.ast-walker :as ast-walker]))
 
 
 (defn compile-and-run
@@ -150,8 +151,8 @@
       (is
         (= 22
            (compile-and-run '(let
-                              [double (fn [x] (* x 2)) triple (fn [x] (* x 3))]
-                              (+ (double 5) (triple 4)))))))))
+                               [double (fn [x] (* x 2)) triple (fn [x] (* x 3))]
+                               (+ (double 5) (triple 4)))))))))
 
 
 (deftest test-compile-errors
@@ -221,11 +222,11 @@
       (is
         (= 1
            (compile-and-run '(let
-                              [s (stream/make 10)]
-                              (stream/put! s 1)
-                              (stream/put! s 2)
-                              (stream/put! s 3)
-                              (stream/take! s))))))))
+                               [s (stream/make 10)]
+                               (stream/put! s 1)
+                               (stream/put! s 2)
+                               (stream/put! s 3)
+                               (stream/take! s))))))))
 
 
 (deftest test-lambda-with-multi-expression-body

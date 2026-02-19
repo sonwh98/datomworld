@@ -8,7 +8,8 @@
   - Recursion (via let-binding transformation)
   - Basic operators and literals"
   (:refer-clojure :exclude [compile])
-  (:require [clojure.string :as str]))
+  (:require
+    [clojure.string :as str]))
 
 
 ;; Forward declarations
@@ -26,22 +27,22 @@
     (if (empty? s)
       tokens
       (let [patterns
-              [[:number #"^\d+\.?\d*"] [:string #"^\"([^\"]*)\""]
-               [:string #"^'([^']*)'"]
-               [:keyword
-                #"^(def|lambda|return|if|else|and|or|not|True|False|None)\b"]
-               [:identifier #"^[a-zA-Z_][a-zA-Z0-9_]*"]
-               [:operator #"^(==|!=|<=|>=|<|>|\+|-|\*|/|=)"] [:lparen #"^\("]
-               [:rparen #"^\)"] [:comma #"^,"] [:colon #"^:"]
-               [:whitespace #"^[ \t]+"]]
+            [[:number #"^\d+\.?\d*"] [:string #"^\"([^\"]*)\""]
+             [:string #"^'([^']*)'"]
+             [:keyword
+              #"^(def|lambda|return|if|else|and|or|not|True|False|None)\b"]
+             [:identifier #"^[a-zA-Z_][a-zA-Z0-9_]*"]
+             [:operator #"^(==|!=|<=|>=|<|>|\+|-|\*|/|=)"] [:lparen #"^\("]
+             [:rparen #"^\)"] [:comma #"^,"] [:colon #"^:"]
+             [:whitespace #"^[ \t]+"]]
             matched
-              (some
-                (fn [[type pattern]]
-                  (when-let [match (re-find pattern s)]
-                    (let [full-match (if (string? match) match (first match))
-                          value (if (= type :string) (second match) full-match)]
-                      {:type type, :value value, :length (count full-match)})))
-                patterns)]
+            (some
+              (fn [[type pattern]]
+                (when-let [match (re-find pattern s)]
+                  (let [full-match (if (string? match) match (first match))
+                        value (if (= type :string) (second match) full-match)]
+                    {:type type, :value value, :length (count full-match)})))
+              patterns)]
         (if matched
           (recur (subs s (:length matched))
                  (if (= :whitespace (:type matched))
@@ -64,13 +65,13 @@
                 current-indent (peek @indents)]
             (cond (> indent current-indent) (do (swap! indents conj indent)
                                                 (swap! tokens conj
-                                                  [:indent nil]))
+                                                       [:indent nil]))
                   (< indent current-indent) (loop []
                                               (let [curr (peek @indents)]
                                                 (when (> curr indent)
                                                   (swap! indents pop)
                                                   (swap! tokens conj
-                                                    [:dedent nil])
+                                                         [:dedent nil])
                                                   (recur))))
                   :else nil)
             (swap! tokens into (tokenize-line trimmed))
@@ -122,7 +123,7 @@
     (cond (#{:number :string} type) {:ast (parse-py-literal (first tokens)),
                                      :remaining (rest tokens)}
           (and (= :keyword type) (#{"True" "False" "None"} val))
-            {:ast (parse-py-literal (first tokens)), :remaining (rest tokens)}
+          {:ast (parse-py-literal (first tokens)), :remaining (rest tokens)}
           (= :identifier type) {:ast {:py-type :variable, :name (symbol val)},
                                 :remaining (rest tokens)}
           (= :lparen type) (let [{:keys [ast remaining]} (parse-py-expr
@@ -136,16 +137,17 @@
   (let [{:keys [ast remaining]} (parse-py-primary tokens)]
     (if (= :lparen (first (first remaining)))
       (let [parse-args
-              (fn parse-args [toks args]
-                (if (match? (first toks) :rparen)
-                  {:args args, :remaining (rest toks)}
-                  (let [{:keys [ast remaining]} (parse-py-expr toks)]
-                    (if (match? (first remaining) :comma)
-                      (recur (rest remaining) (conj args ast))
-                      (if (match? (first remaining) :rparen)
-                        {:args (conj args ast), :remaining (rest remaining)}
-                        (throw (ex-info "Expected , or )"
-                                        {:token (first remaining)})))))))
+            (fn parse-args
+              [toks args]
+              (if (match? (first toks) :rparen)
+                {:args args, :remaining (rest toks)}
+                (let [{:keys [ast remaining]} (parse-py-expr toks)]
+                  (if (match? (first remaining) :comma)
+                    (recur (rest remaining) (conj args ast))
+                    (if (match? (first remaining) :rparen)
+                      {:args (conj args ast), :remaining (rest remaining)}
+                      (throw (ex-info "Expected , or )"
+                                      {:token (first remaining)})))))))
             {:keys [args remaining]} (parse-args (rest remaining) [])]
         {:ast {:py-type :call, :function ast, :args args},
          :remaining remaining})
@@ -262,61 +264,61 @@
     (cond
       ;; return
       (and (= :keyword type) (= "return" val))
-        (let [{:keys [ast remaining]} (parse-py-expr (rest tokens))]
-          {:ast {:py-type :return, :value ast},
-           :remaining (expect remaining :newline)})
+      (let [{:keys [ast remaining]} (parse-py-expr (rest tokens))]
+        {:ast {:py-type :return, :value ast},
+         :remaining (expect remaining :newline)})
       ;; def
       (and (= :keyword type) (= "def" val))
-        (let [tokens (rest tokens)
-              [name-type name-val] (first tokens)
-              _ (when-not (= :identifier name-type)
-                  (throw (ex-info "Expected func name"
-                                  {:token (first tokens)})))
-              tokens (rest tokens)
-              tokens (expect tokens :lparen)
-              ;; Parse params
-              parse-params
-                (fn [toks]
-                  (loop [params []
-                         t toks]
-                    (if (match? (first t) :rparen)
-                      {:params params, :remaining (rest t)}
-                      (let [[pt pv] (first t)]
-                        (if (= :identifier pt)
-                          (if (match? (first (rest t)) :comma)
-                            (recur (conj params (symbol pv)) (drop 2 t))
-                            (if (match? (first (rest t)) :rparen)
-                              {:params (conj params (symbol pv)),
-                               :remaining (drop 2 t)}
-                              (throw (ex-info "Expected , or )"
-                                              {:token (first (rest t))}))))
-                          (throw (ex-info "Expected param"
-                                          {:token (first t)})))))))
-              {:keys [params remaining]} (parse-params tokens)
-              remaining (expect remaining :colon)
-              {:keys [ast remaining]} (parse-py-suite remaining)]
-          {:ast {:py-type :def,
-                 :name (symbol name-val),
-                 :params params,
-                 :body ast},
-           :remaining remaining})
+      (let [tokens (rest tokens)
+            [name-type name-val] (first tokens)
+            _ (when-not (= :identifier name-type)
+                (throw (ex-info "Expected func name"
+                                {:token (first tokens)})))
+            tokens (rest tokens)
+            tokens (expect tokens :lparen)
+            ;; Parse params
+            parse-params
+            (fn [toks]
+              (loop [params []
+                     t toks]
+                (if (match? (first t) :rparen)
+                  {:params params, :remaining (rest t)}
+                  (let [[pt pv] (first t)]
+                    (if (= :identifier pt)
+                      (if (match? (first (rest t)) :comma)
+                        (recur (conj params (symbol pv)) (drop 2 t))
+                        (if (match? (first (rest t)) :rparen)
+                          {:params (conj params (symbol pv)),
+                           :remaining (drop 2 t)}
+                          (throw (ex-info "Expected , or )"
+                                          {:token (first (rest t))}))))
+                      (throw (ex-info "Expected param"
+                                      {:token (first t)})))))))
+            {:keys [params remaining]} (parse-params tokens)
+            remaining (expect remaining :colon)
+            {:keys [ast remaining]} (parse-py-suite remaining)]
+        {:ast {:py-type :def,
+               :name (symbol name-val),
+               :params params,
+               :body ast},
+         :remaining remaining})
       ;; if (statement)
       (and (= :keyword type) (= "if" val))
-        (let [{:keys [ast remaining]} (parse-py-expr (rest tokens))
-              remaining (expect remaining :colon)
-              {cons :ast, remaining :remaining} (parse-py-suite remaining)]
-          (if (and (match? (first remaining) :keyword "else")
-                   (match? (first (rest remaining)) :colon))
-            (let [{alt :ast, remaining :remaining} (parse-py-suite
-                                                     (drop 2 remaining))]
-              {:ast {:py-type :if-stmt,
-                     :test ast,
-                     :consequent cons,
-                     :alternate alt},
-               :remaining remaining})
-            {:ast
-               {:py-type :if-stmt, :test ast, :consequent cons, :alternate nil},
-             :remaining remaining}))
+      (let [{:keys [ast remaining]} (parse-py-expr (rest tokens))
+            remaining (expect remaining :colon)
+            {cons :ast, remaining :remaining} (parse-py-suite remaining)]
+        (if (and (match? (first remaining) :keyword "else")
+                 (match? (first (rest remaining)) :colon))
+          (let [{alt :ast, remaining :remaining} (parse-py-suite
+                                                   (drop 2 remaining))]
+            {:ast {:py-type :if-stmt,
+                   :test ast,
+                   :consequent cons,
+                   :alternate alt},
+             :remaining remaining})
+          {:ast
+           {:py-type :if-stmt, :test ast, :consequent cons, :alternate nil},
+           :remaining remaining}))
       ;; expression stmt
       :else (let [{:keys [ast remaining]} (parse-py-expr tokens)]
               {:ast ast, :remaining (expect remaining :newline)}))))
@@ -373,16 +375,16 @@
     :literal {:type :literal, :value (:value node)}
     :variable {:type :variable, :name (:name node)}
     :binop
-      {:type :application,
-       :operator {:type :variable,
-                  :name
-                    (get py-op->yin (clojure.core/name (:op node)) (:op node))},
-       :operands [(compile-stmt (:left node)) (compile-stmt (:right node))]}
+    {:type :application,
+     :operator {:type :variable,
+                :name
+                (get py-op->yin (clojure.core/name (:op node)) (:op node))},
+     :operands [(compile-stmt (:left node)) (compile-stmt (:right node))]}
     :call {:type :application,
            :operator (compile-stmt (:function node)),
            :operands (mapv compile-stmt (:args node))}
     :lambda
-      {:type :lambda, :params (:params node), :body (compile-stmt (:body node))}
+    {:type :lambda, :params (:params node), :body (compile-stmt (:body node))}
     :return (compile-stmt (:value node))
     :if {:type :if,
          :test (compile-stmt (:test node)),
@@ -403,33 +405,33 @@
   {:type :lambda,
    :params ['f],
    :body
-     {:type :application,
-      :operator {:type :lambda,
-                 :params ['x],
-                 :body {:type :application,
-                        :operator {:type :variable, :name 'f},
-                        :operands
-                          [{:type :lambda,
-                            :params ['v],
-                            :body {:type :application,
-                                   :operator
-                                     {:type :application,
-                                      :operator {:type :variable, :name 'x},
-                                      :operands [{:type :variable, :name 'x}]},
-                                   :operands [{:type :variable, :name 'v}]}}]}},
-      :operands
-        [{:type :lambda,
-          :params ['x],
-          :body {:type :application,
-                 :operator {:type :variable, :name 'f},
-                 :operands
-                   [{:type :lambda,
-                     :params ['v],
-                     :body {:type :application,
-                            :operator {:type :application,
-                                       :operator {:type :variable, :name 'x},
-                                       :operands [{:type :variable, :name 'x}]},
-                            :operands [{:type :variable, :name 'v}]}}]}}]}})
+   {:type :application,
+    :operator {:type :lambda,
+               :params ['x],
+               :body {:type :application,
+                      :operator {:type :variable, :name 'f},
+                      :operands
+                      [{:type :lambda,
+                        :params ['v],
+                        :body {:type :application,
+                               :operator
+                               {:type :application,
+                                :operator {:type :variable, :name 'x},
+                                :operands [{:type :variable, :name 'x}]},
+                               :operands [{:type :variable, :name 'v}]}}]}},
+    :operands
+    [{:type :lambda,
+      :params ['x],
+      :body {:type :application,
+             :operator {:type :variable, :name 'f},
+             :operands
+             [{:type :lambda,
+               :params ['v],
+               :body {:type :application,
+                      :operator {:type :application,
+                                 :operator {:type :variable, :name 'x},
+                                 :operands [{:type :variable, :name 'x}]},
+                      :operands [{:type :variable, :name 'v}]}}]}}]}})
 
 
 (defn compile-program

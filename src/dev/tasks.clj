@@ -1,6 +1,7 @@
 (ns tasks
-  (:require [clojure.java.shell :as sh]
-            [clojure.string :as str]))
+  (:require
+    [clojure.java.shell :as sh]
+    [clojure.string :as str]))
 
 
 (defn- run-cljstyle
@@ -23,7 +24,7 @@
         valid-files (filter seq files)]
     (if (seq valid-files)
       (let [{:keys [exit out err]}
-              (apply sh/sh "mise" "exec" "--" "zprint" "-w" valid-files)]
+            (apply sh/sh "mise" "exec" "--" "zprint" "-w" valid-files)]
         (if (not= 0 exit)
           (do (binding [*out* *err*]
                 (println "zprint error:")
@@ -34,14 +35,18 @@
       0)))
 
 
-(defn cljstyle-fix [_] (System/exit (run-cljstyle)))
+(defn cljstyle-fix
+  [_]
+  (System/exit (run-cljstyle)))
 
 
-(defn zprint-fix [_] (System/exit (run-zprint)))
+(defn zprint-fix
+  [_]
+  (System/exit (run-zprint)))
 
 
 (defn fix-all
   [_]
-  (let [exit1 (run-cljstyle)
-        exit2 (run-zprint)]
+  (let [exit1 (run-zprint)
+        exit2 (run-cljstyle)]
     (System/exit (if (or (not= 0 exit1) (not= 0 exit2)) 1 0))))

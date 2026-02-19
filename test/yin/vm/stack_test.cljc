@@ -1,7 +1,8 @@
 (ns yin.vm.stack-test
-  (:require [clojure.test :refer [deftest is testing]]
-            [yin.vm :as vm]
-            [yin.vm.stack :as stack]))
+  (:require
+    [clojure.test :refer [deftest is testing]]
+    [yin.vm :as vm]
+    [yin.vm.stack :as stack]))
 
 
 ;; =============================================================================
@@ -198,17 +199,17 @@
     "Nested lambda with closure capture ((fn [x] ((fn [y] (+ x y)) 5)) 3)"
     (let [ast {:type :application,
                :operator
-                 {:type :lambda,
-                  :params ['x],
-                  :body {:type :application,
-                         :operator
-                           {:type :lambda,
-                            :params ['y],
-                            :body {:type :application,
-                                   :operator {:type :variable, :name '+},
-                                   :operands [{:type :variable, :name 'x}
-                                              {:type :variable, :name 'y}]}},
-                         :operands [{:type :literal, :value 5}]}},
+               {:type :lambda,
+                :params ['x],
+                :body {:type :application,
+                       :operator
+                       {:type :lambda,
+                        :params ['y],
+                        :body {:type :application,
+                               :operator {:type :variable, :name '+},
+                               :operands [{:type :variable, :name 'x}
+                                          {:type :variable, :name 'y}]}},
+                       :operands [{:type :literal, :value 5}]}},
                :operands [{:type :literal, :value 3}]}]
       (is (= 8 (compile-and-run ast))))))
 
@@ -221,11 +222,11 @@
                           :body {:type :application,
                                  :operator {:type :variable, :name '+},
                                  :operands
-                                   [{:type :variable, :name 'a}
-                                    {:type :application,
-                                     :operator {:type :variable, :name '-},
-                                     :operands [{:type :variable, :name 'b}
-                                                {:type :literal, :value 1}]}]}},
+                                 [{:type :variable, :name 'a}
+                                  {:type :application,
+                                   :operator {:type :variable, :name '-},
+                                   :operands [{:type :variable, :name 'b}
+                                              {:type :literal, :value 1}]}]}},
                :operands [{:type :literal, :value 10}
                           {:type :literal, :value 5}]}]
       (is (= 14 (compile-and-run ast))))))

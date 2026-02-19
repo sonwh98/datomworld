@@ -11,9 +11,12 @@
    Executes numeric bytecode produced by asm->bytecode.
    The compilation pipeline is: AST datoms -> ast-datoms->asm (symbolic IR) -> asm->bytecode (numeric).
    See ast-datoms->asm docstring for the full instruction set."
-  (:require [yin.module :as module]
-            [yin.vm :as vm])
-  #?(:cljs (:require-macros [yin.vm.register :refer [opcase]])))
+  (:require
+    [yin.module :as module]
+    [yin.vm :as vm])
+  #?(:cljs
+     (:require-macros
+       [yin.vm.register :refer [opcase]])))
 
 
 (def opcode-table
@@ -39,7 +42,7 @@
                 paired (if default (butlast clauses) clauses)
                 pairs (partition 2 paired)
                 resolved (mapcat (fn [[kw body]] [(get opcode-table kw) body])
-                           pairs)]
+                                 pairs)]
             `(case (int ~op-expr) ~@resolved ~@(when default [default])))))
 
 
@@ -47,20 +50,21 @@
 ;; RegisterVM Record
 ;; =============================================================================
 
-(defrecord RegisterVM [regs       ; virtual registers vector
-                       k          ; continuation (call frame stack)
-                       env        ; lexical environment
-                       ip         ; instruction pointer
-                       bytecode   ; numeric bytecode vector
-                       pool       ; constant pool
-                       halted     ; true if execution completed
-                       value      ; final result value
-                       store      ; heap memory
-                       parked     ; parked continuations
-                       id-counter ; unique ID counter
-                       primitives ; primitive operations
-                       blocked    ; true if blocked
-                      ])
+(defrecord RegisterVM
+  [regs       ; virtual registers vector
+   k          ; continuation (call frame stack)
+   env        ; lexical environment
+   ip         ; instruction pointer
+   bytecode   ; numeric bytecode vector
+   pool       ; constant pool
+   halted     ; true if execution completed
+   value      ; final result value
+   store      ; heap memory
+   parked     ; parked continuations
+   id-counter ; unique ID counter
+   primitives ; primitive operations
+   blocked    ; true if blocked
+   ])
 
 
 (defn ast-datoms->asm
@@ -109,7 +113,8 @@
         reset-regs! (fn [] (reset! reg-counter 0))]
     ;; Compile entity to assembly, returns the register holding the result
     (letfn
-      [(compile-node [e]
+      [(compile-node
+         [e]
          (let [node-type (get-attr e :yin/type)]
            (case node-type
              :literal (let [rd (alloc-reg!)]
@@ -119,30 +124,30 @@
                          (emit! [:loadv rd (get-attr e :yin/name)])
                          rd)
              :lambda
-               (let [params (get-attr e :yin/params)
-                     body-ref (get-attr e :yin/body)
-                     rd (alloc-reg!)
-                     closure-idx (current-addr)]
-                 ;; Emit closure with placeholder for address and reg-count
-                 (emit! [:closure rd params :placeholder :placeholder])
-                 ;; Jump over body
-                 (let [jump-idx (current-addr)]
-                   (emit! [:jump :placeholder])
-                   ;; Body starts here - fresh register scope
-                   (let [body-addr (current-addr)
-                         saved-reg-counter @reg-counter]
-                     (reset-regs!)
-                     (let [result-reg (compile-node body-ref)
-                           max-regs @reg-counter]
-                       (emit! [:return result-reg])
-                       ;; Restore register counter
-                       (reset! reg-counter saved-reg-counter)
-                       ;; Patch addresses and register count
-                       (let [after-body (current-addr)]
-                         (swap! bytecode assoc-in [closure-idx 3] body-addr)
-                         (swap! bytecode assoc-in [closure-idx 4] max-regs)
-                         (swap! bytecode assoc-in [jump-idx 1] after-body)))))
-                 rd)
+             (let [params (get-attr e :yin/params)
+                   body-ref (get-attr e :yin/body)
+                   rd (alloc-reg!)
+                   closure-idx (current-addr)]
+               ;; Emit closure with placeholder for address and reg-count
+               (emit! [:closure rd params :placeholder :placeholder])
+               ;; Jump over body
+               (let [jump-idx (current-addr)]
+                 (emit! [:jump :placeholder])
+                 ;; Body starts here - fresh register scope
+                 (let [body-addr (current-addr)
+                       saved-reg-counter @reg-counter]
+                   (reset-regs!)
+                   (let [result-reg (compile-node body-ref)
+                         max-regs @reg-counter]
+                     (emit! [:return result-reg])
+                     ;; Restore register counter
+                     (reset! reg-counter saved-reg-counter)
+                     ;; Patch addresses and register count
+                     (let [after-body (current-addr)]
+                       (swap! bytecode assoc-in [closure-idx 3] body-addr)
+                       (swap! bytecode assoc-in [closure-idx 4] max-regs)
+                       (swap! bytecode assoc-in [jump-idx 1] after-body)))))
+               rd)
              :application (let [op-ref (get-attr e :yin/operator)
                                 operand-refs (get-attr e :yin/operands)
                                 ;; Compile operands first
@@ -258,9 +263,9 @@
                    (emit! (opcode-table :loadv) rd (intern! name)))
           :move (let [[rd rs] args] (emit! (opcode-table :move) rd rs))
           :closure
-            (let [[rd params addr reg-count] args]
-              (emit! (opcode-table :closure) rd (intern! params) reg-count)
-              (emit-fixup! addr))
+          (let [[rd params addr reg-count] args]
+            (emit! (opcode-table :closure) rd (intern! params) reg-count)
+            (emit-fixup! addr))
           :call (let [[rd rf arg-regs] args]
                   (emit! (opcode-table :call) rd rf (count arg-regs))
                   (doseq [ar arg-regs] (emit! ar)))
@@ -288,13 +293,16 @@
     (let [offsets @instr-offsets
           fixed (reduce (fn [bc [pos asm-addr]]
                           (assoc bc pos (get offsets asm-addr asm-addr)))
-                  @bytecode
-                  @fixups)
+                        @bytecode
+                        @fixups)
           source-map (into {} (map (fn [[k v]] [v k]) offsets))]
       {:bytecode fixed, :pool @pool, :source-map source-map})))
 
 
-(defn- get-reg "Get value from register." [state r] (nth (:regs state) r))
+(defn- get-reg
+  "Get value from register."
+  [state r]
+  (nth (:regs state) r))
 
 
 (defn- set-reg
@@ -329,8 +337,8 @@
         (let [rd (get bytecode (+ ip 1))
               v (get pool (get bytecode (+ ip 2)))]
           (assoc state
-            :regs (assoc regs rd v)
-            :ip (+ ip 3)))
+                 :regs (assoc regs rd v)
+                 :ip (+ ip 3)))
         :loadv
         (let [rd (get bytecode (+ ip 1))
               name (get pool (get bytecode (+ ip 2)))
@@ -340,14 +348,14 @@
                     (val pair)
                     (or (get primitives name) (module/resolve-symbol name))))]
           (assoc state
-            :regs (assoc regs rd v)
-            :ip (+ ip 3)))
+                 :regs (assoc regs rd v)
+                 :ip (+ ip 3)))
         :move
         (let [rd (get bytecode (+ ip 1))
               rs (get bytecode (+ ip 2))]
           (assoc state
-            :regs (assoc regs rd (get-reg state rs))
-            :ip (+ ip 3)))
+                 :regs (assoc regs rd (get-reg state rs))
+                 :ip (+ ip 3)))
         :closure
         (let [rd (get bytecode (+ ip 1))
               params (get pool (get bytecode (+ ip 2)))
@@ -361,8 +369,8 @@
                        :bytecode bytecode,
                        :pool pool}]
           (assoc state
-            :regs (assoc regs rd closure)
-            :ip (+ ip 5)))
+                 :regs (assoc regs rd closure)
+                 :ip (+ ip 5)))
         :call
         (let [rd (get bytecode (+ ip 1))
               rf (get bytecode (+ ip 2))
@@ -378,38 +386,38 @@
               fn-val (get-reg state rf)
               next-ip (+ ip 4 argc)]
           (cond (fn? fn-val)
-                  (let [result (apply fn-val fn-args)]
-                    (if (module/effect? result)
-                      (case (:effect result)
-                        :vm/store-put (assoc state
-                                        :store (assoc store
-                                                 (:key result) (:val result))
-                                        :regs (assoc regs rd (:val result))
-                                        :ip next-ip)
-                        (throw (ex-info "Unhandled effect in reg-vm-step"
-                                        {:effect result})))
-                      (assoc state
-                        :regs (assoc regs rd result)
-                        :ip next-ip)))
-                (= :closure (:type fn-val))
-                  (let [{:keys [params body-addr env bytecode pool reg-count]}
-                          fn-val
-                        new-frame {:type :call-frame,
-                                   :return-reg rd,
-                                   :return-ip next-ip,
-                                   :saved-regs regs,
-                                   :saved-env (:env state),
-                                   :saved-bytecode (:bytecode state),
-                                   :saved-pool (:pool state),
-                                   :parent k}
-                        new-env (merge env (zipmap params fn-args))]
+                (let [result (apply fn-val fn-args)]
+                  (if (module/effect? result)
+                    (case (:effect result)
+                      :vm/store-put (assoc state
+                                           :store (assoc store
+                                                         (:key result) (:val result))
+                                           :regs (assoc regs rd (:val result))
+                                           :ip next-ip)
+                      (throw (ex-info "Unhandled effect in reg-vm-step"
+                                      {:effect result})))
                     (assoc state
-                      :regs (vec (repeat reg-count nil))
-                      :k new-frame
-                      :env new-env
-                      :bytecode bytecode
-                      :pool pool
-                      :ip body-addr))
+                           :regs (assoc regs rd result)
+                           :ip next-ip)))
+                (= :closure (:type fn-val))
+                (let [{:keys [params body-addr env bytecode pool reg-count]}
+                      fn-val
+                      new-frame {:type :call-frame,
+                                 :return-reg rd,
+                                 :return-ip next-ip,
+                                 :saved-regs regs,
+                                 :saved-env (:env state),
+                                 :saved-bytecode (:bytecode state),
+                                 :saved-pool (:pool state),
+                                 :parent k}
+                      new-env (merge env (zipmap params fn-args))]
+                  (assoc state
+                         :regs (vec (repeat reg-count nil))
+                         :k new-frame
+                         :env new-env
+                         :bytecode bytecode
+                         :pool pool
+                         :ip body-addr))
                 :else (throw (ex-info "Cannot call non-function"
                                       {:fn fn-val}))))
         :return
@@ -417,18 +425,18 @@
               result (get-reg state rs)]
           (if (nil? k)
             (assoc state
-              :halted true
-              :value result)
+                   :halted true
+                   :value result)
             (let [{:keys [return-reg return-ip saved-regs saved-env
                           saved-bytecode saved-pool parent]}
-                    k]
+                  k]
               (assoc state
-                :regs (assoc saved-regs return-reg result)
-                :k parent
-                :env saved-env
-                :bytecode (or saved-bytecode (:bytecode state))
-                :pool (or saved-pool (:pool state))
-                :ip return-ip))))
+                     :regs (assoc saved-regs return-reg result)
+                     :k parent
+                     :env saved-env
+                     :bytecode (or saved-bytecode (:bytecode state))
+                     :pool (or saved-pool (:pool state))
+                     :ip return-ip))))
         :branch
         (let [rt (get bytecode (+ ip 1))
               then-addr (get bytecode (+ ip 2))
@@ -456,19 +464,22 @@
   (boolean (:blocked vm)))
 
 
-(defn- reg-vm-value "Returns the current value." [^RegisterVM vm] (:value vm))
+(defn- reg-vm-value
+  "Returns the current value."
+  [^RegisterVM vm]
+  (:value vm))
 
 
 (defn- reg-vm-reset
   "Reset RegisterVM execution state to initial baseline, preserving loaded program."
   [^RegisterVM vm]
   (assoc vm
-    :regs (vec (repeat (count (:regs vm)) nil))
-    :k nil
-    :ip 0
-    :halted false
-    :value nil
-    :blocked false))
+         :regs (vec (repeat (count (:regs vm)) nil))
+         :k nil
+         :ip 0
+         :halted false
+         :value nil
+         :blocked false))
 
 
 (defn- reg-vm-load-program
@@ -476,14 +487,14 @@
    Accepts {:bytecode [...] :pool [...]}."
   [^RegisterVM vm program]
   (assoc vm
-    :regs (vec (repeat (:reg-count program 0) nil))
-    :k nil
-    :ip 0
-    :bytecode (:bytecode program)
-    :pool (:pool program)
-    :halted false
-    :value nil
-    :blocked false))
+         :regs (vec (repeat (:reg-count program 0) nil))
+         :k nil
+         :ip 0
+         :bytecode (:bytecode program)
+         :pool (:pool program)
+         :halted false
+         :value nil
+         :blocked false))
 
 
 (defn- reg-vm-eval
@@ -502,23 +513,23 @@
 
 (extend-type RegisterVM
   vm/IVMStep
-    (step [vm] (reg-vm-step vm))
-    (halted? [vm] (reg-vm-halted? vm))
-    (blocked? [vm] (reg-vm-blocked? vm))
-    (value [vm] (reg-vm-value vm))
+  (step [vm] (reg-vm-step vm))
+  (halted? [vm] (reg-vm-halted? vm))
+  (blocked? [vm] (reg-vm-blocked? vm))
+  (value [vm] (reg-vm-value vm))
   vm/IVMRun
-    (run [vm] (vm/eval vm nil))
+  (run [vm] (vm/eval vm nil))
   vm/IVMReset
-    (reset [vm] (reg-vm-reset vm))
+  (reset [vm] (reg-vm-reset vm))
   vm/IVMLoad
-    (load-program [vm program] (reg-vm-load-program vm program))
+  (load-program [vm program] (reg-vm-load-program vm program))
   vm/IVMEval
-    (eval [vm ast] (reg-vm-eval vm ast))
+  (eval [vm ast] (reg-vm-eval vm ast))
   vm/IVMState
-    (control [vm] {:ip (:ip vm), :bytecode (:bytecode vm), :regs (:regs vm)})
-    (environment [vm] (:env vm))
-    (store [vm] (:store vm))
-    (continuation [vm] (:k vm)))
+  (control [vm] {:ip (:ip vm), :bytecode (:bytecode vm), :regs (:regs vm)})
+  (environment [vm] (:env vm))
+  (store [vm] (:store vm))
+  (continuation [vm] (:k vm)))
 
 
 (defn create-vm

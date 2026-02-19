@@ -1,9 +1,10 @@
 (ns world.blog
-  (:require [clojure.java.io :as io]
-            [clojure.string]
-            [clojure.walk]
-            [hiccup.page :as hiccup]
-            [ring.util.response :as response]))
+  (:require
+    [clojure.java.io :as io]
+    [clojure.string]
+    [clojure.walk]
+    [hiccup.page :as hiccup]
+    [ring.util.response :as response]))
 
 
 (defn render-blog

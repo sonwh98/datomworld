@@ -1,11 +1,13 @@
 (ns daodb.core
-  (:require [daodb.index :as index]
-            [daodb.index.structural :as structural]
-            [daodb.index.temporal :as temporal]
-            [daodb.primitives :as p]))
+  (:require
+    [daodb.index :as index]
+    [daodb.index.structural :as structural]
+    [daodb.index.temporal :as temporal]
+    [daodb.primitives :as p]))
 
 
-(defrecord DaoDB [indexes])
+(defrecord DaoDB
+  [indexes])
 
 
 (defn create-db
@@ -19,12 +21,12 @@
    Broadcasts the transaction to ALL registered indexes."
   (let [datom-recs (mapv (fn [d]
                            (let [{:keys [e a v t m]}
-                                   (if (map? d) d (zipmap [:e :a :v :t :m] d))]
+                                 (if (map? d) d (zipmap [:e :a :v :t :m] d))]
                              (p/->datom e a v t m)))
-                     datoms)
+                         datoms)
         updated-indexes (reduce-kv (fn [idxs k idx]
                                      (assoc idxs
-                                       k (index/index-tx idx datom-recs)))
+                                            k (index/index-tx idx datom-recs)))
                                    {}
                                    (:indexes db))]
     (assoc db :indexes updated-indexes)))

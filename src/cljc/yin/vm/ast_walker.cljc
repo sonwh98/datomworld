@@ -1,7 +1,8 @@
 (ns yin.vm.ast-walker
-  (:require [yin.module :as module]
-            [yin.stream :as stream]
-            [yin.vm :as vm]))
+  (:require
+    [yin.module :as module]
+    [yin.stream :as stream]
+    [yin.vm :as vm]))
 
 
 ;; =============================================================================
@@ -24,16 +25,17 @@
 ;; ASTWalkerVM Record
 ;; =============================================================================
 
-(defrecord ASTWalkerVM [control      ; current AST node or nil
-                        environment  ; persistent lexical scope map
-                        continuation ; reified continuation or nil
-                        value        ; last computed value
-                        store        ; heap memory map
-                        parked       ; parked continuations map
-                        id-counter   ; integer counter for unique IDs
-                        primitives   ; primitive operations map
-                        blocked      ; boolean, true if blocked
-                       ])
+(defrecord ASTWalkerVM
+  [control      ; current AST node or nil
+   environment  ; persistent lexical scope map
+   continuation ; reified continuation or nil
+   value        ; last computed value
+   store        ; heap memory map
+   parked       ; parked continuations map
+   id-counter   ; integer counter for unique IDs
+   primitives   ; primitive operations map
+   blocked      ; boolean, true if blocked
+   ])
 
 
 (defn- cesk-transition
@@ -54,87 +56,87 @@
           :eval-operator (let [frame (:frame continuation)
                                fn-value (:value state)
                                updated-frame (assoc frame
-                                               :operator-evaluated? true
-                                               :fn-value fn-value)
+                                                    :operator-evaluated? true
+                                                    :fn-value fn-value)
                                saved-env (:environment continuation)]
                            (assoc state
-                             :control updated-frame
-                             :environment (or saved-env environment)
-                             :continuation (:parent continuation)
-                             :value nil))
+                                  :control updated-frame
+                                  :environment (or saved-env environment)
+                                  :continuation (:parent continuation)
+                                  :value nil))
           :eval-operand
-            (let [frame (:frame continuation)
-                  operand-value (:value state)
-                  evaluated-operands (conj (or (:evaluated-operands frame) [])
-                                           operand-value)
-                  updated-frame (assoc frame
-                                  :evaluated-operands evaluated-operands)
-                  saved-env (:environment continuation)]
-              (assoc state
-                :control updated-frame
-                :environment (or saved-env environment)
-                :continuation (:parent continuation)
-                :value nil))
+          (let [frame (:frame continuation)
+                operand-value (:value state)
+                evaluated-operands (conj (or (:evaluated-operands frame) [])
+                                         operand-value)
+                updated-frame (assoc frame
+                                     :evaluated-operands evaluated-operands)
+                saved-env (:environment continuation)]
+            (assoc state
+                   :control updated-frame
+                   :environment (or saved-env environment)
+                   :continuation (:parent continuation)
+                   :value nil))
           :eval-test (let [frame (:frame continuation)
                            test-value (:value state)
                            saved-env (:environment continuation)]
                        (assoc state
-                         :control (assoc frame :evaluated-test? true)
-                         :value test-value
-                         :environment (or saved-env environment)
-                         :continuation (:parent continuation)))
+                              :control (assoc frame :evaluated-test? true)
+                              :value test-value
+                              :environment (or saved-env environment)
+                              :continuation (:parent continuation)))
           ;; Stream continuation: evaluate source for take
           :eval-stream-source
-            (let [stream-ref (:value state)
-                  result (stream/vm-stream-take state stream-ref continuation)]
-              (if (:park result)
-                ;; Need to park - add continuation to takers
-                (let [gen-id-fn (fn [prefix]
-                                  (keyword
-                                    (str prefix "-" (:id-counter state))))
-                      stream-id (:stream-id result)
-                      parked-cont {:type :parked-continuation,
-                                   :id (gen-id-fn "taker"),
-                                   :continuation (:parent continuation),
-                                   :environment environment}
-                      store (:store state)
-                      new-store
-                        (update-in store [stream-id :takers] conj parked-cont)]
-                  (assoc state
-                    :store new-store
-                    :value :yin/blocked
-                    :blocked true
-                    :control nil
-                    :continuation nil
-                    :id-counter (inc (:id-counter state))))
-                ;; Got value
-                (assoc (:state result)
-                  :control nil
-                  :continuation (:parent continuation))))
+          (let [stream-ref (:value state)
+                result (stream/vm-stream-take state stream-ref continuation)]
+            (if (:park result)
+              ;; Need to park - add continuation to takers
+              (let [gen-id-fn (fn [prefix]
+                                (keyword
+                                  (str prefix "-" (:id-counter state))))
+                    stream-id (:stream-id result)
+                    parked-cont {:type :parked-continuation,
+                                 :id (gen-id-fn "taker"),
+                                 :continuation (:parent continuation),
+                                 :environment environment}
+                    store (:store state)
+                    new-store
+                    (update-in store [stream-id :takers] conj parked-cont)]
+                (assoc state
+                       :store new-store
+                       :value :yin/blocked
+                       :blocked true
+                       :control nil
+                       :continuation nil
+                       :id-counter (inc (:id-counter state))))
+              ;; Got value
+              (assoc (:state result)
+                     :control nil
+                     :continuation (:parent continuation))))
           ;; Stream continuation: evaluate target for put
           :eval-stream-put-target (let [frame (:frame continuation)
                                         stream-ref (:value state)
                                         val-node (:val frame)]
                                     (assoc state
-                                      :control val-node
-                                      :continuation (assoc continuation
-                                                      :type :eval-stream-put-val
-                                                      :stream-ref stream-ref)))
+                                           :control val-node
+                                           :continuation (assoc continuation
+                                                                :type :eval-stream-put-val
+                                                                :stream-ref stream-ref)))
           ;; Stream continuation: evaluate value for put
           :eval-stream-put-val
-            (let [val (:value state)
-                  stream-ref (:stream-ref continuation)
-                  result (stream/vm-stream-put state stream-ref val)]
-              (if-let [taker (:resume-taker result)]
-                ;; Taker was waiting - need to resume it. For now, just
-                ;; complete the put and let scheduler handle resume
-                (assoc (:state result)
-                  :control nil
-                  :continuation (:parent continuation))
-                ;; No taker - value buffered
-                (assoc (:state result)
-                  :control nil
-                  :continuation (:parent continuation))))
+          (let [val (:value state)
+                stream-ref (:stream-ref continuation)
+                result (stream/vm-stream-put state stream-ref val)]
+            (if-let [taker (:resume-taker result)]
+              ;; Taker was waiting - need to resume it. For now, just
+              ;; complete the put and let scheduler handle resume
+              (assoc (:state result)
+                     :control nil
+                     :continuation (:parent continuation))
+              ;; No taker - value buffered
+              (assoc (:state result)
+                     :control nil
+                     :continuation (:parent continuation))))
           ;; Default for unknown continuation
           (throw (ex-info "Unknown continuation type"
                           {:continuation-type cont-type,
@@ -144,8 +146,8 @@
         ;; Literals evaluate to themselves
         :literal (let [{:keys [value]} node]
                    (assoc state
-                     :value value
-                     :control nil))
+                          :value value
+                          :control nil))
         ;; Variable lookup
         :variable (let [{:keys [name]} node
                         ;; Check local environment, then store (global),
@@ -157,8 +159,8 @@
                                   (or (get primitives name)
                                       (module/resolve-symbol name))))]
                     (assoc state
-                      :value value
-                      :control nil))
+                           :value value
+                           :control nil))
         ;; Lambda creates a closure
         :lambda (let [{:keys [params body]} node
                       closure {:type :closure,
@@ -166,119 +168,119 @@
                                :body body,
                                :environment environment}]
                   (assoc state
-                    :value closure
-                    :control nil))
+                         :value closure
+                         :control nil))
         ;; Function application
         :application
-          (let [{:keys [operator operands evaluated-operands fn-value
-                        operator-evaluated?]}
-                  node
-                evaluated-operands (or evaluated-operands [])]
+        (let [{:keys [operator operands evaluated-operands fn-value
+                      operator-evaluated?]}
+              node
+              evaluated-operands (or evaluated-operands [])]
+          (cond
+            ;; All evaluated - apply function
+            (and operator-evaluated?
+                 (= (count evaluated-operands) (count operands)))
             (cond
-              ;; All evaluated - apply function
-              (and operator-evaluated?
-                   (= (count evaluated-operands) (count operands)))
-                (cond
-                  ;; Primitive function
-                  (fn? fn-value)
-                    (let [result (apply fn-value evaluated-operands)]
-                      ;; Check if result is an effect descriptor
-                      (if (module/effect? result)
-                        ;; Execute effect
-                        (case (:effect result)
-                          :vm/store-put (let [key (:key result)
-                                              value (:val result)
-                                              new-store (assoc store key value)]
-                                          (assoc state
-                                            :store new-store
-                                            :value value
-                                            :control nil))
-                          :stream/make
-                            (let [gen-id-fn
-                                    (fn [prefix]
-                                      (keyword
-                                        (str prefix "-" (:id-counter state))))
-                                  [stream-ref new-state]
-                                    (stream/handle-make state result gen-id-fn)]
-                              (assoc new-state
-                                :value stream-ref
-                                :control nil
-                                :id-counter (inc (:id-counter state))))
-                          :stream/put (let [effect-result
-                                              (stream/handle-put state result)]
-                                        (assoc (:state effect-result)
-                                          :value (:value effect-result)
-                                          :control nil))
-                          :stream/take
-                            (let [effect-result (stream/handle-take state
-                                                                    result)]
-                              (if (:park effect-result)
-                                ;; Need to park
-                                (let [gen-id-fn (fn [prefix]
-                                                  (keyword (str prefix
-                                                                "-"
-                                                                (:id-counter
-                                                                  state))))
-                                      stream-id (:stream-id effect-result)
-                                      parked-cont {:type :parked-continuation,
-                                                   :id (gen-id-fn "taker"),
-                                                   :continuation continuation,
-                                                   :environment environment}
-                                      new-store (update-in store
-                                                           [stream-id :takers]
-                                                           conj
-                                                           parked-cont)]
-                                  (assoc state
-                                    :store new-store
-                                    :value :yin/blocked
-                                    :blocked true
-                                    :control nil
-                                    :continuation nil
-                                    :id-counter (inc (:id-counter state))))
-                                ;; Got value
-                                (assoc (:state effect-result)
-                                  :value (:value effect-result)
-                                  :control nil)))
-                          :stream/close
-                            (let [new-state (stream/handle-close state result)]
-                              (assoc new-state
-                                :value nil
-                                :control nil))
-                          ;; Unknown effect
-                          (throw (ex-info "Unknown effect type"
-                                          {:effect result})))
-                        ;; Regular return value
-                        (assoc state
-                          :value result
-                          :control nil)))
-                  ;; User-defined closure
-                  (= :closure (:type fn-value))
-                    (let [{:keys [params body environment]} fn-value
-                          extended-env (merge environment
-                                              (zipmap params
-                                                      evaluated-operands))]
-                      (assoc state
-                        :control body
-                        :environment extended-env
-                        :continuation continuation))
-                  :else (throw (ex-info "Cannot apply non-function"
-                                        {:fn-value fn-value})))
-              ;; Evaluate operands one by one
-              operator-evaluated?
-                (let [next-operand (nth operands (count evaluated-operands))]
+              ;; Primitive function
+              (fn? fn-value)
+              (let [result (apply fn-value evaluated-operands)]
+                ;; Check if result is an effect descriptor
+                (if (module/effect? result)
+                  ;; Execute effect
+                  (case (:effect result)
+                    :vm/store-put (let [key (:key result)
+                                        value (:val result)
+                                        new-store (assoc store key value)]
+                                    (assoc state
+                                           :store new-store
+                                           :value value
+                                           :control nil))
+                    :stream/make
+                    (let [gen-id-fn
+                          (fn [prefix]
+                            (keyword
+                              (str prefix "-" (:id-counter state))))
+                          [stream-ref new-state]
+                          (stream/handle-make state result gen-id-fn)]
+                      (assoc new-state
+                             :value stream-ref
+                             :control nil
+                             :id-counter (inc (:id-counter state))))
+                    :stream/put (let [effect-result
+                                      (stream/handle-put state result)]
+                                  (assoc (:state effect-result)
+                                         :value (:value effect-result)
+                                         :control nil))
+                    :stream/take
+                    (let [effect-result (stream/handle-take state
+                                                            result)]
+                      (if (:park effect-result)
+                        ;; Need to park
+                        (let [gen-id-fn (fn [prefix]
+                                          (keyword (str prefix
+                                                        "-"
+                                                        (:id-counter
+                                                          state))))
+                              stream-id (:stream-id effect-result)
+                              parked-cont {:type :parked-continuation,
+                                           :id (gen-id-fn "taker"),
+                                           :continuation continuation,
+                                           :environment environment}
+                              new-store (update-in store
+                                                   [stream-id :takers]
+                                                   conj
+                                                   parked-cont)]
+                          (assoc state
+                                 :store new-store
+                                 :value :yin/blocked
+                                 :blocked true
+                                 :control nil
+                                 :continuation nil
+                                 :id-counter (inc (:id-counter state))))
+                        ;; Got value
+                        (assoc (:state effect-result)
+                               :value (:value effect-result)
+                               :control nil)))
+                    :stream/close
+                    (let [new-state (stream/handle-close state result)]
+                      (assoc new-state
+                             :value nil
+                             :control nil))
+                    ;; Unknown effect
+                    (throw (ex-info "Unknown effect type"
+                                    {:effect result})))
+                  ;; Regular return value
                   (assoc state
-                    :control next-operand
-                    :continuation {:frame node,
-                                   :parent continuation,
-                                   :environment environment,
-                                   :type :eval-operand}))
-              ;; Evaluate operator first
-              :else (assoc state
-                      :control operator
-                      :continuation {:frame node,
-                                     :parent continuation,
-                                     :environment environment,
-                                     :type :eval-operator})))
+                         :value result
+                         :control nil)))
+              ;; User-defined closure
+              (= :closure (:type fn-value))
+              (let [{:keys [params body environment]} fn-value
+                    extended-env (merge environment
+                                        (zipmap params
+                                                evaluated-operands))]
+                (assoc state
+                       :control body
+                       :environment extended-env
+                       :continuation continuation))
+              :else (throw (ex-info "Cannot apply non-function"
+                                    {:fn-value fn-value})))
+            ;; Evaluate operands one by one
+            operator-evaluated?
+            (let [next-operand (nth operands (count evaluated-operands))]
+              (assoc state
+                     :control next-operand
+                     :continuation {:frame node,
+                                    :parent continuation,
+                                    :environment environment,
+                                    :type :eval-operand}))
+            ;; Evaluate operator first
+            :else (assoc state
+                         :control operator
+                         :continuation {:frame node,
+                                        :parent continuation,
+                                        :environment environment,
+                                        :type :eval-operator})))
         ;; Conditional
         :if (let [{:keys [test consequent alternate]} node]
               (if (:evaluated-test? node)
@@ -288,11 +290,11 @@
                   (assoc state :control branch))
                 ;; Evaluate test first
                 (assoc state
-                  :control test
-                  :continuation {:frame node,
-                                 :parent continuation,
-                                 :environment environment,
-                                 :type :eval-test})))
+                       :control test
+                       :continuation {:frame node,
+                                      :parent continuation,
+                                      :environment environment,
+                                      :type :eval-test})))
         ;; ============================================================
         ;; VM Primitives for Store Operations
         ;; ============================================================
@@ -300,23 +302,23 @@
         :vm/gensym (let [prefix (or (:prefix node) "id")
                          id (keyword (str prefix "-" (:id-counter state)))]
                      (assoc state
-                       :value id
-                       :control nil
-                       :id-counter (inc (:id-counter state))))
+                            :value id
+                            :control nil
+                            :id-counter (inc (:id-counter state))))
         ;; Read from store
         :vm/store-get (let [key (:key node)
                             value (get store key)]
                         (assoc state
-                          :value value
-                          :control nil))
+                               :value value
+                               :control nil))
         ;; Write to store
         :vm/store-put (let [key (:key node)
                             value (:val node)
                             new-store (assoc store key value)]
                         (assoc state
-                          :store new-store
-                          :value value
-                          :control nil))
+                               :store new-store
+                               :value value
+                               :control nil))
         ;; Update store (apply function to current value)
         :vm/store-update (let [key (:key node)
                                f (:fn node)
@@ -325,18 +327,18 @@
                                new-value (apply f current args)
                                new-store (assoc store key new-value)]
                            (assoc state
-                             :store new-store
-                             :value new-value
-                             :control nil))
+                                  :store new-store
+                                  :value new-value
+                                  :control nil))
         ;; ============================================================
         ;; VM Primitives for Continuation Control
         ;; ============================================================
         ;; Get current continuation as a value
         :vm/current-continuation (assoc state
-                                   :value {:type :reified-continuation,
-                                           :continuation continuation,
-                                           :environment environment}
-                                   :control nil)
+                                        :value {:type :reified-continuation,
+                                                :continuation continuation,
+                                                :environment environment}
+                                        :control nil)
         ;; Park (suspend) - saves current continuation and halts
         :vm/park (let [park-id (keyword (str "parked-" (:id-counter state)))
                        parked-cont {:type :parked-continuation,
@@ -345,11 +347,11 @@
                                     :environment environment}
                        new-parked (assoc (:parked state) park-id parked-cont)]
                    (assoc state
-                     :parked new-parked
-                     :value parked-cont
-                     :control nil
-                     :continuation nil ; Halt execution
-                     :id-counter (inc (:id-counter state))))
+                          :parked new-parked
+                          :value parked-cont
+                          :control nil
+                          :continuation nil ; Halt execution
+                          :id-counter (inc (:id-counter state))))
         ;; Resume a parked continuation with a value
         :vm/resume (let [parked-id (:parked-id node)
                          resume-value (:val node)
@@ -357,11 +359,11 @@
                      (if parked-cont
                        (let [new-parked (dissoc (:parked state) parked-id)]
                          (assoc state
-                           :parked new-parked
-                           :value resume-value
-                           :control nil
-                           :continuation (:continuation parked-cont)
-                           :environment (:environment parked-cont)))
+                                :parked new-parked
+                                :value resume-value
+                                :control nil
+                                :continuation (:continuation parked-cont)
+                                :environment (:environment parked-cont)))
                        (throw (ex-info
                                 "Cannot resume: parked continuation not found"
                                 {:parked-id parked-id}))))
@@ -370,22 +372,22 @@
         ;; ============================================================
         :stream/make (let [capacity (or (:buffer node) 1024)
                            [stream-ref new-state]
-                             (stream/vm-stream-make state capacity)]
+                           (stream/vm-stream-make state capacity)]
                        (assoc new-state
-                         :value stream-ref
-                         :control nil))
+                              :value stream-ref
+                              :control nil))
         :stream/put (assoc state
-                      :control (:target node)
-                      :continuation {:frame node,
-                                     :parent continuation,
-                                     :environment environment,
-                                     :type :eval-stream-put-target})
+                           :control (:target node)
+                           :continuation {:frame node,
+                                          :parent continuation,
+                                          :environment environment,
+                                          :type :eval-stream-put-target})
         :stream/take (assoc state
-                       :control (:source node)
-                       :continuation {:frame node,
-                                      :parent continuation,
-                                      :environment environment,
-                                      :type :eval-stream-source})
+                            :control (:source node)
+                            :continuation {:frame node,
+                                           :parent continuation,
+                                           :environment environment,
+                                           :type :eval-stream-source})
         ;; Unknown node type
         (throw (ex-info "Unknown AST node type" {:type type, :node node}))))))
 
@@ -427,7 +429,10 @@
   (boolean (:blocked vm)))
 
 
-(defn- vm-value "Returns the current value." [^ASTWalkerVM vm] (:value vm))
+(defn- vm-value
+  "Returns the current value."
+  [^ASTWalkerVM vm]
+  (:value vm))
 
 
 (defn- vm-load-program
@@ -446,21 +451,21 @@
 
 (extend-type ASTWalkerVM
   vm/IVMStep
-    (step [vm] (vm-step vm))
-    (halted? [vm] (vm-halted? vm))
-    (blocked? [vm] (vm-blocked? vm))
-    (value [vm] (vm-value vm))
+  (step [vm] (vm-step vm))
+  (halted? [vm] (vm-halted? vm))
+  (blocked? [vm] (vm-blocked? vm))
+  (value [vm] (vm-value vm))
   vm/IVMRun
-    (run [vm] (vm/eval vm nil))
+  (run [vm] (vm/eval vm nil))
   vm/IVMLoad
-    (load-program [vm program] (vm-load-program vm program))
+  (load-program [vm program] (vm-load-program vm program))
   vm/IVMEval
-    (eval [vm ast] (vm-eval vm ast))
+  (eval [vm ast] (vm-eval vm ast))
   vm/IVMState
-    (control [vm] (:control vm))
-    (environment [vm] (:environment vm))
-    (store [vm] (:store vm))
-    (continuation [vm] (:continuation vm)))
+  (control [vm] (:control vm))
+  (environment [vm] (:environment vm))
+  (store [vm] (:store vm))
+  (continuation [vm] (:continuation vm)))
 
 
 (defn create-vm

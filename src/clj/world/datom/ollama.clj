@@ -1,8 +1,9 @@
 (ns world.datom.ollama
-  (:require [clojure.data.json :as json]
-            [clojure.edn :as edn]
-            [clojure.string :as str]
-            [org.httpkit.client :as http]))
+  (:require
+    [clojure.data.json :as json]
+    [clojure.edn :as edn]
+    [clojure.string :as str]
+    [org.httpkit.client :as http]))
 
 
 (def default-url "http://localhost:11434")
@@ -117,11 +118,12 @@
                              (filter string?)
                              (distinct))
         mapping (zipmap unique-entities (iterate inc 1))] ; Starts from 1
-    (mapv (fn [[e a v tx m]] [(get mapping e e) a (get mapping v v) ; Also
-                              ;; remap the value if it's a known entity
-                              ;; string
-                              now m])
-      datoms)))
+    (mapv (fn [[e a v tx m]]
+            [(get mapping e e) a (get mapping v v) ; Also
+             ;; remap the value if it's a known entity
+             ;; string
+             now m])
+          datoms)))
 
 
 (defn text->datoms

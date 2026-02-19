@@ -17,7 +17,8 @@
    :buffer []        ;; values waiting to be taken
    :capacity n       ;; max buffer size
    :takers []}       ;; parked continuations waiting for values"
-  (:require [yin.module :as module]))
+  (:require
+    [yin.module :as module]))
 
 
 ;; ============================================================
@@ -75,7 +76,10 @@
   (>= (count (:buffer stream)) (:capacity stream)))
 
 
-(defn stream-closed? "Check if stream is closed." [stream] (:closed stream))
+(defn stream-closed?
+  "Check if stream is closed."
+  [stream]
+  (:closed stream))
 
 
 (defn stream-has-takers?
@@ -139,18 +143,18 @@
           (stream-closed? stream) (throw (ex-info "Cannot put to closed stream"
                                                   {:ref stream-ref}))
           (stream-has-takers? stream)
-            ;; Taker waiting - hand off value directly
-            (let [[taker new-stream] (stream-pop-taker stream)
-                  new-store (assoc store stream-id new-stream)]
-              {:value val,
-               :state (assoc state :store new-store),
-               :resume-taker taker,
-               :resume-value val})
+          ;; Taker waiting - hand off value directly
+          (let [[taker new-stream] (stream-pop-taker stream)
+                new-store (assoc store stream-id new-stream)]
+            {:value val,
+             :state (assoc state :store new-store),
+             :resume-taker taker,
+             :resume-value val})
           :else
-            ;; No takers - buffer the value
-            (let [new-stream (stream-add-value stream val)
-                  new-store (assoc store stream-id new-stream)]
-              {:value val, :state (assoc state :store new-store)}))))
+          ;; No takers - buffer the value
+          (let [new-stream (stream-add-value stream val)
+                new-store (assoc store stream-id new-stream)]
+            {:value val, :state (assoc state :store new-store)}))))
 
 
 (defn handle-take
@@ -163,16 +167,16 @@
     (cond (nil? stream) (throw (ex-info "Invalid stream reference"
                                         {:ref stream-ref}))
           (not (stream-empty? stream))
-            ;; Has value - take it
-            (let [[val new-stream] (stream-take-value stream)
-                  new-store (assoc store stream-id new-stream)]
-              {:value val, :state (assoc state :store new-store)})
+          ;; Has value - take it
+          (let [[val new-stream] (stream-take-value stream)
+                new-store (assoc store stream-id new-stream)]
+            {:value val, :state (assoc state :store new-store)})
           (stream-closed? stream)
-            ;; Closed and empty - return nil
-            {:value nil, :state state}
+          ;; Closed and empty - return nil
+          {:value nil, :state state}
           :else
-            ;; Empty - need to park
-            {:park true, :stream-id stream-id, :state state})))
+          ;; Empty - need to park
+          {:park true, :stream-id stream-id, :state state})))
 
 
 (defn handle-close
@@ -215,19 +219,19 @@
     (cond (nil? stream) (throw (ex-info "Invalid stream reference"
                                         {:ref stream-ref}))
           (not (stream-empty? stream))
-            ;; Has value - take it
-            (let [[val new-stream] (stream-take-value stream)
-                  new-store (assoc store stream-id new-stream)]
-              {:value val,
-               :state (assoc state
-                        :store new-store
-                        :value val)})
+          ;; Has value - take it
+          (let [[val new-stream] (stream-take-value stream)
+                new-store (assoc store stream-id new-stream)]
+            {:value val,
+             :state (assoc state
+                           :store new-store
+                           :value val)})
           (stream-closed? stream)
-            ;; Closed and empty - return nil
-            {:value nil, :state (assoc state :value nil)}
+          ;; Closed and empty - return nil
+          {:value nil, :state (assoc state :value nil)}
           :else
-            ;; Empty - need to park
-            {:park true, :stream-id stream-id, :state state})))
+          ;; Empty - need to park
+          {:park true, :stream-id stream-id, :state state})))
 
 
 (defn vm-stream-put
@@ -242,23 +246,23 @@
           (stream-closed? stream) (throw (ex-info "Cannot put to closed stream"
                                                   {:ref stream-ref}))
           (stream-has-takers? stream)
-            ;; Taker waiting - hand off value directly
-            (let [[taker new-stream] (stream-pop-taker stream)
-                  new-store (assoc store stream-id new-stream)]
-              {:value val,
-               :state (assoc state
-                        :store new-store
-                        :value val),
-               :resume-taker taker,
-               :resume-value val})
+          ;; Taker waiting - hand off value directly
+          (let [[taker new-stream] (stream-pop-taker stream)
+                new-store (assoc store stream-id new-stream)]
+            {:value val,
+             :state (assoc state
+                           :store new-store
+                           :value val),
+             :resume-taker taker,
+             :resume-value val})
           :else
-            ;; No takers - buffer the value
-            (let [new-stream (stream-add-value stream val)
-                  new-store (assoc store stream-id new-stream)]
-              {:value val,
-               :state (assoc state
-                        :store new-store
-                        :value val)}))))
+          ;; No takers - buffer the value
+          (let [new-stream (stream-add-value stream val)
+                new-store (assoc store stream-id new-stream)]
+            {:value val,
+             :state (assoc state
+                           :store new-store
+                           :value val)}))))
 
 
 ;; ============================================================

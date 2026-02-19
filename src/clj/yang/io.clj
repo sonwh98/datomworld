@@ -2,9 +2,10 @@
   "Platform-specific I/O for Yang compiler on JVM.
 
   Provides functions to compile Clojure source files to Universal AST."
-  (:require [clojure.edn :as edn]
-            [clojure.java.io :as io]
-            [yang.clojure :as yang]))
+  (:require
+    [clojure.edn :as edn]
+    [clojure.java.io :as io]
+    [yang.clojure :as yang]))
 
 
 (defn read-source

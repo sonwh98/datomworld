@@ -1,9 +1,10 @@
 (ns yang.python-test
-  (:require [clojure.test :refer :all]
-            [yang.clojure :as clj]
-            [yang.python :as py]
-            [yin.vm :as vm]
-            [yin.vm.ast-walker :as ast-walker]))
+  (:require
+    [clojure.test :refer :all]
+    [yang.clojure :as clj]
+    [yang.python :as py]
+    [yin.vm :as vm]
+    [yin.vm.ast-walker :as ast-walker]))
 
 
 (defn compile-and-run

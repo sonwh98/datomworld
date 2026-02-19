@@ -1,13 +1,21 @@
 (ns daodb.primitives
-  #?(:cljs (:require [goog.crypt :as crypt]
-                     [goog.crypt.Sha256 :as sha256]))
-  #?(:clj (:import (java.security MessageDigest))))
+  #?(:cljs
+     (:require
+       [goog.crypt :as crypt]
+       [goog.crypt.Sha256 :as sha256]))
+  #?(:clj
+     (:import
+       (java.security
+         MessageDigest))))
 
 
-(defrecord Datom [e a v t m])
+(defrecord Datom
+  [e a v t m])
 
 
-(defn ->datom [e a v t m] (->Datom e a v t m))
+(defn ->datom
+  [e a v t m]
+  (->Datom e a v t m))
 
 
 (defn sha256
@@ -20,7 +28,9 @@
              (crypt/byteArrayToHex (.digest hasher)))))
 
 
-(defn hash-datom-content [e a v] (sha256 (str e a v)))
+(defn hash-datom-content
+  [e a v]
+  (sha256 (str e a v)))
 
 
 (defn merkle-id-for-node

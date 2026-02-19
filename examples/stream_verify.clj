@@ -1,11 +1,14 @@
 (ns stream-verify
-  (:require [clojure.core.async :as async]
-            [clojure.pprint :refer [pprint]]
-            [daodb.stream :as s]
-            [yin.vm :as vm]))
+  (:require
+    [clojure.core.async :as async]
+    [clojure.pprint :refer [pprint]]
+    [daodb.stream :as s]
+    [yin.vm :as vm]))
 
 
-(defn log [msg] (println "[VERIFY]" msg))
+(defn log
+  [msg]
+  (println "[VERIFY]" msg))
 
 
 (defn verify-host-stream
@@ -44,17 +47,17 @@
         ;; Simplified AST structure manually constructed
         program-ast {:type :application,
                      :operator
-                       {:type :lambda,
-                        :params [:s],
-                        :body {:type :application,
-                               :operator {:type :lambda,
-                                          :params [:_ignored],
-                                          :body {:type :stream/take,
-                                                 :source {:type :variable,
-                                                          :name :s}}},
-                               :operands [{:type :stream/put,
-                                           :target {:type :variable, :name :s},
-                                           :val {:type :literal, :value 42}}]}},
+                     {:type :lambda,
+                      :params [:s],
+                      :body {:type :application,
+                             :operator {:type :lambda,
+                                        :params [:_ignored],
+                                        :body {:type :stream/take,
+                                               :source {:type :variable,
+                                                        :name :s}}},
+                             :operands [{:type :stream/put,
+                                         :target {:type :variable, :name :s},
+                                         :val {:type :literal, :value 42}}]}},
                      :operands [{:type :stream/make, :buffer 5}]}]
     (log "Running VM...")
     (let [final-state (vm/run initial-state program-ast)]
@@ -64,4 +67,6 @@
   (log "Yin.VM Verification Passed!"))
 
 
-(defn -main [] (verify-host-stream) (verify-yin-vm-stream) (shutdown-agents))
+(defn -main
+  []
+  (verify-host-stream) (verify-yin-vm-stream) (shutdown-agents))

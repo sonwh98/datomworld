@@ -1,7 +1,8 @@
 (ns daodb.core-test
-  (:require [clojure.test :refer [deftest is testing]]
-            [daodb.core :as d]
-            [daodb.primitives :as p]))
+  (:require
+    [clojure.test :refer [deftest is testing]]
+    [daodb.core :as d]
+    [daodb.primitives :as p]))
 
 
 (deftest dual-index-test

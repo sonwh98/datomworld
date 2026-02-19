@@ -1,7 +1,8 @@
 (ns yin.vm.register-test
-  (:require [clojure.test :refer [deftest is testing]]
-            [yin.vm :as vm]
-            [yin.vm.register :as register]))
+  (:require
+    [clojure.test :refer [deftest is testing]]
+    [yin.vm :as vm]
+    [yin.vm.register :as register]))
 
 
 ;; =============================================================================
@@ -198,17 +199,17 @@
     "Nested lambda with closure capture ((fn [x] ((fn [y] (+ x y)) 5)) 3)"
     (let [ast {:type :application,
                :operator
-                 {:type :lambda,
-                  :params ['x],
-                  :body {:type :application,
-                         :operator
-                           {:type :lambda,
-                            :params ['y],
-                            :body {:type :application,
-                                   :operator {:type :variable, :name '+},
-                                   :operands [{:type :variable, :name 'x}
-                                              {:type :variable, :name 'y}]}},
-                         :operands [{:type :literal, :value 5}]}},
+               {:type :lambda,
+                :params ['x],
+                :body {:type :application,
+                       :operator
+                       {:type :lambda,
+                        :params ['y],
+                        :body {:type :application,
+                               :operator {:type :variable, :name '+},
+                               :operands [{:type :variable, :name 'x}
+                                          {:type :variable, :name 'y}]}},
+                       :operands [{:type :literal, :value 5}]}},
                :operands [{:type :literal, :value 3}]}]
       (is (= 8 (compile-and-run-bc ast))))))
 
@@ -221,11 +222,11 @@
                           :body {:type :application,
                                  :operator {:type :variable, :name '+},
                                  :operands
-                                   [{:type :variable, :name 'a}
-                                    {:type :application,
-                                     :operator {:type :variable, :name '-},
-                                     :operands [{:type :variable, :name 'b}
-                                                {:type :literal, :value 1}]}]}},
+                                 [{:type :variable, :name 'a}
+                                  {:type :application,
+                                   :operator {:type :variable, :name '-},
+                                   :operands [{:type :variable, :name 'b}
+                                              {:type :literal, :value 1}]}]}},
                :operands [{:type :literal, :value 10}
                           {:type :literal, :value 5}]}]
       (is (= 14 (compile-and-run-bc ast))))))
@@ -256,22 +257,22 @@
       (is (= :return (first (last asm))))))
   (testing "All instructions are vectors"
     (let [{:keys [asm reg-count]}
-            (register/ast-datoms->asm
-              (vm/ast->datoms {:type :application,
-                               :operator {:type :variable, :name '+},
-                               :operands [{:type :literal, :value 1}
-                                          {:type :literal, :value 2}]}))]
+          (register/ast-datoms->asm
+            (vm/ast->datoms {:type :application,
+                             :operator {:type :variable, :name '+},
+                             :operands [{:type :literal, :value 1}
+                                        {:type :literal, :value 2}]}))]
       (is (every? vector? asm)))))
 
 
 (deftest register-bytecode-application-test
   (testing "Application produces loadk, loadv, call, and return"
     (let [{:keys [asm reg-count]}
-            (register/ast-datoms->asm
-              (vm/ast->datoms {:type :application,
-                               :operator {:type :variable, :name '+},
-                               :operands [{:type :literal, :value 1}
-                                          {:type :literal, :value 2}]}))]
+          (register/ast-datoms->asm
+            (vm/ast->datoms {:type :application,
+                             :operator {:type :variable, :name '+},
+                             :operands [{:type :literal, :value 1}
+                                        {:type :literal, :value 2}]}))]
       (is (= 5 (count asm)))
       (is (= :loadk (first (nth asm 0))))
       (is (= :loadk (first (nth asm 1))))
@@ -346,12 +347,12 @@
 (deftest register-bytecode-continuation-is-data-test
   (testing "Continuation frame is created during closure call"
     (let [{:keys [asm reg-count]}
-            (register/ast-datoms->asm
-              (vm/ast->datoms {:type :application,
-                               :operator {:type :lambda,
-                                          :params ['x],
-                                          :body {:type :variable, :name 'x}},
-                               :operands [{:type :literal, :value 42}]}))
+          (register/ast-datoms->asm
+            (vm/ast->datoms {:type :application,
+                             :operator {:type :lambda,
+                                        :params ['x],
+                                        :body {:type :variable, :name 'x}},
+                             :operands [{:type :literal, :value 42}]}))
           compiled (assoc (register/asm->bytecode asm) :reg-count reg-count)
           vm-inst (register/create-vm)
           vm-loaded (vm/load-program vm-inst compiled)

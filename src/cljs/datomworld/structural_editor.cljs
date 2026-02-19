@@ -1,8 +1,9 @@
 (ns datomworld.structural-editor
-  (:require [cljs.pprint :as pprint]
-            [datascript.core :as d]
-            [reagent.core :as r]
-            [yin.vm :as vm]))
+  (:require
+    [cljs.pprint :as pprint]
+    [datascript.core :as d]
+    [reagent.core :as r]
+    [yin.vm :as vm]))
 
 
 ;; =============================================================================
@@ -51,7 +52,7 @@
    {:label "Operators",
     :items (mapv (fn [sym]
                    {:template {:type :variable, :name sym}, :label (str sym)})
-             primitive-names)}
+                 primitive-names)}
    {:label "Forms",
     :items [{:template {:type :application}, :label "Apply"}
             {:template {:type :lambda, :params '[]}, :label "Lambda"}
@@ -83,18 +84,18 @@
                    (when body-ast
                      {:type :lambda, :params (:params block), :body body-ast}))
          :application
-           (let [op-ast (recurse :operator)
-                 ;; Collect operand slots in order
-                 operand-ids (loop [i 0
-                                    acc []]
-                               (if-let [cid (child-of [:operands i])]
-                                 (recur (inc i) (conj acc cid))
-                                 acc))
-                 operand-asts
-                   (mapv #(blocks->ast {:blocks blocks, :children children} %)
+         (let [op-ast (recurse :operator)
+               ;; Collect operand slots in order
+               operand-ids (loop [i 0
+                                  acc []]
+                             (if-let [cid (child-of [:operands i])]
+                               (recur (inc i) (conj acc cid))
+                               acc))
+               operand-asts
+               (mapv #(blocks->ast {:blocks blocks, :children children} %)
                      operand-ids)]
-             (when (and op-ast (every? some? operand-asts))
-               {:type :application, :operator op-ast, :operands operand-asts}))
+           (when (and op-ast (every? some? operand-asts))
+             {:type :application, :operator op-ast, :operands operand-asts}))
          :if (let [test-ast (recurse :test)
                    cons-ast (recurse :consequent)
                    alt-ast (recurse :alternate)]
@@ -127,23 +128,23 @@
                  db @conn
                  root-eid (get tempids root-id)]
              (swap! app-state assoc
-               :ast-as-text ast-text
-               :datoms datoms
-               :ds-db db
-               :root-ids [root-id]
-               :root-eids [root-eid]
-               :error nil))
+                    :ast-as-text ast-text
+                    :datoms datoms
+                    :ds-db db
+                    :root-ids [root-id]
+                    :root-eids [root-eid]
+                    :error nil))
            (catch js/Error e
              (swap! app-state assoc
-               :error
-               (str "Structural Editor Error: " (.-message e)))))
+                    :error
+                    (str "Structural Editor Error: " (.-message e)))))
       ;; No complete AST yet - clear downstream
       (swap! app-state assoc
-        :ast-as-text ""
-        :datoms nil
-        :ds-db nil
-        :root-ids nil
-        :root-eids nil))))
+             :ast-as-text ""
+             :datoms nil
+             :ds-db nil
+             :root-ids nil
+             :root-eids nil))))
 
 
 ;; =============================================================================
@@ -178,25 +179,27 @@
   (let [st @editor-state
         ;; Find all children of this block
         child-entries (filter (fn [[[pid _] _]] (= pid block-id))
-                        (:children st))
+                              (:children st))
         child-ids (map second child-entries)]
     ;; Remove children recursively
     (doseq [cid child-ids] (remove-block! cid))
     ;; Remove this block's child entries and the block itself
     (swap! editor-state
-      (fn [s]
-        (-> s
-            (update :children
-                    #(into {} (remove (fn [[[pid _] _]] (= pid block-id)) %)))
-            (update :blocks dissoc block-id)
-            (cond-> (= (:root-id s) block-id) (assoc :root-id nil)))))
+           (fn [s]
+             (-> s
+                 (update :children
+                         #(into {} (remove (fn [[[pid _] _]] (= pid block-id)) %)))
+                 (update :blocks dissoc block-id)
+                 (cond-> (= (:root-id s) block-id) (assoc :root-id nil)))))
     ;; Also remove any parent->this entries
     (swap! editor-state update
-      :children
-      #(into {} (remove (fn [[_ cid]] (= cid block-id)) %)))))
+           :children
+           #(into {} (remove (fn [[_ cid]] (= cid block-id)) %)))))
 
 
-(defn- set-root! [block-id] (swap! editor-state assoc :root-id block-id))
+(defn- set-root!
+  [block-id]
+  (swap! editor-state assoc :root-id block-id))
 
 
 (defn- add-operand-slot!
@@ -259,7 +262,7 @@
             :on-drop (fn [e] (.stopPropagation e))}
            [:div
             {:style
-               {:position "absolute", :top "2px", :right "2px", :z-index 10}}
+             {:position "absolute", :top "2px", :right "2px", :z-index 10}}
             [:button
              {:on-click (fn [e]
                           (.stopPropagation e)
@@ -281,24 +284,24 @@
           ;; Empty slot: notch-shaped cutout
           [:div
            {:style
-              {:background
-                 (if @drag-over? "rgba(255,255,255,0.12)" "rgba(0,0,0,0.25)"),
-               :border-radius "12px 4px 4px 12px",
-               :padding "6px 10px",
-               :margin "4px 0",
-               :color (if @drag-over? "#fff" "#888"),
-               :font-size "11px",
-               :font-family "monospace",
-               :min-height "28px",
-               :display "flex",
-               :align-items "center",
-               :box-shadow
-                 (if @drag-over?
-                   "inset 0 0 8px rgba(255,255,255,0.2), 0 0 6px rgba(100,180,255,0.3)"
-                   "inset 0 2px 4px rgba(0,0,0,0.3)"),
-               :transition "all 0.15s ease",
-               :position "relative",
-               :z-index 1},
+            {:background
+             (if @drag-over? "rgba(255,255,255,0.12)" "rgba(0,0,0,0.25)"),
+             :border-radius "12px 4px 4px 12px",
+             :padding "6px 10px",
+             :margin "4px 0",
+             :color (if @drag-over? "#fff" "#888"),
+             :font-size "11px",
+             :font-family "monospace",
+             :min-height "28px",
+             :display "flex",
+             :align-items "center",
+             :box-shadow
+             (if @drag-over?
+               "inset 0 0 8px rgba(255,255,255,0.2), 0 0 6px rgba(100,180,255,0.3)"
+               "inset 0 2px 4px rgba(0,0,0,0.3)"),
+             :transition "all 0.15s ease",
+             :position "relative",
+             :z-index 1},
             :on-drag-enter (fn [e]
                              (.preventDefault e)
                              (.stopPropagation e)
@@ -311,17 +314,17 @@
                              (when (= (.-target e) (.-currentTarget e))
                                (reset! drag-over? false))),
             :on-drop
-              (fn [e]
-                (.preventDefault e)
-                (.stopPropagation e)
-                (reset! drag-over? false)
-                (let [template-json (.getData (.-dataTransfer e) "text/plain")]
-                  (when (seq template-json)
-                    (try (let [template (cljs.reader/read-string template-json)
-                               new-id (add-block! template)]
-                           (attach! parent-id slot-key new-id)
-                           (sync! app-state))
-                         (catch js/Error _ nil)))))}
+            (fn [e]
+              (.preventDefault e)
+              (.stopPropagation e)
+              (reset! drag-over? false)
+              (let [template-json (.getData (.-dataTransfer e) "text/plain")]
+                (when (seq template-json)
+                  (try (let [template (cljs.reader/read-string template-json)
+                             new-id (add-block! template)]
+                         (attach! parent-id slot-key new-id)
+                         (sync! app-state))
+                       (catch js/Error _ nil)))))}
            ;; Notch tab indicator on the left
            [:div
             {:style {:width "8px",
@@ -345,14 +348,14 @@
       :value (pr-str v),
       :on-click (fn [e] (.stopPropagation e)),
       :on-change
-        (fn [e]
-          (let [raw (.. e -target -value)]
-            (try
-              (let [parsed (cljs.reader/read-string raw)]
-                (swap! editor-state assoc-in [:blocks block-id :value] parsed)
-                (sync! app-state))
-              (catch js/Error _
-                (swap! editor-state assoc-in [:blocks block-id :value] raw))))),
+      (fn [e]
+        (let [raw (.. e -target -value)]
+          (try
+            (let [parsed (cljs.reader/read-string raw)]
+              (swap! editor-state assoc-in [:blocks block-id :value] parsed)
+              (sync! app-state))
+            (catch js/Error _
+              (swap! editor-state assoc-in [:blocks block-id :value] raw))))),
       :style {:background "rgba(0,0,0,0.3)",
               :border "1px solid rgba(255,255,255,0.2)",
               :border-radius "10px",
@@ -403,8 +406,8 @@
                      (try (let [parsed (cljs.reader/read-string raw)]
                             (when (vector? parsed)
                               (swap! editor-state assoc-in
-                                [:blocks block-id :params]
-                                parsed)
+                                     [:blocks block-id :params]
+                                     parsed)
                               (sync! app-state)))
                           (catch js/Error _ nil)))),
       :style {:background "rgba(0,0,0,0.3)",
@@ -424,7 +427,7 @@
   (let [block (get-in @editor-state [:blocks block-id])
         text (:text block)
         valid?
-          (try (cljs.reader/read-string text) true (catch js/Error _ false))]
+        (try (cljs.reader/read-string text) true (catch js/Error _ false))]
     [:textarea
      {:value text,
       :placeholder "{:key value}",
@@ -604,51 +607,51 @@
                ;; Bottom bar: empty
                nil]
       :application
-        (let [n (operand-count block-id)]
-          [c-block bg border-color
-           ;; Top bar: apply label only
+      (let [n (operand-count block-id)]
+        [c-block bg border-color
+         ;; Top bar: apply label only
+         [:span
+          {:style {:color "#fff",
+                   :font-size "11px",
+                   :font-weight "bold",
+                   :text-transform "uppercase"}} "apply"]
+         ;; Body: operator slot + operand slots
+         [:div
+          [:div
+           {:style {:color "rgba(255,255,255,0.5)",
+                    :font-size "9px",
+                    :margin-bottom "2px",
+                    :text-transform "uppercase"}} "operator"]
+          [slot-view block-id :operator "operator" app-state]
+          (for [i (range (inc n))]
+            ^{:key i}
+            [:div
+             [:div
+              {:style {:color "rgba(255,255,255,0.5)",
+                       :font-size "9px",
+                       :margin-bottom "1px",
+                       :margin-top "4px",
+                       :text-transform "uppercase"}} (str "arg " i)]
+             [slot-view block-id [:operands i] (str "arg " i) app-state]])]
+         ;; Bottom bar: + arg button
+         [:button
+          {:on-click (fn [e] (.stopPropagation e) (sync! app-state)),
+           :style {:background "rgba(255,255,255,0.1)",
+                   :border "1px solid rgba(255,255,255,0.2)",
+                   :color "#fff",
+                   :cursor "pointer",
+                   :font-size "10px",
+                   :font-weight "bold",
+                   :padding "2px 10px",
+                   :border-radius "10px"}} "+ arg"]])
+      :if [c-block bg
+           border-color
+           ;; Top bar
            [:span
             {:style {:color "#fff",
                      :font-size "11px",
                      :font-weight "bold",
-                     :text-transform "uppercase"}} "apply"]
-           ;; Body: operator slot + operand slots
-           [:div
-            [:div
-             {:style {:color "rgba(255,255,255,0.5)",
-                      :font-size "9px",
-                      :margin-bottom "2px",
-                      :text-transform "uppercase"}} "operator"]
-            [slot-view block-id :operator "operator" app-state]
-            (for [i (range (inc n))]
-              ^{:key i}
-              [:div
-               [:div
-                {:style {:color "rgba(255,255,255,0.5)",
-                         :font-size "9px",
-                         :margin-bottom "1px",
-                         :margin-top "4px",
-                         :text-transform "uppercase"}} (str "arg " i)]
-               [slot-view block-id [:operands i] (str "arg " i) app-state]])]
-           ;; Bottom bar: + arg button
-           [:button
-            {:on-click (fn [e] (.stopPropagation e) (sync! app-state)),
-             :style {:background "rgba(255,255,255,0.1)",
-                     :border "1px solid rgba(255,255,255,0.2)",
-                     :color "#fff",
-                     :cursor "pointer",
-                     :font-size "10px",
-                     :font-weight "bold",
-                     :padding "2px 10px",
-                     :border-radius "10px"}} "+ arg"]])
-      :if [c-block bg
-           border-color
-             ;; Top bar
-             [:span
-              {:style {:color "#fff",
-                       :font-size "11px",
-                       :font-weight "bold",
-                       :text-transform "uppercase"}} "if"]
+                     :text-transform "uppercase"}} "if"]
            ;; Body: test / then / else sections with dividers
            [:div
             [:div
@@ -679,8 +682,8 @@
                       :text-transform "uppercase",
                       :margin-bottom "2px"}} "else"]
             [slot-view block-id :alternate "else" app-state]]
-             ;; Bottom bar: empty
-             nil]
+           ;; Bottom bar: empty
+           nil]
       [:div (str "?" btype)])))
 
 
@@ -697,7 +700,7 @@
     [:div
      {:draggable true,
       :on-drag-start
-        (fn [e] (.setData (.-dataTransfer e) "text/plain" (pr-str template))),
+      (fn [e] (.setData (.-dataTransfer e) "text/plain" (pr-str template))),
       :style {:display "flex",
               :align-items "center",
               :margin "3px 0",
@@ -727,30 +730,31 @@
 (defn- palette-view
   []
   (let [collapsed-groups (r/atom #{})]
-    (fn [] [:div
-            {:style {:width "130px",
-                     :flex-shrink "0",
-                     :overflow-y "auto",
-                     :border-right "1px solid #2d3b55",
-                     :padding "6px"}}
-            (for [{:keys [label items]} palette-groups]
-              ^{:key label}
-              [:div {:style {:margin-bottom "4px"}}
-               [:div
-                {:on-click #(swap! collapsed-groups (fn [s]
-                                                      (if (contains? s label)
-                                                        (disj s label)
-                                                        (conj s label)))),
-                 :style {:color "#8b949e",
-                         :font-size "10px",
-                         :cursor "pointer",
-                         :margin-bottom "2px",
-                         :user-select "none"}}
-                (if (contains? @collapsed-groups label) "▸ " "▾ ") label]
-               (when-not (contains? @collapsed-groups label)
-                 (for [{:keys [template label]} items]
-                   ^{:key (str label (hash template))}
-                   [palette-item template label]))])])))
+    (fn []
+      [:div
+       {:style {:width "130px",
+                :flex-shrink "0",
+                :overflow-y "auto",
+                :border-right "1px solid #2d3b55",
+                :padding "6px"}}
+       (for [{:keys [label items]} palette-groups]
+         ^{:key label}
+         [:div {:style {:margin-bottom "4px"}}
+          [:div
+           {:on-click #(swap! collapsed-groups (fn [s]
+                                                 (if (contains? s label)
+                                                   (disj s label)
+                                                   (conj s label)))),
+            :style {:color "#8b949e",
+                    :font-size "10px",
+                    :cursor "pointer",
+                    :margin-bottom "2px",
+                    :user-select "none"}}
+           (if (contains? @collapsed-groups label) "▸ " "▾ ") label]
+          (when-not (contains? @collapsed-groups label)
+            (for [{:keys [template label]} items]
+              ^{:key (str label (hash template))}
+              [palette-item template label]))])])))
 
 
 ;; =============================================================================

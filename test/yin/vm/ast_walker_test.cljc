@@ -1,8 +1,9 @@
 (ns yin.vm.ast-walker-test
-  (:require [clojure.test :refer [deftest is testing]]
-            [datascript.core :as d]
-            [yin.vm :as vm]
-            [yin.vm.ast-walker :as ast-walker]))
+  (:require
+    [clojure.test :refer [deftest is testing]]
+    [datascript.core :as d]
+    [yin.vm :as vm]
+    [yin.vm.ast-walker :as ast-walker]))
 
 
 ;; =============================================================================
@@ -186,17 +187,17 @@
     "Nested lambda with closure capture ((fn [x] ((fn [y] (+ x y)) 5)) 3)"
     (let [ast {:type :application,
                :operator
-                 {:type :lambda,
-                  :params ['x],
-                  :body {:type :application,
-                         :operator
-                           {:type :lambda,
-                            :params ['y],
-                            :body {:type :application,
-                                   :operator {:type :variable, :name '+},
-                                   :operands [{:type :variable, :name 'x}
-                                              {:type :variable, :name 'y}]}},
-                         :operands [{:type :literal, :value 5}]}},
+               {:type :lambda,
+                :params ['x],
+                :body {:type :application,
+                       :operator
+                       {:type :lambda,
+                        :params ['y],
+                        :body {:type :application,
+                               :operator {:type :variable, :name '+},
+                               :operands [{:type :variable, :name 'x}
+                                          {:type :variable, :name 'y}]}},
+                       :operands [{:type :literal, :value 5}]}},
                :operands [{:type :literal, :value 3}]}]
       (is (= 8 (compile-and-run ast))))))
 
@@ -209,11 +210,11 @@
                           :body {:type :application,
                                  :operator {:type :variable, :name '+},
                                  :operands
-                                   [{:type :variable, :name 'a}
-                                    {:type :application,
-                                     :operator {:type :variable, :name '-},
-                                     :operands [{:type :variable, :name 'b}
-                                                {:type :literal, :value 1}]}]}},
+                                 [{:type :variable, :name 'a}
+                                  {:type :application,
+                                   :operator {:type :variable, :name '-},
+                                   :operands [{:type :variable, :name 'b}
+                                              {:type :literal, :value 1}]}]}},
                :operands [{:type :literal, :value 10}
                           {:type :literal, :value 5}]}]
       (is (= 14 (compile-and-run ast))))))
@@ -336,31 +337,31 @@
 (deftest ast->datoms-fibonacci-test
   (testing "Fibonacci lambda produces valid datoms"
     (let [fib-ast
-            {:type :lambda,
-             :params ['n],
-             :body {:type :if,
-                    :test {:type :application,
-                           :operator {:type :variable, :name '<},
-                           :operands [{:type :variable, :name 'n}
-                                      {:type :literal, :value 2}]},
-                    :consequent {:type :variable, :name 'n},
-                    :alternate
-                      {:type :application,
-                       :operator {:type :variable, :name '+},
-                       :operands
-                         [{:type :application,
-                           :operator {:type :variable, :name 'fib},
-                           :operands [{:type :application,
-                                       :operator {:type :variable, :name '-},
-                                       :operands [{:type :variable, :name 'n}
-                                                  {:type :literal, :value 1}]}]}
-                          {:type :application,
-                           :operator {:type :variable, :name 'fib},
-                           :operands [{:type :application,
-                                       :operator {:type :variable, :name '-},
-                                       :operands [{:type :variable, :name 'n}
-                                                  {:type :literal,
-                                                   :value 2}]}]}]}}}
+          {:type :lambda,
+           :params ['n],
+           :body {:type :if,
+                  :test {:type :application,
+                         :operator {:type :variable, :name '<},
+                         :operands [{:type :variable, :name 'n}
+                                    {:type :literal, :value 2}]},
+                  :consequent {:type :variable, :name 'n},
+                  :alternate
+                  {:type :application,
+                   :operator {:type :variable, :name '+},
+                   :operands
+                   [{:type :application,
+                     :operator {:type :variable, :name 'fib},
+                     :operands [{:type :application,
+                                 :operator {:type :variable, :name '-},
+                                 :operands [{:type :variable, :name 'n}
+                                            {:type :literal, :value 1}]}]}
+                    {:type :application,
+                     :operator {:type :variable, :name 'fib},
+                     :operands [{:type :application,
+                                 :operator {:type :variable, :name '-},
+                                 :operands [{:type :variable, :name 'n}
+                                            {:type :literal,
+                                             :value 2}]}]}]}}}
           datoms (vec (vm/ast->datoms fib-ast))]
       (testing "All datoms are valid 5-tuples"
         (is (every? #(= 5 (count %)) datoms) "Every datom must be a 5-tuple")
@@ -385,7 +386,7 @@
               refs (->> datoms
                         (filter #(#{:yin/body :yin/operator :yin/test
                                     :yin/consequent :yin/alternate}
-                                   (second %)))
+                                  (second %)))
                         (map #(nth % 2)))]
           (is (every? #(contains? entity-ids %) refs)
               "All entity references should point to existing entities"))))))
@@ -539,8 +540,8 @@
                                                    :source {:type :variable,
                                                             :name 's}}},
                                  :operands
-                                   [{:type :stream/put,
-                                     :target {:type :variable, :name 's},
-                                     :val {:type :literal, :value 42}}]}},
+                                 [{:type :stream/put,
+                                   :target {:type :variable, :name 's},
+                                   :val {:type :literal, :value 42}}]}},
                :operands [{:type :stream/make, :buffer 5}]}]
       (is (= 42 (compile-and-run ast))))))

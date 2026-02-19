@@ -11,9 +11,10 @@
   - (νc)P       : Create new channel c (scope restriction)
   - !P          : Replication (infinite copies of P)
   "
-  (:require [clojure.core.async :as async :refer
-             [go go-loop chan <! >! <!! >!! close!]]
-            [clojure.set :as set]))
+  (:require
+    [clojure.core.async :as async :refer
+     [go go-loop chan <! >! <!! >!! close!]]
+    [clojure.set :as set]))
 
 
 ;; =============================================================================
@@ -302,8 +303,8 @@
           ;; CRDT merge operation
           (let [merged-state (reduce (fn [acc {:keys [device state]}]
                                        (merge-with set/union acc state))
-                               {}
-                               states)]
+                                     {}
+                                     states)]
             (println "Merged state:" merged-state)
             (>! merge-result merged-state))))
     merge-result))
@@ -374,7 +375,7 @@
   (let [migration-channel (chan)]
     ;; Source node: creates continuation and sends it
     (go (let [continuation
-                (fn [x] (println "Continuation executing with" x) (* x x))] ; Closure
+              (fn [x] (println "Continuation executing with" x) (* x x))] ; Closure
           ;; captures behavior
           (println "Sending continuation to remote node")
           (>! migration-channel continuation)))

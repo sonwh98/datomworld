@@ -1,9 +1,10 @@
 (ns yang.php-test
-  (:require [clojure.test :refer :all]
-            [yang.clojure :as clj]
-            [yang.php :as php]
-            [yin.vm :as vm]
-            [yin.vm.ast-walker :as ast-walker]))
+  (:require
+    [clojure.test :refer :all]
+    [yang.clojure :as clj]
+    [yang.php :as php]
+    [yin.vm :as vm]
+    [yin.vm.ast-walker :as ast-walker]))
 
 
 (defn compile-and-run
@@ -111,14 +112,14 @@
     (testing "Function application"
       (let
         [source
-           "function double($x) { return $x * 2; }
+         "function double($x) { return $x * 2; }
                     double(21);"
          ast (php/compile source)]
         (is (= 42 (compile-and-run ast)))))
     (testing "Multiple parameters"
       (let
         [source
-           "function add($x, $y) { return $x + $y; }
+         "function add($x, $y) { return $x + $y; }
                     add(10, 20);"
          ast (php/compile source)]
         (is (= 30 (compile-and-run ast)))))
@@ -143,13 +144,13 @@
     (testing "Else if"
       (let
         [source
-           "if (3 > 5) { return 1; } elseif (4 < 5) { return 2; } else { return 3; }"
+         "if (3 > 5) { return 1; } elseif (4 < 5) { return 2; } else { return 3; }"
          ast (php/compile source)]
         (is (= 2 (compile-and-run ast)))))
     (testing "Complex closure with type hints and assignment"
       (let
         [source
-           "$makePower = function (int $exponent) {
+         "$makePower = function (int $exponent) {
                       return function (int $base) use ($exponent): int {
                           $result = 1;
                           $result = $result * $base;
@@ -166,7 +167,7 @@
     (testing "Closure with for loop and augmented assignment"
       (let
         [source
-           "$makePower = function (int $exponent) {
+         "$makePower = function (int $exponent) {
                       return function (int $base) use ($exponent): int {
                           $result = 1;
                           for ($i = 0; $i < $exponent; $i++) {

@@ -51,9 +51,9 @@
 
 (def code5
   '(let
-    [double (fn [x] (* x 2)) triple (fn [x] (* x 3)) apply-both
-     (fn [f g x] (+ (f x) (g x)))]
-    (apply-both double triple 5)))
+     [double (fn [x] (* x 2)) triple (fn [x] (* x 3)) apply-both
+      (fn [f g x] (+ (f x) (g x)))]
+     (apply-both double triple 5)))
 
 
 (println "Source:" code5)

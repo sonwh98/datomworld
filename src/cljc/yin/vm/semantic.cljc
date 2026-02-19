@@ -1,7 +1,8 @@
 (ns yin.vm.semantic
-  (:require [datascript.core :as d]
-            [yin.module :as module]
-            [yin.vm :as vm]))
+  (:require
+    [datascript.core :as d]
+    [yin.module :as module]
+    [yin.vm :as vm]))
 
 
 ;; =============================================================================
@@ -42,7 +43,7 @@
   "Find all datoms with a given attribute from a DataScript db."
   [db attr]
   (mapv (fn [[e v]] [e attr v])
-    (d/q '[:find ?e ?v :in $ ?attr :where [?e ?attr ?v]] db attr)))
+        (d/q '[:find ?e ?v :in $ ?attr :where [?e ?attr ?v]] db attr)))
 
 
 (defn get-node-attrs
@@ -53,7 +54,7 @@
                  (if (contains? cardinality-many-attrs a)
                    (update m a (fnil conj []) v)
                    (assoc m a v)))
-         {})))
+               {})))
 
 
 (defn- datom-node-attrs
@@ -65,8 +66,8 @@
                 (update m a (fnil into []) v)
                 (update m a (fnil conj []) v))
               (assoc m a v)))
-    {}
-    (get index node-id)))
+          {}
+          (get index node-id)))
 
 
 (defn find-applications
@@ -91,20 +92,21 @@
 ;; VM Records
 ;; =============================================================================
 
-(defrecord SemanticVM [control    ; current control state {:type
-                       ;; :node/:value, ...}
-                       env        ; lexical environment
-                       stack      ; continuation stack
-                       datoms     ; AST datoms
-                       index      ; Entity index {eid [datom...]}
-                       halted     ; true if execution completed
-                       value      ; final result value
-                       store      ; heap memory
-                       parked     ; parked continuations
-                       id-counter ; unique ID counter
-                       primitives ; primitive operations
-                       blocked    ; true if blocked
-                      ])
+(defrecord SemanticVM
+  [control    ; current control state {:type
+   ;; :node/:value, ...}
+   env        ; lexical environment
+   stack      ; continuation stack
+   datoms     ; AST datoms
+   index      ; Entity index {eid [datom...]}
+   halted     ; true if execution completed
+   value      ; final result value
+   store      ; heap memory
+   parked     ; parked continuations
+   id-counter ; unique ID counter
+   primitives ; primitive operations
+   blocked    ; true if blocked
+   ])
 
 
 ;; =============================================================================
@@ -120,79 +122,79 @@
         val (:val control)]
     (if (empty? stack)
       (assoc vm
-        :halted true
-        :value val)
+             :halted true
+             :value val)
       (let [frame (peek stack)
             new-stack (pop stack)]
         (case (:type frame)
           :if (let [{:keys [cons alt env]} frame]
                 (assoc vm
-                  :control {:type :node, :id (if val cons alt)}
-                  :env env
-                  :stack new-stack))
+                       :control {:type :node, :id (if val cons alt)}
+                       :env env
+                       :stack new-stack))
           :app-op
-            (let [{:keys [operands env]} frame
-                  fn-val val]
-              (if (empty? operands)
-                ;; 0-arity call
-                (if (fn? fn-val)
-                  (assoc vm
-                    :control {:type :value, :val (fn-val)}
-                    :env env
-                    :stack new-stack)
-                  (if (= :closure (:type fn-val))
-                    (let [{:keys [body-node env]} fn-val]
-                      (assoc vm
-                        :control {:type :node, :id body-node}
-                        :env env ; Switch to closure env
-                        :stack (conj new-stack
-                                     {:type :restore-env, :env (:env frame)})))
-                    (throw (ex-info "Cannot apply non-function" {:fn fn-val}))))
-                ;; Prepare to eval args
-                (let [first-arg (first operands)
-                      rest-args (subvec operands 1)]
-                  (assoc vm
-                    :control {:type :node, :id first-arg}
-                    :env env
-                    :stack (conj new-stack
-                                 {:type :app-args,
-                                  :fn fn-val,
-                                  :evaluated [],
-                                  :pending rest-args,
-                                  :env env})))))
+          (let [{:keys [operands env]} frame
+                fn-val val]
+            (if (empty? operands)
+              ;; 0-arity call
+              (if (fn? fn-val)
+                (assoc vm
+                       :control {:type :value, :val (fn-val)}
+                       :env env
+                       :stack new-stack)
+                (if (= :closure (:type fn-val))
+                  (let [{:keys [body-node env]} fn-val]
+                    (assoc vm
+                           :control {:type :node, :id body-node}
+                           :env env ; Switch to closure env
+                           :stack (conj new-stack
+                                        {:type :restore-env, :env (:env frame)})))
+                  (throw (ex-info "Cannot apply non-function" {:fn fn-val}))))
+              ;; Prepare to eval args
+              (let [first-arg (first operands)
+                    rest-args (subvec operands 1)]
+                (assoc vm
+                       :control {:type :node, :id first-arg}
+                       :env env
+                       :stack (conj new-stack
+                                    {:type :app-args,
+                                     :fn fn-val,
+                                     :evaluated [],
+                                     :pending rest-args,
+                                     :env env})))))
           :app-args
-            (let [{:keys [fn evaluated pending env]} frame
-                  new-evaluated (conj evaluated val)]
-              (if (empty? pending)
-                ;; All args evaluated, apply
-                (if (fn? fn)
-                  (assoc vm
-                    :control {:type :value, :val (apply fn new-evaluated)}
-                    :env env
-                    :stack new-stack)
-                  (if (= :closure (:type fn))
-                    (let [{:keys [params body-node env]} fn
-                          new-env (merge env (zipmap params new-evaluated))]
-                      (assoc vm
-                        :control {:type :node, :id body-node}
-                        :env new-env ; Closure env + args
-                        :stack (conj new-stack
-                                     {:type :restore-env, :env (:env frame)})))
-                    (throw (ex-info "Cannot apply non-function" {:fn fn}))))
-                ;; More args to eval
-                (let [next-arg (first pending)
-                      rest-pending (subvec pending 1)]
-                  (assoc vm
-                    :control {:type :node, :id next-arg}
-                    :env env
-                    :stack (conj new-stack
-                                 (assoc frame
-                                   :evaluated new-evaluated
-                                   :pending rest-pending))))))
+          (let [{:keys [fn evaluated pending env]} frame
+                new-evaluated (conj evaluated val)]
+            (if (empty? pending)
+              ;; All args evaluated, apply
+              (if (fn? fn)
+                (assoc vm
+                       :control {:type :value, :val (apply fn new-evaluated)}
+                       :env env
+                       :stack new-stack)
+                (if (= :closure (:type fn))
+                  (let [{:keys [params body-node env]} fn
+                        new-env (merge env (zipmap params new-evaluated))]
+                    (assoc vm
+                           :control {:type :node, :id body-node}
+                           :env new-env ; Closure env + args
+                           :stack (conj new-stack
+                                        {:type :restore-env, :env (:env frame)})))
+                  (throw (ex-info "Cannot apply non-function" {:fn fn}))))
+              ;; More args to eval
+              (let [next-arg (first pending)
+                    rest-pending (subvec pending 1)]
+                (assoc vm
+                       :control {:type :node, :id next-arg}
+                       :env env
+                       :stack (conj new-stack
+                                    (assoc frame
+                                           :evaluated new-evaluated
+                                           :pending rest-pending))))))
           :restore-env (assoc vm
-                         :control control ; Pass value up
-                         :env (:env frame) ; Restore caller env
-                         :stack new-stack))))))
+                              :control control ; Pass value up
+                              :env (:env frame) ; Restore caller env
+                              :stack new-stack))))))
 
 
 (defn handle-node-eval
@@ -212,25 +214,25 @@
                                   (module/resolve-symbol name))))]
                   (assoc vm :control {:type :value, :val val}))
       :lambda (assoc vm
-                :control {:type :value,
-                          :val {:type :closure,
-                                :params (:yin/params node-map),
-                                :body-node (:yin/body node-map),
-                                :datoms datoms,
-                                :env env}})
+                     :control {:type :value,
+                               :val {:type :closure,
+                                     :params (:yin/params node-map),
+                                     :body-node (:yin/body node-map),
+                                     :datoms datoms,
+                                     :env env}})
       :if (assoc vm
-            :control {:type :node, :id (:yin/test node-map)}
-            :stack (conj stack
-                         {:type :if,
-                          :cons (:yin/consequent node-map),
-                          :alt (:yin/alternate node-map),
-                          :env env}))
+                 :control {:type :node, :id (:yin/test node-map)}
+                 :stack (conj stack
+                              {:type :if,
+                               :cons (:yin/consequent node-map),
+                               :alt (:yin/alternate node-map),
+                               :env env}))
       :application (assoc vm
-                     :control {:type :node, :id (:yin/operator node-map)}
-                     :stack (conj stack
-                                  {:type :app-op,
-                                   :operands (:yin/operands node-map),
-                                   :env env}))
+                          :control {:type :node, :id (:yin/operator node-map)}
+                          :stack (conj stack
+                                       {:type :app-op,
+                                        :operands (:yin/operands node-map),
+                                        :env env}))
       (throw (ex-info "Unknown node type" {:node-map node-map})))))
 
 
@@ -279,13 +281,13 @@
    Expects {:node root-id :datoms [...]}."
   [^SemanticVM vm {:keys [node datoms]}]
   (assoc vm
-    :control {:type :node, :id node}
-    :stack []
-    :datoms datoms
-    :index (group-by first datoms)
-    :halted false
-    :value nil
-    :blocked false))
+         :control {:type :node, :id node}
+         :stack []
+         :datoms datoms
+         :index (group-by first datoms)
+         :halted false
+         :value nil
+         :blocked false))
 
 
 (defn- semantic-vm-eval
@@ -303,21 +305,21 @@
 
 (extend-type SemanticVM
   vm/IVMStep
-    (step [vm] (semantic-vm-step vm))
-    (halted? [vm] (semantic-vm-halted? vm))
-    (blocked? [vm] (semantic-vm-blocked? vm))
-    (value [vm] (semantic-vm-value vm))
+  (step [vm] (semantic-vm-step vm))
+  (halted? [vm] (semantic-vm-halted? vm))
+  (blocked? [vm] (semantic-vm-blocked? vm))
+  (value [vm] (semantic-vm-value vm))
   vm/IVMRun
-    (run [vm] (vm/eval vm nil))
+  (run [vm] (vm/eval vm nil))
   vm/IVMLoad
-    (load-program [vm program] (semantic-vm-load-program vm program))
+  (load-program [vm program] (semantic-vm-load-program vm program))
   vm/IVMEval
-    (eval [vm ast] (semantic-vm-eval vm ast))
+  (eval [vm ast] (semantic-vm-eval vm ast))
   vm/IVMState
-    (control [vm] (:control vm))
-    (environment [vm] (:env vm))
-    (store [vm] (:store vm))
-    (continuation [vm] (:stack vm)))
+  (control [vm] (:control vm))
+  (environment [vm] (:env vm))
+  (store [vm] (:store vm))
+  (continuation [vm] (:stack vm)))
 
 
 (defn create-vm
