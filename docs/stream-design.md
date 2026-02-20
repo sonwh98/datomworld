@@ -1,83 +1,161 @@
-# Stream Design Summary (Working Notes)
+# Stream Design
 
-## Context
-You are defining a canonical stream model for datom.world where "everything is a stream", including VM execution traces for JIT.
+## Core Model
 
-## What We Agreed On
+Streams are append-only logs with external cursors. Reads are non-destructive: cursors advance independently, data remains in the log. Streams are independent of DaoDB. DaoDB is an interpreter that consumes streams and builds indexes.
 
-1. Streams should carry generic data, not only datoms.
-2. VM execution tracing should use the same stream API as other streams, not a special tracing API.
-3. Cursors should be external to stream storage state so many clients can read independently.
-4. Reads should be non-destructive (cursor advances, events remain in stream history).
-5. Ordering guarantee should be per-stream total order.
-6. VM trace retention should be bounded by default.
-7. Typed streams are useful for performance, and type constraints should be strict when enabled.
-8. You prefer one concrete product type per typed stream for fast parsing.
-9. For typed streams, preferred physical representation is:
-   - Columnar SoA layout
-   - Fully fixed-width fields
-   - Variable-size data moved to separate blob streams by reference
-10. Go-style channel behavior is attractive as an API ergonomics model, but should not erase append-only history + cursor semantics underneath.
+## Architecture
 
-## Proposed API Direction Discussed
+Three layers, each with a single responsibility:
 
-The proposed cross-language core direction was:
-- canonical stream contract at kernel level
-- Clojure-specific `seq` should be an adapter, not the canonical contract
-- expose language adapters per runtime (Clojure seq/eduction, JS iterator/async iterator, Python iterator/async iterator, etc.)
+```
+dao.stream            pure data functions (stream + cursor)
+dao.stream.storage    pluggable storage protocol (in-memory first)
+yin.stream            VM effect descriptors + handlers (bridges dao.stream to CESK machine)
+yin.vm.ast-walker     scheduler (run-queue + wait-set), drives resumption
+```
 
-The proposed minimal surface discussed included operations like:
-- `open` or `make`
-- `put`
-- `cursor`
-- `next` (or `take`)
-- `seek`
-- `bound`
-- `close`
+`dao.stream` knows nothing about the VM. `yin.stream` knows nothing about scheduling. The AST walker owns the step loop and scheduler.
 
-## Important Clarifications from Discussion
+## Data Structures
 
-1. Similarity to Kafka:
-   - Yes on log + external cursor structure.
-   - Different goals: VM semantic substrate, typed stream optimization contracts, explicit causality metadata, bounded stream values for replay/query/JIT.
+### Stream
 
-2. Plan 9 influence:
-   - Useful inspiration for simple uniform interfaces.
-   - You want something stronger for typed optimization and explicit causality.
+```clojure
+{:storage <IStreamStorage>   ;; pluggable backend
+ :capacity nil|int           ;; nil = unbounded
+ :closed false}
+```
 
-3. Optional language libraries:
-   - Recommended for frontends that do not have first-class stream constructs.
-   - Programmers can ignore libraries and still run code.
-   - Using stream-aware libraries should unlock predictable stream-specific optimization in yin.vm.
+### Cursor
 
-## Decisions Still Pending
+```clojure
+{:stream-ref {:type :stream-ref, :id <keyword>}
+ :position int}
+```
 
-1. **Canonical read mode contract**
-   - Should core be:
-     - non-blocking poll (`ok|blocked|end`) plus explicit wait primitive,
-     - async-first,
-     - or another hybrid.
-   - This was challenged and remains unresolved.
+Cursors are values. Multiple cursors on the same stream advance independently. A cursor does not own or modify the stream.
 
-2. **Exact canonical API shape and names**
-   - Final function set and naming (`next` vs `take`, `open` vs `cursor`, etc.) not yet locked.
-   - Error/timeout/cancellation contracts not yet locked.
+### Storage Protocol
 
-3. **Cursor identity and lifecycle**
-   - Cursor representation (value vs stored entity), persistence, GC, lease/expiry semantics remain open.
+```clojure
+(defprotocol IStreamStorage
+  (s-append  [this datom])    ;; -> updated storage
+  (s-read-at [this pos])      ;; -> datom or nil
+  (s-length  [this]))         ;; -> int
+```
 
-4. **Typed stream schema declaration format**
-   - How product types are declared, versioned, and migrated is still open.
+Current backend: `MemoryStorage` (vector-backed). Storage is pure: `s-append` returns a new value, no mutation.
 
-5. **Compatibility policy for untyped streams**
-   - Whether all streams are generic by default with optional typing, or typing is required in selected subsystems, remains open.
+## API
 
-6. **Backpressure and blocking semantics**
-   - How producer flow control works across bounded retention and consumer lag is not finalized.
+### Pure functions (`dao.stream`)
 
-7. **JIT integration specifics**
-   - Exact event payloads, checkpoint cadence, patch/deopt event contracts, and cross-backend rollout sequence still need a final spec pass.
+All functions take data, return data. No side effects.
 
-## Current Working Principle
-Keep one universal stream abstraction with explicit causality and external cursors.  
-Layer typed, fixed-layout streams for performance-critical paths (especially VM/JIT traces), while providing language-native adapters as projections rather than core semantics.
+| Function | Signature | Returns |
+|---|---|---|
+| `make-stream` | `[storage & {:keys [capacity]}]` | stream map |
+| `stream-put` | `[stream datom]` | `{:ok stream'}` or `{:full stream}` |
+| `stream-close` | `[stream]` | closed stream |
+| `stream-closed?` | `[stream]` | boolean |
+| `stream-length` | `[stream]` | int |
+| `make-cursor` | `[stream-ref]` | cursor at position 0 |
+| `cursor-next` | `[cursor stream]` | `{:ok datom, :cursor cursor'}`, `:blocked`, `:end`, or `:daostream/gap` |
+| `cursor-seek` | `[cursor pos]` | cursor at position |
+| `cursor-position` | `[cursor]` | int |
+
+`stream-put` throws on closed streams. `:full` is returned (not thrown) when at capacity, so the VM can park the putting continuation.
+
+`cursor-next` returns one of four values:
+- `{:ok datom, :cursor cursor'}` when data is available
+- `:blocked` at the end of an open stream (no data yet)
+- `:end` at the end of a closed stream
+- `:daostream/gap` when the position was evicted (future, once eviction exists)
+
+### VM effect descriptors (`yin.stream`)
+
+Client code calls these. They return effect descriptor maps that the VM interprets.
+
+```clojure
+(stream/make 10)        ;; {:effect :stream/make, :capacity 10}
+(stream/put! s 42)      ;; {:effect :stream/put, :stream s, :val 42}
+(stream/cursor s)       ;; {:effect :stream/cursor, :stream s}
+(stream/next! c)        ;; {:effect :stream/next, :cursor c}
+(stream/close! s)       ;; {:effect :stream/close, :stream s}
+```
+
+No `take!`. Reads go through cursors.
+
+### AST node types
+
+The VM also supports stream operations as AST nodes (used by the compiler):
+
+```clojure
+{:type :stream/make, :buffer 10}
+{:type :stream/put, :target <ast>, :val <ast>}
+{:type :stream/cursor, :source <ast>}
+{:type :stream/next, :source <ast>}
+```
+
+Both paths (effect descriptors from module calls, AST nodes from compiled code) converge on the same `yin.stream/handle-*` functions.
+
+## VM Integration
+
+### Scheduler
+
+The AST walker VM has two new fields:
+
+- **run-queue**: vector of runnable continuations `[{:continuation k, :environment env, :value v}]`
+- **wait-set**: vector of parked continuations `[{:continuation k, :environment env, :reason :next|:put, :stream-id id, ...}]`
+
+The eval loop:
+
+1. Step active computation until it halts or parks.
+2. On park (`:next` blocked or `:put` full): capture continuation, add to wait-set.
+3. When blocked: check wait-set entries against current store. Move newly runnable entries to run-queue.
+4. Resume from run-queue head. Repeat.
+5. Halted when: run-queue empty and no active computation. Blocked when: run-queue empty and wait-set non-empty.
+
+### Close semantics
+
+Closing a stream finds all wait-set entries parked on that stream's cursors, moves them to the run-queue with value `nil`.
+
+### Continuation types
+
+Stream operations that evaluate sub-expressions use continuation frames:
+
+- `:eval-stream-put-target` / `:eval-stream-put-val` for `stream/put`
+- `:eval-stream-cursor-source` for `stream/cursor`
+- `:eval-stream-next-cursor` for `stream/next`
+
+## Design Decisions
+
+1. **Streams are built on continuations.** The CESK machine's native primitive. No core.async, no callbacks.
+2. **Streams are independent of DaoDB.** DaoDB consumes streams. Streams do not depend on indexes.
+3. **Storage protocol is abstract.** In-memory first. Other backends plug in without changing stream or cursor logic.
+4. **Append-only log + external cursors.** Reads are non-destructive.
+5. **All stream/cursor functions are pure.** Parking and scheduling are the VM's concern.
+6. **put can park.** Symmetric with next parking on empty. Capacity enforcement returns `:full`, VM decides to park.
+7. **Scheduling and data are decoupled.** Puts do not trigger computation. The VM scheduler drives resumption by polling the wait-set.
+8. **Cursor gap = signal.** When a cursor falls behind eviction, return `:daostream/gap` (not yet implemented, eviction is deferred).
+
+## Files
+
+| File | Role |
+|---|---|
+| `src/cljc/dao/stream.cljc` | Pure stream + cursor functions |
+| `src/cljc/dao/stream/storage.cljc` | Storage protocol + MemoryStorage |
+| `src/cljc/yin/stream.cljc` | VM effect descriptors + handlers |
+| `src/cljc/yin/vm.cljc` | empty-state with run-queue/wait-set, ast->datoms for stream nodes |
+| `src/cljc/yin/vm/ast_walker.cljc` | Scheduler, CESK transitions for stream continuations |
+| `test/dao/stream_test.cljc` | Storage, stream, cursor, and VM integration tests |
+| `test/yin/vm/ast_walker_test.cljc` | Cursor-based stream tests within AST walker |
+
+## Deferred
+
+- Typed streams (schema as datoms, fixed-size layouts, columnar SoA)
+- Bounding (closing a stream at a transaction, producing a stable database value)
+- Eviction (bounded retention, `:daostream/gap` signal)
+- Cross-language adapters (Clojure seq, JS async iterator, etc.)
+- DaoDB as stream interpreter (consuming streams to build EAVT/AEVT indexes)
