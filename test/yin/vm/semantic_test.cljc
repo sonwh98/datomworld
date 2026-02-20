@@ -1,6 +1,7 @@
 (ns yin.vm.semantic-test
   (:require
     [clojure.test :refer [deftest is testing]]
+    [dao.stream]
     [yin.vm :as vm]
     [yin.vm.semantic :as semantic]))
 
@@ -227,3 +228,207 @@
                :operands [{:type :literal, :value 10}
                           {:type :literal, :value 5}]}]
       (is (= 14 (compile-and-run ast))))))
+
+
+;; =============================================================================
+;; Stream operation tests (cursor-based)
+;; =============================================================================
+
+(defn- make-stream-vm
+  "Create a Semantic VM with primitives, suitable for stream operations."
+  []
+  (semantic/create-vm {:env vm/primitives}))
+
+
+(deftest stream-make-test
+  (testing "stream/make creates a stream reference"
+    (let [vm (-> (make-stream-vm)
+                 (vm/eval {:type :stream/make, :buffer 10}))]
+      (is (= :stream-ref (:type (vm/value vm))))
+      (is (keyword? (:id (vm/value vm))))))
+  (testing "stream/make with default buffer (unbounded)"
+    (let [vm (-> (make-stream-vm)
+                 (vm/eval {:type :stream/make}))
+          stream-id (:id (vm/value vm))
+          stream (get (vm/store vm) stream-id)]
+      (is (some? stream))
+      (is
+        (= 1024 (:capacity stream))
+        "Default buffer is 1024 when not specified (via datom compilation)"))))
+
+
+(deftest stream-put-test
+  (testing "stream/put adds value to stream"
+    (let [vm-with-stream (-> (make-stream-vm)
+                             (vm/eval {:type :stream/make, :buffer 5}))
+          stream-ref (vm/value vm-with-stream)
+          stream-id (:id stream-ref)
+          vm-after-put (-> vm-with-stream
+                           (vm/eval {:type :stream/put,
+                                     :target {:type :literal,
+                                              :value stream-ref},
+                                     :val {:type :literal, :value 42}}))
+          stream (get (vm/store vm-after-put) stream-id)]
+      (is (= 42 (vm/value vm-after-put)))
+      (is (= 1 (dao.stream/length stream)))))
+  (testing "stream/put multiple values"
+    (let [vm-with-stream (-> (make-stream-vm)
+                             (vm/eval {:type :stream/make, :buffer 10}))
+          stream-ref (vm/value vm-with-stream)
+          stream-id (:id stream-ref)
+          put-ast (fn [val]
+                    {:type :stream/put,
+                     :target {:type :literal, :value stream-ref},
+                     :val {:type :literal, :value val}})
+          vm-after-puts (-> vm-with-stream
+                            (vm/eval (put-ast 1))
+                            (vm/eval (put-ast 2)))
+          stream (get (vm/store vm-after-puts) stream-id)]
+      (is (= 2 (dao.stream/length stream))))))
+
+
+(deftest stream-cursor-next-test
+  (testing "cursor+next retrieves value from stream"
+    (let [vm-with-stream (-> (make-stream-vm)
+                             (vm/eval {:type :stream/make, :buffer 5}))
+          stream-ref (vm/value vm-with-stream)
+          vm-after-put (-> vm-with-stream
+                           (vm/eval {:type :stream/put,
+                                     :target {:type :literal,
+                                              :value stream-ref},
+                                     :val {:type :literal, :value 99}}))
+          ast {:type :application,
+               :operator {:type :lambda,
+                          :params ['c],
+                          :body {:type :stream/next,
+                                 :source {:type :variable, :name 'c}}},
+               :operands [{:type :stream/cursor,
+                           :source {:type :literal, :value stream-ref}}]}
+          vm-after-next (-> vm-after-put
+                            (vm/eval ast))]
+      (is (= 99 (vm/value vm-after-next)))))
+  (testing "next from empty stream blocks"
+    (let [vm-with-stream (-> (make-stream-vm)
+                             (vm/eval {:type :stream/make, :buffer 5}))
+          stream-ref (vm/value vm-with-stream)
+          ast {:type :application,
+               :operator {:type :lambda,
+                          :params ['c],
+                          :body {:type :stream/next,
+                                 :source {:type :variable, :name 'c}}},
+               :operands [{:type :stream/cursor,
+                           :source {:type :literal, :value stream-ref}}]}
+          vm-after-next (-> vm-with-stream
+                            (vm/eval ast))]
+      (is (= :yin/blocked (vm/value vm-after-next))))))
+
+
+(deftest stream-ordering-test
+  (testing "stream maintains append order via cursors"
+    (let [vm-with-stream (-> (make-stream-vm)
+                             (vm/eval {:type :stream/make, :buffer 10}))
+          stream-ref (vm/value vm-with-stream)
+          put-ast (fn [val]
+                    {:type :stream/put,
+                     :target {:type :literal, :value stream-ref},
+                     :val {:type :literal, :value val}})
+          vm-after-puts (-> vm-with-stream
+                            (vm/eval (put-ast :first))
+                            (vm/eval (put-ast :second))
+                            (vm/eval (put-ast :third)))
+          read-ast (fn [cursor-ref]
+                     {:type :stream/next,
+                      :source {:type :literal, :value cursor-ref}})
+          vm-with-cursor (-> vm-after-puts
+                             (vm/eval {:type :stream/cursor,
+                                       :source {:type :literal,
+                                                :value stream-ref}}))
+          cursor-ref (vm/value vm-with-cursor)
+          vm-read1 (-> vm-with-cursor
+                       (vm/eval (read-ast cursor-ref)))
+          vm-read2 (-> vm-read1
+                       (vm/eval (read-ast cursor-ref)))
+          vm-read3 (-> vm-read2
+                       (vm/eval (read-ast cursor-ref)))]
+      (is (= :first (vm/value vm-read1)))
+      (is (= :second (vm/value vm-read2)))
+      (is (= :third (vm/value vm-read3))))))
+
+
+(deftest stream-with-lambda-test
+  (testing "stream operations within lambda application"
+    (let [ast {:type :application,
+               :operator {:type :lambda,
+                          :params ['s],
+                          :body {:type :stream/put,
+                                 :target {:type :variable, :name 's},
+                                 :val {:type :literal, :value 42}}},
+               :operands [{:type :stream/make, :buffer 5}]}
+          vm (-> (make-stream-vm)
+                 (vm/eval ast))]
+      (is (= 42 (vm/value vm))))))
+
+
+(deftest stream-put-cursor-next-roundtrip-test
+  (testing "put then cursor+next roundtrip within nested lambdas"
+    (let [ast {:type :application,
+               :operator
+               {:type :lambda,
+                :params ['s],
+                :body {:type :application,
+                       :operator {:type :lambda,
+                                  :params ['_],
+                                  :body {:type :application,
+                                         :operator {:type :lambda,
+                                                    :params ['c],
+                                                    :body {:type :stream/next,
+                                                           :source
+                                                           {:type :variable,
+                                                            :name 'c}}},
+                                         :operands [{:type :stream/cursor,
+                                                     :source {:type :variable,
+                                                              :name 's}}]}},
+                       :operands [{:type :stream/put,
+                                   :target {:type :variable, :name 's},
+                                   :val {:type :literal, :value 42}}]}},
+               :operands [{:type :stream/make, :buffer 5}]}
+          vm (-> (make-stream-vm)
+                 (vm/eval ast))]
+      (is (= 42 (vm/value vm))))))
+
+
+(deftest stream-channel-mobility-test
+  (testing "A stream-ref sent through a stream arrives intact"
+    (let [vm0 (-> (make-stream-vm)
+                  (vm/eval {:type :stream/make, :buffer 10}))
+          ref-a (vm/value vm0)
+          vm1 (-> vm0
+                  (vm/eval {:type :stream/make, :buffer 10}))
+          ref-b (vm/value vm1)
+          vm2 (-> vm1
+                  (vm/eval {:type :stream/put,
+                            :target {:type :literal, :value ref-b},
+                            :val {:type :literal, :value 42}}))
+          vm3 (-> vm2
+                  (vm/eval {:type :stream/put,
+                            :target {:type :literal, :value ref-a},
+                            :val {:type :literal, :value ref-b}}))
+          vm4 (-> vm3
+                  (vm/eval {:type :stream/cursor,
+                            :source {:type :literal, :value ref-a}}))
+          cursor-a (vm/value vm4)
+          vm5 (-> vm4
+                  (vm/eval {:type :stream/next,
+                            :source {:type :literal, :value cursor-a}}))
+          recovered-ref (vm/value vm5)]
+      (is (= ref-b recovered-ref)
+          "Stream-ref passes through a stream unchanged")
+      (let [vm6 (-> vm5
+                    (vm/eval {:type :stream/cursor,
+                              :source {:type :literal, :value recovered-ref}}))
+            cursor-b (vm/value vm6)
+            vm7 (-> vm6
+                    (vm/eval {:type :stream/next,
+                              :source {:type :literal, :value cursor-b}}))]
+        (is (= 42 (vm/value vm7))
+            "Reading from recovered stream-ref yields the original value")))))

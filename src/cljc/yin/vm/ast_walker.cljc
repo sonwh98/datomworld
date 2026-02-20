@@ -1,6 +1,7 @@
 (ns yin.vm.ast-walker
   (:require
     [yin.module :as module]
+    [yin.scheduler :as scheduler]
     [yin.stream :as stream]
     [yin.vm :as vm]))
 
@@ -466,72 +467,6 @@
 ;; Scheduler
 ;; =============================================================================
 
-(defn- check-wait-set
-  "Check wait-set entries against current store.
-   Returns updated state with newly runnable entries moved to run-queue."
-  [state]
-  (let [wait-set (or (:wait-set state) [])
-        run-queue (or (:run-queue state) [])]
-    (if (empty? wait-set)
-      state
-      (let [store (:store state)]
-        (loop [remaining wait-set
-               new-wait []
-               new-run run-queue]
-          (if (empty? remaining)
-            (assoc state
-                   :wait-set new-wait
-                   :run-queue new-run)
-            (let [entry (first remaining)
-                  rest-entries (rest remaining)]
-              (case (:reason entry)
-                :next (let [cursor-ref (:cursor-ref entry)
-                            cursor-id (:id cursor-ref)
-                            cursor-data (get store cursor-id)
-                            stream-ref (:stream-ref cursor-data)
-                            stream-id (:id stream-ref)
-                            stream (get store stream-id)
-                            effect {:effect :stream/next, :cursor cursor-ref}
-                            result (stream/handle-next (assoc state
-                                                              :store store)
-                                                       effect)]
-                        (if (:park result)
-                          ;; Still blocked
-                          (recur rest-entries (conj new-wait entry) new-run)
-                          ;; Now has data or stream closed
-                          (let [updated-store (:store (:state result))]
-                            (recur rest-entries
-                                   new-wait
-                                   (conj new-run
-                                         (assoc entry
-                                                :value (:value result)
-                                                :store-updates
-                                                (when (not= store updated-store)
-                                                  updated-store)))))))
-                :put (let [stream-id (:stream-id entry)
-                           stream (get store stream-id)
-                           datom (:datom entry)
-                           stream-ref {:type :stream-ref, :id stream-id}
-                           effect {:effect :stream/put,
-                                   :stream stream-ref,
-                                   :val datom}
-                           result (stream/handle-put (assoc state :store store)
-                                                     effect)]
-                       (if (:park result)
-                         ;; Still full
-                         (recur rest-entries (conj new-wait entry) new-run)
-                         ;; Has capacity now
-                         (recur rest-entries
-                                new-wait
-                                (conj new-run
-                                      (assoc entry
-                                             :value (:value result)
-                                             :store-updates (:store (:state
-                                                                      result)))))))
-                ;; Unknown reason, keep waiting
-                (recur rest-entries (conj new-wait entry) new-run)))))))))
-
-
 (defn- resume-from-run-queue
   "Pop first entry from run-queue and resume it as the active computation.
    Returns updated state or nil if queue is empty."
@@ -600,7 +535,7 @@
         (and (not (:blocked v)) (or (:control v) (:continuation v)))
         (recur (vm-step v))
         ;; Blocked or halted: check if scheduler can wake something
-        (:blocked v) (let [v' (check-wait-set v)]
+        (:blocked v) (let [v' (scheduler/check-wait-set v)]
                        (if-let [resumed (resume-from-run-queue v')]
                          (recur resumed)
                          v'))

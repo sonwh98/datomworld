@@ -240,6 +240,16 @@
               :stream/next (do (emit! e :yin/type :stream/next)
                                (let [source-id (convert (:source node))]
                                  (emit! e :yin/source source-id)))
+              :stream/close (do (emit! e :yin/type :stream/close)
+                                (let [source-id (convert (:source node))]
+                                  (emit! e :yin/source source-id)))
+              ;; Continuation primitives
+              :vm/park (emit! e :yin/type :vm/park)
+              :vm/resume (do (emit! e :yin/type :vm/resume)
+                             (emit! e :yin/parked-id (:parked-id node))
+                             (emit! e :yin/val (:val node)))
+              :vm/current-continuation
+              (emit! e :yin/type :vm/current-continuation)
               ;; Default
               (throw (ex-info "Unknown AST node type"
                               {:type type, :node node})))
