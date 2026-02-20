@@ -182,10 +182,11 @@
 
    Options:
      :t - transaction ID (default 0)
-     :m - metadata entity reference (default 0, nil metadata)"
+     :m - metadata entity reference (default 0, nil metadata)
+     :id-start - starting entity ID for tempids (default -1024)"
   ([ast] (ast->datoms ast {}))
   ([ast opts]
-   (let [id-counter (atom -1024)
+   (let [id-counter (atom (or (:id-start opts) -1024))
          t (or (:t opts) 0)
          m (or (:m opts) 0)
          gen-id #(swap! id-counter dec)
@@ -234,9 +235,22 @@
                                     val-id (convert (:val node))]
                                 (emit! e :yin/target target-id)
                                 (emit! e :yin/val val-id)))
-              :stream/take (do (emit! e :yin/type :stream/take)
+              :stream/cursor (do (emit! e :yin/type :stream/cursor)
+                                 (let [source-id (convert (:source node))]
+                                   (emit! e :yin/source source-id)))
+              :stream/next (do (emit! e :yin/type :stream/next)
                                (let [source-id (convert (:source node))]
                                  (emit! e :yin/source source-id)))
+              :stream/close (do (emit! e :yin/type :stream/close)
+                                (let [source-id (convert (:source node))]
+                                  (emit! e :yin/source source-id)))
+              ;; Continuation primitives
+              :vm/park (emit! e :yin/type :vm/park)
+              :vm/resume (do (emit! e :yin/type :vm/resume)
+                             (emit! e :yin/parked-id (:parked-id node))
+                             (emit! e :yin/val (:val node)))
+              :vm/current-continuation
+              (emit! e :yin/type :vm/current-continuation)
               ;; Default
               (throw (ex-info "Unknown AST node type"
                               {:type type, :node node})))
@@ -246,10 +260,13 @@
 
 (defn empty-state
   "Return an initial immutable VM state map.
-   Contains: :store {}, :parked {}, :id-counter 0, :primitives map."
+   Contains: :store {}, :parked {}, :id-counter 0, :primitives map,
+   :run-queue [], :wait-set []."
   ([] (empty-state {}))
   ([opts]
    {:store {},
     :parked {},
     :id-counter 0,
+    :run-queue [],
+    :wait-set [],
     :primitives (or (:primitives opts) primitives)}))

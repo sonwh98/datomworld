@@ -1,7 +1,7 @@
-(ns daodb.index.temporal
+(ns dao.db.index.temporal
   (:require
-    [daodb.index :as index]
-    [daodb.primitives :as p]))
+    [dao.db.index :as index]
+    [dao.db.primitives :as p]))
 
 
 (defprotocol ITemporalIndex
@@ -23,7 +23,7 @@
 (defrecord VectorTemporalIndex
   [log]
 
-  daodb.index/IIndex
+  dao.db.index/IIndex
 
   (index-tx [this tx-datoms] (assoc this :log (into log tx-datoms)))
 

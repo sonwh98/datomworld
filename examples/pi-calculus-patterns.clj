@@ -275,13 +275,13 @@
 
 
 ;; =============================================================================
-;; Pattern 9: Multi-Party Sync (DaoDB Device Sync)
+;; Pattern 9: Multi-Party Sync (Dao.DB Device Sync)
 ;; π-calculus: sync̄⟨local-state⟩ | sync̄⟨local-state⟩ | ... |
 ;; merge-coordinator
 ;; =============================================================================
 
 (defn multi-device-sync
-  "Model DaoDB sync as π-calculus multi-party interaction"
+  "Model Dao.DB sync as π-calculus multi-party interaction"
   [device-states]
   (let [sync-channel (chan)
         merge-result (chan)]
@@ -396,11 +396,11 @@
 
 
 ;; =============================================================================
-;; Real-World Example: DaoDB Query with Reflection
+;; Real-World Example: Dao.DB Query with Reflection
 ;; Combines multiple patterns: request-response, mobile channels, choice
 ;; =============================================================================
 
-(defn daodb-distributed-query
+(defn dao-db-distributed-query
   "Complete example: query with local/remote reflection"
   []
   (let [local-db (atom {:entity-1 {:name "Alice", :age 30}})
@@ -430,7 +430,7 @@
 
 
 ;; Usage:
-;; (<!! (daodb-distributed-query))
+;; (<!! (dao-db-distributed-query))
 ;; => Query answered locally: Alice
 ;; => {:status :local, :result "Alice"}
 
@@ -449,4 +449,4 @@
                            :B {:entity-1 #{:email}, :entity-2 #{:name}}}))
   (causal-ordering 3)
   (mobile-continuation)
-  (<!! (daodb-distributed-query)))
+  (<!! (dao-db-distributed-query)))

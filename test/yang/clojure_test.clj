@@ -194,39 +194,46 @@
              (:operands ast))))))
 
 
-(deftest test-compile-stream-take
-  (testing "Compiling stream/take as application"
-    (let [ast (yang/compile '(stream/take! s))]
+(deftest test-compile-stream-cursor
+  (testing "Compiling stream/cursor as application"
+    (let [ast (yang/compile '(stream/cursor s))]
       (is (= :application (:type ast)))
-      (is (= {:type :variable, :name 'stream/take!} (:operator ast)))
-      (is (= [{:type :variable, :name 's}] (:operands ast)))))
-  (testing "Compiling <! as application"
-    (let [ast (yang/compile '(<! s))]
-      (is (= :application (:type ast)))
-      (is (= {:type :variable, :name '<!} (:operator ast)))
+      (is (= {:type :variable, :name 'stream/cursor} (:operator ast)))
       (is (= [{:type :variable, :name 's}] (:operands ast))))))
+
+
+(deftest test-compile-stream-next
+  (testing "Compiling stream/next! as application"
+    (let [ast (yang/compile '(stream/next! c))]
+      (is (= :application (:type ast)))
+      (is (= {:type :variable, :name 'stream/next!} (:operator ast)))
+      (is (= [{:type :variable, :name 'c}] (:operands ast))))))
 
 
 (deftest test-stream-end-to-end
   (testing "Compile and execute stream operations via module system"
-    (testing "Simple put and take"
-      (is (=
-            42
-            (compile-and-run
-              '(let [s (stream/make 5)] (stream/put! s 42) (stream/take! s))))))
+    (testing "Simple put and cursor+next"
+      (is
+        (= 42
+           (compile-and-run '(let
+                               [s (stream/make 5) _ (stream/put! s 42) c
+                                (stream/cursor s)]
+                               (stream/next! c))))))
     (testing "Without buffer size (uses default)"
-      (is (= 99
-             (compile-and-run
-               '(let [s (stream/make)] (stream/put! s 99) (stream/take! s))))))
-    (testing "Multiple values FIFO"
+      (is
+        (= 99
+           (compile-and-run '(let
+                               [s (stream/make) _ (stream/put! s 99) c
+                                (stream/cursor s)]
+                               (stream/next! c))))))
+    (testing "Multiple values, cursor reads in order"
       (is
         (= 1
            (compile-and-run '(let
-                               [s (stream/make 10)]
-                               (stream/put! s 1)
-                               (stream/put! s 2)
-                               (stream/put! s 3)
-                               (stream/take! s))))))))
+                               [s (stream/make 10) _ (stream/put! s 1) _
+                                (stream/put! s 2) _ (stream/put! s 3) c
+                                (stream/cursor s)]
+                               (stream/next! c))))))))
 
 
 (deftest test-lambda-with-multi-expression-body

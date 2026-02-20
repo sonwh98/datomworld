@@ -1,6 +1,7 @@
 (ns yin.vm.ast-walker-test
   (:require
     [clojure.test :refer [deftest is testing]]
+    [dao.stream]
     [datascript.core :as d]
     [yin.vm :as vm]
     [yin.vm.ast-walker :as ast-walker]))
@@ -393,7 +394,7 @@
 
 
 ;; =============================================================================
-;; Stream operation tests (AST walker specific)
+;; Stream operation tests (cursor-based)
 ;; =============================================================================
 
 (deftest stream-make-test
@@ -403,19 +404,18 @@
                  (vm/run))]
       (is (= :stream-ref (:type (vm/value vm))))
       (is (keyword? (:id (vm/value vm))))))
-  (testing "stream/make with default buffer"
+  (testing "stream/make with default buffer (unbounded)"
     (let [vm (-> (ast-walker/create-vm)
                  (vm/load-program {:type :stream/make})
                  (vm/run))
           stream-id (:id (vm/value vm))
           stream (get (vm/store vm) stream-id)]
-      (is (= :stream (:type stream)))
-      (is (= 1024 (:capacity stream)))
-      (is (= [] (:buffer stream))))))
+      (is (some? stream))
+      (is (= 1024 (:capacity stream))))))
 
 
 (deftest stream-put-test
-  (testing "stream/put adds value to stream buffer"
+  (testing "stream/put adds value to stream"
     (let [vm-with-stream (-> (ast-walker/create-vm)
                              (vm/load-program {:type :stream/make, :buffer 5})
                              (vm/run))
@@ -429,7 +429,7 @@
                            (vm/run))
           stream (get (vm/store vm-after-put) stream-id)]
       (is (= 42 (vm/value vm-after-put)))
-      (is (= [42] (:buffer stream)))))
+      (is (= 1 (dao.stream/length stream)))))
   (testing "stream/put multiple values"
     (let [vm-with-stream (-> (ast-walker/create-vm)
                              (vm/load-program {:type :stream/make, :buffer 10})
@@ -446,45 +446,54 @@
                             (vm/load-program (put-ast 2))
                             (vm/run))
           stream (get (vm/store vm-after-puts) stream-id)]
-      (is (= [1 2] (:buffer stream))))))
+      (is (= 2 (dao.stream/length stream))))))
 
 
-(deftest stream-take-test
-  (testing "stream/take retrieves value from stream buffer"
+(deftest stream-cursor-next-test
+  (testing "cursor+next retrieves value from stream"
     (let [vm-with-stream (-> (ast-walker/create-vm)
                              (vm/load-program {:type :stream/make, :buffer 5})
                              (vm/run))
           stream-ref (vm/value vm-with-stream)
-          stream-id (:id stream-ref)
+          ;; Put a value
           vm-after-put (-> vm-with-stream
                            (vm/load-program {:type :stream/put,
                                              :target {:type :literal,
                                                       :value stream-ref},
                                              :val {:type :literal, :value 99}})
                            (vm/run))
-          vm-after-take (-> vm-after-put
-                            (vm/load-program {:type :stream/take,
-                                              :source {:type :literal,
-                                                       :value stream-ref}})
-                            (vm/run))
-          stream (get (vm/store vm-after-take) stream-id)]
-      (is (= 99 (vm/value vm-after-take)))
-      (is (= [] (:buffer stream)))))
-  (testing "stream/take from empty stream blocks"
+          ;; Create cursor and read
+          ast {:type :application,
+               :operator {:type :lambda,
+                          :params ['c],
+                          :body {:type :stream/next,
+                                 :source {:type :variable, :name 'c}}},
+               :operands [{:type :stream/cursor,
+                           :source {:type :literal, :value stream-ref}}]}
+          vm-after-next (-> vm-after-put
+                            (vm/load-program ast)
+                            (vm/run))]
+      (is (= 99 (vm/value vm-after-next)))))
+  (testing "next from empty stream blocks"
     (let [vm-with-stream (-> (ast-walker/create-vm)
                              (vm/load-program {:type :stream/make, :buffer 5})
                              (vm/run))
           stream-ref (vm/value vm-with-stream)
-          vm-after-take (-> vm-with-stream
-                            (vm/load-program {:type :stream/take,
-                                              :source {:type :literal,
-                                                       :value stream-ref}})
+          ast {:type :application,
+               :operator {:type :lambda,
+                          :params ['c],
+                          :body {:type :stream/next,
+                                 :source {:type :variable, :name 'c}}},
+               :operands [{:type :stream/cursor,
+                           :source {:type :literal, :value stream-ref}}]}
+          vm-after-next (-> vm-with-stream
+                            (vm/load-program ast)
                             (vm/run))]
-      (is (= :yin/blocked (vm/value vm-after-take))))))
+      (is (= :yin/blocked (vm/value vm-after-next))))))
 
 
-(deftest stream-fifo-ordering-test
-  (testing "stream maintains FIFO order"
+(deftest stream-ordering-test
+  (testing "stream maintains append order via cursors"
     (let [vm-with-stream (-> (ast-walker/create-vm)
                              (vm/load-program {:type :stream/make, :buffer 10})
                              (vm/run))
@@ -493,8 +502,6 @@
                     {:type :stream/put,
                      :target {:type :literal, :value stream-ref},
                      :val {:type :literal, :value val}})
-          take-ast {:type :stream/take,
-                    :source {:type :literal, :value stream-ref}}
           vm-after-puts (-> vm-with-stream
                             (vm/load-program (put-ast :first))
                             (vm/run)
@@ -502,18 +509,31 @@
                             (vm/run)
                             (vm/load-program (put-ast :third))
                             (vm/run))
-          vm-take1 (-> vm-after-puts
-                       (vm/load-program take-ast)
+          ;; Create cursor and read three values
+          read-ast (fn [cursor-ref]
+                     {:type :stream/next,
+                      :source {:type :literal, :value cursor-ref}})
+          ;; Create cursor
+          vm-with-cursor (-> vm-after-puts
+                             (vm/load-program {:type :stream/cursor,
+                                               :source {:type :literal,
+                                                        :value stream-ref}})
+                             (vm/run))
+          cursor-ref (vm/value vm-with-cursor)
+          vm-read1 (-> vm-with-cursor
+                       (vm/load-program (read-ast cursor-ref))
                        (vm/run))
-          vm-take2 (-> vm-take1
-                       (vm/load-program take-ast)
+          ;; After next!, the cursor in store was updated
+          ;; We need the same cursor-ref (it points to updated store entry)
+          vm-read2 (-> vm-read1
+                       (vm/load-program (read-ast cursor-ref))
                        (vm/run))
-          vm-take3 (-> vm-take2
-                       (vm/load-program take-ast)
+          vm-read3 (-> vm-read2
+                       (vm/load-program (read-ast cursor-ref))
                        (vm/run))]
-      (is (= :first (vm/value vm-take1)))
-      (is (= :second (vm/value vm-take2)))
-      (is (= :third (vm/value vm-take3))))))
+      (is (= :first (vm/value vm-read1)))
+      (is (= :second (vm/value vm-read2)))
+      (is (= :third (vm/value vm-read3))))))
 
 
 (deftest stream-with-lambda-test
@@ -528,19 +548,87 @@
       (is (= 42 (compile-and-run ast))))))
 
 
-(deftest stream-put-take-roundtrip-test
-  (testing "put then take roundtrip within nested lambdas"
+;; =============================================================================
+;; Channel Mobility Tests (streams as values sent through streams)
+;; =============================================================================
+
+(deftest stream-channel-mobility-test
+  (testing "A stream-ref sent through a stream arrives intact at VM level"
+    ;; Create stream A (meta-channel), create stream B (payload channel),
+    ;; put 42 into B, put B's stream-ref into A, read A to get B's ref,
+    ;; read B through recovered ref to get 42.
+    (let [;; Create stream A
+          vm0 (-> (ast-walker/create-vm)
+                  (vm/load-program {:type :stream/make, :buffer 10})
+                  (vm/run))
+          ref-a (vm/value vm0)
+          ;; Create stream B
+          vm1 (-> vm0
+                  (vm/load-program {:type :stream/make, :buffer 10})
+                  (vm/run))
+          ref-b (vm/value vm1)
+          ;; Put 42 into B
+          vm2 (-> vm1
+                  (vm/load-program {:type :stream/put,
+                                    :target {:type :literal, :value ref-b},
+                                    :val {:type :literal, :value 42}})
+                  (vm/run))
+          ;; Put B's stream-ref into A
+          vm3 (-> vm2
+                  (vm/load-program {:type :stream/put,
+                                    :target {:type :literal, :value ref-a},
+                                    :val {:type :literal, :value ref-b}})
+                  (vm/run))
+          ;; Create cursor on A, read to get B's ref
+          vm4 (-> vm3
+                  (vm/load-program {:type :stream/cursor,
+                                    :source {:type :literal, :value ref-a}})
+                  (vm/run))
+          cursor-a (vm/value vm4)
+          vm5 (-> vm4
+                  (vm/load-program {:type :stream/next,
+                                    :source {:type :literal, :value cursor-a}})
+                  (vm/run))
+          recovered-ref (vm/value vm5)]
+      ;; The recovered ref should be B's stream-ref
+      (is (= ref-b recovered-ref)
+          "Stream-ref passes through a stream unchanged")
+      ;; Now read from recovered ref to get 42
+      (let [vm6 (-> vm5
+                    (vm/load-program {:type :stream/cursor,
+                                      :source {:type :literal,
+                                               :value recovered-ref}})
+                    (vm/run))
+            cursor-b (vm/value vm6)
+            vm7 (-> vm6
+                    (vm/load-program {:type :stream/next,
+                                      :source {:type :literal,
+                                               :value cursor-b}})
+                    (vm/run))]
+        (is (= 42 (vm/value vm7))
+            "Reading from recovered stream-ref yields the original value")))))
+
+
+(deftest stream-put-cursor-next-roundtrip-test
+  (testing "put then cursor+next roundtrip within nested lambdas"
     (let [ast {:type :application,
-               :operator {:type :lambda,
-                          :params ['s],
-                          :body {:type :application,
-                                 :operator {:type :lambda,
-                                            :params ['_],
-                                            :body {:type :stream/take,
-                                                   :source {:type :variable,
-                                                            :name 's}}},
-                                 :operands
-                                 [{:type :stream/put,
+               :operator
+               {:type :lambda,
+                :params ['s],
+                :body {:type :application,
+                       :operator {:type :lambda,
+                                  :params ['_],
+                                  :body {:type :application,
+                                         :operator {:type :lambda,
+                                                    :params ['c],
+                                                    :body {:type :stream/next,
+                                                           :source
+                                                           {:type :variable,
+                                                            :name 'c}}},
+                                         :operands [{:type :stream/cursor,
+                                                     :source {:type :variable,
+                                                              :name 's}}]}},
+                       :operands [{:type :stream/put,
                                    :target {:type :variable, :name 's},
                                    :val {:type :literal, :value 42}}]}},
                :operands [{:type :stream/make, :buffer 5}]}]

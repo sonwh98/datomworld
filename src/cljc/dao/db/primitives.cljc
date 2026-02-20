@@ -1,4 +1,4 @@
-(ns daodb.primitives
+(ns dao.db.primitives
   #?(:cljs
      (:require
        [goog.crypt :as crypt]
