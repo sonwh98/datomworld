@@ -1,7 +1,7 @@
-(ns daodb.index.structural
+(ns dao.db.index.structural
   (:require
-    [daodb.index :as index]
-    [daodb.primitives :as p]))
+    [dao.db.index :as index]
+    [dao.db.primitives :as p]))
 
 
 (defprotocol IStructuralLattice
@@ -26,7 +26,7 @@
 (defrecord MemoryStructuralLattice
   [content store-meta]
 
-  daodb.index/IIndex
+  dao.db.index/IIndex
 
   (index-tx
     [this tx-datoms]

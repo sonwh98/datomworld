@@ -37,7 +37,7 @@
 
   IStreamStorage
 
-  (s-append [this datom] (->MemoryStorage (conj log datom)))
+  (s-append [this datom] (assoc this :log (conj log datom)))
 
 
   (s-read-at [this pos] (get log pos))

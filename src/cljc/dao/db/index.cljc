@@ -1,4 +1,4 @@
-(ns daodb.index)
+(ns dao.db.index)
 
 
 (defprotocol IIndex

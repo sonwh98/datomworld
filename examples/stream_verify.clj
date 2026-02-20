@@ -2,7 +2,7 @@
   (:require
     [clojure.core.async :as async]
     [clojure.pprint :refer [pprint]]
-    [daodb.stream :as s]
+    [dao.db.stream :as s]
     [yin.vm :as vm]))
 
 

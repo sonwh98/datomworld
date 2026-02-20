@@ -1,4 +1,4 @@
-(ns daodb.stream
+(ns dao.db.stream
   (:require
     [clojure.core.async :as async]))
 

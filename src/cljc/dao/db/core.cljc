@@ -1,9 +1,9 @@
-(ns daodb.core
+(ns dao.db.core
   (:require
-    [daodb.index :as index]
-    [daodb.index.structural :as structural]
-    [daodb.index.temporal :as temporal]
-    [daodb.primitives :as p]))
+    [dao.db.index :as index]
+    [dao.db.index.structural :as structural]
+    [dao.db.index.temporal :as temporal]
+    [dao.db.primitives :as p]))
 
 
 (defrecord DaoDB
