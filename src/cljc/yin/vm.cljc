@@ -234,7 +234,10 @@
                                     val-id (convert (:val node))]
                                 (emit! e :yin/target target-id)
                                 (emit! e :yin/val val-id)))
-              :stream/take (do (emit! e :yin/type :stream/take)
+              :stream/cursor (do (emit! e :yin/type :stream/cursor)
+                                 (let [source-id (convert (:source node))]
+                                   (emit! e :yin/source source-id)))
+              :stream/next (do (emit! e :yin/type :stream/next)
                                (let [source-id (convert (:source node))]
                                  (emit! e :yin/source source-id)))
               ;; Default
@@ -246,10 +249,13 @@
 
 (defn empty-state
   "Return an initial immutable VM state map.
-   Contains: :store {}, :parked {}, :id-counter 0, :primitives map."
+   Contains: :store {}, :parked {}, :id-counter 0, :primitives map,
+   :run-queue [], :wait-set []."
   ([] (empty-state {}))
   ([opts]
    {:store {},
     :parked {},
     :id-counter 0,
+    :run-queue [],
+    :wait-set [],
     :primitives (or (:primitives opts) primitives)}))
