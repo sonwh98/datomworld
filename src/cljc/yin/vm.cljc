@@ -182,10 +182,11 @@
 
    Options:
      :t - transaction ID (default 0)
-     :m - metadata entity reference (default 0, nil metadata)"
+     :m - metadata entity reference (default 0, nil metadata)
+     :id-start - starting entity ID for tempids (default -1024)"
   ([ast] (ast->datoms ast {}))
   ([ast opts]
-   (let [id-counter (atom -1024)
+   (let [id-counter (atom (or (:id-start opts) -1024))
          t (or (:t opts) 0)
          m (or (:m opts) 0)
          gen-id #(swap! id-counter dec)

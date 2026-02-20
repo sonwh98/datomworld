@@ -444,3 +444,31 @@
       (is (= :parked-continuation (:type parked-cont)))
       (is (= 42 (vm/value vm2)))
       (is (nil? (get-in vm2 [:parked parked-id]))))))
+
+
+(deftest semantic-multi-load-test
+  (testing
+    "SemanticVM should handle multiple program loads without ID collisions"
+    (let [vm (semantic/create-vm {:env vm/primitives})
+          ;; First load: a simple literal
+          vm-1 (vm/eval vm {:type :literal, :value 1})
+          _ (is (= 1 (vm/value vm-1)))
+          ;; Second load: a variable reference
+          vm-2 (vm/eval vm-1 {:type :variable, :name '+})
+          _ (is (fn? (vm/value vm-2)))
+          ;; Third load: an application
+          vm-3 (vm/eval vm-2
+                        {:type :application,
+                         :operator {:type :variable, :name '+},
+                         :operands [{:type :literal, :value 2}
+                                    {:type :literal, :value 3}]})
+          _ (is (= 5 (vm/value vm-3)))]
+      ;; Verify that all datoms are preserved and have unique IDs
+      (let [datoms (:datoms vm-3)
+            ids (map first datoms)
+            unique-ids (set ids)]
+        (is (every? neg-int? ids)
+            "All accumulated datom entity IDs should remain negative tempids")
+        ;; Total nodes: 1 + 1 + 4 = 6 nodes.
+        (is (= 6 (count unique-ids))
+            "Should have 6 unique node IDs across 3 loads")))))

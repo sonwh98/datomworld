@@ -109,6 +109,7 @@
    run-queue  ; vector of runnable continuations
    wait-set   ; vector of parked continuations waiting
    ;; on streams
+   node-id-counter ; unique negative ID counter for AST nodes
    ])
 
 
@@ -582,9 +583,12 @@
    When ast is non-nil, converts to datoms and loads. When nil, resumes."
   [^SemanticVM vm ast]
   (let [v (if ast
-            (let [datoms (vm/ast->datoms ast)
-                  root-id (apply max (map first datoms))]
-              (semantic-vm-load-program vm {:node root-id, :datoms datoms}))
+            (let [datoms (vm/ast->datoms ast {:id-start (:node-id-counter vm)})
+                  root-id (apply max (map first datoms))
+                  min-id (apply min (map first datoms))
+                  next-node-id (dec min-id)]
+              (semantic-vm-load-program (assoc vm :node-id-counter next-node-id)
+                                        {:node root-id, :datoms datoms}))
             vm)]
     (loop [v v]
       (cond
@@ -636,4 +640,5 @@
                               :index {},
                               :halted false,
                               :value nil,
-                              :blocked false})))))
+                              :blocked false,
+                              :node-id-counter -1024})))))
