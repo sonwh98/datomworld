@@ -14,25 +14,25 @@
 (deftest memory-storage-test
   (testing "Empty storage"
     (let [s (storage/memory-storage)]
-      (is (= 0 (storage/s-length s)))
-      (is (nil? (storage/s-read-at s 0)))))
+      (is (= 0 (storage/length s)))
+      (is (nil? (storage/read-at s 0)))))
   (testing "Append and read"
     (let [s (-> (storage/memory-storage)
-                (storage/s-append :a)
-                (storage/s-append :b)
-                (storage/s-append :c))]
-      (is (= 3 (storage/s-length s)))
-      (is (= :a (storage/s-read-at s 0)))
-      (is (= :b (storage/s-read-at s 1)))
-      (is (= :c (storage/s-read-at s 2)))
-      (is (nil? (storage/s-read-at s 3)))))
+                (storage/append :a)
+                (storage/append :b)
+                (storage/append :c))]
+      (is (= 3 (storage/length s)))
+      (is (= :a (storage/read-at s 0)))
+      (is (= :b (storage/read-at s 1)))
+      (is (= :c (storage/read-at s 2)))
+      (is (nil? (storage/read-at s 3)))))
   (testing "Append is non-destructive"
     (let [s0 (storage/memory-storage)
-          s1 (storage/s-append s0 :x)
-          s2 (storage/s-append s1 :y)]
-      (is (= 0 (storage/s-length s0)))
-      (is (= 1 (storage/s-length s1)))
-      (is (= 2 (storage/s-length s2))))))
+          s1 (storage/append s0 :x)
+          s2 (storage/append s1 :y)]
+      (is (= 0 (storage/length s0)))
+      (is (= 1 (storage/length s1)))
+      (is (= 2 (storage/length s2))))))
 
 
 ;; =============================================================================

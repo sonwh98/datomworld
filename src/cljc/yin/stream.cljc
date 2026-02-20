@@ -111,11 +111,11 @@
 
 
 (defn handle-next
-  "Handle :stream/next effect. Advances cursor, returns next datom.
+  "Handle :stream/next effect. Advances cursor, returns next value.
    Returns result map:
-   {:value datom, :cursor-ref ref, :state s'}  data available
-   {:park true, :cursor-ref ref, :state s}     blocked (open stream, no data)
-   {:value nil, :state s}                       end of closed stream"
+   {:value val, :cursor-ref ref, :state s'}  data available
+   {:park true, :cursor-ref ref, :state s}   blocked (open stream, no data)
+   {:value nil, :state s}                     end of closed stream"
   [state effect]
   (let [cursor-ref (:cursor effect)
         cursor-id (:id cursor-ref)

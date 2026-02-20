@@ -23,23 +23,23 @@
 (defn make
   "Create a new stream with the given storage backend.
    Options:
-     :capacity - max datoms before full (nil = unbounded)"
+     :capacity - max values before full (nil = unbounded)"
   [storage & {:keys [capacity]}]
   {:storage storage, :capacity capacity, :closed false})
 
 
 (defn put
-  "Append a datom to the stream. Returns:
+  "Append a value to the stream. Returns:
    {:ok stream'} on success,
    {:full stream} if at capacity,
    throws if stream is closed."
-  [stream datom]
+  [stream val]
   (when (:closed stream) (throw (ex-info "Cannot put to closed stream" {})))
   (let [storage (:storage stream)
-        len (storage/s-length storage)]
+        len (storage/length storage)]
     (if (and (:capacity stream) (>= len (:capacity stream)))
       {:full stream}
-      {:ok (update stream :storage storage/s-append datom)})))
+      {:ok (update stream :storage storage/append val)})))
 
 
 (defn closed?
@@ -55,9 +55,9 @@
 
 
 (defn length
-  "Number of datoms in the stream."
+  "Number of values in the stream."
   [stream]
-  (storage/s-length (:storage stream)))
+  (storage/length (:storage stream)))
 
 
 ;; =============================================================================
@@ -75,17 +75,17 @@
 
 (defn next
   "Advance the cursor by one position. Returns:
-   {:ok datom, :cursor cursor'} - data available, cursor advanced
-   :blocked                     - at end of open stream, no data yet
-   :end                         - at end of closed stream
-   :daostream/gap               - position was evicted (future)"
+   {:ok val, :cursor cursor'} - data available, cursor advanced
+   :blocked                   - at end of open stream, no data yet
+   :end                       - at end of closed stream
+   :daostream/gap             - position was evicted (future)"
   [cursor stream]
   (let [pos (:position cursor)
         storage (:storage stream)
-        len (storage/s-length storage)]
+        len (storage/length storage)]
     (if (< pos len)
-      (let [datom (storage/s-read-at storage pos)]
-        {:ok datom, :cursor (update cursor :position inc)})
+      (let [val (storage/read-at storage pos)]
+        {:ok val, :cursor (update cursor :position inc)})
       (if (:closed stream) :end :blocked))))
 
 

@@ -40,12 +40,12 @@ Cursors are values. Multiple cursors on the same stream advance independently. A
 
 ```clojure
 (defprotocol IStreamStorage
-  (s-append  [this datom])    ;; -> updated storage
-  (s-read-at [this pos])      ;; -> datom or nil
-  (s-length  [this]))         ;; -> int
+  (append   [this val])     ;; -> updated storage
+  (read-at  [this pos])     ;; -> value or nil
+  (length   [this]))        ;; -> int
 ```
 
-Current backend: `MemoryStorage` (vector-backed). Storage is pure: `s-append` returns a new value, no mutation.
+Current backend: `MemoryStorage` (vector-backed). Storage is pure: `append` returns a new value, no mutation.
 
 ## API
 
@@ -56,19 +56,19 @@ All functions take data, return data. No side effects.
 | Function | Signature | Returns |
 |---|---|---|
 | `make` | `[storage & {:keys [capacity]}]` | stream map |
-| `put` | `[stream datom]` | `{:ok stream'}` or `{:full stream}` |
+| `put` | `[stream val]` | `{:ok stream'}` or `{:full stream}` |
 | `close` | `[stream]` | closed stream |
 | `closed?` | `[stream]` | boolean |
 | `length` | `[stream]` | int |
 | `cursor` | `[stream-ref]` | cursor at position 0 |
-| `next` | `[cursor stream]` | `{:ok datom, :cursor cursor'}`, `:blocked`, `:end`, or `:daostream/gap` |
+| `next` | `[cursor stream]` | `{:ok val, :cursor cursor'}`, `:blocked`, `:end`, or `:daostream/gap` |
 | `seek` | `[cursor pos]` | cursor at position |
 | `position` | `[cursor]` | int |
 
 `put` throws on closed streams. `:full` is returned (not thrown) when at capacity, so the VM can park the putting continuation.
 
 `next` returns one of four values:
-- `{:ok datom, :cursor cursor'}` when data is available
+- `{:ok val, :cursor cursor'}` when data is available
 - `:blocked` at the end of an open stream (no data yet)
 - `:end` at the end of a closed stream
 - `:daostream/gap` when the position was evicted (future, once eviction exists)

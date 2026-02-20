@@ -2,11 +2,12 @@
   "Storage protocol for DaoStream.
 
   Streams are append-only logs. Storage is the pluggable backend
-  that holds the datom sequence. This namespace defines the protocol
+  that holds the value sequence. This namespace defines the protocol
   and provides an in-memory implementation.
 
-  Storage is a pure data structure: s-append returns a new storage,
-  it does not mutate in place.")
+  Storage is a pure data structure: append returns a new storage,
+  it does not mutate in place."
+  (:refer-clojure :exclude [length]))
 
 
 ;; =============================================================================
@@ -15,17 +16,17 @@
 
 (defprotocol IStreamStorage
 
-  (s-append
-    [this datom]
-    "Append a datom to the log. Returns updated storage.")
+  (append
+    [this val]
+    "Append a value to the log. Returns updated storage.")
 
-  (s-read-at
+  (read-at
     [this pos]
-    "Read the datom at position pos. Returns nil if out of range.")
+    "Read the value at position pos. Returns nil if out of range.")
 
-  (s-length
+  (length
     [this]
-    "Current number of datoms in the log."))
+    "Current number of values in the log."))
 
 
 ;; =============================================================================
@@ -37,13 +38,13 @@
 
   IStreamStorage
 
-  (s-append [this datom] (assoc this :log (conj log datom)))
+  (append [this val] (assoc this :log (conj log val)))
 
 
-  (s-read-at [this pos] (get log pos))
+  (read-at [this pos] (get log pos))
 
 
-  (s-length [this] (count log)))
+  (length [this] (count log)))
 
 
 (defn memory-storage
