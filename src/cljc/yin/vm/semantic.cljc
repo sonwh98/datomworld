@@ -479,6 +479,19 @@
                         :halted true
                         :control nil
                         :id-counter (inc id-counter)))
+      :vm/resume (let [parked-id (:yin/parked-id node-map)
+                       resume-val (:yin/val node-map)
+                       parked-cont (get-in vm [:parked parked-id])]
+                   (if parked-cont
+                     (let [new-parked (dissoc (:parked vm) parked-id)]
+                       (assoc vm
+                              :parked new-parked
+                              :stack (:stack parked-cont)
+                              :env (:env parked-cont)
+                              :control {:type :value, :val resume-val}))
+                     (throw (ex-info
+                              "Cannot resume: parked continuation not found"
+                              {:parked-id parked-id}))))
       :vm/current-continuation
       (assoc vm
              :control {:type :value,

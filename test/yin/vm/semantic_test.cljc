@@ -432,3 +432,15 @@
                               :source {:type :literal, :value cursor-b}}))]
         (is (= 42 (vm/value vm7))
             "Reading from recovered stream-ref yields the original value")))))
+
+
+(deftest continuation-park-resume-test
+  (testing "Semantic VM handles vm/resume nodes emitted from AST conversion"
+    (let [vm0 (semantic/create-vm {:env vm/primitives})
+          vm1 (vm/eval vm0 {:type :vm/park})
+          parked-cont (vm/value vm1)
+          parked-id (:id parked-cont)
+          vm2 (vm/eval vm1 {:type :vm/resume, :parked-id parked-id, :val 42})]
+      (is (= :parked-continuation (:type parked-cont)))
+      (is (= 42 (vm/value vm2)))
+      (is (nil? (get-in vm2 [:parked parked-id]))))))

@@ -638,7 +638,8 @@
               (let [new-parked (dissoc (:parked state) parked-id)]
                 (assoc state
                        :parked new-parked
-                       :pc (:pc parked-cont)
+                       ;; Continue at the instruction after OP_PARK.
+                       :pc (+ 1 (:pc parked-cont))
                        :bytecode (:bytecode parked-cont)
                        :stack (conj (:stack parked-cont) resume-val)
                        :env (:env parked-cont)
