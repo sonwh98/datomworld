@@ -548,6 +548,67 @@
       (is (= 42 (compile-and-run ast))))))
 
 
+;; =============================================================================
+;; Channel Mobility Tests (streams as values sent through streams)
+;; =============================================================================
+
+(deftest stream-channel-mobility-test
+  (testing "A stream-ref sent through a stream arrives intact at VM level"
+    ;; Create stream A (meta-channel), create stream B (payload channel),
+    ;; put 42 into B, put B's stream-ref into A, read A to get B's ref,
+    ;; read B through recovered ref to get 42.
+    (let [;; Create stream A
+          vm0 (-> (ast-walker/create-vm)
+                  (vm/load-program {:type :stream/make, :buffer 10})
+                  (vm/run))
+          ref-a (vm/value vm0)
+          ;; Create stream B
+          vm1 (-> vm0
+                  (vm/load-program {:type :stream/make, :buffer 10})
+                  (vm/run))
+          ref-b (vm/value vm1)
+          ;; Put 42 into B
+          vm2 (-> vm1
+                  (vm/load-program {:type :stream/put,
+                                    :target {:type :literal, :value ref-b},
+                                    :val {:type :literal, :value 42}})
+                  (vm/run))
+          ;; Put B's stream-ref into A
+          vm3 (-> vm2
+                  (vm/load-program {:type :stream/put,
+                                    :target {:type :literal, :value ref-a},
+                                    :val {:type :literal, :value ref-b}})
+                  (vm/run))
+          ;; Create cursor on A, read to get B's ref
+          vm4 (-> vm3
+                  (vm/load-program {:type :stream/cursor,
+                                    :source {:type :literal, :value ref-a}})
+                  (vm/run))
+          cursor-a (vm/value vm4)
+          vm5 (-> vm4
+                  (vm/load-program {:type :stream/next,
+                                    :source {:type :literal, :value cursor-a}})
+                  (vm/run))
+          recovered-ref (vm/value vm5)]
+      ;; The recovered ref should be B's stream-ref
+      (is (= ref-b recovered-ref)
+          "Stream-ref passes through a stream unchanged")
+      ;; Now read from recovered ref to get 42
+      (let [vm6 (-> vm5
+                    (vm/load-program {:type :stream/cursor,
+                                      :source {:type :literal,
+                                               :value recovered-ref}})
+                    (vm/run))
+            cursor-b (vm/value vm6)
+            vm7 (-> vm6
+                    (vm/load-program {:type :stream/next,
+                                      :source {:type :literal,
+                                               :value cursor-b}})
+                    (vm/run))]
+        (is (= 42 (vm/value vm7))
+            "Reading from recovered stream-ref yields the original value")))))
+
+
 (deftest stream-put-cursor-next-roundtrip-test
   (testing "put then cursor+next roundtrip within nested lambdas"
     (let [ast {:type :application,

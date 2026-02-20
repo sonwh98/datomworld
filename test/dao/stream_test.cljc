@@ -167,6 +167,43 @@
 
 
 ;; =============================================================================
+;; Channel Mobility Tests (streams as values sent through streams)
+;; =============================================================================
+
+(deftest stream-channel-mobility-test
+  (testing "A stream sent through another stream arrives intact"
+    (let [s1 (ds/make (storage/memory-storage))
+          s2 (ds/make (storage/memory-storage))
+          ;; Put a value into s2
+          s2 (:ok (ds/put s2 :payload))
+          ;; Put s2 (the stream map) into s1
+          s1 (:ok (ds/put s1 s2))
+          ;; Read from s1, get s2 back
+          ref1 {:type :stream-ref, :id :s1}
+          c1 (ds/cursor ref1)
+          r1 (ds/next c1 s1)
+          recovered-s2 (:ok r1)]
+      (is (map? recovered-s2) "Recovered value should be a stream map")
+      (is (= 1 (ds/length recovered-s2)) "Recovered stream should have 1 value")
+      ;; Read from the recovered s2
+      (let [ref2 {:type :stream-ref, :id :s2}
+            c2 (ds/cursor ref2)
+            r2 (ds/next c2 recovered-s2)]
+        (is (= :payload (:ok r2))
+            "Reading from recovered stream yields the original value")))))
+
+
+(deftest stream-ref-through-stream-test
+  (testing "A stream-ref sent through a stream arrives intact"
+    (let [s1 (ds/make (storage/memory-storage))
+          ref2 {:type :stream-ref, :id :s2}
+          s1 (:ok (ds/put s1 ref2))
+          c1 (ds/cursor {:type :stream-ref, :id :s1})
+          r1 (ds/next c1 s1)]
+      (is (= ref2 (:ok r1)) "Stream-ref passes through a stream unchanged"))))
+
+
+;; =============================================================================
 ;; VM Integration Tests
 ;; =============================================================================
 

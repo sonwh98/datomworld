@@ -152,6 +152,23 @@ Stream operations that evaluate sub-expressions use continuation frames:
 | `test/dao/stream_test.cljc` | Storage, stream, cursor, and VM integration tests |
 | `test/yin/vm/ast_walker_test.cljc` | Cursor-based stream tests within AST walker |
 
+## Channel Mobility (Streams as Values)
+
+Streams are first-class values that can be sent through other streams. This is the pi-calculus channel mobility property: a channel name can be transmitted over a channel, enabling dynamic topology.
+
+Concretely: a `{:type :stream-ref, :id <keyword>}` map put into stream A arrives intact when read from A via cursor. The receiver can then create a cursor on the recovered ref and read from it. No special marshalling or registration is required, because `put`, `append`, and `next` impose no type restrictions on values.
+
+This enables patterns where:
+
+- A coordinator stream distributes work streams to consumers at runtime.
+- Streams of streams model hierarchical or evolving topologies.
+- "Reply channels" can be sent alongside requests, as in the pi-calculus.
+
+The property holds at both layers:
+
+- **`dao.stream`**: pure data functions pass values through via `conj`/`read-at` with no type inspection.
+- **`yin.stream` / AST walker**: effect handlers and the CESK machine forward values unchanged. `handle-put` stores the value, `handle-next` returns it, no intermediate inspection.
+
 ## Deferred
 
 - Typed streams (schema as datoms, fixed-size layouts, columnar SoA)
