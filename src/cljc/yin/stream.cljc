@@ -13,7 +13,7 @@
   Reads go through cursors, not directly from streams.
   Cursors advance independently: multiple readers, same stream.
 
-  Internally backed by daostream.core (pure data functions).
+  Internally backed by dao.stream (pure data functions).
   The VM handles parking, resumption, and scheduling."
   (:require
     [dao.stream :as ds]
@@ -63,7 +63,7 @@
 ;; ============================================================
 ;; VM-Level Effect Handlers
 ;; Called by VM when executing stream effects.
-;; These bridge between effect descriptors and daostream.core.
+;; These bridge between effect descriptors and dao.stream.
 ;; ============================================================
 
 (defn handle-make
@@ -72,7 +72,7 @@
   [state effect gensym-fn]
   (let [capacity (:capacity effect)
         id (gensym-fn "stream")
-        stream (ds/make-stream (storage/memory-storage) :capacity capacity)
+        stream (ds/make (storage/memory-storage) :capacity capacity)
         new-store (assoc (:store state) id stream)
         stream-ref {:type :stream-ref, :id id}]
     [stream-ref (assoc state :store new-store)]))
@@ -91,7 +91,7 @@
         stream (get store stream-id)]
     (when (nil? stream)
       (throw (ex-info "Invalid stream reference" {:ref stream-ref})))
-    (let [result (ds/stream-put stream val)]
+    (let [result (ds/put stream val)]
       (if (:ok result)
         (let [new-store (assoc store stream-id (:ok result))]
           {:value val, :state (assoc state :store new-store)})
@@ -104,7 +104,7 @@
   [state effect gensym-fn]
   (let [stream-ref (:stream effect)
         id (gensym-fn "cursor")
-        cursor-data (ds/make-cursor stream-ref)
+        cursor-data (ds/cursor stream-ref)
         new-store (assoc (:store state) id cursor-data)
         cursor-ref {:type :cursor-ref, :id id}]
     [cursor-ref (assoc state :store new-store)]))
@@ -129,7 +129,7 @@
       (when (nil? stream)
         (throw (ex-info "Stream not found for cursor"
                         {:stream-ref stream-ref})))
-      (let [result (ds/cursor-next cursor-data stream)]
+      (let [result (ds/next cursor-data stream)]
         (cond (map? result)
               (let [new-store (assoc store cursor-id (:cursor result))]
                 {:value (:ok result), :state (assoc state :store new-store)})
@@ -151,7 +151,7 @@
         stream-id (:id stream-ref)
         store (:store state)
         stream (get store stream-id)
-        new-stream (ds/stream-close stream)
+        new-stream (ds/close stream)
         new-store (assoc store stream-id new-stream)
         ;; Find parked continuations waiting on cursors for this stream
         wait-set (or (:wait-set state) [])

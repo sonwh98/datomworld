@@ -55,19 +55,19 @@ All functions take data, return data. No side effects.
 
 | Function | Signature | Returns |
 |---|---|---|
-| `make-stream` | `[storage & {:keys [capacity]}]` | stream map |
-| `stream-put` | `[stream datom]` | `{:ok stream'}` or `{:full stream}` |
-| `stream-close` | `[stream]` | closed stream |
-| `stream-closed?` | `[stream]` | boolean |
-| `stream-length` | `[stream]` | int |
-| `make-cursor` | `[stream-ref]` | cursor at position 0 |
-| `cursor-next` | `[cursor stream]` | `{:ok datom, :cursor cursor'}`, `:blocked`, `:end`, or `:daostream/gap` |
-| `cursor-seek` | `[cursor pos]` | cursor at position |
-| `cursor-position` | `[cursor]` | int |
+| `make` | `[storage & {:keys [capacity]}]` | stream map |
+| `put` | `[stream datom]` | `{:ok stream'}` or `{:full stream}` |
+| `close` | `[stream]` | closed stream |
+| `closed?` | `[stream]` | boolean |
+| `length` | `[stream]` | int |
+| `cursor` | `[stream-ref]` | cursor at position 0 |
+| `next` | `[cursor stream]` | `{:ok datom, :cursor cursor'}`, `:blocked`, `:end`, or `:daostream/gap` |
+| `seek` | `[cursor pos]` | cursor at position |
+| `position` | `[cursor]` | int |
 
-`stream-put` throws on closed streams. `:full` is returned (not thrown) when at capacity, so the VM can park the putting continuation.
+`put` throws on closed streams. `:full` is returned (not thrown) when at capacity, so the VM can park the putting continuation.
 
-`cursor-next` returns one of four values:
+`next` returns one of four values:
 - `{:ok datom, :cursor cursor'}` when data is available
 - `:blocked` at the end of an open stream (no data yet)
 - `:end` at the end of a closed stream

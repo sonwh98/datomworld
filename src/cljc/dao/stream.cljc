@@ -7,6 +7,7 @@
   All functions are pure: they take data, return data.
   No continuations, no parking, no side effects.
   The VM handles parking and scheduling."
+  (:refer-clojure :exclude [next])
   (:require
     [dao.stream.storage :as storage]))
 
@@ -19,7 +20,7 @@
 ;;    :capacity nil|int     ;; nil = unbounded
 ;;    :closed false}
 
-(defn make-stream
+(defn make
   "Create a new stream with the given storage backend.
    Options:
      :capacity - max datoms before full (nil = unbounded)"
@@ -27,7 +28,7 @@
   {:storage storage, :capacity capacity, :closed false})
 
 
-(defn stream-put
+(defn put
   "Append a datom to the stream. Returns:
    {:ok stream'} on success,
    {:full stream} if at capacity,
@@ -41,19 +42,19 @@
       {:ok (update stream :storage storage/s-append datom)})))
 
 
-(defn stream-closed?
+(defn closed?
   "Returns true if the stream is closed."
   [stream]
   (:closed stream))
 
 
-(defn stream-close
+(defn close
   "Close the stream. No more puts allowed."
   [stream]
   (assoc stream :closed true))
 
 
-(defn stream-length
+(defn length
   "Number of datoms in the stream."
   [stream]
   (storage/s-length (:storage stream)))
@@ -66,13 +67,13 @@
 ;;   {:stream-ref <keyword>   ;; reference to stream in VM store
 ;;    :position int}
 
-(defn make-cursor
+(defn cursor
   "Create a cursor at position 0 for the given stream reference."
   [stream-ref]
   {:stream-ref stream-ref, :position 0})
 
 
-(defn cursor-next
+(defn next
   "Advance the cursor by one position. Returns:
    {:ok datom, :cursor cursor'} - data available, cursor advanced
    :blocked                     - at end of open stream, no data yet
@@ -88,13 +89,13 @@
       (if (:closed stream) :end :blocked))))
 
 
-(defn cursor-seek
+(defn seek
   "Return a cursor at the given position."
   [cursor pos]
   (assoc cursor :position pos))
 
 
-(defn cursor-position
+(defn position
   "Return the current position of the cursor."
   [cursor]
   (:position cursor))
