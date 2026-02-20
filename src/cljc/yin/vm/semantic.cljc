@@ -566,14 +566,15 @@
   "Load datoms into the VM.
    Expects {:node root-id :datoms [...]}."
   [^SemanticVM vm {:keys [node datoms]}]
-  (assoc vm
-         :control {:type :node, :id node}
-         :stack []
-         :datoms datoms
-         :index (group-by first datoms)
-         :halted false
-         :value nil
-         :blocked false))
+  (let [new-index (group-by first datoms)]
+    (assoc vm
+           :control {:type :node, :id node}
+           :stack []
+           :datoms (into (:datoms vm) datoms)
+           :index (merge (:index vm) new-index)
+           :halted false
+           :value nil
+           :blocked false)))
 
 
 (defn- semantic-vm-eval

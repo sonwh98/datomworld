@@ -573,3 +573,39 @@
                               :source {:type :literal, :value cursor-b}}))]
         (is (= 42 (vm/value vm7))
             "Reading from recovered stream-ref yields the original value")))))
+
+
+(deftest continuation-park-resume-parity-test
+  (testing
+    "Register VM should support vm/park and vm/resume like other backends"
+    (let [vm0 (register/create-vm {:env vm/primitives})
+          vm1 (vm/eval vm0 {:type :vm/park})
+          parked-cont (vm/value vm1)
+          parked-id (:id parked-cont)
+          vm2 (vm/eval vm1 {:type :vm/resume, :parked-id parked-id, :val 42})]
+      (is (= :parked-continuation (:type parked-cont)))
+      (is (= 42 (vm/value vm2)))
+      (is (nil? (get-in vm2 [:parked parked-id]))))))
+
+
+(deftest current-continuation-test
+  (testing "Register VM supports :vm/current-continuation"
+    (let [vm0 (register/create-vm {:env vm/primitives})
+          ;; Reify current continuation, then return 42
+          ast {:type :application,
+               :operator {:type :lambda,
+                          :params ['k],
+                          :body {:type :literal, :value 42}},
+               :operands [{:type :vm/current-continuation}]}
+          vm1 (vm/eval vm0 ast)
+          cont (vm/value vm1)]
+      ;; In this specific AST, the value returned is 42, but we can inspect
+      ;; the VM state to see if a continuation was reified during
+      ;; execution. Better test: a lambda that captures the continuation
+      ;; and returns it.
+      (let [ast-capture {:type :vm/current-continuation}
+            vm2 (vm/eval vm0 ast-capture)
+            reified (vm/value vm2)]
+        (is (= :reified-continuation (:type reified)))
+        (is (vector? (:regs reified)))
+        (is (integer? (:ip reified)))))))

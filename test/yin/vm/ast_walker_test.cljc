@@ -411,7 +411,7 @@
           stream-id (:id (vm/value vm))
           stream (get (vm/store vm) stream-id)]
       (is (some? stream))
-      (is (nil? (:capacity stream))))))
+      (is (= 1024 (:capacity stream))))))
 
 
 (deftest stream-put-test

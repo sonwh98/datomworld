@@ -430,7 +430,7 @@
         ;; ============================================================
         ;; Stream Operations (AST node forms)
         ;; ============================================================
-        :stream/make (let [capacity (:buffer node)
+        :stream/make (let [capacity (or (:buffer node) 1024)
                            gen-id-fn (fn [prefix]
                                        (keyword
                                          (str prefix "-" (:id-counter state))))

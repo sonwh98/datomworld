@@ -231,6 +231,21 @@
                                  rd (alloc-reg!)]
                              (emit! [:stream-close rd source-reg])
                              rd)
+             ;; Continuation primitives
+             :vm/park (let [rd (alloc-reg!)]
+                        (emit! [:park rd])
+                        rd)
+             :vm/resume (let [parked-id (get-attr e :yin/parked-id)
+                              val (get-attr e :yin/val)
+                              rd (alloc-reg!)]
+                          (emit! [:loadk rd parked-id])
+                          (let [rv (alloc-reg!)]
+                            (emit! [:loadk rv val])
+                            (emit! [:resume rd rv])
+                            rv))
+             :vm/current-continuation (let [rd (alloc-reg!)]
+                                        (emit! [:current-cont rd])
+                                        rd)
              ;; Unknown type
              (throw (ex-info
                       "Unknown node type in register assembly compilation"
@@ -313,7 +328,11 @@
           :stream-next (let [[rd rs] args]
                          (emit! (opcode-table :stream-next) rd rs))
           :stream-close (let [[rd rs] args]
-                          (emit! (opcode-table :stream-close) rd rs)))))
+                          (emit! (opcode-table :stream-close) rd rs))
+          :park (let [[rd] args] (emit! (opcode-table :park) rd))
+          :resume (let [[rd rs] args] (emit! (opcode-table :resume) rd rs))
+          :current-cont (let [[rd] args]
+                          (emit! (opcode-table :current-cont) rd)))))
     ;; Fix addresses
     (let [offsets @instr-offsets
           fixed (reduce (fn [bc [pos asm-addr]]
@@ -649,12 +668,55 @@
                  :regs (assoc regs rd nil)
                  :ip (+ ip 3)))
         :park
-        (throw (ex-info "OP_PARK not yet implemented for register VM" {}))
+        (let [rd (get bytecode (+ ip 1))
+              park-id (keyword (str "parked-" id-counter))
+              parked-cont {:type :parked-continuation,
+                           :id park-id,
+                           :ip (+ ip 2),
+                           :regs regs,
+                           :k k,
+                           :env env,
+                           :bytecode bytecode,
+                           :pool pool,
+                           :result-reg rd}
+              new-parked (assoc (:parked state) park-id parked-cont)]
+          (assoc state
+                 :parked new-parked
+                 :value parked-cont
+                 :halted true
+                 :id-counter (inc id-counter)))
         :resume
-        (throw (ex-info "OP_RESUME not yet implemented for register VM" {}))
+        (let [rs (get bytecode (+ ip 1))
+              rt (get bytecode (+ ip 2))
+              parked-id (get-reg state rs)
+              resume-val (get-reg state rt)
+              parked-cont (get-in state [:parked parked-id])]
+          (if parked-cont
+            (let [new-parked (dissoc (:parked state) parked-id)
+                  rd (:result-reg parked-cont)]
+              (assoc state
+                     :parked new-parked
+                     :ip (:ip parked-cont)
+                     :regs (assoc (:regs parked-cont) rd resume-val)
+                     :k (:k parked-cont)
+                     :env (:env parked-cont)
+                     :bytecode (:bytecode parked-cont)
+                     :pool (:pool parked-cont)))
+            (throw (ex-info "Cannot resume: parked continuation not found"
+                            {:parked-id parked-id}))))
         :current-cont
-        (throw (ex-info "OP_CURRENT_CONT not yet implemented for register VM"
-                        {}))
+        (let [rd (get bytecode (+ ip 1))
+              cont {:type :reified-continuation,
+                    :ip (+ ip 2),
+                    :regs regs,
+                    :k k,
+                    :env env,
+                    :bytecode bytecode,
+                    :pool pool,
+                    :result-reg rd}]
+          (assoc state
+                 :regs (assoc regs rd cont)
+                 :ip (+ ip 2)))
         (throw (ex-info "Unknown bytecode opcode" {:op op, :ip ip}))))))
 
 
