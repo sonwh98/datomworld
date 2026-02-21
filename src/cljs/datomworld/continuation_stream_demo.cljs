@@ -10,7 +10,8 @@
             [reagent.core :as r]
             [yang.clojure :as yang]
             [yin.vm :as vm]
-            [yin.vm.register :as register]))
+            [yin.vm.register :as register]
+            [yin.vm.stack :as stack]))
 
 
 (def source-example
@@ -93,14 +94,18 @@
     {:source-code source-example,
      :ast nil,
      :ast-datoms nil,
-     :asm nil,
-     :bytecode nil,
-     :pool nil,
-     :source-map nil,
-     :reg-count nil,
-     :vm-a nil,
-     :vm-b nil,
-     :owner :vm-a,
+     :register-asm nil,
+     :register-bytecode nil,
+     :register-pool nil,
+     :register-source-map nil,
+     :register-reg-count nil,
+     :stack-asm nil,
+     :stack-bc nil,
+     :stack-pool nil,
+     :stack-source-map nil,
+     :register-vm nil,
+     :stack-vm nil,
+     :owner :register-vm,
      :steps 0,
      :handoffs 0,
      :steps-since-handoff 0,
@@ -115,9 +120,14 @@
 (defonce run-raf-id (atom nil))
 
 
-(def continuation-keys
+(def register-continuation-keys
   [:regs :k :env :ip :bytecode :pool :halted :value :store :parked :id-counter
    :blocked :run-queue :wait-set])
+
+
+(def stack-continuation-keys
+  [:pc :bytecode :stack :env :call-stack :pool :halted :value :store :parked
+   :id-counter :blocked :run-queue :wait-set])
 
 
 (defn continuation-depth
@@ -140,19 +150,48 @@
              (inc n)))))
 
 
+(defn stack-continuation-frames
+  [call-stack]
+  (->> (or call-stack [])
+       (take-last 12)
+       (mapv (fn [frame]
+               {:pc (:pc frame), :stack-size (count (:stack frame))}))))
+
+
+(defn stack-vm? [vm-key] (= vm-key :stack-vm))
+
+
+(defn vm-control-counter
+  [vm-key vm-state]
+  (when vm-state (if (stack-vm? vm-key) (:pc vm-state) (:ip vm-state))))
+
+
+(defn vm-continuation-depth
+  [vm-key vm-state]
+  (when vm-state
+    (if (stack-vm? vm-key)
+      (count (or (:call-stack vm-state) []))
+      (continuation-depth (:k vm-state)))))
+
+
 (defn vm-state->continuation
-  [vm-state]
-  (select-keys vm-state continuation-keys))
+  [vm-key vm-state]
+  (let [keys* (if (stack-vm? vm-key)
+                stack-continuation-keys
+                register-continuation-keys)]
+    (select-keys vm-state keys*)))
 
 
 (defn continuation->vm-state
-  [continuation]
-  (let [base (register/create-vm {:env vm/primitives})
+  [vm-key continuation]
+  (let [base (if (stack-vm? vm-key)
+               (stack/create-vm {:env vm/primitives})
+               (register/create-vm {:env vm/primitives}))
         resumed (reduce-kv (fn [acc k v] (assoc acc k v)) base continuation)]
     (assoc resumed :primitives vm/primitives)))
 
 
-(defn other-vm [vm-key] (if (= vm-key :vm-a) :vm-b :vm-a))
+(defn other-vm [vm-key] (if (= vm-key :register-vm) :stack-vm :register-vm))
 
 
 (defn append-stream-datom
@@ -170,14 +209,41 @@
        :datoms datoms) datom]))
 
 
+(defn create-loaded-register-vm
+  [{:keys [bytecode pool reg-count]}]
+  (-> (register/create-vm {:env vm/primitives})
+      (vm/load-program {:bytecode bytecode, :pool pool, :reg-count reg-count})))
+
+
+(defn create-loaded-stack-vm
+  [{:keys [bc pool]}]
+  (-> (stack/create-vm {:env vm/primitives})
+      (vm/load-program {:bc bc, :pool pool})))
+
+
+(defn create-initial-vm
+  [state vm-key]
+  (if (stack-vm? vm-key)
+    (when (and (:stack-bc state) (:stack-pool state))
+      (create-loaded-stack-vm {:bc (:stack-bc state),
+                               :pool (:stack-pool state)}))
+    (when (and (:register-bytecode state)
+               (:register-pool state)
+               (:register-reg-count state))
+      (create-loaded-register-vm {:bytecode (:register-bytecode state),
+                                  :pool (:register-pool state),
+                                  :reg-count (:register-reg-count state)}))))
+
+
 (defn enqueue-continuation
-  [state from to vm-state]
-  (let [continuation (vm-state->continuation vm-state)
+  [state from to from-vm-state]
+  (let [recipient-vm-state (or (get state to) (create-initial-vm state to))
+        continuation (vm-state->continuation to recipient-vm-state)
         summary {:kind :continuation,
                  :from from,
                  :to to,
-                 :ip (:ip vm-state),
-                 :k-depth (continuation-depth (:k vm-state))}
+                 :control (vm-control-counter from from-vm-state),
+                 :continuation-depth (vm-continuation-depth from from-vm-state)}
         [stream* datom]
           (append-stream-datom (:stream state) :stream/continuation summary)
         message {:id (first datom),
@@ -199,12 +265,12 @@
             next-queue (vec (concat (subvec queue 0 idx)
                                     (subvec queue (inc idx))))
             stream-with-queue (assoc (:stream state) :queue next-queue)
-            [stream* _] (append-stream-datom stream-with-queue
-                                             :stream/deliver
-                                             {:message (:id message),
-                                              :to vm-key,
-                                              :ip (get-in message
-                                                          [:summary :ip])})]
+            [stream* _] (append-stream-datom
+                          stream-with-queue
+                          :stream/deliver
+                          {:message (:id message),
+                           :to vm-key,
+                           :control (get-in message [:summary :control])})]
         [(assoc state :stream stream*) message]))))
 
 
@@ -215,15 +281,9 @@
       [state false]
       (let [[state* message] (pop-continuation-for state owner)]
         (if message
-          [(assoc state* owner (continuation->vm-state (:continuation message)))
-           true]
+          [(assoc state*
+             owner (continuation->vm-state owner (:continuation message))) true]
           [state* false])))))
-
-
-(defn create-loaded-vm
-  [{:keys [bytecode pool reg-count]}]
-  (-> (register/create-vm {:env vm/primitives})
-      (vm/load-program {:bytecode bytecode, :pool pool, :reg-count reg-count})))
 
 
 (defn stop-run-loop!
@@ -240,14 +300,18 @@
   (swap! app-state assoc
     :ast nil
     :ast-datoms nil
-    :asm nil
-    :bytecode nil
-    :pool nil
-    :source-map nil
-    :reg-count nil
-    :vm-a nil
-    :vm-b nil
-    :owner :vm-a
+    :register-asm nil
+    :register-bytecode nil
+    :register-pool nil
+    :register-source-map nil
+    :register-reg-count nil
+    :stack-asm nil
+    :stack-bc nil
+    :stack-pool nil
+    :stack-source-map nil
+    :register-vm nil
+    :stack-vm nil
+    :owner :register-vm
     :steps 0
     :handoffs 0
     :steps-since-handoff 0
@@ -267,16 +331,17 @@
 
 (defn reset-execution!
   []
-  (let [{:keys [bytecode pool reg-count]} @app-state]
-    (when (and bytecode pool reg-count)
+  (let [{:keys [register-bytecode register-pool register-reg-count]} @app-state]
+    (when (and register-bytecode register-pool register-reg-count)
       (stop-run-loop!)
-      (let [initial-vm (create-loaded-vm {:bytecode bytecode,
-                                          :pool pool,
-                                          :reg-count reg-count})]
+      (let [initial-vm (create-loaded-register-vm {:bytecode register-bytecode,
+                                                   :pool register-pool,
+                                                   :reg-count
+                                                     register-reg-count})]
         (swap! app-state assoc
-          :vm-a initial-vm
-          :vm-b nil
-          :owner :vm-a
+          :register-vm initial-vm
+          :stack-vm nil
+          :owner :register-vm
           :steps 0
           :handoffs 0
           :steps-since-handoff 0
@@ -296,20 +361,27 @@
             ast-datoms (vm/ast->datoms ast)
             {:keys [asm reg-count]} (register/ast-datoms->asm ast-datoms)
             {:keys [bytecode pool source-map]} (register/asm->bytecode asm)
-            initial-vm (create-loaded-vm {:bytecode bytecode,
-                                          :pool pool,
-                                          :reg-count reg-count})]
+            stack-asm (stack/ast-datoms->asm ast-datoms)
+            {:keys [bc], stack-pool :pool, stack-source-map :source-map}
+              (stack/asm->bytecode stack-asm)
+            initial-vm (create-loaded-register-vm {:bytecode bytecode,
+                                                   :pool pool,
+                                                   :reg-count reg-count})]
         (swap! app-state assoc
           :ast ast
           :ast-datoms ast-datoms
-          :asm asm
-          :bytecode bytecode
-          :pool pool
-          :source-map source-map
-          :reg-count reg-count
-          :vm-a initial-vm
-          :vm-b nil
-          :owner :vm-a
+          :register-asm asm
+          :register-bytecode bytecode
+          :register-pool pool
+          :register-source-map source-map
+          :register-reg-count reg-count
+          :stack-asm stack-asm
+          :stack-bc bc
+          :stack-pool stack-pool
+          :stack-source-map stack-source-map
+          :register-vm initial-vm
+          :stack-vm nil
+          :owner :register-vm
           :steps 0
           :handoffs 0
           :steps-since-handoff 0
@@ -339,7 +411,9 @@
 
 (defn step-state
   [state]
-  (if (or (nil? (:bytecode state)) (:completed? state))
+  (if (or (nil? (:register-bytecode state))
+          (nil? (:stack-bc state))
+          (:completed? state))
     (assoc state :running false)
     (let [owner (:owner state)
           [state* just-activated?] (activate-owner-from-stream state)
@@ -401,30 +475,46 @@
   []
   (if (:running @app-state)
     (stop-run-loop!)
-    (when (:bytecode @app-state)
+    (when (and (:register-bytecode @app-state) (:stack-bc @app-state))
       (swap! app-state assoc :running true :error nil)
       (when @run-raf-id (js/cancelAnimationFrame @run-raf-id))
       (reset! run-raf-id (js/requestAnimationFrame run-frame!)))))
 
 
 (defn vm->cesk
-  [vm-state asm source-map]
+  [vm-key vm-state asm source-map]
   (when vm-state
-    (let [instr-idx (get source-map (:ip vm-state))
+    (let [control (vm-control-counter vm-key vm-state)
+          instr-idx (get source-map control)
           instr (when (number? instr-idx) (get asm instr-idx))]
-      {:control {:ip (:ip vm-state),
-                 :instruction-index instr-idx,
-                 :instruction instr,
-                 :halted (:halted vm-state),
-                 :blocked (:blocked vm-state)},
-       :environment (:env vm-state),
-       :store (:store vm-state),
-       :continuation {:depth (continuation-depth (:k vm-state)),
-                      :frames (continuation-frames (:k vm-state))},
-       :registers (:regs vm-state),
-       :run-queue-count (count (or (:run-queue vm-state) [])),
-       :wait-set-count (count (or (:wait-set vm-state) [])),
-       :value (:value vm-state)})))
+      (if (stack-vm? vm-key)
+        {:control {:pc (:pc vm-state),
+                   :instruction-index instr-idx,
+                   :instruction instr,
+                   :halted (:halted vm-state),
+                   :blocked (:blocked vm-state)},
+         :environment (:env vm-state),
+         :store (:store vm-state),
+         :continuation {:depth (count (or (:call-stack vm-state) [])),
+                        :frames (stack-continuation-frames (:call-stack
+                                                             vm-state))},
+         :stack (:stack vm-state),
+         :run-queue-count (count (or (:run-queue vm-state) [])),
+         :wait-set-count (count (or (:wait-set vm-state) [])),
+         :value (:value vm-state)}
+        {:control {:ip (:ip vm-state),
+                   :instruction-index instr-idx,
+                   :instruction instr,
+                   :halted (:halted vm-state),
+                   :blocked (:blocked vm-state)},
+         :environment (:env vm-state),
+         :store (:store vm-state),
+         :continuation {:depth (continuation-depth (:k vm-state)),
+                        :frames (continuation-frames (:k vm-state))},
+         :registers (:regs vm-state),
+         :run-queue-count (count (or (:run-queue vm-state) [])),
+         :wait-set-count (count (or (:wait-set vm-state) [])),
+         :value (:value vm-state)}))))
 
 
 (defn asm-listing
@@ -445,8 +535,8 @@
           {:id id,
            :from (:from summary),
            :to (:to summary),
-           :ip (:ip summary),
-           :k-depth (:k-depth summary)})
+           :control (:control summary),
+           :continuation-depth (:continuation-depth summary)})
     queue))
 
 
@@ -479,11 +569,18 @@
 
 (defn vm-window
   [vm-key title border-color]
-  (let [{:keys [asm source-map owner]} @app-state
+  (let [{:keys [owner]} @app-state
+        asm (if (stack-vm? vm-key)
+              (:stack-asm @app-state)
+              (:register-asm @app-state))
+        source-map (if (stack-vm? vm-key)
+                     (:stack-source-map @app-state)
+                     (:register-source-map @app-state))
         vm-state (get @app-state vm-key)
         active? (= owner vm-key)
-        active-idx (when vm-state (get source-map (:ip vm-state)))
-        cesk (or (vm->cesk vm-state asm source-map)
+        active-idx (when vm-state
+                     (get source-map (vm-control-counter vm-key vm-state)))
+        cesk (or (vm->cesk vm-key vm-state asm source-map)
                  {:state :waiting-for-continuation})
         status (cond (nil? vm-state) "Waiting"
                      (:halted vm-state) "Halted"
@@ -525,7 +622,8 @@
 
 (defn controls-panel
   []
-  (let [{:keys [running bytecode handoff-interval]} @app-state]
+  (let [{:keys [running handoff-interval]} @app-state
+        compiled? (and (:register-bytecode @app-state) (:stack-bc @app-state))]
     [:div
      {:style
         {:display "flex", :flex-wrap "wrap", :align-items "center", :gap "8px"}}
@@ -540,35 +638,35 @@
                :font-size "12px"}} "Compile -> Bytecode"]
      [:button
       {:on-click reset-execution!,
-       :disabled (nil? bytecode),
-       :style {:background (if bytecode "#6e7681" "#333"),
+       :disabled (not compiled?),
+       :style {:background (if compiled? "#6e7681" "#333"),
                :color "#fff",
                :border "none",
                :padding "8px 12px",
                :border-radius "5px",
-               :cursor (if bytecode "pointer" "not-allowed"),
+               :cursor (if compiled? "pointer" "not-allowed"),
                :font-size "12px"}} "Reset"]
      [:button
       {:on-click step-once!,
-       :disabled (nil? bytecode),
-       :style {:background (if bytecode "#238636" "#333"),
+       :disabled (not compiled?),
+       :style {:background (if compiled? "#238636" "#333"),
                :color "#fff",
                :border "none",
                :padding "8px 12px",
                :border-radius "5px",
-               :cursor (if bytecode "pointer" "not-allowed"),
+               :cursor (if compiled? "pointer" "not-allowed"),
                :font-size "12px"}} "Step"]
      [:button
       {:on-click toggle-run!,
-       :disabled (nil? bytecode),
-       :style {:background (cond (nil? bytecode) "#333"
+       :disabled (not compiled?),
+       :style {:background (cond (not compiled?) "#333"
                                  running "#da3633"
                                  :else "#238636"),
                :color "#fff",
                :border "none",
                :padding "8px 12px",
                :border-radius "5px",
-               :cursor (if bytecode "pointer" "not-allowed"),
+               :cursor (if compiled? "pointer" "not-allowed"),
                :font-size "12px"}} (if running "Pause" "Run")]
      [:label
       {:style {:display "flex",
@@ -597,30 +695,43 @@
   []
   (r/create-class
     {:display-name "continuation-stream-main",
-     :component-did-mount
-       (fn [] (when-not (:bytecode @app-state) (compile-source!))),
+     :component-did-mount (fn []
+                            (when-not (and (:register-bytecode @app-state)
+                                           (:stack-bc @app-state))
+                              (compile-source!))),
      :component-will-unmount (fn [] (stop-run-loop!)),
      :reagent-render
        (fn []
-         (let [{:keys [source-code asm bytecode pool reg-count stream steps
-                       handoffs owner completed? result error]}
+         (let [{:keys [source-code register-asm register-bytecode register-pool
+                       register-reg-count stack-asm stack-bc stack-pool stream
+                       steps handoffs owner completed? result error]}
                  @app-state
-               vm-a (:vm-a @app-state)
-               vm-b (:vm-b @app-state)
+               register-vm (:register-vm @app-state)
+               stack-vm (:stack-vm @app-state)
                bytecode-view
-                 (if bytecode
-                   (pretty-print {:reg-count reg-count,
-                                  :pool pool,
-                                  :bytecode bytecode,
-                                  :asm (mapv vector (range (count asm)) asm)})
-                   "Compile source to generate register VM bytecode.")
+                 (if (and register-bytecode stack-bc)
+                   (pretty-print {:register-vm {:reg-count register-reg-count,
+                                                :pool register-pool,
+                                                :bytecode register-bytecode,
+                                                :asm (mapv vector
+                                                       (range (count
+                                                                register-asm))
+                                                       register-asm)},
+                                  :stack-vm {:pool stack-pool,
+                                             :bc stack-bc,
+                                             :asm (mapv vector
+                                                    (range (count stack-asm))
+                                                    stack-asm)}})
+                   "Compile source to generate register and stack bytecode.")
                queue-view (pretty-print (stream-queue-summary (:queue stream)))
                stream-view (pretty-print (:datoms stream))
                run-summary {:owner owner,
                             :steps steps,
                             :handoffs handoffs,
-                            :vm-a-ip (when vm-a (:ip vm-a)),
-                            :vm-b-ip (when vm-b (:ip vm-b)),
+                            :register-vm-control
+                              (vm-control-counter :register-vm register-vm),
+                            :stack-vm-control (vm-control-counter :stack-vm
+                                                                  stack-vm),
                             :completed? completed?,
                             :result result}]
            [:div
@@ -639,7 +750,7 @@
                       :gap "12px",
                       :flex-wrap "wrap"}}
              [:h1 {:style {:margin 0, :font-size "1.4rem", :color "#f1f5ff"}}
-              "Two Register VMs with Continuation Stream"]
+              "Register VM + Stack VM Continuation Stream"]
              [:div {:style {:font-size "12px", :color "#8b949e"}}
               "Use the hamburger menu to switch demos."]] [controls-panel]
             [:div
@@ -654,18 +765,18 @@
                {:value source-code,
                 :on-change set-source-code!,
                 :style {:height "100%"}}]]
-             [card "Register Bytecode"
-              "Compiled from source via yang -> AST datoms -> register asm."
+             [card "Compiled Bytecode"
+              "Compiled from source via yang -> AST datoms -> register and stack asm."
               [codemirror-editor
                {:value bytecode-view,
                 :read-only true,
                 :style {:height "100%"}}]]
-             [card "VM A"
-              "CESK state snapshot while continuation ownership changes."
-              [vm-window :vm-a "VM A" "#3b82f6"]]
-             [card "VM B"
-              "Receives continuations from stream and continues execution."
-              [vm-window :vm-b "VM B" "#22c55e"]]
+             [card "Register VM"
+              "Register machine CESK state while ownership changes."
+              [vm-window :register-vm "Register VM" "#3b82f6"]]
+             [card "Stack VM"
+              "Stack machine CESK state while ownership changes."
+              [vm-window :stack-vm "Stack VM" "#22c55e"]]
              [:div
               {:style {:grid-column "1 / span 2",
                        :display "grid",
