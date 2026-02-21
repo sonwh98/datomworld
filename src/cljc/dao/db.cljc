@@ -8,7 +8,7 @@
 (defprotocol IDaoDb
   (transact [db tx-data]
     "Transact tx-data, return {:db <new-DaoDb> :tempids ...}.")
-  (q [db query & inputs]
+  (q [db query inputs]
     "Run a Datalog query.")
   (datoms [db index]
     "Return datoms for index (:eavt/:aevt/:avet/:vaet).")
@@ -39,8 +39,8 @@
     (transact [_ tx-data]
       (let [conn (d/conn-from-db ds-db)
             {:keys [tempids]} (d/transact! conn tx-data)]
-        {:db (->DaoDb @conn), :tempids tempids}))
-    (q [_ query & inputs] (apply d/q query ds-db inputs))
+        {:db (DaoDb. @conn), :tempids tempids}))
+    (q [_ query inputs] (apply d/q query ds-db inputs))
     (datoms [_ index] (d/datoms ds-db index))
     (entity-attrs [_ eid]
       (let [card-many (schema->card-many (:schema ds-db))]
@@ -102,13 +102,13 @@
                          tx-data)
             all-datoms (into datom-vec new-datoms)
             new-index (group-by first all-datoms)]
-        {:db (->DummyDaoDb all-datoms
-                           new-index
-                           ref-attrs
-                           card-many
-                           (+ next-eid (count all-tempids))),
+        {:db (DummyDaoDb. all-datoms
+                          new-index
+                          ref-attrs
+                          card-many
+                          (+ next-eid (count all-tempids))),
          :tempids tempid-map}))
-    (q [_ _query & _inputs]
+    (q [_ _query _inputs]
       (throw (ex-info "DummyDaoDb does not support Datalog queries" {})))
     (datoms [_ _index] datom-vec)
     (entity-attrs [_ eid]
