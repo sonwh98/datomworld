@@ -15,6 +15,7 @@
             [datascript.core :as d]
             [datascript.db :as db]
             [datascript.query :as dq]
+            [datomworld.continuation-stream-demo :as cont-demo]
             [reagent.core :as r]
             [reagent.dom :as rdom]
             [yang.clojure :as yang]
@@ -1888,6 +1889,113 @@
                           :border-radius "6px"}}]]])]))}))
 
 
+(declare root-shell)
+
+
+(defn mount-root!
+  [& _]
+  (let [app (js/document.getElementById "app")]
+    (when app (rdom/render [root-shell] app))))
+
+
+(defonce hash-listener-installed? (atom false))
+
+
+(defn- hash->demo
+  [hash-value]
+  (if (= hash-value "#pipeline") :pipeline :continuation))
+
+
+(defn- demo->hash
+  [demo-id]
+  (if (= demo-id :pipeline) "#pipeline" "#continuation"))
+
+
+(defonce demo-shell-state
+  (r/atom {:selected-demo (hash->demo (.-hash js/location)),
+           :menu-open? false}))
+
+
+(def demo-options
+  [{:id :continuation, :label "Continuation Example"}
+   {:id :pipeline, :label "Pipeline Compilation"}])
+
+
+(defn sync-demo-from-hash!
+  [& _]
+  (swap! demo-shell-state assoc
+    :selected-demo (hash->demo (.-hash js/location))
+    :menu-open? false))
+
+
+(defn select-demo!
+  [demo-id]
+  (swap! demo-shell-state assoc :selected-demo demo-id :menu-open? false)
+  (set! (.-hash js/location) (demo->hash demo-id)))
+
+
+(defn demo-switcher-menu
+  []
+  (let [{:keys [selected-demo menu-open?]} @demo-shell-state
+        selected-label (or (some (fn [{:keys [id label]}]
+                                   (when (= id selected-demo) label))
+                                 demo-options)
+                           "Select Demo")]
+    [:div
+     {:style {:position "fixed", :top "64px", :right "20px", :z-index "500"}}
+     [:button
+      {:on-click #(swap! demo-shell-state update :menu-open? not),
+       :style {:display "flex",
+               :align-items "center",
+               :gap "8px",
+               :background "#151b33",
+               :color "#f1f5ff",
+               :border "1px solid #2d3b55",
+               :border-radius "6px",
+               :padding "6px 10px",
+               :cursor "pointer",
+               :font-size "12px"}} "☰" selected-label]
+     (when menu-open?
+       [:div
+        {:style {:margin-top "6px",
+                 :background "#151b33",
+                 :border "1px solid #2d3b55",
+                 :border-radius "6px",
+                 :box-shadow "0 10px 25px rgba(0,0,0,0.5)",
+                 :min-width "220px",
+                 :overflow "hidden"}}
+        (for [{:keys [id label]} demo-options]
+          ^{:key (name id)}
+          [:button
+           {:on-click #(select-demo! id),
+            :style {:display "block",
+                    :width "100%",
+                    :text-align "left",
+                    :padding "8px 10px",
+                    :border "none",
+                    :border-bottom (if (= id
+                                          (-> demo-options
+                                              last
+                                              :id))
+                                     "none"
+                                     "1px solid #2d3b55"),
+                    :background (if (= id selected-demo) "#1f6feb" "#151b33"),
+                    :color "#f1f5ff",
+                    :cursor "pointer",
+                    :font-size "12px"}} label])])]))
+
+
+(defn root-shell
+  []
+  (let [selected-demo (:selected-demo @demo-shell-state)]
+    [:<> (if (= selected-demo :pipeline) [main-view] [cont-demo/main-view])
+     [demo-switcher-menu]]))
+
+
 (defn init
   []
-  (let [app (js/document.getElementById "app")] (rdom/render [main-view] app)))
+  (when-not @hash-listener-installed?
+    (js/window.addEventListener "hashchange" sync-demo-from-hash!)
+    (reset! hash-listener-installed? true))
+  (sync-demo-from-hash!)
+  (mount-root!))
