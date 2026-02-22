@@ -22,32 +22,47 @@
 
 
 (defn resolve-value
-  "Resolve a datom value, replacing entity refs with content hashes from cache."
+  "Resolve a datom value, replacing entity refs with content hashes from cache.
+   For cardinality-many attrs, v may be a vector (raw) or scalar (materialized)."
   [a v hash-cache]
-  (cond (contains? vector-ref-attrs a) (mapv #(get hash-cache % %) v)
+  (cond (contains? vector-ref-attrs a)
+          (if (vector? v) (mapv #(get hash-cache % %) v) (get hash-cache v v))
         (contains? ref-attrs a) (get hash-cache v v)
         :else v))
 
 
 (defn content-hash-for-entity
   "Compute content hash for a single entity given its datoms and a hash cache.
+   Normalizes cardinality-many attrs: repeated scalar datoms are accumulated
+   into a sorted vector, matching the canonical vector representation.
    Returns \"sha256:hex...\"."
   [entity-datoms hash-cache]
-  (let [av-pairs (->> entity-datoms
-                      (filter (fn [[_e _a _v _t m]] (= 0 m)))
-                      (map (fn [[_e a v _t _m]]
-                             [a (resolve-value a v hash-cache)])))
-        sorted (into (sorted-map) av-pairs)]
-    (str "sha256:" (p/sha256 (pr-str sorted)))))
+  (let [non-derived (->> entity-datoms
+                         (filter (fn [[_e _a _v _t m]] (= 0 m))))
+        av-map (reduce (fn [m [_e a v _t _m]]
+                         (if (contains? vector-ref-attrs a)
+                           ;; Cardinality-many: accumulate into vector,
+                           ;; handling both raw vector values and
+                           ;; materialized scalar datoms
+                           (let [vals (if (vector? v) v [v])]
+                             (update m a (fnil into []) vals))
+                           (assoc m a v)))
+                 {}
+                 non-derived)
+        resolved (into (sorted-map)
+                       (map (fn [[a v]] [a (resolve-value a v hash-cache)]))
+                       av-map)]
+    (str "sha256:" (p/sha256 (pr-str resolved)))))
 
 
 (defn- entity-refs
-  "Extract the set of entity IDs referenced by this entity's datoms."
+  "Extract the set of entity IDs referenced by this entity's datoms.
+   Handles both vector and scalar representations of cardinality-many refs."
   [entity-datoms by-entity]
   (->> entity-datoms
        (filter (fn [[_e _a _v _t m]] (= 0 m)))
        (mapcat (fn [[_e a v _t _m]]
-                 (cond (contains? vector-ref-attrs a) (when (vector? v) v)
+                 (cond (contains? vector-ref-attrs a) (if (vector? v) v [v])
                        (contains? ref-attrs a) [v]
                        :else nil)))
        (filter #(contains? by-entity %))

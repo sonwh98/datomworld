@@ -90,8 +90,9 @@
             [frame-datoms _] (project-frame frame frame-eid hash-cache)]
         (swap! result into frame-datoms)))
     ;; Project environment
-    (let [[env-datoms _] (project-env env @id-counter hash-cache)]
-      (swap! result into env-datoms))
+    (let [[env-datoms next-id] (project-env env @id-counter hash-cache)]
+      (swap! result into env-datoms)
+      (reset! id-counter next-id))
     ;; Project parked continuations
     (doseq [[park-id parked-cont] (or parked {})]
       (let [park-eid (gen-id)]

@@ -99,19 +99,63 @@
           "Second import creates fewer entities due to shared subtree"))))
 
 
+(deftest materialized-cardinality-many-test
+  (testing
+    "Export/import with materialized (repeated scalar) :yin/operands datoms"
+    (let [;; Build datoms for (+ 1 2) manually using repeated scalar rows
+          ;; instead of vector-valued :yin/operands
+          datoms
+            [[-1025 :yin/type :application 0 0] [-1026 :yin/type :variable 0 0]
+             [-1026 :yin/name '+ 0 0] [-1027 :yin/type :literal 0 0]
+             [-1027 :yin/value 1 0 0] [-1028 :yin/type :literal 0 0]
+             [-1028 :yin/value 2 0 0] [-1025 :yin/operator -1026 0 0]
+             ;; Materialized: two separate datoms instead of one vector
+             [-1025 :yin/operands -1027 0 0] [-1025 :yin/operands -1028 0 0]]
+          exported (transport/export-ast datoms)
+          {:keys [datoms root-eid]} (transport/import-ast exported -3000 {})
+          ;; Verify imported datoms produce same content hash as canonical
+          ;; form
+          canonical-datoms (vm/ast->datoms
+                             {:type :application,
+                              :operator {:type :variable, :name '+},
+                              :operands [{:type :literal, :value 1}
+                                         {:type :literal, :value 2}]})
+          canonical-hashes (content/compute-content-hashes canonical-datoms)
+          canonical-root (get canonical-hashes
+                              (apply max (keys canonical-hashes)))
+          imported-hashes (content/compute-content-hashes datoms)
+          imported-root (get imported-hashes root-eid)]
+      (is (some? root-eid) "Root entity assigned")
+      (is (= canonical-root imported-root)
+          "Materialized datoms produce same hash as canonical vector form")
+      ;; Verify the imported datoms actually evaluate correctly
+      (let [vm (semantic/create-vm {:env vm/primitives})
+            result (-> vm
+                       (vm/load-program {:node root-eid, :datoms datoms})
+                       (vm/run)
+                       (vm/value))]
+        (is (= 3 result) "Imported materialized datoms evaluate correctly")))))
+
+
 ;; =============================================================================
 ;; Continuation Transport Tests
 ;; =============================================================================
 
 (deftest continuation-transport-test
-  (testing "Park, export, import to fresh VM, resume: same result"
-    (let [;; Create a program that parks mid-computation
-          ;; ((fn [x] (+ x 1)) (vm/park))
-          ;; This parks before applying the lambda
+  (testing "Park mid-computation, export, import, resume on fresh VM"
+    (let [;; ((fn [x] (+ x 1)) (vm/park))
+          ;; Parks mid-application: stack captures the pending lambda call
+          ast {:type :application,
+               :operator {:type :lambda,
+                          :params ['x],
+                          :body {:type :application,
+                                 :operator {:type :variable, :name '+},
+                                 :operands [{:type :variable, :name 'x}
+                                            {:type :literal, :value 1}]}},
+               :operands [{:type :vm/park}]}
           vm0 (semantic/create-vm {:env vm/primitives})
-          vm1 (vm/eval vm0 {:type :vm/park})
+          vm1 (vm/eval vm0 ast)
           parked-cont (vm/value vm1)
-          parked-id (:id parked-cont)
           ;; Get the AST datoms and content hashes
           ast-datoms (:datoms vm1)
           hash-cache (content/compute-content-hashes ast-datoms)
@@ -123,14 +167,21 @@
           ;; Import the continuation
           imported-cont (transport/import-continuation exported
                                                        (:hash->eid ast-imported)
-                                                       (:datoms ast-imported))
-          ;; Resume on a fresh VM
-          fresh-vm (semantic/create-vm {:env vm/primitives})
-          vm-with-datoms (vm/load-program fresh-vm
-                                          {:node (ffirst (:datoms
-                                                           ast-imported)),
-                                           :datoms (:datoms ast-imported)})
-          ;; Manually resume
-          resumed (assoc vm-with-datoms :parked {parked-id imported-cont})]
+                                                       (:datoms ast-imported))]
       (is (= :exported-continuation (:type exported)))
-      (is (= :parked-continuation (:type imported-cont))))))
+      (is (= :parked-continuation (:type imported-cont)))
+      ;; Resume on a fresh VM with the imported continuation and datoms
+      ;; Inject the continuation state directly and resume with value 42
+      ;; Expected: (+ 42 1) = 43
+      (let [fresh-vm (semantic/create-vm {:env vm/primitives})
+            loaded (vm/load-program fresh-vm
+                                    {:node (:root-eid ast-imported),
+                                     :datoms (:datoms ast-imported)})
+            resumed (assoc loaded
+                      :stack (:stack imported-cont)
+                      :env (:env imported-cont)
+                      :control {:type :value, :val 42}
+                      :halted false)
+            result-vm (vm/run resumed)]
+        (is (= 43 (vm/value result-vm))
+            "Resumed continuation computes (+ 42 1) = 43")))))

@@ -8,6 +8,31 @@
 ;; AST Transport
 ;; =============================================================================
 
+(defn- find-root-eid
+  "Find the single root entity: the entity not referenced by any other entity.
+   Throws on zero or multiple roots (disconnected datoms)."
+  [by-entity]
+  (let [all-eids (set (keys by-entity))
+        referenced
+          (->> (vals by-entity)
+               (mapcat (fn [entity-datoms]
+                         (->> entity-datoms
+                              (filter (fn [[_e _a _v _t m]] (= 0 m)))
+                              (mapcat (fn [[_e a v _t _m]]
+                                        (cond
+                                          (contains? content/vector-ref-attrs a)
+                                            (if (vector? v) v [v])
+                                          (contains? content/ref-attrs a) [v]
+                                          :else nil))))))
+               (filter #(contains? all-eids %))
+               set)
+        roots (vec (remove referenced all-eids))]
+    (when (not= 1 (count roots))
+      (throw (ex-info "Expected exactly one root entity"
+                      {:root-count (count roots), :roots roots})))
+    (first roots)))
+
+
 (defn export-ast
   "Export AST datoms as a gauge-invariant bundle.
    Returns {:bundle {hash -> {:av-pairs sorted-map :refs #{hash...}}}
@@ -15,29 +40,41 @@
   [datoms]
   (let [hashes (content/compute-content-hashes datoms)
         by-entity (group-by first datoms)
-        root-eid (apply max (keys by-entity))
-        bundle (reduce-kv
-                 (fn [b eid hash]
-                   (let [entity-datoms (get by-entity eid)
-                         av-pairs
-                           (->> entity-datoms
-                                (filter (fn [[_e _a _v _t m]] (= 0 m)))
-                                (map (fn [[_e a v _t _m]]
-                                       [a (content/resolve-value a v hashes)])))
-                         sorted (into (sorted-map) av-pairs)
-                         refs (->> av-pairs
-                                   (mapcat
-                                     (fn [[a v]]
-                                       (cond (contains? content/vector-ref-attrs
-                                                        a)
-                                               (if (vector? v) v [])
-                                             (contains? content/ref-attrs a) [v]
-                                             :else [])))
-                                   (filter string?)
-                                   set)]
-                     (assoc b hash {:av-pairs sorted, :refs refs})))
-                 {}
-                 hashes)]
+        root-eid (find-root-eid by-entity)
+        bundle
+          (reduce-kv
+            (fn [b eid hash]
+              (let [entity-datoms (get by-entity eid)
+                    ;; Normalize: accumulate cardinality-many into vectors
+                    ;; (handles both raw vector and materialized scalar
+                    ;; shapes)
+                    av-map (reduce (fn [m [_e a v _t _m]]
+                                     (if (contains? content/vector-ref-attrs a)
+                                       (let [vals (if (vector? v) v [v])]
+                                         (update m a (fnil into []) vals))
+                                       (assoc m a v)))
+                             {}
+                             (filter (fn [[_e _a _v _t m]] (= 0 m))
+                               entity-datoms))
+                    ;; Resolve refs to content hashes
+                    resolved (into (sorted-map)
+                                   (map (fn [[a v]]
+                                          [a
+                                           (content/resolve-value a v hashes)]))
+                                   av-map)
+                    ;; Extract ref hashes for dependency tracking
+                    refs (->> resolved
+                              (mapcat (fn [[a v]]
+                                        (cond
+                                          (contains? content/vector-ref-attrs a)
+                                            (if (vector? v) v [v])
+                                          (contains? content/ref-attrs a) [v]
+                                          :else [])))
+                              (filter string?)
+                              set)]
+                (assoc b hash {:av-pairs resolved, :refs refs})))
+            {}
+            hashes)]
     {:bundle bundle, :root-hash (get hashes root-eid)}))
 
 
@@ -74,7 +111,9 @@
                 (swap! hash->eid assoc hash eid)
                 (doseq [[a v] av-pairs]
                   (let [resolved-v (cond (contains? content/vector-ref-attrs a)
-                                           (mapv #(get @hash->eid % %) v)
+                                           (if (vector? v)
+                                             (mapv #(get @hash->eid % %) v)
+                                             (get @hash->eid v v))
                                          (contains? content/ref-attrs a)
                                            (get @hash->eid v v)
                                          :else v)]
@@ -121,47 +160,43 @@
         :else val))
 
 
+(defn- replace-env-refs
+  "Rewrite closures in an environment map, replacing body-node refs with hashes."
+  [env hash-cache]
+  (reduce-kv (fn [m k v] (assoc m k (replace-closure-refs v hash-cache)))
+             {}
+             env))
+
+
 (defn- replace-frame-refs
   "Replace entity refs in a continuation frame with content hashes."
   [frame hash-cache]
   (let [resolve-eid #(get hash-cache % %)
-        resolve-eids #(mapv resolve-eid %)]
+        resolve-eids #(mapv resolve-eid %)
+        rewrite-env #(replace-env-refs % hash-cache)]
     (case (:type frame)
       :app-op (-> frame
                   (update :operands resolve-eids)
-                  (update :env
-                          #(reduce-kv
-                             (fn [m k v]
-                               (assoc m k (replace-closure-refs v hash-cache)))
-                             {}
-                             %)))
+                  (update :env rewrite-env))
       :app-args (-> frame
                     (update :fn #(replace-closure-refs % hash-cache))
                     (update :pending resolve-eids)
-                    (update :env
-                            #(reduce-kv
-                               (fn [m k v]
-                                 (assoc m
-                                   k (replace-closure-refs v hash-cache)))
-                               {}
-                               %)))
+                    (update :env rewrite-env))
       :if (-> frame
               (update :cons resolve-eid)
               (update :alt resolve-eid)
-              (update :env
-                      #(reduce-kv (fn [m k v]
-                                    (assoc m
-                                      k (replace-closure-refs v hash-cache)))
-                                  {}
-                                  %)))
-      :restore-env (update frame
-                           :env
-                           #(reduce-kv
-                              (fn [m k v]
-                                (assoc m k (replace-closure-refs v hash-cache)))
-                              {}
-                              %))
-      ;; Stream frames
+              (update :env rewrite-env))
+      :restore-env (update frame :env rewrite-env)
+      ;; Stream frames: :stream-put-target has :val-node (AST ref)
+      :stream-put-target (-> frame
+                             (update :val-node resolve-eid)
+                             (update :env rewrite-env))
+      ;; Stream frames with :env only (no AST refs)
+      (:stream-put-val :stream-cursor-source
+                       :stream-next-cursor
+                       :stream-close-source)
+        (update frame :env rewrite-env)
+      ;; Unknown frames pass through
       frame)))
 
 
@@ -209,49 +244,41 @@
         :else val))
 
 
+(defn- restore-env-refs
+  "Restore closures in an environment map, resolving body hashes to local eids."
+  [env hash->eid datoms]
+  (reduce-kv (fn [m k v] (assoc m k (restore-closure-refs v hash->eid datoms)))
+             {}
+             env))
+
+
 (defn- restore-frame-refs
   "Restore entity refs in a continuation frame from content hashes."
   [frame hash->eid datoms]
   (let [resolve-hash #(get hash->eid % %)
-        resolve-hashes #(mapv resolve-hash %)]
+        resolve-hashes #(mapv resolve-hash %)
+        rewrite-env #(restore-env-refs % hash->eid datoms)]
     (case (:type frame)
       :app-op (-> frame
                   (update :operands resolve-hashes)
-                  (update :env
-                          #(reduce-kv
-                             (fn [m k v]
-                               (assoc m
-                                 k (restore-closure-refs v hash->eid datoms)))
-                             {}
-                             %)))
+                  (update :env rewrite-env))
       :app-args (-> frame
                     (update :fn #(restore-closure-refs % hash->eid datoms))
                     (update :pending resolve-hashes)
-                    (update :env
-                            #(reduce-kv
-                               (fn [m k v]
-                                 (assoc m
-                                   k (restore-closure-refs v hash->eid datoms)))
-                               {}
-                               %)))
+                    (update :env rewrite-env))
       :if (-> frame
               (update :cons resolve-hash)
               (update :alt resolve-hash)
-              (update :env
-                      #(reduce-kv
-                         (fn [m k v]
-                           (assoc m
-                             k (restore-closure-refs v hash->eid datoms)))
-                         {}
-                         %)))
-      :restore-env (update frame
-                           :env
-                           #(reduce-kv
-                              (fn [m k v]
-                                (assoc m
-                                  k (restore-closure-refs v hash->eid datoms)))
-                              {}
-                              %))
+              (update :env rewrite-env))
+      :restore-env (update frame :env rewrite-env)
+      ;; Stream frames
+      :stream-put-target (-> frame
+                             (update :val-node resolve-hash)
+                             (update :env rewrite-env))
+      (:stream-put-val :stream-cursor-source
+                       :stream-next-cursor
+                       :stream-close-source)
+        (update frame :env rewrite-env)
       frame)))
 
 
