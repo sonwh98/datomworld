@@ -49,6 +49,11 @@ Components:
      Semantic identity uses unique attributes (e.g., :person/email).
      Uniqueness is namespace-scoped: :db/unique enforces uniqueness locally, and within
      the assigned namespace after migration. Cross-namespace correlation uses queries.
+     Entity ID is a local gauge (coordinate choice for a specific DaoDB).
+     The true invariant is [a v]: the attribute-value pair.
+     Content hashes are the gauge-invariant identity (see CONTENT ADDRESSING).
+     Different DaoDBs assign different e to the same [a v] facts.
+     Migration is a gauge transformation: same invariant content, new local coordinates.
   a: Attribute. Namespaced keyword.
   v: Value. Ground value (primitive: integer, string, boolean, etc.) or entity reference.
   t: Transaction ID. Monotonic integer, intrinsic and stream-local.
@@ -71,17 +76,56 @@ Value Constraints:
 Reserved Entities (0-1024):
   System entities with universal meaning across all namespaces.
   Entity 0: nil metadata. When m=0, means "no metadata". Self-referential (fixed point).
-  Entities 1-1024: built-in attributes (:db/ident, :db/valueType, :db/cardinality, etc.),
+  Entity 1: :db/ident :db/derived. When m=1, the datom is derived/computed
+    (e.g., content hashes, type inference results, index materializations).
+    Derived datoms are excluded from content hash computation.
+  Entities 2-1024: built-in attributes (:db/ident, :db/valueType, :db/cardinality, etc.),
     primitive type markers, and other system primitives.
   These do not migrate: they have the same meaning everywhere.
   User-defined schema lives in user space (1025+) and migrates with data.
 
 Principles:
   Do not embed behavior inside datoms.
-  Content hashes (if used) are derived by interpreters, not intrinsic to the tuple.
+  Content hashes are derived by interpreters, not intrinsic to the tuple.
+  Content hashes are computed over [a v] pairs only (not e, t, or m).
+  Content hash datoms use m=1 (:db/derived) and are excluded from their own computation.
   Interpretation is local: agents decide meaning, not global ontologies.
   Graphs are constructed from tuples, not assumed.
   Restrictions (no arbitrary URIs, no variables in storage) enable efficient indexing (EAVT, AEVT, etc.).
+
+# CONTENT ADDRESSING
+
+AST datoms are content-addressable via Merkle hashing.
+The content hash is computed over the entity's [a v] pairs:
+  - e is excluded (local gauge, not invariant).
+  - t and m are excluded (causal context, not structural content).
+  - Only [a v] pairs where m=0 on the source datom are included (excludes derived datoms).
+
+Merkle property:
+  Leaf nodes: hash(sorted [a v] pairs).
+  Interior nodes: hash(sorted [a v] pairs, with entity-ref v replaced by content hash of referenced entity).
+  Same AST structure = same root hash, regardless of entity ID assignment.
+
+Content hash is asserted as a derived datom:
+  [e :yin/content-hash "sha256:..." t 1]    ; m=1 means derived
+
+Variable names are included in the content hash.
+  (lambda [x] x) and (lambda [y] y) produce different hashes.
+  Alpha-equivalence can be added later as a separate derived datom:
+    [e :yin/alpha-hash "sha256:..." t 1]
+  with a De Bruijn normalization step before hashing.
+  Two notions of identity, both derived, neither privileged.
+
+Ordered references use position-in-value tuples:
+  [e :yin/operand [0 <ref>] t m]    ; first operand
+  [e :yin/operand [1 <ref>] t m]    ; second operand
+  Order always matters at the AST level (not all operators are commutative).
+  Operand order is syntactic structure, not semantic property.
+  :yin/operand is cardinality-many, each v is a [position, entity-ref] tuple.
+
+Content addressing applies to AST (permanent code), not to ephemeral runtime state.
+Hashing is triggered by persistence, not by existence.
+Like git: working directory files have no SHA; only staged/committed content is hashed.
 
 # STREAMS
 
@@ -125,6 +169,33 @@ Cross-Namespace Queries:
   Joins across namespaces happen on shared values, not entity IDs.
   Cross-namespace identity correlation is a query-time concern, not storage-time.
 
+# PARALLEL TRANSPORT
+
+Parallel transport moves datoms from one DaoDB to another.
+Entity-ref v values are local gauge; they must be resolved for transport.
+
+AST parallel transport (content-hash based):
+  Sender computes transitive closure of content hashes from the root.
+  Sends {content-hash -> set of [a v] pairs} with ref v replaced by content hashes.
+  Receiver walks bottom-up (leaves first):
+    - Content hash already exists locally: reuse existing e (structural deduplication).
+    - Content hash is new: assign fresh local e, assert [a v] pairs.
+  Receiver asserts datoms with its own e, t, and m.
+  No external mapping table needed. The content hash is the connection.
+
+Continuation parallel transport (serialization based):
+  Continuations are ephemeral runtime state. They do not have content hashes.
+  A continuation references AST nodes (where in the code) and runtime values (computed state).
+  AST references resolve via content hash (AST is content-addressed in DaoDB).
+  Runtime values serialize and travel as-is (no hashing, no deduplication).
+  Transport protocol:
+    1. Serialize runtime state (environment, partial results, frames).
+    2. Replace AST entity-ref v with content hash of the AST node.
+    3. Runtime values travel directly.
+    4. Receiver resolves AST content hashes to local e, reconstructs runtime state, resumes.
+  Content addressing and parallel transport are orthogonal mechanisms.
+  They intersect at one point: AST references inside continuations use content hashes.
+
 # AGENTS
 
 Agents are continuations.
@@ -145,6 +216,22 @@ Continuation Migration:
   Closure fields like :body-bytes and :body-addr are ephemeral, local to the VM instance.
   What survives migration: the datom stream, the captured environment bindings,
   and the continuation structure (where execution was suspended).
+
+Runtime State:
+  Runtime state (continuations, environments, stack frames) is ephemeral.
+  Runtime state lives in memory as native VM data structures, not in DaoDB.
+  DaoDB is for persistent facts: AST datoms, schema, parked continuations.
+  Runtime state is queryable via Datalog on demand:
+    vm/state->datom-stream projects in-memory VM state into a datom stream.
+    Zero cost during execution; projection computed only when queried.
+    Joins across $code (DaoDB) and $runtime (in-memory stream) in a single d/q:
+      [:find ?node-type ?frame-type
+       :in $code $runtime
+       :where [$runtime ?frame :cont/pending-arg [0 ?node-hash]]
+              [$code ?node :yin/content-hash ?node-hash]
+              [$code ?node :yin/type ?node-type]
+              [$runtime ?frame :cont/type ?frame-type]]
+  Persistence boundary: park/migrate promotes ephemeral state to persistent datoms in DaoDB.
 
 # CAPABILITIES & TRUST
 
