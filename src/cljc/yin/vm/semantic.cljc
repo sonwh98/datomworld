@@ -43,7 +43,7 @@
 (defn- datom-node-attrs
   "Get node attributes directly from indexed datoms."
   [index node-id]
-  (reduce (fn [m [e a v _t _m]]
+  (reduce (fn [m [_e a v _t _m]]
             (if (contains? cardinality-many-attrs a)
               (if (vector? v)
                 (update m a (fnil into []) v)
@@ -111,7 +111,7 @@
 
 (defn- handle-return-value
   [vm]
-  (let [{:keys [control env stack datoms index store id-counter]} vm
+  (let [{:keys [control _env stack _datoms _index store id-counter]} vm
         val (:val control)]
     (if (empty? stack)
       (assoc vm
@@ -485,7 +485,7 @@
   "Execute one step of the semantic VM.
    Operates directly on SemanticVM record (assoc preserves record type)."
   [^SemanticVM vm]
-  (let [{:keys [control env stack datoms]} vm]
+  (let [{:keys [control _env _stack _datoms]} vm]
     (if (= :value (:type control))
       ;; Handle return value from previous step
       (handle-return-value vm)

@@ -1,15 +1,14 @@
 (ns world.blog
-  (:require
-    [clojure.java.io :as io]
-    [clojure.string]
-    [clojure.walk]
-    [hiccup.page :as hiccup]
-    [ring.util.response :as response]))
+  (:require [clojure.java.io :as io]
+            [clojure.string]
+            [clojure.walk]
+            [hiccup.page :as hiccup]
+            [ring.util.response :as response]))
 
 
 (defn render-blog
-  [blog-data]
   "Render a blog post from .blog data using template"
+  [blog-data]
   (let [template (load-file "public/chp/template.chp")
         content (:blog/content blog-data)
         ;; Format the date
@@ -31,8 +30,8 @@
 
 
 (defn blog-handler
-  [req]
   "Handler for .blog files - renders blog data using template"
+  [req]
   (let [uri (:uri req)
         ;; uri is like /blog/semantics-structure-interpretation.blog
         blog-path (str "public/chp" uri)

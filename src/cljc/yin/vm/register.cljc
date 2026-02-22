@@ -11,14 +11,11 @@
    Executes numeric bytecode produced by asm->bytecode.
    The compilation pipeline is: AST datoms -> ast-datoms->asm (symbolic IR) -> asm->bytecode (numeric).
    See ast-datoms->asm docstring for the full instruction set."
-  (:require
-    [yin.module :as module]
-    [yin.scheduler :as scheduler]
-    [yin.stream :as stream]
-    [yin.vm :as vm])
-  #?(:cljs
-     (:require-macros
-       [yin.vm.register :refer [opcase]])))
+  (:require [yin.module :as module]
+            [yin.scheduler :as scheduler]
+            [yin.stream :as stream]
+            [yin.vm :as vm])
+  #?(:cljs (:require-macros [yin.vm.register :refer [opcase]])))
 
 
 (def opcode-table
@@ -49,7 +46,7 @@
                 paired (if default (butlast clauses) clauses)
                 pairs (partition 2 paired)
                 resolved (mapcat (fn [[kw body]] [(get opcode-table kw) body])
-                                 pairs)]
+                           pairs)]
             `(case (int ~op-expr) ~@resolved ~@(when default [default])))))
 
 
@@ -73,7 +70,7 @@
    blocked    ; true if blocked
    run-queue  ; vector of runnable continuations
    wait-set   ; vector of parked continuations waiting on streams
-   ])
+  ])
 
 
 (defn ast-datoms->asm
@@ -124,8 +121,7 @@
         reset-regs! (fn [] (reset! reg-counter 0))]
     ;; Compile entity to assembly, returns the register holding the result
     (letfn
-      [(compile-node
-         [e]
+      [(compile-node [e]
          (let [node-type (get-attr e :yin/type)]
            (case node-type
              :literal (let [rd (alloc-reg!)]
@@ -135,30 +131,30 @@
                          (emit! [:loadv rd (get-attr e :yin/name)])
                          rd)
              :lambda
-             (let [params (get-attr e :yin/params)
-                   body-ref (get-attr e :yin/body)
-                   rd (alloc-reg!)
-                   closure-idx (current-addr)]
-               ;; Emit closure with placeholder for address and reg-count
-               (emit! [:closure rd params :placeholder :placeholder])
-               ;; Jump over body
-               (let [jump-idx (current-addr)]
-                 (emit! [:jump :placeholder])
-                 ;; Body starts here - fresh register scope
-                 (let [body-addr (current-addr)
-                       saved-reg-counter @reg-counter]
-                   (reset-regs!)
-                   (let [result-reg (compile-node body-ref)
-                         max-regs @reg-counter]
-                     (emit! [:return result-reg])
-                     ;; Restore register counter
-                     (reset! reg-counter saved-reg-counter)
-                     ;; Patch addresses and register count
-                     (let [after-body (current-addr)]
-                       (swap! bytecode assoc-in [closure-idx 3] body-addr)
-                       (swap! bytecode assoc-in [closure-idx 4] max-regs)
-                       (swap! bytecode assoc-in [jump-idx 1] after-body)))))
-               rd)
+               (let [params (get-attr e :yin/params)
+                     body-ref (get-attr e :yin/body)
+                     rd (alloc-reg!)
+                     closure-idx (current-addr)]
+                 ;; Emit closure with placeholder for address and reg-count
+                 (emit! [:closure rd params :placeholder :placeholder])
+                 ;; Jump over body
+                 (let [jump-idx (current-addr)]
+                   (emit! [:jump :placeholder])
+                   ;; Body starts here - fresh register scope
+                   (let [body-addr (current-addr)
+                         saved-reg-counter @reg-counter]
+                     (reset-regs!)
+                     (let [result-reg (compile-node body-ref)
+                           max-regs @reg-counter]
+                       (emit! [:return result-reg])
+                       ;; Restore register counter
+                       (reset! reg-counter saved-reg-counter)
+                       ;; Patch addresses and register count
+                       (let [after-body (current-addr)]
+                         (swap! bytecode assoc-in [closure-idx 3] body-addr)
+                         (swap! bytecode assoc-in [closure-idx 4] max-regs)
+                         (swap! bytecode assoc-in [jump-idx 1] after-body)))))
+                 rd)
              :application (let [op-ref (get-attr e :yin/operator)
                                 operand-refs (get-attr e :yin/operands)
                                 ;; Compile operands first
@@ -299,9 +295,9 @@
                    (emit! (opcode-table :loadv) rd (intern! name)))
           :move (let [[rd rs] args] (emit! (opcode-table :move) rd rs))
           :closure
-          (let [[rd params addr reg-count] args]
-            (emit! (opcode-table :closure) rd (intern! params) reg-count)
-            (emit-fixup! addr))
+            (let [[rd params addr reg-count] args]
+              (emit! (opcode-table :closure) rd (intern! params) reg-count)
+              (emit-fixup! addr))
           :call (let [[rd rf arg-regs] args]
                   (emit! (opcode-table :call) rd rf (count arg-regs))
                   (doseq [ar arg-regs] (emit! ar)))
@@ -337,22 +333,13 @@
     (let [offsets @instr-offsets
           fixed (reduce (fn [bc [pos asm-addr]]
                           (assoc bc pos (get offsets asm-addr asm-addr)))
-                        @bytecode
-                        @fixups)
+                  @bytecode
+                  @fixups)
           source-map (into {} (map (fn [[k v]] [v k]) offsets))]
       {:bytecode fixed, :pool @pool, :source-map source-map})))
 
 
-(defn- get-reg
-  "Get value from register."
-  [state r]
-  (nth (:regs state) r))
-
-
-(defn- set-reg
-  "Set register to value."
-  [state r v]
-  (assoc state :regs (assoc (:regs state) r v)))
+(defn- get-reg "Get value from register." [state r] (nth (:regs state) r))
 
 
 ;; =============================================================================
@@ -372,8 +359,8 @@
         (let [rd (get bytecode (+ ip 1))
               v (get pool (get bytecode (+ ip 2)))]
           (assoc state
-                 :regs (assoc regs rd v)
-                 :ip (+ ip 3)))
+            :regs (assoc regs rd v)
+            :ip (+ ip 3)))
         :loadv
         (let [rd (get bytecode (+ ip 1))
               name (get pool (get bytecode (+ ip 2)))
@@ -383,14 +370,14 @@
                     (val pair)
                     (or (get primitives name) (module/resolve-symbol name))))]
           (assoc state
-                 :regs (assoc regs rd v)
-                 :ip (+ ip 3)))
+            :regs (assoc regs rd v)
+            :ip (+ ip 3)))
         :move
         (let [rd (get bytecode (+ ip 1))
               rs (get bytecode (+ ip 2))]
           (assoc state
-                 :regs (assoc regs rd (get-reg state rs))
-                 :ip (+ ip 3)))
+            :regs (assoc regs rd (get-reg state rs))
+            :ip (+ ip 3)))
         :closure
         (let [rd (get bytecode (+ ip 1))
               params (get pool (get bytecode (+ ip 2)))
@@ -404,8 +391,8 @@
                        :bytecode bytecode,
                        :pool pool}]
           (assoc state
-                 :regs (assoc regs rd closure)
-                 :ip (+ ip 5)))
+            :regs (assoc regs rd closure)
+            :ip (+ ip 5)))
         :call
         (let [rd (get bytecode (+ ip 1))
               rf (get bytecode (+ ip 2))
@@ -422,133 +409,133 @@
               next-ip (+ ip 4 argc)]
           (cond
             (fn? fn-val)
-            (let [result (apply fn-val fn-args)]
-              (if (module/effect? result)
-                (case (:effect result)
-                  :vm/store-put (assoc state
-                                       :store (assoc store
-                                                     (:key result) (:val result))
-                                       :regs (assoc regs rd (:val result))
-                                       :ip next-ip)
-                  :stream/make
-                  (let [gen-id-fn (fn [prefix]
-                                    (keyword (str prefix "-" id-counter)))
-                        [stream-ref new-state]
-                        (stream/handle-make state result gen-id-fn)]
-                    (assoc new-state
-                           :regs (assoc regs rd stream-ref)
-                           :ip next-ip
-                           :id-counter (inc id-counter)))
-                  :stream/put
-                  (let [put-result (stream/handle-put state result)]
-                    (if (:park put-result)
-                      (let [parked-entry {:ip next-ip,
-                                          :regs regs,
-                                          :k k,
-                                          :env env,
-                                          :bytecode bytecode,
-                                          :pool pool,
-                                          :result-reg rd,
-                                          :reason :put,
-                                          :stream-id (:stream-id
-                                                       put-result),
-                                          :datom (:val result)}]
-                        (assoc (:state put-result)
-                               :wait-set (conj (or (:wait-set state) [])
-                                               parked-entry)
-                               :value :yin/blocked
-                               :blocked true
-                               :halted false))
-                      (assoc (:state put-result)
-                             :regs (assoc regs rd (:value put-result))
-                             :ip next-ip)))
-                  :stream/cursor
-                  (let [gen-id-fn (fn [prefix]
-                                    (keyword (str prefix "-" id-counter)))
-                        [cursor-ref new-state]
-                        (stream/handle-cursor state result gen-id-fn)]
-                    (assoc new-state
-                           :regs (assoc regs rd cursor-ref)
-                           :ip next-ip
-                           :id-counter (inc id-counter)))
-                  :stream/next
-                  (let [next-result (stream/handle-next state result)]
-                    (if (:park next-result)
-                      (let [parked-entry
-                            {:ip next-ip,
-                             :regs regs,
-                             :k k,
-                             :env env,
-                             :bytecode bytecode,
-                             :pool pool,
-                             :result-reg rd,
-                             :reason :next,
-                             :cursor-ref (:cursor-ref next-result),
-                             :stream-id (:stream-id next-result)}]
-                        (assoc (:state next-result)
-                               :wait-set (conj (or (:wait-set state) [])
-                                               parked-entry)
-                               :value :yin/blocked
-                               :blocked true
-                               :halted false))
-                      (assoc (:state next-result)
-                             :regs (assoc regs rd (:value next-result))
-                             :ip next-ip)))
-                  :stream/close
-                  (let [close-result (stream/handle-close state result)
-                        new-state (:state close-result)
-                        to-resume (:resume-parked close-result)
-                        run-queue (or (:run-queue new-state) [])
-                        new-run-queue (into run-queue
-                                            (map (fn [entry]
-                                                   (assoc entry :value nil))
-                                                 to-resume))]
-                    (assoc new-state
-                           :run-queue new-run-queue
-                           :regs (assoc regs rd nil)
-                           :ip next-ip))
-                  (throw (ex-info "Unhandled effect in reg-vm-step"
-                                  {:effect result})))
-                (assoc state
-                       :regs (assoc regs rd result)
-                       :ip next-ip)))
+              (let [result (apply fn-val fn-args)]
+                (if (module/effect? result)
+                  (case (:effect result)
+                    :vm/store-put (assoc state
+                                    :store (assoc store
+                                             (:key result) (:val result))
+                                    :regs (assoc regs rd (:val result))
+                                    :ip next-ip)
+                    :stream/make
+                      (let [gen-id-fn (fn [prefix]
+                                        (keyword (str prefix "-" id-counter)))
+                            [stream-ref new-state]
+                              (stream/handle-make state result gen-id-fn)]
+                        (assoc new-state
+                          :regs (assoc regs rd stream-ref)
+                          :ip next-ip
+                          :id-counter (inc id-counter)))
+                    :stream/put
+                      (let [put-result (stream/handle-put state result)]
+                        (if (:park put-result)
+                          (let [parked-entry {:ip next-ip,
+                                              :regs regs,
+                                              :k k,
+                                              :env env,
+                                              :bytecode bytecode,
+                                              :pool pool,
+                                              :result-reg rd,
+                                              :reason :put,
+                                              :stream-id (:stream-id
+                                                           put-result),
+                                              :datom (:val result)}]
+                            (assoc (:state put-result)
+                              :wait-set (conj (or (:wait-set state) [])
+                                              parked-entry)
+                              :value :yin/blocked
+                              :blocked true
+                              :halted false))
+                          (assoc (:state put-result)
+                            :regs (assoc regs rd (:value put-result))
+                            :ip next-ip)))
+                    :stream/cursor
+                      (let [gen-id-fn (fn [prefix]
+                                        (keyword (str prefix "-" id-counter)))
+                            [cursor-ref new-state]
+                              (stream/handle-cursor state result gen-id-fn)]
+                        (assoc new-state
+                          :regs (assoc regs rd cursor-ref)
+                          :ip next-ip
+                          :id-counter (inc id-counter)))
+                    :stream/next
+                      (let [next-result (stream/handle-next state result)]
+                        (if (:park next-result)
+                          (let [parked-entry
+                                  {:ip next-ip,
+                                   :regs regs,
+                                   :k k,
+                                   :env env,
+                                   :bytecode bytecode,
+                                   :pool pool,
+                                   :result-reg rd,
+                                   :reason :next,
+                                   :cursor-ref (:cursor-ref next-result),
+                                   :stream-id (:stream-id next-result)}]
+                            (assoc (:state next-result)
+                              :wait-set (conj (or (:wait-set state) [])
+                                              parked-entry)
+                              :value :yin/blocked
+                              :blocked true
+                              :halted false))
+                          (assoc (:state next-result)
+                            :regs (assoc regs rd (:value next-result))
+                            :ip next-ip)))
+                    :stream/close
+                      (let [close-result (stream/handle-close state result)
+                            new-state (:state close-result)
+                            to-resume (:resume-parked close-result)
+                            run-queue (or (:run-queue new-state) [])
+                            new-run-queue (into run-queue
+                                                (map (fn [entry]
+                                                       (assoc entry :value nil))
+                                                  to-resume))]
+                        (assoc new-state
+                          :run-queue new-run-queue
+                          :regs (assoc regs rd nil)
+                          :ip next-ip))
+                    (throw (ex-info "Unhandled effect in reg-vm-step"
+                                    {:effect result})))
+                  (assoc state
+                    :regs (assoc regs rd result)
+                    :ip next-ip)))
             (= :closure (:type fn-val))
-            (let [{:keys [params body-addr env bytecode pool reg-count]}
-                  fn-val
-                  new-frame {:type :call-frame,
-                             :return-reg rd,
-                             :return-ip next-ip,
-                             :saved-regs regs,
-                             :saved-env (:env state),
-                             :saved-bytecode (:bytecode state),
-                             :saved-pool (:pool state),
-                             :parent k}
-                  new-env (merge env (zipmap params fn-args))]
-              (assoc state
-                     :regs (vec (repeat reg-count nil))
-                     :k new-frame
-                     :env new-env
-                     :bytecode bytecode
-                     :pool pool
-                     :ip body-addr))
+              (let [{:keys [params body-addr env bytecode pool reg-count]}
+                      fn-val
+                    new-frame {:type :call-frame,
+                               :return-reg rd,
+                               :return-ip next-ip,
+                               :saved-regs regs,
+                               :saved-env (:env state),
+                               :saved-bytecode (:bytecode state),
+                               :saved-pool (:pool state),
+                               :parent k}
+                    new-env (merge env (zipmap params fn-args))]
+                (assoc state
+                  :regs (vec (repeat reg-count nil))
+                  :k new-frame
+                  :env new-env
+                  :bytecode bytecode
+                  :pool pool
+                  :ip body-addr))
             :else (throw (ex-info "Cannot call non-function" {:fn fn-val}))))
         :return
         (let [rs (get bytecode (+ ip 1))
               result (get-reg state rs)]
           (if (nil? k)
             (assoc state
-                   :halted true
-                   :value result)
+              :halted true
+              :value result)
             (let [{:keys [return-reg return-ip saved-regs saved-env
                           saved-bytecode saved-pool parent]}
-                  k]
+                    k]
               (assoc state
-                     :regs (assoc saved-regs return-reg result)
-                     :k parent
-                     :env saved-env
-                     :bytecode (or saved-bytecode (:bytecode state))
-                     :pool (or saved-pool (:pool state))
-                     :ip return-ip))))
+                :regs (assoc saved-regs return-reg result)
+                :k parent
+                :env saved-env
+                :bytecode (or saved-bytecode (:bytecode state))
+                :pool (or saved-pool (:pool state))
+                :ip return-ip))))
         :branch
         (let [rt (get bytecode (+ ip 1))
               then-addr (get bytecode (+ ip 2))
@@ -562,34 +549,34 @@
               prefix (get pool (get bytecode (+ ip 2)))
               id (keyword (str prefix "-" id-counter))]
           (assoc state
-                 :regs (assoc regs rd id)
-                 :ip (+ ip 3)
-                 :id-counter (inc id-counter)))
+            :regs (assoc regs rd id)
+            :ip (+ ip 3)
+            :id-counter (inc id-counter)))
         :sget
         (let [rd (get bytecode (+ ip 1))
               key (get pool (get bytecode (+ ip 2)))
               val (get store key)]
           (assoc state
-                 :regs (assoc regs rd val)
-                 :ip (+ ip 3)))
+            :regs (assoc regs rd val)
+            :ip (+ ip 3)))
         :sput
         (let [rs (get bytecode (+ ip 1))
               key (get pool (get bytecode (+ ip 2)))
               val (get-reg state rs)]
           (assoc state
-                 :store (assoc store key val)
-                 :ip (+ ip 3)))
+            :store (assoc store key val)
+            :ip (+ ip 3)))
         :stream-make
         (let [rd (get bytecode (+ ip 1))
               buf (get pool (get bytecode (+ ip 2)))
               gen-id-fn (fn [prefix] (keyword (str prefix "-" id-counter)))
               effect {:effect :stream/make, :capacity buf}
               [stream-ref new-state]
-              (stream/handle-make state effect gen-id-fn)]
+                (stream/handle-make state effect gen-id-fn)]
           (assoc new-state
-                 :regs (assoc regs rd stream-ref)
-                 :ip (+ ip 3)
-                 :id-counter (inc id-counter)))
+            :regs (assoc regs rd stream-ref)
+            :ip (+ ip 3)
+            :id-counter (inc id-counter)))
         :stream-put
         (let [rs (get bytecode (+ ip 1))
               rt (get bytecode (+ ip 2))
@@ -609,10 +596,10 @@
                                 :stream-id (:stream-id result),
                                 :datom val}]
               (assoc (:state result)
-                     :wait-set (conj (or (:wait-set state) []) parked-entry)
-                     :value :yin/blocked
-                     :blocked true
-                     :halted false))
+                :wait-set (conj (or (:wait-set state) []) parked-entry)
+                :value :yin/blocked
+                :blocked true
+                :halted false))
             (assoc (:state result) :ip (+ ip 3))))
         :stream-cursor
         (let [rd (get bytecode (+ ip 1))
@@ -621,11 +608,11 @@
               gen-id-fn (fn [prefix] (keyword (str prefix "-" id-counter)))
               effect {:effect :stream/cursor, :stream stream-ref}
               [cursor-ref new-state]
-              (stream/handle-cursor state effect gen-id-fn)]
+                (stream/handle-cursor state effect gen-id-fn)]
           (assoc new-state
-                 :regs (assoc regs rd cursor-ref)
-                 :ip (+ ip 3)
-                 :id-counter (inc id-counter)))
+            :regs (assoc regs rd cursor-ref)
+            :ip (+ ip 3)
+            :id-counter (inc id-counter)))
         :stream-next
         (let [rd (get bytecode (+ ip 1))
               rs (get bytecode (+ ip 2))
@@ -644,13 +631,13 @@
                                 :cursor-ref (:cursor-ref result),
                                 :stream-id (:stream-id result)}]
               (assoc (:state result)
-                     :wait-set (conj (or (:wait-set state) []) parked-entry)
-                     :value :yin/blocked
-                     :blocked true
-                     :halted false))
+                :wait-set (conj (or (:wait-set state) []) parked-entry)
+                :value :yin/blocked
+                :blocked true
+                :halted false))
             (assoc (:state result)
-                   :regs (assoc regs rd (:value result))
-                   :ip (+ ip 3))))
+              :regs (assoc regs rd (:value result))
+              :ip (+ ip 3))))
         :stream-close
         (let [rd (get bytecode (+ ip 1))
               rs (get bytecode (+ ip 2))
@@ -662,11 +649,11 @@
               run-queue (or (:run-queue new-state) [])
               new-run-queue (into run-queue
                                   (map (fn [entry] (assoc entry :value nil))
-                                       to-resume))]
+                                    to-resume))]
           (assoc new-state
-                 :run-queue new-run-queue
-                 :regs (assoc regs rd nil)
-                 :ip (+ ip 3)))
+            :run-queue new-run-queue
+            :regs (assoc regs rd nil)
+            :ip (+ ip 3)))
         :park
         (let [rd (get bytecode (+ ip 1))
               park-id (keyword (str "parked-" id-counter))
@@ -681,10 +668,10 @@
                            :result-reg rd}
               new-parked (assoc (:parked state) park-id parked-cont)]
           (assoc state
-                 :parked new-parked
-                 :value parked-cont
-                 :halted true
-                 :id-counter (inc id-counter)))
+            :parked new-parked
+            :value parked-cont
+            :halted true
+            :id-counter (inc id-counter)))
         :resume
         (let [rs (get bytecode (+ ip 1))
               rt (get bytecode (+ ip 2))
@@ -695,13 +682,13 @@
             (let [new-parked (dissoc (:parked state) parked-id)
                   rd (:result-reg parked-cont)]
               (assoc state
-                     :parked new-parked
-                     :ip (:ip parked-cont)
-                     :regs (assoc (:regs parked-cont) rd resume-val)
-                     :k (:k parked-cont)
-                     :env (:env parked-cont)
-                     :bytecode (:bytecode parked-cont)
-                     :pool (:pool parked-cont)))
+                :parked new-parked
+                :ip (:ip parked-cont)
+                :regs (assoc (:regs parked-cont) rd resume-val)
+                :k (:k parked-cont)
+                :env (:env parked-cont)
+                :bytecode (:bytecode parked-cont)
+                :pool (:pool parked-cont)))
             (throw (ex-info "Cannot resume: parked continuation not found"
                             {:parked-id parked-id}))))
         :current-cont
@@ -715,8 +702,8 @@
                     :pool pool,
                     :result-reg rd}]
           (assoc state
-                 :regs (assoc regs rd cont)
-                 :ip (+ ip 2)))
+            :regs (assoc regs rd cont)
+            :ip (+ ip 2)))
         (throw (ex-info "Unknown bytecode opcode" {:op op, :ip ip}))))))
 
 
@@ -734,18 +721,18 @@
             rest-queue (subvec run-queue 1)
             new-store (or (:store-updates entry) (:store state))]
         (assoc state
-               :run-queue rest-queue
-               :store new-store
-               :ip (:ip entry)
-               :regs (if-let [rd (:result-reg entry)]
-                       (assoc (:regs entry) rd (:value entry))
-                       (:regs entry))
-               :k (:k entry)
-               :env (:env entry)
-               :bytecode (:bytecode entry)
-               :pool (:pool entry)
-               :blocked false
-               :halted false)))))
+          :run-queue rest-queue
+          :store new-store
+          :ip (:ip entry)
+          :regs (if-let [rd (:result-reg entry)]
+                  (assoc (:regs entry) rd (:value entry))
+                  (:regs entry))
+          :k (:k entry)
+          :env (:env entry)
+          :bytecode (:bytecode entry)
+          :pool (:pool entry)
+          :blocked false
+          :halted false)))))
 
 
 ;; =============================================================================
@@ -764,22 +751,19 @@
   (boolean (:blocked vm)))
 
 
-(defn- reg-vm-value
-  "Returns the current value."
-  [^RegisterVM vm]
-  (:value vm))
+(defn- reg-vm-value "Returns the current value." [^RegisterVM vm] (:value vm))
 
 
 (defn- reg-vm-reset
   "Reset RegisterVM execution state to initial baseline, preserving loaded program."
   [^RegisterVM vm]
   (assoc vm
-         :regs (vec (repeat (count (:regs vm)) nil))
-         :k nil
-         :ip 0
-         :halted false
-         :value nil
-         :blocked false))
+    :regs (vec (repeat (count (:regs vm)) nil))
+    :k nil
+    :ip 0
+    :halted false
+    :value nil
+    :blocked false))
 
 
 (defn- reg-vm-load-program
@@ -787,14 +771,14 @@
    Accepts {:bytecode [...] :pool [...]}."
   [^RegisterVM vm program]
   (assoc vm
-         :regs (vec (repeat (:reg-count program 0) nil))
-         :k nil
-         :ip 0
-         :bytecode (:bytecode program)
-         :pool (:pool program)
-         :halted false
-         :value nil
-         :blocked false))
+    :regs (vec (repeat (:reg-count program 0) nil))
+    :k nil
+    :ip 0
+    :bytecode (:bytecode program)
+    :pool (:pool program)
+    :halted false
+    :value nil
+    :blocked false))
 
 
 (defn- reg-vm-eval
@@ -827,23 +811,23 @@
 
 (extend-type RegisterVM
   vm/IVMStep
-  (step [vm] (reg-vm-step vm))
-  (halted? [vm] (reg-vm-halted? vm))
-  (blocked? [vm] (reg-vm-blocked? vm))
-  (value [vm] (reg-vm-value vm))
+    (step [vm] (reg-vm-step vm))
+    (halted? [vm] (reg-vm-halted? vm))
+    (blocked? [vm] (reg-vm-blocked? vm))
+    (value [vm] (reg-vm-value vm))
   vm/IVMRun
-  (run [vm] (vm/eval vm nil))
+    (run [vm] (vm/eval vm nil))
   vm/IVMReset
-  (reset [vm] (reg-vm-reset vm))
+    (reset [vm] (reg-vm-reset vm))
   vm/IVMLoad
-  (load-program [vm program] (reg-vm-load-program vm program))
+    (load-program [vm program] (reg-vm-load-program vm program))
   vm/IVMEval
-  (eval [vm ast] (reg-vm-eval vm ast))
+    (eval [vm ast] (reg-vm-eval vm ast))
   vm/IVMState
-  (control [vm] {:ip (:ip vm), :bytecode (:bytecode vm), :regs (:regs vm)})
-  (environment [vm] (:env vm))
-  (store [vm] (:store vm))
-  (continuation [vm] (:k vm)))
+    (control [vm] {:ip (:ip vm), :bytecode (:bytecode vm), :regs (:regs vm)})
+    (environment [vm] (:env vm))
+    (store [vm] (:store vm))
+    (continuation [vm] (:k vm)))
 
 
 (defn create-vm

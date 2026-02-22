@@ -7,8 +7,7 @@
 
   Each VM keeps its own resume-from-run-queue because the resume
   fields differ per execution model."
-  (:require
-    [yin.stream :as stream]))
+  (:require [yin.stream :as stream]))
 
 
 (defn check-wait-set
@@ -25,8 +24,8 @@
                new-run run-queue]
           (if (empty? remaining)
             (assoc state
-                   :wait-set new-wait
-                   :run-queue new-run)
+              :wait-set new-wait
+              :run-queue new-run)
             (let [entry (first remaining)
                   rest-entries (rest remaining)]
               (case (:reason entry)
@@ -35,10 +34,10 @@
                             cursor-data (get store cursor-id)
                             stream-ref (:stream-ref cursor-data)
                             stream-id (:id stream-ref)
-                            stream (get store stream-id)
+                            _stream (get store stream-id)
                             effect {:effect :stream/next, :cursor cursor-ref}
                             result (stream/handle-next (assoc state
-                                                              :store store)
+                                                         :store store)
                                                        effect)]
                         (if (:park result)
                           ;; Still blocked
@@ -49,12 +48,12 @@
                                    new-wait
                                    (conj new-run
                                          (assoc entry
-                                                :value (:value result)
-                                                :store-updates
-                                                (when (not= store updated-store)
-                                                  updated-store)))))))
+                                           :value (:value result)
+                                           :store-updates
+                                             (when (not= store updated-store)
+                                               updated-store)))))))
                 :put (let [stream-id (:stream-id entry)
-                           stream (get store stream-id)
+                           _stream (get store stream-id)
                            datom (:datom entry)
                            stream-ref {:type :stream-ref, :id stream-id}
                            effect {:effect :stream/put,
@@ -70,8 +69,8 @@
                                 new-wait
                                 (conj new-run
                                       (assoc entry
-                                             :value (:value result)
-                                             :store-updates (:store (:state
-                                                                      result)))))))
+                                        :value (:value result)
+                                        :store-updates (:store (:state
+                                                                 result)))))))
                 ;; Unknown reason, keep waiting
                 (recur rest-entries (conj new-wait entry) new-run)))))))))

@@ -9,7 +9,6 @@
             ["codemirror" :refer [basicSetup]]
             [cljs.pprint :as pprint]
             [cljs.reader :as reader]
-            [clojure.string :as str]
             [clojure.walk :as walk]
             [dao.db :as dao.db]
             [datascript.core :as d]
@@ -455,7 +454,7 @@
     (r/create-class
       {:display-name "codemirror-editor",
        :component-did-mount
-         (fn [this]
+         (fn [_this]
            (when-let [node @el-ref]
              (let [lang-ext (case language
                               :python (python)
@@ -508,7 +507,7 @@
                                                  (first highlight-range))])
                                  effects)]
                    (.dispatch view #js {:effects effects})))))),
-       :component-will-unmount (fn [this]
+       :component-will-unmount (fn [_this]
                                  (when-let [view @view-ref] (.destroy view))),
        :reagent-render
          (fn [{:keys [style]}] [:div
@@ -889,7 +888,7 @@
 
 
 (defn dropdown-menu
-  [items on-select]
+  [_items _on-select]
   (let [open? (r/atom false)]
     (fn [items on-select]
       [:div {:style {:position "relative"}}
@@ -1390,7 +1389,7 @@
 
 
 (defn handle-mouse-up
-  [e]
+  [_e]
   (swap! app-state assoc
     :panel-resize-state nil
     :drag-state nil
@@ -1401,7 +1400,7 @@
 
 
 (defn handle-window-resize
-  [e]
+  [_e]
   (when-not @resize-raf-id
     (reset! resize-raf-id (js/requestAnimationFrame (fn []
                                                       (reset! resize-raf-id nil)
@@ -1739,7 +1738,7 @@
                       (if (:halted state) "HALTED" (str "ip: " (:ip state)))),
                   :summary-fn (fn [state]
                                 (let [regs (:regs state)
-                                      active (filter (fn [[i v]] (some? v))
+                                      active (filter (fn [[_i v]] (some? v))
                                                (map-indexed vector regs))]
                                   {:ip (:ip state),
                                    :active-regs (into {} (take 4 active))})),
