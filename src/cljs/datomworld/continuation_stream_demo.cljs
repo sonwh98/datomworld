@@ -109,7 +109,7 @@
      :steps 0,
      :handoffs 0,
      :steps-since-handoff 0,
-     :handoff-interval 9,
+     :handoff-interval 50,
      :running false,
      :completed? false,
      :result nil,
