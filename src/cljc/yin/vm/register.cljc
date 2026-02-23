@@ -37,7 +37,8 @@
    :stream-close 15,
    :park 16,
    :resume 17,
-   :current-cont 18})
+   :current-cont 18,
+   :tailcall 19})
 
 
 #?(:clj (defmacro opcase
@@ -121,132 +122,136 @@
         reset-regs! (fn [] (reset! reg-counter 0))]
     ;; Compile entity to assembly, returns the register holding the result
     (letfn
-      [(compile-node [e]
-         (let [node-type (get-attr e :yin/type)]
-           (case node-type
-             :literal (let [rd (alloc-reg!)]
-                        (emit! [:loadk rd (get-attr e :yin/value)])
-                        rd)
-             :variable (let [rd (alloc-reg!)]
-                         (emit! [:loadv rd (get-attr e :yin/name)])
+      [(compile-node
+         ([e] (compile-node e false))
+         ([e tail?]
+          (let [node-type (get-attr e :yin/type)]
+            (case node-type
+              :literal (let [rd (alloc-reg!)]
+                         (emit! [:loadk rd (get-attr e :yin/value)])
                          rd)
-             :lambda
-               (let [params (get-attr e :yin/params)
-                     body-ref (get-attr e :yin/body)
-                     rd (alloc-reg!)
-                     closure-idx (current-addr)]
-                 ;; Emit closure with placeholder for address and reg-count
-                 (emit! [:closure rd params :placeholder :placeholder])
-                 ;; Jump over body
-                 (let [jump-idx (current-addr)]
-                   (emit! [:jump :placeholder])
-                   ;; Body starts here - fresh register scope
-                   (let [body-addr (current-addr)
-                         saved-reg-counter @reg-counter]
-                     (reset-regs!)
-                     (let [result-reg (compile-node body-ref)
-                           max-regs @reg-counter]
-                       (emit! [:return result-reg])
-                       ;; Restore register counter
-                       (reset! reg-counter saved-reg-counter)
-                       ;; Patch addresses and register count
-                       (let [after-body (current-addr)]
-                         (swap! bytecode assoc-in [closure-idx 3] body-addr)
-                         (swap! bytecode assoc-in [closure-idx 4] max-regs)
-                         (swap! bytecode assoc-in [jump-idx 1] after-body)))))
-                 rd)
-             :application (let [op-ref (get-attr e :yin/operator)
-                                operand-refs (get-attr e :yin/operands)
-                                ;; Compile operands first
-                                arg-regs (mapv compile-node operand-refs)
-                                ;; Compile operator
-                                fn-reg (compile-node op-ref)
-                                ;; Result register
-                                rd (alloc-reg!)]
-                            (emit! [:call rd fn-reg arg-regs])
-                            rd)
-             :if (let [test-ref (get-attr e :yin/test)
-                       cons-ref (get-attr e :yin/consequent)
-                       alt-ref (get-attr e :yin/alternate)
-                       ;; Compile test
-                       test-reg (compile-node test-ref)
-                       ;; Result register (shared by both branches)
-                       rd (alloc-reg!)
-                       branch-idx (current-addr)]
-                   ;; Emit branch with placeholders
-                   (emit! [:branch test-reg :then :else])
-                   ;; Consequent
-                   (let [then-addr (current-addr)
-                         cons-reg (compile-node cons-ref)]
-                     (emit! [:move rd cons-reg])
-                     (let [jump-idx (current-addr)]
-                       (emit! [:jump :end])
-                       ;; Alternate
-                       (let [else-addr (current-addr)
-                             alt-reg (compile-node alt-ref)]
-                         (emit! [:move rd alt-reg])
-                         ;; Patch addresses
-                         (let [end-addr (current-addr)]
-                           (swap! bytecode assoc-in [branch-idx 2] then-addr)
-                           (swap! bytecode assoc-in [branch-idx 3] else-addr)
-                           (swap! bytecode assoc-in [jump-idx 1] end-addr)))))
-                   rd)
-             ;; VM primitives
-             :vm/gensym (let [rd (alloc-reg!)]
-                          (emit! [:gensym rd (get-attr e :yin/prefix)])
+              :variable (let [rd (alloc-reg!)]
+                          (emit! [:loadv rd (get-attr e :yin/name)])
                           rd)
-             :vm/store-get (let [rd (alloc-reg!)]
-                             (emit! [:sget rd (get-attr e :yin/key)])
-                             rd)
-             :vm/store-put (let [rd (alloc-reg!)]
-                             (emit! [:loadk rd (get-attr e :yin/val)])
-                             (emit! [:sput rd (get-attr e :yin/key)])
-                             rd)
-             ;; Stream operations
-             :stream/make (let [rd (alloc-reg!)]
-                            (emit! [:stream-make rd (get-attr e :yin/buffer)])
-                            rd)
-             :stream/put (let [target-ref (get-attr e :yin/target)
-                               val-ref (get-attr e :yin/val)
-                               val-reg (compile-node val-ref)
-                               target-reg (compile-node target-ref)]
-                           (emit! [:stream-put val-reg target-reg])
-                           val-reg)
-             :stream/cursor (let [source-ref (get-attr e :yin/source)
-                                  source-reg (compile-node source-ref)
-                                  rd (alloc-reg!)]
-                              (emit! [:stream-cursor rd source-reg])
+              :lambda
+                (let [params (get-attr e :yin/params)
+                      body-ref (get-attr e :yin/body)
+                      rd (alloc-reg!)
+                      closure-idx (current-addr)]
+                  ;; Emit closure with placeholder for address and
+                  ;; reg-count
+                  (emit! [:closure rd params :placeholder :placeholder])
+                  ;; Jump over body
+                  (let [jump-idx (current-addr)]
+                    (emit! [:jump :placeholder])
+                    ;; Body starts here - fresh register scope
+                    (let [body-addr (current-addr)
+                          saved-reg-counter @reg-counter]
+                      (reset-regs!)
+                      (let [result-reg (compile-node body-ref true)
+                            max-regs @reg-counter]
+                        (emit! [:return result-reg])
+                        ;; Restore register counter
+                        (reset! reg-counter saved-reg-counter)
+                        ;; Patch addresses and register count
+                        (let [after-body (current-addr)]
+                          (swap! bytecode assoc-in [closure-idx 3] body-addr)
+                          (swap! bytecode assoc-in [closure-idx 4] max-regs)
+                          (swap! bytecode assoc-in [jump-idx 1] after-body)))))
+                  rd)
+              :application
+                (let [op-ref (get-attr e :yin/operator)
+                      operand-refs (get-attr e :yin/operands)
+                      ;; Compile operands first (never in tail position)
+                      arg-regs (mapv #(compile-node % false) operand-refs)
+                      ;; Compile operator (never in tail position)
+                      fn-reg (compile-node op-ref false)
+                      ;; Result register
+                      rd (alloc-reg!)]
+                  (emit! [(if tail? :tailcall :call) rd fn-reg arg-regs])
+                  rd)
+              :if (let [test-ref (get-attr e :yin/test)
+                        cons-ref (get-attr e :yin/consequent)
+                        alt-ref (get-attr e :yin/alternate)
+                        ;; Compile test (never in tail position)
+                        test-reg (compile-node test-ref false)
+                        ;; Result register (shared by both branches)
+                        rd (alloc-reg!)
+                        branch-idx (current-addr)]
+                    ;; Emit branch with placeholders
+                    (emit! [:branch test-reg :then :else])
+                    ;; Consequent (propagate tail?)
+                    (let [then-addr (current-addr)
+                          cons-reg (compile-node cons-ref tail?)]
+                      (emit! [:move rd cons-reg])
+                      (let [jump-idx (current-addr)]
+                        (emit! [:jump :end])
+                        ;; Alternate (propagate tail?)
+                        (let [else-addr (current-addr)
+                              alt-reg (compile-node alt-ref tail?)]
+                          (emit! [:move rd alt-reg])
+                          ;; Patch addresses
+                          (let [end-addr (current-addr)]
+                            (swap! bytecode assoc-in [branch-idx 2] then-addr)
+                            (swap! bytecode assoc-in [branch-idx 3] else-addr)
+                            (swap! bytecode assoc-in [jump-idx 1] end-addr)))))
+                    rd)
+              ;; VM primitives
+              :vm/gensym (let [rd (alloc-reg!)]
+                           (emit! [:gensym rd (get-attr e :yin/prefix)])
+                           rd)
+              :vm/store-get (let [rd (alloc-reg!)]
+                              (emit! [:sget rd (get-attr e :yin/key)])
                               rd)
-             :stream/next (let [source-ref (get-attr e :yin/source)
-                                source-reg (compile-node source-ref)
-                                rd (alloc-reg!)]
-                            (emit! [:stream-next rd source-reg])
-                            rd)
-             :stream/close (let [source-ref (get-attr e :yin/source)
+              :vm/store-put (let [rd (alloc-reg!)]
+                              (emit! [:loadk rd (get-attr e :yin/val)])
+                              (emit! [:sput rd (get-attr e :yin/key)])
+                              rd)
+              ;; Stream operations
+              :stream/make (let [rd (alloc-reg!)]
+                             (emit! [:stream-make rd (get-attr e :yin/buffer)])
+                             rd)
+              :stream/put (let [target-ref (get-attr e :yin/target)
+                                val-ref (get-attr e :yin/val)
+                                val-reg (compile-node val-ref)
+                                target-reg (compile-node target-ref)]
+                            (emit! [:stream-put val-reg target-reg])
+                            val-reg)
+              :stream/cursor (let [source-ref (get-attr e :yin/source)
+                                   source-reg (compile-node source-ref)
+                                   rd (alloc-reg!)]
+                               (emit! [:stream-cursor rd source-reg])
+                               rd)
+              :stream/next (let [source-ref (get-attr e :yin/source)
                                  source-reg (compile-node source-ref)
                                  rd (alloc-reg!)]
-                             (emit! [:stream-close rd source-reg])
+                             (emit! [:stream-next rd source-reg])
                              rd)
-             ;; Continuation primitives
-             :vm/park (let [rd (alloc-reg!)]
-                        (emit! [:park rd])
-                        rd)
-             :vm/resume (let [parked-id (get-attr e :yin/parked-id)
-                              val (get-attr e :yin/val)
-                              rd (alloc-reg!)]
-                          (emit! [:loadk rd parked-id])
-                          (let [rv (alloc-reg!)]
-                            (emit! [:loadk rv val])
-                            (emit! [:resume rd rv])
-                            rv))
-             :vm/current-continuation (let [rd (alloc-reg!)]
-                                        (emit! [:current-cont rd])
-                                        rd)
-             ;; Unknown type
-             (throw (ex-info
-                      "Unknown node type in register assembly compilation"
-                      {:type node-type, :entity e})))))]
-      (let [result-reg (compile-node root-id)
+              :stream/close (let [source-ref (get-attr e :yin/source)
+                                  source-reg (compile-node source-ref)
+                                  rd (alloc-reg!)]
+                              (emit! [:stream-close rd source-reg])
+                              rd)
+              ;; Continuation primitives
+              :vm/park (let [rd (alloc-reg!)]
+                         (emit! [:park rd])
+                         rd)
+              :vm/resume (let [parked-id (get-attr e :yin/parked-id)
+                               val (get-attr e :yin/val)
+                               rd (alloc-reg!)]
+                           (emit! [:loadk rd parked-id])
+                           (let [rv (alloc-reg!)]
+                             (emit! [:loadk rv val])
+                             (emit! [:resume rd rv])
+                             rv))
+              :vm/current-continuation (let [rd (alloc-reg!)]
+                                         (emit! [:current-cont rd])
+                                         rd)
+              ;; Unknown type
+              (throw (ex-info
+                       "Unknown node type in register assembly compilation"
+                       {:type node-type, :entity e}))))))]
+      (let [result-reg (compile-node root-id true)
             max-regs @reg-counter]
         (emit! [:return result-reg])
         {:asm @bytecode, :reg-count max-regs}))))
@@ -301,6 +306,9 @@
           :call (let [[rd rf arg-regs] args]
                   (emit! (opcode-table :call) rd rf (count arg-regs))
                   (doseq [ar arg-regs] (emit! ar)))
+          :tailcall (let [[rd rf arg-regs] args]
+                      (emit! (opcode-table :tailcall) rd rf (count arg-regs))
+                      (doseq [ar arg-regs] (emit! ar)))
           :return (let [[rs] args] (emit! (opcode-table :return) rs))
           :branch (let [[rt then-addr else-addr] args]
                     (emit! (opcode-table :branch) rt)
@@ -519,6 +527,52 @@
                   :pool pool
                   :ip body-addr))
             :else (throw (ex-info "Cannot call non-function" {:fn fn-val}))))
+        :tailcall
+        (let [rd (get bytecode (+ ip 1))
+              rf (get bytecode (+ ip 2))
+              argc (get bytecode (+ ip 3))
+              fn-args (loop [i 0
+                             args (transient [])]
+                        (if (< i argc)
+                          (recur (inc i)
+                                 (conj! args
+                                        (get-reg state
+                                                 (get bytecode (+ ip 4 i)))))
+                          (persistent! args)))
+              fn-val (get-reg state rf)
+              next-ip (+ ip 4 argc)]
+          (cond (fn? fn-val)
+                  (let [result (apply fn-val fn-args)]
+                    (if (module/effect? result)
+                      (case (:effect result)
+                        :vm/store-put (assoc state
+                                        :store (assoc store
+                                                 (:key result) (:val result))
+                                        :regs (assoc regs rd (:val result))
+                                        :ip next-ip)
+                        (throw (ex-info "Unhandled effect in tailcall"
+                                        {:effect result})))
+                      (assoc state
+                        :regs (assoc regs rd result)
+                        :ip next-ip)))
+                (= :closure (:type fn-val))
+                  (let [{clo-params :params,
+                         body-addr :body-addr,
+                         clo-env :env,
+                         clo-bytecode :bytecode,
+                         clo-pool :pool,
+                         reg-count :reg-count}
+                          fn-val
+                        new-env (merge clo-env (zipmap clo-params fn-args))]
+                    ;; TCO: reuse the current frame (k stays the same)
+                    (assoc state
+                      :regs (vec (repeat reg-count nil))
+                      :env new-env
+                      :bytecode clo-bytecode
+                      :pool clo-pool
+                      :ip body-addr))
+                :else (throw (ex-info "Cannot call non-function"
+                                      {:fn fn-val}))))
         :return
         (let [rs (get bytecode (+ ip 1))
               result (get-reg state rs)]

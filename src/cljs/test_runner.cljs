@@ -5,6 +5,7 @@
             [yin.content-test]
             [yin.transport-test]
             [yin.vm.ast-walker-test]
+            [yin.vm.parity-test]
             [yin.vm.register-test]
             [yin.vm.semantic-test]
             [yin.vm.stack-test]
@@ -18,6 +19,7 @@
              'yin.content-test
              'yin.transport-test
              'yin.vm.ast-walker-test
+             'yin.vm.parity-test
              'yin.vm.register-test
              'yin.vm.semantic-test
              'yin.vm.stack-test
