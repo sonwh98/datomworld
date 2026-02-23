@@ -1,9 +1,8 @@
 (ns yin.vm.stack-test
-  (:require
-    [clojure.test :refer [deftest is testing]]
-    [dao.stream]
-    [yin.vm :as vm]
-    [yin.vm.stack :as stack]))
+  (:require [clojure.test :refer [deftest is testing]]
+            [dao.stream]
+            [yin.vm :as vm]
+            [yin.vm.stack :as stack]))
 
 
 ;; =============================================================================
@@ -200,17 +199,17 @@
     "Nested lambda with closure capture ((fn [x] ((fn [y] (+ x y)) 5)) 3)"
     (let [ast {:type :application,
                :operator
-               {:type :lambda,
-                :params ['x],
-                :body {:type :application,
-                       :operator
-                       {:type :lambda,
-                        :params ['y],
-                        :body {:type :application,
-                               :operator {:type :variable, :name '+},
-                               :operands [{:type :variable, :name 'x}
-                                          {:type :variable, :name 'y}]}},
-                       :operands [{:type :literal, :value 5}]}},
+                 {:type :lambda,
+                  :params ['x],
+                  :body {:type :application,
+                         :operator
+                           {:type :lambda,
+                            :params ['y],
+                            :body {:type :application,
+                                   :operator {:type :variable, :name '+},
+                                   :operands [{:type :variable, :name 'x}
+                                              {:type :variable, :name 'y}]}},
+                         :operands [{:type :literal, :value 5}]}},
                :operands [{:type :literal, :value 3}]}]
       (is (= 8 (compile-and-run ast))))))
 
@@ -223,11 +222,11 @@
                           :body {:type :application,
                                  :operator {:type :variable, :name '+},
                                  :operands
-                                 [{:type :variable, :name 'a}
-                                  {:type :application,
-                                   :operator {:type :variable, :name '-},
-                                   :operands [{:type :variable, :name 'b}
-                                              {:type :literal, :value 1}]}]}},
+                                   [{:type :variable, :name 'a}
+                                    {:type :application,
+                                     :operator {:type :variable, :name '-},
+                                     :operands [{:type :variable, :name 'b}
+                                                {:type :literal, :value 1}]}]}},
                :operands [{:type :literal, :value 10}
                           {:type :literal, :value 5}]}]
       (is (= 14 (compile-and-run ast))))))
@@ -376,24 +375,24 @@
   (testing "put then cursor+next roundtrip within nested lambdas"
     (let [ast {:type :application,
                :operator
-               {:type :lambda,
-                :params ['s],
-                :body {:type :application,
-                       :operator {:type :lambda,
-                                  :params ['_],
-                                  :body {:type :application,
-                                         :operator {:type :lambda,
-                                                    :params ['c],
-                                                    :body {:type :stream/next,
-                                                           :source
-                                                           {:type :variable,
-                                                            :name 'c}}},
-                                         :operands [{:type :stream/cursor,
-                                                     :source {:type :variable,
-                                                              :name 's}}]}},
-                       :operands [{:type :stream/put,
-                                   :target {:type :variable, :name 's},
-                                   :val {:type :literal, :value 42}}]}},
+                 {:type :lambda,
+                  :params ['s],
+                  :body {:type :application,
+                         :operator {:type :lambda,
+                                    :params ['_],
+                                    :body {:type :application,
+                                           :operator {:type :lambda,
+                                                      :params ['c],
+                                                      :body {:type :stream/next,
+                                                             :source
+                                                               {:type :variable,
+                                                                :name 'c}}},
+                                           :operands [{:type :stream/cursor,
+                                                       :source {:type :variable,
+                                                                :name 's}}]}},
+                         :operands [{:type :stream/put,
+                                     :target {:type :variable, :name 's},
+                                     :val {:type :literal, :value 42}}]}},
                :operands [{:type :stream/make, :buffer 5}]}
           vm (-> (make-stream-vm)
                  (vm/eval ast))]
@@ -447,3 +446,151 @@
       (is (= :parked-continuation (:type parked-cont)))
       (is (= 42 (vm/value vm2)))
       (is (nil? (get-in vm2 [:parked parked-id]))))))
+
+
+;; =============================================================================
+;; Tail Call Optimization tests
+;; =============================================================================
+
+(deftest tco-asm-tailcall-test
+  (testing "Top-level application compiles to :tailcall"
+    (let [asm (stack/ast-datoms->asm
+                (vm/ast->datoms {:type :application,
+                                 :operator {:type :variable, :name '+},
+                                 :operands [{:type :literal, :value 1}
+                                            {:type :literal, :value 2}]}))]
+      (is (= :tailcall (first (last asm)))))))
+
+
+(deftest tco-tail-recursive-countdown-test
+  (testing
+    "Tail-recursive countdown runs in constant stack via self-application"
+    ;; ((fn [self n] (if (< n 1) 0 (self self (- n 1)))) <same-fn> 10000)
+    (let [self-fn {:type :lambda,
+                   :params ['self 'n],
+                   :body {:type :if,
+                          :test {:type :application,
+                                 :operator {:type :variable, :name '<},
+                                 :operands [{:type :variable, :name 'n}
+                                            {:type :literal, :value 1}]},
+                          :consequent {:type :literal, :value 0},
+                          :alternate {:type :application,
+                                      :operator {:type :variable, :name 'self},
+                                      :operands
+                                        [{:type :variable, :name 'self}
+                                         {:type :application,
+                                          :operator {:type :variable, :name '-},
+                                          :operands [{:type :variable, :name 'n}
+                                                     {:type :literal,
+                                                      :value 1}]}]}}}
+          ast {:type :application,
+               :operator self-fn,
+               :operands [self-fn {:type :literal, :value 10000}]}]
+      (is (= 0 (compile-and-run ast))))))
+
+
+(deftest tco-accumulator-test
+  (testing "Tail-recursive accumulator computes sum correctly"
+    ;; ((fn [self n acc] (if (< n 1) acc (self self (- n 1) (+ acc n))))
+    ;; <same> 100 0)
+    (let [self-fn {:type :lambda,
+                   :params ['self 'n 'acc],
+                   :body {:type :if,
+                          :test {:type :application,
+                                 :operator {:type :variable, :name '<},
+                                 :operands [{:type :variable, :name 'n}
+                                            {:type :literal, :value 1}]},
+                          :consequent {:type :variable, :name 'acc},
+                          :alternate
+                            {:type :application,
+                             :operator {:type :variable, :name 'self},
+                             :operands [{:type :variable, :name 'self}
+                                        {:type :application,
+                                         :operator {:type :variable, :name '-},
+                                         :operands [{:type :variable, :name 'n}
+                                                    {:type :literal, :value 1}]}
+                                        {:type :application,
+                                         :operator {:type :variable, :name '+},
+                                         :operands
+                                           [{:type :variable, :name 'acc}
+                                            {:type :variable, :name 'n}]}]}}}
+          ast {:type :application,
+               :operator self-fn,
+               :operands [self-fn {:type :literal, :value 100}
+                          {:type :literal, :value 0}]}]
+      (is (= 5050 (compile-and-run ast))))))
+
+
+(deftest tco-non-tail-regression-test
+  (testing "Non-tail calls still work correctly (fibonacci)"
+    ;; ((fn [self n] (if (< n 2) n (+ (self self (- n 1)) (self self (- n
+    ;; 2)))))
+    ;; <same> 10)
+    (let [self-fn
+            {:type :lambda,
+             :params ['self 'n],
+             :body {:type :if,
+                    :test {:type :application,
+                           :operator {:type :variable, :name '<},
+                           :operands [{:type :variable, :name 'n}
+                                      {:type :literal, :value 2}]},
+                    :consequent {:type :variable, :name 'n},
+                    :alternate
+                      {:type :application,
+                       :operator {:type :variable, :name '+},
+                       :operands
+                         [{:type :application,
+                           :operator {:type :variable, :name 'self},
+                           :operands [{:type :variable, :name 'self}
+                                      {:type :application,
+                                       :operator {:type :variable, :name '-},
+                                       :operands [{:type :variable, :name 'n}
+                                                  {:type :literal, :value 1}]}]}
+                          {:type :application,
+                           :operator {:type :variable, :name 'self},
+                           :operands [{:type :variable, :name 'self}
+                                      {:type :application,
+                                       :operator {:type :variable, :name '-},
+                                       :operands [{:type :variable, :name 'n}
+                                                  {:type :literal,
+                                                   :value 2}]}]}]}}}
+          ast {:type :application,
+               :operator self-fn,
+               :operands [self-fn {:type :literal, :value 10}]}]
+      (is (= 55 (compile-and-run ast))))))
+
+
+(deftest tco-continuation-depth-test
+  (testing "Tail calls do not grow continuation depth"
+    ;; ((fn [self n] (if (< n 1) 0 (self self (- n 1)))) <same> 100)
+    (let [self-fn {:type :lambda,
+                   :params ['self 'n],
+                   :body {:type :if,
+                          :test {:type :application,
+                                 :operator {:type :variable, :name '<},
+                                 :operands [{:type :variable, :name 'n}
+                                            {:type :literal, :value 1}]},
+                          :consequent {:type :literal, :value 0},
+                          :alternate {:type :application,
+                                      :operator {:type :variable, :name 'self},
+                                      :operands
+                                        [{:type :variable, :name 'self}
+                                         {:type :application,
+                                          :operator {:type :variable, :name '-},
+                                          :operands [{:type :variable, :name 'n}
+                                                     {:type :literal,
+                                                      :value 1}]}]}}}
+          ast {:type :application,
+               :operator self-fn,
+               :operands [self-fn {:type :literal, :value 100}]}
+          vm-loaded (load-ast ast)
+          max-depth (loop [v vm-loaded
+                           max-d 0]
+                      (if (vm/halted? v)
+                        max-d
+                        (let [v' (vm/step v)
+                              d (count (or (vm/continuation v') []))]
+                          (recur v' (max max-d d)))))]
+      (is (<= max-depth 1)
+          (str "Max call-stack depth should be <= 1 with TCO, got "
+               max-depth)))))

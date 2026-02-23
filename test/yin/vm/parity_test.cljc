@@ -1,11 +1,10 @@
 (ns yin.vm.parity-test
-  (:require
-    [clojure.test :refer [deftest is testing]]
-    [yin.vm :as vm]
-    [yin.vm.ast-walker :as ast-walker]
-    [yin.vm.register :as register]
-    [yin.vm.semantic :as semantic]
-    [yin.vm.stack :as stack]))
+  (:require [clojure.test :refer [deftest is testing]]
+            [yin.vm :as vm]
+            [yin.vm.ast-walker :as ast-walker]
+            [yin.vm.register :as register]
+            [yin.vm.semantic :as semantic]
+            [yin.vm.stack :as stack]))
 
 
 (defn- stream-capacity
@@ -122,22 +121,82 @@
                 (str vm-type " should park inside function")))
           ;; Resume each with 5
           (let [resume-with-5
-                (fn [vm-type]
-                  (let [vm (case vm-type
-                             :ast-walker (ast-walker/create-vm)
-                             :stack (stack/create-vm {:env vm/primitives})
-                             :semantic (semantic/create-vm {:env
-                                                            vm/primitives})
-                             :register (register/create-vm {:env
-                                                            vm/primitives}))
-                        vm-parked (vm/eval vm ast)
-                        reified (vm/value vm-parked)
-                        vm-resumed (vm/eval vm-parked
-                                            {:type :vm/resume,
-                                             :parked-id (:id reified),
-                                             :val 5})]
-                    (vm/value vm-resumed)))]
+                  (fn [vm-type]
+                    (let [vm (case vm-type
+                               :ast-walker (ast-walker/create-vm)
+                               :stack (stack/create-vm {:env vm/primitives})
+                               :semantic (semantic/create-vm {:env
+                                                                vm/primitives})
+                               :register (register/create-vm {:env
+                                                                vm/primitives}))
+                          vm-parked (vm/eval vm ast)
+                          reified (vm/value vm-parked)
+                          vm-resumed (vm/eval vm-parked
+                                              {:type :vm/resume,
+                                               :parked-id (:id reified),
+                                               :val 5})]
+                      (vm/value vm-resumed)))]
             (is (= 15 (resume-with-5 :ast-walker)))
             (is (= 15 (resume-with-5 :stack)))
             (is (= 15 (resume-with-5 :semantic)))
             (is (= 15 (resume-with-5 :register)))))))))
+
+
+(defn- k-depth
+  [vm-type k]
+  (case vm-type
+    :ast-walker (loop [k k d 0] (if (nil? k) d (recur (:parent k) (inc d))))
+    :semantic (count k)
+    :stack (count k)
+    :register (loop [k k d 0] (if (nil? k) d (recur (:parent k) (inc d))))))
+
+
+(deftest tco-depth-parity-test
+  (testing "All VMs should run tail-recursive countdown in constant stack/depth"
+    (let [self-fn {:type :lambda,
+                   :params ['self 'n],
+                   :body {:type :if,
+                          :test {:type :application,
+                                 :operator {:type :variable, :name '<},
+                                 :operands [{:type :variable, :name 'n}
+                                            {:type :literal, :value 1}]},
+                          :consequent {:type :literal, :value 0},
+                          :alternate {:type :application,
+                                      :operator {:type :variable, :name 'self},
+                                      :operands
+                                        [{:type :variable, :name 'self}
+                                         {:type :application,
+                                          :operator {:type :variable, :name '-},
+                                          :operands [{:type :variable, :name 'n}
+                                                     {:type :literal,
+                                                      :value 1}]}],
+                                      :tail? true},
+                          :tail? true}}
+          ast {:type :application,
+               :operator self-fn,
+               :operands [self-fn {:type :literal, :value 100}],
+               :tail? true}]
+      (doseq [vm-type [:ast-walker :semantic :stack :register]]
+        (let [vm (case vm-type
+                   :ast-walker (-> (ast-walker/create-vm {:env vm/primitives})
+                                   (vm/load-program ast))
+                   :semantic (let [datoms (vm/ast->datoms ast)
+                                   root-id (apply max (map first datoms))]
+                               (-> (semantic/create-vm {:env vm/primitives})
+                                   (vm/load-program {:node root-id,
+                                                     :datoms datoms})))
+                   :stack (-> (stack/create-vm {:env vm/primitives})
+                              (vm/eval ast))
+                   :register (-> (register/create-vm {:env vm/primitives})
+                                 (vm/eval ast)))]
+          (loop [v vm
+                 max-d 0]
+            (if (vm/halted? v)
+              (do (is (= 0 (vm/value v)) (str vm-type " should return 0"))
+                  (is (<= max-d 3)
+                      (str vm-type
+                           " max continuation depth should be small, got "
+                           max-d)))
+              (let [v' (vm/step v)
+                    d (k-depth vm-type (vm/continuation v'))]
+                (recur v' (max max-d d))))))))))

@@ -126,7 +126,7 @@
                   :env env
                   :stack new-stack))
           :app-op
-            (let [{:keys [operands env]} frame
+            (let [{:keys [operands env tail?]} frame
                   fn-val val]
               (if (empty? operands)
                 ;; 0-arity call
@@ -158,11 +158,18 @@
                         :stack new-stack)))
                   (if (= :closure (:type fn-val))
                     (let [{:keys [body-node env]} fn-val]
-                      (assoc vm
-                        :control {:type :node, :id body-node}
-                        :env env ; Switch to closure env
-                        :stack (conj new-stack
-                                     {:type :restore-env, :env (:env frame)})))
+                      (if tail?
+                        ;; TCO: skip restore-env
+                        (assoc vm
+                          :control {:type :node, :id body-node}
+                          :env env
+                          :stack new-stack)
+                        (assoc vm
+                          :control {:type :node, :id body-node}
+                          :env env ; Switch to closure env
+                          :stack (conj new-stack
+                                       {:type :restore-env,
+                                        :env (:env frame)}))))
                     (throw (ex-info "Cannot apply non-function" {:fn fn-val}))))
                 ;; Prepare to eval args
                 (let [first-arg (first operands)
@@ -175,9 +182,10 @@
                                   :fn fn-val,
                                   :evaluated [],
                                   :pending rest-args,
-                                  :env env})))))
+                                  :env env,
+                                  :tail? tail?})))))
           :app-args
-            (let [{:keys [fn evaluated pending env]} frame
+            (let [{:keys [fn evaluated pending env tail?]} frame
                   new-evaluated (conj evaluated val)]
               (if (empty? pending)
                 ;; All args evaluated, apply
@@ -273,11 +281,18 @@
                   (if (= :closure (:type fn))
                     (let [{:keys [params body-node env]} fn
                           new-env (merge env (zipmap params new-evaluated))]
-                      (assoc vm
-                        :control {:type :node, :id body-node}
-                        :env new-env ; Closure env + args
-                        :stack (conj new-stack
-                                     {:type :restore-env, :env (:env frame)})))
+                      (if tail?
+                        ;; TCO: skip restore-env
+                        (assoc vm
+                          :control {:type :node, :id body-node}
+                          :env new-env
+                          :stack new-stack)
+                        (assoc vm
+                          :control {:type :node, :id body-node}
+                          :env new-env ; Closure env + args
+                          :stack (conj new-stack
+                                       {:type :restore-env,
+                                        :env (:env frame)}))))
                     (throw (ex-info "Cannot apply non-function" {:fn fn}))))
                 ;; More args to eval
                 (let [next-arg (first pending)
@@ -402,7 +417,8 @@
                      :stack (conj stack
                                   {:type :app-op,
                                    :operands (:yin/operands node-map),
-                                   :env env}))
+                                   :env env,
+                                   :tail? (:yin/tail? node-map)}))
       ;; VM primitives
       :vm/gensym (let [prefix (or (:yin/prefix node-map) "id")
                        id (keyword (str prefix "-" id-counter))]

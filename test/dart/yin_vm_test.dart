@@ -79,5 +79,58 @@ void main() {
       print('Result: ${result.value}');
       expect(result.value, equals(99));
     });
+
+    test('TCO: Tail-recursive countdown', () {
+      print('Running TCO Test: Tail-recursive countdown');
+      // ((fn [self n] (if (< n 1) 0 (self self (- n 1)))) <same> 1000)
+      final selfFn = {
+        'type': 'lambda',
+        'params': ['self', 'n'],
+        'body': {
+          'type': 'if',
+          'test': {
+            'type': 'application',
+            'operator': {'type': 'variable', 'name': '<'},
+            'operands': [
+              {'type': 'variable', 'name': 'n'},
+              {'type': 'literal', 'value': 1}
+            ]
+          },
+          'consequent': {'type': 'literal', 'value': 0},
+          'alternate': {
+            'type': 'application',
+            'operator': {'type': 'variable', 'name': 'self'},
+            'operands': [
+              {'type': 'variable', 'name': 'self'},
+              {
+                'type': 'application',
+                'operator': {'type': 'variable', 'name': '-'},
+                'operands': [
+                  {'type': 'variable', 'name': 'n'},
+                  {'type': 'literal', 'value': 1}
+                ]
+              }
+            ]
+          }
+        }
+      };
+
+      final ast = {
+        'type': 'application',
+        'operator': selfFn,
+        'operands': [
+          selfFn,
+          {'type': 'literal', 'value': 1000}
+        ]
+      };
+
+      // If TCO is not working, this might cause a stack overflow in some environments,
+      // but here we are measuring continuation depth growth.
+      // In Dart implementation, we can check continuation depth by stepping or just
+      // ensuring it completes for large N.
+      final result = YinVM.run(initialState, ast);
+      print('Result: ${result.value}');
+      expect(result.value, equals(0));
+    });
   });
 }

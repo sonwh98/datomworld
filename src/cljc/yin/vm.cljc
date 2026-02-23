@@ -160,7 +160,8 @@
      (letfn
        [(convert [node]
           (let [e (gen-id)
-                {:keys [type]} node]
+                {:keys [type tail?]} node]
+            (when tail? (emit! e :yin/tail? true))
             (case type
               :literal (do (emit! e :yin/type :literal)
                            (emit! e :yin/value (:value node)))

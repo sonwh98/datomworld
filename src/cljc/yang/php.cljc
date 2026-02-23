@@ -512,138 +512,158 @@
 
 
 (defn compile-stmt
-  [node]
-  (case (:php-type node)
-    :literal {:type :literal, :value (:value node)}
-    :variable {:type :variable, :name (:name node)}
-    :binop
-      {:type :application,
-       :operator
-         {:type :variable,
-          :name (get php-op->yin (clojure.core/name (:op node)) (:op node))},
-       :operands [(compile-stmt (:left node)) (compile-stmt (:right node))]}
-    :unaryop {:type :application,
-              :operator {:type :variable,
-                         :name (get php-op->yin
-                                    (clojure.core/name (:op node))
-                                    (:op node))},
-              :operands [(compile-stmt (:arg node))]}
-    :assignment (compile-stmt (:value node))
-    :call {:type :application,
-           :operator (compile-stmt (:function node)),
-           :operands (mapv compile-stmt (:args node))}
-    :lambda (let [body (compile-suite (:body node))]
-              {:type :lambda, :params (:params node), :body body})
-    :return (compile-stmt (:value node))
-    :if-stmt {:type :if,
-              :test (compile-stmt (:test node)),
-              :consequent (compile-suite (:consequent node)),
-              :alternate (if (:alternate node)
-                           (if (= (:php-type (:alternate node)) :if-stmt)
-                             (compile-stmt (:alternate node))
-                             (compile-suite (:alternate node)))
-                           {:type :literal, :value nil})}
-    :suite (compile-suite node)
-    :for (let [init (:init node)
-               var-name (:name init)
-               init-val (compile-stmt (:value init))
-               threaded-var (for-threaded-var node)
-               fixpoint (if threaded-var Z2-combinator Z-combinator)
-               loop-params (if threaded-var [var-name threaded-var] [var-name])
-               initial-operands (if threaded-var
-                                  [init-val
-                                   {:type :variable, :name threaded-var}]
-                                  [init-val])
-               recur-operands (if threaded-var
-                                [(compile-stmt (:update node))
-                                 (compile-suite (:body node))]
-                                [(compile-stmt (:update node))])
-               alternate (if threaded-var
-                           {:type :variable, :name threaded-var}
-                           {:type :literal, :value nil})
-               loop-fn (gensym "loop")]
-           {:type :application,
-            :operator {:type :application,
-                       :operator fixpoint,
-                       :operands [{:type :lambda,
-                                   :params [loop-fn],
-                                   :body {:type :lambda,
-                                          :params loop-params,
-                                          :body {:type :if,
-                                                 :test (compile-stmt (:test
-                                                                       node)),
-                                                 :consequent
-                                                   {:type :application,
-                                                    :operator {:type :variable,
-                                                               :name loop-fn},
-                                                    :operands recur-operands},
-                                                 :alternate alternate}}}]},
-            :operands initial-operands})
-    (throw (ex-info "Unknown node" {:node node}))))
+  ([node] (compile-stmt node false))
+  ([node tail?]
+   (case (:php-type node)
+     :literal {:type :literal, :value (:value node)}
+     :variable {:type :variable, :name (:name node)}
+     :binop (cond-> {:type :application,
+                     :operator {:type :variable,
+                                :name (get php-op->yin
+                                           (clojure.core/name (:op node))
+                                           (:op node))},
+                     :operands [(compile-stmt (:left node) false)
+                                (compile-stmt (:right node) false)]}
+              tail? (assoc :tail? true))
+     :unaryop (cond-> {:type :application,
+                       :operator {:type :variable,
+                                  :name (get php-op->yin
+                                             (clojure.core/name (:op node))
+                                             (:op node))},
+                       :operands [(compile-stmt (:arg node) false)]}
+                tail? (assoc :tail? true))
+     :assignment (compile-stmt (:value node) tail?)
+     :call (cond-> {:type :application,
+                    :operator (compile-stmt (:function node) false),
+                    :operands (mapv #(compile-stmt % false) (:args node))}
+             tail? (assoc :tail? true))
+     :lambda (let [body (compile-suite (:body node) true)]
+               (cond-> {:type :lambda, :params (:params node), :body body}
+                 tail? (assoc :tail? true)))
+     :return (compile-stmt (:value node) tail?)
+     :if-stmt (cond-> {:type :if,
+                       :test (compile-stmt (:test node) false),
+                       :consequent (compile-suite (:consequent node) tail?),
+                       :alternate (if (:alternate node)
+                                    (if (= (:php-type (:alternate node))
+                                           :if-stmt)
+                                      (compile-stmt (:alternate node) tail?)
+                                      (compile-suite (:alternate node) tail?))
+                                    {:type :literal, :value nil})}
+                tail? (assoc :tail? true))
+     :suite (compile-suite node tail?)
+     :for (let [init (:init node)
+                var-name (:name init)
+                init-val (compile-stmt (:value init) false)
+                threaded-var (for-threaded-var node)
+                fixpoint (if threaded-var Z2-combinator Z-combinator)
+                loop-params (if threaded-var [var-name threaded-var] [var-name])
+                initial-operands (if threaded-var
+                                   [init-val
+                                    {:type :variable, :name threaded-var}]
+                                   [init-val])
+                recur-operands (if threaded-var
+                                 [(compile-stmt (:update node) false)
+                                  (compile-suite (:body node) true)]
+                                 [(compile-stmt (:update node) false)])
+                alternate (if threaded-var
+                            {:type :variable, :name threaded-var}
+                            {:type :literal, :value nil})
+                loop-fn (gensym "loop")]
+            (cond-> {:type :application,
+                     :operator
+                       {:type :application,
+                        :operator fixpoint,
+                        :operands
+                          [{:type :lambda,
+                            :params [loop-fn],
+                            :body {:type :lambda,
+                                   :params loop-params,
+                                   :body
+                                     {:type :if,
+                                      :test (compile-stmt (:test node) false),
+                                      :consequent {:type :application,
+                                                   :operator {:type :variable,
+                                                              :name loop-fn},
+                                                   :operands recur-operands},
+                                      :alternate alternate}}}]},
+                     :operands initial-operands}
+              tail? (assoc :tail? true)))
+     (throw (ex-info "Unknown node" {:node node})))))
 
 
 (defn compile-suite
-  [node]
-  (let [stmts (:stmts node)]
-    (if (empty? stmts)
-      {:type :literal, :value nil}
-      (if (= 1 (count stmts))
-        (compile-stmt (first stmts))
-        (let [head (first stmts)
-              rest-suite {:php-type :suite, :stmts (rest stmts)}]
-          (if (= :assignment (:php-type head))
-            {:type :application,
-             :operator {:type :lambda,
-                        :params [(:name head)],
-                        :body (compile-suite rest-suite)},
-             :operands [(compile-stmt head)]}
-            (let [threaded-var (when (= :for (:php-type head))
-                                 (for-threaded-var head))]
-              (if threaded-var
-                {:type :application,
-                 :operator {:type :lambda,
-                            :params [threaded-var],
-                            :body (compile-suite rest-suite)},
-                 :operands [(compile-stmt head)]}
-                {:type :application,
-                 :operator {:type :lambda,
-                            :params ['_],
-                            :body (compile-suite rest-suite)},
-                 :operands [(compile-stmt head)]}))))))))
+  ([node] (compile-suite node false))
+  ([node tail?]
+   (let [stmts (:stmts node)]
+     (if (empty? stmts)
+       (cond-> {:type :literal, :value nil} tail? (assoc :tail? true))
+       (if (= 1 (count stmts))
+         (compile-stmt (first stmts) tail?)
+         (let [head (first stmts)
+               rest-suite {:php-type :suite, :stmts (rest stmts)}]
+           (if (= :assignment (:php-type head))
+             (cond-> {:type :application,
+                      :operator {:type :lambda,
+                                 :params [(:name head)],
+                                 :body (compile-suite rest-suite tail?)},
+                      :operands [(compile-stmt head false)]}
+               tail? (assoc :tail? true))
+             (let [threaded-var (when (= :for (:php-type head))
+                                  (for-threaded-var head))]
+               (if threaded-var
+                 (cond-> {:type :application,
+                          :operator {:type :lambda,
+                                     :params [threaded-var],
+                                     :body (compile-suite rest-suite tail?)},
+                          :operands [(compile-stmt head false)]}
+                   tail? (assoc :tail? true))
+                 (cond-> {:type :application,
+                          :operator {:type :lambda,
+                                     :params ['_],
+                                     :body (compile-suite rest-suite tail?)},
+                          :operands [(compile-stmt head false)]}
+                   tail? (assoc :tail? true)))))))))))
 
 
 (defn compile-program
-  [ast]
-  (let [stmts (:stmts ast)]
-    (if (empty? stmts)
-      {:type :literal, :value nil}
-      (let [head (first stmts)
-            rest-prog {:php-type :suite, :stmts (rest stmts)}]
-        (cond (= :function (:php-type head))
-                {:type :application,
-                 :operator {:type :lambda,
-                            :params [(:name head)],
-                            :body (compile-program rest-prog)},
-                 :operands [{:type :application,
-                             :operator Z-combinator,
-                             :operands [{:type :lambda,
-                                         :params [(:name head)],
-                                         :body {:type :lambda,
-                                                :params (:params head),
-                                                :body (compile-suite
-                                                        (:body head))}}]}]}
-              (= :assignment (:php-type head))
-                {:type :application,
-                 :operator {:type :lambda,
-                            :params [(:name head)],
-                            :body (compile-program rest-prog)},
-                 :operands [(compile-stmt head)]}
-              (= 1 (count stmts)) (compile-stmt head)
-              :else {:type :application,
-                     :operator {:type :lambda,
-                                :params ['_],
-                                :body (compile-program rest-prog)},
-                     :operands [(compile-stmt head)]})))))
+  ([ast] (compile-program ast true))
+  ([ast tail?]
+   (let [stmts (:stmts ast)]
+     (if (empty? stmts)
+       (cond-> {:type :literal, :value nil} tail? (assoc :tail? true))
+       (let [head (first stmts)
+             rest-prog {:php-type :suite, :stmts (rest stmts)}]
+         (cond (= :function (:php-type head))
+                 (cond-> {:type :application,
+                          :operator {:type :lambda,
+                                     :params [(:name head)],
+                                     :body (compile-program rest-prog tail?)},
+                          :operands [{:type :application,
+                                      :operator Z-combinator,
+                                      :operands [{:type :lambda,
+                                                  :params [(:name head)],
+                                                  :body {:type :lambda,
+                                                         :params (:params head),
+                                                         :body (compile-suite
+                                                                 (:body head)
+                                                                 true)}}]}]}
+                   tail? (assoc :tail? true))
+               (= :assignment (:php-type head))
+                 (cond-> {:type :application,
+                          :operator {:type :lambda,
+                                     :params [(:name head)],
+                                     :body (compile-program rest-prog tail?)},
+                          :operands [(compile-stmt head false)]}
+                   tail? (assoc :tail? true))
+               (= 1 (count stmts)) (compile-stmt head tail?)
+               :else (cond-> {:type :application,
+                              :operator {:type :lambda,
+                                         :params ['_],
+                                         :body (compile-program rest-prog
+                                                                tail?)},
+                              :operands [(compile-stmt head false)]}
+                       tail? (assoc :tail? true))))))))
 
 
 (defn compile

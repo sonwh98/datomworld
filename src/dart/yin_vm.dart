@@ -238,6 +238,80 @@ class YinVM {
     );
   }
 
+  static YinState _applyFunction(YinState state, dynamic fnValue, List evaluatedOperands, dynamic parentCont) {
+    final environment = state.environment;
+    final store = state.store;
+
+    if (fnValue is Function) {
+      final result = Function.apply(fnValue, evaluatedOperands);
+      
+      if (YinModule.isEffect(result)) {
+         final effectType = result['effect'];
+         
+         if (effectType == 'vm/store-put') {
+            final key = result['key'];
+            final val = result['val'];
+            final newStore = Map<String, dynamic>.from(store);
+            newStore[key] = val;
+            return state.copyWith(store: newStore, value: val, control: null, continuation: parentCont);
+         } else if (effectType == 'stream/make') {
+            final capacity = result['capacity'];
+            final res = YinStream.vmStreamMake(state, capacity);
+            final streamRef = res[0];
+            final newState = res[1] as YinState;
+            return newState.copyWith(value: streamRef, control: null, continuation: parentCont);
+         } else if (effectType == 'stream/put') {
+            final streamRef = result['stream'];
+            final val = result['val'];
+            final res = YinStream.vmStreamPut(state, streamRef, val);
+            return (res['state'] as YinState).copyWith(value: res['value'], control: null, continuation: parentCont);
+         } else if (effectType == 'stream/take') {
+            final streamRef = result['stream'];
+            final res = YinStream.vmStreamTake(state, streamRef, parentCont);
+            if (res['park'] == true) {
+               final streamId = res['stream-id'];
+               final parkedCont = {
+                  'type': 'parked-continuation',
+                  'id': gensymId('taker'),
+                  'continuation': parentCont,
+                  'environment': environment
+               };
+               final newStore = Map<String, dynamic>.from(store);
+               final stream = newStore[streamId];
+               newStore[streamId] = YinStream.addTaker(stream, parkedCont);
+               return state.copyWith(
+                  store: newStore,
+                  value: 'yin/blocked',
+                  control: null,
+                  continuation: null
+               );
+            } else {
+               return (res['state'] as YinState).copyWith(value: res['value'], control: null, continuation: parentCont);
+            }
+         } else {
+            throw Exception("Unknown effect type: $effectType");
+         }
+      } else {
+         return state.copyWith(value: result, control: null, continuation: parentCont);
+      }
+    } else if (fnValue is Map && fnValue['type'] == 'closure') {
+       final params = fnValue['params'] as List;
+       final body = fnValue['body'];
+       final closureEnv = fnValue['environment'] as Map<String, dynamic>;
+       final extendedEnv = Map<String, dynamic>.from(closureEnv);
+       for(int i=0; i<params.length; i++) {
+         extendedEnv[params[i]] = evaluatedOperands[i];
+       }
+       return state.copyWith(
+         control: body,
+         environment: extendedEnv,
+         continuation: parentCont,
+       );
+    } else {
+       throw Exception("Cannot apply non-function: $fnValue");
+    }
+  }
+
   static YinState eval(YinState state, [dynamic ast]) {
     final control = state.control;
     final environment = state.environment;
@@ -255,36 +329,67 @@ class YinVM {
 
       if (contType == 'eval-operator') {
         final fnValue = state.value;
-        final updatedFrame = Map<String, dynamic>.from(frame);
-        updatedFrame['operator-evaluated?'] = true;
-        updatedFrame['fn-value'] = fnValue;
+        final operands = frame['operands'] as List;
 
-        return state.copyWith(
-          control: updatedFrame,
-          environment: savedEnv ?? environment,
-          continuation: parentCont,
-          value: null,
-        );
+        if (operands.isEmpty) {
+          return _applyFunction(
+            state.copyWith(environment: savedEnv ?? environment),
+            fnValue,
+            [],
+            parentCont
+          );
+        } else {
+          final updatedFrame = Map<String, dynamic>.from(frame);
+          updatedFrame['operator-evaluated?'] = true;
+          updatedFrame['fn-value'] = fnValue;
+
+          return state.copyWith(
+            control: operands[0],
+            environment: savedEnv ?? environment,
+            continuation: {
+              'type': 'eval-operand',
+              'frame': updatedFrame,
+              'parent': parentCont,
+              'environment': savedEnv ?? environment,
+            },
+            value: null,
+          );
+        }
       } else if (contType == 'eval-operand') {
         final operandValue = state.value;
         final evaluatedOperands = List.from(frame['evaluated-operands'] ?? []);
         evaluatedOperands.add(operandValue);
-        final updatedFrame = Map<String, dynamic>.from(frame);
-        updatedFrame['evaluated-operands'] = evaluatedOperands;
+        final operands = frame['operands'] as List;
 
-        return state.copyWith(
-          control: updatedFrame,
-          environment: savedEnv ?? environment,
-          continuation: parentCont,
-          value: null,
-        );
+        if (evaluatedOperands.length == operands.length) {
+          return _applyFunction(
+            state.copyWith(environment: savedEnv ?? environment),
+            frame['fn-value'],
+            evaluatedOperands,
+            parentCont
+          );
+        } else {
+          final updatedFrame = Map<String, dynamic>.from(frame);
+          updatedFrame['evaluated-operands'] = evaluatedOperands;
+
+          return state.copyWith(
+            control: operands[evaluatedOperands.length],
+            environment: savedEnv ?? environment,
+            continuation: {
+              'type': 'eval-operand',
+              'frame': updatedFrame,
+              'parent': parentCont,
+              'environment': savedEnv ?? environment,
+            },
+            value: null,
+          );
+        }
       } else if (contType == 'eval-test') {
         final testValue = state.value;
-        final updatedFrame = Map<String, dynamic>.from(frame);
-        updatedFrame['evaluated-test?'] = true;
+        final branch = (testValue != false && testValue != null) ? frame['consequent'] : frame['alternate'];
 
         return state.copyWith(
-          control: updatedFrame,
+          control: branch,
           value: testValue,
           environment: savedEnv ?? environment,
           continuation: parentCont,
