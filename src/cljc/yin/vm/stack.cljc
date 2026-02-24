@@ -48,7 +48,7 @@
 (def OP_LOAD_VAR 2)      ; [OP_LOAD_VAR] [sym-idx]
 (def OP_LAMBDA 3)        ; [OP_LAMBDA] [arity] [body-len-hi] [body-len-lo] ...body...
 (def OP_APPLY 4)         ; [OP_APPLY] [argc]
-(def OP_JUMP_IF_FALSE 5) ; [OP_JUMP_IF_FALSE] [offset-hi] [offset-lo]
+(def OP_BRANCH 5)        ; [OP_BRANCH] [offset-hi] [offset-lo]
 (def OP_RETURN 6)        ; [OP_RETURN]
 (def OP_JUMP 7)          ; [OP_JUMP] [offset-hi] [offset-lo]
 (def OP_GENSYM 8)        ; [OP_GENSYM] [prefix-idx]
@@ -78,7 +78,7 @@
      [:call argc]        - pop function and argc args, call, push result
      [:tailcall argc]    - pop function and argc args, tail-call closure
      [:lambda params label] - push closure (captures env, body follows)
-     [:jump-false label] - pop condition, if false jump to label
+     [:branch label]     - pop condition, if true jump to label
      [:jump label]       - unconditional jump to label
      [:return]           - return top of stack
      [:label name]       - pseudo-instruction for jump targets
@@ -127,14 +127,14 @@
             :if (let [test-node (get-attr e :yin/test)
                       cons-node (get-attr e :yin/consequent)
                       alt-node (get-attr e :yin/alternate)
-                      else-label (gen-label! "else")
+                      cons-label (gen-label! "then")
                       end-label (gen-label! "end")]
                   (compile-node test-node)
-                  (emit! [:jump-false else-label])
-                  (compile-node cons-node tail?)
-                  (emit! [:jump end-label])
-                  (emit! [:label else-label])
+                  (emit! [:branch cons-label])
                   (compile-node alt-node tail?)
+                  (emit! [:jump end-label])
+                  (emit! [:label cons-label])
+                  (compile-node cons-node tail?)
                   (emit! [:label end-label]))
             ;; VM primitives
             :vm/gensym (emit! [:gensym (or (get-attr e :yin/prefix) "id")])
@@ -194,7 +194,7 @@
                        :lambda 4 ; op + params_idx + 2 byte len
                        :call 2
                        :tailcall 2
-                       :jump-false 3
+                       :branch 3
                        :jump 3
                        :return 1
                        :label 0
@@ -254,14 +254,14 @@
             :tailcall (do (emit-byte! OP_TAIL_APPLY)
                           (emit-byte! arg1)
                           (swap! emit-offset + 2))
-            :jump-false (let [target-label arg1
-                              target-offset (get @label-offsets target-label)
-                              ;; Relative offset = target-offset -
-                              ;; (current-offset + 3)
-                              rel-offset (- target-offset (+ @emit-offset 3))]
-                          (emit-byte! OP_JUMP_IF_FALSE)
-                          (emit-short! rel-offset)
-                          (swap! emit-offset + 3))
+            :branch (let [target-label arg1
+                          target-offset (get @label-offsets target-label)
+                          ;; Relative offset = target-offset -
+                          ;; (current-offset + 3)
+                          rel-offset (- target-offset (+ @emit-offset 3))]
+                      (emit-byte! OP_BRANCH)
+                      (emit-short! rel-offset)
+                      (swap! emit-offset + 3))
             :jump (let [target-label arg1
                         target-offset (get @label-offsets target-label)
                         rel-offset (- target-offset (+ @emit-offset 3))]
@@ -500,12 +500,12 @@
             (let [argc (nth bytecode (inc pc))] (apply-op state argc false))
           19 ; OP_TAIL_APPLY
             (let [argc (nth bytecode (inc pc))] (apply-op state argc true))
-          5 ; OP_JUMP_IF_FALSE
+          5 ; OP_BRANCH
             (let [offset (fetch-short-signed bytecode (inc pc))
                   condition (peek stack)
                   new-stack (pop stack)]
               (assoc state
-                :pc (if condition (+ pc 3) (+ pc 3 offset))
+                :pc (if condition (+ pc 3 offset) (+ pc 3))
                 :stack new-stack))
           7 ; OP_JUMP
             (let [offset (fetch-short-signed bytecode (inc pc))]
