@@ -1,8 +1,8 @@
 (ns yin.vm.stack
   (:require [yin.module :as module]
-            [yin.scheduler :as scheduler]
             [yin.stream :as stream]
-            [yin.vm :as vm]))
+            [yin.vm :as vm]
+            [yin.vm.engine :as engine]))
 
 
 ;; =============================================================================
@@ -94,11 +94,7 @@
      [:resume]           - pop val and parked-id, resume parked cont
      [:current-cont]     - push reified continuation"
   [ast-as-datoms]
-  (let [datoms (vec ast-as-datoms)
-        by-entity (group-by first datoms)
-        get-attr (fn [e attr]
-                   (some (fn [[_ a v]] (when (= a attr) v)) (get by-entity e)))
-        root-id (apply max (keys by-entity))
+  (let [{:keys [get-attr root-id]} (engine/index-datoms ast-as-datoms)
         instructions (atom [])
         emit! (fn [instr] (swap! instructions conj instr))
         label-counter (atom 0)
@@ -332,11 +328,11 @@
                                 :store new-store
                                 :pc next-pc
                                 :stack (conj stack-rest value)))
-              :stream/make (let [gen-id-fn (fn [prefix]
-                                             (keyword
-                                               (str prefix "-" id-counter)))
-                                 [stream-ref new-state]
-                                   (stream/handle-make state res gen-id-fn)]
+              :stream/make (let [[stream-ref new-state] (stream/handle-make
+                                                          state
+                                                          res
+                                                          (engine/gen-id-fn
+                                                            id-counter))]
                              (assoc new-state
                                :pc next-pc
                                :stack (conj stack-rest stream-ref)
@@ -361,11 +357,11 @@
                     (assoc (:state result)
                       :pc next-pc
                       :stack (conj stack-rest (:value result)))))
-              :stream/cursor (let [gen-id-fn (fn [prefix]
-                                               (keyword
-                                                 (str prefix "-" id-counter)))
-                                   [cursor-ref new-state]
-                                     (stream/handle-cursor state res gen-id-fn)]
+              :stream/cursor (let [[cursor-ref new-state] (stream/handle-cursor
+                                                            state
+                                                            res
+                                                            (engine/gen-id-fn
+                                                              id-counter))]
                                (assoc new-state
                                  :pc next-pc
                                  :stack (conj stack-rest cursor-ref)
@@ -394,11 +390,10 @@
                                   new-state (:state close-result)
                                   to-resume (:resume-parked close-result)
                                   run-queue (or (:run-queue new-state) [])
-                                  new-run-queue (into run-queue
-                                                      (map (fn [entry]
-                                                             (assoc entry
-                                                               :value nil))
-                                                        to-resume))]
+                                  new-run-queue
+                                    (into run-queue
+                                          (engine/resume-entries-with-nil
+                                            to-resume))]
                               (assoc new-state
                                 :run-queue new-run-queue
                                 :pc next-pc
@@ -472,12 +467,7 @@
           2 ; OP_LOAD_VAR
             (let [sym-idx (nth bytecode (inc pc))
                   sym (nth pool sym-idx)
-                  val (if-let [pair (find env sym)]
-                        (val pair)
-                        (if-let [pair (find store sym)]
-                          (val pair)
-                          (or (get primitives sym)
-                              (module/resolve-symbol sym))))]
+                  val (engine/resolve-var env store primitives sym)]
               (assoc state
                 :pc (+ pc 2)
                 :stack (conj stack val)))
@@ -528,7 +518,7 @@
           8 ; OP_GENSYM
             (let [prefix-idx (nth bytecode (inc pc))
                   prefix (nth pool prefix-idx)
-                  id (keyword (str prefix "-" id-counter))]
+                  id (engine/gen-id prefix id-counter)]
               (assoc state
                 :pc (+ pc 2)
                 :stack (conj stack id)
@@ -551,10 +541,11 @@
           11 ; OP_STREAM_MAKE
             (let [buf-idx (nth bytecode (inc pc))
                   buf (nth pool buf-idx)
-                  gen-id-fn (fn [prefix] (keyword (str prefix "-" id-counter)))
                   effect {:effect :stream/make, :capacity buf}
-                  [stream-ref new-state]
-                    (stream/handle-make state effect gen-id-fn)]
+                  [stream-ref new-state] (stream/handle-make state
+                                                             effect
+                                                             (engine/gen-id-fn
+                                                               id-counter))]
               (assoc new-state
                 :pc (+ pc 2)
                 :stack (conj stack stream-ref)
@@ -587,10 +578,11 @@
           13 ; OP_STREAM_CURSOR - pop stream-ref
             (let [stream-ref (peek stack)
                   stack-rest (pop stack)
-                  gen-id-fn (fn [prefix] (keyword (str prefix "-" id-counter)))
                   effect {:effect :stream/cursor, :stream stream-ref}
-                  [cursor-ref new-state]
-                    (stream/handle-cursor state effect gen-id-fn)]
+                  [cursor-ref new-state] (stream/handle-cursor state
+                                                               effect
+                                                               (engine/gen-id-fn
+                                                                 id-counter))]
               (assoc new-state
                 :pc (+ pc 1)
                 :stack (conj stack-rest cursor-ref)
@@ -626,9 +618,8 @@
                   new-state (:state close-result)
                   to-resume (:resume-parked close-result)
                   run-queue (or (:run-queue new-state) [])
-                  new-run-queue (into run-queue
-                                      (map (fn [entry] (assoc entry :value nil))
-                                        to-resume))]
+                  new-run-queue
+                    (into run-queue (engine/resume-entries-with-nil to-resume))]
               (assoc new-state
                 :run-queue new-run-queue
                 :pc (+ pc 1)
@@ -714,16 +705,19 @@
 (defn- stack-vm-halted?
   "Returns true if VM has halted."
   [^StackVM vm]
-  (and (boolean (:halted vm)) (empty? (or (:run-queue vm) []))))
+  (engine/halted-with-empty-queue? vm))
 
 
 (defn- stack-vm-blocked?
   "Returns true if VM is blocked."
   [^StackVM vm]
-  (boolean (:blocked vm)))
+  (engine/vm-blocked? vm))
 
 
-(defn- stack-vm-value "Returns the current value." [^StackVM vm] (:value vm))
+(defn- stack-vm-value
+  "Returns the current value."
+  [^StackVM vm]
+  (engine/vm-value vm))
 
 
 (defn- stack-vm-load-program
@@ -752,21 +746,10 @@
                   compiled (asm->bytecode asm)]
               (stack-vm-load-program vm compiled))
             vm)]
-    (loop [v v]
-      (cond
-        ;; Active computation: step it
-        (and (not (:blocked v)) (not (:halted v))) (recur (stack-step v))
-        ;; Blocked: check if scheduler can wake something
-        (:blocked v) (let [v' (scheduler/check-wait-set v)]
-                       (if-let [resumed (resume-from-run-queue v')]
-                         (recur resumed)
-                         v'))
-        ;; Halted but run-queue has entries
-        (seq (or (:run-queue v) [])) (if-let [resumed (resume-from-run-queue v)]
-                                       (recur resumed)
-                                       v)
-        ;; Truly halted
-        :else v))))
+    (engine/run-loop v
+                     (fn [v] (and (not (:blocked v)) (not (:halted v))))
+                     stack-step
+                     resume-from-run-queue)))
 
 
 (extend-type StackVM

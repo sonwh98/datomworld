@@ -1,8 +1,8 @@
 (ns yin.vm.ast-walker
   (:require [yin.module :as module]
-            [yin.scheduler :as scheduler]
             [yin.stream :as stream]
-            [yin.vm :as vm]))
+            [yin.vm :as vm]
+            [yin.vm.engine :as engine]))
 
 
 ;; =============================================================================
@@ -46,7 +46,7 @@
 (defn- apply-function
   "Shared logic for applying a function (primitive or closure) to arguments."
   [state fn-value evaluated-operands continuation]
-  (let [{:keys [store primitives environment]} state]
+  (let [{:keys [store environment]} state]
     (cond
       ;; Primitive function
       (fn? fn-value)
@@ -61,12 +61,11 @@
                                 :value value
                                 :control nil
                                 :continuation continuation))
-              :stream/make (let [gen-id-fn
-                                   (fn [prefix]
-                                     (keyword
-                                       (str prefix "-" (:id-counter state))))
-                                 [stream-ref new-state]
-                                   (stream/handle-make state result gen-id-fn)]
+              :stream/make (let [[stream-ref new-state]
+                                   (stream/handle-make state
+                                                       result
+                                                       (engine/gen-id-fn
+                                                         (:id-counter state)))]
                              (assoc new-state
                                :value stream-ref
                                :control nil
@@ -90,17 +89,16 @@
                       :value (:value effect-result)
                       :control nil
                       :continuation continuation)))
-              :stream/cursor
-                (let [gen-id-fn (fn [prefix]
-                                  (keyword
-                                    (str prefix "-" (:id-counter state))))
-                      [cursor-ref new-state]
-                        (stream/handle-cursor state result gen-id-fn)]
-                  (assoc new-state
-                    :value cursor-ref
-                    :control nil
-                    :continuation continuation
-                    :id-counter (inc (:id-counter state))))
+              :stream/cursor (let [[cursor-ref new-state]
+                                     (stream/handle-cursor
+                                       state
+                                       result
+                                       (engine/gen-id-fn (:id-counter state)))]
+                               (assoc new-state
+                                 :value cursor-ref
+                                 :control nil
+                                 :continuation continuation
+                                 :id-counter (inc (:id-counter state))))
               :stream/next
                 (let [effect-result (stream/handle-next state result)]
                   (if (:park effect-result)
@@ -125,8 +123,7 @@
                       to-resume (:resume-parked close-result)
                       run-queue (or (:run-queue new-state) [])
                       new-run-queue (into run-queue
-                                          (map (fn [entry]
-                                                 (assoc entry :value nil))
+                                          (engine/resume-entries-with-nil
                                             to-resume))]
                   (assoc new-state
                     :run-queue new-run-queue
@@ -257,13 +254,11 @@
           ;; Stream continuation: evaluate source for cursor creation
           :eval-stream-cursor-source
             (let [stream-ref (:value state)
-                  gen-id-fn (fn [prefix]
-                              (keyword (str prefix "-" (:id-counter state))))
-                  [cursor-ref new-state] (stream/handle-cursor
-                                           state
-                                           {:effect :stream/cursor,
-                                            :stream stream-ref}
-                                           gen-id-fn)]
+                  [cursor-ref new-state]
+                    (stream/handle-cursor
+                      state
+                      {:effect :stream/cursor, :stream stream-ref}
+                      (engine/gen-id-fn (:id-counter state)))]
               (assoc new-state
                 :value cursor-ref
                 :control nil
@@ -304,18 +299,12 @@
                      :value value
                      :control nil))
         ;; Variable lookup
-        :variable (let [{:keys [name]} node
-                        ;; Check local environment, then store (global),
-                        ;; then module system (via primitives)
-                        value (if-let [pair (find environment name)]
-                                (val pair)
-                                (if-let [pair (find store name)]
-                                  (val pair)
-                                  (or (get primitives name)
-                                      (module/resolve-symbol name))))]
-                    (assoc state
-                      :value value
-                      :control nil))
+        :variable
+          (let [{:keys [name]} node
+                value (engine/resolve-var environment store primitives name)]
+            (assoc state
+              :value value
+              :control nil))
         ;; Lambda creates a closure
         :lambda (let [{:keys [params body]} node
                       closure {:type :closure,
@@ -344,7 +333,7 @@
         ;; ============================================================
         ;; Generate unique ID
         :vm/gensym (let [prefix (or (:prefix node) "id")
-                         id (keyword (str prefix "-" (:id-counter state)))]
+                         id (engine/gen-id prefix (:id-counter state))]
                      (assoc state
                        :value id
                        :control nil
@@ -415,12 +404,12 @@
         ;; Stream Operations (AST node forms)
         ;; ============================================================
         :stream/make (let [capacity (or (:buffer node) 1024)
-                           gen-id-fn (fn [prefix]
-                                       (keyword
-                                         (str prefix "-" (:id-counter state))))
                            effect {:effect :stream/make, :capacity capacity}
-                           [stream-ref new-state]
-                             (stream/handle-make state effect gen-id-fn)]
+                           [stream-ref new-state] (stream/handle-make
+                                                    state
+                                                    effect
+                                                    (engine/gen-id-fn
+                                                      (:id-counter state)))]
                        (assoc new-state
                          :value stream-ref
                          :control nil
@@ -493,10 +482,13 @@
 (defn- vm-blocked?
   "Returns true if VM is blocked."
   [^ASTWalkerVM vm]
-  (boolean (:blocked vm)))
+  (engine/vm-blocked? vm))
 
 
-(defn- vm-value "Returns the current value." [^ASTWalkerVM vm] (:value vm))
+(defn- vm-value
+  "Returns the current value."
+  [^ASTWalkerVM vm]
+  (engine/vm-value vm))
 
 
 (defn- vm-load-program
@@ -510,22 +502,11 @@
    When ast is non-nil, loads it first. When nil, resumes from current state."
   [^ASTWalkerVM vm ast]
   (let [v (if ast (vm-load-program vm ast) vm)]
-    (loop [v v]
-      (cond
-        ;; Active computation: step it
-        (and (not (:blocked v)) (or (:control v) (:continuation v)))
-          (recur (vm-step v))
-        ;; Blocked or halted: check if scheduler can wake something
-        (:blocked v) (let [v' (scheduler/check-wait-set v)]
-                       (if-let [resumed (resume-from-run-queue v')]
-                         (recur resumed)
-                         v'))
-        ;; No active computation but run-queue has entries
-        (seq (or (:run-queue v) [])) (if-let [resumed (resume-from-run-queue v)]
-                                       (recur resumed)
-                                       v)
-        ;; Truly halted
-        :else v))))
+    (engine/run-loop
+      v
+      (fn [v] (and (not (:blocked v)) (or (:control v) (:continuation v))))
+      vm-step
+      resume-from-run-queue)))
 
 
 (extend-type ASTWalkerVM

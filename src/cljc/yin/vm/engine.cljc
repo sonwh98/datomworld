@@ -1,13 +1,47 @@
-(ns yin.scheduler
-  "Shared cooperative scheduler for all Yin VMs.
+(ns yin.vm.engine
+  (:require [yin.module :as module]
+            [yin.stream :as stream]))
 
-  Provides check-wait-set which is VM-agnostic: it only touches
-  :wait-set, :run-queue, :store and calls yin.stream/handle-next
-  and handle-put.
 
-  Each VM keeps its own resume-from-run-queue because the resume
-  fields differ per execution model."
-  (:require [yin.stream :as stream]))
+(defn resolve-var
+  "Look up a variable name: env -> store -> primitives -> module system."
+  [env store primitives name]
+  (if-let [pair (find env name)]
+    (val pair)
+    (if-let [pair (find store name)]
+      (val pair)
+      (or (get primitives name)
+          (module/resolve-symbol name)))))
+
+
+(defn gen-id
+  "Generate a unique keyword ID from a prefix and counter value."
+  [prefix id-counter]
+  (keyword (str prefix "-" id-counter)))
+
+
+(defn gen-id-fn
+  "Return a function that generates a unique keyword ID for a given prefix."
+  [id-counter]
+  (fn [prefix] (gen-id prefix id-counter)))
+
+
+(defn vm-blocked?
+  "Returns true if the VM is blocked."
+  [vm]
+  (boolean (:blocked vm)))
+
+
+(defn vm-value
+  "Returns the current value of the VM."
+  [vm]
+  (:value vm))
+
+
+(defn halted-with-empty-queue?
+  "Returns true if the VM has halted and its run-queue is empty."
+  [vm]
+  (and (boolean (:halted vm)) (empty? (or (:run-queue vm) []))))
 
 
 (defn check-wait-set
@@ -74,3 +108,44 @@
                                                                  result)))))))
                 ;; Unknown reason, keep waiting
                 (recur rest-entries (conj new-wait entry) new-run)))))))))
+
+
+(defn run-loop
+  "Generic eval loop with scheduler support.
+   active? is a predicate that returns true when the VM should keep stepping.
+   step-fn steps the VM one tick.
+   resume-fn pops the run-queue and resumes, returning updated state or nil."
+  [state active? step-fn resume-fn]
+  (loop [v state]
+    (cond
+      (active? v) (recur (step-fn v))
+      (:blocked v) (let [v' (check-wait-set v)]
+                     (if (not= (count (:run-queue v')) (count (:run-queue v)))
+                       (if-let [resumed (resume-fn v')]
+                         (recur resumed)
+                         v')
+                       v'))
+      (seq (or (:run-queue v) [])) (if-let [resumed (resume-fn v)]
+                                     (recur resumed)
+                                     v)
+      :else v)))
+
+
+(defn index-datoms
+  "Index AST datoms by entity.
+   Returns {:by-entity map, :get-attr fn, :root-id int}."
+  [ast-as-datoms]
+  (let [datoms (vec ast-as-datoms)
+        by-entity (group-by first datoms)
+        get-attr (fn [e attr]
+                   (some (fn [[_ a v]] (when (= a attr) v)) (get by-entity e)))
+        root-id (apply max (keys by-entity))]
+    {:by-entity by-entity
+     :get-attr get-attr
+     :root-id root-id}))
+
+
+(defn resume-entries-with-nil
+  "Set :value to nil on each entry, for waking parked continuations after stream close."
+  [entries]
+  (mapv #(assoc % :value nil) entries))

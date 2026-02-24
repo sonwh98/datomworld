@@ -12,9 +12,9 @@
    The compilation pipeline is: AST datoms -> ast-datoms->asm (symbolic IR) -> asm->bytecode (numeric).
    See ast-datoms->asm docstring for the full instruction set."
   (:require [yin.module :as module]
-            [yin.scheduler :as scheduler]
             [yin.stream :as stream]
-            [yin.vm :as vm])
+            [yin.vm :as vm]
+            [yin.vm.engine :as engine])
   #?(:cljs (:require-macros [yin.vm.register :refer [opcase]])))
 
 
@@ -100,15 +100,7 @@
 
    Uses simple linear register allocation."
   [ast-as-datoms]
-  (let [;; Materialize and index datoms by entity
-        datoms (vec ast-as-datoms)
-        by-entity (group-by first datoms)
-        ;; Get attribute value for entity
-        get-attr (fn [e attr]
-                   (some (fn [[_ a v _ _]] (when (= a attr) v))
-                         (get by-entity e)))
-        ;; Find root entity (max of negative tempids = -1025)
-        root-id (apply max (keys by-entity))
+  (let [{:keys [get-attr root-id]} (engine/index-datoms ast-as-datoms)
         ;; Assembly accumulator
         bytecode (atom [])
         emit! (fn [instr] (swap! bytecode conj instr))
@@ -371,11 +363,7 @@
         :loadv
         (let [rd (get bytecode (+ pc 1))
               name (get pool (get bytecode (+ pc 2)))
-              v (if-let [pair (find env name)]
-                  (val pair)
-                  (if-let [pair (find store name)]
-                    (val pair)
-                    (or (get primitives name) (module/resolve-symbol name))))]
+              v (engine/resolve-var env store primitives name)]
           (assoc state
             :regs (assoc regs rd v)
             :pc (+ pc 3)))
@@ -424,15 +412,15 @@
                                              (:key result) (:val result))
                                     :regs (assoc regs rd (:val result))
                                     :pc next-pc)
-                    :stream/make
-                      (let [gen-id-fn (fn [prefix]
-                                        (keyword (str prefix "-" id-counter)))
-                            [stream-ref new-state]
-                              (stream/handle-make state result gen-id-fn)]
-                        (assoc new-state
-                          :regs (assoc regs rd stream-ref)
-                          :pc next-pc
-                          :id-counter (inc id-counter)))
+                    :stream/make (let [[stream-ref new-state]
+                                         (stream/handle-make state
+                                                             result
+                                                             (engine/gen-id-fn
+                                                               id-counter))]
+                                   (assoc new-state
+                                     :regs (assoc regs rd stream-ref)
+                                     :pc next-pc
+                                     :id-counter (inc id-counter)))
                     :stream/put
                       (let [put-result (stream/handle-put state result)]
                         (if (:park put-result)
@@ -456,15 +444,15 @@
                           (assoc (:state put-result)
                             :regs (assoc regs rd (:value put-result))
                             :pc next-pc)))
-                    :stream/cursor
-                      (let [gen-id-fn (fn [prefix]
-                                        (keyword (str prefix "-" id-counter)))
-                            [cursor-ref new-state]
-                              (stream/handle-cursor state result gen-id-fn)]
-                        (assoc new-state
-                          :regs (assoc regs rd cursor-ref)
-                          :pc next-pc
-                          :id-counter (inc id-counter)))
+                    :stream/cursor (let [[cursor-ref new-state]
+                                           (stream/handle-cursor
+                                             state
+                                             result
+                                             (engine/gen-id-fn id-counter))]
+                                     (assoc new-state
+                                       :regs (assoc regs rd cursor-ref)
+                                       :pc next-pc
+                                       :id-counter (inc id-counter)))
                     :stream/next
                       (let [next-result (stream/handle-next state result)]
                         (if (:park next-result)
@@ -494,8 +482,7 @@
                             to-resume (:resume-parked close-result)
                             run-queue (or (:run-queue new-state) [])
                             new-run-queue (into run-queue
-                                                (map (fn [entry]
-                                                       (assoc entry :value nil))
+                                                (engine/resume-entries-with-nil
                                                   to-resume))]
                         (assoc new-state
                           :run-queue new-run-queue
@@ -600,7 +587,7 @@
         :gensym
         (let [rd (get bytecode (+ pc 1))
               prefix (get pool (get bytecode (+ pc 2)))
-              id (keyword (str prefix "-" id-counter))]
+              id (engine/gen-id prefix id-counter)]
           (assoc state
             :regs (assoc regs rd id)
             :pc (+ pc 3)
@@ -622,10 +609,9 @@
         :stream-make
         (let [rd (get bytecode (+ pc 1))
               buf (get pool (get bytecode (+ pc 2)))
-              gen-id-fn (fn [prefix] (keyword (str prefix "-" id-counter)))
               effect {:effect :stream/make, :capacity buf}
               [stream-ref new-state]
-                (stream/handle-make state effect gen-id-fn)]
+                (stream/handle-make state effect (engine/gen-id-fn id-counter))]
           (assoc new-state
             :regs (assoc regs rd stream-ref)
             :pc (+ pc 3)
@@ -658,10 +644,11 @@
         (let [rd (get bytecode (+ pc 1))
               rs (get bytecode (+ pc 2))
               stream-ref (get-reg state rs)
-              gen-id-fn (fn [prefix] (keyword (str prefix "-" id-counter)))
               effect {:effect :stream/cursor, :stream stream-ref}
-              [cursor-ref new-state]
-                (stream/handle-cursor state effect gen-id-fn)]
+              [cursor-ref new-state] (stream/handle-cursor state
+                                                           effect
+                                                           (engine/gen-id-fn
+                                                             id-counter))]
           (assoc new-state
             :regs (assoc regs rd cursor-ref)
             :pc (+ pc 3)
@@ -701,8 +688,7 @@
               to-resume (:resume-parked close-result)
               run-queue (or (:run-queue new-state) [])
               new-run-queue (into run-queue
-                                  (map (fn [entry] (assoc entry :value nil))
-                                    to-resume))]
+                                  (engine/resume-entries-with-nil to-resume))]
           (assoc new-state
             :run-queue new-run-queue
             :regs (assoc regs rd nil)
@@ -795,16 +781,19 @@
 (defn- reg-vm-halted?
   "Returns true if VM has halted."
   [^RegisterVM vm]
-  (and (boolean (:halted vm)) (empty? (or (:run-queue vm) []))))
+  (engine/halted-with-empty-queue? vm))
 
 
 (defn- reg-vm-blocked?
   "Returns true if VM is blocked."
   [^RegisterVM vm]
-  (boolean (:blocked vm)))
+  (engine/vm-blocked? vm))
 
 
-(defn- reg-vm-value "Returns the current value." [^RegisterVM vm] (:value vm))
+(defn- reg-vm-value
+  "Returns the current value."
+  [^RegisterVM vm]
+  (engine/vm-value vm))
 
 
 (defn- reg-vm-reset
@@ -845,21 +834,10 @@
                   compiled (assoc (asm->bytecode asm) :reg-count reg-count)]
               (reg-vm-load-program vm compiled))
             vm)]
-    (loop [v v]
-      (cond
-        ;; Active computation: step it
-        (and (not (:blocked v)) (not (:halted v))) (recur (reg-vm-step v))
-        ;; Blocked: check if scheduler can wake something
-        (:blocked v) (let [v' (scheduler/check-wait-set v)]
-                       (if-let [resumed (resume-from-run-queue v')]
-                         (recur resumed)
-                         v'))
-        ;; Halted but run-queue has entries
-        (seq (or (:run-queue v) [])) (if-let [resumed (resume-from-run-queue v)]
-                                       (recur resumed)
-                                       v)
-        ;; Truly halted
-        :else v))))
+    (engine/run-loop v
+                     (fn [v] (and (not (:blocked v)) (not (:halted v))))
+                     reg-vm-step
+                     resume-from-run-queue)))
 
 
 (extend-type RegisterVM
