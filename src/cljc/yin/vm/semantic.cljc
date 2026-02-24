@@ -120,9 +120,9 @@
       (let [frame (peek stack)
             new-stack (pop stack)]
         (case (:type frame)
-          :if (let [{:keys [cons alt env]} frame]
+          :if (let [{:keys [consequent alternate env]} frame]
                 (assoc vm
-                  :control {:type :node, :id (if val cons alt)}
+                  :control {:type :node, :id (if val consequent alternate)}
                   :env env
                   :stack new-stack))
           :app-op
@@ -409,8 +409,8 @@
             :control {:type :node, :id (:yin/test node-map)}
             :stack (conj stack
                          {:type :if,
-                          :cons (:yin/consequent node-map),
-                          :alt (:yin/alternate node-map),
+                          :consequent (:yin/consequent node-map),
+                          :alternate (:yin/alternate node-map),
                           :env env}))
       :application (assoc vm
                      :control {:type :node, :id (:yin/operator node-map)}

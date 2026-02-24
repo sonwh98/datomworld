@@ -147,8 +147,7 @@
             :control body
             :environment extended-env
             :continuation continuation))
-      :else (throw (ex-info "Cannot apply non-function"
-                            {:fn-value fn-value})))))
+      :else (throw (ex-info "Cannot apply non-function" {:fn fn-value})))))
 
 
 (defn- cesk-transition
@@ -181,7 +180,7 @@
                              ;; Has operands: evaluate first one
                              (let [updated-frame (assoc frame
                                                    :operator-evaluated? true
-                                                   :fn-value fn-value)]
+                                                   :fn fn-value)]
                                (assoc state
                                  :control (first operands)
                                  :environment (or saved-env environment)
@@ -192,22 +191,20 @@
           :eval-operand
             (let [frame (:frame continuation)
                   operand-value (:value state)
-                  evaluated-operands (conj (or (:evaluated-operands frame) [])
-                                           operand-value)
+                  evaluated (conj (or (:evaluated frame) []) operand-value)
                   operands (:operands frame)
                   saved-env (:environment continuation)]
-              (if (= (count evaluated-operands) (count operands))
+              (if (= (count evaluated) (count operands))
                 ;; All evaluated: apply immediately
                 (apply-function (assoc state
                                   :environment (or saved-env environment))
-                                (:fn-value frame)
-                                evaluated-operands
+                                (:fn frame)
+                                evaluated
                                 (:parent continuation))
                 ;; More operands: evaluate next
-                (let [next-idx (count evaluated-operands)
+                (let [next-idx (count evaluated)
                       next-node (nth operands next-idx)
-                      updated-frame (assoc frame
-                                      :evaluated-operands evaluated-operands)]
+                      updated-frame (assoc frame :evaluated evaluated)]
                   (assoc state
                     :control next-node
                     :environment (or saved-env environment)
