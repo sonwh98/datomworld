@@ -47,13 +47,13 @@
 (def OP_LITERAL 1)       ; [OP_LITERAL] [val-idx]
 (def OP_LOAD_VAR 2)      ; [OP_LOAD_VAR] [sym-idx]
 (def OP_LAMBDA 3)        ; [OP_LAMBDA] [arity] [body-len-hi] [body-len-lo] ...body...
-(def OP_APPLY 4)         ; [OP_APPLY] [argc]
+(def OP_CALL 4)         ; [OP_CALL] [argc]
 (def OP_BRANCH 5)        ; [OP_BRANCH] [offset-hi] [offset-lo]
 (def OP_RETURN 6)        ; [OP_RETURN]
 (def OP_JUMP 7)          ; [OP_JUMP] [offset-hi] [offset-lo]
 (def OP_GENSYM 8)        ; [OP_GENSYM] [prefix-idx]
-(def OP_STORE_GET 9)     ; [OP_STORE_GET] [key-idx]
-(def OP_STORE_PUT 10)    ; [OP_STORE_PUT] [key-idx]
+(def OP_SGET 9)     ; [OP_SGET] [key-idx]
+(def OP_SPUT 10)    ; [OP_SPUT] [key-idx]
 (def OP_STREAM_MAKE 11)  ; [OP_STREAM_MAKE] [buf-idx]
 (def OP_STREAM_PUT 12)   ; [OP_STREAM_PUT]
 (def OP_STREAM_CURSOR 13); [OP_STREAM_CURSOR]
@@ -62,7 +62,7 @@
 (def OP_PARK 16)         ; [OP_PARK]
 (def OP_RESUME 17)       ; [OP_RESUME]
 (def OP_CURRENT_CONT 18) ; [OP_CURRENT_CONT]
-(def OP_TAIL_APPLY 19)   ; [OP_TAIL_APPLY] [argc]
+(def OP_TAILCALL 19)   ; [OP_TAILCALL] [argc]
 
 
 ;; =============================================================================
@@ -248,10 +248,10 @@
                       (emit-byte! params-idx)
                       (emit-short! body-len)
                       (swap! emit-offset + 4))
-            :call (do (emit-byte! OP_APPLY)
+            :call (do (emit-byte! OP_CALL)
                       (emit-byte! arg1)
                       (swap! emit-offset + 2))
-            :tailcall (do (emit-byte! OP_TAIL_APPLY)
+            :tailcall (do (emit-byte! OP_TAILCALL)
                           (emit-byte! arg1)
                           (swap! emit-offset + 2))
             :branch (let [target-label arg1
@@ -275,11 +275,11 @@
                       (emit-byte! idx)
                       (swap! emit-offset + 2))
             :sget (let [idx (add-constant arg1)]
-                    (emit-byte! OP_STORE_GET)
+                    (emit-byte! OP_SGET)
                     (emit-byte! idx)
                     (swap! emit-offset + 2))
             :sput (let [idx (add-constant arg1)]
-                    (emit-byte! OP_STORE_PUT)
+                    (emit-byte! OP_SPUT)
                     (emit-byte! idx)
                     (swap! emit-offset + 2))
             :stream-make (let [idx (add-constant arg1)]
@@ -496,9 +496,9 @@
               (assoc state
                 :pc (+ pc 4 body-len)
                 :stack (conj stack closure)))
-          4 ; OP_APPLY
+          4 ; OP_CALL
             (let [argc (nth bytecode (inc pc))] (apply-op state argc false))
-          19 ; OP_TAIL_APPLY
+          19 ; OP_TAILCALL
             (let [argc (nth bytecode (inc pc))] (apply-op state argc true))
           5 ; OP_BRANCH
             (let [offset (fetch-short-signed bytecode (inc pc))
@@ -533,14 +533,14 @@
                 :pc (+ pc 2)
                 :stack (conj stack id)
                 :id-counter (inc id-counter)))
-          9 ; OP_STORE_GET
+          9 ; OP_SGET
             (let [key-idx (nth bytecode (inc pc))
                   key (nth pool key-idx)
                   val (get store key)]
               (assoc state
                 :pc (+ pc 2)
                 :stack (conj stack val)))
-          10 ; OP_STORE_PUT
+          10 ; OP_SPUT
             (let [key-idx (nth bytecode (inc pc))
                   key (nth pool key-idx)
                   val (peek stack)
