@@ -8,7 +8,7 @@
             [cljs.reader :as reader]
             [clojure.string :as str]
             [dao.stream :as ds]
-            [dao.stream.storage :as storage]
+            [datomworld.continuation-transport :as ct]
             [reagent.core :as r]
             [yang.clojure :as yang]
             [yin.vm :as vm]
@@ -88,37 +88,36 @@
                                                style)}])})))
 
 
-(defn empty-stream
-  []
-  {:queue [], :log (ds/make (storage/memory-storage)), :next-e 7000, :next-t 1})
-
-
 (defonce app-state
-  (r/atom
-    {:source-code source-example,
-     :ast nil,
-     :ast-datoms nil,
-     :register-asm nil,
-     :register-bytecode nil,
-     :register-pool nil,
-     :register-source-map nil,
-     :register-reg-count nil,
-     :stack-asm nil,
-     :stack-bytecode nil,
-     :stack-pool nil,
-     :stack-source-map nil,
-     :register-vm nil,
-     :stack-vm nil,
-     :owner :register-vm,
-     :steps 0,
-     :handoffs 0,
-     :steps-since-handoff 0,
-     :handoff-interval 50,
-     :running false,
-     :completed? false,
-     :result nil,
-     :stream (empty-stream),
-     :error nil}))
+  (let [{:keys [continuation-stream cursors pending-continuations]}
+          (ct/init-state [:register-vm :stack-vm])]
+    (r/atom
+      {:source-code source-example,
+       :ast nil,
+       :ast-datoms nil,
+       :register-asm nil,
+       :register-bytecode nil,
+       :register-pool nil,
+       :register-source-map nil,
+       :register-reg-count nil,
+       :stack-asm nil,
+       :stack-bytecode nil,
+       :stack-pool nil,
+       :stack-source-map nil,
+       :register-vm nil,
+       :stack-vm nil,
+       :owner :register-vm,
+       :steps 0,
+       :handoffs 0,
+       :steps-since-handoff 0,
+       :handoff-interval 50,
+       :running false,
+       :completed? false,
+       :result nil,
+       :continuation-stream continuation-stream,
+       :cursors cursors,
+       :pending-continuations pending-continuations,
+       :error nil})))
 
 
 (defonce run-raf-id (atom nil))
@@ -165,7 +164,7 @@
 (defn stack-vm? [vm-key] (= vm-key :stack-vm))
 
 
-(defn vm-control-counter [vm-key vm-state] (when vm-state (:pc vm-state)))
+(defn vm-control-counter [_vm-key vm-state] (when vm-state (:pc vm-state)))
 
 
 (defn vm-continuation-depth
@@ -194,18 +193,6 @@
 
 
 (defn other-vm [vm-key] (if (= vm-key :register-vm) :stack-vm :register-vm))
-
-
-(defn append-stream-datom
-  [stream a v]
-  (let [e (:next-e stream)
-        t (:next-t stream)
-        datom [e a v t 0]
-        {:keys [ok]} (ds/put (:log stream) datom)]
-    [(assoc stream
-       :next-e (inc e)
-       :next-t (inc t)
-       :log ok) datom]))
 
 
 (defn create-loaded-register-vm
@@ -242,35 +229,9 @@
                  :from from,
                  :to to,
                  :control (vm-control-counter from from-vm-state),
-                 :continuation-depth (vm-continuation-depth from from-vm-state)}
-        [stream* datom]
-          (append-stream-datom (:stream state) :stream/continuation summary)
-        message {:id (first datom),
-                 :from from,
-                 :to to,
-                 :summary summary,
-                 :continuation continuation}]
-    (assoc state :stream (update stream* :queue conj message))))
-
-
-(defn pop-continuation-for
-  [state vm-key]
-  (let [queue (get-in state [:stream :queue] [])
-        idx (first (keep-indexed (fn [i msg] (when (= vm-key (:to msg)) i))
-                                 queue))]
-    (if (nil? idx)
-      [state nil]
-      (let [message (nth queue idx)
-            next-queue (vec (concat (subvec queue 0 idx)
-                                    (subvec queue (inc idx))))
-            stream-with-queue (assoc (:stream state) :queue next-queue)
-            [stream* _] (append-stream-datom
-                          stream-with-queue
-                          :stream/deliver
-                          {:message (:id message),
-                           :to vm-key,
-                           :control (get-in message [:summary :control])})]
-        [(assoc state :stream stream*) message]))))
+                 :continuation-depth (vm-continuation-depth from
+                                                            from-vm-state)}]
+    (ct/enqueue-continuation state summary continuation)))
 
 
 (defn activate-owner-from-stream
@@ -278,7 +239,7 @@
   (let [owner (:owner state)]
     (if (get state owner)
       [state false]
-      (let [[state* message] (pop-continuation-for state owner)]
+      (let [[state* message] (ct/consume-continuation-for state owner)]
         (if message
           [(assoc state*
              owner (continuation->vm-state owner (:continuation message))) true]
@@ -296,28 +257,32 @@
 (defn invalidate-compiled-state!
   []
   (stop-run-loop!)
-  (swap! app-state assoc
-    :ast nil
-    :ast-datoms nil
-    :register-asm nil
-    :register-bytecode nil
-    :register-pool nil
-    :register-source-map nil
-    :register-reg-count nil
-    :stack-asm nil
-    :stack-bytecode nil
-    :stack-pool nil
-    :stack-source-map nil
-    :register-vm nil
-    :stack-vm nil
-    :owner :register-vm
-    :steps 0
-    :handoffs 0
-    :steps-since-handoff 0
-    :stream (empty-stream)
-    :completed? false
-    :result nil
-    :error nil))
+  (let [{:keys [continuation-stream cursors pending-continuations]}
+          (ct/init-state [:register-vm :stack-vm])]
+    (swap! app-state assoc
+      :ast nil
+      :ast-datoms nil
+      :register-asm nil
+      :register-bytecode nil
+      :register-pool nil
+      :register-source-map nil
+      :register-reg-count nil
+      :stack-asm nil
+      :stack-bytecode nil
+      :stack-pool nil
+      :stack-source-map nil
+      :register-vm nil
+      :stack-vm nil
+      :owner :register-vm
+      :steps 0
+      :handoffs 0
+      :steps-since-handoff 0
+      :continuation-stream continuation-stream
+      :cursors cursors
+      :pending-continuations pending-continuations
+      :completed? false
+      :result nil
+      :error nil)))
 
 
 (defn set-source-code!
@@ -333,7 +298,9 @@
   (let [{:keys [register-bytecode register-pool register-reg-count]} @app-state]
     (when (and register-bytecode register-pool register-reg-count)
       (stop-run-loop!)
-      (let [initial-vm (create-loaded-register-vm {:bytecode register-bytecode,
+      (let [{:keys [continuation-stream cursors pending-continuations]}
+              (ct/init-state [:register-vm :stack-vm])
+            initial-vm (create-loaded-register-vm {:bytecode register-bytecode,
                                                    :pool register-pool,
                                                    :reg-count
                                                      register-reg-count})]
@@ -344,7 +311,9 @@
           :steps 0
           :handoffs 0
           :steps-since-handoff 0
-          :stream (empty-stream)
+          :continuation-stream continuation-stream
+          :cursors cursors
+          :pending-continuations pending-continuations
           :completed? false
           :result nil
           :error nil)))))
@@ -365,6 +334,8 @@
              stack-pool :pool,
              stack-source-map :source-map}
               (stack/asm->bytecode stack-asm)
+            {:keys [continuation-stream cursors pending-continuations]}
+              (ct/init-state [:register-vm :stack-vm])
             initial-vm (create-loaded-register-vm {:bytecode bytecode,
                                                    :pool pool,
                                                    :reg-count reg-count})]
@@ -386,7 +357,9 @@
           :steps 0
           :handoffs 0
           :steps-since-handoff 0
-          :stream (empty-stream)
+          :continuation-stream continuation-stream
+          :cursors cursors
+          :pending-continuations pending-continuations
           :running false
           :completed? false
           :result nil
@@ -528,17 +501,6 @@
           (str (if (= idx active-idx) "=> " "   ") idx "  " (pr-str instr)))
         asm))
     "Compile source to view assembly."))
-
-
-(defn stream-queue-summary
-  [queue]
-  (mapv (fn [{:keys [id summary]}]
-          {:id id,
-           :from (:from summary),
-           :to (:to summary),
-           :control (:control summary),
-           :continuation-depth (:continuation-depth summary)})
-    queue))
 
 
 (defn card
@@ -706,7 +668,8 @@
        (fn []
          (let [{:keys [source-code register-asm register-bytecode register-pool
                        register-reg-count stack-asm stack-bytecode stack-pool
-                       stream steps handoffs owner completed? result error]}
+                       continuation-stream cursors steps handoffs owner
+                       completed? result error]}
                  @app-state
                register-vm (:register-vm @app-state)
                stack-vm (:stack-vm @app-state)
@@ -725,18 +688,23 @@
                                                     (range (count stack-asm))
                                                     stack-asm)}})
                    "Compile source to generate register and stack bytecode.")
-               queue-view (pretty-print (stream-queue-summary (:queue stream)))
+               queue-view (pretty-print
+                            (ct/in-flight-summary continuation-stream cursors))
                stream-view (pretty-print
-                             (vec (take-last 200 (ds/->seq (:log stream)))))
-               run-summary {:owner owner,
-                            :steps steps,
-                            :handoffs handoffs,
-                            :register-vm-control
-                              (vm-control-counter :register-vm register-vm),
-                            :stack-vm-control (vm-control-counter :stack-vm
-                                                                  stack-vm),
-                            :completed? completed?,
-                            :result result}]
+                             (vec (take-last 200
+                                             (ds/->seq continuation-stream))))
+               run-summary
+                 {:owner owner,
+                  :steps steps,
+                  :handoffs handoffs,
+                  :register-vm-control (vm-control-counter :register-vm
+                                                           register-vm),
+                  :stack-vm-control (vm-control-counter :stack-vm stack-vm),
+                  :register-cursor (get-in cursors [:register-vm :position]),
+                  :stack-cursor (get-in cursors [:stack-vm :position]),
+                  :stream-length (ds/length continuation-stream),
+                  :completed? completed?,
+                  :result result}]
            [:div
             {:style {:min-height "100vh",
                      :background "#060817",
@@ -786,7 +754,8 @@
                        :grid-template-columns "repeat(3, minmax(0, 1fr))",
                        :gap "12px",
                        :min-height "0"}}
-              [card "Stream Queue" "Continuation packets currently in flight."
+              [card "In-Flight"
+               "Continuations between VM cursor and stream head."
                [codemirror-editor
                 {:value queue-view, :read-only true, :style {:height "100%"}}]]
               [card "Stream Datoms"

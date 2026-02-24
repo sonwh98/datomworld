@@ -2,6 +2,7 @@
   (:require [cljs.test :refer-macros [run-tests]]
             [dao.db.core-test]
             [dao.stream-test]
+            [datomworld.continuation-transport-test]
             [yin.content-test]
             [yin.transport-test]
             [yin.vm.ast-walker-test]
@@ -14,7 +15,8 @@
 
 (defn -main
   []
-  (run-tests 'dao.db.core-test
+  (run-tests 'datomworld.continuation-transport-test
+             'dao.db.core-test
              'dao.stream-test
              'yin.content-test
              'yin.transport-test
