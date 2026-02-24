@@ -83,25 +83,29 @@
                                              (when (not= store updated-store)
                                                updated-store)))))))
                 :put (let [stream-id (:stream-id entry)
-                           _stream (get store stream-id)
-                           datom (:datom entry)
-                           stream-ref {:type :stream-ref, :id stream-id}
-                           effect {:effect :stream/put,
-                                   :stream stream-ref,
-                                   :val datom}
-                           result (stream/handle-put (assoc state :store store)
-                                                     effect)]
-                       (if (:park result)
-                         ;; Still full
-                         (recur rest-entries (conj new-wait entry) new-run)
-                         ;; Has capacity now
-                         (recur rest-entries
-                                new-wait
-                                (conj new-run
-                                      (assoc entry
-                                        :value (:value result)
-                                        :store-updates (:store (:state
-                                                                 result)))))))
+                           stream (get store stream-id)]
+                       (if (:closed stream)
+                         ;; Stream was closed: drop the parked put
+                         (recur rest-entries new-wait new-run)
+                         (let [datom (:datom entry)
+                               stream-ref {:type :stream-ref, :id stream-id}
+                               effect {:effect :stream/put,
+                                       :stream stream-ref,
+                                       :val datom}
+                               result (stream/handle-put (assoc state
+                                                           :store store)
+                                                         effect)]
+                           (if (:park result)
+                             ;; Still full
+                             (recur rest-entries (conj new-wait entry) new-run)
+                             ;; Has capacity now
+                             (recur rest-entries
+                                    new-wait
+                                    (conj new-run
+                                          (assoc entry
+                                            :value (:value result)
+                                            :store-updates
+                                              (:store (:state result)))))))))
                 ;; Unknown reason, keep waiting
                 (recur rest-entries (conj new-wait entry) new-run)))))))))
 

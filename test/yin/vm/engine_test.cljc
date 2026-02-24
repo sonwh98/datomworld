@@ -1,5 +1,6 @@
 (ns yin.vm.engine-test
   (:require [clojure.test :refer [deftest is testing]]
+            [dao.stream :as ds]
             [yin.stream :as stream]
             [yin.vm.engine :as engine]))
 
@@ -110,6 +111,46 @@
       (is (empty? (:wait-set state-runnable)))
       (is (= 1 (count (:run-queue state-runnable))))
       (is (= 2 (:value (first (:run-queue state-runnable))))))))
+
+
+(deftest check-wait-set-closed-stream-put-waiter-test
+  (testing
+    "check-wait-set should not throw when a stream is closed with parked :put entries"
+    (let [state {:store {}, :id-counter 0}
+          gen-id-fn (fn [v] (engine/gen-id-fn (:id-counter v)))
+          ;; 1. Make stream with capacity 1 and fill it.
+          [stream-ref state]
+            (stream/handle-make state {:capacity 1} (gen-id-fn state))
+          state (update state :id-counter inc)
+          stream-id (:id stream-ref)
+          state (:state (stream/handle-put state {:stream stream-ref, :val 1}))
+          ;; 2. Park a :put continuation.
+          parked-entry {:reason :put,
+                        :stream-id stream-id,
+                        :datom 2,
+                        :continuation {:type :some-cont}}
+          state (assoc state
+                  :wait-set [parked-entry]
+                  :run-queue [])
+          ;; 3. Close stream. :put waiters are intentionally left in
+          ;; wait-set.
+          close-result (stream/handle-close state {:stream stream-ref})
+          closed-state (:state close-result)
+          ;; 4. Scheduler re-check should drop the :put waiter silently.
+          checked (#'yin.vm.engine/check-wait-set closed-state)
+          ;; 5. Second check should be idempotent (nothing left to
+          ;; process).
+          checked-again (#'yin.vm.engine/check-wait-set checked)
+          stream-after (get-in checked-again [:store stream-id])]
+      (is (empty? (:wait-set checked))
+          "Closed-stream :put waiter should be dropped, not retained")
+      (is (empty? (:run-queue checked))
+          "Closed-stream :put waiter should not be resumed")
+      (is (= checked checked-again)
+          "Scheduler should be stable after dropping closed-stream :put waiter")
+      (is (ds/closed? stream-after) "Closed-stream state must be preserved")
+      (is (= 1 (ds/length stream-after))
+          "Dropped :put waiter must not append into closed stream"))))
 
 
 (deftest check-wait-set-mixed-status-test

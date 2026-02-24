@@ -63,6 +63,7 @@ All functions take data, return data. No side effects.
 | `cursor` | `[stream-ref]` | cursor at position 0 |
 | `next` | `[cursor stream]` | `{:ok val, :cursor cursor'}`, `:blocked`, or `:end` (`:daostream/gap` reserved, deferred) |
 | `seek` | `[cursor pos]` | cursor at position |
+| `->seq` | `[stream]` | lazy seq of values in append order |
 | `position` | `[cursor]` | int |
 
 `put` throws on closed streams. `:full` is returned (not thrown) when at capacity, so the VM can park the putting continuation.
@@ -198,5 +199,5 @@ The property holds at both layers:
 - Typed streams (schema as datoms, fixed-size layouts, columnar SoA)
 - Bounding (closing a stream at a transaction, producing a stable database value)
 - Eviction (bounded retention, `:daostream/gap` signal)
-- Cross-language adapters (JS async iterator, etc.), Clojure seq implemented via `dao.stream/->seq`
+- Cross-language adapters (JS async iterator, etc.)
 - DaoDB as stream interpreter (consuming streams to build EAVT/AEVT indexes)
