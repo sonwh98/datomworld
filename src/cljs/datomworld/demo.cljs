@@ -376,7 +376,7 @@
      :register-result nil,
      :register-source-map nil,
      :stack-asm nil,
-     :stack-bc nil,
+     :stack-bytecode nil,
      :stack-result nil,
      :stack-source-map nil,
      :query-text "[:find ?e ?type\n :where [?e :yin/type ?type]]",
@@ -535,9 +535,9 @@
 
 
 (defn- load-stack-state
-  [bc pool]
+  [bytecode pool]
   (-> (stack/create-vm {:env vm/primitives})
-      (vm/load-program {:bc bc, :pool pool})))
+      (vm/load-program {:bytecode bytecode, :pool pool})))
 
 
 (defn- load-register-state
@@ -566,17 +566,17 @@
                                    asm (stack/ast-datoms->asm datoms)
                                    result (stack/asm->bytecode asm)]
                                {:asm asm,
-                                :bc (:bc result),
+                                :bytecode (:bytecode result),
                                 :pool (:pool result),
                                 :source-map (:source-map result)}))
                        forms)
              last-result (last results)
              initial-state (when last-result
-                             (load-stack-state (:bc last-result)
+                             (load-stack-state (:bytecode last-result)
                                                (:pool last-result)))]
          (swap! app-state assoc
            :stack-asm (mapv :asm results)
-           :stack-bc (mapv :bc results)
+           :stack-bytecode (mapv :bytecode results)
            :stack-pool (mapv :pool results)
            :stack-source-map (mapv :source-map results)
            :error nil)
@@ -586,7 +586,7 @@
          (swap! app-state assoc
            :error (str "Stack Compile Error: " (.-message e))
            :stack-asm nil
-           :stack-bc nil)
+           :stack-bytecode nil)
          (clear-vm-state! :stack)
          nil)))
 
@@ -594,10 +594,10 @@
 (defn reset-stack
   "Reset stack VM to initial state from compiled bytecode."
   []
-  (let [bc (last (:stack-bc @app-state))
+  (let [bytecode (last (:stack-bytecode @app-state))
         pool (last (:stack-pool @app-state))]
-    (when (and bc pool)
-      (let [initial-state (load-stack-state bc pool)]
+    (when (and bytecode pool)
+      (let [initial-state (load-stack-state bytecode pool)]
         (set-vm-state! :stack initial-state)
         (swap! app-state assoc :stack-result nil)))))
 

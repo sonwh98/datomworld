@@ -100,7 +100,7 @@
      :register-source-map nil,
      :register-reg-count nil,
      :stack-asm nil,
-     :stack-bc nil,
+     :stack-bytecode nil,
      :stack-pool nil,
      :stack-source-map nil,
      :register-vm nil,
@@ -214,16 +214,16 @@
 
 
 (defn create-loaded-stack-vm
-  [{:keys [bc pool]}]
+  [{:keys [bytecode pool]}]
   (-> (stack/create-vm {:env vm/primitives})
-      (vm/load-program {:bc bc, :pool pool})))
+      (vm/load-program {:bytecode bytecode, :pool pool})))
 
 
 (defn create-initial-vm
   [state vm-key]
   (if (stack-vm? vm-key)
-    (when (and (:stack-bc state) (:stack-pool state))
-      (create-loaded-stack-vm {:bc (:stack-bc state),
+    (when (and (:stack-bytecode state) (:stack-pool state))
+      (create-loaded-stack-vm {:bytecode (:stack-bytecode state),
                                :pool (:stack-pool state)}))
     (when (and (:register-bytecode state)
                (:register-pool state)
@@ -304,7 +304,7 @@
     :register-source-map nil
     :register-reg-count nil
     :stack-asm nil
-    :stack-bc nil
+    :stack-bytecode nil
     :stack-pool nil
     :stack-source-map nil
     :register-vm nil
@@ -360,7 +360,9 @@
             {:keys [asm reg-count]} (register/ast-datoms->asm ast-datoms)
             {:keys [bytecode pool source-map]} (register/asm->bytecode asm)
             stack-asm (stack/ast-datoms->asm ast-datoms)
-            {:keys [bc], stack-pool :pool, stack-source-map :source-map}
+            {stack-bytecode :bytecode,
+             stack-pool :pool,
+             stack-source-map :source-map}
               (stack/asm->bytecode stack-asm)
             initial-vm (create-loaded-register-vm {:bytecode bytecode,
                                                    :pool pool,
@@ -374,7 +376,7 @@
           :register-source-map source-map
           :register-reg-count reg-count
           :stack-asm stack-asm
-          :stack-bc bc
+          :stack-bytecode stack-bytecode
           :stack-pool stack-pool
           :stack-source-map stack-source-map
           :register-vm initial-vm
@@ -410,7 +412,7 @@
 (defn step-state
   [state]
   (if (or (nil? (:register-bytecode state))
-          (nil? (:stack-bc state))
+          (nil? (:stack-bytecode state))
           (:completed? state))
     (assoc state :running false)
     (let [owner (:owner state)
@@ -473,7 +475,7 @@
   []
   (if (:running @app-state)
     (stop-run-loop!)
-    (when (and (:register-bytecode @app-state) (:stack-bc @app-state))
+    (when (and (:register-bytecode @app-state) (:stack-bytecode @app-state))
       (swap! app-state assoc :running true :error nil)
       (when @run-raf-id (js/cancelAnimationFrame @run-raf-id))
       (reset! run-raf-id (js/requestAnimationFrame run-frame!)))))
@@ -621,7 +623,8 @@
 (defn controls-panel
   []
   (let [{:keys [running handoff-interval]} @app-state
-        compiled? (and (:register-bytecode @app-state) (:stack-bc @app-state))]
+        compiled? (and (:register-bytecode @app-state)
+                       (:stack-bytecode @app-state))]
     [:div
      {:style
         {:display "flex", :flex-wrap "wrap", :align-items "center", :gap "8px"}}
@@ -695,19 +698,19 @@
     {:display-name "continuation-stream-main",
      :component-did-mount (fn []
                             (when-not (and (:register-bytecode @app-state)
-                                           (:stack-bc @app-state))
+                                           (:stack-bytecode @app-state))
                               (compile-source!))),
      :component-will-unmount (fn [] (stop-run-loop!)),
      :reagent-render
        (fn []
          (let [{:keys [source-code register-asm register-bytecode register-pool
-                       register-reg-count stack-asm stack-bc stack-pool stream
-                       steps handoffs owner completed? result error]}
+                       register-reg-count stack-asm stack-bytecode stack-pool
+                       stream steps handoffs owner completed? result error]}
                  @app-state
                register-vm (:register-vm @app-state)
                stack-vm (:stack-vm @app-state)
                bytecode-view
-                 (if (and register-bytecode stack-bc)
+                 (if (and register-bytecode stack-bytecode)
                    (pretty-print {:register-vm {:reg-count register-reg-count,
                                                 :pool register-pool,
                                                 :bytecode register-bytecode,
@@ -716,7 +719,7 @@
                                                                 register-asm))
                                                        register-asm)},
                                   :stack-vm {:pool stack-pool,
-                                             :bc stack-bc,
+                                             :bytecode stack-bytecode,
                                              :asm (mapv vector
                                                     (range (count stack-asm))
                                                     stack-asm)}})

@@ -172,7 +172,7 @@
 
 (defn asm->bytecode
   "Convert symbolic stack assembly to numeric bytecode.
-   Returns {:bc bytes :pool pool :source-map {byte-offset instr-index}}."
+   Returns {:bytecode bytes :pool pool :source-map {byte-offset instr-index}}."
   [instructions]
   (let [pool (atom [])
         pool-index (atom {})
@@ -297,7 +297,7 @@
             :resume (do (emit-byte! OP_RESUME) (swap! emit-offset + 1))
             :current-cont (do (emit-byte! OP_CURRENT_CONT)
                               (swap! emit-offset + 1)))))
-      {:bc @bytes, :pool @pool, :source-map @source-map})))
+      {:bytecode @bytes, :pool @pool, :source-map @source-map})))
 
 
 (defn- fetch-short-unsigned
@@ -728,11 +728,11 @@
 
 (defn- stack-vm-load-program
   "Load bytecode into the VM.
-   Expects {:bc [...] :pool [...]}."
-  [^StackVM vm {:keys [bc pool]}]
+   Expects {:bytecode [...] :pool [...]}."
+  [^StackVM vm {:keys [bytecode pool]}]
   (assoc vm
     :pc 0
-    :bytecode (vec bc)
+    :bytecode (vec bytecode)
     :stack []
     :call-stack []
     :pool pool
