@@ -131,7 +131,20 @@ Stream operations that evaluate sub-expressions use continuation frames:
 
 ## Design Decisions
 
-1. **Streams are built on continuations.** The CESK machine's native primitive. No core.async, no callbacks.
+1. **Stream synchronization is built on continuations.** Streams are append-only logs with cursors (pure data, `dao.stream`). Blocking, parking, and resumption use the CESK machine's native continuation capture. No core.async, no callbacks.
+
+   A stream is a vector you can append to and read from with a cursor. That is all `dao.stream` is. Pure functions on plain maps. No concurrency, no blocking.
+
+   The interesting part happens when a cursor hits the end of an open stream. `ds/next` returns `:blocked`, a keyword. It does not wait, it does not park, it does not know what a continuation is. It just says "nothing here yet" and returns.
+
+   The VM is where blocking becomes real. When the ast-walker (or register VM, or stack VM) sees `:blocked`, it captures the current CESK continuation (the program counter, environment, registers/stack, and the continuation chain) and puts it in the wait-set. The computation is now parked. The VM moves on to the next runnable entry in the run-queue.
+
+   Later, when something puts a value into that stream, the scheduler scans the wait-set, finds continuations parked on cursors for that stream, moves them to the run-queue, and resumes them with the new value.
+
+   Same for `put` on a full stream: `ds/put` returns `{:full stream}`, the VM captures the continuation, parks it, resumes it when capacity opens up. Same for `close`: the VM finds all continuations parked on that stream's cursors, resumes them with `nil`.
+
+   The stream does none of this. The stream is a log. The continuation capture is what turns "nothing here yet" into "wait until something arrives."
+
 2. **Streams are independent of DaoDB.** DaoDB consumes streams. Streams do not depend on indexes.
 3. **Storage protocol is abstract.** In-memory first. Other backends plug in without changing stream or cursor logic.
 4. **Append-only log + external cursors.** Reads are non-destructive.
@@ -174,5 +187,5 @@ The property holds at both layers:
 - Typed streams (schema as datoms, fixed-size layouts, columnar SoA)
 - Bounding (closing a stream at a transaction, producing a stable database value)
 - Eviction (bounded retention, `:daostream/gap` signal)
-- Cross-language adapters (Clojure seq, JS async iterator, etc.)
+- Cross-language adapters (JS async iterator, etc.) — Clojure seq implemented via `dao.stream/->seq`
 - DaoDB as stream interpreter (consuming streams to build EAVT/AEVT indexes)
