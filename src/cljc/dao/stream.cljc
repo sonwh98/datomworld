@@ -8,8 +8,7 @@
   No continuations, no parking, no side effects.
   The VM handles parking and scheduling."
   (:refer-clojure :exclude [next])
-  (:require
-    [dao.stream.storage :as storage]))
+  (:require [dao.stream.storage :as storage]))
 
 
 ;; =============================================================================
@@ -42,10 +41,7 @@
       {:ok (update stream :storage storage/append val)})))
 
 
-(defn closed?
-  "Returns true if the stream is closed."
-  [stream]
-  (:closed stream))
+(defn closed? "Returns true if the stream is closed." [stream] (:closed stream))
 
 
 (defn close
@@ -87,6 +83,17 @@
       (let [val (storage/read-at storage pos)]
         {:ok val, :cursor (update cursor :position inc)})
       (if (:closed stream) :end :blocked))))
+
+
+(defn ->seq
+  "Return a lazy seq over the stream's values in append order."
+  [stream]
+  (let [storage (:storage stream)
+        len (storage/length storage)]
+    (letfn [(step [i]
+              (when (< i len)
+                (lazy-seq (cons (storage/read-at storage i) (step (inc i))))))]
+      (step 0))))
 
 
 (defn seek

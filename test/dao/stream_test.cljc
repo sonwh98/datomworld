@@ -1,10 +1,9 @@
 (ns dao.stream-test
-  (:require
-    [clojure.test :refer [deftest is testing]]
-    [dao.stream :as ds]
-    [dao.stream.storage :as storage]
-    [yin.vm :as vm]
-    [yin.vm.ast-walker :as ast-walker]))
+  (:require [clojure.test :refer [deftest is testing]]
+            [dao.stream :as ds]
+            [dao.stream.storage :as storage]
+            [yin.vm :as vm]
+            [yin.vm.ast-walker :as ast-walker]))
 
 
 ;; =============================================================================
@@ -75,7 +74,7 @@
                 (ds/close))]
       (is (thrown? #?(:clj Exception
                       :cljs js/Error)
-            (ds/put s 42))))))
+                   (ds/put s 42))))))
 
 
 (deftest stream-close-test
@@ -139,6 +138,51 @@
     (let [c (ds/cursor {:type :stream-ref, :id :s0})
           c' (ds/seek c 5)]
       (is (= 5 (ds/position c'))))))
+
+
+;; =============================================================================
+;; Seq Tests
+;; =============================================================================
+
+(deftest stream-seq-empty-test
+  (testing "->seq on empty stream returns empty seq"
+    (let [s (ds/make (storage/memory-storage))]
+      (is (empty? (ds/->seq s)))
+      (is (nil? (seq (ds/->seq s)))))))
+
+
+(deftest stream-seq-values-test
+  (testing "->seq returns values in append order"
+    (let [s (-> (ds/make (storage/memory-storage))
+                (#(:ok (ds/put % :a)))
+                (#(:ok (ds/put % :b)))
+                (#(:ok (ds/put % :c))))]
+      (is (= [:a :b :c] (vec (ds/->seq s)))))))
+
+
+(deftest stream-seq-clojure-interop-test
+  (testing "Standard seq functions work on ->seq"
+    (let [s (-> (ds/make (storage/memory-storage))
+                (#(:ok (ds/put % 1)))
+                (#(:ok (ds/put % 2)))
+                (#(:ok (ds/put % 3)))
+                (#(:ok (ds/put % 4))))]
+      (is (= 1 (first (ds/->seq s))))
+      (is (= [2 3 4] (vec (rest (ds/->seq s)))))
+      (is (= 10 (reduce + (ds/->seq s))))
+      (is (= [2 4] (vec (filter even? (ds/->seq s)))))
+      (is (= [2 4 6 8] (vec (map #(* 2 %) (ds/->seq s)))))
+      (is (= [1 2] (vec (take 2 (ds/->seq s))))))))
+
+
+(deftest stream-seq-snapshot-test
+  (testing "->seq is a snapshot: appending after ->seq does not affect it"
+    (let [s (-> (ds/make (storage/memory-storage))
+                (#(:ok (ds/put % :x))))
+          frozen (ds/->seq s)
+          s' (:ok (ds/put s :y))]
+      (is (= [:x] (vec frozen)))
+      (is (= [:x :y] (vec (ds/->seq s')))))))
 
 
 (deftest cursor-independence-test
@@ -230,24 +274,24 @@
   (testing "Put then cursor+next retrieves value"
     (let [ast {:type :application,
                :operator
-               {:type :lambda,
-                :params ['s],
-                :body {:type :application,
-                       :operator {:type :lambda,
-                                  :params ['_put],
-                                  :body {:type :application,
-                                         :operator {:type :lambda,
-                                                    :params ['c],
-                                                    :body {:type :stream/next,
-                                                           :source
-                                                           {:type :variable,
-                                                            :name 'c}}},
-                                         :operands [{:type :stream/cursor,
-                                                     :source {:type :variable,
-                                                              :name 's}}]}},
-                       :operands [{:type :stream/put,
-                                   :target {:type :variable, :name 's},
-                                   :val {:type :literal, :value 42}}]}},
+                 {:type :lambda,
+                  :params ['s],
+                  :body {:type :application,
+                         :operator {:type :lambda,
+                                    :params ['_put],
+                                    :body {:type :application,
+                                           :operator {:type :lambda,
+                                                      :params ['c],
+                                                      :body {:type :stream/next,
+                                                             :source
+                                                               {:type :variable,
+                                                                :name 'c}}},
+                                           :operands [{:type :stream/cursor,
+                                                       :source {:type :variable,
+                                                                :name 's}}]}},
+                         :operands [{:type :stream/put,
+                                     :target {:type :variable, :name 's},
+                                     :val {:type :literal, :value 42}}]}},
                :operands [{:type :stream/make, :buffer 10}]}
           vm-result (run-ast ast)]
       (is (= 42 (vm/value vm-result))))))
@@ -256,60 +300,60 @@
 (deftest vm-multiple-cursors-test
   (testing "Multiple cursors on same stream, independent positions"
     (let [ast
-          {:type :application,
-           :operator
-           {:type :lambda,
-            :params ['s],
-            :body
             {:type :application,
              :operator
-             {:type :lambda,
-              :params ['_],
-              :body
-              {:type :application,
-               :operator
                {:type :lambda,
-                :params ['_],
+                :params ['s],
                 :body
-                {:type :application,
-                 :operator
-                 {:type :lambda,
-                  :params ['c1],
-                  :body
                   {:type :application,
                    :operator
-                   {:type :lambda,
-                    :params ['c2],
-                    :body
-                    {:type :application,
-                     :operator
                      {:type :lambda,
-                      :params ['v1],
+                      :params ['_],
                       :body
-                      {:type :application,
-                       :operator {:type :variable,
-                                  :name '+},
-                       :operands
-                       [{:type :variable, :name 'v1}
-                        {:type :stream/next,
-                         :source {:type :variable,
-                                  :name 'c2}}]}},
-                     :operands [{:type :stream/next,
-                                 :source {:type :variable,
-                                          :name 'c1}}]}},
-                   :operands [{:type :stream/cursor,
-                               :source {:type :variable,
-                                        :name 's}}]}},
-                 :operands [{:type :stream/cursor,
-                             :source {:type :variable,
-                                      :name 's}}]}},
-               :operands [{:type :stream/put,
-                           :target {:type :variable, :name 's},
-                           :val {:type :literal, :value 20}}]}},
-             :operands [{:type :stream/put,
-                         :target {:type :variable, :name 's},
-                         :val {:type :literal, :value 10}}]}},
-           :operands [{:type :stream/make, :buffer 10}]}
+                        {:type :application,
+                         :operator
+                           {:type :lambda,
+                            :params ['_],
+                            :body
+                              {:type :application,
+                               :operator
+                                 {:type :lambda,
+                                  :params ['c1],
+                                  :body
+                                    {:type :application,
+                                     :operator
+                                       {:type :lambda,
+                                        :params ['c2],
+                                        :body
+                                          {:type :application,
+                                           :operator
+                                             {:type :lambda,
+                                              :params ['v1],
+                                              :body
+                                                {:type :application,
+                                                 :operator {:type :variable,
+                                                            :name '+},
+                                                 :operands
+                                                   [{:type :variable, :name 'v1}
+                                                    {:type :stream/next,
+                                                     :source {:type :variable,
+                                                              :name 'c2}}]}},
+                                           :operands [{:type :stream/next,
+                                                       :source {:type :variable,
+                                                                :name 'c1}}]}},
+                                     :operands [{:type :stream/cursor,
+                                                 :source {:type :variable,
+                                                          :name 's}}]}},
+                               :operands [{:type :stream/cursor,
+                                           :source {:type :variable,
+                                                    :name 's}}]}},
+                         :operands [{:type :stream/put,
+                                     :target {:type :variable, :name 's},
+                                     :val {:type :literal, :value 20}}]}},
+                   :operands [{:type :stream/put,
+                               :target {:type :variable, :name 's},
+                               :val {:type :literal, :value 10}}]}},
+             :operands [{:type :stream/make, :buffer 10}]}
           vm-result (run-ast ast)]
       (is (= 20 (vm/value vm-result))))))
 
@@ -358,43 +402,43 @@
   (testing "Stream maintains append order through cursors"
     (let [ast {:type :application,
                :operator
-               {:type :lambda,
-                :params ['s],
-                :body {:type :application,
-                       :operator
-                       {:type :lambda,
-                        :params ['_],
-                        :body
-                        {:type :application,
+                 {:type :lambda,
+                  :params ['s],
+                  :body {:type :application,
                          :operator
-                         {:type :lambda,
-                          :params ['_],
-                          :body {:type :application,
-                                 :operator
+                           {:type :lambda,
+                            :params ['_],
+                            :body
+                              {:type :application,
+                               :operator
                                  {:type :lambda,
-                                  :params ['c],
+                                  :params ['_],
                                   :body {:type :application,
                                          :operator
-                                         {:type :lambda,
-                                          :params ['v1],
-                                          :body {:type :stream/next,
-                                                 :source
-                                                 {:type :variable,
-                                                  :name 'c}}},
-                                         :operands
-                                         [{:type :stream/next,
-                                           :source {:type :variable,
-                                                    :name 'c}}]}},
-                                 :operands [{:type :stream/cursor,
-                                             :source {:type :variable,
-                                                      :name 's}}]}},
+                                           {:type :lambda,
+                                            :params ['c],
+                                            :body {:type :application,
+                                                   :operator
+                                                     {:type :lambda,
+                                                      :params ['v1],
+                                                      :body {:type :stream/next,
+                                                             :source
+                                                               {:type :variable,
+                                                                :name 'c}}},
+                                                   :operands
+                                                     [{:type :stream/next,
+                                                       :source {:type :variable,
+                                                                :name 'c}}]}},
+                                         :operands [{:type :stream/cursor,
+                                                     :source {:type :variable,
+                                                              :name 's}}]}},
+                               :operands [{:type :stream/put,
+                                           :target {:type :variable, :name 's},
+                                           :val {:type :literal,
+                                                 :value :second}}]}},
                          :operands [{:type :stream/put,
                                      :target {:type :variable, :name 's},
-                                     :val {:type :literal,
-                                           :value :second}}]}},
-                       :operands [{:type :stream/put,
-                                   :target {:type :variable, :name 's},
-                                   :val {:type :literal, :value :first}}]}},
+                                     :val {:type :literal, :value :first}}]}},
                :operands [{:type :stream/make, :buffer 10}]}
           vm-result (run-ast ast)]
       (is (= :second (vm/value vm-result))))))
