@@ -10,8 +10,7 @@
     (val pair)
     (if-let [pair (find store name)]
       (val pair)
-      (or (get primitives name)
-          (module/resolve-symbol name)))))
+      (or (get primitives name) (module/resolve-symbol name)))))
 
 
 (defn gen-id
@@ -32,10 +31,7 @@
   (boolean (:blocked vm)))
 
 
-(defn vm-value
-  "Returns the current value of the VM."
-  [vm]
-  (:value vm))
+(defn vm-value "Returns the current value of the VM." [vm] (:value vm))
 
 
 (defn halted-with-empty-queue?
@@ -117,18 +113,15 @@
    resume-fn pops the run-queue and resumes, returning updated state or nil."
   [state active? step-fn resume-fn]
   (loop [v state]
-    (cond
-      (active? v) (recur (step-fn v))
-      (:blocked v) (let [v' (check-wait-set v)]
-                     (if (not= (count (:run-queue v')) (count (:run-queue v)))
-                       (if-let [resumed (resume-fn v')]
-                         (recur resumed)
-                         v')
-                       v'))
-      (seq (or (:run-queue v) [])) (if-let [resumed (resume-fn v)]
-                                     (recur resumed)
-                                     v)
-      :else v)))
+    (cond (active? v) (recur (step-fn v))
+          (:blocked v) (let [v' (check-wait-set v)]
+                         (if-let [resumed (resume-fn v')]
+                           (recur resumed)
+                           v'))
+          (seq (or (:run-queue v) [])) (if-let [resumed (resume-fn v)]
+                                         (recur resumed)
+                                         v)
+          :else v)))
 
 
 (defn index-datoms
@@ -140,9 +133,7 @@
         get-attr (fn [e attr]
                    (some (fn [[_ a v]] (when (= a attr) v)) (get by-entity e)))
         root-id (apply max (keys by-entity))]
-    {:by-entity by-entity
-     :get-attr get-attr
-     :root-id root-id}))
+    {:by-entity by-entity, :get-attr get-attr, :root-id root-id}))
 
 
 (defn resume-entries-with-nil
