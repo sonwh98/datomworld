@@ -7,6 +7,8 @@
             [cljs.pprint :as pprint]
             [cljs.reader :as reader]
             [clojure.string :as str]
+            [dao.stream :as ds]
+            [dao.stream.storage :as storage]
             [reagent.core :as r]
             [yang.clojure :as yang]
             [yin.vm :as vm]
@@ -86,7 +88,9 @@
                                                style)}])})))
 
 
-(defn empty-stream [] {:queue [], :datoms [], :next-e 7000, :next-t 1})
+(defn empty-stream
+  []
+  {:queue [], :log (ds/make (storage/memory-storage)), :next-e 7000, :next-t 1})
 
 
 (defonce app-state
@@ -197,14 +201,11 @@
   (let [e (:next-e stream)
         t (:next-t stream)
         datom [e a v t 0]
-        datoms (-> (or (:datoms stream) [])
-                   (conj datom)
-                   (->> (take-last 200)
-                        vec))]
+        {:keys [ok]} (ds/put (:log stream) datom)]
     [(assoc stream
        :next-e (inc e)
        :next-t (inc t)
-       :datoms datoms) datom]))
+       :log ok) datom]))
 
 
 (defn create-loaded-register-vm
@@ -725,7 +726,8 @@
                                                     stack-asm)}})
                    "Compile source to generate register and stack bytecode.")
                queue-view (pretty-print (stream-queue-summary (:queue stream)))
-               stream-view (pretty-print (:datoms stream))
+               stream-view (pretty-print
+                             (vec (take-last 200 (ds/->seq (:log stream)))))
                run-summary {:owner owner,
                             :steps steps,
                             :handoffs handoffs,
