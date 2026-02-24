@@ -38,7 +38,7 @@
   (testing "After load-program, control has bytecode"
     (let [vm (load-ast {:type :literal, :value 42})
           ctrl (vm/control vm)]
-      (is (= 0 (:ip ctrl)))
+      (is (= 0 (:pc ctrl)))
       (is (seq (:bytecode ctrl)))))
   (testing "After run, continuation is nil and store is empty"
     (let [vm (-> (load-ast {:type :literal, :value 42})
@@ -302,8 +302,7 @@
                                                      :params ['x],
                                                      :body {:type :variable,
                                                             :name 'x}}))]
-      (is (= :closure (first (nth asm 0)))
-          "First instruction should be :closure")
+      (is (= :lambda (first (nth asm 0))) "First instruction should be :lambda")
       (is (= :jump (first (nth asm 1)))
           "Second instruction should be :jump over body")
       (is (= :loadv (first (nth asm 2))) "Body should start with :loadv")
@@ -370,8 +369,8 @@
           "Continuation should be a :call-frame")
       (is (vector? (:saved-regs (vm/continuation inside-closure)))
           "Continuation should save caller registers")
-      (is (integer? (:return-ip (vm/continuation inside-closure)))
-          "Continuation should have a return IP"))))
+      (is (integer? (:return-pc (vm/continuation inside-closure)))
+          "Continuation should have a return PC"))))
 
 
 ;; =============================================================================
@@ -611,7 +610,7 @@
             reified (vm/value vm2)]
         (is (= :reified-continuation (:type reified)))
         (is (vector? (:regs reified)))
-        (is (integer? (:ip reified)))))))
+        (is (integer? (:pc reified)))))))
 
 
 ;; =============================================================================

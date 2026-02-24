@@ -121,7 +121,7 @@
 
 
 (def register-continuation-keys
-  [:regs :k :env :ip :bytecode :pool :halted :value :store :parked :id-counter
+  [:regs :k :env :pc :bytecode :pool :halted :value :store :parked :id-counter
    :blocked :run-queue :wait-set])
 
 
@@ -145,7 +145,7 @@
       (recur (:parent frame)
              (conj frames
                    {:type (:type frame),
-                    :return-ip (:return-ip frame),
+                    :return-pc (:return-pc frame),
                     :return-reg (:return-reg frame)})
              (inc n)))))
 
@@ -161,9 +161,7 @@
 (defn stack-vm? [vm-key] (= vm-key :stack-vm))
 
 
-(defn vm-control-counter
-  [vm-key vm-state]
-  (when vm-state (if (stack-vm? vm-key) (:pc vm-state) (:ip vm-state))))
+(defn vm-control-counter [vm-key vm-state] (when vm-state (:pc vm-state)))
 
 
 (defn vm-continuation-depth
@@ -502,7 +500,7 @@
          :run-queue-count (count (or (:run-queue vm-state) [])),
          :wait-set-count (count (or (:wait-set vm-state) [])),
          :value (:value vm-state)}
-        {:control {:ip (:ip vm-state),
+        {:control {:pc (:pc vm-state),
                    :instruction-index instr-idx,
                    :instruction instr,
                    :halted (:halted vm-state),

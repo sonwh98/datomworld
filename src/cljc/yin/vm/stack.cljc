@@ -83,8 +83,8 @@
      [:return]           - return top of stack
      [:label name]       - pseudo-instruction for jump targets
      [:gensym prefix]    - push generated unique ID
-     [:store-get key]    - push value from store
-     [:store-put key]    - pop value, write to store, push value back
+     [:sget key]    - push value from store
+     [:sput key]    - pop value, write to store, push value back
      [:stream-make buf]  - push new stream ref
      [:stream-put]       - pop val and stream-ref, put val, push val
      [:stream-cursor]    - pop stream-ref, push cursor-ref
@@ -138,10 +138,10 @@
                   (emit! [:label end-label]))
             ;; VM primitives
             :vm/gensym (emit! [:gensym (or (get-attr e :yin/prefix) "id")])
-            :vm/store-get (emit! [:store-get (get-attr e :yin/key)])
+            :vm/store-get (emit! [:sget (get-attr e :yin/key)])
             :vm/store-put (let [val-node (get-attr e :yin/val)]
                             (emit! [:push val-node])
-                            (emit! [:store-put (get-attr e :yin/key)]))
+                            (emit! [:sput (get-attr e :yin/key)]))
             ;; Stream operations
             :stream/make (emit! [:stream-make
                                  (or (get-attr e :yin/buffer) 1024)])
@@ -199,8 +199,8 @@
                        :return 1
                        :label 0
                        :gensym 2
-                       :store-get 2
-                       :store-put 2
+                       :sget 2
+                       :sput 2
                        :stream-make 2
                        :stream-put 1
                        :stream-cursor 1
@@ -274,14 +274,14 @@
                       (emit-byte! OP_GENSYM)
                       (emit-byte! idx)
                       (swap! emit-offset + 2))
-            :store-get (let [idx (add-constant arg1)]
-                         (emit-byte! OP_STORE_GET)
-                         (emit-byte! idx)
-                         (swap! emit-offset + 2))
-            :store-put (let [idx (add-constant arg1)]
-                         (emit-byte! OP_STORE_PUT)
-                         (emit-byte! idx)
-                         (swap! emit-offset + 2))
+            :sget (let [idx (add-constant arg1)]
+                    (emit-byte! OP_STORE_GET)
+                    (emit-byte! idx)
+                    (swap! emit-offset + 2))
+            :sput (let [idx (add-constant arg1)]
+                    (emit-byte! OP_STORE_PUT)
+                    (emit-byte! idx)
+                    (swap! emit-offset + 2))
             :stream-make (let [idx (add-constant arg1)]
                            (emit-byte! OP_STREAM_MAKE)
                            (emit-byte! idx)

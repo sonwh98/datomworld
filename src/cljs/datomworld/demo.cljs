@@ -1457,9 +1457,9 @@
 (defn- active-reg-idx
   []
   (let [reg-state (get-in @app-state [:vm-states :register :state])
-        reg-ip (:ip reg-state)
+        reg-pc (:pc reg-state)
         reg-map (last (:register-source-map @app-state))]
-    (get reg-map reg-ip)))
+    (get reg-map reg-pc)))
 
 
 (defn- active-stack-idx
@@ -1735,15 +1735,15 @@
                  {:vm-key :register,
                   :status-fn
                     (fn [state]
-                      (if (:halted state) "HALTED" (str "ip: " (:ip state)))),
+                      (if (:halted state) "HALTED" (str "pc: " (:pc state)))),
                   :summary-fn (fn [state]
                                 (let [regs (:regs state)
                                       active (filter (fn [[_i v]] (some? v))
                                                (map-indexed vector regs))]
-                                  {:ip (:ip state),
+                                  {:pc (:pc state),
                                    :active-regs (into {} (take 4 active))})),
                   :expanded-fn (fn [state]
-                                 {:ip (:ip state),
+                                 {:pc (:pc state),
                                   :regs (:regs state),
                                   :env-keys (vec (keys (:env state))),
                                   :continuation? (boolean (:k state)),
