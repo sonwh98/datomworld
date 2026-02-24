@@ -63,14 +63,15 @@
                   :wait-set [parked-entry]
                   :run-queue [])
           ;; 4. check-wait-set should NOT wake it yet (stream is empty)
-          state-still-blocked (engine/check-wait-set state)
+          state-still-blocked (#'yin.vm.engine/check-wait-set state)
           _ (is (= 1 (count (:wait-set state-still-blocked))))
           _ (is (empty? (:run-queue state-still-blocked)))
           ;; 5. Put data into stream
           state-with-data (stream/handle-put state-still-blocked
                                              {:stream stream-ref, :val 42})
           ;; 6. check-wait-set should now wake it
-          state-runnable (engine/check-wait-set (:state state-with-data))]
+          state-runnable (#'yin.vm.engine/check-wait-set
+                          (:state state-with-data))]
       (is (empty? (:wait-set state-runnable)))
       (is (= 1 (count (:run-queue state-runnable))))
       (is (= 42 (:value (first (:run-queue state-runnable))))))))
@@ -97,7 +98,7 @@
                   :wait-set [parked-entry]
                   :run-queue [])
           ;; 4. check-wait-set should NOT wake it yet (stream is full)
-          state-still-blocked (engine/check-wait-set state)
+          state-still-blocked (#'yin.vm.engine/check-wait-set state)
           _ (is (= 1 (count (:wait-set state-still-blocked))))
           _ (is (empty? (:run-queue state-still-blocked)))
           ;; 5. Manually increase capacity in the store to simulate space
@@ -105,7 +106,7 @@
           state-with-capacity
             (update-in state-still-blocked [:store stream-id] assoc :capacity 2)
           ;; 6. check-wait-set should now wake it
-          state-runnable (engine/check-wait-set state-with-capacity)]
+          state-runnable (#'yin.vm.engine/check-wait-set state-with-capacity)]
       (is (empty? (:wait-set state-runnable)))
       (is (= 1 (count (:run-queue state-runnable))))
       (is (= 2 (:value (first (:run-queue state-runnable))))))))
@@ -147,7 +148,7 @@
                   :wait-set [e1 e2 e3]
                   :run-queue [])
           ;; 4. Run scheduler
-          result (engine/check-wait-set state)]
+          result (#'yin.vm.engine/check-wait-set state)]
       (is (= 1 (count (:run-queue result))) "Only e1 should be runnable")
       (is (= :e1 (:id (:continuation (first (:run-queue result))))))
       (is (= 2 (count (:wait-set result)))

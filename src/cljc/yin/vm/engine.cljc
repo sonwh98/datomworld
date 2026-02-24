@@ -40,7 +40,7 @@
   (and (boolean (:halted vm)) (empty? (or (:run-queue vm) []))))
 
 
-(defn check-wait-set
+(defn- check-wait-set
   "Check wait-set entries against current store.
    Returns updated state with newly runnable entries moved to run-queue."
   [state]
