@@ -97,6 +97,22 @@
       (step 0))))
 
 
+(defn take-last-seq
+  "Return a seq of the last n items in the stream.
+   Efficient: uses read-at with high indices, no full scan."
+  [stream n]
+  (when-not (number? n)
+    (throw (ex-info "take-last-seq requires a numeric count" {:n n})))
+  (let [n (long n)
+        storage (:storage stream)
+        len (storage/length storage)
+        start (max 0 (- len n))]
+    (letfn [(step [i]
+              (when (< i len)
+                (lazy-seq (cons (storage/read-at storage i) (step (inc i))))))]
+      (step start))))
+
+
 (defn seek
   "Return a cursor at the given position."
   [cursor pos]

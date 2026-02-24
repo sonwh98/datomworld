@@ -240,6 +240,23 @@
       (is (= [:x :y] (vec (ds/->seq s')))))))
 
 
+(deftest stream-take-last-seq-test
+  (testing "take-last-seq returns last n items"
+    (let [s (-> (ds/make (storage/memory-storage))
+                (#(:ok (ds/put % 1)))
+                (#(:ok (ds/put % 2)))
+                (#(:ok (ds/put % 3))))]
+      (is (= [1 2 3] (vec (ds/take-last-seq s 5))))
+      (is (= [2 3] (vec (ds/take-last-seq s 2))))
+      (is (= [3] (vec (ds/take-last-seq s 1))))
+      (is (empty? (ds/take-last-seq s 0)))
+      (testing "n validation and coercion"
+        (is (= [2 3] (vec (ds/take-last-seq s 2.9))) "Coerces float to long")
+        (is (thrown? #?(:clj Exception
+                        :cljs js/Error)
+                     (ds/take-last-seq s "invalid")))))))
+
+
 (deftest cursor-independence-test
   (testing "Two cursors on same stream advance independently"
     (let [s (-> (ds/make (storage/memory-storage))

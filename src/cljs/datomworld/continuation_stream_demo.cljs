@@ -34,7 +34,7 @@
 
 
 (defn codemirror-editor
-  [{:keys [value on-change read-only]}]
+  [{:keys [value on-change read-only auto-scroll-bottom]}]
   (let [view-ref (r/atom nil)
         el-ref (atom nil)]
     (r/create-class
@@ -61,10 +61,16 @@
                                   #js {:doc (or value ""),
                                        :extensions extensions})
                    view (new EditorView #js {:state state, :parent node})]
-               (reset! view-ref view)))),
+               (reset! view-ref view)
+               (when auto-scroll-bottom
+                 (js/requestAnimationFrame
+                   (fn []
+                     (let [scroll-dom (.-scrollDOM view)]
+                       (set! (.-scrollTop scroll-dom)
+                             (.-scrollHeight scroll-dom))))))))),
        :component-did-update
          (fn [this _]
-           (let [{:keys [value]} (r/props this)]
+           (let [{:keys [value auto-scroll-bottom]} (r/props this)]
              (when-let [view @view-ref]
                (let [next-value (or value "")
                      current-value (.. view -state -doc toString)]
@@ -73,7 +79,13 @@
                               #js {:changes #js
                                              {:from 0,
                                               :to (.. view -state -doc -length),
-                                              :insert next-value}})))))),
+                                              :insert next-value}})
+                   (when auto-scroll-bottom
+                     (js/requestAnimationFrame
+                       (fn []
+                         (let [scroll-dom (.-scrollDOM view)]
+                           (set! (.-scrollTop scroll-dom)
+                                 (.-scrollHeight scroll-dom))))))))))),
        :component-will-unmount (fn [_]
                                  (when-let [view @view-ref]
                                    (.destroy view)
@@ -691,8 +703,7 @@
                queue-view (pretty-print
                             (ct/in-flight-summary continuation-stream cursors))
                stream-view (pretty-print
-                             (vec (take-last 200
-                                             (ds/->seq continuation-stream))))
+                             (vec (ds/take-last-seq continuation-stream 200)))
                run-summary
                  {:owner owner,
                   :steps steps,
@@ -761,7 +772,10 @@
               [card "Stream Datoms"
                "Append-only stream facts for continuation emit/deliver events."
                [codemirror-editor
-                {:value stream-view, :read-only true, :style {:height "100%"}}]]
+                {:value stream-view,
+                 :read-only true,
+                 :auto-scroll-bottom true,
+                 :style {:height "100%"}}]]
               [card "Run Summary" "Execution totals and final value."
                [codemirror-editor
                 {:value (pretty-print run-summary),
