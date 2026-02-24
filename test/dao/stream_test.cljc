@@ -34,6 +34,61 @@
       (is (= 2 (storage/length s2))))))
 
 
+(deftest ring-buffer-storage-test
+  (testing "Empty ring buffer"
+    (let [s (storage/ring-buffer-storage 2)]
+      (is (= 0 (storage/length s)))
+      (is (nil? (storage/read-at s 0)))))
+  (testing "Append up to capacity"
+    (let [s (-> (storage/ring-buffer-storage 2)
+                (storage/append :a)
+                (storage/append :b))]
+      (is (= 2 (storage/length s)))
+      (is (= :a (storage/read-at s 0)))
+      (is (= :b (storage/read-at s 1)))))
+  (testing "Appending past capacity evicts oldest values"
+    (let [s (-> (storage/ring-buffer-storage 2)
+                (storage/append :a)
+                (storage/append :b)
+                (storage/append :c))]
+      (is (= 2 (storage/length s)))
+      (is (= :b (storage/read-at s 0)))
+      (is (= :c (storage/read-at s 1)))
+      (is (nil? (storage/read-at s 2)))))
+  (testing "Append is non-destructive"
+    (let [s0 (storage/ring-buffer-storage 2)
+          s1 (storage/append s0 :x)
+          s2 (storage/append s1 :y)
+          s3 (storage/append s2 :z)]
+      (is (= 0 (storage/length s0)))
+      (is (= 1 (storage/length s1)))
+      (is (= :x (storage/read-at s1 0)))
+      (is (= [:x :y] [(storage/read-at s2 0) (storage/read-at s2 1)]))
+      (is (= [:y :z] [(storage/read-at s3 0) (storage/read-at s3 1)]))))
+  (testing "Zero-capacity ring buffer stays empty"
+    (let [s (-> (storage/ring-buffer-storage 0)
+                (storage/append :x))]
+      (is (= 0 (storage/length s)))
+      (is (nil? (storage/read-at s 0))))))
+
+
+#?(:clj (deftest file-storage-test
+          (testing "File storage persists values across reopen"
+            (let [tmp-file (doto (java.io.File/createTempFile "daostream-"
+                                                              ".log")
+                             (.deleteOnExit))
+                  path (.getAbsolutePath tmp-file)
+                  s0 (storage/file-storage path)
+                  s1 (storage/append s0 {:event :start})
+                  s2 (storage/append s1 [:payload 42])
+                  reopened (storage/file-storage path)]
+              (is (= 0 (storage/length s0)))
+              (is (= 2 (storage/length s2)))
+              (is (= 2 (storage/length reopened)))
+              (is (= {:event :start} (storage/read-at reopened 0)))
+              (is (= [:payload 42] (storage/read-at reopened 1)))))))
+
+
 ;; =============================================================================
 ;; Stream Tests
 ;; =============================================================================
