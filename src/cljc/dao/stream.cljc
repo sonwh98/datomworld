@@ -74,7 +74,8 @@
    {:ok val, :cursor cursor'} - data available, cursor advanced
    :blocked                   - at end of open stream, no data yet
    :end                       - at end of closed stream
-   :daostream/gap             - position was evicted (future)"
+   Reserved (not currently produced):
+   :daostream/gap             - position was evicted (requires eviction, deferred)"
   [cursor stream]
   (let [pos (:position cursor)
         storage (:storage stream)

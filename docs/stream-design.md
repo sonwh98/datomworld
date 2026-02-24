@@ -15,7 +15,7 @@ yin.stream            VM effect descriptors + handlers (bridges dao.stream to CE
 yin.vm.*              scheduler (run-queue + wait-set), drives resumption
 ```
 
-`dao.stream` knows nothing about the VM. `yin.stream` knows nothing about scheduling. Each VM backend (ast-walker, register, stack, semantic) owns its step loop and scheduler.
+`dao.stream` knows nothing about the VM. `yin.stream` bridges stream data to VM effects; `handle-close` also partitions the wait-set to identify resumable entries, coupling it to the scheduler's data shape. Each VM backend (ast-walker, register, stack, semantic) owns its step loop and scheduler.
 
 ## Data Structures
 
@@ -61,17 +61,18 @@ All functions take data, return data. No side effects.
 | `closed?` | `[stream]` | boolean |
 | `length` | `[stream]` | int |
 | `cursor` | `[stream-ref]` | cursor at position 0 |
-| `next` | `[cursor stream]` | `{:ok val, :cursor cursor'}`, `:blocked`, `:end`, or `:daostream/gap` |
+| `next` | `[cursor stream]` | `{:ok val, :cursor cursor'}`, `:blocked`, or `:end` (`:daostream/gap` reserved, deferred) |
 | `seek` | `[cursor pos]` | cursor at position |
 | `position` | `[cursor]` | int |
 
 `put` throws on closed streams. `:full` is returned (not thrown) when at capacity, so the VM can park the putting continuation.
 
-`next` returns one of four values:
+`next` returns one of three values:
 - `{:ok val, :cursor cursor'}` when data is available
 - `:blocked` at the end of an open stream (no data yet)
 - `:end` at the end of a closed stream
-- `:daostream/gap` when the position was evicted (future, once eviction exists)
+
+`:daostream/gap` is reserved for future use (when eviction exists). The handler code recognizes it but `dao.stream/next` cannot currently produce it.
 
 ### VM effect descriptors (`yin.stream`)
 
@@ -121,7 +122,7 @@ All backends delegate to the same `yin.stream/handle-*` functions for stream ope
 
 ### Close semantics
 
-Closing a stream finds all wait-set entries parked on that stream's cursors, moves them to the run-queue with value `nil`.
+Closing a stream finds all wait-set entries with `:reason :next` parked on that stream, moves them to the run-queue with value `nil` (meaning end-of-stream). Parked `:put` waiters are not woken: closing means no more writes, and resuming a put with `nil` has no useful semantics.
 
 ### Continuation types (ast-walker specific)
 
@@ -145,7 +146,9 @@ The register and stack VMs do not need these frames; they evaluate operands into
 
    Later, when something puts a value into that stream, the scheduler scans the wait-set, finds continuations parked on cursors for that stream, moves them to the run-queue, and resumes them with the new value.
 
-   Same for `put` on a full stream: `ds/put` returns `{:full stream}`, the VM captures the continuation, parks it, resumes it when capacity opens up. Same for `close`: the VM finds all continuations parked on that stream's cursors, resumes them with `nil`.
+   Same for `put` on a full stream: `ds/put` returns `{:full stream}`, the VM captures the continuation and parks it. Currently, streams are append-only and reads are non-destructive, so capacity never frees up naturally. The parking mechanism exists for forward-compatibility with eviction or consumption, but today a parked `:put` has no natural resumption path without external capacity changes.
+
+   On `close`: the VM finds all `:next` continuations parked on that stream's cursors and resumes them with `nil` (end-of-stream).
 
    The stream does none of this. The stream is a log. The continuation capture is what turns "nothing here yet" into "wait until something arrives."
 
@@ -153,7 +156,7 @@ The register and stack VMs do not need these frames; they evaluate operands into
 3. **Storage protocol is abstract.** In-memory first. Other backends plug in without changing stream or cursor logic.
 4. **Append-only log + external cursors.** Reads are non-destructive.
 5. **All stream/cursor functions are pure.** Parking and scheduling are the VM's concern.
-6. **put can park.** Symmetric with next parking on empty. Capacity enforcement returns `:full`, VM decides to park.
+6. **put can park.** Symmetric with next parking on empty. Capacity enforcement returns `:full`, VM decides to park. Note: since streams are append-only and reads are non-destructive, capacity never frees up naturally today. Put parking exists for forward-compatibility with eviction or consumption (deferred).
 7. **Scheduling and data are decoupled.** Puts do not trigger computation. The VM scheduler drives resumption by polling the wait-set.
 8. **Cursor gap = signal.** When a cursor falls behind eviction, return `:daostream/gap` (not yet implemented, eviction is deferred).
 

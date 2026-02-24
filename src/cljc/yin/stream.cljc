@@ -15,10 +15,9 @@
 
   Internally backed by dao.stream (pure data functions).
   The VM handles parking, resumption, and scheduling."
-  (:require
-    [dao.stream :as ds]
-    [dao.stream.storage :as storage]
-    [yin.module :as module]))
+  (:require [dao.stream :as ds]
+            [dao.stream.storage :as storage]
+            [yin.module :as module]))
 
 
 ;; ============================================================
@@ -131,13 +130,14 @@
                         {:stream-ref stream-ref})))
       (let [result (ds/next cursor-data stream)]
         (cond (map? result)
-              (let [new-store (assoc store cursor-id (:cursor result))]
-                {:value (:ok result), :state (assoc state :store new-store)})
+                (let [new-store (assoc store cursor-id (:cursor result))]
+                  {:value (:ok result), :state (assoc state :store new-store)})
               (= :blocked result) {:park true,
                                    :cursor-ref cursor-ref,
                                    :stream-id stream-id,
                                    :state state}
               (= :end result) {:value nil, :state state}
+              ;; Reserved: :daostream/gap (requires eviction, deferred)
               (= :daostream/gap result) {:value :daostream/gap,
                                          :state state})))))
 
@@ -153,13 +153,19 @@
         stream (get store stream-id)
         new-stream (ds/close stream)
         new-store (assoc store stream-id new-stream)
-        ;; Find parked continuations waiting on cursors for this stream
+        ;; Find parked :next continuations waiting on cursors for this
+        ;; stream. Only :next waiters resume (with nil, meaning
+        ;; end-of-stream). :put waiters are not woken: closing means no
+        ;; more writes.
         wait-set (or (:wait-set state) [])
         {to-resume true, to-keep false}
-        (group-by (fn [entry] (= stream-id (:stream-id entry))) wait-set)]
+          (group-by (fn [entry]
+                      (and (= stream-id (:stream-id entry))
+                           (= :next (:reason entry))))
+                    wait-set)]
     {:state (assoc state
-                   :store new-store
-                   :wait-set (vec (or to-keep []))),
+              :store new-store
+              :wait-set (vec (or to-keep []))),
      :resume-parked (or to-resume [])}))
 
 

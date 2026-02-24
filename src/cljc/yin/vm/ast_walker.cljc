@@ -78,7 +78,7 @@
                                         :environment environment,
                                         :reason :put,
                                         :stream-id (:stream-id effect-result),
-                                        :datom (:val (:val result))}]
+                                        :datom (:val result)}]
                       (assoc (:state effect-result)
                         :wait-set (conj (or (:wait-set state) []) parked-entry)
                         :value :yin/blocked
