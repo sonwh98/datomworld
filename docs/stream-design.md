@@ -12,10 +12,10 @@ Three layers, each with a single responsibility:
 dao.stream            pure data functions (stream + cursor)
 dao.stream.storage    pluggable storage protocol (in-memory first)
 yin.stream            VM effect descriptors + handlers (bridges dao.stream to CESK machine)
-yin.vm.ast-walker     scheduler (run-queue + wait-set), drives resumption
+yin.vm.*              scheduler (run-queue + wait-set), drives resumption
 ```
 
-`dao.stream` knows nothing about the VM. `yin.stream` knows nothing about scheduling. The AST walker owns the step loop and scheduler.
+`dao.stream` knows nothing about the VM. `yin.stream` knows nothing about scheduling. Each VM backend (ast-walker, register, stack, semantic) owns its step loop and scheduler.
 
 ## Data Structures
 
@@ -104,12 +104,12 @@ Both paths (effect descriptors from module calls, AST nodes from compiled code) 
 
 ### Scheduler
 
-The AST walker VM has two new fields:
+Every VM backend (ast-walker, register, stack, semantic) has two fields:
 
-- **run-queue**: vector of runnable continuations `[{:continuation k, :environment env, :value v}]`
-- **wait-set**: vector of parked continuations `[{:continuation k, :environment env, :reason :next|:put, :stream-id id, ...}]`
+- **run-queue**: vector of runnable continuations
+- **wait-set**: vector of parked continuations waiting on streams
 
-The eval loop:
+The captured state differs per backend (ast-walker captures `{:continuation k, :environment env, :value v}`, register captures `{:pc, :regs, :k, :env, ...}`, stack captures `{:pc, :stack, :env, :call-stack, ...}`) but the scheduling protocol is the same:
 
 1. Step active computation until it halts or parks.
 2. On park (`:next` blocked or `:put` full): capture continuation, add to wait-set.
@@ -117,17 +117,21 @@ The eval loop:
 4. Resume from run-queue head. Repeat.
 5. Halted when: run-queue empty and no active computation. Blocked when: run-queue empty and wait-set non-empty.
 
+All backends delegate to the same `yin.stream/handle-*` functions for stream operations. The VM-specific part is how the continuation is captured and restored.
+
 ### Close semantics
 
 Closing a stream finds all wait-set entries parked on that stream's cursors, moves them to the run-queue with value `nil`.
 
-### Continuation types
+### Continuation types (ast-walker specific)
 
-Stream operations that evaluate sub-expressions use continuation frames:
+The ast-walker uses explicit continuation frames for stream operations that evaluate sub-expressions:
 
 - `:eval-stream-put-target` / `:eval-stream-put-val` for `stream/put`
 - `:eval-stream-cursor-source` for `stream/cursor`
 - `:eval-stream-next-cursor` for `stream/next`
+
+The register and stack VMs do not need these frames; they evaluate operands into registers or onto the stack before executing the stream opcode.
 
 ## Design Decisions
 
@@ -161,7 +165,11 @@ Stream operations that evaluate sub-expressions use continuation frames:
 | `src/cljc/dao/stream/storage.cljc` | Storage protocol + MemoryStorage |
 | `src/cljc/yin/stream.cljc` | VM effect descriptors + handlers |
 | `src/cljc/yin/vm.cljc` | empty-state with run-queue/wait-set, ast->datoms for stream nodes |
-| `src/cljc/yin/vm/ast_walker.cljc` | Scheduler, CESK transitions for stream continuations |
+| `src/cljc/yin/vm/engine.cljc` | Shared scheduler utilities across all VM backends |
+| `src/cljc/yin/vm/ast_walker.cljc` | AST walker: scheduler, CESK transitions for stream continuations |
+| `src/cljc/yin/vm/register.cljc` | Register VM: scheduler, stream opcodes + bytecode execution |
+| `src/cljc/yin/vm/stack.cljc` | Stack VM: scheduler, stream opcodes + bytecode execution |
+| `src/cljc/yin/vm/semantic.cljc` | Semantic VM: scheduler, stream operations |
 | `test/dao/stream_test.cljc` | Storage, stream, cursor, and VM integration tests |
 | `test/yin/vm/ast_walker_test.cljc` | Cursor-based stream tests within AST walker |
 
@@ -187,5 +195,5 @@ The property holds at both layers:
 - Typed streams (schema as datoms, fixed-size layouts, columnar SoA)
 - Bounding (closing a stream at a transaction, producing a stable database value)
 - Eviction (bounded retention, `:daostream/gap` signal)
-- Cross-language adapters (JS async iterator, etc.) — Clojure seq implemented via `dao.stream/->seq`
+- Cross-language adapters (JS async iterator, etc.), Clojure seq implemented via `dao.stream/->seq`
 - DaoDB as stream interpreter (consuming streams to build EAVT/AEVT indexes)
