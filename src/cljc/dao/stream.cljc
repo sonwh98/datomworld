@@ -14,7 +14,7 @@
   All data-touching functions take store as first arg.
   Store is ignored when :log is inline (vector).
   Returns include :store only when store was modified."
-  (:refer-clojure :exclude [next take]))
+  (:refer-clojure :exclude [next -next take]))
 
 
 ;; =============================================================================
