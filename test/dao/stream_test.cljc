@@ -1,9 +1,10 @@
 (ns dao.stream-test
-  (:require [clojure.test :refer [deftest is testing]]
-            [dao.stream :as ds]
-            [dao.stream.storage :as storage]
-            [yin.vm :as vm]
-            [yin.vm.ast-walker :as ast-walker]))
+  (:require
+    [clojure.test :refer [deftest is testing]]
+    [dao.stream :as ds]
+    [dao.stream.storage :as storage]
+    [yin.vm :as vm]
+    [yin.vm.ast-walker :as ast-walker]))
 
 
 ;; =============================================================================
@@ -129,7 +130,7 @@
                 (ds/close))]
       (is (thrown? #?(:clj Exception
                       :cljs js/Error)
-                   (ds/put s 42))))))
+            (ds/put s 42))))))
 
 
 (deftest stream-close-test
@@ -254,7 +255,7 @@
         (is (= [2 3] (vec (ds/take-last-seq s 2.9))) "Coerces float to long")
         (is (thrown? #?(:clj Exception
                         :cljs js/Error)
-                     (ds/take-last-seq s "invalid")))))))
+              (ds/take-last-seq s "invalid")))))))
 
 
 (deftest cursor-independence-test
@@ -346,24 +347,24 @@
   (testing "Put then cursor+next retrieves value"
     (let [ast {:type :application,
                :operator
-                 {:type :lambda,
-                  :params ['s],
-                  :body {:type :application,
-                         :operator {:type :lambda,
-                                    :params ['_put],
-                                    :body {:type :application,
-                                           :operator {:type :lambda,
-                                                      :params ['c],
-                                                      :body {:type :stream/next,
-                                                             :source
-                                                               {:type :variable,
-                                                                :name 'c}}},
-                                           :operands [{:type :stream/cursor,
-                                                       :source {:type :variable,
-                                                                :name 's}}]}},
-                         :operands [{:type :stream/put,
-                                     :target {:type :variable, :name 's},
-                                     :val {:type :literal, :value 42}}]}},
+               {:type :lambda,
+                :params ['s],
+                :body {:type :application,
+                       :operator {:type :lambda,
+                                  :params ['_put],
+                                  :body {:type :application,
+                                         :operator {:type :lambda,
+                                                    :params ['c],
+                                                    :body {:type :stream/next,
+                                                           :source
+                                                           {:type :variable,
+                                                            :name 'c}}},
+                                         :operands [{:type :stream/cursor,
+                                                     :source {:type :variable,
+                                                              :name 's}}]}},
+                       :operands [{:type :stream/put,
+                                   :target {:type :variable, :name 's},
+                                   :val {:type :literal, :value 42}}]}},
                :operands [{:type :stream/make, :buffer 10}]}
           vm-result (run-ast ast)]
       (is (= 42 (vm/value vm-result))))))
@@ -372,60 +373,60 @@
 (deftest vm-multiple-cursors-test
   (testing "Multiple cursors on same stream, independent positions"
     (let [ast
+          {:type :application,
+           :operator
+           {:type :lambda,
+            :params ['s],
+            :body
             {:type :application,
              :operator
+             {:type :lambda,
+              :params ['_],
+              :body
+              {:type :application,
+               :operator
                {:type :lambda,
-                :params ['s],
+                :params ['_],
                 :body
+                {:type :application,
+                 :operator
+                 {:type :lambda,
+                  :params ['c1],
+                  :body
                   {:type :application,
                    :operator
+                   {:type :lambda,
+                    :params ['c2],
+                    :body
+                    {:type :application,
+                     :operator
                      {:type :lambda,
-                      :params ['_],
+                      :params ['v1],
                       :body
-                        {:type :application,
-                         :operator
-                           {:type :lambda,
-                            :params ['_],
-                            :body
-                              {:type :application,
-                               :operator
-                                 {:type :lambda,
-                                  :params ['c1],
-                                  :body
-                                    {:type :application,
-                                     :operator
-                                       {:type :lambda,
-                                        :params ['c2],
-                                        :body
-                                          {:type :application,
-                                           :operator
-                                             {:type :lambda,
-                                              :params ['v1],
-                                              :body
-                                                {:type :application,
-                                                 :operator {:type :variable,
-                                                            :name '+},
-                                                 :operands
-                                                   [{:type :variable, :name 'v1}
-                                                    {:type :stream/next,
-                                                     :source {:type :variable,
-                                                              :name 'c2}}]}},
-                                           :operands [{:type :stream/next,
-                                                       :source {:type :variable,
-                                                                :name 'c1}}]}},
-                                     :operands [{:type :stream/cursor,
-                                                 :source {:type :variable,
-                                                          :name 's}}]}},
-                               :operands [{:type :stream/cursor,
-                                           :source {:type :variable,
-                                                    :name 's}}]}},
-                         :operands [{:type :stream/put,
-                                     :target {:type :variable, :name 's},
-                                     :val {:type :literal, :value 20}}]}},
-                   :operands [{:type :stream/put,
-                               :target {:type :variable, :name 's},
-                               :val {:type :literal, :value 10}}]}},
-             :operands [{:type :stream/make, :buffer 10}]}
+                      {:type :application,
+                       :operator {:type :variable,
+                                  :name '+},
+                       :operands
+                       [{:type :variable, :name 'v1}
+                        {:type :stream/next,
+                         :source {:type :variable,
+                                  :name 'c2}}]}},
+                     :operands [{:type :stream/next,
+                                 :source {:type :variable,
+                                          :name 'c1}}]}},
+                   :operands [{:type :stream/cursor,
+                               :source {:type :variable,
+                                        :name 's}}]}},
+                 :operands [{:type :stream/cursor,
+                             :source {:type :variable,
+                                      :name 's}}]}},
+               :operands [{:type :stream/put,
+                           :target {:type :variable, :name 's},
+                           :val {:type :literal, :value 20}}]}},
+             :operands [{:type :stream/put,
+                         :target {:type :variable, :name 's},
+                         :val {:type :literal, :value 10}}]}},
+           :operands [{:type :stream/make, :buffer 10}]}
           vm-result (run-ast ast)]
       (is (= 20 (vm/value vm-result))))))
 
@@ -474,43 +475,136 @@
   (testing "Stream maintains append order through cursors"
     (let [ast {:type :application,
                :operator
-                 {:type :lambda,
-                  :params ['s],
-                  :body {:type :application,
+               {:type :lambda,
+                :params ['s],
+                :body {:type :application,
+                       :operator
+                       {:type :lambda,
+                        :params ['_],
+                        :body
+                        {:type :application,
                          :operator
-                           {:type :lambda,
-                            :params ['_],
-                            :body
-                              {:type :application,
-                               :operator
+                         {:type :lambda,
+                          :params ['_],
+                          :body {:type :application,
+                                 :operator
                                  {:type :lambda,
-                                  :params ['_],
+                                  :params ['c],
                                   :body {:type :application,
                                          :operator
-                                           {:type :lambda,
-                                            :params ['c],
-                                            :body {:type :application,
-                                                   :operator
-                                                     {:type :lambda,
-                                                      :params ['v1],
-                                                      :body {:type :stream/next,
-                                                             :source
-                                                               {:type :variable,
-                                                                :name 'c}}},
-                                                   :operands
-                                                     [{:type :stream/next,
-                                                       :source {:type :variable,
-                                                                :name 'c}}]}},
-                                         :operands [{:type :stream/cursor,
-                                                     :source {:type :variable,
-                                                              :name 's}}]}},
-                               :operands [{:type :stream/put,
-                                           :target {:type :variable, :name 's},
-                                           :val {:type :literal,
-                                                 :value :second}}]}},
+                                         {:type :lambda,
+                                          :params ['v1],
+                                          :body {:type :stream/next,
+                                                 :source
+                                                 {:type :variable,
+                                                  :name 'c}}},
+                                         :operands
+                                         [{:type :stream/next,
+                                           :source {:type :variable,
+                                                    :name 'c}}]}},
+                                 :operands [{:type :stream/cursor,
+                                             :source {:type :variable,
+                                                      :name 's}}]}},
                          :operands [{:type :stream/put,
                                      :target {:type :variable, :name 's},
-                                     :val {:type :literal, :value :first}}]}},
+                                     :val {:type :literal,
+                                           :value :second}}]}},
+                       :operands [{:type :stream/put,
+                                   :target {:type :variable, :name 's},
+                                   :val {:type :literal, :value :first}}]}},
                :operands [{:type :stream/make, :buffer 10}]}
           vm-result (run-ast ast)]
       (is (= :second (vm/value vm-result))))))
+
+
+;; =============================================================================
+;; Take Tests
+;; =============================================================================
+
+(deftest take-basic-test
+  (testing "Take from stream with values"
+    (let [s (-> (ds/make (storage/memory-storage))
+                (#(:ok (ds/put % :a)))
+                (#(:ok (ds/put % :b)))
+                (#(:ok (ds/put % :c))))
+          r1 (ds/take s)]
+      (is (= :a (:ok r1)))
+      (is (= 2 (ds/length (:stream r1))))
+      (let [r2 (ds/take (:stream r1))]
+        (is (= :b (:ok r2)))
+        (is (= 1 (ds/length (:stream r2))))
+        (let [r3 (ds/take (:stream r2))]
+          (is (= :c (:ok r3)))
+          (is (= 0 (ds/length (:stream r3)))))))))
+
+
+(deftest take-empty-test
+  (testing "Take from empty open stream returns :empty"
+    (let [s (ds/make (storage/memory-storage))] (is (= :empty (ds/take s)))))
+  (testing "Take from exhausted open stream returns :empty"
+    (let [s (-> (ds/make (storage/memory-storage))
+                (#(:ok (ds/put % :a))))
+          r1 (ds/take s)]
+      (is (= :a (:ok r1)))
+      (is (= :empty (ds/take (:stream r1)))))))
+
+
+(deftest take-end-test
+  (testing "Take from empty closed stream returns :end"
+    (let [s (-> (ds/make (storage/memory-storage))
+                (ds/close))]
+      (is (= :end (ds/take s)))))
+  (testing "Take from closed stream with data returns data then :end"
+    (let [s (-> (ds/make (storage/memory-storage))
+                (#(:ok (ds/put % :x)))
+                (ds/close))
+          r1 (ds/take s)]
+      (is (= :x (:ok r1)))
+      (is (= :end (ds/take (:stream r1)))))))
+
+
+(deftest take-frees-capacity-test
+  (testing "Take frees capacity for put"
+    (let [s (-> (ds/make (storage/memory-storage) :capacity 2)
+                (#(:ok (ds/put % :a)))
+                (#(:ok (ds/put % :b))))
+          ;; Stream is full
+          full-result (ds/put s :c)]
+      (is (:full full-result))
+      ;; Take one, freeing capacity
+      (let [taken (ds/take s)
+            s' (:stream taken)
+            put-result (ds/put s' :c)]
+        (is (= :a (:ok taken)))
+        (is (:ok put-result) "Put should succeed after take freed capacity")))))
+
+
+(deftest take-seq-interaction-test
+  (testing "->seq reflects head position"
+    (let [s (-> (ds/make (storage/memory-storage))
+                (#(:ok (ds/put % 1)))
+                (#(:ok (ds/put % 2)))
+                (#(:ok (ds/put % 3))))
+          s' (:stream (ds/take s))]
+      (is (= [2 3] (vec (ds/->seq s'))))))
+  (testing "take-last-seq reflects head position"
+    (let [s (-> (ds/make (storage/memory-storage))
+                (#(:ok (ds/put % 1)))
+                (#(:ok (ds/put % 2)))
+                (#(:ok (ds/put % 3))))
+          s' (:stream (ds/take s))]
+      (is (= [3] (vec (ds/take-last-seq s' 1))))
+      (is (= [2 3] (vec (ds/take-last-seq s' 5)))))))
+
+
+(deftest cursor-gap-test
+  (testing "Cursor at position behind head returns :daostream/gap"
+    (let [s (-> (ds/make (storage/memory-storage))
+                (#(:ok (ds/put % :a)))
+                (#(:ok (ds/put % :b))))
+          ;; Take advances head past position 0
+          s' (:stream (ds/take s))
+          ref {:type :stream-ref, :id :s0}
+          c (ds/cursor ref)]
+      (is (= :daostream/gap (ds/next c s'))
+          "Cursor at pos 0 with head at 1 should return gap"))))

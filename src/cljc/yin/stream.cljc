@@ -15,9 +15,10 @@
 
   Internally backed by dao.stream (pure data functions).
   The VM handles parking, resumption, and scheduling."
-  (:require [dao.stream :as ds]
-            [dao.stream.storage :as storage]
-            [yin.module :as module]))
+  (:require
+    [dao.stream :as ds]
+    [dao.stream.storage :as storage]
+    [yin.module :as module]))
 
 
 ;; ============================================================
@@ -50,6 +51,13 @@
    Returns an effect descriptor that the VM will execute."
   [cursor-ref]
   {:effect :stream/next, :cursor cursor-ref})
+
+
+(defn take!
+  "Destructively take the next value from a stream. May park if empty.
+   Returns an effect descriptor that the VM will execute."
+  [stream-ref]
+  {:effect :stream/take, :stream stream-ref})
 
 
 (defn close!
@@ -130,8 +138,8 @@
                         {:stream-ref stream-ref})))
       (let [result (ds/next cursor-data stream)]
         (cond (map? result)
-                (let [new-store (assoc store cursor-id (:cursor result))]
-                  {:value (:ok result), :state (assoc state :store new-store)})
+              (let [new-store (assoc store cursor-id (:cursor result))]
+                {:value (:ok result), :state (assoc state :store new-store)})
               (= :blocked result) {:park true,
                                    :cursor-ref cursor-ref,
                                    :stream-id stream-id,
@@ -140,6 +148,27 @@
               ;; Reserved: :daostream/gap (requires eviction, deferred)
               (= :daostream/gap result) {:value :daostream/gap,
                                          :state state})))))
+
+
+(defn handle-take
+  "Handle :stream/take effect. Destructively consumes next value.
+   Returns result map:
+   {:value val, :state s'}               value available, head advanced
+   {:park true, :stream-id id, :state s} empty (open stream, no data)
+   {:value nil, :state s}                end of closed stream"
+  [state effect]
+  (let [stream-ref (:stream effect)
+        stream-id (:id stream-ref)
+        store (:store state)
+        stream (get store stream-id)]
+    (when (nil? stream)
+      (throw (ex-info "Invalid stream reference" {:ref stream-ref})))
+    (let [result (ds/take stream)]
+      (cond (map? result)
+            (let [new-store (assoc store stream-id (:stream result))]
+              {:value (:ok result), :state (assoc state :store new-store)})
+            (= :empty result) {:park true, :stream-id stream-id, :state state}
+            (= :end result) {:value nil, :state state}))))
 
 
 (defn handle-close
@@ -153,19 +182,18 @@
         stream (get store stream-id)
         new-stream (ds/close stream)
         new-store (assoc store stream-id new-stream)
-        ;; Find parked :next continuations waiting on cursors for this
-        ;; stream. Only :next waiters resume (with nil, meaning
-        ;; end-of-stream). :put waiters are not woken: closing means no
-        ;; more writes.
+        ;; Find parked :next and :take continuations waiting on this
+        ;; stream. Both resume with nil (end-of-stream). :put waiters are
+        ;; not woken: closing means no more writes.
         wait-set (or (:wait-set state) [])
         {to-resume true, to-keep false}
-          (group-by (fn [entry]
-                      (and (= stream-id (:stream-id entry))
-                           (= :next (:reason entry))))
-                    wait-set)]
+        (group-by (fn [entry]
+                    (and (= stream-id (:stream-id entry))
+                         (#{:next :take} (:reason entry))))
+                  wait-set)]
     {:state (assoc state
-              :store new-store
-              :wait-set (vec (or to-keep []))),
+                   :store new-store
+                   :wait-set (vec (or to-keep []))),
      :resume-parked (or to-resume [])}))
 
 
@@ -176,9 +204,13 @@
 (defn register!
   "Register the stream module with the VM module system."
   []
-  (module/register-module!
-    'stream
-    {'make make, 'put! put!, 'cursor cursor, 'next! next!, 'close! close!}))
+  (module/register-module! 'stream
+                           {'make make,
+                            'put! put!,
+                            'cursor cursor,
+                            'next! next!,
+                            'take! take!,
+                            'close! close!}))
 
 
 ;; Auto-register on load

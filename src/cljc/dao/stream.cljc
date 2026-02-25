@@ -1,14 +1,16 @@
 (ns dao.stream
-  "DaoStream: streams and cursors as pure data functions.
+  "DaoStream: bidirectional channel with cursors.
 
-  A stream is an append-only log with optional capacity.
-  A cursor is an independent read position into a stream.
+  A stream is a channel with optional capacity.
+  put appends values; take destructively consumes them (advancing head).
+  Cursors provide independent non-destructive read positions.
 
   All functions are pure: they take data, return data.
   No continuations, no parking, no side effects.
   The VM handles parking and scheduling."
-  (:refer-clojure :exclude [next])
-  (:require [dao.stream.storage :as storage]))
+  (:refer-clojure :exclude [next take])
+  (:require
+    [dao.stream.storage :as storage]))
 
 
 ;; =============================================================================
@@ -17,14 +19,15 @@
 ;; A stream is a map:
 ;;   {:storage <IStreamStorage>
 ;;    :capacity nil|int     ;; nil = unbounded
-;;    :closed false}
+;;    :closed false
+;;    :head 0}              ;; absolute position of first untaken value
 
 (defn make
   "Create a new stream with the given storage backend.
    Options:
      :capacity - max values before full (nil = unbounded)"
   [storage & {:keys [capacity]}]
-  {:storage storage, :capacity capacity, :closed false})
+  {:storage storage, :capacity capacity, :closed false, :head 0})
 
 
 (defn put
@@ -35,13 +38,18 @@
   [stream val]
   (when (:closed stream) (throw (ex-info "Cannot put to closed stream" {})))
   (let [storage (:storage stream)
-        len (storage/length storage)]
-    (if (and (:capacity stream) (>= len (:capacity stream)))
+        len (storage/length storage)
+        head (:head stream)
+        available (- len head)]
+    (if (and (:capacity stream) (>= available (:capacity stream)))
       {:full stream}
       {:ok (update stream :storage storage/append val)})))
 
 
-(defn closed? "Returns true if the stream is closed." [stream] (:closed stream))
+(defn closed?
+  "Returns true if the stream is closed."
+  [stream]
+  (:closed stream))
 
 
 (defn close
@@ -51,9 +59,28 @@
 
 
 (defn length
-  "Number of values in the stream."
+  "Number of available (untaken) values in the stream."
   [stream]
-  (storage/length (:storage stream)))
+  (- (storage/length (:storage stream)) (:head stream)))
+
+
+;; =============================================================================
+;; Destructive Take
+;; =============================================================================
+
+(defn take
+  "Destructively consume the next value from the stream. Returns:
+   {:ok val, :stream stream'} - value available, head advanced
+   :empty                     - no values, stream open (park the taker)
+   :end                       - no values, stream closed"
+  [stream]
+  (let [head (:head stream)
+        storage (:storage stream)
+        len (storage/length storage)]
+    (if (< head len)
+      (let [val (storage/read-at storage head)]
+        {:ok val, :stream (update stream :head inc)})
+      (if (:closed stream) :end :empty))))
 
 
 ;; =============================================================================
@@ -74,40 +101,46 @@
    {:ok val, :cursor cursor'} - data available, cursor advanced
    :blocked                   - at end of open stream, no data yet
    :end                       - at end of closed stream
-   Reserved (not currently produced):
-   :daostream/gap             - position was evicted (requires eviction, deferred)"
+   :daostream/gap             - position has been consumed past by take"
   [cursor stream]
   (let [pos (:position cursor)
+        head (:head stream)
         storage (:storage stream)
         len (storage/length storage)]
-    (if (< pos len)
-      (let [val (storage/read-at storage pos)]
-        {:ok val, :cursor (update cursor :position inc)})
-      (if (:closed stream) :end :blocked))))
+    (cond (< pos head) :daostream/gap
+          (< pos len) (let [val (storage/read-at storage pos)]
+                        {:ok val, :cursor (update cursor :position inc)})
+          (:closed stream) :end
+          :else :blocked)))
 
 
 (defn ->seq
-  "Return a lazy seq over the stream's values in append order."
+  "Return a lazy seq over the stream's available values in append order."
   [stream]
   (let [storage (:storage stream)
+        head (:head stream)
         len (storage/length storage)]
-    (letfn [(step [i]
+    (letfn [(step
+              [i]
               (when (< i len)
                 (lazy-seq (cons (storage/read-at storage i) (step (inc i))))))]
-      (step 0))))
+      (step head))))
 
 
 (defn take-last-seq
-  "Return a seq of the last n items in the stream.
+  "Return a seq of the last n items in the stream (from available values).
    Efficient: uses read-at with high indices, no full scan."
   [stream n]
   (when-not (number? n)
     (throw (ex-info "take-last-seq requires a numeric count" {:n n})))
   (let [n (long n)
         storage (:storage stream)
+        head (:head stream)
         len (storage/length storage)
-        start (max 0 (- len n))]
-    (letfn [(step [i]
+        available (- len head)
+        start (+ head (max 0 (- available n)))]
+    (letfn [(step
+              [i]
               (when (< i len)
                 (lazy-seq (cons (storage/read-at storage i) (step (inc i))))))]
       (step start))))
