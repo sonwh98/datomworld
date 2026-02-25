@@ -583,7 +583,7 @@
             " , the datom shape " [:code "[e a v t m]"] " is the only physical invariant. There are no table schemas or fixed records to coordinate. Adding new data costs zero"]
            [:li
             [:strong "Semantic contracts via queries"]
-           " , the \"promise\" in datom.world is the query interface. You can reinterpret old datoms in new ways without migrating the database"]
+            " , the \"promise\" in datom.world is the query interface. You can reinterpret old datoms in new ways without migrating the database"]
            [:li
             [:strong "Additive evolution"]
             " , existing interpreters continue working while new ones extract new meaning from the same stream. Functionality grows without coordination"]]

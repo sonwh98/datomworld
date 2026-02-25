@@ -1,8 +1,9 @@
 (ns yin.vm.register-test
-  (:require [clojure.test :refer [deftest is testing]]
-            [dao.stream]
-            [yin.vm :as vm]
-            [yin.vm.register :as register]))
+  (:require
+    [clojure.test :refer [deftest is testing]]
+    [dao.stream]
+    [yin.vm :as vm]
+    [yin.vm.register :as register]))
 
 
 ;; =============================================================================
@@ -199,17 +200,17 @@
     "Nested lambda with closure capture ((fn [x] ((fn [y] (+ x y)) 5)) 3)"
     (let [ast {:type :application,
                :operator
-                 {:type :lambda,
-                  :params ['x],
-                  :body {:type :application,
-                         :operator
-                           {:type :lambda,
-                            :params ['y],
-                            :body {:type :application,
-                                   :operator {:type :variable, :name '+},
-                                   :operands [{:type :variable, :name 'x}
-                                              {:type :variable, :name 'y}]}},
-                         :operands [{:type :literal, :value 5}]}},
+               {:type :lambda,
+                :params ['x],
+                :body {:type :application,
+                       :operator
+                       {:type :lambda,
+                        :params ['y],
+                        :body {:type :application,
+                               :operator {:type :variable, :name '+},
+                               :operands [{:type :variable, :name 'x}
+                                          {:type :variable, :name 'y}]}},
+                       :operands [{:type :literal, :value 5}]}},
                :operands [{:type :literal, :value 3}]}]
       (is (= 8 (compile-and-run-bc ast))))))
 
@@ -222,11 +223,11 @@
                           :body {:type :application,
                                  :operator {:type :variable, :name '+},
                                  :operands
-                                   [{:type :variable, :name 'a}
-                                    {:type :application,
-                                     :operator {:type :variable, :name '-},
-                                     :operands [{:type :variable, :name 'b}
-                                                {:type :literal, :value 1}]}]}},
+                                 [{:type :variable, :name 'a}
+                                  {:type :application,
+                                   :operator {:type :variable, :name '-},
+                                   :operands [{:type :variable, :name 'b}
+                                              {:type :literal, :value 1}]}]}},
                :operands [{:type :literal, :value 10}
                           {:type :literal, :value 5}]}]
       (is (= 14 (compile-and-run-bc ast))))))
@@ -239,40 +240,38 @@
 
 (deftest register-bytecode-shape-test
   (testing "Literal produces loadk + return"
-    (let [{:keys [asm reg-count]} (register/ast-datoms->asm (vm/ast->datoms
-                                                              {:type :literal,
-                                                               :value 42}))]
+    (let [{:keys [asm]} (register/ast-datoms->asm
+                          (vm/ast->datoms {:type :literal, :value 42}))]
       (is (vector? asm))
       (is (= 2 (count asm)))
       (is (= :loadk (first (first asm))) "First instruction should be :loadk")
       (is (= 42 (nth (first asm) 2)) "Should load the value 42")
       (is (= :return (first (last asm))) "Last instruction should be :return")))
   (testing "Variable produces loadv + return"
-    (let [{:keys [asm reg-count]} (register/ast-datoms->asm (vm/ast->datoms
-                                                              {:type :variable,
-                                                               :name 'x}))]
+    (let [{:keys [asm]} (register/ast-datoms->asm
+                          (vm/ast->datoms {:type :variable, :name 'x}))]
       (is (= 2 (count asm)))
       (is (= :loadv (first (first asm))))
       (is (= 'x (nth (first asm) 2)))
       (is (= :return (first (last asm))))))
   (testing "All instructions are vectors"
-    (let [{:keys [asm reg-count]}
-            (register/ast-datoms->asm
-              (vm/ast->datoms {:type :application,
-                               :operator {:type :variable, :name '+},
-                               :operands [{:type :literal, :value 1}
-                                          {:type :literal, :value 2}]}))]
+    (let [{:keys [asm]} (register/ast-datoms->asm
+                          (vm/ast->datoms
+                            {:type :application,
+                             :operator {:type :variable, :name '+},
+                             :operands [{:type :literal, :value 1}
+                                        {:type :literal, :value 2}]}))]
       (is (every? vector? asm)))))
 
 
 (deftest register-bytecode-application-test
   (testing "Application produces loadk, loadv, tailcall, and return"
-    (let [{:keys [asm reg-count]}
-            (register/ast-datoms->asm
-              (vm/ast->datoms {:type :application,
-                               :operator {:type :variable, :name '+},
-                               :operands [{:type :literal, :value 1}
-                                          {:type :literal, :value 2}]}))]
+    (let [{:keys [asm]} (register/ast-datoms->asm
+                          (vm/ast->datoms
+                            {:type :application,
+                             :operator {:type :variable, :name '+},
+                             :operands [{:type :literal, :value 1}
+                                        {:type :literal, :value 2}]}))]
       (is (= 5 (count asm)))
       (is (= :loadk (first (nth asm 0))))
       (is (= :loadk (first (nth asm 1))))
@@ -280,12 +279,12 @@
       (is (= :tailcall (first (nth asm 3))))
       (is (= :return (first (nth asm 4))))))
   (testing "Tailcall instruction references correct registers"
-    (let [{:keys [asm reg-count]} (register/ast-datoms->asm
-                                    (vm/ast->datoms
-                                      {:type :application,
-                                       :operator {:type :variable, :name '+},
-                                       :operands [{:type :literal, :value 1}
-                                                  {:type :literal, :value 2}]}))
+    (let [{:keys [asm]} (register/ast-datoms->asm
+                          (vm/ast->datoms
+                            {:type :application,
+                             :operator {:type :variable, :name '+},
+                             :operands [{:type :literal, :value 1}
+                                        {:type :literal, :value 2}]}))
           call-instr (nth asm 3)
           [op rd rf arg-regs] call-instr]
       (is (= :tailcall op))
@@ -297,31 +296,28 @@
 
 (deftest register-bytecode-lambda-test
   (testing "Lambda produces closure, jump, body, and return"
-    (let [{:keys [asm reg-count]} (register/ast-datoms->asm
-                                    (vm/ast->datoms {:type :lambda,
-                                                     :params ['x],
-                                                     :body {:type :variable,
-                                                            :name 'x}}))]
+    (let [{:keys [asm]} (register/ast-datoms->asm
+                          (vm/ast->datoms {:type :lambda,
+                                           :params ['x],
+                                           :body {:type :variable, :name 'x}}))]
       (is (= :lambda (first (nth asm 0))) "First instruction should be :lambda")
       (is (= :jump (first (nth asm 1)))
           "Second instruction should be :jump over body")
       (is (= :loadv (first (nth asm 2))) "Body should start with :loadv")
       (is (= :return (first (nth asm 3))) "Body should end with :return")))
   (testing "Closure body address points to correct instruction"
-    (let [{:keys [asm reg-count]} (register/ast-datoms->asm
-                                    (vm/ast->datoms {:type :lambda,
-                                                     :params ['x],
-                                                     :body {:type :variable,
-                                                            :name 'x}}))
+    (let [{:keys [asm]} (register/ast-datoms->asm
+                          (vm/ast->datoms {:type :lambda,
+                                           :params ['x],
+                                           :body {:type :variable, :name 'x}}))
           [_ _rd _params _body-addr _reg-count] (first asm)]
       (is (= 2 _body-addr)
           "Body should start at instruction 2 (after closure + jump)")))
   (testing "Jump skips over body to return"
-    (let [{:keys [asm reg-count]} (register/ast-datoms->asm
-                                    (vm/ast->datoms {:type :lambda,
-                                                     :params ['x],
-                                                     :body {:type :variable,
-                                                            :name 'x}}))
+    (let [{:keys [asm]} (register/ast-datoms->asm
+                          (vm/ast->datoms {:type :lambda,
+                                           :params ['x],
+                                           :body {:type :variable, :name 'x}}))
           [_ jump-addr] (nth asm 1)
           jump-target (get asm jump-addr)]
       (is (= :return (first jump-target))
@@ -330,12 +326,12 @@
 
 (deftest register-bytecode-conditional-test
   (testing "If produces branch, both branches, and move instructions"
-    (let [{:keys [asm reg-count]} (register/ast-datoms->asm
-                                    (vm/ast->datoms
-                                      {:type :if,
-                                       :test {:type :literal, :value true},
-                                       :consequent {:type :literal, :value 1},
-                                       :alternate {:type :literal, :value 0}}))]
+    (let [{:keys [asm]} (register/ast-datoms->asm
+                          (vm/ast->datoms
+                            {:type :if,
+                             :test {:type :literal, :value true},
+                             :consequent {:type :literal, :value 1},
+                             :alternate {:type :literal, :value 0}}))]
       (is (= :loadk (first (first asm))) "Should start with test expression")
       (is (some #(= :branch (first %)) asm)
           "Should contain a branch instruction")
@@ -516,24 +512,24 @@
   (testing "put then cursor+next roundtrip within nested lambdas"
     (let [ast {:type :application,
                :operator
-                 {:type :lambda,
-                  :params ['s],
-                  :body {:type :application,
-                         :operator {:type :lambda,
-                                    :params ['_],
-                                    :body {:type :application,
-                                           :operator {:type :lambda,
-                                                      :params ['c],
-                                                      :body {:type :stream/next,
-                                                             :source
-                                                               {:type :variable,
-                                                                :name 'c}}},
-                                           :operands [{:type :stream/cursor,
-                                                       :source {:type :variable,
-                                                                :name 's}}]}},
-                         :operands [{:type :stream/put,
-                                     :target {:type :variable, :name 's},
-                                     :val {:type :literal, :value 42}}]}},
+               {:type :lambda,
+                :params ['s],
+                :body {:type :application,
+                       :operator {:type :lambda,
+                                  :params ['_],
+                                  :body {:type :application,
+                                         :operator {:type :lambda,
+                                                    :params ['c],
+                                                    :body {:type :stream/next,
+                                                           :source
+                                                           {:type :variable,
+                                                            :name 'c}}},
+                                         :operands [{:type :stream/cursor,
+                                                     :source {:type :variable,
+                                                              :name 's}}]}},
+                       :operands [{:type :stream/put,
+                                   :target {:type :variable, :name 's},
+                                   :val {:type :literal, :value 42}}]}},
                :operands [{:type :stream/make, :buffer 5}]}
           vm (-> (make-stream-vm)
                  (vm/eval ast))]
@@ -600,17 +596,17 @@
                           :body {:type :literal, :value 42}},
                :operands [{:type :vm/current-continuation}]}
           vm1 (vm/eval vm0 ast)
-          cont (vm/value vm1)]
-      ;; In this specific AST, the value returned is 42, but we can inspect
-      ;; the VM state to see if a continuation was reified during
-      ;; execution. Better test: a lambda that captures the continuation
-      ;; and returns it.
-      (let [ast-capture {:type :vm/current-continuation}
-            vm2 (vm/eval vm0 ast-capture)
-            reified (vm/value vm2)]
-        (is (= :reified-continuation (:type reified)))
-        (is (vector? (:regs reified)))
-        (is (integer? (:pc reified)))))))
+          _ (vm/value vm1)
+          ;; In this specific AST, the value returned is 42, but we can
+          ;; inspect the VM state to see if a continuation was reified
+          ;; during execution. Better test: a lambda that captures the
+          ;; continuation and returns it.
+          ast-capture {:type :vm/current-continuation}
+          vm2 (vm/eval vm0 ast-capture)
+          reified (vm/value vm2)]
+      (is (= :reified-continuation (:type reified)))
+      (is (vector? (:regs reified)))
+      (is (integer? (:pc reified))))))
 
 
 ;; =============================================================================
@@ -632,12 +628,12 @@
                           :alternate {:type :application,
                                       :operator {:type :variable, :name 'self},
                                       :operands
-                                        [{:type :variable, :name 'self}
-                                         {:type :application,
-                                          :operator {:type :variable, :name '-},
-                                          :operands [{:type :variable, :name 'n}
-                                                     {:type :literal,
-                                                      :value 1}]}]}}}
+                                      [{:type :variable, :name 'self}
+                                       {:type :application,
+                                        :operator {:type :variable, :name '-},
+                                        :operands [{:type :variable, :name 'n}
+                                                   {:type :literal,
+                                                    :value 1}]}]}}}
           ast {:type :application,
                :operator self-fn,
                :operands [self-fn {:type :literal, :value 10000}]}]
@@ -657,18 +653,18 @@
                                             {:type :literal, :value 1}]},
                           :consequent {:type :variable, :name 'acc},
                           :alternate
-                            {:type :application,
-                             :operator {:type :variable, :name 'self},
-                             :operands [{:type :variable, :name 'self}
-                                        {:type :application,
-                                         :operator {:type :variable, :name '-},
-                                         :operands [{:type :variable, :name 'n}
-                                                    {:type :literal, :value 1}]}
-                                        {:type :application,
-                                         :operator {:type :variable, :name '+},
-                                         :operands
-                                           [{:type :variable, :name 'acc}
-                                            {:type :variable, :name 'n}]}]}}}
+                          {:type :application,
+                           :operator {:type :variable, :name 'self},
+                           :operands [{:type :variable, :name 'self}
+                                      {:type :application,
+                                       :operator {:type :variable, :name '-},
+                                       :operands [{:type :variable, :name 'n}
+                                                  {:type :literal, :value 1}]}
+                                      {:type :application,
+                                       :operator {:type :variable, :name '+},
+                                       :operands
+                                       [{:type :variable, :name 'acc}
+                                        {:type :variable, :name 'n}]}]}}}
           ast {:type :application,
                :operator self-fn,
                :operands [self-fn {:type :literal, :value 100}
@@ -681,33 +677,33 @@
     ;; ((fn [self n] (if (< n 2) n (+ (self self (- n 1)) (self self (- n
     ;; 2))))) <same> 10)
     (let [self-fn
-            {:type :lambda,
-             :params ['self 'n],
-             :body {:type :if,
-                    :test {:type :application,
-                           :operator {:type :variable, :name '<},
-                           :operands [{:type :variable, :name 'n}
-                                      {:type :literal, :value 2}]},
-                    :consequent {:type :variable, :name 'n},
-                    :alternate
-                      {:type :application,
-                       :operator {:type :variable, :name '+},
-                       :operands
-                         [{:type :application,
-                           :operator {:type :variable, :name 'self},
-                           :operands [{:type :variable, :name 'self}
-                                      {:type :application,
-                                       :operator {:type :variable, :name '-},
-                                       :operands [{:type :variable, :name 'n}
-                                                  {:type :literal, :value 1}]}]}
-                          {:type :application,
-                           :operator {:type :variable, :name 'self},
-                           :operands [{:type :variable, :name 'self}
-                                      {:type :application,
-                                       :operator {:type :variable, :name '-},
-                                       :operands [{:type :variable, :name 'n}
-                                                  {:type :literal,
-                                                   :value 2}]}]}]}}}
+          {:type :lambda,
+           :params ['self 'n],
+           :body {:type :if,
+                  :test {:type :application,
+                         :operator {:type :variable, :name '<},
+                         :operands [{:type :variable, :name 'n}
+                                    {:type :literal, :value 2}]},
+                  :consequent {:type :variable, :name 'n},
+                  :alternate
+                  {:type :application,
+                   :operator {:type :variable, :name '+},
+                   :operands
+                   [{:type :application,
+                     :operator {:type :variable, :name 'self},
+                     :operands [{:type :variable, :name 'self}
+                                {:type :application,
+                                 :operator {:type :variable, :name '-},
+                                 :operands [{:type :variable, :name 'n}
+                                            {:type :literal, :value 1}]}]}
+                    {:type :application,
+                     :operator {:type :variable, :name 'self},
+                     :operands [{:type :variable, :name 'self}
+                                {:type :application,
+                                 :operator {:type :variable, :name '-},
+                                 :operands [{:type :variable, :name 'n}
+                                            {:type :literal,
+                                             :value 2}]}]}]}}}
           ast {:type :application,
                :operator self-fn,
                :operands [self-fn {:type :literal, :value 10}]}]
@@ -729,12 +725,12 @@
                           :alternate {:type :application,
                                       :operator {:type :variable, :name 'self},
                                       :operands
-                                        [{:type :variable, :name 'self}
-                                         {:type :application,
-                                          :operator {:type :variable, :name '-},
-                                          :operands [{:type :variable, :name 'n}
-                                                     {:type :literal,
-                                                      :value 1}]}]}}}
+                                      [{:type :variable, :name 'self}
+                                       {:type :application,
+                                        :operator {:type :variable, :name '-},
+                                        :operands [{:type :variable, :name 'n}
+                                                   {:type :literal,
+                                                    :value 1}]}]}}}
           ast {:type :application,
                :operator self-fn,
                :operands [self-fn {:type :literal, :value 100}]}
@@ -745,8 +741,8 @@
           vm-loaded (vm/load-program vm-inst compiled)
           ;; Step through, collecting k depth at each step
           k-depth
-            (fn [k]
-              (loop [k k d 0] (if (nil? k) d (recur (:parent k) (inc d)))))
+          (fn [k]
+            (loop [k k d 0] (if (nil? k) d (recur (:parent k) (inc d)))))
           max-depth (loop [v vm-loaded
                            max-d 0]
                       (if (vm/halted? v)

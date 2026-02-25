@@ -1,285 +1,168 @@
 (ns dao.stream-test
-  (:require [clojure.test :refer [deftest is testing]]
-            [dao.stream :as ds]
-            [dao.stream.storage :as storage]
-            [yin.vm :as vm]
-            [yin.vm.ast-walker :as ast-walker]))
+  (:require
+    [clojure.test :refer [deftest is testing]]
+    [dao.stream :as ds]))
 
 
 ;; =============================================================================
-;; Storage Protocol Tests
+;; Test helper
 ;; =============================================================================
 
-(deftest memory-storage-test
-  (testing "Empty storage"
-    (let [s (storage/memory-storage)]
-      (is (= 0 (storage/length s)))
-      (is (nil? (storage/read-at s 0)))))
-  (testing "Append and read"
-    (let [s (-> (storage/memory-storage)
-                (storage/append :a)
-                (storage/append :b)
-                (storage/append :c))]
-      (is (= 3 (storage/length s)))
-      (is (= :a (storage/read-at s 0)))
-      (is (= :b (storage/read-at s 1)))
-      (is (= :c (storage/read-at s 2)))
-      (is (nil? (storage/read-at s 3)))))
-  (testing "Append is non-destructive"
-    (let [s0 (storage/memory-storage)
-          s1 (storage/append s0 :x)
-          s2 (storage/append s1 :y)]
-      (is (= 0 (storage/length s0)))
-      (is (= 1 (storage/length s1)))
-      (is (= 2 (storage/length s2))))))
-
-
-(deftest ring-buffer-storage-test
-  (testing "Empty ring buffer"
-    (let [s (storage/ring-buffer-storage 2)]
-      (is (= 0 (storage/length s)))
-      (is (nil? (storage/read-at s 0)))))
-  (testing "Append up to capacity"
-    (let [s (-> (storage/ring-buffer-storage 2)
-                (storage/append :a)
-                (storage/append :b))]
-      (is (= 2 (storage/length s)))
-      (is (= :a (storage/read-at s 0)))
-      (is (= :b (storage/read-at s 1)))))
-  (testing "Appending past capacity evicts oldest values"
-    (let [s (-> (storage/ring-buffer-storage 2)
-                (storage/append :a)
-                (storage/append :b)
-                (storage/append :c))]
-      (is (= 2 (storage/length s)))
-      (is (= :b (storage/read-at s 0)))
-      (is (= :c (storage/read-at s 1)))
-      (is (nil? (storage/read-at s 2)))))
-  (testing "Append is non-destructive"
-    (let [s0 (storage/ring-buffer-storage 2)
-          s1 (storage/append s0 :x)
-          s2 (storage/append s1 :y)
-          s3 (storage/append s2 :z)]
-      (is (= 0 (storage/length s0)))
-      (is (= 1 (storage/length s1)))
-      (is (= :x (storage/read-at s1 0)))
-      (is (= [:x :y] [(storage/read-at s2 0) (storage/read-at s2 1)]))
-      (is (= [:y :z] [(storage/read-at s3 0) (storage/read-at s3 1)]))))
-  (testing "Zero-capacity ring buffer stays empty"
-    (let [s (-> (storage/ring-buffer-storage 0)
-                (storage/append :x))]
-      (is (= 0 (storage/length s)))
-      (is (nil? (storage/read-at s 0))))))
-
-
-#?(:clj (deftest file-storage-test
-          (testing "File storage persists values across reopen"
-            (let [tmp-file (doto (java.io.File/createTempFile "daostream-"
-                                                              ".log")
-                             (.deleteOnExit))
-                  path (.getAbsolutePath tmp-file)
-                  s0 (storage/file-storage path)
-                  s1 (storage/append s0 {:event :start})
-                  s2 (storage/append s1 [:payload 42])
-                  reopened (storage/file-storage path)]
-              (is (= 0 (storage/length s0)))
-              (is (= 2 (storage/length s2)))
-              (is (= 2 (storage/length reopened)))
-              (is (= {:event :start} (storage/read-at reopened 0)))
-              (is (= [:payload 42] (storage/read-at reopened 1)))))))
+(defn- make-stream
+  ([] (ds/->LazySeqStream nil (atom {:log [], :head 0, :closed false})))
+  ([capacity]
+   (ds/->LazySeqStream capacity (atom {:log [], :head 0, :closed false}))))
 
 
 ;; =============================================================================
-;; Stream Tests
+;; LazySeqStream Tests
 ;; =============================================================================
 
-(deftest stream-make-test
-  (testing "Make unbounded stream"
-    (let [s (ds/make (storage/memory-storage))]
-      (is (not (ds/closed? s)))
-      (is (= 0 (ds/length s)))
-      (is (nil? (:capacity s)))))
-  (testing "Make bounded stream"
-    (let [s (ds/make (storage/memory-storage) :capacity 3)]
-      (is (= 3 (:capacity s))))))
+(deftest lazy-seq-stream-test
+  (testing "Fresh LazySeqStream is open and empty"
+    (let [s (make-stream)]
+      (is (false? (ds/closed? s)))
+      (is (= 0 (ds/length s))))))
 
 
-(deftest stream-put-test
-  (testing "Put to unbounded stream"
-    (let [s (ds/make (storage/memory-storage))
-          result (ds/put s 42)]
-      (is (:ok result))
-      (is (= 1 (ds/length (:ok result))))))
-  (testing "Put to bounded stream within capacity"
-    (let [s (ds/make (storage/memory-storage) :capacity 2)
-          r1 (ds/put s :a)
-          r2 (ds/put (:ok r1) :b)]
-      (is (:ok r1))
-      (is (:ok r2))
-      (is (= 2 (ds/length (:ok r2))))))
-  (testing "Put to bounded stream at capacity returns :full"
-    (let [s (ds/make (storage/memory-storage) :capacity 1)
-          r1 (ds/put s :a)
-          r2 (ds/put (:ok r1) :b)]
-      (is (:ok r1))
-      (is (:full r2))
-      (is (= 1 (ds/length (:full r2))))))
-  (testing "Put to closed stream throws"
-    (let [s (-> (ds/make (storage/memory-storage))
-                (ds/close))]
-      (is (thrown? #?(:clj Exception
-                      :cljs js/Error)
-                   (ds/put s 42))))))
-
-
-(deftest stream-close-test
-  (testing "Close a stream"
-    (let [s (ds/make (storage/memory-storage))
-          closed (ds/close s)]
-      (is (ds/closed? closed))
-      (is (not (ds/closed? s))))))
-
-
-;; =============================================================================
-;; Cursor Tests
-;; =============================================================================
-
-(deftest cursor-make-test
-  (testing "Make cursor at position 0"
-    (let [ref {:type :stream-ref, :id :s0}
-          c (ds/cursor ref)]
-      (is (= 0 (ds/position c)))
-      (is (= ref (:stream-ref c))))))
+(deftest put-take-test
+  (testing "put! / take! round trip with length tracking"
+    (let [s (make-stream)]
+      (is (= :ok (ds/put! s :a)))
+      (is (= :ok (ds/put! s :b)))
+      (is (= 2 (ds/length s)))
+      (is (= {:ok :a} (ds/take! s)))
+      (is (= 1 (ds/length s)))
+      (is (= {:ok :b} (ds/take! s)))
+      (is (= 0 (ds/length s))))))
 
 
 (deftest cursor-next-test
-  (testing "Next on populated stream returns data"
-    (let [s (-> (ds/make (storage/memory-storage))
-                (#(-> (ds/put % :a)
-                      :ok))
-                (#(-> (ds/put % :b)
-                      :ok)))
-          ref {:type :stream-ref, :id :s0}
-          c (ds/cursor ref)
-          r1 (ds/next c s)]
-      (is (map? r1))
+  (testing "next is non-destructive, cursor position advances"
+    (let [s (make-stream)
+          _ (ds/put! s :a)
+          _ (ds/put! s :b)
+          r1 (ds/next s {:position 0})]
       (is (= :a (:ok r1)))
-      (is (= 1 (ds/position (:cursor r1))))
-      (let [r2 (ds/next (:cursor r1) s)]
+      (is (= {:position 1} (:cursor r1)))
+      (is (= 2 (ds/length s)) "next does not consume")
+      (let [r2 (ds/next s (:cursor r1))]
         (is (= :b (:ok r2)))
-        (is (= 2 (ds/position (:cursor r2)))))))
-  (testing "Next at end of open stream returns :blocked"
-    (let [s (ds/make (storage/memory-storage))
-          c (ds/cursor {:type :stream-ref, :id :s0})]
-      (is (= :blocked (ds/next c s)))))
-  (testing "Next at end of closed stream returns :end"
-    (let [s (-> (ds/make (storage/memory-storage))
-                (ds/close))
-          c (ds/cursor {:type :stream-ref, :id :s0})]
-      (is (= :end (ds/next c s)))))
-  (testing "Next on closed stream with data returns data then :end"
-    (let [s (-> (ds/make (storage/memory-storage))
-                (#(-> (ds/put % :x)
-                      :ok))
-                (ds/close))
-          c (ds/cursor {:type :stream-ref, :id :s0})
-          r1 (ds/next c s)]
-      (is (= :x (:ok r1)))
-      (is (= :end (ds/next (:cursor r1) s))))))
+        (is (= {:position 2} (:cursor r2))))))
+  (testing "next at end of open stream returns :blocked"
+    (let [s (make-stream)] (is (= :blocked (ds/next s {:position 0})))))
+  (testing "next at end of closed stream returns :end"
+    (let [s (make-stream)]
+      (ds/close! s)
+      (is (= :end (ds/next s {:position 0})))))
+  (testing "next on closed stream with data returns data then :end"
+    (let [s (make-stream)]
+      (ds/put! s :x)
+      (ds/close! s)
+      (let [r1 (ds/next s {:position 0})]
+        (is (= :x (:ok r1)))
+        (is (= :end (ds/next s (:cursor r1))))))))
 
 
-(deftest cursor-seek-test
-  (testing "Seek to specific position"
-    (let [c (ds/cursor {:type :stream-ref, :id :s0})
-          c' (ds/seek c 5)]
-      (is (= 5 (ds/position c'))))))
+(deftest close-test
+  (testing "closed? false before, true after close!"
+    (let [s (make-stream)]
+      (is (false? (ds/closed? s)))
+      (ds/close! s)
+      (is (true? (ds/closed? s)))))
+  (testing "put! throws on closed stream"
+    (let [s (make-stream)]
+      (ds/close! s)
+      (is (thrown? #?(:clj Exception
+                      :cljs js/Error)
+            (ds/put! s 42)))))
+  (testing "take! returns :end on closed empty stream"
+    (let [s (make-stream)]
+      (ds/close! s)
+      (is (= :end (ds/take! s))))))
 
 
-;; =============================================================================
-;; Seq Tests
-;; =============================================================================
-
-(deftest stream-seq-empty-test
-  (testing "->seq on empty stream returns empty seq"
-    (let [s (ds/make (storage/memory-storage))]
-      (is (empty? (ds/->seq s)))
-      (is (nil? (seq (ds/->seq s)))))))
-
-
-(deftest stream-seq-values-test
-  (testing "->seq returns values in append order"
-    (let [s (-> (ds/make (storage/memory-storage))
-                (#(:ok (ds/put % :a)))
-                (#(:ok (ds/put % :b)))
-                (#(:ok (ds/put % :c))))]
-      (is (= [:a :b :c] (vec (ds/->seq s)))))))
+(deftest length-test
+  (testing "length tracks puts and takes"
+    (let [s (make-stream)]
+      (is (= 0 (ds/length s)))
+      (ds/put! s :a)
+      (is (= 1 (ds/length s)))
+      (ds/put! s :b)
+      (is (= 2 (ds/length s)))
+      (ds/take! s)
+      (is (= 1 (ds/length s)))
+      (ds/take! s)
+      (is (= 0 (ds/length s))))))
 
 
-(deftest stream-seq-clojure-interop-test
-  (testing "Standard seq functions work on ->seq"
-    (let [s (-> (ds/make (storage/memory-storage))
-                (#(:ok (ds/put % 1)))
-                (#(:ok (ds/put % 2)))
-                (#(:ok (ds/put % 3)))
-                (#(:ok (ds/put % 4))))]
-      (is (= 1 (first (ds/->seq s))))
-      (is (= [2 3 4] (vec (rest (ds/->seq s)))))
-      (is (= 10 (reduce + (ds/->seq s))))
-      (is (= [2 4] (vec (filter even? (ds/->seq s)))))
-      (is (= [2 4 6 8] (vec (map #(* 2 %) (ds/->seq s)))))
-      (is (= [1 2] (vec (take 2 (ds/->seq s))))))))
+(deftest gap-test
+  (testing "cursor behind head returns :daostream/gap after take!"
+    (let [s (make-stream)]
+      (ds/put! s :a)
+      (ds/put! s :b)
+      (ds/take! s)
+      (is (= :daostream/gap (ds/next s {:position 0}))
+          "Cursor at pos 0 with head at 1 should return gap")
+      (let [r (ds/next s {:position 1})] (is (= :b (:ok r)))))))
 
 
-(deftest stream-seq-snapshot-test
-  (testing "->seq is a snapshot: appending after ->seq does not affect it"
-    (let [s (-> (ds/make (storage/memory-storage))
-                (#(:ok (ds/put % :x))))
-          frozen (ds/->seq s)
-          s' (:ok (ds/put s :y))]
-      (is (= [:x] (vec frozen)))
-      (is (= [:x :y] (vec (ds/->seq s')))))))
+(deftest independent-cursors-test
+  (testing "Two cursors advance independently"
+    (let [s (make-stream)]
+      (ds/put! s :a)
+      (ds/put! s :b)
+      (ds/put! s :c)
+      (let [c1 {:position 0}
+            c2 {:position 0}
+            r1a (ds/next s c1)
+            r1b (ds/next s (:cursor r1a))
+            r2a (ds/next s c2)]
+        (is (= :a (:ok r1a)))
+        (is (= :b (:ok r1b)))
+        (is (= :a (:ok r2a)))
+        (is (= 2 (:position (:cursor r1b))))
+        (is (= 1 (:position (:cursor r2a))))))))
 
 
-(deftest stream-take-last-seq-test
-  (testing "take-last-seq returns last n items"
-    (let [s (-> (ds/make (storage/memory-storage))
-                (#(:ok (ds/put % 1)))
-                (#(:ok (ds/put % 2)))
-                (#(:ok (ds/put % 3))))]
-      (is (= [1 2 3] (vec (ds/take-last-seq s 5))))
-      (is (= [2 3] (vec (ds/take-last-seq s 2))))
-      (is (= [3] (vec (ds/take-last-seq s 1))))
-      (is (empty? (ds/take-last-seq s 0)))
-      (testing "n validation and coercion"
-        (is (= [2 3] (vec (ds/take-last-seq s 2.9))) "Coerces float to long")
-        (is (thrown? #?(:clj Exception
-                        :cljs js/Error)
-                     (ds/take-last-seq s "invalid")))))))
+(deftest ->seq-test
+  (testing
+    "->seq produces a lazy seq of available values without mutating the stream"
+    (let [s (make-stream)
+          _ (ds/put! s :alpha)
+          _ (ds/put! s :beta)
+          values (vec (ds/->seq nil s))]
+      (is (= [:alpha :beta] values))
+      (is (= 2 (ds/length s))
+          "Calling next via ->seq must not consume values"))))
 
 
-(deftest cursor-independence-test
-  (testing "Two cursors on same stream advance independently"
-    (let [s (-> (ds/make (storage/memory-storage))
-                (#(-> (ds/put % :a)
-                      :ok))
-                (#(-> (ds/put % :b)
-                      :ok))
-                (#(-> (ds/put % :c)
-                      :ok)))
-          ref {:type :stream-ref, :id :s0}
-          c1 (ds/cursor ref)
-          c2 (ds/cursor ref)
-          ;; c1 reads :a, :b
-          r1a (ds/next c1 s)
-          r1b (ds/next (:cursor r1a) s)
-          ;; c2 reads :a only
-          r2a (ds/next c2 s)]
-      (is (= :a (:ok r1a)))
-      (is (= :b (:ok r1b)))
-      (is (= :a (:ok r2a)))
-      ;; c1 is at position 2, c2 is at position 1
-      (is (= 2 (ds/position (:cursor r1b))))
-      (is (= 1 (ds/position (:cursor r2a)))))))
+(deftest capacity-test
+  (testing "put! returns :full at capacity, :ok after take! frees space"
+    (let [s (make-stream 2)]
+      (is (= :ok (ds/put! s :a)))
+      (is (= :ok (ds/put! s :b)))
+      (is (= :full (ds/put! s :c)))
+      (ds/take! s)
+      (is (= :ok (ds/put! s :c))))))
+
+
+(deftest next-sentinels-test
+  (testing ":blocked on empty open stream"
+    (let [s (make-stream)] (is (= :blocked (ds/next s {:position 0})))))
+  (testing ":end on closed empty stream"
+    (let [s (make-stream)]
+      (ds/close! s)
+      (is (= :end (ds/next s {:position 0}))))))
+
+
+(deftest take-sentinels-test
+  (testing ":empty on empty open stream"
+    (let [s (make-stream)] (is (= :empty (ds/take! s)))))
+  (testing ":end on closed empty stream"
+    (let [s (make-stream)]
+      (ds/close! s)
+      (is (= :end (ds/take! s))))))
 
 
 ;; =============================================================================
@@ -288,229 +171,24 @@
 
 (deftest stream-channel-mobility-test
   (testing "A stream sent through another stream arrives intact"
-    (let [s1 (ds/make (storage/memory-storage))
-          s2 (ds/make (storage/memory-storage))
-          ;; Put a value into s2
-          s2 (:ok (ds/put s2 :payload))
-          ;; Put s2 (the stream map) into s1
-          s1 (:ok (ds/put s1 s2))
-          ;; Read from s1, get s2 back
-          ref1 {:type :stream-ref, :id :s1}
-          c1 (ds/cursor ref1)
-          r1 (ds/next c1 s1)
+    (let [s1 (make-stream)
+          s2 (make-stream)
+          _ (ds/put! s2 :payload)
+          _ (ds/put! s1 s2)
+          r1 (ds/next s1 {:position 0})
           recovered-s2 (:ok r1)]
-      (is (map? recovered-s2) "Recovered value should be a stream map")
+      (is (some? recovered-s2) "Recovered value should be a stream")
       (is (= 1 (ds/length recovered-s2)) "Recovered stream should have 1 value")
-      ;; Read from the recovered s2
-      (let [ref2 {:type :stream-ref, :id :s2}
-            c2 (ds/cursor ref2)
-            r2 (ds/next c2 recovered-s2)]
+      (let [r2 (ds/next recovered-s2 {:position 0})]
         (is (= :payload (:ok r2))
             "Reading from recovered stream yields the original value")))))
 
 
-(deftest stream-ref-through-stream-test
-  (testing "A stream-ref sent through a stream arrives intact"
-    (let [s1 (ds/make (storage/memory-storage))
-          ref2 {:type :stream-ref, :id :s2}
-          s1 (:ok (ds/put s1 ref2))
-          c1 (ds/cursor {:type :stream-ref, :id :s1})
-          r1 (ds/next c1 s1)]
-      (is (= ref2 (:ok r1)) "Stream-ref passes through a stream unchanged"))))
-
-
-;; =============================================================================
-;; VM Integration Tests
-;; =============================================================================
-
-(defn run-ast
-  [ast]
-  (-> (ast-walker/create-vm)
-      (vm/load-program ast)
-      (vm/run)))
-
-
-(deftest vm-stream-make-test
-  (testing "stream/make creates a daostream in VM store"
-    (let [vm-result (run-ast {:type :stream/make, :buffer 5})
-          stream-ref (vm/value vm-result)
-          stream-id (:id stream-ref)
-          stream (get (vm/store vm-result) stream-id)]
-      (is (= :stream-ref (:type stream-ref)))
-      (is (some? stream))
-      (is (= 5 (:capacity stream)))
-      (is (not (ds/closed? stream))))))
-
-
-(deftest vm-stream-put-cursor-next-test
-  (testing "Put then cursor+next retrieves value"
-    (let [ast {:type :application,
-               :operator
-                 {:type :lambda,
-                  :params ['s],
-                  :body {:type :application,
-                         :operator {:type :lambda,
-                                    :params ['_put],
-                                    :body {:type :application,
-                                           :operator {:type :lambda,
-                                                      :params ['c],
-                                                      :body {:type :stream/next,
-                                                             :source
-                                                               {:type :variable,
-                                                                :name 'c}}},
-                                           :operands [{:type :stream/cursor,
-                                                       :source {:type :variable,
-                                                                :name 's}}]}},
-                         :operands [{:type :stream/put,
-                                     :target {:type :variable, :name 's},
-                                     :val {:type :literal, :value 42}}]}},
-               :operands [{:type :stream/make, :buffer 10}]}
-          vm-result (run-ast ast)]
-      (is (= 42 (vm/value vm-result))))))
-
-
-(deftest vm-multiple-cursors-test
-  (testing "Multiple cursors on same stream, independent positions"
-    (let [ast
-            {:type :application,
-             :operator
-               {:type :lambda,
-                :params ['s],
-                :body
-                  {:type :application,
-                   :operator
-                     {:type :lambda,
-                      :params ['_],
-                      :body
-                        {:type :application,
-                         :operator
-                           {:type :lambda,
-                            :params ['_],
-                            :body
-                              {:type :application,
-                               :operator
-                                 {:type :lambda,
-                                  :params ['c1],
-                                  :body
-                                    {:type :application,
-                                     :operator
-                                       {:type :lambda,
-                                        :params ['c2],
-                                        :body
-                                          {:type :application,
-                                           :operator
-                                             {:type :lambda,
-                                              :params ['v1],
-                                              :body
-                                                {:type :application,
-                                                 :operator {:type :variable,
-                                                            :name '+},
-                                                 :operands
-                                                   [{:type :variable, :name 'v1}
-                                                    {:type :stream/next,
-                                                     :source {:type :variable,
-                                                              :name 'c2}}]}},
-                                           :operands [{:type :stream/next,
-                                                       :source {:type :variable,
-                                                                :name 'c1}}]}},
-                                     :operands [{:type :stream/cursor,
-                                                 :source {:type :variable,
-                                                          :name 's}}]}},
-                               :operands [{:type :stream/cursor,
-                                           :source {:type :variable,
-                                                    :name 's}}]}},
-                         :operands [{:type :stream/put,
-                                     :target {:type :variable, :name 's},
-                                     :val {:type :literal, :value 20}}]}},
-                   :operands [{:type :stream/put,
-                               :target {:type :variable, :name 's},
-                               :val {:type :literal, :value 10}}]}},
-             :operands [{:type :stream/make, :buffer 10}]}
-          vm-result (run-ast ast)]
-      (is (= 20 (vm/value vm-result))))))
-
-
-(deftest vm-next-blocks-on-empty-test
-  (testing "next! on empty open stream blocks"
-    (let [ast {:type :application,
-               :operator {:type :lambda,
-                          :params ['s],
-                          :body {:type :application,
-                                 :operator {:type :lambda,
-                                            :params ['c],
-                                            :body {:type :stream/next,
-                                                   :source {:type :variable,
-                                                            :name 'c}}},
-                                 :operands [{:type :stream/cursor,
-                                             :source {:type :variable,
-                                                      :name 's}}]}},
-               :operands [{:type :stream/make, :buffer 10}]}
-          vm-result (run-ast ast)]
-      (is (= :yin/blocked (vm/value vm-result)))
-      (is (vm/blocked? vm-result)))))
-
-
-(deftest vm-close-resumes-parked-readers-test
-  (testing "Closing a stream resumes parked readers with nil"
-    (let [ast {:type :application,
-               :operator {:type :lambda,
-                          :params ['s],
-                          :body {:type :application,
-                                 :operator {:type :lambda,
-                                            :params ['c],
-                                            :body {:type :stream/next,
-                                                   :source {:type :variable,
-                                                            :name 'c}}},
-                                 :operands [{:type :stream/cursor,
-                                             :source {:type :variable,
-                                                      :name 's}}]}},
-               :operands [{:type :stream/make, :buffer 10}]}
-          vm-blocked (run-ast ast)]
-      (is (vm/blocked? vm-blocked))
-      (is (seq (:wait-set vm-blocked))))))
-
-
-(deftest vm-stream-put-ordering-test
-  (testing "Stream maintains append order through cursors"
-    (let [ast {:type :application,
-               :operator
-                 {:type :lambda,
-                  :params ['s],
-                  :body {:type :application,
-                         :operator
-                           {:type :lambda,
-                            :params ['_],
-                            :body
-                              {:type :application,
-                               :operator
-                                 {:type :lambda,
-                                  :params ['_],
-                                  :body {:type :application,
-                                         :operator
-                                           {:type :lambda,
-                                            :params ['c],
-                                            :body {:type :application,
-                                                   :operator
-                                                     {:type :lambda,
-                                                      :params ['v1],
-                                                      :body {:type :stream/next,
-                                                             :source
-                                                               {:type :variable,
-                                                                :name 'c}}},
-                                                   :operands
-                                                     [{:type :stream/next,
-                                                       :source {:type :variable,
-                                                                :name 'c}}]}},
-                                         :operands [{:type :stream/cursor,
-                                                     :source {:type :variable,
-                                                              :name 's}}]}},
-                               :operands [{:type :stream/put,
-                                           :target {:type :variable, :name 's},
-                                           :val {:type :literal,
-                                                 :value :second}}]}},
-                         :operands [{:type :stream/put,
-                                     :target {:type :variable, :name 's},
-                                     :val {:type :literal, :value :first}}]}},
-               :operands [{:type :stream/make, :buffer 10}]}
-          vm-result (run-ast ast)]
-      (is (= :second (vm/value vm-result))))))
+(deftest stream-descriptor-through-stream-test
+  (testing "A descriptor map sent through a stream arrives intact"
+    (let [s1 (make-stream)
+          descriptor {:capacity 5, :closed false}
+          _ (ds/put! s1 descriptor)
+          r1 (ds/next s1 {:position 0})]
+      (is (= descriptor (:ok r1))
+          "Descriptor passes through a stream unchanged"))))

@@ -1,7 +1,8 @@
 (ns datomworld.continuation-transport-test
-  (:require [clojure.test :refer [deftest is testing]]
-            [dao.stream :as ds]
-            [datomworld.continuation-transport :as ct]))
+  (:require
+    [clojure.test :refer [deftest is testing]]
+    [dao.stream :as ds]
+    [datomworld.continuation-transport :as ct]))
 
 
 (deftest enqueue-continuation-logs-summary-and-stores-payload-off-stream-test
@@ -19,7 +20,7 @@
                         :extra :ignored}
           state (ct/init-state [:register-vm :stack-vm])
           next-state (ct/enqueue-continuation state summary continuation)
-          datoms (vec (ds/->seq (:continuation-stream next-state)))
+          datoms (vec (ds/->seq nil (:continuation-stream next-state)))
           [_e a v _t _m] (first datoms)]
       (is (= 1 (count datoms)))
       (is (= :stream/continuation a))
@@ -62,7 +63,7 @@
                                          summary
                                          pending)
           [next-state message] (ct/consume-continuation-for state :register-vm)
-          datoms (vec (ds/->seq (:continuation-stream next-state)))
+          datoms (vec (ds/->seq nil (:continuation-stream next-state)))
           [_e a v _t _m] (last datoms)]
       (is (= {:from :stack-vm,
               :to :register-vm,

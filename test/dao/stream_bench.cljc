@@ -1,6 +1,6 @@
 (ns dao.stream-bench
-  (:require [dao.stream :as ds]
-            [dao.stream.storage :as storage]))
+  (:require
+    [dao.stream :as ds]))
 
 
 ;; Ad-hoc implementation (current demo code)
@@ -13,9 +13,9 @@
                    (->> (take-last 200)
                         vec))]
     (assoc stream
-      :next-e (inc e)
-      :next-t (inc t)
-      :datoms datoms)))
+           :next-e (inc e)
+           :next-t (inc t)
+           :datoms datoms)))
 
 
 ;; dao.stream implementation (proposed)
@@ -24,11 +24,11 @@
   (let [e (:next-e stream)
         t (:next-t stream)
         datom [e a v t 0]
-        result (ds/put (:log stream) datom)]
+        result (ds/put nil (:log stream) datom)]
     (assoc stream
-      :next-e (inc e)
-      :next-t (inc t)
-      :log (:ok result))))
+           :next-e (inc e)
+           :next-t (inc t)
+           :log (:ok result))))
 
 
 (defn bench
@@ -43,8 +43,7 @@
   []
   (let [n 10000
         adhoc-stream {:datoms [], :next-e 7000, :next-t 1}
-        ds-stream
-          {:log (ds/make (storage/memory-storage)), :next-e 7000, :next-t 1}]
+        ds-stream {:log (ds/make), :next-e 7000, :next-t 1}]
     (bench "adhoc-append"
            #(loop [s adhoc-stream
                    i 0]
@@ -69,5 +68,5 @@
              #(vec (take-last 200 (:datoms filled-adhoc)))
              n)
       (bench "ds-read (->seq take-last 200)"
-             #(vec (take-last 200 (ds/->seq (:log filled-ds))))
+             #(vec (take-last 200 (ds/->seq nil (:log filled-ds))))
              n))))

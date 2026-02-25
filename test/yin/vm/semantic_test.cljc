@@ -462,13 +462,13 @@
                          :operator {:type :variable, :name '+},
                          :operands [{:type :literal, :value 2}
                                     {:type :literal, :value 3}]})
-          _ (is (= 5 (vm/value vm-3)))]
-      ;; Verify that all datoms are preserved and have unique IDs
-      (let [datoms (:datoms vm-3)
-            ids (map first datoms)
-            unique-ids (set ids)]
-        (is (every? neg-int? ids)
-            "All accumulated datom entity IDs should remain negative tempids")
-        ;; Total nodes: 1 + 1 + 4 = 6 nodes.
-        (is (= 6 (count unique-ids))
-            "Should have 6 unique node IDs across 3 loads")))))
+          _ (is (= 5 (vm/value vm-3)))
+          ;; Verify that all datoms are preserved and have unique IDs
+          datoms (:datoms vm-3)
+          ids (map first datoms)
+          unique-ids (set ids)]
+      (is (every? neg-int? ids)
+          "All accumulated datom entity IDs should remain negative tempids")
+      ;; Total nodes: 1 + 1 + 4 = 6 nodes.
+      (is (= 6 (count unique-ids))
+          "Should have 6 unique node IDs across 3 loads"))))

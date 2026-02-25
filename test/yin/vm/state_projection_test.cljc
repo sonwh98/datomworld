@@ -1,8 +1,9 @@
 (ns yin.vm.state-projection-test
-  (:require [clojure.test :refer [deftest is testing]]
-            [yin.vm :as vm]
-            [yin.vm.semantic :as semantic]
-            [yin.vm.state-projection :as proj]))
+  (:require
+    [clojure.test :refer [deftest is testing]]
+    [yin.vm :as vm]
+    [yin.vm.semantic :as semantic]
+    [yin.vm.state-projection :as proj]))
 
 
 ;; =============================================================================
@@ -16,7 +17,7 @@
           datoms (proj/state->datom-stream vm)
           ctrl-datoms (filter (fn [[_e a _v _t _m]] (= a :cont/type)) datoms)
           result-datoms (filter (fn [[_e a _v _t _m]] (= a :cont/result))
-                          datoms)]
+                                datoms)]
       (is (seq datoms) "Projection produces datoms")
       (is (some #(= :control (nth % 2)) ctrl-datoms) "Has control state datom")
       (is (some #(= 42 (nth % 2)) result-datoms) "Shows halted value 42"))))

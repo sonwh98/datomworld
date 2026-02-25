@@ -1,7 +1,8 @@
 (ns yin.vm.state-projection
   "Projects in-memory VM state into a queryable datom stream.
    Zero cost during execution; projection computed only when queried."
-  (:require [yin.content :as content]))
+  (:require
+    [yin.content :as content]))
 
 
 (defn- project-env
@@ -17,10 +18,10 @@
       (let [eid (gen-id)]
         (swap! datoms conj [eid :env/name name 0 0])
         (swap! datoms conj
-          [eid :env/value
-           (if (and (map? val) (= :closure (:type val)))
-             {:type :closure, :body-hash (get hash-cache (:body-node val))}
-             val) 0 0])))
+               [eid :env/value
+                (if (and (map? val) (= :closure (:type val)))
+                  {:type :closure, :body-hash (get hash-cache (:body-node val))}
+                  val) 0 0])))
     [@datoms @id-counter]))
 
 
@@ -34,23 +35,23 @@
     (case (:type frame)
       :app-op (do (doseq [[i operand-id] (map-indexed vector (:operands frame))]
                     (swap! datoms conj
-                      [eid :cont/pending-arg
-                       [i (get hash-cache operand-id operand-id)] 0 0]))
+                           [eid :cont/pending-arg
+                            [i (get hash-cache operand-id operand-id)] 0 0]))
                   [@datoms next-eid])
       :app-args (do
                   (doseq [[i pending-id] (map-indexed vector (:pending frame))]
                     (swap! datoms conj
-                      [eid :cont/pending-arg
-                       [i (get hash-cache pending-id pending-id)] 0 0]))
+                           [eid :cont/pending-arg
+                            [i (get hash-cache pending-id pending-id)] 0 0]))
                   (swap! datoms conj
-                    [eid :cont/evaluated-count (count (:evaluated frame)) 0 0])
+                         [eid :cont/evaluated-count (count (:evaluated frame)) 0 0])
                   [@datoms next-eid])
       :if (do (swap! datoms conj
-                [eid :cont/consequent-ref
-                 (get hash-cache (:cons frame) (:cons frame)) 0 0])
+                     [eid :cont/consequent-ref
+                      (get hash-cache (:cons frame) (:cons frame)) 0 0])
               (swap! datoms conj
-                [eid :cont/alternate-ref
-                 (get hash-cache (:alt frame) (:alt frame)) 0 0])
+                     [eid :cont/alternate-ref
+                      (get hash-cache (:alt frame) (:alt frame)) 0 0])
               [@datoms next-eid])
       :restore-env [@datoms next-eid]
       ;; Default: just the type
@@ -77,8 +78,8 @@
         (swap! result conj [ctrl-eid :cont/state (:type control) 0 0])
         (case (:type control)
           :node (swap! result conj
-                  [ctrl-eid :cont/node-ref
-                   (get hash-cache (:id control) (:id control)) 0 0])
+                       [ctrl-eid :cont/node-ref
+                        (get hash-cache (:id control) (:id control)) 0 0])
           :value (swap! result conj [ctrl-eid :cont/value (:val control) 0 0])
           nil))
       (when halted

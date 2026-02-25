@@ -1,125 +1,127 @@
 (ns dao.stream
-  "DaoStream: streams and cursors as pure data functions.
+  "DaoStream: bidirectional channel with cursors.
 
-  A stream is an append-only log with optional capacity.
-  A cursor is an independent read position into a stream.
+  Two distinct things:
 
-  All functions are pure: they take data, return data.
-  No continuations, no parking, no side effects.
-  The VM handles parking and scheduling."
-  (:refer-clojure :exclude [next])
-  (:require [dao.stream.storage :as storage]))
+  Descriptor (serializable):
+    {:capacity nil    ;; nil = unbounded, int = bounded
+     :closed   false} ;; snapshot of closed status at serialization time
 
+  IStream (operational, not serializable):
+    Protocol with stateful implementations. LazySeqStream is the reference
+    implementation backed by an atom.
 
-;; =============================================================================
-;; Stream
-;; =============================================================================
-;; A stream is a map:
-;;   {:storage <IStreamStorage>
-;;    :capacity nil|int     ;; nil = unbounded
-;;    :closed false}
-
-(defn make
-  "Create a new stream with the given storage backend.
-   Options:
-     :capacity - max values before full (nil = unbounded)"
-  [storage & {:keys [capacity]}]
-  {:storage storage, :capacity capacity, :closed false})
-
-
-(defn put
-  "Append a value to the stream. Returns:
-   {:ok stream'} on success,
-   {:full stream} if at capacity,
-   throws if stream is closed."
-  [stream val]
-  (when (:closed stream) (throw (ex-info "Cannot put to closed stream" {})))
-  (let [storage (:storage stream)
-        len (storage/length storage)]
-    (if (and (:capacity stream) (>= len (:capacity stream)))
-      {:full stream}
-      {:ok (update stream :storage storage/append val)})))
-
-
-(defn closed? "Returns true if the stream is closed." [stream] (:closed stream))
-
-
-(defn close
-  "Close the stream. No more puts allowed."
-  [stream]
-  (assoc stream :closed true))
-
-
-(defn length
-  "Number of values in the stream."
-  [stream]
-  (storage/length (:storage stream)))
+  Cursor (plain map, constructed inline by caller):
+    {:position n}"
+  (:refer-clojure :exclude [next]))
 
 
 ;; =============================================================================
-;; Cursor
+;; IStream Protocol
 ;; =============================================================================
-;; A cursor is a map:
-;;   {:stream-ref <keyword>   ;; reference to stream in VM store
-;;    :position int}
 
-(defn cursor
-  "Create a cursor at position 0 for the given stream reference."
-  [stream-ref]
-  {:stream-ref stream-ref, :position 0})
+(defprotocol IStream
+
+  (put! [this val])
+  ;; Mutates: appends val. Returns :ok or :full. Throws if closed.
+  (take! [this])
+  ;; Mutates: consumes next value. Returns {:ok val}, :empty (open), or
+  ;; :end (closed).
+  (next [this cursor])
+  ;; Reads at cursor position. Returns {:ok val :cursor cursor'}, :blocked,
+  ;; :end, or :daostream/gap.
+  (length [this])
+  ;; Reads: count of available (untaken) values.
+  (close! [this])
+  ;; Mutates: marks stream closed.
+  (closed? [this]))
 
 
-(defn next
-  "Advance the cursor by one position. Returns:
-   {:ok val, :cursor cursor'} - data available, cursor advanced
-   :blocked                   - at end of open stream, no data yet
-   :end                       - at end of closed stream
-   Reserved (not currently produced):
-   :daostream/gap             - position was evicted (requires eviction, deferred)"
-  [cursor stream]
-  (let [pos (:position cursor)
-        storage (:storage stream)
-        len (storage/length storage)]
-    (if (< pos len)
-      (let [val (storage/read-at storage pos)]
-        {:ok val, :cursor (update cursor :position inc)})
-      (if (:closed stream) :end :blocked))))
+;; Reads: boolean.
 
+
+;; =============================================================================
+;; LazySeqStream — reference implementation
+;; =============================================================================
+;;
+;; state-atom holds: {:log [] :head 0 :closed false}
+;;   :log    — vector of all appended values
+;;   :head   — absolute index of next take! position
+;;   :closed — boolean
+
+(defrecord LazySeqStream
+  [capacity state-atom]
+
+  IStream
+
+  (put!
+    [_this val]
+    (let [state @state-atom]
+      (when (:closed state)
+        (throw (ex-info "Cannot put to closed stream" {})))
+      (let [log (:log state)
+            head (:head state)
+            available (- (count log) head)]
+        (if (and capacity (>= available capacity))
+          :full
+          (do (swap! state-atom update :log conj val) :ok)))))
+
+
+  (take!
+    [_this]
+    (let [state @state-atom
+          head (:head state)
+          log (:log state)
+          len (count log)]
+      (if (< head len)
+        (let [val (get log head)]
+          (swap! state-atom update :head inc)
+          {:ok val})
+        (if (:closed state) :end :empty))))
+
+
+  (next
+    [_this cursor]
+    (let [pos (:position cursor)
+          state @state-atom
+          head (:head state)
+          log (:log state)
+          len (count log)]
+      (cond (< pos head) :daostream/gap
+            (< pos len) {:ok (get log pos),
+                         :cursor (update cursor :position inc)}
+            (:closed state) :end
+            :else :blocked)))
+
+
+  (length
+    [_this]
+    (let [state @state-atom] (- (count (:log state)) (:head state))))
+
+
+  (close! [_this] (swap! state-atom assoc :closed true) nil)
+
+
+  (closed? [_this] (:closed @state-atom)))
+
+
+;; =============================================================================
+;; Utilities
+;; =============================================================================
 
 (defn ->seq
-  "Return a lazy seq over the stream's values in append order."
-  [stream]
-  (let [storage (:storage stream)
-        len (storage/length storage)]
-    (letfn [(step [i]
-              (when (< i len)
-                (lazy-seq (cons (storage/read-at storage i) (step (inc i))))))]
-      (step 0))))
-
-
-(defn take-last-seq
-  "Return a seq of the last n items in the stream.
-   Efficient: uses read-at with high indices, no full scan."
-  [stream n]
-  (when-not (number? n)
-    (throw (ex-info "take-last-seq requires a numeric count" {:n n})))
-  (let [n (long n)
-        storage (:storage stream)
-        len (storage/length storage)
-        start (max 0 (- len n))]
-    (letfn [(step [i]
-              (when (< i len)
-                (lazy-seq (cons (storage/read-at storage i) (step (inc i))))))]
-      (step start))))
-
-
-(defn seek
-  "Return a cursor at the given position."
-  [cursor pos]
-  (assoc cursor :position pos))
-
-
-(defn position
-  "Return the current position of the cursor."
-  [cursor]
-  (:position cursor))
+  "Convert an `IStream` into a lazy Clojure sequence of values that have been
+   appended but not yet consumed.  A cursor walks the stream until `next` hits
+   `:blocked`, `:end`, or a gap, at which point the lazy sequence terminates.
+   The `ctx` argument is ignored here but retained so callers can keep the same
+   calling shape they use for other stream helpers."
+  [_ stream]
+  (when stream
+    (letfn [(walk
+              [cursor]
+              (lazy-seq (let [result (next stream cursor)]
+                          (cond (map? result) (cons (:ok result)
+                                                    (walk (:cursor result)))
+                                (#{:blocked :end :daostream/gap} result) nil
+                                :else nil))))]
+      (walk {:position 0}))))

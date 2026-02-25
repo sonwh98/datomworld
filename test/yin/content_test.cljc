@@ -1,7 +1,8 @@
 (ns yin.content-test
-  (:require [clojure.test :refer [deftest is testing]]
-            [yin.content :as content]
-            [yin.vm :as vm]))
+  (:require
+    [clojure.test :refer [deftest is testing]]
+    [yin.content :as content]
+    [yin.vm :as vm]))
 
 
 ;; =============================================================================
@@ -83,7 +84,7 @@
           annotated (content/annotate-datoms datoms)
           entity-count (count (group-by first datoms))
           hash-datoms (filter (fn [[_e a _v _t _m]] (= a :yin/content-hash))
-                        annotated)]
+                              annotated)]
       (is (= entity-count (count hash-datoms))
           "One content-hash datom per entity")
       (is (every? (fn [[_e _a _v _t m]] (= 1 m)) hash-datoms)
@@ -101,7 +102,7 @@
           hash-before (content/compute-content-hashes datoms)
           ;; Add a derived datom with m=1
           datoms-with-derived
-            (conj datoms [(ffirst datoms) :yin/content-hash "sha256:fake" 0 1])
+          (conj datoms [(ffirst datoms) :yin/content-hash "sha256:fake" 0 1])
           hash-after (content/compute-content-hashes datoms-with-derived)]
       (is (= hash-before hash-after)
           "Adding derived datoms does not change content hashes"))))

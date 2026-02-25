@@ -2,19 +2,20 @@
   "Pure transport stream helpers shared across hosts.
 
   Transport state:
-    {:continuation-stream <dao.stream stream of datoms>
-     :cursors {:register-vm <cursor> :stack-vm <cursor>}
+    {:continuation-stream <LazySeqStream>
+     :cursors {:register-vm {:position n} :stack-vm {:position n}}
      :pending-continuations {position continuation}}"
-  (:require [dao.stream :as ds]
-            [dao.stream.storage :as storage]))
+  (:require
+    [dao.stream :as ds]))
 
 
 (defn init-state
   "Create a fresh transport state. vm-keys is a collection of keywords
    identifying the consuming VMs (e.g. [:register-vm :stack-vm])."
   [vm-keys]
-  {:continuation-stream (ds/make (storage/memory-storage)),
-   :cursors (into {} (map (fn [k] [k (ds/cursor k)])) vm-keys),
+  {:continuation-stream
+   (ds/->LazySeqStream nil (atom {:log [], :head 0, :closed false})),
+   :cursors (into {} (map (fn [k] [k {:position 0}])) vm-keys),
    :pending-continuations {}})
 
 
@@ -26,8 +27,8 @@
         e (+ 7000 len)
         t (+ 1 len)
         datom [e a v t 0]
-        {:keys [ok]} (ds/put transport datom)]
-    [ok datom]))
+        _ (ds/put! transport datom)]
+    [transport datom]))
 
 
 (defn enqueue-continuation
@@ -51,7 +52,7 @@
   (let [transport (:continuation-stream state)
         cur (get-in state [:cursors vm-key])]
     (loop [c cur]
-      (let [result (ds/next c transport)]
+      (let [result (ds/next transport c)]
         (if (keyword? result)
           [(assoc-in state [:cursors vm-key] c) nil]
           (let [{:keys [ok cursor]} result
@@ -84,7 +85,7 @@
           (fn [[vm-key cur]]
             (loop [c cur
                    acc []]
-              (let [result (ds/next c transport)]
+              (let [result (ds/next transport c)]
                 (if (keyword? result)
                   acc
                   (let [{:keys [ok cursor]} result

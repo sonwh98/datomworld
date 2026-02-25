@@ -1,6 +1,7 @@
 (ns yin.vm.engine
-  (:require [yin.module :as module]
-            [yin.stream :as stream]))
+  (:require
+    [yin.module :as module]
+    [yin.stream :as stream]))
 
 
 (defn resolve-var
@@ -31,7 +32,10 @@
   (boolean (:blocked vm)))
 
 
-(defn vm-value "Returns the current value of the VM." [vm] (:value vm))
+(defn vm-value
+  "Returns the current value of the VM."
+  [vm]
+  (:value vm))
 
 
 (defn halted-with-empty-queue?
@@ -48,66 +52,85 @@
         run-queue (or (:run-queue state) [])]
     (if (empty? wait-set)
       state
-      (let [store (:store state)]
+      (let [initial-store (:store state)]
         (loop [remaining wait-set
                new-wait []
-               new-run run-queue]
+               new-run run-queue
+               store initial-store]
           (if (empty? remaining)
             (assoc state
-              :wait-set new-wait
-              :run-queue new-run)
+                   :wait-set new-wait
+                   :run-queue new-run
+                   :store store)
             (let [entry (first remaining)
                   rest-entries (rest remaining)]
               (case (:reason entry)
-                :next (let [cursor-ref (:cursor-ref entry)
-                            cursor-id (:id cursor-ref)
-                            cursor-data (get store cursor-id)
-                            stream-ref (:stream-ref cursor-data)
-                            stream-id (:id stream-ref)
-                            _stream (get store stream-id)
-                            effect {:effect :stream/next, :cursor cursor-ref}
-                            result (stream/handle-next (assoc state
-                                                         :store store)
-                                                       effect)]
-                        (if (:park result)
-                          ;; Still blocked
-                          (recur rest-entries (conj new-wait entry) new-run)
-                          ;; Now has data or stream closed
-                          (let [updated-store (:store (:state result))]
-                            (recur rest-entries
-                                   new-wait
-                                   (conj new-run
-                                         (assoc entry
-                                           :value (:value result)
-                                           :store-updates
-                                             (when (not= store updated-store)
-                                               updated-store)))))))
+                :next
+                (let [cursor-ref (:cursor-ref entry)
+                      cursor-id (:id cursor-ref)
+                      cursor-data (get store cursor-id)
+                      stream-ref (:stream-ref cursor-data)
+                      _stream-id (:id stream-ref)
+                      effect {:effect :stream/next, :cursor cursor-ref}
+                      result (stream/handle-next (assoc state :store store)
+                                                 effect)]
+                  (if (:park result)
+                    (recur rest-entries (conj new-wait entry) new-run store)
+                    (let [updated-store (:store (:state result))]
+                      (recur rest-entries
+                             new-wait
+                             (conj new-run
+                                   (assoc entry
+                                          :value (:value result)
+                                          :store-updates (when (not= store
+                                                                     updated-store)
+                                                           updated-store)))
+                             (or updated-store store)))))
+                :take
+                (let [stream-id (:stream-id entry)
+                      stream-ref {:type :stream-ref, :id stream-id}
+                      effect {:effect :stream/take, :stream stream-ref}
+                      result (stream/handle-take (assoc state :store store)
+                                                 effect)]
+                  (if (:park result)
+                    (recur rest-entries (conj new-wait entry) new-run store)
+                    (let [updated-store (:store (:state result))]
+                      (recur rest-entries
+                             new-wait
+                             (conj new-run
+                                   (assoc entry
+                                          :value (:value result)
+                                          :store-updates (when (not= store
+                                                                     updated-store)
+                                                           updated-store)))
+                             (or updated-store store)))))
                 :put (let [stream-id (:stream-id entry)
                            stream (get store stream-id)]
                        (if (:closed stream)
-                         ;; Stream was closed: drop the parked put
-                         (recur rest-entries new-wait new-run)
+                         (recur rest-entries new-wait new-run store)
                          (let [datom (:datom entry)
                                stream-ref {:type :stream-ref, :id stream-id}
                                effect {:effect :stream/put,
                                        :stream stream-ref,
                                        :val datom}
                                result (stream/handle-put (assoc state
-                                                           :store store)
+                                                                :store store)
                                                          effect)]
                            (if (:park result)
-                             ;; Still full
-                             (recur rest-entries (conj new-wait entry) new-run)
-                             ;; Has capacity now
                              (recur rest-entries
-                                    new-wait
-                                    (conj new-run
-                                          (assoc entry
-                                            :value (:value result)
-                                            :store-updates
-                                              (:store (:state result)))))))))
+                                    (conj new-wait entry)
+                                    new-run
+                                    store)
+                             (let [updated-store (:store (:state result))]
+                               (recur rest-entries
+                                      new-wait
+                                      (conj new-run
+                                            (assoc entry
+                                                   :value (:value result)
+                                                   :store-updates updated-store))
+                                      (or updated-store store)))))))
                 ;; Unknown reason, keep waiting
-                (recur rest-entries (conj new-wait entry) new-run)))))))))
+                (recur rest-entries (conj new-wait entry) new-run store)))))))))
 
 
 (defn run-loop

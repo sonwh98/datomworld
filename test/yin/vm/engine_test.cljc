@@ -1,8 +1,9 @@
 (ns yin.vm.engine-test
-  (:require [clojure.test :refer [deftest is testing]]
-            [dao.stream :as ds]
-            [yin.stream :as stream]
-            [yin.vm.engine :as engine]))
+  (:require
+    [clojure.test :refer [deftest is testing]]
+    [dao.stream :as ds]
+    [yin.stream :as stream]
+    [yin.vm.engine :as engine]))
 
 
 (deftest run-loop-resumes-when-blocked-with-preexisting-run-queue-test
@@ -19,10 +20,10 @@
                                     (swap! resume-calls inc)
                                     (when-let [entry (first (:run-queue v))]
                                       (assoc v
-                                        :value (:value entry)
-                                        :run-queue (vec (rest (:run-queue v)))
-                                        :blocked false
-                                        :halted true))))]
+                                             :value (:value entry)
+                                             :run-queue (vec (rest (:run-queue v)))
+                                             :blocked false
+                                             :halted true))))]
       (is (= 1 @resume-calls))
       (is (= 42 (:value result)))
       (is (false? (:blocked result)))
@@ -47,22 +48,21 @@
           gen-id-fn (fn [v] (engine/gen-id-fn (:id-counter v)))
           ;; 1. Make stream
           [stream-ref state]
-            (stream/handle-make state {:capacity 10} (gen-id-fn state))
+          (stream/handle-make state {:capacity 10} (gen-id-fn state))
           state (update state :id-counter inc)
           stream-id (:id stream-ref)
           ;; 2. Make cursor
           [cursor-ref state]
-            (stream/handle-cursor state {:stream stream-ref} (gen-id-fn state))
+          (stream/handle-cursor state {:stream stream-ref} (gen-id-fn state))
           state (update state :id-counter inc)
-          cursor-id (:id cursor-ref)
           ;; 3. Park a continuation for :next
           parked-entry {:reason :next,
                         :cursor-ref cursor-ref,
                         :stream-id stream-id,
                         :continuation {:type :some-cont}}
           state (assoc state
-                  :wait-set [parked-entry]
-                  :run-queue [])
+                       :wait-set [parked-entry]
+                       :run-queue [])
           ;; 4. check-wait-set should NOT wake it yet (stream is empty)
           state-still-blocked (#'yin.vm.engine/check-wait-set state)
           _ (is (= 1 (count (:wait-set state-still-blocked))))
@@ -85,7 +85,7 @@
           gen-id-fn (fn [v] (engine/gen-id-fn (:id-counter v)))
           ;; 1. Make stream with capacity 1
           [stream-ref state]
-            (stream/handle-make state {:capacity 1} (gen-id-fn state))
+          (stream/handle-make state {:capacity 1} (gen-id-fn state))
           state (update state :id-counter inc)
           stream-id (:id stream-ref)
           ;; 2. Fill the stream
@@ -96,8 +96,8 @@
                         :datom 2,
                         :continuation {:type :some-cont}}
           state (assoc state
-                  :wait-set [parked-entry]
-                  :run-queue [])
+                       :wait-set [parked-entry]
+                       :run-queue [])
           ;; 4. check-wait-set should NOT wake it yet (stream is full)
           state-still-blocked (#'yin.vm.engine/check-wait-set state)
           _ (is (= 1 (count (:wait-set state-still-blocked))))
@@ -105,7 +105,7 @@
           ;; 5. Manually increase capacity in the store to simulate space
           ;; becoming available
           state-with-capacity
-            (update-in state-still-blocked [:store stream-id] assoc :capacity 2)
+          (update-in state-still-blocked [:store stream-id] assoc :capacity 2)
           ;; 6. check-wait-set should now wake it
           state-runnable (#'yin.vm.engine/check-wait-set state-with-capacity)]
       (is (empty? (:wait-set state-runnable)))
@@ -120,7 +120,7 @@
           gen-id-fn (fn [v] (engine/gen-id-fn (:id-counter v)))
           ;; 1. Make stream with capacity 1 and fill it.
           [stream-ref state]
-            (stream/handle-make state {:capacity 1} (gen-id-fn state))
+          (stream/handle-make state {:capacity 1} (gen-id-fn state))
           state (update state :id-counter inc)
           stream-id (:id stream-ref)
           state (:state (stream/handle-put state {:stream stream-ref, :val 1}))
@@ -130,8 +130,8 @@
                         :datom 2,
                         :continuation {:type :some-cont}}
           state (assoc state
-                  :wait-set [parked-entry]
-                  :run-queue [])
+                       :wait-set [parked-entry]
+                       :run-queue [])
           ;; 3. Close stream. :put waiters are intentionally left in
           ;; wait-set.
           close-result (stream/handle-close state {:stream stream-ref})
@@ -186,8 +186,8 @@
               :datom 2,
               :continuation {:id :e3}}
           state (assoc state
-                  :wait-set [e1 e2 e3]
-                  :run-queue [])
+                       :wait-set [e1 e2 e3]
+                       :run-queue [])
           ;; 4. Run scheduler
           result (#'yin.vm.engine/check-wait-set state)]
       (is (= 1 (count (:run-queue result))) "Only e1 should be runnable")

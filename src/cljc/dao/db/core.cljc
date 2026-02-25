@@ -1,11 +1,13 @@
 (ns dao.db.core
-  (:require [dao.db.index :as index]
-            [dao.db.index.structural :as structural]
-            [dao.db.index.temporal :as temporal]
-            [dao.db.primitives :as p]))
+  (:require
+    [dao.db.index :as index]
+    [dao.db.index.structural :as structural]
+    [dao.db.index.temporal :as temporal]
+    [dao.db.primitives :as p]))
 
 
-(defrecord DaoDB [indexes])
+(defrecord DaoDB
+  [indexes])
 
 
 (defn create-db
@@ -19,12 +21,12 @@
   [db datoms]
   (let [datom-recs (mapv (fn [d]
                            (let [{:keys [e a v t m]}
-                                   (if (map? d) d (zipmap [:e :a :v :t :m] d))]
+                                 (if (map? d) d (zipmap [:e :a :v :t :m] d))]
                              (p/->datom e a v t m)))
-                     datoms)
+                         datoms)
         updated-indexes (reduce-kv (fn [idxs k idx]
                                      (assoc idxs
-                                       k (index/index-tx idx datom-recs)))
+                                            k (index/index-tx idx datom-recs)))
                                    {}
                                    (:indexes db))]
     (assoc db :indexes updated-indexes)))
