@@ -2,8 +2,9 @@
   "Content addressing for AST datoms via Merkle hashing.
    Computes gauge-invariant content hashes over [a v] pairs,
    replacing entity-ref values with content hashes of referenced entities."
-  (:require [dao.db.primitives :as p]
-            [yin.vm :as vm]))
+  (:require
+    [dao.db.primitives :as p]
+    [yin.vm :as vm]))
 
 
 ;; Derive ref attrs from the canonical schema
@@ -26,7 +27,7 @@
    For cardinality-many attrs, v may be a vector (raw) or scalar (materialized)."
   [a v hash-cache]
   (cond (contains? vector-ref-attrs a)
-          (if (vector? v) (mapv #(get hash-cache % %) v) (get hash-cache v v))
+        (if (vector? v) (mapv #(get hash-cache % %) v) (get hash-cache v v))
         (contains? ref-attrs a) (get hash-cache v v)
         :else v))
 
@@ -47,8 +48,8 @@
                            (let [vals (if (vector? v) v [v])]
                              (update m a (fnil into []) vals))
                            (assoc m a v)))
-                 {}
-                 non-derived)
+                       {}
+                       non-derived)
         resolved (into (sorted-map)
                        (map (fn [[a v]] [a (resolve-value a v hash-cache)]))
                        av-map)]
@@ -79,25 +80,25 @@
                         {}
                         by-entity)
         sorted-eids
-          (loop [result []
-                 remaining deps
-                 resolved #{}]
-            (if (empty? remaining)
-              result
-              (let [ready (into []
-                                (keep (fn [[eid eid-deps]]
-                                        (when (every? resolved eid-deps) eid)))
-                                remaining)]
-                (when (empty? ready)
-                  (throw (ex-info "Cyclic dependency in AST" {})))
-                (recur (into result ready)
-                       (apply dissoc remaining ready)
-                       (into resolved ready)))))]
+        (loop [result []
+               remaining deps
+               resolved #{}]
+          (if (empty? remaining)
+            result
+            (let [ready (into []
+                              (keep (fn [[eid eid-deps]]
+                                      (when (every? resolved eid-deps) eid)))
+                              remaining)]
+              (when (empty? ready)
+                (throw (ex-info "Cyclic dependency in AST" {})))
+              (recur (into result ready)
+                     (apply dissoc remaining ready)
+                     (into resolved ready)))))]
     (reduce (fn [hash-cache eid]
               (assoc hash-cache
-                eid (content-hash-for-entity (get by-entity eid) hash-cache)))
-      {}
-      sorted-eids)))
+                     eid (content-hash-for-entity (get by-entity eid) hash-cache)))
+            {}
+            sorted-eids)))
 
 
 (defn annotate-datoms
@@ -107,5 +108,5 @@
   ([datoms t]
    (let [hashes (compute-content-hashes datoms)
          hash-datoms (mapv (fn [[eid hash]] [eid :yin/content-hash hash t 1])
-                       hashes)]
+                           hashes)]
      (into datoms hash-datoms))))

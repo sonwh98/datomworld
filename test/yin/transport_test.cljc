@@ -1,9 +1,10 @@
 (ns yin.transport-test
-  (:require [clojure.test :refer [deftest is testing]]
-            [yin.content :as content]
-            [yin.transport :as transport]
-            [yin.vm :as vm]
-            [yin.vm.semantic :as semantic]))
+  (:require
+    [clojure.test :refer [deftest is testing]]
+    [yin.content :as content]
+    [yin.transport :as transport]
+    [yin.vm :as vm]
+    [yin.vm.semantic :as semantic]))
 
 
 ;; =============================================================================
@@ -62,7 +63,7 @@
           first-import (transport/import-ast exported -3000 {})
           ;; Second import with existing hashes
           second-import
-            (transport/import-ast exported -4000 (:hash->eid first-import))]
+          (transport/import-ast exported -4000 (:hash->eid first-import))]
       (is (seq (:datoms first-import)) "First import produces datoms")
       (is (empty? (:datoms second-import))
           "Second import produces no new datoms (all deduplicated)"))))
@@ -105,12 +106,12 @@
     (let [;; Build datoms for (+ 1 2) manually using repeated scalar rows
           ;; instead of vector-valued :yin/operands
           datoms
-            [[-1025 :yin/type :application 0 0] [-1026 :yin/type :variable 0 0]
-             [-1026 :yin/name '+ 0 0] [-1027 :yin/type :literal 0 0]
-             [-1027 :yin/value 1 0 0] [-1028 :yin/type :literal 0 0]
-             [-1028 :yin/value 2 0 0] [-1025 :yin/operator -1026 0 0]
-             ;; Materialized: two separate datoms instead of one vector
-             [-1025 :yin/operands -1027 0 0] [-1025 :yin/operands -1028 0 0]]
+          [[-1025 :yin/type :application 0 0] [-1026 :yin/type :variable 0 0]
+           [-1026 :yin/name '+ 0 0] [-1027 :yin/type :literal 0 0]
+           [-1027 :yin/value 1 0 0] [-1028 :yin/type :literal 0 0]
+           [-1028 :yin/value 2 0 0] [-1025 :yin/operator -1026 0 0]
+           ;; Materialized: two separate datoms instead of one vector
+           [-1025 :yin/operands -1027 0 0] [-1025 :yin/operands -1028 0 0]]
           exported (transport/export-ast datoms)
           {:keys [datoms root-eid]} (transport/import-ast exported -3000 {})
           ;; Verify imported datoms produce same content hash as canonical
@@ -178,10 +179,10 @@
                                     {:node (:root-eid ast-imported),
                                      :datoms (:datoms ast-imported)})
             resumed (assoc loaded
-                      :stack (:stack imported-cont)
-                      :env (:env imported-cont)
-                      :control {:type :value, :val 42}
-                      :halted false)
+                           :stack (:stack imported-cont)
+                           :env (:env imported-cont)
+                           :control {:type :value, :val 42}
+                           :halted false)
             result-vm (vm/run resumed)]
         (is (= 43 (vm/value result-vm))
             "Resumed continuation computes (+ 42 1) = 43")))))

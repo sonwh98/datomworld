@@ -29,33 +29,33 @@
   {:type :lambda,
    :params ['f],
    :body
-     {:type :application,
-      :operator {:type :lambda,
-                 :params ['x],
-                 :body {:type :application,
-                        :operator {:type :variable, :name 'f},
-                        :operands
-                          [{:type :lambda,
-                            :params ['v],
-                            :body {:type :application,
-                                   :operator
-                                     {:type :application,
-                                      :operator {:type :variable, :name 'x},
-                                      :operands [{:type :variable, :name 'x}]},
-                                   :operands [{:type :variable, :name 'v}]}}]}},
-      :operands
-        [{:type :lambda,
-          :params ['x],
-          :body {:type :application,
-                 :operator {:type :variable, :name 'f},
-                 :operands
-                   [{:type :lambda,
-                     :params ['v],
-                     :body {:type :application,
-                            :operator {:type :application,
-                                       :operator {:type :variable, :name 'x},
-                                       :operands [{:type :variable, :name 'x}]},
-                            :operands [{:type :variable, :name 'v}]}}]}}]}})
+   {:type :application,
+    :operator {:type :lambda,
+               :params ['x],
+               :body {:type :application,
+                      :operator {:type :variable, :name 'f},
+                      :operands
+                      [{:type :lambda,
+                        :params ['v],
+                        :body {:type :application,
+                               :operator
+                               {:type :application,
+                                :operator {:type :variable, :name 'x},
+                                :operands [{:type :variable, :name 'x}]},
+                               :operands [{:type :variable, :name 'v}]}}]}},
+    :operands
+    [{:type :lambda,
+      :params ['x],
+      :body {:type :application,
+             :operator {:type :variable, :name 'f},
+             :operands
+             [{:type :lambda,
+               :params ['v],
+               :body {:type :application,
+                      :operator {:type :application,
+                                 :operator {:type :variable, :name 'x},
+                                 :operands [{:type :variable, :name 'x}]},
+                      :operands [{:type :variable, :name 'v}]}}]}}]}})
 
 
 (defn literal?
@@ -165,7 +165,7 @@
           compiled-body (compile-let rest-bindings body env tail?)]
       (cond-> {:type :application,
                :operator
-                 {:type :lambda, :params [binding-name], :body compiled-body},
+               {:type :lambda, :params [binding-name], :body compiled-body},
                :operands [compiled-value]}
         tail? (assoc :tail? true)))))
 
@@ -224,34 +224,34 @@
      (symbol? form) (compile-variable form tail?)
      ;; Special forms and function application
      (seq? form)
-       (let [[operator & operands] form]
-         (case operator
-           ;; Lambda: (fn [params] body)
-           fn (let [[params & body] operands
-                    ;; Handle multi-expression body with implicit do
-                    body-expr
-                      (if (= 1 (count body)) (first body) (cons 'do body))]
-                (compile-lambda params body-expr env tail?))
-           ;; Conditional: (if test consequent alternate?)
-           if (let [[test consequent alternate] operands]
-                (compile-if test consequent alternate env tail?))
-           ;; Let binding: (let [bindings] body)
-           let (let [[bindings & body] operands
-                     ;; Handle multi-expression body with implicit do
-                     body-expr
-                       (if (= 1 (count body)) (first body) (cons 'do body))]
-                 (compile-let bindings body-expr env tail?))
-           ;; Do block: (do expr1 expr2 ...)
-           do (compile-do operands env tail?)
-           ;; Quote: (quote form)
-           quote (compile-quote (first operands) tail?)
-           ;; Def: (def sym value)
-           def (let [[sym value] operands] (compile-def sym value env tail?))
-           ;; Function application: (f arg1 arg2 ...)
-           ;; This includes stream operations (stream/make, stream/put,
-           ;; stream/take, >!, <!)
-           ;; which are resolved through the module system at runtime
-           (compile-application operator operands env tail?)))
+     (let [[operator & operands] form]
+       (case operator
+         ;; Lambda: (fn [params] body)
+         fn (let [[params & body] operands
+                  ;; Handle multi-expression body with implicit do
+                  body-expr
+                  (if (= 1 (count body)) (first body) (cons 'do body))]
+              (compile-lambda params body-expr env tail?))
+         ;; Conditional: (if test consequent alternate?)
+         if (let [[test consequent alternate] operands]
+              (compile-if test consequent alternate env tail?))
+         ;; Let binding: (let [bindings] body)
+         let (let [[bindings & body] operands
+                   ;; Handle multi-expression body with implicit do
+                   body-expr
+                   (if (= 1 (count body)) (first body) (cons 'do body))]
+               (compile-let bindings body-expr env tail?))
+         ;; Do block: (do expr1 expr2 ...)
+         do (compile-do operands env tail?)
+         ;; Quote: (quote form)
+         quote (compile-quote (first operands) tail?)
+         ;; Def: (def sym value)
+         def (let [[sym value] operands] (compile-def sym value env tail?))
+         ;; Function application: (f arg1 arg2 ...)
+         ;; This includes stream operations (stream/make, stream/put,
+         ;; stream/take, >!, <!)
+         ;; which are resolved through the module system at runtime
+         (compile-application operator operands env tail?)))
      ;; Unknown form type
      :else (throw (ex-info "Cannot compile unknown form type"
                            {:form form,
@@ -281,7 +281,7 @@
                                 :operands [{:type :lambda,
                                             :params [name],
                                             :body
-                                              (compile-form value false {})}]}]}
+                                            (compile-form value false {})}]}]}
              tail? (assoc :tail? true)))
          ;; Not a definition
          (if (= 1 (count forms))

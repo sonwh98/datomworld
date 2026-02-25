@@ -1,10 +1,11 @@
 (ns yin.vm.parity-test
-  (:require [clojure.test :refer [deftest is testing]]
-            [yin.vm :as vm]
-            [yin.vm.ast-walker :as ast-walker]
-            [yin.vm.register :as register]
-            [yin.vm.semantic :as semantic]
-            [yin.vm.stack :as stack]))
+  (:require
+    [clojure.test :refer [deftest is testing]]
+    [yin.vm :as vm]
+    [yin.vm.ast-walker :as ast-walker]
+    [yin.vm.register :as register]
+    [yin.vm.semantic :as semantic]
+    [yin.vm.stack :as stack]))
 
 
 (defn- stream-capacity
@@ -121,21 +122,21 @@
                 (str vm-type " should park inside function")))
           ;; Resume each with 5
           (let [resume-with-5
-                  (fn [vm-type]
-                    (let [vm (case vm-type
-                               :ast-walker (ast-walker/create-vm)
-                               :stack (stack/create-vm {:env vm/primitives})
-                               :semantic (semantic/create-vm {:env
-                                                                vm/primitives})
-                               :register (register/create-vm {:env
-                                                                vm/primitives}))
-                          vm-parked (vm/eval vm ast)
-                          reified (vm/value vm-parked)
-                          vm-resumed (vm/eval vm-parked
-                                              {:type :vm/resume,
-                                               :parked-id (:id reified),
-                                               :val 5})]
-                      (vm/value vm-resumed)))]
+                (fn [vm-type]
+                  (let [vm (case vm-type
+                             :ast-walker (ast-walker/create-vm)
+                             :stack (stack/create-vm {:env vm/primitives})
+                             :semantic (semantic/create-vm {:env
+                                                            vm/primitives})
+                             :register (register/create-vm {:env
+                                                            vm/primitives}))
+                        vm-parked (vm/eval vm ast)
+                        reified (vm/value vm-parked)
+                        vm-resumed (vm/eval vm-parked
+                                            {:type :vm/resume,
+                                             :parked-id (:id reified),
+                                             :val 5})]
+                    (vm/value vm-resumed)))]
             (is (= 15 (resume-with-5 :ast-walker)))
             (is (= 15 (resume-with-5 :stack)))
             (is (= 15 (resume-with-5 :semantic)))
@@ -164,12 +165,12 @@
                           :alternate {:type :application,
                                       :operator {:type :variable, :name 'self},
                                       :operands
-                                        [{:type :variable, :name 'self}
-                                         {:type :application,
-                                          :operator {:type :variable, :name '-},
-                                          :operands [{:type :variable, :name 'n}
-                                                     {:type :literal,
-                                                      :value 1}]}],
+                                      [{:type :variable, :name 'self}
+                                       {:type :application,
+                                        :operator {:type :variable, :name '-},
+                                        :operands [{:type :variable, :name 'n}
+                                                   {:type :literal,
+                                                    :value 1}]}],
                                       :tail? true},
                           :tail? true}}
           ast {:type :application,

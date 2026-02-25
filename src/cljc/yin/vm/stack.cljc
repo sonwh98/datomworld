@@ -1,8 +1,9 @@
 (ns yin.vm.stack
-  (:require [yin.module :as module]
-            [yin.stream :as stream]
-            [yin.vm :as vm]
-            [yin.vm.engine :as engine]))
+  (:require
+    [yin.module :as module]
+    [yin.stream :as stream]
+    [yin.vm :as vm]
+    [yin.vm.engine :as engine]))
 
 
 ;; =============================================================================
@@ -38,7 +39,7 @@
    run-queue  ; vector of runnable continuations
    wait-set   ; vector of parked continuations waiting on
    ;; streams
-  ])
+   ])
 
 
 ;; =============================================================================
@@ -115,11 +116,11 @@
                       (emit! [:return])
                       (emit! [:label skip-label]))
             :application
-              (let [op-node (get-attr e :yin/operator)
-                    operand-nodes (get-attr e :yin/operands)]
-                (compile-node op-node)
-                (doseq [arg-node operand-nodes] (compile-node arg-node))
-                (emit! [(if tail? :tailcall :call) (count operand-nodes)]))
+            (let [op-node (get-attr e :yin/operator)
+                  operand-nodes (get-attr e :yin/operands)]
+              (compile-node op-node)
+              (doseq [arg-node operand-nodes] (compile-node arg-node))
+              (emit! [(if tail? :tailcall :call) (count operand-nodes)]))
             :if (let [test-node (get-attr e :yin/test)
                       cons-node (get-attr e :yin/consequent)
                       alt-node (get-attr e :yin/alternate)
@@ -318,95 +319,95 @@
         next-pc (+ pc 2)]
     (cond
       (fn? fn-val)
-        (let [res (apply fn-val args)]
-          (if (module/effect? res)
-            (case (:effect res)
-              :vm/store-put (let [key (:key res)
-                                  value (:val res)
-                                  new-store (assoc store key value)]
-                              (assoc state
-                                :store new-store
-                                :pc next-pc
-                                :stack (conj stack-rest value)))
-              :stream/make (let [[stream-ref new-state] (stream/handle-make
+      (let [res (apply fn-val args)]
+        (if (module/effect? res)
+          (case (:effect res)
+            :vm/store-put (let [key (:key res)
+                                value (:val res)
+                                new-store (assoc store key value)]
+                            (assoc state
+                                   :store new-store
+                                   :pc next-pc
+                                   :stack (conj stack-rest value)))
+            :stream/make (let [[stream-ref new-state] (stream/handle-make
+                                                        state
+                                                        res
+                                                        (engine/gen-id-fn
+                                                          id-counter))]
+                           (assoc new-state
+                                  :pc next-pc
+                                  :stack (conj stack-rest stream-ref)
+                                  :id-counter (inc id-counter)))
+            :stream/put
+            (let [result (stream/handle-put state res)]
+              (if (:park result)
+                (let [parked-entry {:pc next-pc,
+                                    :bytecode bytecode,
+                                    :stack stack-rest,
+                                    :env env,
+                                    :call-stack call-stack,
+                                    :pool pool,
+                                    :reason :put,
+                                    :stream-id (:stream-id result),
+                                    :datom (:val res)}]
+                  (assoc (:state result)
+                         :wait-set (conj (or (:wait-set state) []) parked-entry)
+                         :value :yin/blocked
+                         :blocked true
+                         :halted false))
+                (assoc (:state result)
+                       :pc next-pc
+                       :stack (conj stack-rest (:value result)))))
+            :stream/cursor (let [[cursor-ref new-state] (stream/handle-cursor
                                                           state
                                                           res
                                                           (engine/gen-id-fn
                                                             id-counter))]
                              (assoc new-state
-                               :pc next-pc
-                               :stack (conj stack-rest stream-ref)
-                               :id-counter (inc id-counter)))
-              :stream/put
-                (let [result (stream/handle-put state res)]
-                  (if (:park result)
-                    (let [parked-entry {:pc next-pc,
-                                        :bytecode bytecode,
-                                        :stack stack-rest,
-                                        :env env,
-                                        :call-stack call-stack,
-                                        :pool pool,
-                                        :reason :put,
-                                        :stream-id (:stream-id result),
-                                        :datom (:val res)}]
-                      (assoc (:state result)
-                        :wait-set (conj (or (:wait-set state) []) parked-entry)
-                        :value :yin/blocked
-                        :blocked true
-                        :halted false))
-                    (assoc (:state result)
-                      :pc next-pc
-                      :stack (conj stack-rest (:value result)))))
-              :stream/cursor (let [[cursor-ref new-state] (stream/handle-cursor
-                                                            state
-                                                            res
-                                                            (engine/gen-id-fn
-                                                              id-counter))]
-                               (assoc new-state
-                                 :pc next-pc
-                                 :stack (conj stack-rest cursor-ref)
-                                 :id-counter (inc id-counter)))
-              :stream/next
-                (let [result (stream/handle-next state res)]
-                  (if (:park result)
-                    (let [parked-entry {:pc next-pc,
-                                        :bytecode bytecode,
-                                        :stack stack-rest,
-                                        :env env,
-                                        :call-stack call-stack,
-                                        :pool pool,
-                                        :reason :next,
-                                        :cursor-ref (:cursor-ref result),
-                                        :stream-id (:stream-id result)}]
-                      (assoc (:state result)
-                        :wait-set (conj (or (:wait-set state) []) parked-entry)
-                        :value :yin/blocked
-                        :blocked true
-                        :halted false))
-                    (assoc (:state result)
-                      :pc next-pc
-                      :stack (conj stack-rest (:value result)))))
-              :stream/close (let [close-result (stream/handle-close state res)
-                                  new-state (:state close-result)
-                                  to-resume (:resume-parked close-result)
-                                  run-queue (or (:run-queue new-state) [])
-                                  new-run-queue
-                                    (into run-queue
-                                          (engine/resume-entries-with-nil
-                                            to-resume))]
-                              (assoc new-state
-                                :run-queue new-run-queue
-                                :pc next-pc
-                                :stack (conj stack-rest nil)))
-              (throw (ex-info "Unhandled effect in stack-step" {:effect res})))
-            (assoc state
-              :pc next-pc
-              :stack (conj stack-rest res))))
+                                    :pc next-pc
+                                    :stack (conj stack-rest cursor-ref)
+                                    :id-counter (inc id-counter)))
+            :stream/next
+            (let [result (stream/handle-next state res)]
+              (if (:park result)
+                (let [parked-entry {:pc next-pc,
+                                    :bytecode bytecode,
+                                    :stack stack-rest,
+                                    :env env,
+                                    :call-stack call-stack,
+                                    :pool pool,
+                                    :reason :next,
+                                    :cursor-ref (:cursor-ref result),
+                                    :stream-id (:stream-id result)}]
+                  (assoc (:state result)
+                         :wait-set (conj (or (:wait-set state) []) parked-entry)
+                         :value :yin/blocked
+                         :blocked true
+                         :halted false))
+                (assoc (:state result)
+                       :pc next-pc
+                       :stack (conj stack-rest (:value result)))))
+            :stream/close (let [close-result (stream/handle-close state res)
+                                new-state (:state close-result)
+                                to-resume (:resume-parked close-result)
+                                run-queue (or (:run-queue new-state) [])
+                                new-run-queue
+                                (into run-queue
+                                      (engine/resume-entries-with-nil
+                                        to-resume))]
+                            (assoc new-state
+                                   :run-queue new-run-queue
+                                   :pc next-pc
+                                   :stack (conj stack-rest nil)))
+            (throw (ex-info "Unhandled effect in stack-step" {:effect res})))
+          (assoc state
+                 :pc next-pc
+                 :stack (conj stack-rest res))))
       (= :closure (:type fn-val)) (let [{clo-params :params,
                                          clo-body :body-bytes,
                                          clo-env :env,
                                          clo-pool :pool}
-                                          fn-val
+                                        fn-val
                                         new-env (merge clo-env
                                                        (zipmap clo-params args))
                                         frame {:pc next-pc,
@@ -418,19 +419,19 @@
                                       ;; TCO: reuse current frame by
                                       ;; jumping directly to callee body.
                                       (assoc state
-                                        :pc 0
-                                        :bytecode clo-body
-                                        :stack []
-                                        :env new-env
-                                        :pool (or clo-pool pool)
-                                        :call-stack call-stack)
+                                             :pc 0
+                                             :bytecode clo-body
+                                             :stack []
+                                             :env new-env
+                                             :pool (or clo-pool pool)
+                                             :call-stack call-stack)
                                       (assoc state
-                                        :pc 0
-                                        :bytecode clo-body
-                                        :stack []
-                                        :env new-env
-                                        :pool (or clo-pool pool)
-                                        :call-stack (conj call-stack frame))))
+                                             :pc 0
+                                             :bytecode clo-body
+                                             :stack []
+                                             :env new-env
+                                             :pool (or clo-pool pool)
+                                             :call-stack (conj call-stack frame))))
       :else (throw (ex-info "Cannot apply non-function" {:fn fn-val})))))
 
 
@@ -440,235 +441,235 @@
   [state]
   (let [{:keys [pc bytecode stack env call-stack pool store primitives
                 id-counter]}
-          state]
+        state]
     (if (>= pc (count bytecode))
       ;; End of bytes: return top of stack or pop frame
       (let [result (peek stack)]
         (if (empty? call-stack)
           (assoc state
-            :halted true
-            :value result)
+                 :halted true
+                 :value result)
           (let [frame (peek call-stack)
                 rest-frames (pop call-stack)]
             (assoc state
-              :pc (:pc frame)
-              :bytecode (:bytecode frame)
-              :stack (conj (:stack frame) result)
-              :env (:env frame)
-              :call-stack rest-frames))))
+                   :pc (:pc frame)
+                   :bytecode (:bytecode frame)
+                   :stack (conj (:stack frame) result)
+                   :env (:env frame)
+                   :call-stack rest-frames))))
       (let [op (nth bytecode pc)]
         (case (int op)
           1 ; OP_LITERAL
-            (let [val-idx (nth bytecode (inc pc))
-                  val (nth pool val-idx)]
-              (assoc state
-                :pc (+ pc 2)
-                :stack (conj stack val)))
+          (let [val-idx (nth bytecode (inc pc))
+                val (nth pool val-idx)]
+            (assoc state
+                   :pc (+ pc 2)
+                   :stack (conj stack val)))
           2 ; OP_LOAD_VAR
-            (let [sym-idx (nth bytecode (inc pc))
-                  sym (nth pool sym-idx)
-                  val (engine/resolve-var env store primitives sym)]
-              (assoc state
-                :pc (+ pc 2)
-                :stack (conj stack val)))
+          (let [sym-idx (nth bytecode (inc pc))
+                sym (nth pool sym-idx)
+                val (engine/resolve-var env store primitives sym)]
+            (assoc state
+                   :pc (+ pc 2)
+                   :stack (conj stack val)))
           3 ; OP_LAMBDA
-            (let [params-idx (nth bytecode (inc pc))
-                  params (nth pool params-idx)
-                  body-len (fetch-short-unsigned bytecode (+ pc 2))
-                  body-start (+ pc 4)
-                  body-bytes
-                    (subvec bytecode body-start (+ body-start body-len))
-                  closure {:type :closure,
-                           :params params,
-                           :body-bytes body-bytes,
-                           :env env,
-                           :pool pool}]
-              (assoc state
-                :pc (+ pc 4 body-len)
-                :stack (conj stack closure)))
+          (let [params-idx (nth bytecode (inc pc))
+                params (nth pool params-idx)
+                body-len (fetch-short-unsigned bytecode (+ pc 2))
+                body-start (+ pc 4)
+                body-bytes
+                (subvec bytecode body-start (+ body-start body-len))
+                closure {:type :closure,
+                         :params params,
+                         :body-bytes body-bytes,
+                         :env env,
+                         :pool pool}]
+            (assoc state
+                   :pc (+ pc 4 body-len)
+                   :stack (conj stack closure)))
           4 ; OP_CALL
-            (let [argc (nth bytecode (inc pc))] (apply-op state argc false))
+          (let [argc (nth bytecode (inc pc))] (apply-op state argc false))
           19 ; OP_TAILCALL
-            (let [argc (nth bytecode (inc pc))] (apply-op state argc true))
+          (let [argc (nth bytecode (inc pc))] (apply-op state argc true))
           5 ; OP_BRANCH
-            (let [offset (fetch-short-signed bytecode (inc pc))
-                  condition (peek stack)
-                  new-stack (pop stack)]
-              (assoc state
-                :pc (if condition (+ pc 3 offset) (+ pc 3))
-                :stack new-stack))
+          (let [offset (fetch-short-signed bytecode (inc pc))
+                condition (peek stack)
+                new-stack (pop stack)]
+            (assoc state
+                   :pc (if condition (+ pc 3 offset) (+ pc 3))
+                   :stack new-stack))
           7 ; OP_JUMP
-            (let [offset (fetch-short-signed bytecode (inc pc))]
-              (assoc state :pc (+ pc 3 offset)))
+          (let [offset (fetch-short-signed bytecode (inc pc))]
+            (assoc state :pc (+ pc 3 offset)))
           6 ; OP_RETURN
-            (let [result (peek stack)]
-              (if (empty? call-stack)
+          (let [result (peek stack)]
+            (if (empty? call-stack)
+              (assoc state
+                     :halted true
+                     :value result)
+              (let [frame (peek call-stack)
+                    rest-frames (pop call-stack)]
                 (assoc state
-                  :halted true
-                  :value result)
-                (let [frame (peek call-stack)
-                      rest-frames (pop call-stack)]
-                  (assoc state
-                    :pc (:pc frame)
-                    :bytecode (:bytecode frame)
-                    :stack (conj (:stack frame) result)
-                    :env (:env frame)
-                    :pool (or (:pool frame) pool)
-                    :call-stack rest-frames))))
+                       :pc (:pc frame)
+                       :bytecode (:bytecode frame)
+                       :stack (conj (:stack frame) result)
+                       :env (:env frame)
+                       :pool (or (:pool frame) pool)
+                       :call-stack rest-frames))))
           8 ; OP_GENSYM
-            (let [prefix-idx (nth bytecode (inc pc))
-                  prefix (nth pool prefix-idx)
-                  id (engine/gen-id prefix id-counter)]
-              (assoc state
-                :pc (+ pc 2)
-                :stack (conj stack id)
-                :id-counter (inc id-counter)))
+          (let [prefix-idx (nth bytecode (inc pc))
+                prefix (nth pool prefix-idx)
+                id (engine/gen-id prefix id-counter)]
+            (assoc state
+                   :pc (+ pc 2)
+                   :stack (conj stack id)
+                   :id-counter (inc id-counter)))
           9 ; OP_SGET
-            (let [key-idx (nth bytecode (inc pc))
-                  key (nth pool key-idx)
-                  val (get store key)]
-              (assoc state
-                :pc (+ pc 2)
-                :stack (conj stack val)))
+          (let [key-idx (nth bytecode (inc pc))
+                key (nth pool key-idx)
+                val (get store key)]
+            (assoc state
+                   :pc (+ pc 2)
+                   :stack (conj stack val)))
           10 ; OP_SPUT
-            (let [key-idx (nth bytecode (inc pc))
-                  key (nth pool key-idx)
-                  val (peek stack)
-                  new-store (assoc store key val)]
-              (assoc state
-                :pc (+ pc 2)
-                :store new-store))
+          (let [key-idx (nth bytecode (inc pc))
+                key (nth pool key-idx)
+                val (peek stack)
+                new-store (assoc store key val)]
+            (assoc state
+                   :pc (+ pc 2)
+                   :store new-store))
           11 ; OP_STREAM_MAKE
-            (let [buf-idx (nth bytecode (inc pc))
-                  buf (nth pool buf-idx)
-                  effect {:effect :stream/make, :capacity buf}
-                  [stream-ref new-state] (stream/handle-make state
+          (let [buf-idx (nth bytecode (inc pc))
+                buf (nth pool buf-idx)
+                effect {:effect :stream/make, :capacity buf}
+                [stream-ref new-state] (stream/handle-make state
+                                                           effect
+                                                           (engine/gen-id-fn
+                                                             id-counter))]
+            (assoc new-state
+                   :pc (+ pc 2)
+                   :stack (conj stack stream-ref)
+                   :id-counter (inc id-counter)))
+          12 ; OP_STREAM_PUT - pop stream-ref, pop val
+          (let [stream-ref (peek stack)
+                stack1 (pop stack)
+                val (peek stack1)
+                stack-rest (pop stack1)
+                effect {:effect :stream/put, :stream stream-ref, :val val}
+                result (stream/handle-put state effect)]
+            (if (:park result)
+              (let [parked-entry {:pc (+ pc 1),
+                                  :bytecode bytecode,
+                                  :stack (conj stack-rest val),
+                                  :env env,
+                                  :call-stack call-stack,
+                                  :pool pool,
+                                  :reason :put,
+                                  :stream-id (:stream-id result),
+                                  :datom val}]
+                (assoc (:state result)
+                       :wait-set (conj (or (:wait-set state) []) parked-entry)
+                       :value :yin/blocked
+                       :blocked true
+                       :halted false))
+              (assoc (:state result)
+                     :pc (+ pc 1)
+                     :stack (conj stack-rest (:value result)))))
+          13 ; OP_STREAM_CURSOR - pop stream-ref
+          (let [stream-ref (peek stack)
+                stack-rest (pop stack)
+                effect {:effect :stream/cursor, :stream stream-ref}
+                [cursor-ref new-state] (stream/handle-cursor state
                                                              effect
                                                              (engine/gen-id-fn
                                                                id-counter))]
-              (assoc new-state
-                :pc (+ pc 2)
-                :stack (conj stack stream-ref)
-                :id-counter (inc id-counter)))
-          12 ; OP_STREAM_PUT - pop stream-ref, pop val
-            (let [stream-ref (peek stack)
-                  stack1 (pop stack)
-                  val (peek stack1)
-                  stack-rest (pop stack1)
-                  effect {:effect :stream/put, :stream stream-ref, :val val}
-                  result (stream/handle-put state effect)]
-              (if (:park result)
-                (let [parked-entry {:pc (+ pc 1),
-                                    :bytecode bytecode,
-                                    :stack (conj stack-rest val),
-                                    :env env,
-                                    :call-stack call-stack,
-                                    :pool pool,
-                                    :reason :put,
-                                    :stream-id (:stream-id result),
-                                    :datom val}]
-                  (assoc (:state result)
-                    :wait-set (conj (or (:wait-set state) []) parked-entry)
-                    :value :yin/blocked
-                    :blocked true
-                    :halted false))
-                (assoc (:state result)
-                  :pc (+ pc 1)
-                  :stack (conj stack-rest (:value result)))))
-          13 ; OP_STREAM_CURSOR - pop stream-ref
-            (let [stream-ref (peek stack)
-                  stack-rest (pop stack)
-                  effect {:effect :stream/cursor, :stream stream-ref}
-                  [cursor-ref new-state] (stream/handle-cursor state
-                                                               effect
-                                                               (engine/gen-id-fn
-                                                                 id-counter))]
-              (assoc new-state
-                :pc (+ pc 1)
-                :stack (conj stack-rest cursor-ref)
-                :id-counter (inc id-counter)))
+            (assoc new-state
+                   :pc (+ pc 1)
+                   :stack (conj stack-rest cursor-ref)
+                   :id-counter (inc id-counter)))
           14 ; OP_STREAM_NEXT - pop cursor-ref
-            (let [cursor-ref (peek stack)
-                  stack-rest (pop stack)
-                  effect {:effect :stream/next, :cursor cursor-ref}
-                  result (stream/handle-next state effect)]
-              (if (:park result)
-                (let [parked-entry {:pc (+ pc 1),
-                                    :bytecode bytecode,
-                                    :stack stack-rest,
-                                    :env env,
-                                    :call-stack call-stack,
-                                    :pool pool,
-                                    :reason :next,
-                                    :cursor-ref (:cursor-ref result),
-                                    :stream-id (:stream-id result)}]
-                  (assoc (:state result)
-                    :wait-set (conj (or (:wait-set state) []) parked-entry)
-                    :value :yin/blocked
-                    :blocked true
-                    :halted false))
+          (let [cursor-ref (peek stack)
+                stack-rest (pop stack)
+                effect {:effect :stream/next, :cursor cursor-ref}
+                result (stream/handle-next state effect)]
+            (if (:park result)
+              (let [parked-entry {:pc (+ pc 1),
+                                  :bytecode bytecode,
+                                  :stack stack-rest,
+                                  :env env,
+                                  :call-stack call-stack,
+                                  :pool pool,
+                                  :reason :next,
+                                  :cursor-ref (:cursor-ref result),
+                                  :stream-id (:stream-id result)}]
                 (assoc (:state result)
-                  :pc (+ pc 1)
-                  :stack (conj stack-rest (:value result)))))
+                       :wait-set (conj (or (:wait-set state) []) parked-entry)
+                       :value :yin/blocked
+                       :blocked true
+                       :halted false))
+              (assoc (:state result)
+                     :pc (+ pc 1)
+                     :stack (conj stack-rest (:value result)))))
           15 ; OP_STREAM_CLOSE - pop stream-ref
-            (let [stream-ref (peek stack)
-                  stack-rest (pop stack)
-                  effect {:effect :stream/close, :stream stream-ref}
-                  close-result (stream/handle-close state effect)
-                  new-state (:state close-result)
-                  to-resume (:resume-parked close-result)
-                  run-queue (or (:run-queue new-state) [])
-                  new-run-queue
-                    (into run-queue (engine/resume-entries-with-nil to-resume))]
-              (assoc new-state
-                :run-queue new-run-queue
-                :pc (+ pc 1)
-                :stack (conj stack-rest nil)))
+          (let [stream-ref (peek stack)
+                stack-rest (pop stack)
+                effect {:effect :stream/close, :stream stream-ref}
+                close-result (stream/handle-close state effect)
+                new-state (:state close-result)
+                to-resume (:resume-parked close-result)
+                run-queue (or (:run-queue new-state) [])
+                new-run-queue
+                (into run-queue (engine/resume-entries-with-nil to-resume))]
+            (assoc new-state
+                   :run-queue new-run-queue
+                   :pc (+ pc 1)
+                   :stack (conj stack-rest nil)))
           16 ; OP_PARK
-            (let [park-id (keyword (str "parked-" id-counter))
-                  parked-cont {:type :parked-continuation,
-                               :id park-id,
-                               :pc pc,
-                               :bytecode bytecode,
-                               :stack stack,
-                               :env env,
-                               :call-stack call-stack,
-                               :pool pool}
-                  new-parked (assoc (:parked state) park-id parked-cont)]
-              (assoc state
-                :parked new-parked
-                :value parked-cont
-                :halted true
-                :id-counter (inc id-counter)))
+          (let [park-id (keyword (str "parked-" id-counter))
+                parked-cont {:type :parked-continuation,
+                             :id park-id,
+                             :pc pc,
+                             :bytecode bytecode,
+                             :stack stack,
+                             :env env,
+                             :call-stack call-stack,
+                             :pool pool}
+                new-parked (assoc (:parked state) park-id parked-cont)]
+            (assoc state
+                   :parked new-parked
+                   :value parked-cont
+                   :halted true
+                   :id-counter (inc id-counter)))
           17 ; OP_RESUME - pop val, pop parked-id
-            (let [resume-val (peek stack)
-                  stack1 (pop stack)
-                  parked-id (peek stack1)
-                  parked-cont (get-in state [:parked parked-id])]
-              (if parked-cont
-                (let [new-parked (dissoc (:parked state) parked-id)]
-                  (assoc state
-                    :parked new-parked
-                    ;; Continue at the instruction after OP_PARK.
-                    :pc (+ 1 (:pc parked-cont))
-                    :bytecode (:bytecode parked-cont)
-                    :stack (conj (:stack parked-cont) resume-val)
-                    :env (:env parked-cont)
-                    :call-stack (:call-stack parked-cont)
-                    :pool (:pool parked-cont)))
-                (throw (ex-info "Cannot resume: parked continuation not found"
-                                {:parked-id parked-id}))))
+          (let [resume-val (peek stack)
+                stack1 (pop stack)
+                parked-id (peek stack1)
+                parked-cont (get-in state [:parked parked-id])]
+            (if parked-cont
+              (let [new-parked (dissoc (:parked state) parked-id)]
+                (assoc state
+                       :parked new-parked
+                       ;; Continue at the instruction after OP_PARK.
+                       :pc (+ 1 (:pc parked-cont))
+                       :bytecode (:bytecode parked-cont)
+                       :stack (conj (:stack parked-cont) resume-val)
+                       :env (:env parked-cont)
+                       :call-stack (:call-stack parked-cont)
+                       :pool (:pool parked-cont)))
+              (throw (ex-info "Cannot resume: parked continuation not found"
+                              {:parked-id parked-id}))))
           18 ; OP_CURRENT_CONT
-            (let [cont {:type :reified-continuation,
-                        :pc pc,
-                        :bytecode bytecode,
-                        :stack stack,
-                        :env env,
-                        :call-stack call-stack,
-                        :pool pool}]
-              (assoc state
-                :pc (+ pc 1)
-                :stack (conj stack cont)))
+          (let [cont {:type :reified-continuation,
+                      :pc pc,
+                      :bytecode bytecode,
+                      :stack stack,
+                      :env env,
+                      :call-stack call-stack,
+                      :pool pool}]
+            (assoc state
+                   :pc (+ pc 1)
+                   :stack (conj stack cont)))
           (throw (ex-info "Unknown Opcode" {:op op, :pc pc})))))))
 
 
@@ -686,16 +687,16 @@
             rest-queue (subvec run-queue 1)
             new-store (or (:store-updates entry) (:store state))]
         (assoc state
-          :run-queue rest-queue
-          :store new-store
-          :pc (:pc entry)
-          :bytecode (:bytecode entry)
-          :stack (conj (:stack entry) (:value entry))
-          :env (:env entry)
-          :call-stack (:call-stack entry)
-          :pool (:pool entry)
-          :blocked false
-          :halted false)))))
+               :run-queue rest-queue
+               :store new-store
+               :pc (:pc entry)
+               :bytecode (:bytecode entry)
+               :stack (conj (:stack entry) (:value entry))
+               :env (:env entry)
+               :call-stack (:call-stack entry)
+               :pool (:pool entry)
+               :blocked false
+               :halted false)))))
 
 
 ;; =============================================================================
@@ -725,14 +726,14 @@
    Expects {:bytecode [...] :pool [...]}."
   [^StackVM vm {:keys [bytecode pool]}]
   (assoc vm
-    :pc 0
-    :bytecode (vec bytecode)
-    :stack []
-    :call-stack []
-    :pool pool
-    :halted false
-    :value nil
-    :blocked false))
+         :pc 0
+         :bytecode (vec bytecode)
+         :stack []
+         :call-stack []
+         :pool pool
+         :halted false
+         :value nil
+         :blocked false))
 
 
 (defn- stack-vm-eval
@@ -754,21 +755,21 @@
 
 (extend-type StackVM
   vm/IVMStep
-    (step [vm] (stack-step vm))
-    (halted? [vm] (stack-vm-halted? vm))
-    (blocked? [vm] (stack-vm-blocked? vm))
-    (value [vm] (stack-vm-value vm))
+  (step [vm] (stack-step vm))
+  (halted? [vm] (stack-vm-halted? vm))
+  (blocked? [vm] (stack-vm-blocked? vm))
+  (value [vm] (stack-vm-value vm))
   vm/IVMRun
-    (run [vm] (vm/eval vm nil))
+  (run [vm] (vm/eval vm nil))
   vm/IVMLoad
-    (load-program [vm program] (stack-vm-load-program vm program))
+  (load-program [vm program] (stack-vm-load-program vm program))
   vm/IVMEval
-    (eval [vm ast] (stack-vm-eval vm ast))
+  (eval [vm ast] (stack-vm-eval vm ast))
   vm/IVMState
-    (control [vm] {:pc (:pc vm), :bytecode (:bytecode vm)})
-    (environment [vm] (:env vm))
-    (store [vm] (:store vm))
-    (continuation [vm] (:call-stack vm)))
+  (control [vm] {:pc (:pc vm), :bytecode (:bytecode vm)})
+  (environment [vm] (:env vm))
+  (store [vm] (:store vm))
+  (continuation [vm] (:call-stack vm)))
 
 
 (defn create-vm
