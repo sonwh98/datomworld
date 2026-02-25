@@ -8,69 +8,49 @@
 
 
 ;; =============================================================================
-;; Storage Protocol Tests
+;; Storage Utility Tests (ring-buffer and file backends)
 ;; =============================================================================
-
-(deftest memory-storage-test
-  (testing "Empty storage"
-    (let [s (storage/memory-storage)]
-      (is (= 0 (storage/length s)))
-      (is (nil? (storage/read-at s 0)))))
-  (testing "Append and read"
-    (let [s (-> (storage/memory-storage)
-                (storage/append :a)
-                (storage/append :b)
-                (storage/append :c))]
-      (is (= 3 (storage/length s)))
-      (is (= :a (storage/read-at s 0)))
-      (is (= :b (storage/read-at s 1)))
-      (is (= :c (storage/read-at s 2)))
-      (is (nil? (storage/read-at s 3)))))
-  (testing "Append is non-destructive"
-    (let [s0 (storage/memory-storage)
-          s1 (storage/append s0 :x)
-          s2 (storage/append s1 :y)]
-      (is (= 0 (storage/length s0)))
-      (is (= 1 (storage/length s1)))
-      (is (= 2 (storage/length s2))))))
-
 
 (deftest ring-buffer-storage-test
   (testing "Empty ring buffer"
     (let [s (storage/ring-buffer-storage 2)]
-      (is (= 0 (storage/length s)))
-      (is (nil? (storage/read-at s 0)))))
+      (is (= 0 (storage/ring-buffer-length s)))
+      (is (nil? (storage/ring-buffer-read-at s 0)))))
   (testing "Append up to capacity"
     (let [s (-> (storage/ring-buffer-storage 2)
-                (storage/append :a)
-                (storage/append :b))]
-      (is (= 2 (storage/length s)))
-      (is (= :a (storage/read-at s 0)))
-      (is (= :b (storage/read-at s 1)))))
+                (storage/ring-buffer-append :a)
+                (storage/ring-buffer-append :b))]
+      (is (= 2 (storage/ring-buffer-length s)))
+      (is (= :a (storage/ring-buffer-read-at s 0)))
+      (is (= :b (storage/ring-buffer-read-at s 1)))))
   (testing "Appending past capacity evicts oldest values"
     (let [s (-> (storage/ring-buffer-storage 2)
-                (storage/append :a)
-                (storage/append :b)
-                (storage/append :c))]
-      (is (= 2 (storage/length s)))
-      (is (= :b (storage/read-at s 0)))
-      (is (= :c (storage/read-at s 1)))
-      (is (nil? (storage/read-at s 2)))))
+                (storage/ring-buffer-append :a)
+                (storage/ring-buffer-append :b)
+                (storage/ring-buffer-append :c))]
+      (is (= 2 (storage/ring-buffer-length s)))
+      (is (= :b (storage/ring-buffer-read-at s 0)))
+      (is (= :c (storage/ring-buffer-read-at s 1)))
+      (is (nil? (storage/ring-buffer-read-at s 2)))))
   (testing "Append is non-destructive"
     (let [s0 (storage/ring-buffer-storage 2)
-          s1 (storage/append s0 :x)
-          s2 (storage/append s1 :y)
-          s3 (storage/append s2 :z)]
-      (is (= 0 (storage/length s0)))
-      (is (= 1 (storage/length s1)))
-      (is (= :x (storage/read-at s1 0)))
-      (is (= [:x :y] [(storage/read-at s2 0) (storage/read-at s2 1)]))
-      (is (= [:y :z] [(storage/read-at s3 0) (storage/read-at s3 1)]))))
+          s1 (storage/ring-buffer-append s0 :x)
+          s2 (storage/ring-buffer-append s1 :y)
+          s3 (storage/ring-buffer-append s2 :z)]
+      (is (= 0 (storage/ring-buffer-length s0)))
+      (is (= 1 (storage/ring-buffer-length s1)))
+      (is (= :x (storage/ring-buffer-read-at s1 0)))
+      (is (= [:x :y]
+             [(storage/ring-buffer-read-at s2 0)
+              (storage/ring-buffer-read-at s2 1)]))
+      (is (= [:y :z]
+             [(storage/ring-buffer-read-at s3 0)
+              (storage/ring-buffer-read-at s3 1)]))))
   (testing "Zero-capacity ring buffer stays empty"
     (let [s (-> (storage/ring-buffer-storage 0)
-                (storage/append :x))]
-      (is (= 0 (storage/length s)))
-      (is (nil? (storage/read-at s 0))))))
+                (storage/ring-buffer-append :x))]
+      (is (= 0 (storage/ring-buffer-length s)))
+      (is (nil? (storage/ring-buffer-read-at s 0))))))
 
 
 #?(:clj (deftest file-storage-test
@@ -80,14 +60,14 @@
                              (.deleteOnExit))
                   path (.getAbsolutePath tmp-file)
                   s0 (storage/file-storage path)
-                  s1 (storage/append s0 {:event :start})
-                  s2 (storage/append s1 [:payload 42])
+                  s1 (storage/file-append s0 {:event :start})
+                  s2 (storage/file-append s1 [:payload 42])
                   reopened (storage/file-storage path)]
-              (is (= 0 (storage/length s0)))
-              (is (= 2 (storage/length s2)))
-              (is (= 2 (storage/length reopened)))
-              (is (= {:event :start} (storage/read-at reopened 0)))
-              (is (= [:payload 42] (storage/read-at reopened 1)))))))
+              (is (= 0 (storage/file-length s0)))
+              (is (= 2 (storage/file-length s2)))
+              (is (= 2 (storage/file-length reopened)))
+              (is (= {:event :start} (storage/file-read-at reopened 0)))
+              (is (= [:payload 42] (storage/file-read-at reopened 1)))))))
 
 
 ;; =============================================================================
@@ -96,46 +76,45 @@
 
 (deftest stream-make-test
   (testing "Make unbounded stream"
-    (let [s (ds/make (storage/memory-storage))]
+    (let [s (ds/make)]
       (is (not (ds/closed? s)))
-      (is (= 0 (ds/length s)))
+      (is (= 0 (ds/length nil s)))
       (is (nil? (:capacity s)))))
   (testing "Make bounded stream"
-    (let [s (ds/make (storage/memory-storage) :capacity 3)]
-      (is (= 3 (:capacity s))))))
+    (let [s (ds/make :capacity 3)] (is (= 3 (:capacity s))))))
 
 
 (deftest stream-put-test
   (testing "Put to unbounded stream"
-    (let [s (ds/make (storage/memory-storage))
-          result (ds/put s 42)]
+    (let [s (ds/make)
+          result (ds/put nil s 42)]
       (is (:ok result))
-      (is (= 1 (ds/length (:ok result))))))
+      (is (= 1 (ds/length nil (:ok result))))))
   (testing "Put to bounded stream within capacity"
-    (let [s (ds/make (storage/memory-storage) :capacity 2)
-          r1 (ds/put s :a)
-          r2 (ds/put (:ok r1) :b)]
+    (let [s (ds/make :capacity 2)
+          r1 (ds/put nil s :a)
+          r2 (ds/put nil (:ok r1) :b)]
       (is (:ok r1))
       (is (:ok r2))
-      (is (= 2 (ds/length (:ok r2))))))
+      (is (= 2 (ds/length nil (:ok r2))))))
   (testing "Put to bounded stream at capacity returns :full"
-    (let [s (ds/make (storage/memory-storage) :capacity 1)
-          r1 (ds/put s :a)
-          r2 (ds/put (:ok r1) :b)]
+    (let [s (ds/make :capacity 1)
+          r1 (ds/put nil s :a)
+          r2 (ds/put nil (:ok r1) :b)]
       (is (:ok r1))
       (is (:full r2))
-      (is (= 1 (ds/length (:full r2))))))
+      (is (= 1 (ds/length nil (:full r2))))))
   (testing "Put to closed stream throws"
-    (let [s (-> (ds/make (storage/memory-storage))
+    (let [s (-> (ds/make)
                 (ds/close))]
       (is (thrown? #?(:clj Exception
                       :cljs js/Error)
-            (ds/put s 42))))))
+            (ds/put nil s 42))))))
 
 
 (deftest stream-close-test
   (testing "Close a stream"
-    (let [s (ds/make (storage/memory-storage))
+    (let [s (ds/make)
           closed (ds/close s)]
       (is (ds/closed? closed))
       (is (not (ds/closed? s))))))
@@ -155,38 +134,38 @@
 
 (deftest cursor-next-test
   (testing "Next on populated stream returns data"
-    (let [s (-> (ds/make (storage/memory-storage))
-                (#(-> (ds/put % :a)
+    (let [s (-> (ds/make)
+                (#(-> (ds/put nil % :a)
                       :ok))
-                (#(-> (ds/put % :b)
+                (#(-> (ds/put nil % :b)
                       :ok)))
           ref {:type :stream-ref, :id :s0}
           c (ds/cursor ref)
-          r1 (ds/next c s)]
+          r1 (ds/next nil c s)]
       (is (map? r1))
       (is (= :a (:ok r1)))
       (is (= 1 (ds/position (:cursor r1))))
-      (let [r2 (ds/next (:cursor r1) s)]
+      (let [r2 (ds/next nil (:cursor r1) s)]
         (is (= :b (:ok r2)))
         (is (= 2 (ds/position (:cursor r2)))))))
   (testing "Next at end of open stream returns :blocked"
-    (let [s (ds/make (storage/memory-storage))
+    (let [s (ds/make)
           c (ds/cursor {:type :stream-ref, :id :s0})]
-      (is (= :blocked (ds/next c s)))))
+      (is (= :blocked (ds/next nil c s)))))
   (testing "Next at end of closed stream returns :end"
-    (let [s (-> (ds/make (storage/memory-storage))
+    (let [s (-> (ds/make)
                 (ds/close))
           c (ds/cursor {:type :stream-ref, :id :s0})]
-      (is (= :end (ds/next c s)))))
+      (is (= :end (ds/next nil c s)))))
   (testing "Next on closed stream with data returns data then :end"
-    (let [s (-> (ds/make (storage/memory-storage))
-                (#(-> (ds/put % :x)
+    (let [s (-> (ds/make)
+                (#(-> (ds/put nil % :x)
                       :ok))
                 (ds/close))
           c (ds/cursor {:type :stream-ref, :id :s0})
-          r1 (ds/next c s)]
+          r1 (ds/next nil c s)]
       (is (= :x (:ok r1)))
-      (is (= :end (ds/next (:cursor r1) s))))))
+      (is (= :end (ds/next nil (:cursor r1) s))))))
 
 
 (deftest cursor-seek-test
@@ -202,79 +181,80 @@
 
 (deftest stream-seq-empty-test
   (testing "->seq on empty stream returns empty seq"
-    (let [s (ds/make (storage/memory-storage))]
-      (is (empty? (ds/->seq s)))
-      (is (nil? (seq (ds/->seq s)))))))
+    (let [s (ds/make)]
+      (is (empty? (ds/->seq nil s)))
+      (is (nil? (seq (ds/->seq nil s)))))))
 
 
 (deftest stream-seq-values-test
   (testing "->seq returns values in append order"
-    (let [s (-> (ds/make (storage/memory-storage))
-                (#(:ok (ds/put % :a)))
-                (#(:ok (ds/put % :b)))
-                (#(:ok (ds/put % :c))))]
-      (is (= [:a :b :c] (vec (ds/->seq s)))))))
+    (let [s (-> (ds/make)
+                (#(:ok (ds/put nil % :a)))
+                (#(:ok (ds/put nil % :b)))
+                (#(:ok (ds/put nil % :c))))]
+      (is (= [:a :b :c] (vec (ds/->seq nil s)))))))
 
 
 (deftest stream-seq-clojure-interop-test
   (testing "Standard seq functions work on ->seq"
-    (let [s (-> (ds/make (storage/memory-storage))
-                (#(:ok (ds/put % 1)))
-                (#(:ok (ds/put % 2)))
-                (#(:ok (ds/put % 3)))
-                (#(:ok (ds/put % 4))))]
-      (is (= 1 (first (ds/->seq s))))
-      (is (= [2 3 4] (vec (rest (ds/->seq s)))))
-      (is (= 10 (reduce + (ds/->seq s))))
-      (is (= [2 4] (vec (filter even? (ds/->seq s)))))
-      (is (= [2 4 6 8] (vec (map #(* 2 %) (ds/->seq s)))))
-      (is (= [1 2] (vec (take 2 (ds/->seq s))))))))
+    (let [s (-> (ds/make)
+                (#(:ok (ds/put nil % 1)))
+                (#(:ok (ds/put nil % 2)))
+                (#(:ok (ds/put nil % 3)))
+                (#(:ok (ds/put nil % 4))))]
+      (is (= 1 (first (ds/->seq nil s))))
+      (is (= [2 3 4] (vec (rest (ds/->seq nil s)))))
+      (is (= 10 (reduce + (ds/->seq nil s))))
+      (is (= [2 4] (vec (filter even? (ds/->seq nil s)))))
+      (is (= [2 4 6 8] (vec (map #(* 2 %) (ds/->seq nil s)))))
+      (is (= [1 2] (vec (take 2 (ds/->seq nil s))))))))
 
 
 (deftest stream-seq-snapshot-test
   (testing "->seq is a snapshot: appending after ->seq does not affect it"
-    (let [s (-> (ds/make (storage/memory-storage))
-                (#(:ok (ds/put % :x))))
-          frozen (ds/->seq s)
-          s' (:ok (ds/put s :y))]
+    (let [s (-> (ds/make)
+                (#(:ok (ds/put nil % :x))))
+          frozen (ds/->seq nil s)
+          s' (:ok (ds/put nil s :y))]
       (is (= [:x] (vec frozen)))
-      (is (= [:x :y] (vec (ds/->seq s')))))))
+      (is (= [:x :y] (vec (ds/->seq nil s')))))))
 
 
 (deftest stream-take-last-seq-test
   (testing "take-last-seq returns last n items"
-    (let [s (-> (ds/make (storage/memory-storage))
-                (#(:ok (ds/put % 1)))
-                (#(:ok (ds/put % 2)))
-                (#(:ok (ds/put % 3))))]
-      (is (= [1 2 3] (vec (ds/take-last-seq s 5))))
-      (is (= [2 3] (vec (ds/take-last-seq s 2))))
-      (is (= [3] (vec (ds/take-last-seq s 1))))
-      (is (empty? (ds/take-last-seq s 0)))
+    (let [s (-> (ds/make)
+                (#(:ok (ds/put nil % 1)))
+                (#(:ok (ds/put nil % 2)))
+                (#(:ok (ds/put nil % 3))))]
+      (is (= [1 2 3] (vec (ds/take-last-seq nil s 5))))
+      (is (= [2 3] (vec (ds/take-last-seq nil s 2))))
+      (is (= [3] (vec (ds/take-last-seq nil s 1))))
+      (is (empty? (ds/take-last-seq nil s 0)))
       (testing "n validation and coercion"
-        (is (= [2 3] (vec (ds/take-last-seq s 2.9))) "Coerces float to long")
+        (is (= [2 3] (vec (ds/take-last-seq nil s 2.9)))
+            "Coerces float to long")
         (is (thrown? #?(:clj Exception
                         :cljs js/Error)
-              (ds/take-last-seq s "invalid")))))))
+              (ds/take-last-seq nil s "invalid")))))))
 
 
 (deftest cursor-independence-test
   (testing "Two cursors on same stream advance independently"
-    (let [s (-> (ds/make (storage/memory-storage))
-                (#(-> (ds/put % :a)
+    (let [s (-> (ds/make)
+                (#(-> (ds/put nil % :a)
                       :ok))
-                (#(-> (ds/put % :b)
+                (#(-> (ds/put nil % :b)
                       :ok))
-                (#(-> (ds/put % :c)
+                (#(-> (ds/put nil % :c)
                       :ok)))
           ref {:type :stream-ref, :id :s0}
           c1 (ds/cursor ref)
           c2 (ds/cursor ref)
           ;; c1 reads :a, :b
-          r1a (ds/next c1 s)
-          r1b (ds/next (:cursor r1a) s)
+          r1a (ds/next nil c1 s)
+          r1b (ds/next nil (:cursor r1a) s)
           ;; c2 reads :a only
-          r2a (ds/next c2 s)]
+          r2a (ds/next nil c2 s)]
       (is (= :a (:ok r1a)))
       (is (= :b (:ok r1b)))
       (is (= :a (:ok r2a)))
@@ -289,34 +269,35 @@
 
 (deftest stream-channel-mobility-test
   (testing "A stream sent through another stream arrives intact"
-    (let [s1 (ds/make (storage/memory-storage))
-          s2 (ds/make (storage/memory-storage))
+    (let [s1 (ds/make)
+          s2 (ds/make)
           ;; Put a value into s2
-          s2 (:ok (ds/put s2 :payload))
+          s2 (:ok (ds/put nil s2 :payload))
           ;; Put s2 (the stream map) into s1
-          s1 (:ok (ds/put s1 s2))
+          s1 (:ok (ds/put nil s1 s2))
           ;; Read from s1, get s2 back
           ref1 {:type :stream-ref, :id :s1}
           c1 (ds/cursor ref1)
-          r1 (ds/next c1 s1)
+          r1 (ds/next nil c1 s1)
           recovered-s2 (:ok r1)]
       (is (map? recovered-s2) "Recovered value should be a stream map")
-      (is (= 1 (ds/length recovered-s2)) "Recovered stream should have 1 value")
+      (is (= 1 (ds/length nil recovered-s2))
+          "Recovered stream should have 1 value")
       ;; Read from the recovered s2
       (let [ref2 {:type :stream-ref, :id :s2}
             c2 (ds/cursor ref2)
-            r2 (ds/next c2 recovered-s2)]
+            r2 (ds/next nil c2 recovered-s2)]
         (is (= :payload (:ok r2))
             "Reading from recovered stream yields the original value")))))
 
 
 (deftest stream-ref-through-stream-test
   (testing "A stream-ref sent through a stream arrives intact"
-    (let [s1 (ds/make (storage/memory-storage))
+    (let [s1 (ds/make)
           ref2 {:type :stream-ref, :id :s2}
-          s1 (:ok (ds/put s1 ref2))
+          s1 (:ok (ds/put nil s1 ref2))
           c1 (ds/cursor {:type :stream-ref, :id :s1})
-          r1 (ds/next c1 s1)]
+          r1 (ds/next nil c1 s1)]
       (is (= ref2 (:ok r1)) "Stream-ref passes through a stream unchanged"))))
 
 
@@ -523,88 +504,88 @@
 
 (deftest take-basic-test
   (testing "Take from stream with values"
-    (let [s (-> (ds/make (storage/memory-storage))
-                (#(:ok (ds/put % :a)))
-                (#(:ok (ds/put % :b)))
-                (#(:ok (ds/put % :c))))
-          r1 (ds/take s)]
+    (let [s (-> (ds/make)
+                (#(:ok (ds/put nil % :a)))
+                (#(:ok (ds/put nil % :b)))
+                (#(:ok (ds/put nil % :c))))
+          r1 (ds/take nil s)]
       (is (= :a (:ok r1)))
-      (is (= 2 (ds/length (:stream r1))))
-      (let [r2 (ds/take (:stream r1))]
+      (is (= 2 (ds/length nil (:stream r1))))
+      (let [r2 (ds/take nil (:stream r1))]
         (is (= :b (:ok r2)))
-        (is (= 1 (ds/length (:stream r2))))
-        (let [r3 (ds/take (:stream r2))]
+        (is (= 1 (ds/length nil (:stream r2))))
+        (let [r3 (ds/take nil (:stream r2))]
           (is (= :c (:ok r3)))
-          (is (= 0 (ds/length (:stream r3)))))))))
+          (is (= 0 (ds/length nil (:stream r3)))))))))
 
 
 (deftest take-empty-test
   (testing "Take from empty open stream returns :empty"
-    (let [s (ds/make (storage/memory-storage))] (is (= :empty (ds/take s)))))
+    (let [s (ds/make)] (is (= :empty (ds/take nil s)))))
   (testing "Take from exhausted open stream returns :empty"
-    (let [s (-> (ds/make (storage/memory-storage))
-                (#(:ok (ds/put % :a))))
-          r1 (ds/take s)]
+    (let [s (-> (ds/make)
+                (#(:ok (ds/put nil % :a))))
+          r1 (ds/take nil s)]
       (is (= :a (:ok r1)))
-      (is (= :empty (ds/take (:stream r1)))))))
+      (is (= :empty (ds/take nil (:stream r1)))))))
 
 
 (deftest take-end-test
   (testing "Take from empty closed stream returns :end"
-    (let [s (-> (ds/make (storage/memory-storage))
+    (let [s (-> (ds/make)
                 (ds/close))]
-      (is (= :end (ds/take s)))))
+      (is (= :end (ds/take nil s)))))
   (testing "Take from closed stream with data returns data then :end"
-    (let [s (-> (ds/make (storage/memory-storage))
-                (#(:ok (ds/put % :x)))
+    (let [s (-> (ds/make)
+                (#(:ok (ds/put nil % :x)))
                 (ds/close))
-          r1 (ds/take s)]
+          r1 (ds/take nil s)]
       (is (= :x (:ok r1)))
-      (is (= :end (ds/take (:stream r1)))))))
+      (is (= :end (ds/take nil (:stream r1)))))))
 
 
 (deftest take-frees-capacity-test
   (testing "Take frees capacity for put"
-    (let [s (-> (ds/make (storage/memory-storage) :capacity 2)
-                (#(:ok (ds/put % :a)))
-                (#(:ok (ds/put % :b))))
+    (let [s (-> (ds/make :capacity 2)
+                (#(:ok (ds/put nil % :a)))
+                (#(:ok (ds/put nil % :b))))
           ;; Stream is full
-          full-result (ds/put s :c)]
+          full-result (ds/put nil s :c)]
       (is (:full full-result))
       ;; Take one, freeing capacity
-      (let [taken (ds/take s)
+      (let [taken (ds/take nil s)
             s' (:stream taken)
-            put-result (ds/put s' :c)]
+            put-result (ds/put nil s' :c)]
         (is (= :a (:ok taken)))
         (is (:ok put-result) "Put should succeed after take freed capacity")))))
 
 
 (deftest take-seq-interaction-test
   (testing "->seq reflects head position"
-    (let [s (-> (ds/make (storage/memory-storage))
-                (#(:ok (ds/put % 1)))
-                (#(:ok (ds/put % 2)))
-                (#(:ok (ds/put % 3))))
-          s' (:stream (ds/take s))]
-      (is (= [2 3] (vec (ds/->seq s'))))))
+    (let [s (-> (ds/make)
+                (#(:ok (ds/put nil % 1)))
+                (#(:ok (ds/put nil % 2)))
+                (#(:ok (ds/put nil % 3))))
+          s' (:stream (ds/take nil s))]
+      (is (= [2 3] (vec (ds/->seq nil s'))))))
   (testing "take-last-seq reflects head position"
-    (let [s (-> (ds/make (storage/memory-storage))
-                (#(:ok (ds/put % 1)))
-                (#(:ok (ds/put % 2)))
-                (#(:ok (ds/put % 3))))
-          s' (:stream (ds/take s))]
-      (is (= [3] (vec (ds/take-last-seq s' 1))))
-      (is (= [2 3] (vec (ds/take-last-seq s' 5)))))))
+    (let [s (-> (ds/make)
+                (#(:ok (ds/put nil % 1)))
+                (#(:ok (ds/put nil % 2)))
+                (#(:ok (ds/put nil % 3))))
+          s' (:stream (ds/take nil s))]
+      (is (= [3] (vec (ds/take-last-seq nil s' 1))))
+      (is (= [2 3] (vec (ds/take-last-seq nil s' 5)))))))
 
 
 (deftest cursor-gap-test
   (testing "Cursor at position behind head returns :daostream/gap"
-    (let [s (-> (ds/make (storage/memory-storage))
-                (#(:ok (ds/put % :a)))
-                (#(:ok (ds/put % :b))))
+    (let [s (-> (ds/make)
+                (#(:ok (ds/put nil % :a)))
+                (#(:ok (ds/put nil % :b))))
           ;; Take advances head past position 0
-          s' (:stream (ds/take s))
+          s' (:stream (ds/take nil s))
           ref {:type :stream-ref, :id :s0}
           c (ds/cursor ref)]
-      (is (= :daostream/gap (ds/next c s'))
+      (is (= :daostream/gap (ds/next nil c s'))
           "Cursor at pos 0 with head at 1 should return gap"))))

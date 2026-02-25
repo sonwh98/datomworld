@@ -1,7 +1,8 @@
 (ns datomworld.continuation-transport-test
-  (:require [clojure.test :refer [deftest is testing]]
-            [dao.stream :as ds]
-            [datomworld.continuation-transport :as ct]))
+  (:require
+    [clojure.test :refer [deftest is testing]]
+    [dao.stream :as ds]
+    [datomworld.continuation-transport :as ct]))
 
 
 (deftest enqueue-continuation-logs-summary-and-stores-payload-off-stream-test
@@ -19,7 +20,7 @@
                         :extra :ignored}
           state (ct/init-state [:register-vm :stack-vm])
           next-state (ct/enqueue-continuation state summary continuation)
-          datoms (vec (ds/->seq (:continuation-stream next-state)))
+          datoms (vec (ds/->seq nil (:continuation-stream next-state)))
           [_e a v _t _m] (first datoms)]
       (is (= 1 (count datoms)))
       (is (= :stream/continuation a))
@@ -44,7 +45,7 @@
           [next-state message] (ct/consume-continuation-for state :register-vm)]
       (is (nil? message))
       (is (= 1 (get-in next-state [:cursors :register-vm :position])))
-      (is (= 1 (ds/length (:continuation-stream next-state)))
+      (is (= 1 (ds/length nil (:continuation-stream next-state)))
           "no deliver datom should be appended when recipient does not match")
       (is (= pending (get-in next-state [:pending-continuations 0]))))))
 
@@ -62,7 +63,7 @@
                                          summary
                                          pending)
           [next-state message] (ct/consume-continuation-for state :register-vm)
-          datoms (vec (ds/->seq (:continuation-stream next-state)))
+          datoms (vec (ds/->seq nil (:continuation-stream next-state)))
           [_e a v _t _m] (last datoms)]
       (is (= {:from :stack-vm,
               :to :register-vm,

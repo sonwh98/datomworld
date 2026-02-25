@@ -13,11 +13,10 @@
   Reads go through cursors, not directly from streams.
   Cursors advance independently: multiple readers, same stream.
 
-  Internally backed by dao.stream (pure data functions).
+  Internally backed by dao.stream (pure data descriptors).
   The VM handles parking, resumption, and scheduling."
   (:require
     [dao.stream :as ds]
-    [dao.stream.storage :as storage]
     [yin.module :as module]))
 
 
@@ -79,7 +78,7 @@
   [state effect gensym-fn]
   (let [capacity (:capacity effect)
         id (gensym-fn "stream")
-        stream (ds/make (storage/memory-storage) :capacity capacity)
+        stream (ds/make :capacity capacity)
         new-store (assoc (:store state) id stream)
         stream-ref {:type :stream-ref, :id id}]
     [stream-ref (assoc state :store new-store)]))
@@ -98,9 +97,10 @@
         stream (get store stream-id)]
     (when (nil? stream)
       (throw (ex-info "Invalid stream reference" {:ref stream-ref})))
-    (let [result (ds/put stream val)]
+    (let [result (ds/put store stream val)]
       (if (:ok result)
-        (let [new-store (assoc store stream-id (:ok result))]
+        (let [new-store (-> (or (:store result) store)
+                            (assoc stream-id (:ok result)))]
           {:value val, :state (assoc state :store new-store)})
         {:park true, :stream-id stream-id, :state state}))))
 
@@ -136,7 +136,7 @@
       (when (nil? stream)
         (throw (ex-info "Stream not found for cursor"
                         {:stream-ref stream-ref})))
-      (let [result (ds/next cursor-data stream)]
+      (let [result (ds/next store cursor-data stream)]
         (cond (map? result)
               (let [new-store (assoc store cursor-id (:cursor result))]
                 {:value (:ok result), :state (assoc state :store new-store)})
@@ -163,7 +163,7 @@
         stream (get store stream-id)]
     (when (nil? stream)
       (throw (ex-info "Invalid stream reference" {:ref stream-ref})))
-    (let [result (ds/take stream)]
+    (let [result (ds/take store stream)]
       (cond (map? result)
             (let [new-store (assoc store stream-id (:stream result))]
               {:value (:ok result), :state (assoc state :store new-store)})
