@@ -13,7 +13,7 @@
   Reads go through cursors, not directly from streams.
   Cursors advance independently: multiple readers, same stream.
 
-  Internally backed by dao.stream (pure data descriptors).
+  Internally backed by dao.stream (IStream protocol, LazySeqStream impl).
   The VM handles parking, resumption, and scheduling."
   (:require
     [dao.stream :as ds]
@@ -78,7 +78,8 @@
   [state effect gensym-fn]
   (let [capacity (:capacity effect)
         id (gensym-fn "stream")
-        stream (ds/make :capacity capacity)
+        stream (ds/->LazySeqStream capacity
+                                   (atom {:log [], :head 0, :closed false}))
         new-store (assoc (:store state) id stream)
         stream-ref {:type :stream-ref, :id id}]
     [stream-ref (assoc state :store new-store)]))
@@ -87,31 +88,29 @@
 (defn handle-put
   "Handle :stream/put effect. Appends value to stream.
    Returns result map:
-   {:value v, :state s'}           on success
-   {:park true, :stream-id id, :state s}  if at capacity"
+   {:value v, :state s}                    on success
+   {:park true, :stream-id id, :state s}   if at capacity"
   [state effect]
   (let [stream-ref (:stream effect)
         val (:val effect)
         stream-id (:id stream-ref)
-        store (:store state)
-        stream (get store stream-id)]
+        stream (get (:store state) stream-id)]
     (when (nil? stream)
       (throw (ex-info "Invalid stream reference" {:ref stream-ref})))
-    (let [result (ds/put store stream val)]
-      (if (:ok result)
-        (let [new-store (-> (or (:store result) store)
-                            (assoc stream-id (:ok result)))]
-          {:value val, :state (assoc state :store new-store)})
+    (let [result (ds/put! stream val)]
+      (if (= :ok result)
+        {:value val, :state state}
         {:park true, :stream-id stream-id, :state state}))))
 
 
 (defn handle-cursor
   "Handle :stream/cursor effect. Creates a cursor in the VM store.
-   Returns [cursor-ref updated-state]."
+   Returns [cursor-ref updated-state].
+   cursor-data is VM-internal: {:stream-id id, :position 0}"
   [state effect gensym-fn]
   (let [stream-ref (:stream effect)
         id (gensym-fn "cursor")
-        cursor-data (ds/cursor stream-ref)
+        cursor-data {:stream-id (:id stream-ref), :position 0}
         new-store (assoc (:store state) id cursor-data)
         cursor-ref {:type :cursor-ref, :id id}]
     [cursor-ref (assoc state :store new-store)]))
@@ -120,8 +119,8 @@
 (defn handle-next
   "Handle :stream/next effect. Advances cursor, returns next value.
    Returns result map:
-   {:value val, :cursor-ref ref, :state s'}  data available
-   {:park true, :cursor-ref ref, :state s}   blocked (open stream, no data)
+   {:value val, :state s'}                    data available
+   {:park true, :cursor-ref ref, :stream-id id, :state s}  blocked
    {:value nil, :state s}                     end of closed stream"
   [state effect]
   (let [cursor-ref (:cursor effect)
@@ -130,15 +129,16 @@
         cursor-data (get store cursor-id)]
     (when (nil? cursor-data)
       (throw (ex-info "Invalid cursor reference" {:ref cursor-ref})))
-    (let [stream-ref (:stream-ref cursor-data)
-          stream-id (:id stream-ref)
+    (let [stream-id (:stream-id cursor-data)
           stream (get store stream-id)]
       (when (nil? stream)
-        (throw (ex-info "Stream not found for cursor"
-                        {:stream-ref stream-ref})))
-      (let [result (ds/next store cursor-data stream)]
+        (throw (ex-info "Stream not found for cursor" {:stream-id stream-id})))
+      (let [ds-cursor {:position (:position cursor-data)}
+            result (ds/next stream ds-cursor)]
         (cond (map? result)
-              (let [new-store (assoc store cursor-id (:cursor result))]
+              (let [new-cursor (assoc cursor-data
+                                      :position (:position (:cursor result)))
+                    new-store (assoc store cursor-id new-cursor)]
                 {:value (:ok result), :state (assoc state :store new-store)})
               (= :blocked result) {:park true,
                                    :cursor-ref cursor-ref,
@@ -153,20 +153,17 @@
 (defn handle-take
   "Handle :stream/take effect. Destructively consumes next value.
    Returns result map:
-   {:value val, :state s'}               value available, head advanced
+   {:value val, :state s}                value available, head advanced
    {:park true, :stream-id id, :state s} empty (open stream, no data)
    {:value nil, :state s}                end of closed stream"
   [state effect]
   (let [stream-ref (:stream effect)
         stream-id (:id stream-ref)
-        store (:store state)
-        stream (get store stream-id)]
+        stream (get (:store state) stream-id)]
     (when (nil? stream)
       (throw (ex-info "Invalid stream reference" {:ref stream-ref})))
-    (let [result (ds/take store stream)]
-      (cond (map? result)
-            (let [new-store (assoc store stream-id (:stream result))]
-              {:value (:ok result), :state (assoc state :store new-store)})
+    (let [result (ds/take! stream)]
+      (cond (map? result) {:value (:ok result), :state state}
             (= :empty result) {:park true, :stream-id stream-id, :state state}
             (= :end result) {:value nil, :state state}))))
 
@@ -178,23 +175,18 @@
   [state effect]
   (let [stream-ref (:stream effect)
         stream-id (:id stream-ref)
-        store (:store state)
-        stream (get store stream-id)
-        new-stream (ds/close stream)
-        new-store (assoc store stream-id new-stream)
-        ;; Find parked :next and :take continuations waiting on this
-        ;; stream. Both resume with nil (end-of-stream). :put waiters are
-        ;; not woken: closing means no more writes.
-        wait-set (or (:wait-set state) [])
-        {to-resume true, to-keep false}
-        (group-by (fn [entry]
-                    (and (= stream-id (:stream-id entry))
-                         (#{:next :take} (:reason entry))))
-                  wait-set)]
-    {:state (assoc state
-                   :store new-store
-                   :wait-set (vec (or to-keep []))),
-     :resume-parked (or to-resume [])}))
+        stream (get (:store state) stream-id)]
+    (ds/close! stream)
+    ;; Find parked :next and :take continuations waiting on this stream.
+    ;; Both resume with nil (end-of-stream). :put waiters are not woken.
+    (let [wait-set (or (:wait-set state) [])
+          {to-resume true, to-keep false}
+          (group-by (fn [entry]
+                      (and (= stream-id (:stream-id entry))
+                           (#{:next :take} (:reason entry))))
+                    wait-set)]
+      {:state (assoc state :wait-set (vec (or to-keep []))),
+       :resume-parked (or to-resume [])})))
 
 
 ;; ============================================================

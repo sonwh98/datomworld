@@ -2,8 +2,8 @@
   "Pure transport stream helpers shared across hosts.
 
   Transport state:
-    {:continuation-stream <dao.stream descriptor>
-     :cursors {:register-vm <cursor> :stack-vm <cursor>}
+    {:continuation-stream <LazySeqStream>
+     :cursors {:register-vm {:position n} :stack-vm {:position n}}
      :pending-continuations {position continuation}}"
   (:require
     [dao.stream :as ds]))
@@ -13,8 +13,9 @@
   "Create a fresh transport state. vm-keys is a collection of keywords
    identifying the consuming VMs (e.g. [:register-vm :stack-vm])."
   [vm-keys]
-  {:continuation-stream (ds/make),
-   :cursors (into {} (map (fn [k] [k (ds/cursor k)])) vm-keys),
+  {:continuation-stream
+   (ds/->LazySeqStream nil (atom {:log [], :head 0, :closed false})),
+   :cursors (into {} (map (fn [k] [k {:position 0}])) vm-keys),
    :pending-continuations {}})
 
 
@@ -22,19 +23,19 @@
   "Append one datom-like event record to transport.
    Returns [transport' datom]."
   [transport a v]
-  (let [len (ds/length nil transport)
+  (let [len (ds/length transport)
         e (+ 7000 len)
         t (+ 1 len)
         datom [e a v t 0]
-        {:keys [ok]} (ds/put nil transport datom)]
-    [ok datom]))
+        _ (ds/put! transport datom)]
+    [transport datom]))
 
 
 (defn enqueue-continuation
   "Append a continuation summary to transport and store the full continuation
    payload off-stream in :pending-continuations."
   [state summary continuation]
-  (let [pos (ds/length nil (:continuation-stream state))
+  (let [pos (ds/length (:continuation-stream state))
         [transport* _] (append-datom (:continuation-stream state)
                                      :stream/continuation
                                      summary)]
@@ -51,7 +52,7 @@
   (let [transport (:continuation-stream state)
         cur (get-in state [:cursors vm-key])]
     (loop [c cur]
-      (let [result (ds/next nil c transport)]
+      (let [result (ds/next transport c)]
         (if (keyword? result)
           [(assoc-in state [:cursors vm-key] c) nil]
           (let [{:keys [ok cursor]} result
@@ -84,7 +85,7 @@
           (fn [[vm-key cur]]
             (loop [c cur
                    acc []]
-              (let [result (ds/next nil c transport)]
+              (let [result (ds/next transport c)]
                 (if (keyword? result)
                   acc
                   (let [{:keys [ok cursor]} result

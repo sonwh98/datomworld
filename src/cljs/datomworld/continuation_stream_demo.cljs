@@ -34,6 +34,17 @@
     (with-out-str (pprint/pprint data))))
 
 
+(defn stream-last-vec
+  "Read all available values from stream s, return the last n as a vector."
+  [s n]
+  (loop [c {:position 0}
+         acc []]
+    (let [r (ds/next s c)]
+      (if (map? r)
+        (recur (:cursor r) (conj acc (:ok r)))
+        (vec (take-last n acc))))))
+
+
 (defn codemirror-editor
   [{:keys [value on-change read-only auto-scroll-bottom]}]
   (let [view-ref (r/atom nil)
@@ -712,9 +723,8 @@
                "Compile source to generate register and stack bytecode.")
              queue-view (pretty-print
                           (ct/in-flight-summary continuation-stream cursors))
-             stream-view (pretty-print
-                           (vec
-                             (ds/take-last-seq nil continuation-stream 200)))
+             stream-view (pretty-print (stream-last-vec continuation-stream
+                                                        200))
              run-summary
              {:owner owner,
               :steps steps,
@@ -724,7 +734,7 @@
               :stack-vm-control (vm-control-counter :stack-vm stack-vm),
               :register-cursor (get-in cursors [:register-vm :position]),
               :stack-cursor (get-in cursors [:stack-vm :position]),
-              :stream-length (ds/length nil continuation-stream),
+              :stream-length (ds/length continuation-stream),
               :completed? completed?,
               :result result}]
          [:div
