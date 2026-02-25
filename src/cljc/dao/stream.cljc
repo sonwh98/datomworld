@@ -13,7 +13,7 @@
 
   Cursor (plain map, constructed inline by caller):
     {:position n}"
-  (:refer-clojure :exclude [next take]))
+  (:refer-clojure :exclude [next]))
 
 
 ;; =============================================================================
@@ -117,16 +117,11 @@
    calling shape they use for other stream helpers."
   [_ stream]
   (when stream
-    (letfn [(walk [cursor]
-              (lazy-seq
-                (let [result (next stream cursor)]
-                  (cond
-                    (map? result)
-                    (cons (:ok result) (walk (:cursor result)))
-
-                    (#{:blocked :end :daostream/gap} result)
-                    nil
-
-                    :else
-                    nil)))))]
+    (letfn [(walk
+              [cursor]
+              (lazy-seq (let [result (next stream cursor)]
+                          (cond (map? result) (cons (:ok result)
+                                                    (walk (:cursor result)))
+                                (#{:blocked :end :daostream/gap} result) nil
+                                :else nil))))]
       (walk {:position 0}))))

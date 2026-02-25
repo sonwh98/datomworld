@@ -270,7 +270,7 @@
                                      :val {:type :literal, :value 42}}))
           stream (get (vm/store vm-after-put) stream-id)]
       (is (= 42 (vm/value vm-after-put)))
-      (is (= 1 (dao.stream/length nil stream)))))
+      (is (= 1 (dao.stream/length stream)))))
   (testing "stream/put multiple values"
     (let [vm-with-stream (-> (make-stream-vm)
                              (vm/eval {:type :stream/make, :buffer 10}))
@@ -284,7 +284,7 @@
                             (vm/eval (put-ast 1))
                             (vm/eval (put-ast 2)))
           stream (get (vm/store vm-after-puts) stream-id)]
-      (is (= 2 (dao.stream/length nil stream))))))
+      (is (= 2 (dao.stream/length stream))))))
 
 
 (deftest stream-cursor-next-test
@@ -462,13 +462,13 @@
                          :operator {:type :variable, :name '+},
                          :operands [{:type :literal, :value 2}
                                     {:type :literal, :value 3}]})
-          _ (is (= 5 (vm/value vm-3)))]
-      ;; Verify that all datoms are preserved and have unique IDs
-      (let [datoms (:datoms vm-3)
-            ids (map first datoms)
-            unique-ids (set ids)]
-        (is (every? neg-int? ids)
-            "All accumulated datom entity IDs should remain negative tempids")
-        ;; Total nodes: 1 + 1 + 4 = 6 nodes.
-        (is (= 6 (count unique-ids))
-            "Should have 6 unique node IDs across 3 loads")))))
+          _ (is (= 5 (vm/value vm-3)))
+          ;; Verify that all datoms are preserved and have unique IDs
+          datoms (:datoms vm-3)
+          ids (map first datoms)
+          unique-ids (set ids)]
+      (is (every? neg-int? ids)
+          "All accumulated datom entity IDs should remain negative tempids")
+      ;; Total nodes: 1 + 1 + 4 = 6 nodes.
+      (is (= 6 (count unique-ids))
+          "Should have 6 unique node IDs across 3 loads"))))

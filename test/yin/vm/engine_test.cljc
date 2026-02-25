@@ -55,7 +55,6 @@
           [cursor-ref state]
           (stream/handle-cursor state {:stream stream-ref} (gen-id-fn state))
           state (update state :id-counter inc)
-          cursor-id (:id cursor-ref)
           ;; 3. Park a continuation for :next
           parked-entry {:reason :next,
                         :cursor-ref cursor-ref,
@@ -150,7 +149,7 @@
       (is (= checked checked-again)
           "Scheduler should be stable after dropping closed-stream :put waiter")
       (is (ds/closed? stream-after) "Closed-stream state must be preserved")
-      (is (= 1 (ds/length nil stream-after))
+      (is (= 1 (ds/length stream-after))
           "Dropped :put waiter must not append into closed stream"))))
 
 

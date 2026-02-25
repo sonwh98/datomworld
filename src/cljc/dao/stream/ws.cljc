@@ -1,0 +1,186 @@
+(ns dao.stream.ws
+  "WebSocket-backed IStream.
+
+   Three entry points:
+     CLJ listen!   — start an http-kit WebSocket server, return WebSocketStream
+     CLJ connect!  — connect via Java 11 built-in WebSocket client
+     CLJS connect! — connect via browser WebSocket
+
+   Both sides get back a WebSocketStream that satisfies dao.stream/IStream:
+     put!    — send a datom to the remote peer
+     take!   — destructive read from remote-stream
+     next    — non-destructive read from remote-stream at cursor
+     length  — count of received (unread) datoms
+     close!  — send close message and shut down
+     closed? — true if link status is :closed"
+  (:require
+    [dao.stream :as ds]
+    [dao.stream.link :as link]
+    [dao.stream.transit :as transit]
+    #?(:clj [org.httpkit.server :as http-server])))
+
+
+;; =============================================================================
+;; WebSocketStream record
+;; =============================================================================
+
+(defrecord WebSocketStream
+  [link-state-atom send-fn-atom]
+
+  ds/IStream
+
+  (put!
+    [_ val]
+    (let [state @link-state-atom
+          [state' msg] (link/local-put state val)]
+      (reset! link-state-atom state')
+      (when-let [send-fn @send-fn-atom] (send-fn (transit/encode msg)))
+      :ok))
+
+
+  (take! [_] (ds/take! (:remote-stream @link-state-atom)))
+
+
+  (next [_ c] (ds/next (:remote-stream @link-state-atom) c))
+
+
+  (length [_] (ds/length (:remote-stream @link-state-atom)))
+
+
+  (close!
+    [_]
+    (when-let [send-fn @send-fn-atom]
+      (send-fn (transit/encode (link/close-msg))))
+    (let [state (:remote-stream @link-state-atom)] (ds/close! state))
+    (swap! link-state-atom assoc :status :closed)
+    nil)
+
+
+  (closed? [_] (= :closed (:status @link-state-atom))))
+
+
+;; =============================================================================
+;; Shared internal helpers
+;; =============================================================================
+
+(defn- make-ws-stream
+  [local]
+  (->WebSocketStream (atom (link/make-link-state local)) (atom nil)))
+
+
+(defn- on-open!
+  [ws-stream send-fn]
+  (reset! (:send-fn-atom ws-stream) send-fn)
+  (let [msg (link/connect-msg @(:link-state-atom ws-stream))]
+    (send-fn (transit/encode msg))))
+
+
+(defn- on-message!
+  [ws-stream raw]
+  (let [msg (transit/decode raw)
+        state @(:link-state-atom ws-stream)
+        [state' resp] (link/dispatch state msg)]
+    (reset! (:link-state-atom ws-stream) state')
+    (when resp
+      (when-let [send-fn @(:send-fn-atom ws-stream)]
+        (send-fn (transit/encode resp))))))
+
+
+(defn- on-close!
+  [ws-stream]
+  (let [remote (:remote-stream @(:link-state-atom ws-stream))]
+    (when-not (ds/closed? remote) (ds/close! remote)))
+  (swap! (:link-state-atom ws-stream) assoc :status :closed))
+
+
+;; =============================================================================
+;; CLJ: listen! (http-kit)
+;; =============================================================================
+
+#?(:clj
+   (defn listen!
+     "Start a WebSocket server on port. Returns WebSocketStream.
+      Accepts one connection; further connections are rejected."
+     ([port] (listen! port nil))
+     ([port opts]
+      (let [local (ds/->LazySeqStream (:capacity opts)
+                                      (atom
+                                        {:log [], :head 0, :closed false}))
+            stream (make-ws-stream local)
+            stop! (http-server/run-server
+                    (fn [req]
+                      (http-server/as-channel
+                        req
+                        {:on-open (fn [ch]
+                                    (on-open! stream
+                                              (fn [msg]
+                                                (http-server/send! ch msg)))),
+                         :on-receive (fn [_ch raw] (on-message! stream raw)),
+                         :on-close (fn [_ch _status] (on-close! stream))}))
+                    {:port port})]
+        (swap! (:link-state-atom stream) assoc :stop-fn stop!)
+        stream))))
+
+
+;; =============================================================================
+;; CLJ: connect! (Java 11 built-in WebSocket client)
+;; =============================================================================
+
+#?(:clj (defn connect!
+          "Connect to a WebSocket server at url. Returns WebSocketStream."
+          ([url] (connect! url nil))
+          ([url opts]
+           (let [local (ds/->LazySeqStream (:capacity opts)
+                                           (atom
+                                             {:log [], :head 0, :closed false}))
+                 stream (make-ws-stream local)
+                 client (java.net.http.HttpClient/newHttpClient)
+                 ws-ref (atom nil)
+                 listener
+                 (reify
+                   java.net.http.WebSocket$Listener
+                   (onOpen
+                     [_ ws]
+                     (reset! ws-ref ws)
+                     (on-open! stream
+                               (fn [msg] (.sendText ws msg true) nil))
+                     (.request ws 1))
+
+                   (onText
+                     [_ ws data _last?]
+                     (on-message! stream (str data))
+                     (.request ws 1)
+                     (java.util.concurrent.CompletableFuture/completedFuture
+                       nil))
+
+                   (onClose
+                     [_ _ws _code _reason]
+                     (on-close! stream)
+                     (java.util.concurrent.CompletableFuture/completedFuture
+                       nil))
+
+                   (onError [_ _ws _err] (on-close! stream)))]
+             (.thenAccept (.buildAsync (.. client newWebSocketBuilder)
+                                       (java.net.URI/create url)
+                                       listener)
+                          (fn [_ws] nil))
+             stream))))
+
+
+;; =============================================================================
+;; CLJS: connect! (browser WebSocket)
+;; =============================================================================
+
+#?(:cljs (defn connect!
+           "Connect to a WebSocket server at url. Returns WebSocketStream."
+           ([url] (connect! url nil))
+           ([url opts]
+            (let [local (ds/->LazySeqStream
+                          (:capacity opts)
+                          (atom {:log [], :head 0, :closed false}))
+                  stream (make-ws-stream local)
+                  ws (js/WebSocket. url)]
+              (set! (.-onopen ws) #(on-open! stream (fn [msg] (.send ws msg))))
+              (set! (.-onmessage ws) #(on-message! stream (.-data %)))
+              (set! (.-onclose ws) #(on-close! stream))
+              stream))))

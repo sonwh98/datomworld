@@ -273,7 +273,7 @@
                                      :val {:type :literal, :value 42}}))
           stream (get (vm/store vm-after-put) stream-id)]
       (is (= 42 (vm/value vm-after-put)))
-      (is (= 1 (dao.stream/length nil stream)))))
+      (is (= 1 (dao.stream/length stream)))))
   (testing "stream/put multiple values"
     (let [vm-with-stream (-> (make-stream-vm)
                              (vm/eval {:type :stream/make, :buffer 10}))
@@ -287,7 +287,7 @@
                             (vm/eval (put-ast 1))
                             (vm/eval (put-ast 2)))
           stream (get (vm/store vm-after-puts) stream-id)]
-      (is (= 2 (dao.stream/length nil stream))))))
+      (is (= 2 (dao.stream/length stream))))))
 
 
 (deftest stream-cursor-next-test
