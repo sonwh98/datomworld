@@ -700,42 +700,32 @@
                  :regs (assoc regs rd nil)
                  :pc (+ pc 3)))
         :park
-        (let [rd (get bytecode (+ pc 1))
-              park-id (keyword (str "parked-" id-counter))
-              parked-cont {:type :parked-continuation,
-                           :id park-id,
-                           :pc (+ pc 2),
-                           :regs regs,
-                           :k k,
-                           :env env,
-                           :bytecode bytecode,
-                           :pool pool,
-                           :result-reg rd}
-              new-parked (assoc (:parked state) park-id parked-cont)]
-          (assoc state
-                 :parked new-parked
-                 :value parked-cont
-                 :halted true
-                 :id-counter (inc id-counter)))
+        (let [rd (get bytecode (+ pc 1))]
+          (engine/park-continuation state
+                                    {:pc (+ pc 2),
+                                     :regs regs,
+                                     :k k,
+                                     :env env,
+                                     :bytecode bytecode,
+                                     :pool pool,
+                                     :result-reg rd}))
         :resume
         (let [rs (get bytecode (+ pc 1))
               rt (get bytecode (+ pc 2))
               parked-id (get-reg state rs)
-              resume-val (get-reg state rt)
-              parked-cont (get-in state [:parked parked-id])]
-          (if parked-cont
-            (let [new-parked (dissoc (:parked state) parked-id)
-                  rd (:result-reg parked-cont)]
-              (assoc state
-                     :parked new-parked
-                     :pc (:pc parked-cont)
-                     :regs (assoc (:regs parked-cont) rd resume-val)
-                     :k (:k parked-cont)
-                     :env (:env parked-cont)
-                     :bytecode (:bytecode parked-cont)
-                     :pool (:pool parked-cont)))
-            (throw (ex-info "Cannot resume: parked continuation not found"
-                            {:parked-id parked-id}))))
+              resume-val (get-reg state rt)]
+          (engine/resume-continuation state
+                                      parked-id
+                                      resume-val
+                                      (fn [new-state parked rv]
+                                        (let [rd (:result-reg parked)]
+                                          (assoc new-state
+                                                 :pc (:pc parked)
+                                                 :regs (assoc (:regs parked) rd rv)
+                                                 :k (:k parked)
+                                                 :env (:env parked)
+                                                 :bytecode (:bytecode parked)
+                                                 :pool (:pool parked))))))
         :current-cont
         (let [rd (get bytecode (+ pc 1))
               cont {:type :reified-continuation,
@@ -760,24 +750,18 @@
   "Pop first entry from run-queue and resume it as the active computation.
    Returns updated state or nil if queue is empty."
   [state]
-  (let [run-queue (or (:run-queue state) [])]
-    (when (seq run-queue)
-      (let [entry (first run-queue)
-            rest-queue (subvec run-queue 1)
-            new-store (or (:store-updates entry) (:store state))]
-        (assoc state
-               :run-queue rest-queue
-               :store new-store
-               :pc (:pc entry)
-               :regs (if-let [rd (:result-reg entry)]
-                       (assoc (:regs entry) rd (:value entry))
-                       (:regs entry))
-               :k (:k entry)
-               :env (:env entry)
-               :bytecode (:bytecode entry)
-               :pool (:pool entry)
-               :blocked false
-               :halted false)))))
+  (engine/resume-from-run-queue state
+                                (fn [base entry]
+                                  (assoc base
+                                         :pc (:pc entry)
+                                         :regs (if-let [rd (:result-reg entry)]
+                                                 (assoc (:regs entry)
+                                                        rd (:value entry))
+                                                 (:regs entry))
+                                         :k (:k entry)
+                                         :env (:env entry)
+                                         :bytecode (:bytecode entry)
+                                         :pool (:pool entry)))))
 
 
 ;; =============================================================================

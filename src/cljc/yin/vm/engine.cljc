@@ -167,3 +167,101 @@
   "Set :value to nil on each entry, for waking parked continuations after stream close."
   [entries]
   (mapv #(assoc % :value nil) entries))
+
+
+(defn resume-from-run-queue
+  "Pop first entry from run-queue, merge store-updates, and restore VM-specific context."
+  [state restore-fn]
+  (let [run-queue (or (:run-queue state) [])]
+    (when (seq run-queue)
+      (let [entry (first run-queue)
+            rest-queue (subvec run-queue 1)
+            base (assoc state
+                        :run-queue rest-queue
+                        :store (or (:store-updates entry) (:store state))
+                        :blocked false
+                        :halted false)]
+        (restore-fn base entry)))))
+
+
+(defn park-continuation
+  "Add a parked continuation entry and halt the VM."
+  [state cont-fields]
+  (let [park-id (keyword (str "parked-" (:id-counter state)))
+        parked (merge {:type :parked-continuation, :id park-id} cont-fields)]
+    (-> state
+        (update :parked assoc park-id parked)
+        (assoc :value parked
+               :halted true
+               :id-counter (inc (:id-counter state))))))
+
+
+(defn resume-continuation
+  "Restore state from a parked continuation."
+  [state parked-id resume-val restore-fn]
+  (if-let [parked (get-in state [:parked parked-id])]
+    (let [new-state (update state :parked dissoc parked-id)]
+      (restore-fn new-state parked resume-val))
+    (throw (ex-info "Cannot resume: parked continuation not found"
+                    {:parked-id parked-id}))))
+
+
+(defn- add-wait-entry
+  [state entry]
+  (update state :wait-set (fnil conj []) entry))
+
+
+(defn- handle-stream-block
+  [result entry]
+  (if (:park result)
+    (let [entry (or entry
+                    (throw (ex-info "Parked entry required for blocking stream"
+                                    {:result result})))
+          new-state (-> (:state result)
+                        (add-wait-entry entry)
+                        (assoc :value :yin/blocked
+                               :blocked true
+                               :halted false))]
+      {:state new-state, :value :yin/blocked, :blocked? true})
+    {:state (:state result), :value (:value result), :blocked? false}))
+
+
+(defn handle-effect
+  "Dispatch an effect and return {:state updated-state :value v :blocked? bool}.
+   park-entry-fns maps :stream/put/:stream/next etc to functions that build wait entries."
+  [state effect {:keys [gensym-fn park-entry-fns]}]
+  (let [park-entry (get park-entry-fns (:effect effect))]
+    (case (:effect effect)
+      :vm/store-put {:state (assoc state
+                                   :store (assoc (:store state)
+                                                 (:key effect) (:val effect))),
+                     :value (:val effect),
+                     :blocked? false}
+      :stream/make (let [[stream-ref new-state]
+                         (stream/handle-make state effect gensym-fn)]
+                     {:state new-state, :value stream-ref, :blocked? false})
+      :stream/cursor (let [[cursor-ref new-state]
+                           (stream/handle-cursor state effect gensym-fn)]
+                       {:state new-state, :value cursor-ref, :blocked? false})
+      :stream/put (let [result (stream/handle-put state effect)]
+                    (handle-stream-block result
+                                         (when park-entry
+                                           (park-entry state effect result))))
+      :stream/next (let [result (stream/handle-next state effect)]
+                     (handle-stream-block result
+                                          (when park-entry
+                                            (park-entry state effect result))))
+      :stream/take (let [result (stream/handle-take state effect)]
+                     (handle-stream-block result
+                                          (when park-entry
+                                            (park-entry state effect result))))
+      :stream/close (let [{:keys [to-resume], :as close-state}
+                          (stream/handle-close state effect)
+                          run-queue (or (:run-queue close-state) [])
+                          new-run-queue (into run-queue
+                                              (resume-entries-with-nil
+                                                to-resume))]
+                      {:state (assoc close-state :run-queue new-run-queue),
+                       :value nil,
+                       :blocked? false})
+      (throw (ex-info "Unknown effect" {:effect effect})))))

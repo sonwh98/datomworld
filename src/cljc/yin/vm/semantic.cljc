@@ -460,31 +460,19 @@
                              :stack (conj stack
                                           {:type :stream-close-source, :env env})))
       ;; Continuation primitives
-      :vm/park (let [park-id (keyword (str "parked-" id-counter))
-                     parked-cont {:type :parked-continuation,
-                                  :id park-id,
-                                  :stack stack,
-                                  :env env}
-                     new-parked (assoc (:parked vm) park-id parked-cont)]
-                 (assoc vm
-                        :parked new-parked
-                        :value parked-cont
-                        :halted true
-                        :control nil
-                        :id-counter (inc id-counter)))
+      :vm/park (-> (engine/park-continuation vm {:stack stack, :env env})
+                   (assoc :control nil))
       :vm/resume (let [parked-id (:yin/parked-id node-map)
-                       resume-val (:yin/val node-map)
-                       parked-cont (get-in vm [:parked parked-id])]
-                   (if parked-cont
-                     (let [new-parked (dissoc (:parked vm) parked-id)]
-                       (assoc vm
-                              :parked new-parked
-                              :stack (:stack parked-cont)
-                              :env (:env parked-cont)
-                              :control {:type :value, :val resume-val}))
-                     (throw (ex-info
-                              "Cannot resume: parked continuation not found"
-                              {:parked-id parked-id}))))
+                       resume-val (:yin/val node-map)]
+                   (engine/resume-continuation vm
+                                               parked-id
+                                               resume-val
+                                               (fn [new-state parked rv]
+                                                 (assoc new-state
+                                                        :stack (:stack parked)
+                                                        :env (:env parked)
+                                                        :control {:type :value,
+                                                                  :val rv}))))
       :vm/current-continuation
       (assoc vm
              :control {:type :value,
@@ -512,19 +500,13 @@
   "Pop first entry from run-queue and resume it as the active computation.
    Returns updated state or nil if queue is empty."
   [state]
-  (let [run-queue (or (:run-queue state) [])]
-    (when (seq run-queue)
-      (let [entry (first run-queue)
-            rest-queue (subvec run-queue 1)
-            new-store (or (:store-updates entry) (:store state))]
-        (assoc state
-               :run-queue rest-queue
-               :store new-store
-               :stack (:stack entry)
-               :env (:env entry)
-               :control {:type :value, :val (:value entry)}
-               :blocked false
-               :halted false)))))
+  (engine/resume-from-run-queue state
+                                (fn [base entry]
+                                  (assoc base
+                                         :stack (:stack entry)
+                                         :env (:env entry)
+                                         :control {:type :value,
+                                                   :val (:value entry)}))))
 
 
 ;; =============================================================================

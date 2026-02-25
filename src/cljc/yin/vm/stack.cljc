@@ -626,39 +626,28 @@
                    :pc (+ pc 1)
                    :stack (conj stack-rest nil)))
           16 ; OP_PARK
-          (let [park-id (keyword (str "parked-" id-counter))
-                parked-cont {:type :parked-continuation,
-                             :id park-id,
-                             :pc pc,
-                             :bytecode bytecode,
-                             :stack stack,
-                             :env env,
-                             :call-stack call-stack,
-                             :pool pool}
-                new-parked (assoc (:parked state) park-id parked-cont)]
-            (assoc state
-                   :parked new-parked
-                   :value parked-cont
-                   :halted true
-                   :id-counter (inc id-counter)))
+          (engine/park-continuation state
+                                    {:pc pc,
+                                     :bytecode bytecode,
+                                     :stack stack,
+                                     :env env,
+                                     :call-stack call-stack,
+                                     :pool pool})
           17 ; OP_RESUME - pop val, pop parked-id
           (let [resume-val (peek stack)
                 stack1 (pop stack)
-                parked-id (peek stack1)
-                parked-cont (get-in state [:parked parked-id])]
-            (if parked-cont
-              (let [new-parked (dissoc (:parked state) parked-id)]
-                (assoc state
-                       :parked new-parked
-                       ;; Continue at the instruction after OP_PARK.
-                       :pc (+ 1 (:pc parked-cont))
-                       :bytecode (:bytecode parked-cont)
-                       :stack (conj (:stack parked-cont) resume-val)
-                       :env (:env parked-cont)
-                       :call-stack (:call-stack parked-cont)
-                       :pool (:pool parked-cont)))
-              (throw (ex-info "Cannot resume: parked continuation not found"
-                              {:parked-id parked-id}))))
+                parked-id (peek stack1)]
+            (engine/resume-continuation state
+                                        parked-id
+                                        resume-val
+                                        (fn [new-state parked rv]
+                                          (assoc new-state
+                                                 :pc (+ 1 (:pc parked))
+                                                 :bytecode (:bytecode parked)
+                                                 :stack (conj (:stack parked) rv)
+                                                 :env (:env parked)
+                                                 :call-stack (:call-stack parked)
+                                                 :pool (:pool parked)))))
           18 ; OP_CURRENT_CONT
           (let [cont {:type :reified-continuation,
                       :pc pc,
@@ -681,22 +670,15 @@
   "Pop first entry from run-queue and resume it as the active computation.
    Returns updated state or nil if queue is empty."
   [state]
-  (let [run-queue (or (:run-queue state) [])]
-    (when (seq run-queue)
-      (let [entry (first run-queue)
-            rest-queue (subvec run-queue 1)
-            new-store (or (:store-updates entry) (:store state))]
-        (assoc state
-               :run-queue rest-queue
-               :store new-store
-               :pc (:pc entry)
-               :bytecode (:bytecode entry)
-               :stack (conj (:stack entry) (:value entry))
-               :env (:env entry)
-               :call-stack (:call-stack entry)
-               :pool (:pool entry)
-               :blocked false
-               :halted false)))))
+  (engine/resume-from-run-queue state
+                                (fn [base entry]
+                                  (assoc base
+                                         :pc (:pc entry)
+                                         :bytecode (:bytecode entry)
+                                         :stack (conj (:stack entry) (:value entry))
+                                         :env (:env entry)
+                                         :call-stack (:call-stack entry)
+                                         :pool (:pool entry)))))
 
 
 ;; =============================================================================
