@@ -103,3 +103,30 @@
 
 
   (closed? [_this] (:closed @state-atom)))
+
+
+;; =============================================================================
+;; Utilities
+;; =============================================================================
+
+(defn ->seq
+  "Convert an `IStream` into a lazy Clojure sequence of values that have been
+   appended but not yet consumed.  A cursor walks the stream until `next` hits
+   `:blocked`, `:end`, or a gap, at which point the lazy sequence terminates.
+   The `ctx` argument is ignored here but retained so callers can keep the same
+   calling shape they use for other stream helpers."
+  [_ stream]
+  (when stream
+    (letfn [(walk [cursor]
+              (lazy-seq
+                (let [result (next stream cursor)]
+                  (cond
+                    (map? result)
+                    (cons (:ok result) (walk (:cursor result)))
+
+                    (#{:blocked :end :daostream/gap} result)
+                    nil
+
+                    :else
+                    nil)))))]
+      (walk {:position 0}))))

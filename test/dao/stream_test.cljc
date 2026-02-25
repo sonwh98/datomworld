@@ -125,6 +125,18 @@
         (is (= 1 (:position (:cursor r2a))))))))
 
 
+(deftest ->seq-test
+  (testing
+    "->seq produces a lazy seq of available values without mutating the stream"
+    (let [s (make-stream)
+          _ (ds/put! s :alpha)
+          _ (ds/put! s :beta)
+          values (vec (ds/->seq nil s))]
+      (is (= [:alpha :beta] values))
+      (is (= 2 (ds/length s))
+          "Calling next via ->seq must not consume values"))))
+
+
 (deftest capacity-test
   (testing "put! returns :full at capacity, :ok after take! frees space"
     (let [s (make-stream 2)]
