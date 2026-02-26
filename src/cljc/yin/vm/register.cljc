@@ -17,40 +17,7 @@
     [yin.vm.engine :as engine])
   #?(:cljs
      (:require-macros
-       [yin.vm.register :refer [opcase]])))
-
-
-(def opcode-table
-  {:loadk 0,
-   :loadv 1,
-   :move 2,
-   :lambda 3,
-   :call 4,
-   :return 5,
-   :branch 6,
-   :jump 7,
-   :gensym 8,
-   :sget 9,
-   :sput 10,
-   :stream-make 11,
-   :stream-put 12,
-   :stream-cursor 13,
-   :stream-next 14,
-   :stream-close 15,
-   :park 16,
-   :resume 17,
-   :current-cont 18,
-   :tailcall 19})
-
-
-#?(:clj (defmacro opcase
-          [op-expr & clauses]
-          (let [default (when (odd? (count clauses)) (last clauses))
-                paired (if default (butlast clauses) clauses)
-                pairs (partition 2 paired)
-                resolved (mapcat (fn [[kw body]] [(get opcode-table kw) body])
-                                 pairs)]
-            `(case (int ~op-expr) ~@resolved ~@(when default [default])))))
+       [yin.vm :refer [opcase]])))
 
 
 ;; =============================================================================
@@ -83,8 +50,8 @@
    opcodes). A separate asm->bytecode pass would encode these as numbers.
 
    Instructions:
-     [:loadk rd v]                    - rd := literal value v
-     [:loadv rd name]                 - rd := lookup name in env/store
+     [:literal rd v]                  - rd := literal value v
+     [:load-var rd name]              - rd := lookup name in env/store
      [:move rd rs]                    - rd := rs
      [:lambda rd params addr nregs]   - rd := closure, body at addr, needs nregs
      [:call rd rf args]               - call fn in rf with args (reg vector), result to rd
@@ -122,10 +89,10 @@
           (let [node-type (get-attr e :yin/type)]
             (case node-type
               :literal (let [rd (alloc-reg!)]
-                         (emit! [:loadk rd (get-attr e :yin/value)])
+                         (emit! [:literal rd (get-attr e :yin/value)])
                          rd)
               :variable (let [rd (alloc-reg!)]
-                          (emit! [:loadv rd (get-attr e :yin/name)])
+                          (emit! [:load-var rd (get-attr e :yin/name)])
                           rd)
               :lambda
               (let [params (get-attr e :yin/params)
@@ -198,7 +165,7 @@
                               (emit! [:sget rd (get-attr e :yin/key)])
                               rd)
               :vm/store-put (let [rd (alloc-reg!)]
-                              (emit! [:loadk rd (get-attr e :yin/val)])
+                              (emit! [:literal rd (get-attr e :yin/val)])
                               (emit! [:sput rd (get-attr e :yin/key)])
                               rd)
               ;; Stream operations
@@ -233,9 +200,9 @@
               :vm/resume (let [parked-id (get-attr e :yin/parked-id)
                                val (get-attr e :yin/val)
                                rd (alloc-reg!)]
-                           (emit! [:loadk rd parked-id])
+                           (emit! [:literal rd parked-id])
                            (let [rv (alloc-reg!)]
-                             (emit! [:loadk rv val])
+                             (emit! [:literal rv val])
                              (emit! [:resume rd rv])
                              rv))
               :vm/current-continuation (let [rd (alloc-reg!)]
@@ -288,48 +255,50 @@
       (swap! instr-offsets assoc idx (current-offset))
       (let [[op & args] instr]
         (case op
-          :loadk (let [[rd v] args]
-                   (emit! (opcode-table :loadk) rd (intern! v)))
-          :loadv (let [[rd name] args]
-                   (emit! (opcode-table :loadv) rd (intern! name)))
-          :move (let [[rd rs] args] (emit! (opcode-table :move) rd rs))
-          :lambda (let [[rd params addr reg-count] args]
-                    (emit! (opcode-table :lambda) rd (intern! params) reg-count)
-                    (emit-fixup! addr))
+          :literal (let [[rd v] args]
+                     (emit! (vm/opcode-table :literal) rd (intern! v)))
+          :load-var (let [[rd name] args]
+                      (emit! (vm/opcode-table :load-var) rd (intern! name)))
+          :move (let [[rd rs] args] (emit! (vm/opcode-table :move) rd rs))
+          :lambda
+          (let [[rd params addr reg-count] args]
+            (emit! (vm/opcode-table :lambda) rd (intern! params) reg-count)
+            (emit-fixup! addr))
           :call (let [[rd rf arg-regs] args]
-                  (emit! (opcode-table :call) rd rf (count arg-regs))
+                  (emit! (vm/opcode-table :call) rd rf (count arg-regs))
                   (doseq [ar arg-regs] (emit! ar)))
           :tailcall (let [[rd rf arg-regs] args]
-                      (emit! (opcode-table :tailcall) rd rf (count arg-regs))
+                      (emit! (vm/opcode-table :tailcall) rd rf (count arg-regs))
                       (doseq [ar arg-regs] (emit! ar)))
-          :return (let [[rs] args] (emit! (opcode-table :return) rs))
+          :return (let [[rs] args] (emit! (vm/opcode-table :return) rs))
           :branch (let [[rt then-addr else-addr] args]
-                    (emit! (opcode-table :branch) rt)
+                    (emit! (vm/opcode-table :branch) rt)
                     (emit-fixup! then-addr)
                     (emit-fixup! else-addr))
           :jump (let [[addr] args]
-                  (emit! (opcode-table :jump))
+                  (emit! (vm/opcode-table :jump))
                   (emit-fixup! addr))
           :gensym (let [[rd prefix] args]
-                    (emit! (opcode-table :gensym) rd (intern! prefix)))
+                    (emit! (vm/opcode-table :gensym) rd (intern! prefix)))
           :sget (let [[rd key] args]
-                  (emit! (opcode-table :sget) rd (intern! key)))
+                  (emit! (vm/opcode-table :sget) rd (intern! key)))
           :sput (let [[rs key] args]
-                  (emit! (opcode-table :sput) rs (intern! key)))
-          :stream-make (let [[rd buf] args]
-                         (emit! (opcode-table :stream-make) rd (intern! buf)))
+                  (emit! (vm/opcode-table :sput) rs (intern! key)))
+          :stream-make
+          (let [[rd buf] args]
+            (emit! (vm/opcode-table :stream-make) rd (intern! buf)))
           :stream-put (let [[rs rt] args]
-                        (emit! (opcode-table :stream-put) rs rt))
+                        (emit! (vm/opcode-table :stream-put) rs rt))
           :stream-cursor (let [[rd rs] args]
-                           (emit! (opcode-table :stream-cursor) rd rs))
+                           (emit! (vm/opcode-table :stream-cursor) rd rs))
           :stream-next (let [[rd rs] args]
-                         (emit! (opcode-table :stream-next) rd rs))
+                         (emit! (vm/opcode-table :stream-next) rd rs))
           :stream-close (let [[rd rs] args]
-                          (emit! (opcode-table :stream-close) rd rs))
-          :park (let [[rd] args] (emit! (opcode-table :park) rd))
-          :resume (let [[rd rs] args] (emit! (opcode-table :resume) rd rs))
+                          (emit! (vm/opcode-table :stream-close) rd rs))
+          :park (let [[rd] args] (emit! (vm/opcode-table :park) rd))
+          :resume (let [[rd rs] args] (emit! (vm/opcode-table :resume) rd rs))
           :current-cont (let [[rd] args]
-                          (emit! (opcode-table :current-cont) rd)))))
+                          (emit! (vm/opcode-table :current-cont) rd)))))
     ;; Fix addresses
     (let [offsets @instr-offsets
           fixed (reduce (fn [bc [pos asm-addr]]
@@ -357,15 +326,15 @@
         op (get bytecode pc)]
     (if (nil? op)
       (throw (ex-info "Bytecode ended without return instruction" {:pc pc}))
-      (opcase
+      (vm/opcase
         op
-        :loadk
+        :literal
         (let [rd (get bytecode (+ pc 1))
               v (get pool (get bytecode (+ pc 2)))]
           (assoc state
                  :regs (assoc regs rd v)
                  :pc (+ pc 3)))
-        :loadv
+        :load-var
         (let [rd (get bytecode (+ pc 1))
               name (get pool (get bytecode (+ pc 2)))
               v (engine/resolve-var env store primitives name)]

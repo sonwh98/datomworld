@@ -124,6 +124,47 @@
    'yin/def (fn [k v] {:effect :vm/store-put, :key k, :val v})})
 
 
+;; =============================================================================
+;; Bytecode Opcodes
+;; =============================================================================
+;; Shared instruction set for stack and register bytecode VMs.
+
+(def opcode-table
+  {:literal 1,
+   :load-var 2,
+   :move 3,
+   :lambda 4,
+   :call 5,
+   :return 6,
+   :branch 7,
+   :jump 8,
+   :gensym 9,
+   :sget 10,
+   :sput 11,
+   :stream-make 12,
+   :stream-put 13,
+   :stream-cursor 14,
+   :stream-next 15,
+   :stream-close 16,
+   :park 17,
+   :resume 18,
+   :current-cont 19,
+   :tailcall 20})
+
+
+#?(:clj
+   (defmacro opcase
+     "Dispatch on a numeric opcode using keyword mnemonics.
+      Resolved at compile-time to a standard 'case' over integers."
+     [op-expr & clauses]
+     (let [default (when (odd? (count clauses)) (last clauses))
+           paired (if default (butlast clauses) clauses)
+           pairs (partition 2 paired)
+           resolved (mapcat (fn [[kw body]] [(get opcode-table kw) body])
+                            pairs)]
+       `(case (int ~op-expr) ~@resolved ~@(when default [default])))))
+
+
 (def schema
   "DataScript schema for :yin/ AST datoms.
    Declares ref attributes so DataScript resolves tempids during transaction."

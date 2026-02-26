@@ -2,7 +2,10 @@
   (:require
     [yin.module :as module]
     [yin.vm :as vm]
-    [yin.vm.engine :as engine]))
+    [yin.vm.engine :as engine])
+  #?(:cljs
+     (:require-macros
+       [yin.vm :refer [opcase]])))
 
 
 ;; =============================================================================
@@ -39,30 +42,6 @@
    wait-set   ; vector of parked continuations waiting on
    ;; streams
    ])
-
-
-;; =============================================================================
-;; Numeric Opcodes
-;; =============================================================================
-(def OP_LITERAL 1)       ; [OP_LITERAL] [val-idx]
-(def OP_LOAD_VAR 2)      ; [OP_LOAD_VAR] [sym-idx]
-(def OP_LAMBDA 3)        ; [OP_LAMBDA] [arity] [body-len-hi] [body-len-lo] ...body...
-(def OP_CALL 4)         ; [OP_CALL] [argc]
-(def OP_BRANCH 5)        ; [OP_BRANCH] [offset-hi] [offset-lo]
-(def OP_RETURN 6)        ; [OP_RETURN]
-(def OP_JUMP 7)          ; [OP_JUMP] [offset-hi] [offset-lo]
-(def OP_GENSYM 8)        ; [OP_GENSYM] [prefix-idx]
-(def OP_SGET 9)     ; [OP_SGET] [key-idx]
-(def OP_SPUT 10)    ; [OP_SPUT] [key-idx]
-(def OP_STREAM_MAKE 11)  ; [OP_STREAM_MAKE] [buf-idx]
-(def OP_STREAM_PUT 12)   ; [OP_STREAM_PUT]
-(def OP_STREAM_CURSOR 13); [OP_STREAM_CURSOR]
-(def OP_STREAM_NEXT 14)  ; [OP_STREAM_NEXT]
-(def OP_STREAM_CLOSE 15) ; [OP_STREAM_CLOSE]
-(def OP_PARK 16)         ; [OP_PARK]
-(def OP_RESUME 17)       ; [OP_RESUME]
-(def OP_CURRENT_CONT 18) ; [OP_CURRENT_CONT]
-(def OP_TAILCALL 19)   ; [OP_TAILCALL] [argc]
 
 
 ;; =============================================================================
@@ -227,11 +206,11 @@
           (when (not= :label op) (swap! source-map assoc start-offset idx))
           (case op
             :push (let [idx (add-constant arg1)]
-                    (emit-byte! OP_LITERAL)
+                    (emit-byte! (vm/opcode-table :literal))
                     (emit-byte! idx)
                     (swap! emit-offset + 2))
             :load (let [idx (add-constant arg1)]
-                    (emit-byte! OP_LOAD_VAR)
+                    (emit-byte! (vm/opcode-table :load-var))
                     (emit-byte! idx)
                     (swap! emit-offset + 2))
             :lambda (let [params-idx (add-constant arg1)
@@ -240,14 +219,14 @@
                           ;; Body length = target-offset - (current-offset
                           ;; + 4)
                           body-len (- target-offset (+ @emit-offset 4))]
-                      (emit-byte! OP_LAMBDA)
+                      (emit-byte! (vm/opcode-table :lambda))
                       (emit-byte! params-idx)
                       (emit-short! body-len)
                       (swap! emit-offset + 4))
-            :call (do (emit-byte! OP_CALL)
+            :call (do (emit-byte! (vm/opcode-table :call))
                       (emit-byte! arg1)
                       (swap! emit-offset + 2))
-            :tailcall (do (emit-byte! OP_TAILCALL)
+            :tailcall (do (emit-byte! (vm/opcode-table :tailcall))
                           (emit-byte! arg1)
                           (swap! emit-offset + 2))
             :branch (let [target-label arg1
@@ -255,43 +234,47 @@
                           ;; Relative offset = target-offset -
                           ;; (current-offset + 3)
                           rel-offset (- target-offset (+ @emit-offset 3))]
-                      (emit-byte! OP_BRANCH)
+                      (emit-byte! (vm/opcode-table :branch))
                       (emit-short! rel-offset)
                       (swap! emit-offset + 3))
             :jump (let [target-label arg1
                         target-offset (get @label-offsets target-label)
                         rel-offset (- target-offset (+ @emit-offset 3))]
-                    (emit-byte! OP_JUMP)
+                    (emit-byte! (vm/opcode-table :jump))
                     (emit-short! rel-offset)
                     (swap! emit-offset + 3))
-            :return (do (emit-byte! OP_RETURN) (swap! emit-offset + 1))
+            :return (do (emit-byte! (vm/opcode-table :return))
+                        (swap! emit-offset + 1))
             :label nil ; No code emitted
             :gensym (let [idx (add-constant arg1)]
-                      (emit-byte! OP_GENSYM)
+                      (emit-byte! (vm/opcode-table :gensym))
                       (emit-byte! idx)
                       (swap! emit-offset + 2))
             :sget (let [idx (add-constant arg1)]
-                    (emit-byte! OP_SGET)
+                    (emit-byte! (vm/opcode-table :sget))
                     (emit-byte! idx)
                     (swap! emit-offset + 2))
             :sput (let [idx (add-constant arg1)]
-                    (emit-byte! OP_SPUT)
+                    (emit-byte! (vm/opcode-table :sput))
                     (emit-byte! idx)
                     (swap! emit-offset + 2))
             :stream-make (let [idx (add-constant arg1)]
-                           (emit-byte! OP_STREAM_MAKE)
+                           (emit-byte! (vm/opcode-table :stream-make))
                            (emit-byte! idx)
                            (swap! emit-offset + 2))
-            :stream-put (do (emit-byte! OP_STREAM_PUT) (swap! emit-offset + 1))
-            :stream-cursor (do (emit-byte! OP_STREAM_CURSOR)
+            :stream-put (do (emit-byte! (vm/opcode-table :stream-put))
+                            (swap! emit-offset + 1))
+            :stream-cursor (do (emit-byte! (vm/opcode-table :stream-cursor))
                                (swap! emit-offset + 1))
-            :stream-next (do (emit-byte! OP_STREAM_NEXT)
+            :stream-next (do (emit-byte! (vm/opcode-table :stream-next))
                              (swap! emit-offset + 1))
-            :stream-close (do (emit-byte! OP_STREAM_CLOSE)
+            :stream-close (do (emit-byte! (vm/opcode-table :stream-close))
                               (swap! emit-offset + 1))
-            :park (do (emit-byte! OP_PARK) (swap! emit-offset + 1))
-            :resume (do (emit-byte! OP_RESUME) (swap! emit-offset + 1))
-            :current-cont (do (emit-byte! OP_CURRENT_CONT)
+            :park (do (emit-byte! (vm/opcode-table :park))
+                      (swap! emit-offset + 1))
+            :resume (do (emit-byte! (vm/opcode-table :resume))
+                        (swap! emit-offset + 1))
+            :current-cont (do (emit-byte! (vm/opcode-table :current-cont))
                               (swap! emit-offset + 1)))))
       {:bytecode @bytes, :pool @pool, :source-map @source-map})))
 
@@ -407,27 +390,27 @@
                    :env (:env frame)
                    :call-stack rest-frames))))
       (let [op (nth bytecode pc)]
-        (case (int op)
-          1 ; OP_LITERAL
+        (vm/opcase
+          op
+          :literal
           (let [val-idx (nth bytecode (inc pc))
                 val (nth pool val-idx)]
             (assoc state
                    :pc (+ pc 2)
                    :stack (conj stack val)))
-          2 ; OP_LOAD_VAR
+          :load-var
           (let [sym-idx (nth bytecode (inc pc))
                 sym (nth pool sym-idx)
                 val (engine/resolve-var env store primitives sym)]
             (assoc state
                    :pc (+ pc 2)
                    :stack (conj stack val)))
-          3 ; OP_LAMBDA
+          :lambda
           (let [params-idx (nth bytecode (inc pc))
                 params (nth pool params-idx)
                 body-len (fetch-short-unsigned bytecode (+ pc 2))
                 body-start (+ pc 4)
-                body-bytes
-                (subvec bytecode body-start (+ body-start body-len))
+                body-bytes (subvec bytecode body-start (+ body-start body-len))
                 closure {:type :closure,
                          :params params,
                          :body-bytes body-bytes,
@@ -436,21 +419,21 @@
             (assoc state
                    :pc (+ pc 4 body-len)
                    :stack (conj stack closure)))
-          4 ; OP_CALL
+          :call
           (let [argc (nth bytecode (inc pc))] (apply-op state argc false))
-          19 ; OP_TAILCALL
+          :tailcall
           (let [argc (nth bytecode (inc pc))] (apply-op state argc true))
-          5 ; OP_BRANCH
+          :branch
           (let [offset (fetch-short-signed bytecode (inc pc))
                 condition (peek stack)
                 new-stack (pop stack)]
             (assoc state
                    :pc (if condition (+ pc 3 offset) (+ pc 3))
                    :stack new-stack))
-          7 ; OP_JUMP
+          :jump
           (let [offset (fetch-short-signed bytecode (inc pc))]
             (assoc state :pc (+ pc 3 offset)))
-          6 ; OP_RETURN
+          :return
           (let [result (peek stack)]
             (if (empty? call-stack)
               (assoc state
@@ -465,21 +448,21 @@
                        :env (:env frame)
                        :pool (or (:pool frame) pool)
                        :call-stack rest-frames))))
-          8 ; OP_GENSYM
+          :gensym
           (let [prefix-idx (nth bytecode (inc pc))
                 prefix (nth pool prefix-idx)
                 [id s'] (engine/gensym state prefix)]
             (assoc s'
                    :pc (+ pc 2)
                    :stack (conj stack id)))
-          9 ; OP_SGET
+          :sget
           (let [key-idx (nth bytecode (inc pc))
                 key (nth pool key-idx)
                 val (get store key)]
             (assoc state
                    :pc (+ pc 2)
                    :stack (conj stack val)))
-          10 ; OP_SPUT
+          :sput
           (let [key-idx (nth bytecode (inc pc))
                 key (nth pool key-idx)
                 val (peek stack)
@@ -487,7 +470,7 @@
             (assoc state
                    :pc (+ pc 2)
                    :store new-store))
-          11 ; OP_STREAM_MAKE
+          :stream-make
           (let [buf-idx (nth bytecode (inc pc))
                 buf (nth pool buf-idx)
                 effect {:effect :stream/make, :capacity buf}
@@ -495,7 +478,7 @@
             (assoc state
                    :pc (+ pc 2)
                    :stack (conj stack value)))
-          12 ; OP_STREAM_PUT - pop stream-ref, pop val
+          :stream-put ; OP_STREAM_PUT - pop stream-ref, pop val
           (let [stream-ref (peek stack)
                 stack1 (pop stack)
                 val (peek stack1)
@@ -521,7 +504,7 @@
               (assoc state
                      :pc (+ pc 1)
                      :stack (conj stack-rest value))))
-          13 ; OP_STREAM_CURSOR - pop stream-ref
+          :stream-cursor ; OP_STREAM_CURSOR - pop stream-ref
           (let [stream-ref (peek stack)
                 stack-rest (pop stack)
                 effect {:effect :stream/cursor, :stream stream-ref}
@@ -529,31 +512,31 @@
             (assoc state
                    :pc (+ pc 1)
                    :stack (conj stack-rest value)))
-          14 ; OP_STREAM_NEXT - pop cursor-ref
+          :stream-next ; OP_STREAM_NEXT - pop cursor-ref
           (let [cursor-ref (peek stack)
                 stack-rest (pop stack)
                 effect {:effect :stream/next, :cursor cursor-ref}
                 {:keys [state value blocked?]}
-                (engine/handle-effect
-                  state
-                  effect
-                  {:park-entry-fns {:stream/next
-                                    (fn [_s _e r]
-                                      {:pc (+ pc 1),
-                                       :bytecode bytecode,
-                                       :stack stack-rest,
-                                       :env env,
-                                       :call-stack call-stack,
-                                       :pool pool,
-                                       :reason :next,
-                                       :cursor-ref (:cursor-ref r),
-                                       :stream-id (:stream-id r)})}})]
+                (engine/handle-effect state
+                                      effect
+                                      {:park-entry-fns
+                                       {:stream/next
+                                        (fn [_s _e r]
+                                          {:pc (+ pc 1),
+                                           :bytecode bytecode,
+                                           :stack stack-rest,
+                                           :env env,
+                                           :call-stack call-stack,
+                                           :pool pool,
+                                           :reason :next,
+                                           :cursor-ref (:cursor-ref r),
+                                           :stream-id (:stream-id r)})}})]
             (if blocked?
               state
               (assoc state
                      :pc (+ pc 1)
                      :stack (conj stack-rest value))))
-          15 ; OP_STREAM_CLOSE - pop stream-ref
+          :stream-close ; OP_STREAM_CLOSE - pop stream-ref
           (let [stream-ref (peek stack)
                 stack-rest (pop stack)
                 effect {:effect :stream/close, :stream stream-ref}
@@ -561,7 +544,7 @@
             (assoc state
                    :pc (+ pc 1)
                    :stack (conj stack-rest value)))
-          16 ; OP_PARK
+          :park
           (engine/park-continuation state
                                     {:pc pc,
                                      :bytecode bytecode,
@@ -569,7 +552,7 @@
                                      :env env,
                                      :call-stack call-stack,
                                      :pool pool})
-          17 ; OP_RESUME - pop val, pop parked-id
+          :resume ; OP_RESUME - pop val, pop parked-id
           (let [resume-val (peek stack)
                 stack1 (pop stack)
                 parked-id (peek stack1)]
@@ -584,7 +567,7 @@
                                                  :env (:env parked)
                                                  :call-stack (:call-stack parked)
                                                  :pool (:pool parked)))))
-          18 ; OP_CURRENT_CONT
+          :current-cont
           (let [cont {:type :reified-continuation,
                       :pc pc,
                       :bytecode bytecode,

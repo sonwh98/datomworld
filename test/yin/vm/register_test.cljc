@@ -239,19 +239,20 @@
 ;; These test the compilation pipeline: AST -> datoms -> register bytecode
 
 (deftest register-bytecode-shape-test
-  (testing "Literal produces loadk + return"
+  (testing "Literal produces literal + return"
     (let [{:keys [asm]} (register/ast-datoms->asm
                           (vm/ast->datoms {:type :literal, :value 42}))]
       (is (vector? asm))
       (is (= 2 (count asm)))
-      (is (= :loadk (first (first asm))) "First instruction should be :loadk")
+      (is (= :literal (first (first asm)))
+          "First instruction should be :literal")
       (is (= 42 (nth (first asm) 2)) "Should load the value 42")
       (is (= :return (first (last asm))) "Last instruction should be :return")))
-  (testing "Variable produces loadv + return"
+  (testing "Variable produces load-var + return"
     (let [{:keys [asm]} (register/ast-datoms->asm
                           (vm/ast->datoms {:type :variable, :name 'x}))]
       (is (= 2 (count asm)))
-      (is (= :loadv (first (first asm))))
+      (is (= :load-var (first (first asm))))
       (is (= 'x (nth (first asm) 2)))
       (is (= :return (first (last asm))))))
   (testing "All instructions are vectors"
@@ -265,7 +266,7 @@
 
 
 (deftest register-bytecode-application-test
-  (testing "Application produces loadk, loadv, tailcall, and return"
+  (testing "Application produces literal, load-var, tailcall, and return"
     (let [{:keys [asm]} (register/ast-datoms->asm
                           (vm/ast->datoms
                             {:type :application,
@@ -273,9 +274,9 @@
                              :operands [{:type :literal, :value 1}
                                         {:type :literal, :value 2}]}))]
       (is (= 5 (count asm)))
-      (is (= :loadk (first (nth asm 0))))
-      (is (= :loadk (first (nth asm 1))))
-      (is (= :loadv (first (nth asm 2))))
+      (is (= :literal (first (nth asm 0))))
+      (is (= :literal (first (nth asm 1))))
+      (is (= :load-var (first (nth asm 2))))
       (is (= :tailcall (first (nth asm 3))))
       (is (= :return (first (nth asm 4))))))
   (testing "Tailcall instruction references correct registers"
@@ -303,7 +304,7 @@
       (is (= :lambda (first (nth asm 0))) "First instruction should be :lambda")
       (is (= :jump (first (nth asm 1)))
           "Second instruction should be :jump over body")
-      (is (= :loadv (first (nth asm 2))) "Body should start with :loadv")
+      (is (= :load-var (first (nth asm 2))) "Body should start with :load-var")
       (is (= :return (first (nth asm 3))) "Body should end with :return")))
   (testing "Closure body address points to correct instruction"
     (let [{:keys [asm]} (register/ast-datoms->asm
@@ -332,7 +333,7 @@
                              :test {:type :literal, :value true},
                              :consequent {:type :literal, :value 1},
                              :alternate {:type :literal, :value 0}}))]
-      (is (= :loadk (first (first asm))) "Should start with test expression")
+      (is (= :literal (first (first asm))) "Should start with test expression")
       (is (some #(= :branch (first %)) asm)
           "Should contain a branch instruction")
       (is (some #(= :move (first %)) asm)
