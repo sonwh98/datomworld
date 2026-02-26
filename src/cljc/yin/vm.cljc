@@ -11,37 +11,25 @@
 
 (defprotocol IVMStep
   "Single-step VM execution protocol."
-
-  (step
-    [vm]
+  (step [vm]
     "Execute one step of the VM. Returns updated VM.")
-
-  (halted?
-    [vm]
+  (halted? [vm]
     "Returns true if VM has halted (completed or error).")
-
-  (blocked?
-    [vm]
+  (blocked? [vm]
     "Returns true if VM is blocked waiting for external input.")
-
-  (value
-    [vm]
+  (value [vm]
     "Returns the current result value, or nil if not yet computed."))
 
 
 (defprotocol IVMRun
   "Run VM to completion protocol."
-
-  (run
-    [vm]
+  (run [vm]
     "Run VM until halted or blocked. Returns final VM state."))
 
 
 (defprotocol IVMEval
   "Evaluate an AST to a value."
-
-  (eval
-    [vm ast]
+  (eval [vm ast]
     "Load and evaluate an AST, running the VM to completion.
      Returns the final VM state (from which value can be extracted),
      or a blocked VM state if execution parks."))
@@ -49,17 +37,13 @@
 
 (defprotocol IVMReset
   "Reset VM execution protocol."
-
-  (reset
-    [vm]
+  (reset [vm]
     "Reset execution state to a known initial state, preserving loaded program."))
 
 
 (defprotocol IVMLoad
   "Load program into VM protocol."
-
-  (load-program
-    [vm program]
+  (load-program [vm program]
     "Load a program into the VM. Program format is VM-specific:
      - ASTWalkerVM: AST map
      - RegisterVM: {:bytecode [...] :pool [...]}
@@ -72,22 +56,14 @@
   "CESK state accessor protocol.
    Exposes the four components of the CESK machine model.
    Representations are VM-specific but the structure is universal."
-
-  (control
-    [vm]
+  (control [vm]
     "Returns the current control state (what is being evaluated).
      VM-specific: AST node, instruction pointer, node ID, etc.")
-
-  (environment
-    [vm]
+  (environment [vm]
     "Returns the current lexical environment (variable bindings).")
-
-  (store
-    [vm]
+  (store [vm]
     "Returns the current store (heap/global state).")
-
-  (continuation
-    [vm]
+  (continuation [vm]
     "Returns the current continuation (what to do next).
      VM-specific: linked frames, stack vector, call-stack, etc."))
 
@@ -139,8 +115,8 @@
    :branch 7,
    :jump 8,
    :gensym 9,
-   :sget 10,
-   :sput 11,
+   :store-get 10,
+   :store-put 11,
    :stream-make 12,
    :stream-put 13,
    :stream-cursor 14,
@@ -153,16 +129,16 @@
 
 
 #?(:clj
-   (defmacro opcase
-     "Dispatch on a numeric opcode using keyword mnemonics.
+     (defmacro opcase
+       "Dispatch on a numeric opcode using keyword mnemonics.
       Resolved at compile-time to a standard 'case' over integers."
-     [op-expr & clauses]
-     (let [default (when (odd? (count clauses)) (last clauses))
-           paired (if default (butlast clauses) clauses)
-           pairs (partition 2 paired)
-           resolved (mapcat (fn [[kw body]] [(get opcode-table kw) body])
-                            pairs)]
-       `(case (int ~op-expr) ~@resolved ~@(when default [default])))))
+       [op-expr & clauses]
+       (let [default (when (odd? (count clauses)) (last clauses))
+             paired (if default (butlast clauses) clauses)
+             pairs (partition 2 paired)
+             resolved (mapcat (fn [[kw body]] [(get opcode-table kw) body])
+                        pairs)]
+         `(case (int ~op-expr) ~@resolved ~@(when default [default])))))
 
 
 (def schema
@@ -196,12 +172,12 @@
   [datoms]
   (mapcat (fn [[e a v _t _m]]
             (cond (and (contains? cardinality-many-attrs a) (vector? v))
-                  (->> v
-                       (remove nil?)
-                       (map (fn [ref] [:db/add e a ref])))
+                    (->> v
+                         (remove nil?)
+                         (map (fn [ref] [:db/add e a ref])))
                   (nil? v) []
                   :else [[:db/add e a v]]))
-          datoms))
+    datoms))
 
 
 (defn ast->datoms
@@ -223,8 +199,7 @@
          datoms (atom [])
          emit! (fn [e attr val] (swap! datoms conj [e attr val t m]))]
      (letfn
-       [(convert
-          [node]
+       [(convert [node]
           (let [e (gen-id)
                 {:keys [type tail?]} node]
             (when tail? (emit! e :yin/tail? true))
@@ -240,7 +215,7 @@
               :application (do (emit! e :yin/type :application)
                                (let [op-id (convert (:operator node))
                                      operand-ids (mapv convert
-                                                       (:operands node))]
+                                                   (:operands node))]
                                  (emit! e :yin/operator op-id)
                                  (emit! e :yin/operands operand-ids)))
               :if (do (emit! e :yin/type :if)
@@ -281,7 +256,7 @@
                              (emit! e :yin/parked-id (:parked-id node))
                              (emit! e :yin/val (:val node)))
               :vm/current-continuation
-              (emit! e :yin/type :vm/current-continuation)
+                (emit! e :yin/type :vm/current-continuation)
               ;; Default
               (throw (ex-info "Unknown AST node type"
                               {:type type, :node node})))
