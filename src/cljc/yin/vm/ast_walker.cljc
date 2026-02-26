@@ -1,7 +1,6 @@
 (ns yin.vm.ast-walker
   (:require
     [yin.module :as module]
-    [yin.stream :as stream]
     [yin.vm :as vm]
     [yin.vm.engine :as engine]))
 
@@ -48,91 +47,38 @@
 (defn- apply-function
   "Shared logic for applying a function (primitive or closure) to arguments."
   [state fn-value evaluated-operands continuation]
-  (let [{:keys [store environment]} state]
+  (let [{:keys [environment]} state]
     (cond
       ;; Primitive function
       (fn? fn-value)
       (let [result (apply fn-value evaluated-operands)]
         (if (module/effect? result)
-          (case (:effect result)
-            :vm/store-put (let [key (:key result)
-                                value (:val result)
-                                new-store (assoc store key value)]
-                            (assoc state
-                                   :store new-store
-                                   :value value
-                                   :control nil
-                                   :continuation continuation))
-            :stream/make (let [[stream-ref new-state]
-                               (stream/handle-make state
-                                                   result
-                                                   (engine/gen-id-fn
-                                                     (:id-counter state)))]
-                           (assoc new-state
-                                  :value stream-ref
-                                  :control nil
-                                  :continuation continuation
-                                  :id-counter (inc (:id-counter state))))
-            :stream/put
-            (let [effect-result (stream/handle-put state result)]
-              (if (:park effect-result)
-                (let [parked-entry {:continuation continuation,
-                                    :environment environment,
-                                    :reason :put,
-                                    :stream-id (:stream-id effect-result),
-                                    :datom (:val result)}]
-                  (assoc (:state effect-result)
-                         :wait-set (conj (or (:wait-set state) []) parked-entry)
-                         :value :yin/blocked
-                         :blocked true
-                         :control nil
-                         :continuation nil))
-                (assoc (:state effect-result)
-                       :value (:value effect-result)
-                       :control nil
-                       :continuation continuation)))
-            :stream/cursor (let [[cursor-ref new-state]
-                                 (stream/handle-cursor
-                                   state
-                                   result
-                                   (engine/gen-id-fn (:id-counter state)))]
-                             (assoc new-state
-                                    :value cursor-ref
-                                    :control nil
-                                    :continuation continuation
-                                    :id-counter (inc (:id-counter state))))
-            :stream/next
-            (let [effect-result (stream/handle-next state result)]
-              (if (:park effect-result)
-                (let [parked-entry {:continuation continuation,
+          (let [{:keys [state value blocked?]}
+                (engine/handle-effect
+                  state
+                  result
+                  {:gensym-fn (engine/gen-id-fn (:id-counter state)),
+                   :park-entry-fns
+                   {:stream/put (fn [_s _e r]
+                                  {:continuation continuation,
+                                   :environment environment,
+                                   :reason :put,
+                                   :stream-id (:stream-id r),
+                                   :datom (:val result)}),
+                    :stream/next (fn [_s _e r]
+                                   {:continuation continuation,
                                     :environment environment,
                                     :reason :next,
-                                    :cursor-ref (:cursor-ref effect-result),
-                                    :stream-id (:stream-id effect-result)}]
-                  (assoc (:state effect-result)
-                         :wait-set (conj (or (:wait-set state) []) parked-entry)
-                         :value :yin/blocked
-                         :blocked true
-                         :control nil
-                         :continuation nil))
-                (assoc (:state effect-result)
-                       :value (:value effect-result)
-                       :control nil
-                       :continuation continuation)))
-            :stream/close
-            (let [close-result (stream/handle-close state result)
-                  new-state (:state close-result)
-                  to-resume (:resume-parked close-result)
-                  run-queue (or (:run-queue new-state) [])
-                  new-run-queue (into run-queue
-                                      (engine/resume-entries-with-nil
-                                        to-resume))]
-              (assoc new-state
-                     :run-queue new-run-queue
-                     :value nil
+                                    :cursor-ref (:cursor-ref r),
+                                    :stream-id (:stream-id r)})}})]
+            (if blocked?
+              (assoc state
                      :control nil
-                     :continuation continuation))
-            (throw (ex-info "Unknown effect type" {:effect result})))
+                     :continuation nil)
+              (assoc state
+                     :value value
+                     :control nil
+                     :continuation continuation)))
           (assoc state
                  :value result
                  :control nil
@@ -234,59 +180,59 @@
           (let [val (:value state)
                 stream-ref (:stream-ref continuation)
                 effect {:effect :stream/put, :stream stream-ref, :val val}
-                result (stream/handle-put state effect)]
-            (if (:park result)
-              ;; At capacity: park the putting continuation
-              (let [parked-entry {:continuation (:parent continuation),
-                                  :environment environment,
-                                  :reason :put,
-                                  :stream-id (:stream-id result),
-                                  :datom val}]
-                (assoc (:state result)
-                       :wait-set (conj (or (:wait-set state) []) parked-entry)
-                       :value :yin/blocked
-                       :blocked true
-                       :control nil
-                       :continuation nil))
-              ;; Success
-              (assoc (:state result)
-                     :value (:value result)
+                {:keys [state value blocked?]}
+                (engine/handle-effect
+                  state
+                  effect
+                  {:park-entry-fns
+                   {:stream/put (fn [_s _e r]
+                                  {:continuation (:parent continuation),
+                                   :environment environment,
+                                   :reason :put,
+                                   :stream-id (:stream-id r),
+                                   :datom val})}})]
+            (if blocked?
+              (assoc state
+                     :control nil
+                     :continuation nil)
+              (assoc state
+                     :value value
                      :control nil
                      :continuation (:parent continuation))))
           ;; Stream continuation: evaluate source for cursor creation
           :eval-stream-cursor-source
           (let [stream-ref (:value state)
-                [cursor-ref new-state]
-                (stream/handle-cursor
-                  state
-                  {:effect :stream/cursor, :stream stream-ref}
-                  (engine/gen-id-fn (:id-counter state)))]
-            (assoc new-state
-                   :value cursor-ref
+                effect {:effect :stream/cursor, :stream stream-ref}
+                {:keys [state value]} (engine/handle-effect
+                                        state
+                                        effect
+                                        {:gensym-fn (engine/gen-id-fn
+                                                      (:id-counter state))})]
+            (assoc state
+                   :value value
                    :control nil
-                   :continuation (:parent continuation)
-                   :id-counter (inc (:id-counter state))))
+                   :continuation (:parent continuation)))
           ;; Stream continuation: evaluate cursor-ref for next!
           :eval-stream-next-cursor
           (let [cursor-ref (:value state)
                 effect {:effect :stream/next, :cursor cursor-ref}
-                result (stream/handle-next state effect)]
-            (if (:park result)
-              ;; Blocked: park the continuation
-              (let [parked-entry {:continuation (:parent continuation),
-                                  :environment environment,
-                                  :reason :next,
-                                  :cursor-ref (:cursor-ref result),
-                                  :stream-id (:stream-id result)}]
-                (assoc (:state result)
-                       :wait-set (conj (or (:wait-set state) []) parked-entry)
-                       :value :yin/blocked
-                       :blocked true
-                       :control nil
-                       :continuation nil))
-              ;; Got value (or nil for :end)
-              (assoc (:state result)
-                     :value (:value result)
+                {:keys [state value blocked?]}
+                (engine/handle-effect
+                  state
+                  effect
+                  {:park-entry-fns
+                   {:stream/next (fn [_s _e r]
+                                   {:continuation (:parent continuation),
+                                    :environment environment,
+                                    :reason :next,
+                                    :cursor-ref (:cursor-ref r),
+                                    :stream-id (:stream-id r)})}})]
+            (if blocked?
+              (assoc state
+                     :control nil
+                     :continuation nil)
+              (assoc state
+                     :value value
                      :control nil
                      :continuation (:parent continuation))))
           ;; Default for unknown continuation
@@ -375,47 +321,36 @@
                                                 :environment environment}
                                         :control nil)
         ;; Park (suspend) - saves current continuation and halts
-        :vm/park (let [park-id (keyword (str "parked-" (:id-counter state)))
-                       parked-cont {:type :parked-continuation,
-                                    :id park-id,
-                                    :continuation continuation,
-                                    :environment environment}
-                       new-parked (assoc (:parked state) park-id parked-cont)]
-                   (assoc state
-                          :parked new-parked
-                          :value parked-cont
-                          :control nil
-                          :continuation nil ; Halt execution
-                          :id-counter (inc (:id-counter state))))
+        :vm/park (-> (engine/park-continuation state
+                                               {:continuation continuation,
+                                                :environment environment})
+                     (assoc :control nil
+                            :continuation nil))
         ;; Resume a parked continuation with a value
-        :vm/resume (let [parked-id (:parked-id node)
-                         resume-value (:val node)
-                         parked-cont (get-in state [:parked parked-id])]
-                     (if parked-cont
-                       (let [new-parked (dissoc (:parked state) parked-id)]
-                         (assoc state
-                                :parked new-parked
-                                :value resume-value
-                                :control nil
-                                :continuation (:continuation parked-cont)
-                                :environment (:environment parked-cont)))
-                       (throw (ex-info
-                                "Cannot resume: parked continuation not found"
-                                {:parked-id parked-id}))))
+        :vm/resume (engine/resume-continuation
+                     state
+                     (:parked-id node)
+                     (:val node)
+                     (fn [new-state parked rv]
+                       (assoc new-state
+                              :value rv
+                              :control nil
+                              :continuation (:continuation parked)
+                              :environment (:environment parked))))
         ;; ============================================================
         ;; Stream Operations (AST node forms)
         ;; ============================================================
         :stream/make (let [capacity (or (:buffer node) 1024)
                            effect {:effect :stream/make, :capacity capacity}
-                           [stream-ref new-state] (stream/handle-make
-                                                    state
-                                                    effect
-                                                    (engine/gen-id-fn
-                                                      (:id-counter state)))]
-                       (assoc new-state
-                              :value stream-ref
-                              :control nil
-                              :id-counter (inc (:id-counter state))))
+                           {:keys [state value]} (engine/handle-effect
+                                                   state
+                                                   effect
+                                                   {:gensym-fn (engine/gen-id-fn
+                                                                 (:id-counter
+                                                                   state))})]
+                       (assoc state
+                              :value value
+                              :control nil))
         :stream/put (assoc state
                            :control (:target node)
                            :continuation {:frame node,
@@ -446,20 +381,13 @@
   "Pop first entry from run-queue and resume it as the active computation.
    Returns updated state or nil if queue is empty."
   [state]
-  (let [run-queue (or (:run-queue state) [])]
-    (when (seq run-queue)
-      (let [entry (first run-queue)
-            rest-queue (subvec run-queue 1)
-            ;; Apply any store updates from the wake-up check
-            new-store (or (:store-updates entry) (:store state))]
-        (assoc state
-               :run-queue rest-queue
-               :store new-store
-               :control nil
-               :continuation (:continuation entry)
-               :environment (:environment entry)
-               :value (:value entry)
-               :blocked false)))))
+  (engine/resume-from-run-queue state
+                                (fn [base entry]
+                                  (assoc base
+                                         :control nil
+                                         :continuation (:continuation entry)
+                                         :environment (:environment entry)
+                                         :value (:value entry)))))
 
 
 ;; =============================================================================

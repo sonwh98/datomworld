@@ -2,7 +2,6 @@
   (:require
     [dao.db :as db]
     [yin.module :as module]
-    [yin.stream :as stream]
     [yin.vm :as vm]
     [yin.vm.engine :as engine]))
 
@@ -105,7 +104,7 @@
 
 (defn- handle-return-value
   [vm]
-  (let [{:keys [control _env stack _datoms _index store id-counter]} vm
+  (let [{:keys [control _env stack _datoms _index _store id-counter]} vm
         val (:val control)]
     (if (empty? stack)
       (assoc vm
@@ -127,26 +126,15 @@
               (if (fn? fn-val)
                 (let [result (fn-val)]
                   (if (module/effect? result)
-                    (case (:effect result)
-                      :vm/store-put
-                      (assoc vm
-                             :control {:type :value, :val (:val result)}
-                             :store (assoc store (:key result) (:val result))
+                    (let [{:keys [state value]}
+                          (engine/handle-effect
+                            vm
+                            result
+                            {:gensym-fn (engine/gen-id-fn id-counter)})]
+                      (assoc state
+                             :control {:type :value, :val value}
                              :env env
-                             :stack new-stack)
-                      :stream/make (let [[stream-ref new-state]
-                                         (stream/handle-make
-                                           vm
-                                           result
-                                           (engine/gen-id-fn id-counter))]
-                                     (assoc new-state
-                                            :control {:type :value,
-                                                      :val stream-ref}
-                                            :env env
-                                            :stack new-stack
-                                            :id-counter (inc id-counter)))
-                      (throw (ex-info "Unhandled 0-arity effect"
-                                      {:effect result})))
+                             :stack new-stack))
                     (assoc vm
                            :control {:type :value, :val result}
                            :env env
@@ -180,104 +168,44 @@
                                      :env env,
                                      :tail? tail?})))))
           :app-args
-          (let [{:keys [fn evaluated pending env tail?]} frame
+          (let [{fn-val :fn, :keys [evaluated pending env tail?]} frame
                 new-evaluated (conj evaluated val)]
             (if (empty? pending)
               ;; All args evaluated, apply
-              (if (fn? fn)
-                (let [result (apply fn new-evaluated)]
+              (if (fn? fn-val)
+                (let [result (apply fn-val new-evaluated)]
                   (if (module/effect? result)
-                    (case (:effect result)
-                      :vm/store-put
-                      (assoc vm
-                             :control {:type :value, :val (:val result)}
-                             :store (assoc store (:key result) (:val result))
-                             :env env
-                             :stack new-stack)
-                      :stream/make (let [[stream-ref new-state]
-                                         (stream/handle-make
-                                           vm
-                                           result
-                                           (engine/gen-id-fn id-counter))]
-                                     (assoc new-state
-                                            :control {:type :value,
-                                                      :val stream-ref}
-                                            :env env
-                                            :stack new-stack
-                                            :id-counter (inc id-counter)))
-                      :stream/put
-                      (let [put-result (stream/handle-put vm result)]
-                        (if (:park put-result)
-                          (let [parked-entry {:stack new-stack,
+                    (let [{:keys [state value blocked?]}
+                          (engine/handle-effect
+                            vm
+                            result
+                            {:gensym-fn (engine/gen-id-fn id-counter),
+                             :park-entry-fns
+                             {:stream/put (fn [_s e r]
+                                            {:stack new-stack,
+                                             :env env,
+                                             :reason :put,
+                                             :stream-id (:stream-id r),
+                                             :datom (:val e)}),
+                              :stream/next (fn [_s _e r]
+                                             {:stack new-stack,
                                               :env env,
-                                              :reason :put,
+                                              :reason :next,
+                                              :cursor-ref (:cursor-ref r),
                                               :stream-id (:stream-id
-                                                           put-result),
-                                              :datom (:val result)}]
-                            (assoc (:state put-result)
-                                   :wait-set (conj (or (:wait-set vm) [])
-                                                   parked-entry)
-                                   :value :yin/blocked
-                                   :blocked true
-                                   :control nil))
-                          (assoc (:state put-result)
-                                 :control {:type :value,
-                                           :val (:value put-result)}
-                                 :env env
-                                 :stack new-stack)))
-                      :stream/cursor (let [[cursor-ref new-state]
-                                           (stream/handle-cursor
-                                             vm
-                                             result
-                                             (engine/gen-id-fn id-counter))]
-                                       (assoc new-state
-                                              :control {:type :value,
-                                                        :val cursor-ref}
-                                              :env env
-                                              :stack new-stack
-                                              :id-counter (inc id-counter)))
-                      :stream/next
-                      (let [next-result (stream/handle-next vm result)]
-                        (if (:park next-result)
-                          (let [parked-entry
-                                {:stack new-stack,
-                                 :env env,
-                                 :reason :next,
-                                 :cursor-ref (:cursor-ref next-result),
-                                 :stream-id (:stream-id next-result)}]
-                            (assoc (:state next-result)
-                                   :wait-set (conj (or (:wait-set vm) [])
-                                                   parked-entry)
-                                   :value :yin/blocked
-                                   :blocked true
-                                   :control nil))
-                          (assoc (:state next-result)
-                                 :control {:type :value,
-                                           :val (:value next-result)}
-                                 :env env
-                                 :stack new-stack)))
-                      :stream/close
-                      (let [close-result (stream/handle-close vm result)
-                            new-state (:state close-result)
-                            to-resume (:resume-parked close-result)
-                            run-queue (or (:run-queue new-state) [])
-                            new-run-queue (into
-                                            run-queue
-                                            (engine/resume-entries-with-nil
-                                              to-resume))]
-                        (assoc new-state
-                               :run-queue new-run-queue
-                               :control {:type :value, :val nil}
+                                                           r)})}})]
+                      (if blocked?
+                        (assoc state :control nil)
+                        (assoc state
+                               :control {:type :value, :val value}
                                :env env
-                               :stack new-stack))
-                      (throw (ex-info "Unhandled effect in semantic VM"
-                                      {:effect result})))
+                               :stack new-stack)))
                     (assoc vm
                            :control {:type :value, :val result}
                            :env env
                            :stack new-stack)))
-                (if (= :closure (:type fn))
-                  (let [{:keys [params body-node env]} fn
+                (if (= :closure (:type fn-val))
+                  (let [{:keys [params body-node env]} fn-val
                         new-env (merge env (zipmap params new-evaluated))]
                     (if tail?
                       ;; TCO: skip restore-env
@@ -291,7 +219,7 @@
                              :stack (conj new-stack
                                           {:type :restore-env,
                                            :env (:env frame)}))))
-                  (throw (ex-info "Cannot apply non-function" {:fn fn}))))
+                  (throw (ex-info "Cannot apply non-function" {:fn fn-val}))))
               ;; More args to eval
               (let [next-arg (first pending)
                     rest-pending (subvec pending 1)]
@@ -319,65 +247,61 @@
           (let [put-val val
                 stream-ref (:stream-ref frame)
                 effect {:effect :stream/put, :stream stream-ref, :val put-val}
-                result (stream/handle-put vm effect)]
-            (if (:park result)
-              (let [parked-entry {:stack new-stack,
-                                  :env (:env frame),
-                                  :reason :put,
-                                  :stream-id (:stream-id result),
-                                  :datom put-val}]
-                (assoc (:state result)
-                       :wait-set (conj (or (:wait-set vm) []) parked-entry)
-                       :value :yin/blocked
-                       :blocked true
-                       :control nil))
-              (assoc (:state result)
-                     :control {:type :value, :val (:value result)}
+                {:keys [state value blocked?]}
+                (engine/handle-effect vm
+                                      effect
+                                      {:park-entry-fns
+                                       {:stream/put
+                                        (fn [_s _e r]
+                                          {:stack new-stack,
+                                           :env (:env frame),
+                                           :reason :put,
+                                           :stream-id (:stream-id r),
+                                           :datom put-val})}})]
+            (if blocked?
+              (assoc state :control nil)
+              (assoc state
+                     :control {:type :value, :val value}
                      :env (:env frame)
                      :stack new-stack)))
           :stream-cursor-source
           (let [stream-ref val
                 effect {:effect :stream/cursor, :stream stream-ref}
-                [cursor-ref new-state] (stream/handle-cursor vm
-                                                             effect
-                                                             (engine/gen-id-fn
-                                                               id-counter))]
-            (assoc new-state
-                   :control {:type :value, :val cursor-ref}
+                {:keys [state value]} (engine/handle-effect
+                                        vm
+                                        effect
+                                        {:gensym-fn (engine/gen-id-fn
+                                                      id-counter)})]
+            (assoc state
+                   :control {:type :value, :val value}
                    :env (:env frame)
-                   :stack new-stack
-                   :id-counter (inc id-counter)))
+                   :stack new-stack))
           :stream-next-cursor
           (let [cursor-ref val
                 effect {:effect :stream/next, :cursor cursor-ref}
-                result (stream/handle-next vm effect)]
-            (if (:park result)
-              (let [parked-entry {:stack new-stack,
-                                  :env (:env frame),
-                                  :reason :next,
-                                  :cursor-ref (:cursor-ref result),
-                                  :stream-id (:stream-id result)}]
-                (assoc (:state result)
-                       :wait-set (conj (or (:wait-set vm) []) parked-entry)
-                       :value :yin/blocked
-                       :blocked true
-                       :control nil))
-              (assoc (:state result)
-                     :control {:type :value, :val (:value result)}
+                {:keys [state value blocked?]}
+                (engine/handle-effect
+                  vm
+                  effect
+                  {:park-entry-fns {:stream/next
+                                    (fn [_s _e r]
+                                      {:stack new-stack,
+                                       :env (:env frame),
+                                       :reason :next,
+                                       :cursor-ref (:cursor-ref r),
+                                       :stream-id (:stream-id r)})}})]
+            (if blocked?
+              (assoc state :control nil)
+              (assoc state
+                     :control {:type :value, :val value}
                      :env (:env frame)
                      :stack new-stack)))
           :stream-close-source
           (let [stream-ref val
                 effect {:effect :stream/close, :stream stream-ref}
-                close-result (stream/handle-close vm effect)
-                new-state (:state close-result)
-                to-resume (:resume-parked close-result)
-                run-queue (or (:run-queue new-state) [])
-                new-run-queue
-                (into run-queue (engine/resume-entries-with-nil to-resume))]
-            (assoc new-state
-                   :run-queue new-run-queue
-                   :control {:type :value, :val nil}
+                {:keys [state value]} (engine/handle-effect vm effect {})]
+            (assoc state
+                   :control {:type :value, :val value}
                    :env (:env frame)
                    :stack new-stack)))))))
 
@@ -429,14 +353,14 @@
                              :control {:type :value, :val val}
                              :store (assoc store key val)))
       ;; Stream operations
-      :stream/make
-      (let [capacity (:yin/buffer node-map)
-            effect {:effect :stream/make, :capacity capacity}
-            [stream-ref new-state]
-            (stream/handle-make vm effect (engine/gen-id-fn id-counter))]
-        (assoc new-state
-               :control {:type :value, :val stream-ref}
-               :id-counter (inc id-counter)))
+      :stream/make (let [capacity (:yin/buffer node-map)
+                         effect {:effect :stream/make, :capacity capacity}
+                         {:keys [state value]} (engine/handle-effect
+                                                 vm
+                                                 effect
+                                                 {:gensym-fn (engine/gen-id-fn
+                                                               id-counter)})]
+                     (assoc state :control {:type :value, :val value}))
       :stream/put (let [target-node (:yin/target node-map)]
                     (assoc vm
                            :control {:type :node, :id target-node}

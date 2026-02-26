@@ -239,10 +239,14 @@
                      :blocked? false}
       :stream/make (let [[stream-ref new-state]
                          (stream/handle-make state effect gensym-fn)]
-                     {:state new-state, :value stream-ref, :blocked? false})
+                     {:state (update new-state :id-counter inc),
+                      :value stream-ref,
+                      :blocked? false})
       :stream/cursor (let [[cursor-ref new-state]
                            (stream/handle-cursor state effect gensym-fn)]
-                       {:state new-state, :value cursor-ref, :blocked? false})
+                       {:state (update new-state :id-counter inc),
+                        :value cursor-ref,
+                        :blocked? false})
       :stream/put (let [result (stream/handle-put state effect)]
                     (handle-stream-block result
                                          (when park-entry
@@ -255,13 +259,14 @@
                      (handle-stream-block result
                                           (when park-entry
                                             (park-entry state effect result))))
-      :stream/close (let [{:keys [to-resume], :as close-state}
-                          (stream/handle-close state effect)
-                          run-queue (or (:run-queue close-state) [])
+      :stream/close (let [close-result (stream/handle-close state effect)
+                          new-state (:state close-result)
+                          to-resume (:resume-parked close-result)
+                          run-queue (or (:run-queue new-state) [])
                           new-run-queue (into run-queue
                                               (resume-entries-with-nil
                                                 to-resume))]
-                      {:state (assoc close-state :run-queue new-run-queue),
+                      {:state (assoc new-state :run-queue new-run-queue),
                        :value nil,
                        :blocked? false})
       (throw (ex-info "Unknown effect" {:effect effect})))))
