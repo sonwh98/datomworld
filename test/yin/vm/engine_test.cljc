@@ -45,16 +45,15 @@
   (testing
     "check-wait-set wakes up a :next parked continuation when data becomes available"
     (let [state {:store {}, :id-counter 0}
-          gen-id-fn (fn [v] (engine/gen-id-fn (:id-counter v)))
           ;; 1. Make stream
+          [id s'] (engine/gensym state "stream")
           [stream-ref state]
-          (stream/handle-make state {:capacity 10} (gen-id-fn state))
-          state (update state :id-counter inc)
+          (stream/handle-make s' {:capacity 10} (constantly id))
           stream-id (:id stream-ref)
           ;; 2. Make cursor
+          [id s'] (engine/gensym state "cursor")
           [cursor-ref state]
-          (stream/handle-cursor state {:stream stream-ref} (gen-id-fn state))
-          state (update state :id-counter inc)
+          (stream/handle-cursor s' {:stream stream-ref} (constantly id))
           ;; 3. Park a continuation for :next
           parked-entry {:reason :next,
                         :cursor-ref cursor-ref,
@@ -82,11 +81,10 @@
   (testing
     "check-wait-set wakes up a :put parked continuation when capacity becomes available"
     (let [state {:store {}, :id-counter 0}
-          gen-id-fn (fn [v] (engine/gen-id-fn (:id-counter v)))
           ;; 1. Make stream with capacity 1
+          [id s'] (engine/gensym state "stream")
           [stream-ref state]
-          (stream/handle-make state {:capacity 1} (gen-id-fn state))
-          state (update state :id-counter inc)
+          (stream/handle-make s' {:capacity 1} (constantly id))
           stream-id (:id stream-ref)
           ;; 2. Fill the stream
           state (:state (stream/handle-put state {:stream stream-ref, :val 1}))
@@ -117,11 +115,10 @@
   (testing
     "check-wait-set should not throw when a stream is closed with parked :put entries"
     (let [state {:store {}, :id-counter 0}
-          gen-id-fn (fn [v] (engine/gen-id-fn (:id-counter v)))
           ;; 1. Make stream with capacity 1 and fill it.
+          [id s'] (engine/gensym state "stream")
           [stream-ref state]
-          (stream/handle-make state {:capacity 1} (gen-id-fn state))
-          state (update state :id-counter inc)
+          (stream/handle-make s' {:capacity 1} (constantly id))
           stream-id (:id stream-ref)
           state (:state (stream/handle-put state {:stream stream-ref, :val 1}))
           ;; 2. Park a :put continuation.
@@ -157,22 +154,21 @@
   (testing
     "check-wait-set handles multiple entries, waking some and keeping others"
     (let [state {:store {}, :id-counter 0}
-          gen-id-fn (fn [v] (engine/gen-id-fn (:id-counter v)))
           ;; 1. Make two streams
-          [s1 state] (stream/handle-make state {:capacity 1} (gen-id-fn state))
-          state (update state :id-counter inc)
-          [s2 state] (stream/handle-make state {:capacity 1} (gen-id-fn state))
-          state (update state :id-counter inc)
+          [id s'] (engine/gensym state "stream")
+          [s1 state] (stream/handle-make s' {:capacity 1} (constantly id))
+          [id s'] (engine/gensym state "stream")
+          [s2 state] (stream/handle-make s' {:capacity 1} (constantly id))
           ;; 2. Fill s1, s2 is empty
           state (:state (stream/handle-put state {:stream s1, :val 1}))
           ;; 3. Park entries:
           ;;    e1: :next on s1 (runnable)
           ;;    e2: :next on s2 (blocked)
           ;;    e3: :put on s1 (blocked)
-          [c1 state] (stream/handle-cursor state {:stream s1} (gen-id-fn state))
-          state (update state :id-counter inc)
-          [c2 state] (stream/handle-cursor state {:stream s2} (gen-id-fn state))
-          state (update state :id-counter inc)
+          [id s'] (engine/gensym state "cursor")
+          [c1 state] (stream/handle-cursor s' {:stream s1} (constantly id))
+          [id s'] (engine/gensym state "cursor")
+          [c2 state] (stream/handle-cursor s' {:stream s2} (constantly id))
           e1 {:reason :next,
               :cursor-ref c1,
               :stream-id (:id s1),

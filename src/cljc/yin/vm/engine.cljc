@@ -1,4 +1,5 @@
 (ns yin.vm.engine
+  (:refer-clojure :exclude [gensym])
   (:require
     [yin.module :as module]
     [yin.stream :as stream]))
@@ -14,16 +15,10 @@
       (or (get primitives name) (module/resolve-symbol name)))))
 
 
-(defn gen-id
+(defn- gen-id
   "Generate a unique keyword ID from a prefix and counter value."
   [prefix id-counter]
   (keyword (str prefix "-" id-counter)))
-
-
-(defn gen-id-fn
-  "Return a function that generates a unique keyword ID for a given prefix."
-  [id-counter]
-  (fn [prefix] (gen-id prefix id-counter)))
 
 
 (defn vm-blocked?
@@ -211,6 +206,15 @@
   (update state :wait-set (fnil conj []) entry))
 
 
+(defn gensym
+  "Generate a unique ID and return [id updated-state]."
+  ([state] (gensym state "id"))
+  ([state prefix]
+   (let [id-counter (or (:id-counter state) 0)
+         id (gen-id prefix id-counter)]
+     [id (assoc state :id-counter (inc id-counter))])))
+
+
 (defn- handle-stream-block
   [result entry]
   (if (:park result)
@@ -229,7 +233,7 @@
 (defn handle-effect
   "Dispatch an effect and return {:state updated-state :value v :blocked? bool}.
    park-entry-fns maps :stream/put/:stream/next etc to functions that build wait entries."
-  [state effect {:keys [gensym-fn park-entry-fns]}]
+  [state effect {:keys [park-entry-fns]}]
   (let [park-entry (get park-entry-fns (:effect effect))]
     (case (:effect effect)
       :vm/store-put {:state (assoc state
@@ -237,16 +241,14 @@
                                                  (:key effect) (:val effect))),
                      :value (:val effect),
                      :blocked? false}
-      :stream/make (let [[stream-ref new-state]
-                         (stream/handle-make state effect gensym-fn)]
-                     {:state (update new-state :id-counter inc),
-                      :value stream-ref,
-                      :blocked? false})
-      :stream/cursor (let [[cursor-ref new-state]
-                           (stream/handle-cursor state effect gensym-fn)]
-                       {:state (update new-state :id-counter inc),
-                        :value cursor-ref,
-                        :blocked? false})
+      :stream/make (let [[id s'] (gensym state "stream")
+                         [stream-ref new-state]
+                         (stream/handle-make s' effect id)]
+                     {:state new-state, :value stream-ref, :blocked? false})
+      :stream/cursor (let [[id s'] (gensym state "cursor")
+                           [cursor-ref new-state]
+                           (stream/handle-cursor s' effect id)]
+                       {:state new-state, :value cursor-ref, :blocked? false})
       :stream/put (let [result (stream/handle-put state effect)]
                     (handle-stream-block result
                                          (when park-entry

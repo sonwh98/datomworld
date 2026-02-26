@@ -127,10 +127,7 @@
                 (let [result (fn-val)]
                   (if (module/effect? result)
                     (let [{:keys [state value]}
-                          (engine/handle-effect
-                            vm
-                            result
-                            {:gensym-fn (engine/gen-id-fn id-counter)})]
+                          (engine/handle-effect vm result {})]
                       (assoc state
                              :control {:type :value, :val value}
                              :env env
@@ -179,8 +176,7 @@
                           (engine/handle-effect
                             vm
                             result
-                            {:gensym-fn (engine/gen-id-fn id-counter),
-                             :park-entry-fns
+                            {:park-entry-fns
                              {:stream/put (fn [_s e r]
                                             {:stack new-stack,
                                              :env env,
@@ -267,11 +263,7 @@
           :stream-cursor-source
           (let [stream-ref val
                 effect {:effect :stream/cursor, :stream stream-ref}
-                {:keys [state value]} (engine/handle-effect
-                                        vm
-                                        effect
-                                        {:gensym-fn (engine/gen-id-fn
-                                                      id-counter)})]
+                {:keys [state value]} (engine/handle-effect vm effect {})]
             (assoc state
                    :control {:type :value, :val value}
                    :env (:env frame)
@@ -340,10 +332,8 @@
                                         :tail? (:yin/tail? node-map)}))
       ;; VM primitives
       :vm/gensym (let [prefix (or (:yin/prefix node-map) "id")
-                       id (engine/gen-id prefix id-counter)]
-                   (assoc vm
-                          :control {:type :value, :val id}
-                          :id-counter (inc id-counter)))
+                       [id s'] (engine/gensym vm prefix)]
+                   (assoc s' :control {:type :value, :val id}))
       :vm/store-get (let [key (:yin/key node-map)
                           val (get store key)]
                       (assoc vm :control {:type :value, :val val}))
@@ -355,11 +345,8 @@
       ;; Stream operations
       :stream/make (let [capacity (:yin/buffer node-map)
                          effect {:effect :stream/make, :capacity capacity}
-                         {:keys [state value]} (engine/handle-effect
-                                                 vm
-                                                 effect
-                                                 {:gensym-fn (engine/gen-id-fn
-                                                               id-counter)})]
+                         {:keys [state value]}
+                         (engine/handle-effect vm effect {})]
                      (assoc state :control {:type :value, :val value}))
       :stream/put (let [target-node (:yin/target node-map)]
                     (assoc vm

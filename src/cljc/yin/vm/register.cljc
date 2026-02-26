@@ -414,8 +414,7 @@
                           (engine/handle-effect
                             state
                             result
-                            {:gensym-fn (engine/gen-id-fn id-counter),
-                             :park-entry-fns
+                            {:park-entry-fns
                              {:stream/put (fn [_s _e r]
                                             {:pc next-pc,
                                              :regs regs,
@@ -542,11 +541,10 @@
         :gensym
         (let [rd (get bytecode (+ pc 1))
               prefix (get pool (get bytecode (+ pc 2)))
-              id (engine/gen-id prefix id-counter)]
-          (assoc state
+              [id s'] (engine/gensym state prefix)]
+          (assoc s'
                  :regs (assoc regs rd id)
-                 :pc (+ pc 3)
-                 :id-counter (inc id-counter)))
+                 :pc (+ pc 3)))
         :sget
         (let [rd (get bytecode (+ pc 1))
               key (get pool (get bytecode (+ pc 2)))
@@ -565,11 +563,7 @@
         (let [rd (get bytecode (+ pc 1))
               buf (get pool (get bytecode (+ pc 2)))
               effect {:effect :stream/make, :capacity buf}
-              {:keys [state value]} (engine/handle-effect state
-                                                          effect
-                                                          {:gensym-fn
-                                                           (engine/gen-id-fn
-                                                             id-counter)})]
+              {:keys [state value]} (engine/handle-effect state effect {})]
           (assoc state
                  :regs (assoc regs rd value)
                  :pc (+ pc 3)))
@@ -600,11 +594,7 @@
               rs (get bytecode (+ pc 2))
               stream-ref (get-reg state rs)
               effect {:effect :stream/cursor, :stream stream-ref}
-              {:keys [state value]} (engine/handle-effect state
-                                                          effect
-                                                          {:gensym-fn
-                                                           (engine/gen-id-fn
-                                                             id-counter)})]
+              {:keys [state value]} (engine/handle-effect state effect {})]
           (assoc state
                  :regs (assoc regs rd value)
                  :pc (+ pc 3)))

@@ -323,8 +323,7 @@
                     (engine/handle-effect
                       state
                       res
-                      {:gensym-fn (engine/gen-id-fn id-counter),
-                       :park-entry-fns
+                      {:park-entry-fns
                        {:stream/put (fn [_s _e r]
                                       {:pc next-pc,
                                        :bytecode bytecode,
@@ -469,11 +468,10 @@
           8 ; OP_GENSYM
           (let [prefix-idx (nth bytecode (inc pc))
                 prefix (nth pool prefix-idx)
-                id (engine/gen-id prefix id-counter)]
-            (assoc state
+                [id s'] (engine/gensym state prefix)]
+            (assoc s'
                    :pc (+ pc 2)
-                   :stack (conj stack id)
-                   :id-counter (inc id-counter)))
+                   :stack (conj stack id)))
           9 ; OP_SGET
           (let [key-idx (nth bytecode (inc pc))
                 key (nth pool key-idx)
@@ -493,11 +491,7 @@
           (let [buf-idx (nth bytecode (inc pc))
                 buf (nth pool buf-idx)
                 effect {:effect :stream/make, :capacity buf}
-                {:keys [state value]} (engine/handle-effect
-                                        state
-                                        effect
-                                        {:gensym-fn (engine/gen-id-fn
-                                                      id-counter)})]
+                {:keys [state value]} (engine/handle-effect state effect {})]
             (assoc state
                    :pc (+ pc 2)
                    :stack (conj stack value)))
@@ -531,11 +525,7 @@
           (let [stream-ref (peek stack)
                 stack-rest (pop stack)
                 effect {:effect :stream/cursor, :stream stream-ref}
-                {:keys [state value]} (engine/handle-effect
-                                        state
-                                        effect
-                                        {:gensym-fn (engine/gen-id-fn
-                                                      id-counter)})]
+                {:keys [state value]} (engine/handle-effect state effect {})]
             (assoc state
                    :pc (+ pc 1)
                    :stack (conj stack-rest value)))

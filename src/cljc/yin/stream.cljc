@@ -75,9 +75,8 @@
 (defn handle-make
   "Handle :stream/make effect. Creates a stream in the VM store.
    Returns [stream-ref updated-state]."
-  [state effect gensym-fn]
+  [state effect id]
   (let [capacity (:capacity effect)
-        id (gensym-fn "stream")
         stream (ds/->LazySeqStream capacity
                                    (atom {:log [], :head 0, :closed false}))
         new-store (assoc (:store state) id stream)
@@ -107,9 +106,8 @@
   "Handle :stream/cursor effect. Creates a cursor in the VM store.
    Returns [cursor-ref updated-state].
    cursor-data is VM-internal: {:stream-id id, :position 0}"
-  [state effect gensym-fn]
+  [state effect id]
   (let [stream-ref (:stream effect)
-        id (gensym-fn "cursor")
         cursor-data {:stream-id (:id stream-ref), :position 0}
         new-store (assoc (:store state) id cursor-data)
         cursor-ref {:type :cursor-ref, :id id}]

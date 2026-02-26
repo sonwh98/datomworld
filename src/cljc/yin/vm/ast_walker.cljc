@@ -57,8 +57,7 @@
                 (engine/handle-effect
                   state
                   result
-                  {:gensym-fn (engine/gen-id-fn (:id-counter state)),
-                   :park-entry-fns
+                  {:park-entry-fns
                    {:stream/put (fn [_s _e r]
                                   {:continuation continuation,
                                    :environment environment,
@@ -203,11 +202,7 @@
           :eval-stream-cursor-source
           (let [stream-ref (:value state)
                 effect {:effect :stream/cursor, :stream stream-ref}
-                {:keys [state value]} (engine/handle-effect
-                                        state
-                                        effect
-                                        {:gensym-fn (engine/gen-id-fn
-                                                      (:id-counter state))})]
+                {:keys [state value]} (engine/handle-effect state effect {})]
             (assoc state
                    :value value
                    :control nil
@@ -281,11 +276,10 @@
         ;; ============================================================
         ;; Generate unique ID
         :vm/gensym (let [prefix (or (:prefix node) "id")
-                         id (engine/gen-id prefix (:id-counter state))]
-                     (assoc state
+                         [id s'] (engine/gensym state prefix)]
+                     (assoc s'
                             :value id
-                            :control nil
-                            :id-counter (inc (:id-counter state))))
+                            :control nil))
         ;; Read from store
         :vm/store-get (let [key (:key node)
                             value (get store key)]
@@ -342,12 +336,8 @@
         ;; ============================================================
         :stream/make (let [capacity (or (:buffer node) 1024)
                            effect {:effect :stream/make, :capacity capacity}
-                           {:keys [state value]} (engine/handle-effect
-                                                   state
-                                                   effect
-                                                   {:gensym-fn (engine/gen-id-fn
-                                                                 (:id-counter
-                                                                   state))})]
+                           {:keys [state value]}
+                           (engine/handle-effect state effect {})]
                        (assoc state
                               :value value
                               :control nil))
