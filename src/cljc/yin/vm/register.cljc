@@ -309,6 +309,36 @@
 (defn- get-reg "Get value from register." [state r] (nth (:regs state) r))
 
 
+(defn- snap-frame
+  "Snapshot current VM frame for parking or reification."
+  [{:keys [regs k env bytecode pool]} rd next-pc]
+  {:pc next-pc,
+   :regs regs,
+   :k k,
+   :env env,
+   :bytecode bytecode,
+   :pool pool,
+   :result-reg rd})
+
+
+(defn- handle-native-result
+  "Handle result of calling a native fn. Routes effects through handle-effect."
+  [{:keys [regs], :as state} result rd next-pc park-entry-fns]
+  (if (module/effect? result)
+    (let [{:keys [state value blocked?]} (engine/handle-effect
+                                           state
+                                           result
+                                           {:park-entry-fns park-entry-fns})]
+      (if blocked?
+        state
+        (assoc state
+          :regs (assoc regs rd value)
+          :pc next-pc)))
+    (assoc state
+      :regs (assoc regs rd result)
+      :pc next-pc)))
+
+
 ;; =============================================================================
 ;; Register Bytecode VM (numeric opcodes, flat int vector, constant pool)
 ;; =============================================================================
@@ -372,43 +402,21 @@
               next-pc (+ pc 4 argc)]
           (cond (fn? fn-val)
                   (let [result (apply fn-val fn-args)]
-                    (if (module/effect? result)
-                      (let [{:keys [state value blocked?]}
-                              (engine/handle-effect
-                                state
-                                result
-                                {:park-entry-fns
-                                   {:stream/put (fn [_s _e r]
-                                                  {:pc next-pc,
-                                                   :regs regs,
-                                                   :k k,
-                                                   :env env,
-                                                   :bytecode bytecode,
-                                                   :pool pool,
-                                                   :result-reg rd,
-                                                   :reason :put,
-                                                   :stream-id (:stream-id r),
-                                                   :datom (:val result)}),
-                                    :stream/next (fn [_s _e r]
-                                                   {:pc next-pc,
-                                                    :regs regs,
-                                                    :k k,
-                                                    :env env,
-                                                    :bytecode bytecode,
-                                                    :pool pool,
-                                                    :result-reg rd,
-                                                    :reason :next,
-                                                    :cursor-ref (:cursor-ref r),
-                                                    :stream-id (:stream-id
-                                                                 r)})}})]
-                        (if blocked?
-                          state
-                          (assoc state
-                            :regs (assoc regs rd value)
-                            :pc next-pc)))
-                      (assoc state
-                        :regs (assoc regs rd result)
-                        :pc next-pc)))
+                    (handle-native-result
+                      state
+                      result
+                      rd
+                      next-pc
+                      {:stream/put (fn [_s _e r]
+                                     (merge (snap-frame state rd next-pc)
+                                            {:reason :put,
+                                             :stream-id (:stream-id r),
+                                             :datom (:val result)})),
+                       :stream/next (fn [_s _e r]
+                                      (merge (snap-frame state rd next-pc)
+                                             {:reason :next,
+                                              :cursor-ref (:cursor-ref r),
+                                              :stream-id (:stream-id r)}))}))
                 (= :closure (:type fn-val))
                   (let [{:keys [params body-addr env bytecode pool reg-count]}
                           fn-val
@@ -540,17 +548,12 @@
                 (engine/handle-effect
                   state
                   effect
-                  {:park-entry-fns {:stream/put (fn [_s _e r]
-                                                  {:pc (+ pc 3),
-                                                   :regs regs,
-                                                   :k k,
-                                                   :env env,
-                                                   :bytecode bytecode,
-                                                   :pool pool,
-                                                   :result-reg rs,
-                                                   :reason :put,
-                                                   :stream-id (:stream-id r),
-                                                   :datom val})}})]
+                  {:park-entry-fns {:stream/put
+                                      (fn [_s _e r]
+                                        (merge (snap-frame state rs (+ pc 3))
+                                               {:reason :put,
+                                                :stream-id (:stream-id r),
+                                                :datom val}))}})]
           (if blocked? state (assoc state :pc (+ pc 3))))
         :stream-cursor
         (let [rd (get bytecode (+ pc 1))
@@ -567,21 +570,15 @@
               cursor-ref (get-reg state rs)
               effect {:effect :stream/next, :cursor cursor-ref}
               {:keys [state value blocked?]}
-                (engine/handle-effect state
-                                      effect
-                                      {:park-entry-fns
-                                         {:stream/next
-                                            (fn [_s _e r]
-                                              {:pc (+ pc 3),
-                                               :regs regs,
-                                               :k k,
-                                               :env env,
-                                               :bytecode bytecode,
-                                               :pool pool,
-                                               :result-reg rd,
-                                               :reason :next,
-                                               :cursor-ref (:cursor-ref r),
-                                               :stream-id (:stream-id r)})}})]
+                (engine/handle-effect
+                  state
+                  effect
+                  {:park-entry-fns {:stream/next
+                                      (fn [_s _e r]
+                                        (merge (snap-frame state rd (+ pc 3))
+                                               {:reason :next,
+                                                :cursor-ref (:cursor-ref r),
+                                                :stream-id (:stream-id r)}))}})]
           (if blocked?
             state
             (assoc state
@@ -598,14 +595,7 @@
             :pc (+ pc 3)))
         :park
         (let [rd (get bytecode (+ pc 1))]
-          (engine/park-continuation state
-                                    {:pc (+ pc 2),
-                                     :regs regs,
-                                     :k k,
-                                     :env env,
-                                     :bytecode bytecode,
-                                     :pool pool,
-                                     :result-reg rd}))
+          (engine/park-continuation state (snap-frame state rd (+ pc 2))))
         :resume
         (let [rs (get bytecode (+ pc 1))
               rt (get bytecode (+ pc 2))
@@ -625,14 +615,8 @@
                                             :pool (:pool parked))))))
         :current-cont
         (let [rd (get bytecode (+ pc 1))
-              cont {:type :reified-continuation,
-                    :pc (+ pc 2),
-                    :regs regs,
-                    :k k,
-                    :env env,
-                    :bytecode bytecode,
-                    :pool pool,
-                    :result-reg rd}]
+              cont (assoc (snap-frame state rd (+ pc 2))
+                     :type :reified-continuation)]
           (assoc state
             :regs (assoc regs rd cont)
             :pc (+ pc 2)))
