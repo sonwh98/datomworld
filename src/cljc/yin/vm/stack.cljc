@@ -325,6 +325,26 @@
            :pc next-pc)))
 
 
+(defn- restore-frame
+  "Restore VM state from a snapshot, optionally pushing a return value."
+  ([state frame]
+   (assoc state
+          :pc (:pc frame)
+          :bytecode (:bytecode frame)
+          :stack (:stack frame)
+          :env (:env frame)
+          :call-stack (:call-stack frame)
+          :pool (or (:pool frame) (:pool state))))
+  ([state frame value]
+   (assoc state
+          :pc (:pc frame)
+          :bytecode (:bytecode frame)
+          :stack (conj (:stack frame) value)
+          :env (:env frame)
+          :call-stack (:call-stack frame)
+          :pool (or (:pool frame) (:pool state)))))
+
+
 (defn- apply-op
   [state argc tail?]
   (let [{:keys [pc bytecode stack env call-stack pool _store id-counter]} state
@@ -392,14 +412,7 @@
           (assoc state
                  :halted true
                  :value result)
-          (let [frame (peek call-stack)
-                rest-frames (pop call-stack)]
-            (assoc state
-                   :pc (:pc frame)
-                   :bytecode (:bytecode frame)
-                   :stack (conj (:stack frame) result)
-                   :env (:env frame)
-                   :call-stack rest-frames))))
+          (restore-frame state (peek call-stack) result)))
       (let [op (nth bytecode pc)]
         (vm/opcase
           op
@@ -450,15 +463,7 @@
               (assoc state
                      :halted true
                      :value result)
-              (let [frame (peek call-stack)
-                    rest-frames (pop call-stack)]
-                (assoc state
-                       :pc (:pc frame)
-                       :bytecode (:bytecode frame)
-                       :stack (conj (:stack frame) result)
-                       :env (:env frame)
-                       :pool (or (:pool frame) pool)
-                       :call-stack rest-frames))))
+              (restore-frame state (peek call-stack) result)))
           :gensym
           (let [prefix-idx (nth bytecode (inc pc))
                 prefix (nth pool prefix-idx)
@@ -557,13 +562,8 @@
                                         parked-id
                                         resume-val
                                         (fn [new-state parked rv]
-                                          (assoc new-state
-                                                 :pc (+ 1 (:pc parked))
-                                                 :bytecode (:bytecode parked)
-                                                 :stack (conj (:stack parked) rv)
-                                                 :env (:env parked)
-                                                 :call-stack (:call-stack parked)
-                                                 :pool (:pool parked)))))
+                                          (let [resumed (restore-frame new-state parked rv)]
+                                            (assoc resumed :pc (inc (:pc parked)))))))
           :current-cont
           (let [cont (assoc (snap-frame state stack pc)
                             :type :reified-continuation)]
@@ -583,13 +583,7 @@
   [state]
   (engine/resume-from-run-queue state
                                 (fn [base entry]
-                                  (assoc base
-                                         :pc (:pc entry)
-                                         :bytecode (:bytecode entry)
-                                         :stack (conj (:stack entry) (:value entry))
-                                         :env (:env entry)
-                                         :call-stack (:call-stack entry)
-                                         :pool (:pool entry)))))
+                                  (restore-frame base entry (:value entry)))))
 
 
 ;; =============================================================================
