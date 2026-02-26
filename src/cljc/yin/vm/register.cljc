@@ -8,8 +8,8 @@
    - Continuation :k is always first-class and explicit
    - No implicit call stack - continuation IS the stack
 
-   Executes numeric bytecode produced by asm->bytecode.
-   The compilation pipeline is: AST datoms -> ast-datoms->asm (symbolic IR) -> asm->bytecode (numeric).
+   Executes numeric bytecode produced by assemble.
+   The compilation pipeline is: AST datoms -> ast-datoms->asm (symbolic IR) -> assemble (numeric).
    See ast-datoms->asm docstring for the full instruction set."
   (:require [yin.module :as module]
             [yin.vm :as vm]
@@ -44,7 +44,7 @@
   "Takes the AST as datoms and transforms it to register-based assembly.
 
    Assembly is a vector of symbolic instructions (keyword mnemonics, not numeric
-   opcodes). A separate asm->bytecode pass would encode these as numbers.
+   opcodes). A separate assemble pass would encode these as numbers.
 
    Instructions:
      [:literal rd v]                  - rd := literal value v
@@ -215,7 +215,7 @@
         {:asm @bytecode, :reg-count max-regs}))))
 
 
-(defn asm->bytecode
+(defn assemble
   "Convert register assembly (keyword mnemonics) to numeric bytecode.
 
    Returns {:bytecode [int...] :pool [value...] :source-map {byte-offset instr-index}}
@@ -702,7 +702,7 @@
   (let [v (if ast
             (let [datoms (vm/ast->datoms ast)
                   {:keys [asm reg-count]} (ast-datoms->asm datoms)
-                  compiled (assoc (asm->bytecode asm) :reg-count reg-count)]
+                  compiled (assoc (assemble asm) :reg-count reg-count)]
               (reg-vm-load-program vm compiled))
             vm)]
     (engine/run-loop v

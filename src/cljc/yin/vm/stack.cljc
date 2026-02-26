@@ -1,4 +1,15 @@
 (ns yin.vm.stack
+  "Stack-based bytecode VM for the Yin language.
+
+   A stack machine implementation where:
+   - Operands are pushed/popped from an explicit stack
+   - Call frames are managed via first-class continuations (:k)
+   - The AST as :yin/ datoms (from vm/ast->datoms) is the canonical source.
+
+   This namespace provides:
+   1. Stack assembly: project :yin/ datoms to symbolic stack instructions
+   2. Assembly to numeric bytecode encoding (assemble)
+   3. Numeric bytecode VM (step, run via protocols)"
   (:require [yin.module :as module]
             [yin.vm :as vm]
             [yin.vm.engine :as engine])
@@ -7,13 +18,6 @@
 
 ;; =============================================================================
 ;; Stack VM
-;; =============================================================================
-;;
-;; The AST as :yin/ datoms (from vm/ast->datoms) is the canonical
-;; representation. This namespace provides:
-;;   1. Stack assembly: project :yin/ datoms to symbolic stack instructions
-;;   2. Assembly to numeric bytecode encoding
-;;   3. Numeric bytecode VM (step, run via protocols)
 ;; =============================================================================
 
 
@@ -142,9 +146,10 @@
       (compile-node root-id true) @instructions)))
 
 
-(defn asm->bytecode
+(defn assemble
   "Convert symbolic stack assembly to numeric bytecode.
-   Returns {:bytecode bytes :pool pool :source-map {byte-offset instr-index}}."
+
+   Returns {:bytecode [int...] :pool [value...] :source-map {byte-offset instr-index}}"
   [instructions]
   (let [pool (atom [])
         pool-index (atom {})
@@ -642,7 +647,7 @@
   (let [v (if ast
             (let [datoms (vm/ast->datoms ast)
                   asm (ast-datoms->asm datoms)
-                  compiled (asm->bytecode asm)]
+                  compiled (assemble asm)]
               (stack-vm-load-program vm compiled))
             vm)]
     (engine/run-loop v

@@ -1,9 +1,8 @@
 (ns yin.vm.register-test
-  (:require
-    [clojure.test :refer [deftest is testing]]
-    [dao.stream]
-    [yin.vm :as vm]
-    [yin.vm.register :as register]))
+  (:require [clojure.test :refer [deftest is testing]]
+            [dao.stream]
+            [yin.vm :as vm]
+            [yin.vm.register :as register]))
 
 
 ;; =============================================================================
@@ -11,10 +10,11 @@
 ;; =============================================================================
 
 (defn compile-and-run-bc
+  "Compile AST to register bytecode and run to completion."
   [ast]
   (let [datoms (vm/ast->datoms ast)
         {:keys [asm reg-count]} (register/ast-datoms->asm datoms)
-        compiled (assoc (register/asm->bytecode asm) :reg-count reg-count)
+        compiled (assoc (register/assemble asm) :reg-count reg-count)
         vm (register/create-vm {:env vm/primitives})]
     (-> vm
         (vm/load-program compiled)
@@ -23,10 +23,11 @@
 
 
 (defn- load-ast
+  "Compile and load AST into a Register VM without running it."
   [ast]
   (let [datoms (vm/ast->datoms ast)
         {:keys [asm reg-count]} (register/ast-datoms->asm datoms)
-        compiled (assoc (register/asm->bytecode asm) :reg-count reg-count)]
+        compiled (assoc (register/assemble asm) :reg-count reg-count)]
     (-> (register/create-vm {:env vm/primitives})
         (vm/load-program compiled))))
 
@@ -200,17 +201,17 @@
     "Nested lambda with closure capture ((fn [x] ((fn [y] (+ x y)) 5)) 3)"
     (let [ast {:type :application,
                :operator
-               {:type :lambda,
-                :params ['x],
-                :body {:type :application,
-                       :operator
-                       {:type :lambda,
-                        :params ['y],
-                        :body {:type :application,
-                               :operator {:type :variable, :name '+},
-                               :operands [{:type :variable, :name 'x}
-                                          {:type :variable, :name 'y}]}},
-                       :operands [{:type :literal, :value 5}]}},
+                 {:type :lambda,
+                  :params ['x],
+                  :body {:type :application,
+                         :operator
+                           {:type :lambda,
+                            :params ['y],
+                            :body {:type :application,
+                                   :operator {:type :variable, :name '+},
+                                   :operands [{:type :variable, :name 'x}
+                                              {:type :variable, :name 'y}]}},
+                         :operands [{:type :literal, :value 5}]}},
                :operands [{:type :literal, :value 3}]}]
       (is (= 8 (compile-and-run-bc ast))))))
 
@@ -223,11 +224,11 @@
                           :body {:type :application,
                                  :operator {:type :variable, :name '+},
                                  :operands
-                                 [{:type :variable, :name 'a}
-                                  {:type :application,
-                                   :operator {:type :variable, :name '-},
-                                   :operands [{:type :variable, :name 'b}
-                                              {:type :literal, :value 1}]}]}},
+                                   [{:type :variable, :name 'a}
+                                    {:type :application,
+                                     :operator {:type :variable, :name '-},
+                                     :operands [{:type :variable, :name 'b}
+                                                {:type :literal, :value 1}]}]}},
                :operands [{:type :literal, :value 10}
                           {:type :literal, :value 5}]}]
       (is (= 14 (compile-and-run-bc ast))))))
@@ -353,7 +354,7 @@
                           {:type :literal, :value 0}]}
           {:keys [asm reg-count]} (register/ast-datoms->asm (vm/ast->datoms
                                                               ast))
-          compiled (assoc (register/asm->bytecode asm) :reg-count reg-count)
+          compiled (assoc (register/assemble asm) :reg-count reg-count)
           vm-inst (register/create-vm {:env vm/primitives})
           vm-loaded (vm/load-program vm-inst compiled)
           states (loop [v vm-loaded
@@ -513,24 +514,24 @@
   (testing "put then cursor+next roundtrip within nested lambdas"
     (let [ast {:type :application,
                :operator
-               {:type :lambda,
-                :params ['s],
-                :body {:type :application,
-                       :operator {:type :lambda,
-                                  :params ['_],
-                                  :body {:type :application,
-                                         :operator {:type :lambda,
-                                                    :params ['c],
-                                                    :body {:type :stream/next,
-                                                           :source
-                                                           {:type :variable,
-                                                            :name 'c}}},
-                                         :operands [{:type :stream/cursor,
-                                                     :source {:type :variable,
-                                                              :name 's}}]}},
-                       :operands [{:type :stream/put,
-                                   :target {:type :variable, :name 's},
-                                   :val {:type :literal, :value 42}}]}},
+                 {:type :lambda,
+                  :params ['s],
+                  :body {:type :application,
+                         :operator {:type :lambda,
+                                    :params ['_],
+                                    :body {:type :application,
+                                           :operator {:type :lambda,
+                                                      :params ['c],
+                                                      :body {:type :stream/next,
+                                                             :source
+                                                               {:type :variable,
+                                                                :name 'c}}},
+                                           :operands [{:type :stream/cursor,
+                                                       :source {:type :variable,
+                                                                :name 's}}]}},
+                         :operands [{:type :stream/put,
+                                     :target {:type :variable, :name 's},
+                                     :val {:type :literal, :value 42}}]}},
                :operands [{:type :stream/make, :buffer 5}]}
           vm (-> (make-stream-vm)
                  (vm/eval ast))]
@@ -629,12 +630,12 @@
                           :alternate {:type :application,
                                       :operator {:type :variable, :name 'self},
                                       :operands
-                                      [{:type :variable, :name 'self}
-                                       {:type :application,
-                                        :operator {:type :variable, :name '-},
-                                        :operands [{:type :variable, :name 'n}
-                                                   {:type :literal,
-                                                    :value 1}]}]}}}
+                                        [{:type :variable, :name 'self}
+                                         {:type :application,
+                                          :operator {:type :variable, :name '-},
+                                          :operands [{:type :variable, :name 'n}
+                                                     {:type :literal,
+                                                      :value 1}]}]}}}
           ast {:type :application,
                :operator self-fn,
                :operands [self-fn {:type :literal, :value 10000}]}]
@@ -654,18 +655,18 @@
                                             {:type :literal, :value 1}]},
                           :consequent {:type :variable, :name 'acc},
                           :alternate
-                          {:type :application,
-                           :operator {:type :variable, :name 'self},
-                           :operands [{:type :variable, :name 'self}
-                                      {:type :application,
-                                       :operator {:type :variable, :name '-},
-                                       :operands [{:type :variable, :name 'n}
-                                                  {:type :literal, :value 1}]}
-                                      {:type :application,
-                                       :operator {:type :variable, :name '+},
-                                       :operands
-                                       [{:type :variable, :name 'acc}
-                                        {:type :variable, :name 'n}]}]}}}
+                            {:type :application,
+                             :operator {:type :variable, :name 'self},
+                             :operands [{:type :variable, :name 'self}
+                                        {:type :application,
+                                         :operator {:type :variable, :name '-},
+                                         :operands [{:type :variable, :name 'n}
+                                                    {:type :literal, :value 1}]}
+                                        {:type :application,
+                                         :operator {:type :variable, :name '+},
+                                         :operands
+                                           [{:type :variable, :name 'acc}
+                                            {:type :variable, :name 'n}]}]}}}
           ast {:type :application,
                :operator self-fn,
                :operands [self-fn {:type :literal, :value 100}
@@ -678,33 +679,33 @@
     ;; ((fn [self n] (if (< n 2) n (+ (self self (- n 1)) (self self (- n
     ;; 2))))) <same> 10)
     (let [self-fn
-          {:type :lambda,
-           :params ['self 'n],
-           :body {:type :if,
-                  :test {:type :application,
-                         :operator {:type :variable, :name '<},
-                         :operands [{:type :variable, :name 'n}
-                                    {:type :literal, :value 2}]},
-                  :consequent {:type :variable, :name 'n},
-                  :alternate
-                  {:type :application,
-                   :operator {:type :variable, :name '+},
-                   :operands
-                   [{:type :application,
-                     :operator {:type :variable, :name 'self},
-                     :operands [{:type :variable, :name 'self}
-                                {:type :application,
-                                 :operator {:type :variable, :name '-},
-                                 :operands [{:type :variable, :name 'n}
-                                            {:type :literal, :value 1}]}]}
-                    {:type :application,
-                     :operator {:type :variable, :name 'self},
-                     :operands [{:type :variable, :name 'self}
-                                {:type :application,
-                                 :operator {:type :variable, :name '-},
-                                 :operands [{:type :variable, :name 'n}
-                                            {:type :literal,
-                                             :value 2}]}]}]}}}
+            {:type :lambda,
+             :params ['self 'n],
+             :body {:type :if,
+                    :test {:type :application,
+                           :operator {:type :variable, :name '<},
+                           :operands [{:type :variable, :name 'n}
+                                      {:type :literal, :value 2}]},
+                    :consequent {:type :variable, :name 'n},
+                    :alternate
+                      {:type :application,
+                       :operator {:type :variable, :name '+},
+                       :operands
+                         [{:type :application,
+                           :operator {:type :variable, :name 'self},
+                           :operands [{:type :variable, :name 'self}
+                                      {:type :application,
+                                       :operator {:type :variable, :name '-},
+                                       :operands [{:type :variable, :name 'n}
+                                                  {:type :literal, :value 1}]}]}
+                          {:type :application,
+                           :operator {:type :variable, :name 'self},
+                           :operands [{:type :variable, :name 'self}
+                                      {:type :application,
+                                       :operator {:type :variable, :name '-},
+                                       :operands [{:type :variable, :name 'n}
+                                                  {:type :literal,
+                                                   :value 2}]}]}]}}}
           ast {:type :application,
                :operator self-fn,
                :operands [self-fn {:type :literal, :value 10}]}]
@@ -726,24 +727,24 @@
                           :alternate {:type :application,
                                       :operator {:type :variable, :name 'self},
                                       :operands
-                                      [{:type :variable, :name 'self}
-                                       {:type :application,
-                                        :operator {:type :variable, :name '-},
-                                        :operands [{:type :variable, :name 'n}
-                                                   {:type :literal,
-                                                    :value 1}]}]}}}
+                                        [{:type :variable, :name 'self}
+                                         {:type :application,
+                                          :operator {:type :variable, :name '-},
+                                          :operands [{:type :variable, :name 'n}
+                                                     {:type :literal,
+                                                      :value 1}]}]}}}
           ast {:type :application,
                :operator self-fn,
                :operands [self-fn {:type :literal, :value 100}]}
           datoms (vm/ast->datoms ast)
           {:keys [asm reg-count]} (register/ast-datoms->asm datoms)
-          compiled (assoc (register/asm->bytecode asm) :reg-count reg-count)
+          compiled (assoc (register/assemble asm) :reg-count reg-count)
           vm-inst (register/create-vm {:env vm/primitives})
           vm-loaded (vm/load-program vm-inst compiled)
           ;; Step through, collecting k depth at each step
           k-depth
-          (fn [k]
-            (loop [k k d 0] (if (nil? k) d (recur (:parent k) (inc d)))))
+            (fn [k]
+              (loop [k k d 0] (if (nil? k) d (recur (:parent k) (inc d)))))
           max-depth (loop [v vm-loaded
                            max-d 0]
                       (if (vm/halted? v)

@@ -1,20 +1,19 @@
 (ns datomworld.continuation-stream-demo
-  (:require
-    ["@codemirror/state" :refer [EditorState]]
-    ["@codemirror/theme-one-dark" :refer [oneDark]]
-    ["@codemirror/view" :refer [EditorView]]
-    ["@nextjournal/lang-clojure" :refer [clojure]]
-    ["codemirror" :refer [basicSetup]]
-    [cljs.pprint :as pprint]
-    [cljs.reader :as reader]
-    [clojure.string :as str]
-    [dao.stream :as ds]
-    [datomworld.continuation-transport :as ct]
-    [reagent.core :as r]
-    [yang.clojure :as yang]
-    [yin.vm :as vm]
-    [yin.vm.register :as register]
-    [yin.vm.stack :as stack]))
+  (:require ["@codemirror/state" :refer [EditorState]]
+            ["@codemirror/theme-one-dark" :refer [oneDark]]
+            ["@codemirror/view" :refer [EditorView]]
+            ["@nextjournal/lang-clojure" :refer [clojure]]
+            ["codemirror" :refer [basicSetup]]
+            [cljs.pprint :as pprint]
+            [cljs.reader :as reader]
+            [clojure.string :as str]
+            [dao.stream :as ds]
+            [datomworld.continuation-transport :as ct]
+            [reagent.core :as r]
+            [yang.clojure :as yang]
+            [yin.vm :as vm]
+            [yin.vm.register :as register]
+            [yin.vm.stack :as stack]))
 
 
 (def source-example
@@ -52,70 +51,69 @@
     (r/create-class
       {:display-name "continuation-codemirror-editor",
        :component-did-mount
-       (fn [_]
-         (when-let [node @el-ref]
-           (let [theme (.theme EditorView
-                               #js {"&" #js {:height "100%"},
-                                    ".cm-scroller" #js {:overflow "auto"}})
-                 extensions
-                 (cond-> #js [basicSetup (clojure) oneDark theme]
-                   read-only (.concat #js [(.of (.-editable EditorView)
-                                                false)])
-                   on-change
-                   (.concat
-                     #js [(.of
-                            (.-updateListener EditorView)
-                            (fn [^js update]
-                              (when (and (.-docChanged update) on-change)
-                                (on-change
-                                  (.. update -state -doc toString)))))]))
-                 state (.create EditorState
-                                #js {:doc (or value ""),
-                                     :extensions extensions})
-                 view (new EditorView #js {:state state, :parent node})]
-             (reset! view-ref view)
-             (when auto-scroll-bottom
-               (js/requestAnimationFrame
-                 (fn []
-                   (let [scroll-dom (.-scrollDOM view)]
-                     (set! (.-scrollTop scroll-dom)
-                           (.-scrollHeight scroll-dom))))))))),
+         (fn [_]
+           (when-let [node @el-ref]
+             (let [theme (.theme EditorView
+                                 #js {"&" #js {:height "100%"},
+                                      ".cm-scroller" #js {:overflow "auto"}})
+                   extensions
+                     (cond-> #js [basicSetup (clojure) oneDark theme]
+                       read-only (.concat #js [(.of (.-editable EditorView)
+                                                    false)])
+                       on-change
+                         (.concat
+                           #js [(.of
+                                  (.-updateListener EditorView)
+                                  (fn [^js update]
+                                    (when (and (.-docChanged update) on-change)
+                                      (on-change
+                                        (.. update -state -doc toString)))))]))
+                   state (.create EditorState
+                                  #js {:doc (or value ""),
+                                       :extensions extensions})
+                   view (new EditorView #js {:state state, :parent node})]
+               (reset! view-ref view)
+               (when auto-scroll-bottom
+                 (js/requestAnimationFrame
+                   (fn []
+                     (let [scroll-dom (.-scrollDOM view)]
+                       (set! (.-scrollTop scroll-dom)
+                             (.-scrollHeight scroll-dom))))))))),
        :component-did-update
-       (fn [this _]
-         (let [{:keys [value auto-scroll-bottom]} (r/props this)]
-           (when-let [view @view-ref]
-             (let [next-value (or value "")
-                   current-value (.. view -state -doc toString)]
-               (when (not= next-value current-value)
-                 (.dispatch view
-                            #js {:changes #js
-                                          {:from 0,
-                                           :to (.. view -state -doc -length),
-                                           :insert next-value}})
-                 (when auto-scroll-bottom
-                   (js/requestAnimationFrame
-                     (fn []
-                       (let [scroll-dom (.-scrollDOM view)]
-                         (set! (.-scrollTop scroll-dom)
-                               (.-scrollHeight scroll-dom))))))))))),
+         (fn [this _]
+           (let [{:keys [value auto-scroll-bottom]} (r/props this)]
+             (when-let [view @view-ref]
+               (let [next-value (or value "")
+                     current-value (.. view -state -doc toString)]
+                 (when (not= next-value current-value)
+                   (.dispatch view
+                              #js {:changes #js
+                                             {:from 0,
+                                              :to (.. view -state -doc -length),
+                                              :insert next-value}})
+                   (when auto-scroll-bottom
+                     (js/requestAnimationFrame
+                       (fn []
+                         (let [scroll-dom (.-scrollDOM view)]
+                           (set! (.-scrollTop scroll-dom)
+                                 (.-scrollHeight scroll-dom))))))))))),
        :component-will-unmount (fn [_]
                                  (when-let [view @view-ref]
                                    (.destroy view)
                                    (reset! view-ref nil))),
        :reagent-render
-       (fn [{:keys [style]}]
-         [:div
-          {:ref #(reset! el-ref %),
-           :style (merge {:height "100%",
-                          :width "100%",
-                          :border "1px solid #2d3b55",
-                          :overflow "hidden"}
-                         style)}])})))
+         (fn [{:keys [style]}] [:div
+                                {:ref #(reset! el-ref %),
+                                 :style (merge {:height "100%",
+                                                :width "100%",
+                                                :border "1px solid #2d3b55",
+                                                :overflow "hidden"}
+                                               style)}])})))
 
 
 (defonce app-state
   (let [{:keys [continuation-stream cursors pending-continuations]}
-        (ct/init-state [:register-vm :stack-vm])]
+          (ct/init-state [:register-vm :stack-vm])]
     (r/atom
       {:source-code source-example,
        :ast nil,
@@ -186,14 +184,10 @@
                {:pc (:pc frame), :stack-size (count (:stack frame))}))))
 
 
-(defn stack-vm?
-  [vm-key]
-  (= vm-key :stack-vm))
+(defn stack-vm? [vm-key] (= vm-key :stack-vm))
 
 
-(defn vm-control-counter
-  [_vm-key vm-state]
-  (when vm-state (:pc vm-state)))
+(defn vm-control-counter [_vm-key vm-state] (when vm-state (:pc vm-state)))
 
 
 (defn vm-continuation-depth
@@ -221,9 +215,7 @@
     (assoc resumed :primitives vm/primitives)))
 
 
-(defn other-vm
-  [vm-key]
-  (if (= vm-key :register-vm) :stack-vm :register-vm))
+(defn other-vm [vm-key] (if (= vm-key :register-vm) :stack-vm :register-vm))
 
 
 (defn create-loaded-register-vm
@@ -273,7 +265,7 @@
       (let [[state* message] (ct/consume-continuation-for state owner)]
         (if message
           [(assoc state*
-                  owner (continuation->vm-state owner (:continuation message))) true]
+             owner (continuation->vm-state owner (:continuation message))) true]
           [state* false])))))
 
 
@@ -289,31 +281,31 @@
   []
   (stop-run-loop!)
   (let [{:keys [continuation-stream cursors pending-continuations]}
-        (ct/init-state [:register-vm :stack-vm])]
+          (ct/init-state [:register-vm :stack-vm])]
     (swap! app-state assoc
-           :ast nil
-           :ast-datoms nil
-           :register-asm nil
-           :register-bytecode nil
-           :register-pool nil
-           :register-source-map nil
-           :register-reg-count nil
-           :stack-asm nil
-           :stack-bytecode nil
-           :stack-pool nil
-           :stack-source-map nil
-           :register-vm nil
-           :stack-vm nil
-           :owner :register-vm
-           :steps 0
-           :handoffs 0
-           :steps-since-handoff 0
-           :continuation-stream continuation-stream
-           :cursors cursors
-           :pending-continuations pending-continuations
-           :completed? false
-           :result nil
-           :error nil)))
+      :ast nil
+      :ast-datoms nil
+      :register-asm nil
+      :register-bytecode nil
+      :register-pool nil
+      :register-source-map nil
+      :register-reg-count nil
+      :stack-asm nil
+      :stack-bytecode nil
+      :stack-pool nil
+      :stack-source-map nil
+      :register-vm nil
+      :stack-vm nil
+      :owner :register-vm
+      :steps 0
+      :handoffs 0
+      :steps-since-handoff 0
+      :continuation-stream continuation-stream
+      :cursors cursors
+      :pending-continuations pending-continuations
+      :completed? false
+      :result nil
+      :error nil)))
 
 
 (defn set-source-code!
@@ -330,24 +322,24 @@
     (when (and register-bytecode register-pool register-reg-count)
       (stop-run-loop!)
       (let [{:keys [continuation-stream cursors pending-continuations]}
-            (ct/init-state [:register-vm :stack-vm])
+              (ct/init-state [:register-vm :stack-vm])
             initial-vm (create-loaded-register-vm {:bytecode register-bytecode,
                                                    :pool register-pool,
                                                    :reg-count
-                                                   register-reg-count})]
+                                                     register-reg-count})]
         (swap! app-state assoc
-               :register-vm initial-vm
-               :stack-vm nil
-               :owner :register-vm
-               :steps 0
-               :handoffs 0
-               :steps-since-handoff 0
-               :continuation-stream continuation-stream
-               :cursors cursors
-               :pending-continuations pending-continuations
-               :completed? false
-               :result nil
-               :error nil)))))
+          :register-vm initial-vm
+          :stack-vm nil
+          :owner :register-vm
+          :steps 0
+          :handoffs 0
+          :steps-since-handoff 0
+          :continuation-stream continuation-stream
+          :cursors cursors
+          :pending-continuations pending-continuations
+          :completed? false
+          :result nil
+          :error nil)))))
 
 
 (defn compile-source!
@@ -359,48 +351,48 @@
             ast (yang/compile-program forms)
             ast-datoms (vm/ast->datoms ast)
             {:keys [asm reg-count]} (register/ast-datoms->asm ast-datoms)
-            {:keys [bytecode pool source-map]} (register/asm->bytecode asm)
+            {:keys [bytecode pool source-map]} (register/assemble asm)
             stack-asm (stack/ast-datoms->asm ast-datoms)
             {stack-bytecode :bytecode,
              stack-pool :pool,
              stack-source-map :source-map}
-            (stack/asm->bytecode stack-asm)
+              (stack/assemble stack-asm)
             {:keys [continuation-stream cursors pending-continuations]}
-            (ct/init-state [:register-vm :stack-vm])
+              (ct/init-state [:register-vm :stack-vm])
             initial-vm (create-loaded-register-vm {:bytecode bytecode,
                                                    :pool pool,
                                                    :reg-count reg-count})]
         (swap! app-state assoc
-               :ast ast
-               :ast-datoms ast-datoms
-               :register-asm asm
-               :register-bytecode bytecode
-               :register-pool pool
-               :register-source-map source-map
-               :register-reg-count reg-count
-               :stack-asm stack-asm
-               :stack-bytecode stack-bytecode
-               :stack-pool stack-pool
-               :stack-source-map stack-source-map
-               :register-vm initial-vm
-               :stack-vm nil
-               :owner :register-vm
-               :steps 0
-               :handoffs 0
-               :steps-since-handoff 0
-               :continuation-stream continuation-stream
-               :cursors cursors
-               :pending-continuations pending-continuations
-               :running false
-               :completed? false
-               :result nil
-               :error nil))
+          :ast ast
+          :ast-datoms ast-datoms
+          :register-asm asm
+          :register-bytecode bytecode
+          :register-pool pool
+          :register-source-map source-map
+          :register-reg-count reg-count
+          :stack-asm stack-asm
+          :stack-bytecode stack-bytecode
+          :stack-pool stack-pool
+          :stack-source-map stack-source-map
+          :register-vm initial-vm
+          :stack-vm nil
+          :owner :register-vm
+          :steps 0
+          :handoffs 0
+          :steps-since-handoff 0
+          :continuation-stream continuation-stream
+          :cursors cursors
+          :pending-continuations pending-continuations
+          :running false
+          :completed? false
+          :result nil
+          :error nil))
       (catch :default e
         (swap! app-state assoc
-               :error (str "Compile error: " (.-message e))
-               :running false
-               :completed? false
-               :result nil)))))
+          :error (str "Compile error: " (.-message e))
+          :running false
+          :completed? false
+          :result nil)))))
 
 
 (defn emit-handoff
@@ -427,9 +419,9 @@
             (nil? active-vm) (-> state*
                                  (assoc :running false)
                                  (assoc :error
-                                        (str "No continuation available for "
-                                             (name owner)
-                                             ".")))
+                                          (str "No continuation available for "
+                                               (name owner)
+                                               ".")))
             :else (try (let [stepped (vm/step active-vm)
                              stepped-state (-> state*
                                                (assoc owner stepped)
@@ -437,13 +429,13 @@
                                                (update :steps-since-handoff inc)
                                                (assoc :error nil))]
                          (cond (vm/halted? stepped)
-                               (-> stepped-state
-                                   (assoc :completed? true)
-                                   (assoc :running false)
-                                   (assoc :result (vm/value stepped)))
+                                 (-> stepped-state
+                                     (assoc :completed? true)
+                                     (assoc :running false)
+                                     (assoc :result (vm/value stepped)))
                                (>= (:steps-since-handoff stepped-state)
                                    (:handoff-interval stepped-state))
-                               (emit-handoff stepped-state owner stepped)
+                                 (emit-handoff stepped-state owner stepped)
                                :else stepped-state))
                        (catch :default e
                          (-> state*
@@ -458,9 +450,7 @@
 (declare run-frame!)
 
 
-(defn step-once!
-  []
-  (stop-run-loop!) (swap! app-state step-state))
+(defn step-once! [] (stop-run-loop!) (swap! app-state step-state))
 
 
 (defn run-frame!
@@ -623,7 +613,7 @@
                        (:stack-bytecode @app-state))]
     [:div
      {:style
-      {:display "flex", :flex-wrap "wrap", :align-items "center", :gap "8px"}}
+        {:display "flex", :flex-wrap "wrap", :align-items "center", :gap "8px"}}
      [:button
       {:on-click compile-source!,
        :style {:background "#1f6feb",
@@ -698,114 +688,114 @@
                               (compile-source!))),
      :component-will-unmount (fn [] (stop-run-loop!)),
      :reagent-render
-     (fn []
-       (let [{:keys [source-code register-asm register-bytecode register-pool
-                     register-reg-count stack-asm stack-bytecode stack-pool
-                     continuation-stream cursors steps handoffs owner
-                     completed? result error]}
-             @app-state
-             register-vm (:register-vm @app-state)
-             stack-vm (:stack-vm @app-state)
-             bytecode-view
-             (if (and register-bytecode stack-bytecode)
-               (pretty-print {:register-vm {:reg-count register-reg-count,
-                                            :pool register-pool,
-                                            :bytecode register-bytecode,
-                                            :asm (mapv vector
+       (fn []
+         (let [{:keys [source-code register-asm register-bytecode register-pool
+                       register-reg-count stack-asm stack-bytecode stack-pool
+                       continuation-stream cursors steps handoffs owner
+                       completed? result error]}
+                 @app-state
+               register-vm (:register-vm @app-state)
+               stack-vm (:stack-vm @app-state)
+               bytecode-view
+                 (if (and register-bytecode stack-bytecode)
+                   (pretty-print {:register-vm {:reg-count register-reg-count,
+                                                :pool register-pool,
+                                                :bytecode register-bytecode,
+                                                :asm (mapv vector
                                                        (range (count
                                                                 register-asm))
                                                        register-asm)},
-                              :stack-vm {:pool stack-pool,
-                                         :bytecode stack-bytecode,
-                                         :asm (mapv vector
+                                  :stack-vm {:pool stack-pool,
+                                             :bytecode stack-bytecode,
+                                             :asm (mapv vector
                                                     (range (count stack-asm))
                                                     stack-asm)}})
-               "Compile source to generate register and stack bytecode.")
-             queue-view (pretty-print
-                          (ct/in-flight-summary continuation-stream cursors))
-             stream-view (pretty-print (stream-last-vec continuation-stream
-                                                        200))
-             run-summary
-             {:owner owner,
-              :steps steps,
-              :handoffs handoffs,
-              :register-vm-control (vm-control-counter :register-vm
-                                                       register-vm),
-              :stack-vm-control (vm-control-counter :stack-vm stack-vm),
-              :register-cursor (get-in cursors [:register-vm :position]),
-              :stack-cursor (get-in cursors [:stack-vm :position]),
-              :stream-length (ds/length continuation-stream),
-              :completed? completed?,
-              :result result}]
-         [:div
-          {:style {:min-height "100vh",
-                   :background "#060817",
-                   :color "#c5c6c7",
-                   :padding "16px",
-                   :display "flex",
-                   :flex-direction "column",
-                   :gap "12px",
-                   :box-sizing "border-box"}}
-          [:div
-           {:style {:display "flex",
-                    :justify-content "space-between",
-                    :align-items "center",
-                    :gap "12px",
-                    :flex-wrap "wrap"}}
-           [:h1 {:style {:margin 0, :font-size "1.4rem", :color "#f1f5ff"}}
-            "Register VM + Stack VM Continuation Stream"]
-           [:div {:style {:font-size "12px", :color "#8b949e"}}
-            "Use the hamburger menu to switch demos."]] [controls-panel]
-          [:div
-           {:style {:display "grid",
-                    :grid-template-columns "repeat(2, minmax(0, 1fr))",
-                    :grid-template-rows "300px 360px 320px",
-                    :gap "12px",
-                    :flex "1",
-                    :min-height "0"}}
-           [card "Source" "CodeMirror editor: Clojure code"
-            [codemirror-editor
-             {:value source-code,
-              :on-change set-source-code!,
-              :style {:height "100%"}}]]
-           [card "Compiled Bytecode"
-            "Compiled from source via yang -> AST datoms -> register and stack asm."
-            [codemirror-editor
-             {:value bytecode-view,
-              :read-only true,
-              :style {:height "100%"}}]]
-           [card "Register VM"
-            "Register machine CESK state while ownership changes."
-            [vm-window :register-vm "Register VM" "#3b82f6"]]
-           [card "Stack VM"
-            "Stack machine CESK state while ownership changes."
-            [vm-window :stack-vm "Stack VM" "#22c55e"]]
+                   "Compile source to generate register and stack bytecode.")
+               queue-view (pretty-print
+                            (ct/in-flight-summary continuation-stream cursors))
+               stream-view (pretty-print (stream-last-vec continuation-stream
+                                                          200))
+               run-summary
+                 {:owner owner,
+                  :steps steps,
+                  :handoffs handoffs,
+                  :register-vm-control (vm-control-counter :register-vm
+                                                           register-vm),
+                  :stack-vm-control (vm-control-counter :stack-vm stack-vm),
+                  :register-cursor (get-in cursors [:register-vm :position]),
+                  :stack-cursor (get-in cursors [:stack-vm :position]),
+                  :stream-length (ds/length continuation-stream),
+                  :completed? completed?,
+                  :result result}]
            [:div
-            {:style {:grid-column "1 / span 2",
-                     :display "grid",
-                     :grid-template-columns "repeat(3, minmax(0, 1fr))",
+            {:style {:min-height "100vh",
+                     :background "#060817",
+                     :color "#c5c6c7",
+                     :padding "16px",
+                     :display "flex",
+                     :flex-direction "column",
                      :gap "12px",
-                     :min-height "0"}}
-            [card "In-Flight"
-             "Continuations between VM cursor and stream head."
-             [codemirror-editor
-              {:value queue-view, :read-only true, :style {:height "100%"}}]]
-            [card "Stream Datoms"
-             "Append-only stream facts for continuation emit/deliver events."
-             [codemirror-editor
-              {:value stream-view,
-               :read-only true,
-               :auto-scroll-bottom true,
-               :style {:height "100%"}}]]
-            [card "Run Summary" "Execution totals and final value."
-             [codemirror-editor
-              {:value (pretty-print run-summary),
-               :read-only true,
-               :style {:height "100%"}}]]]]
-          (when error
+                     :box-sizing "border-box"}}
             [:div
-             {:style {:background "rgba(255,0,0,0.2)",
-                      :border "1px solid #da3633",
-                      :padding "8px",
-                      :font-size "12px",
-                      :color "#f85149"}} error])]))}))
+             {:style {:display "flex",
+                      :justify-content "space-between",
+                      :align-items "center",
+                      :gap "12px",
+                      :flex-wrap "wrap"}}
+             [:h1 {:style {:margin 0, :font-size "1.4rem", :color "#f1f5ff"}}
+              "Register VM + Stack VM Continuation Stream"]
+             [:div {:style {:font-size "12px", :color "#8b949e"}}
+              "Use the hamburger menu to switch demos."]] [controls-panel]
+            [:div
+             {:style {:display "grid",
+                      :grid-template-columns "repeat(2, minmax(0, 1fr))",
+                      :grid-template-rows "300px 360px 320px",
+                      :gap "12px",
+                      :flex "1",
+                      :min-height "0"}}
+             [card "Source" "CodeMirror editor: Clojure code"
+              [codemirror-editor
+               {:value source-code,
+                :on-change set-source-code!,
+                :style {:height "100%"}}]]
+             [card "Compiled Bytecode"
+              "Compiled from source via yang -> AST datoms -> register and stack asm."
+              [codemirror-editor
+               {:value bytecode-view,
+                :read-only true,
+                :style {:height "100%"}}]]
+             [card "Register VM"
+              "Register machine CESK state while ownership changes."
+              [vm-window :register-vm "Register VM" "#3b82f6"]]
+             [card "Stack VM"
+              "Stack machine CESK state while ownership changes."
+              [vm-window :stack-vm "Stack VM" "#22c55e"]]
+             [:div
+              {:style {:grid-column "1 / span 2",
+                       :display "grid",
+                       :grid-template-columns "repeat(3, minmax(0, 1fr))",
+                       :gap "12px",
+                       :min-height "0"}}
+              [card "In-Flight"
+               "Continuations between VM cursor and stream head."
+               [codemirror-editor
+                {:value queue-view, :read-only true, :style {:height "100%"}}]]
+              [card "Stream Datoms"
+               "Append-only stream facts for continuation emit/deliver events."
+               [codemirror-editor
+                {:value stream-view,
+                 :read-only true,
+                 :auto-scroll-bottom true,
+                 :style {:height "100%"}}]]
+              [card "Run Summary" "Execution totals and final value."
+               [codemirror-editor
+                {:value (pretty-print run-summary),
+                 :read-only true,
+                 :style {:height "100%"}}]]]]
+            (when error
+              [:div
+               {:style {:background "rgba(255,0,0,0.2)",
+                        :border "1px solid #da3633",
+                        :padding "8px",
+                        :font-size "12px",
+                        :color "#f85149"}} error])]))}))
