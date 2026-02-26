@@ -1,4 +1,0 @@
-{:map {:force-nl? true}
- :fn-map {"defn" :arg1-force-nl
-          "defn-" :arg1-force-nl
-          "defmacro" :arg1-force-nl}}
