@@ -296,6 +296,35 @@
   (let [u (fetch-short-unsigned bytes pc)] (if (>= u 32768) (- u 65536) u)))
 
 
+(defn- snap-frame
+  "Snapshot current VM frame for parking or reification."
+  [{:keys [bytecode env call-stack pool]} stack pc]
+  {:pc pc,
+   :bytecode bytecode,
+   :stack stack,
+   :env env,
+   :call-stack call-stack,
+   :pool pool})
+
+
+(defn- handle-native-result
+  "Handle result of calling a native fn. Routes effects through handle-effect."
+  [state result stack-rest next-pc park-entry-fns]
+  (if (module/effect? result)
+    (let [{:keys [state value blocked?]} (engine/handle-effect
+                                           state
+                                           result
+                                           {:park-entry-fns park-entry-fns})]
+      (if blocked?
+        state
+        (assoc state
+               :stack (conj stack-rest value)
+               :pc next-pc)))
+    (assoc state
+           :stack (conj stack-rest result)
+           :pc next-pc)))
+
+
 (defn- apply-op
   [state argc tail?]
   (let [{:keys [pc bytecode stack env call-stack pool _store id-counter]} state
@@ -306,40 +335,21 @@
         next-pc (+ pc 2)]
     (cond (fn? fn-val)
           (let [res (apply fn-val args)]
-            (if (module/effect? res)
-              (let [{:keys [state value blocked?]}
-                    (engine/handle-effect
-                      state
-                      res
-                      {:park-entry-fns
-                       {:stream/put (fn [_s _e r]
-                                      {:pc next-pc,
-                                       :bytecode bytecode,
-                                       :stack stack-rest,
-                                       :env env,
-                                       :call-stack call-stack,
-                                       :pool pool,
-                                       :reason :put,
-                                       :stream-id (:stream-id r),
-                                       :datom (:val res)}),
-                        :stream/next (fn [_s _e r]
-                                       {:pc next-pc,
-                                        :bytecode bytecode,
-                                        :stack stack-rest,
-                                        :env env,
-                                        :call-stack call-stack,
-                                        :pool pool,
-                                        :reason :next,
-                                        :cursor-ref (:cursor-ref r),
-                                        :stream-id (:stream-id r)})}})]
-                (if blocked?
-                  state
-                  (assoc state
-                         :pc next-pc
-                         :stack (conj stack-rest value))))
-              (assoc state
-                     :pc next-pc
-                     :stack (conj stack-rest res))))
+            (handle-native-result
+              state
+              res
+              stack-rest
+              next-pc
+              {:stream/put (fn [_s _e r]
+                             (merge (snap-frame state stack-rest next-pc)
+                                    {:reason :put,
+                                     :stream-id (:stream-id r),
+                                     :datom (:val res)})),
+               :stream/next (fn [_s _e r]
+                              (merge (snap-frame state stack-rest next-pc)
+                                     {:reason :next,
+                                      :cursor-ref (:cursor-ref r),
+                                      :stream-id (:stream-id r)}))}))
           (= :closure (:type fn-val))
           (let [{clo-params :params,
                  clo-body :body-bytes,
@@ -347,11 +357,7 @@
                  clo-pool :pool}
                 fn-val
                 new-env (merge clo-env (zipmap clo-params args))
-                frame {:pc next-pc,
-                       :bytecode bytecode,
-                       :stack stack-rest,
-                       :env env,
-                       :pool pool}]
+                frame (snap-frame state stack-rest next-pc)]
             (if tail?
               ;; TCO: reuse current frame by
               ;; jumping directly to callee body.
@@ -490,20 +496,16 @@
                 stack-rest (pop stack1)
                 effect {:effect :stream/put, :stream stream-ref, :val val}
                 {:keys [state value blocked?]}
-                (engine/handle-effect state
-                                      effect
-                                      {:park-entry-fns
-                                       {:stream/put
-                                        (fn [_s _e r]
-                                          {:pc (+ pc 1),
-                                           :bytecode bytecode,
-                                           :stack (conj stack-rest val),
-                                           :env env,
-                                           :call-stack call-stack,
-                                           :pool pool,
-                                           :reason :put,
-                                           :stream-id (:stream-id r),
-                                           :datom val})}})]
+                (engine/handle-effect
+                  state
+                  effect
+                  {:park-entry-fns
+                   {:stream/put
+                    (fn [_s _e r]
+                      (merge (snap-frame state (conj stack-rest val) (+ pc 1))
+                             {:reason :put,
+                              :stream-id (:stream-id r),
+                              :datom val}))}})]
             (if blocked?
               state
               (assoc state
@@ -522,20 +524,16 @@
                 stack-rest (pop stack)
                 effect {:effect :stream/next, :cursor cursor-ref}
                 {:keys [state value blocked?]}
-                (engine/handle-effect state
-                                      effect
-                                      {:park-entry-fns
-                                       {:stream/next
-                                        (fn [_s _e r]
-                                          {:pc (+ pc 1),
-                                           :bytecode bytecode,
-                                           :stack stack-rest,
-                                           :env env,
-                                           :call-stack call-stack,
-                                           :pool pool,
-                                           :reason :next,
-                                           :cursor-ref (:cursor-ref r),
-                                           :stream-id (:stream-id r)})}})]
+                (engine/handle-effect
+                  state
+                  effect
+                  {:park-entry-fns
+                   {:stream/next
+                    (fn [_s _e r]
+                      (merge (snap-frame state stack-rest (+ pc 1))
+                             {:reason :next,
+                              :cursor-ref (:cursor-ref r),
+                              :stream-id (:stream-id r)}))}})]
             (if blocked?
               state
               (assoc state
@@ -550,13 +548,7 @@
                    :pc (+ pc 1)
                    :stack (conj stack-rest value)))
           :park
-          (engine/park-continuation state
-                                    {:pc pc,
-                                     :bytecode bytecode,
-                                     :stack stack,
-                                     :env env,
-                                     :call-stack call-stack,
-                                     :pool pool})
+          (engine/park-continuation state (snap-frame state stack pc))
           :resume ; OP_RESUME - pop val, pop parked-id
           (let [resume-val (peek stack)
                 stack1 (pop stack)
@@ -573,13 +565,8 @@
                                                  :call-stack (:call-stack parked)
                                                  :pool (:pool parked)))))
           :current-cont
-          (let [cont {:type :reified-continuation,
-                      :pc pc,
-                      :bytecode bytecode,
-                      :stack stack,
-                      :env env,
-                      :call-stack call-stack,
-                      :pool pool}]
+          (let [cont (assoc (snap-frame state stack pc)
+                            :type :reified-continuation)]
             (assoc state
                    :pc (+ pc 1)
                    :stack (conj stack cont)))
