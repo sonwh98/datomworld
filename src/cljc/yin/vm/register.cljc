@@ -327,6 +327,27 @@
    :result-reg rd})
 
 
+(defn- restore-frame
+  "Restore VM state from a snapshot, optionally pushing a result into rd."
+  ([state frame]
+   (assoc state
+          :pc (:pc frame)
+          :regs (:regs frame)
+          :k (:k frame)
+          :env (:env frame)
+          :bytecode (or (:bytecode frame) (:bytecode state))
+          :pool (or (:pool frame) (:pool state))))
+  ([state frame value]
+   (let [rd (:result-reg frame)]
+     (assoc state
+            :pc (:pc frame)
+            :regs (if rd (assoc (:regs frame) rd value) (:regs frame))
+            :k (:k frame)
+            :env (:env frame)
+            :bytecode (or (:bytecode frame) (:bytecode state))
+            :pool (or (:pool frame) (:pool state))))))
+
+
 (defn- handle-native-result
   "Handle result of calling a native fn. Routes effects through handle-effect."
   [{:keys [regs], :as state} result rd next-pc park-entry-fns]
@@ -427,13 +448,13 @@
                 (let [{:keys [params body-addr env bytecode pool reg-count]}
                       fn-val
                       new-frame {:type :call-frame,
-                                 :return-reg rd,
-                                 :return-pc next-pc,
-                                 :saved-regs regs,
-                                 :saved-env (:env state),
-                                 :saved-bytecode (:bytecode state),
-                                 :saved-pool (:pool state),
-                                 :parent k}
+                                 :result-reg rd,
+                                 :pc next-pc,
+                                 :regs regs,
+                                 :env (:env state),
+                                 :bytecode (:bytecode state),
+                                 :pool (:pool state),
+                                 :k k}
                       new-env (merge env (zipmap params fn-args))]
                   (assoc state
                          :regs (vec (repeat reg-count nil))
@@ -497,16 +518,7 @@
             (assoc state
                    :halted true
                    :value result)
-            (let [{:keys [return-reg return-pc saved-regs saved-env
-                          saved-bytecode saved-pool parent]}
-                  k]
-              (assoc state
-                     :regs (assoc saved-regs return-reg result)
-                     :k parent
-                     :env saved-env
-                     :bytecode (or saved-bytecode (:bytecode state))
-                     :pool (or saved-pool (:pool state))
-                     :pc return-pc))))
+            (restore-frame state k result)))
         :branch
         (let [rt (get bytecode (+ pc 1))
               then-addr (get bytecode (+ pc 2))
@@ -611,14 +623,7 @@
                                       parked-id
                                       resume-val
                                       (fn [new-state parked rv]
-                                        (let [rd (:result-reg parked)]
-                                          (assoc new-state
-                                                 :pc (:pc parked)
-                                                 :regs (assoc (:regs parked) rd rv)
-                                                 :k (:k parked)
-                                                 :env (:env parked)
-                                                 :bytecode (:bytecode parked)
-                                                 :pool (:pool parked))))))
+                                        (restore-frame new-state parked rv))))
         :current-cont
         (let [rd (get bytecode (+ pc 1))
               cont (assoc (snap-frame state rd (+ pc 2))
@@ -639,16 +644,7 @@
   [state]
   (engine/resume-from-run-queue state
                                 (fn [base entry]
-                                  (assoc base
-                                         :pc (:pc entry)
-                                         :regs (if-let [rd (:result-reg entry)]
-                                                 (assoc (:regs entry)
-                                                        rd (:value entry))
-                                                 (:regs entry))
-                                         :k (:k entry)
-                                         :env (:env entry)
-                                         :bytecode (:bytecode entry)
-                                         :pool (:pool entry)))))
+                                  (restore-frame base entry (:value entry)))))
 
 
 ;; =============================================================================

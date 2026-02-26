@@ -366,9 +366,9 @@
           "Should have a state with non-nil continuation")
       (is (= :call-frame (:type (vm/continuation inside-closure)))
           "Continuation should be a :call-frame")
-      (is (vector? (:saved-regs (vm/continuation inside-closure)))
+      (is (vector? (:regs (vm/continuation inside-closure)))
           "Continuation should save caller registers")
-      (is (integer? (:return-pc (vm/continuation inside-closure)))
+      (is (integer? (:pc (vm/continuation inside-closure)))
           "Continuation should have a return PC"))))
 
 
@@ -745,7 +745,7 @@
           ;; Step through, collecting k depth at each step
           k-depth
           (fn [k]
-            (loop [k k d 0] (if (nil? k) d (recur (:parent k) (inc d)))))
+            (loop [k k d 0] (if (nil? k) d (recur (:k k) (inc d)))))
           max-depth (loop [v vm-loaded
                            max-d 0]
                       (if (vm/halted? v)
