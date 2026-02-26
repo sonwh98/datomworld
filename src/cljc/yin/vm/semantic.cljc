@@ -76,23 +76,21 @@
 ;; =============================================================================
 
 (defrecord SemanticVM
-  [control    ; current control state {:type
-   ;; :node/:value, ...}
-   env        ; lexical environment
-   stack      ; continuation stack
+  [blocked    ; true if blocked
+   control    ; current control state {:type :node/:value, ...}
    datoms     ; AST datoms
-   index      ; Entity index {eid [datom...]}
+   env        ; lexical environment
    halted     ; true if execution completed
-   value      ; final result value
-   store      ; heap memory
-   parked     ; parked continuations
    id-counter ; unique ID counter
-   primitives ; primitive operations
-   blocked    ; true if blocked
-   run-queue  ; vector of runnable continuations
-   wait-set   ; vector of parked continuations waiting
-   ;; on streams
+   index      ; Entity index {eid [datom...]}
    node-id-counter ; unique negative ID counter for AST nodes
+   parked     ; parked continuations
+   primitives ; primitive operations
+   run-queue  ; vector of runnable continuations
+   stack      ; continuation stack
+   store      ; heap memory
+   value      ; final result value
+   wait-set   ; vector of parked continuations waiting on streams
    ])
 
 

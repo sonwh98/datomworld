@@ -25,20 +25,20 @@
 ;; =============================================================================
 
 (defrecord RegisterVM
-  [regs       ; virtual registers vector
-   k          ; continuation (call frame stack)
-   env        ; lexical environment
-   pc         ; program counter
+  [blocked    ; true if blocked
    bytecode   ; numeric bytecode vector
-   pool       ; constant pool
+   env        ; lexical environment
    halted     ; true if execution completed
-   value      ; final result value
-   store      ; heap memory
-   parked     ; parked continuations
    id-counter ; unique ID counter
+   k          ; continuation (call frame stack)
+   parked     ; parked continuations
+   pc         ; program counter
+   pool       ; constant pool
    primitives ; primitive operations
-   blocked    ; true if blocked
+   regs       ; virtual registers vector
    run-queue  ; vector of runnable continuations
+   store      ; heap memory
+   value      ; final result value
    wait-set   ; vector of parked continuations waiting on streams
    ])
 

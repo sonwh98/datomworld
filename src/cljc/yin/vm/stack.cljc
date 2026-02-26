@@ -25,20 +25,20 @@
 ;; =============================================================================
 
 (defrecord StackVM
-  [pc         ; program counter
+  [blocked    ; true if blocked
    bytecode   ; bytecode vector
-   stack      ; operand stack
-   env        ; lexical environment
    call-stack ; call frames for function returns
-   pool       ; constant pool
+   env        ; lexical environment
    halted     ; true if execution completed
-   value      ; final result value
-   store      ; heap memory
-   parked     ; parked continuations
    id-counter ; unique ID counter
+   parked     ; parked continuations
+   pc         ; program counter
+   pool       ; constant pool
    primitives ; primitive operations
-   blocked    ; true if blocked
    run-queue  ; vector of runnable continuations
+   stack      ; operand stack
+   store      ; heap memory
+   value      ; final result value
    wait-set   ; vector of parked continuations waiting on
    ;; streams
    ])

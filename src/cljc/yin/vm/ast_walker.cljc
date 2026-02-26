@@ -29,16 +29,16 @@
 ;; =============================================================================
 
 (defrecord ASTWalkerVM
-  [control      ; current AST node or nil
-   environment  ; persistent lexical scope map
+  [blocked      ; boolean, true if blocked
    continuation ; reified continuation or nil
-   value        ; last computed value
-   store        ; heap memory map
-   parked       ; parked continuations map
+   control      ; current AST node or nil
+   environment  ; persistent lexical scope map
    id-counter   ; integer counter for unique IDs
+   parked       ; parked continuations map
    primitives   ; primitive operations map
-   blocked      ; boolean, true if blocked
    run-queue    ; vector of runnable continuations
+   store        ; heap memory map
+   value        ; last computed value
    wait-set     ; vector of parked continuations
    ;; waiting on streams
    ])
