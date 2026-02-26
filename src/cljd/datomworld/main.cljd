@@ -1,9 +1,9 @@
 (ns datomworld.main
   (:require ["package:flutter/material.dart" :as m]
             [clojure.edn :as edn]
+            [yang.clojure :as yang]
             [yin.vm :as vm]
-            [yin.vm.ast-walker :as ast-walker]
-            [yang.clojure :as yang])
+            [yin.vm.ast-walker :as ast-walker])
   (:import [dart:core double]))
 
 (def default-clojure "(+ 30 20)")
@@ -119,4 +119,3 @@
                            (m/ThemeData .primarySwatch m.Colors/blue)
                            .home
                            (home-page))))
-
