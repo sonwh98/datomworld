@@ -158,7 +158,7 @@
     {:by-entity by-entity, :get-attr get-attr, :root-id root-id}))
 
 
-(defn resume-entries-with-nil
+(defn- resume-entries-with-nil
   "Set :value to nil on each entry, for waking parked continuations after stream close."
   [entries]
   (mapv #(assoc % :value nil) entries))
