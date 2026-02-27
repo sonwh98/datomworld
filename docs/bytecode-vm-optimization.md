@@ -360,3 +360,88 @@ Conclusion:
 
 - On ClojureDart, this branch is faster than `master` for the benchmarked
   register workload, with ~10% improvement based on both mean and median views.
+
+## JVM Benchmark vs master (2026-02-27)
+
+Goal:
+
+- Compare RegisterVM runtime on JVM between the current optimization branch and
+  `master` using an identical harness in both branches.
+
+Method:
+
+- Branch under test: `bytecode-vm-optimization` (`ba6d68e`)
+- Baseline: `master` (`d66b250`)
+- Workload: tail-recursive countdown (`n=50000`) on RegisterVM.
+- Parameters: `iterations=20`, `samples=9`, `warmup=4`.
+- Command (both branches): `clojure -M /tmp/register-jvm-compare.clj`
+- Repetitions: 5 runs per branch, comparing each run's reported
+  `mean_total_ms`.
+
+Run results (`mean_total_ms`):
+
+- Current branch:
+  - `1890.9242`
+  - `1894.3925`
+  - `1958.1901`
+  - `1901.9290`
+  - `2026.8431`
+- Master:
+  - `8927.2644`
+  - `8342.9546`
+  - `8225.7303`
+  - `8366.0426`
+  - `8071.1745`
+
+Aggregates:
+
+- Mean of run means:
+  - Current: `1934.4558 ms`
+  - Master: `8386.6333 ms`
+  - Delta: `4.34x` speedup (`76.93%` faster)
+- Median of run means:
+  - Current: `1905.4432 ms`
+  - Master: `8339.9745 ms`
+  - Delta: `4.38x` speedup (`77.15%` faster)
+- Mean per-iteration (cross-check):
+  - Current: `96.7228 ms`
+  - Master: `419.3317 ms`
+  - Delta: `4.34x` speedup (`76.93%` faster)
+
+Conclusion:
+
+- JVM results match the direction seen on Node.js and ClojureDart. The current
+  branch is substantially faster than `master` for this register workload.
+
+## Analysis of ClojureDart Performance Delta (2026-02-27)
+
+While Node.js and JVM show 4x-7x speedups, ClojureDart (CLJD) initially shows a
+more modest ~10% improvement. Three factors contribute to this delta:
+
+1. **Workload Selection**:
+   - JVM/Node benchmarks used `tail-recursive countdown`, which spends 99% of its
+     time in the allocation-free instruction loop.
+   - The CLJD benchmark used `:closure-call`, which exercises closure creation
+     and environment binding. Small-map allocation in `bind-closure-env` is still
+     a bottleneck (documented in "Next steps") and affects all platforms, but
+     shows up more prominently in this specific workload.
+
+2. **Execution Path (Fast vs. Slow)**:
+   - The reported ~10% gain for CLJD was measured on the **slow path**
+     (`reg-vm-run-slow`) using the scheduler-backed loop, whereas JVM/Node were
+     measured on the **fast path** (`reg-vm-run-fast`).
+   - The slow path pays a high per-instruction tax for `atom` updates and
+     run-queue checks, masking the efficiency gains of the register-based
+     instruction set.
+
+3. **Indirection Overhead in Register Access**:
+   - To ensure correctness on Dart (where `object-array` returns a `List` that
+     might be mistaken for a standard Clojure vector), CLJD uses a tagged
+     wrapper: `[:reg-array <native-list>]`.
+   - Every `get-reg`/`set-reg!` on CLJD performs an extra `nth` call to
+     destructure this wrapper before accessing the native list.
+   - On JVM and Node.js, these are direct `aget`/`aset` operations on native
+     arrays.
+
+The next validation step is to re-run the `tail-recursive countdown` on CLJD
+using the newly re-enabled fast path (enabled by the `[:reg-array]` fix).

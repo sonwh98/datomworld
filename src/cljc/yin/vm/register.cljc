@@ -312,25 +312,30 @@
 (defn- reg-array?
   [regs]
   #?(:clj (and regs (.isArray (class regs)))
-     :cljs (array? regs)))
+     :cljs (array? regs)
+     :cljd (and (vector? regs)
+                (= :reg-array (nth regs 0 nil)))))
 
 
 (defn- reg-array-get
   [regs r]
   #?(:clj (aget ^objects regs (int r))
-     :cljs (aget regs r)))
+     :cljs (aget regs r)
+     :cljd (aget (nth regs 1) (int r))))
 
 
 (defn- reg-array-set!
   [regs r v]
   #?(:clj (aset ^objects regs (int r) v)
-     :cljs (aset regs r v)))
+     :cljs (aset regs r v)
+     :cljd (aset (nth regs 1) (int r) v)))
 
 
 (defn- reg-array-clone
   [regs]
   #?(:clj (aclone ^objects regs)
-     :cljs (.slice regs)))
+     :cljs (.slice regs)
+     :cljd [:reg-array (aclone (nth regs 1))]))
 
 
 (defn- make-empty-regs-array
@@ -340,7 +345,8 @@
              (loop [i 0]
                (if (< i n)
                  (do (aset arr i nil) (recur (inc i)))
-                 arr)))))
+                 arr)))
+     :cljd [:reg-array (object-array (int n))]))
 
 
 (defn- regs->array
@@ -348,6 +354,7 @@
   (if (reg-array? regs)
     regs
     #?(:clj (object-array regs)
+       :cljd [:reg-array (object-array regs)]
        :cljs (let [n (count regs)
                    arr (js/Array. n)]
                (loop [i 0]
@@ -358,7 +365,12 @@
 
 (defn- regs->vector
   [regs]
-  (if (vector? regs) regs (vec regs)))
+  (cond
+    (reg-array? regs)
+    #?(:cljd (vec (nth regs 1))
+       :default (vec regs))
+    (vector? regs) regs
+    :else (vec regs)))
 
 
 (defn- get-reg
@@ -1141,26 +1153,13 @@
 
 (defn- reg-vm-run
   [vm]
-  #?(:cljd
-     ;; CLJD currently hits a fast-path register call regression; keep the
-     ;; scheduler-backed loop for correctness on Dart.
-     (reg-vm-run-slow vm)
-     :clj
-     (if (or (:blocked vm)
-             (:halted vm)
-             (seq (:run-queue vm))
-             (seq (:wait-set vm))
-             (nil? (:bytecode vm)))
-       (reg-vm-run-slow vm)
-       (reg-vm-run-fast vm))
-     :cljs
-     (if (or (:blocked vm)
-             (:halted vm)
-             (seq (:run-queue vm))
-             (seq (:wait-set vm))
-             (nil? (:bytecode vm)))
-       (reg-vm-run-slow vm)
-       (reg-vm-run-fast vm))))
+  (if (or (:blocked vm)
+          (:halted vm)
+          (seq (:run-queue vm))
+          (seq (:wait-set vm))
+          (nil? (:bytecode vm)))
+    (reg-vm-run-slow vm)
+    (reg-vm-run-fast vm)))
 
 
 ;; =============================================================================
