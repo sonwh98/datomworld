@@ -402,33 +402,47 @@
   "Bind closure params from argument registers while preserving zipmap semantics:
    extra args are ignored and missing args bind as nil."
   [base-env params regs bytecode arg-base argc]
-  (let [pcount (count params)
-        arg-at (fn [i]
-                 (if (< i argc)
-                   (get-reg regs (nth bytecode (+ arg-base i)))
-                   nil))]
-    (if (zero? pcount)
-      base-env
-      (let [tenv0 (transient base-env)]
-        (case pcount
-          1 (persistent! (assoc! tenv0 (nth params 0) (arg-at 0)))
-          2 (persistent! (assoc! (assoc! tenv0
-                                         (nth params 0)
-                                         (arg-at 0))
-                                 (nth params 1)
-                                 (arg-at 1)))
-          3 (persistent! (assoc! (assoc! (assoc! tenv0
-                                                 (nth params 0)
-                                                 (arg-at 0))
-                                         (nth params 1)
-                                         (arg-at 1))
-                                 (nth params 2)
-                                 (arg-at 2)))
-          (loop [i 0
-                 tenv tenv0]
-            (if (< i pcount)
-              (recur (inc i) (assoc! tenv (nth params i) (arg-at i)))
-              (persistent! tenv))))))))
+  (let [pcount (count params)]
+    (case pcount
+      0 base-env
+      1 (assoc base-env
+               (nth params 0)
+               (if (< 0 argc)
+                 (get-reg regs (nth bytecode arg-base))
+                 nil))
+      2 (let [v0 (if (< 0 argc)
+                   (get-reg regs (nth bytecode arg-base))
+                   nil)
+              v1 (if (< 1 argc)
+                   (get-reg regs (nth bytecode (inc arg-base)))
+                   nil)]
+          (assoc (assoc base-env (nth params 0) v0)
+                 (nth params 1)
+                 v1))
+      3 (let [v0 (if (< 0 argc)
+                   (get-reg regs (nth bytecode arg-base))
+                   nil)
+              v1 (if (< 1 argc)
+                   (get-reg regs (nth bytecode (inc arg-base)))
+                   nil)
+              v2 (if (< 2 argc)
+                   (get-reg regs (nth bytecode (+ arg-base 2)))
+                   nil)]
+          (assoc (assoc (assoc base-env (nth params 0) v0)
+                        (nth params 1)
+                        v1)
+                 (nth params 2)
+                 v2))
+      (loop [i 0
+             tenv (transient base-env)]
+        (if (< i pcount)
+          (recur (inc i)
+                 (assoc! tenv
+                         (nth params i)
+                         (if (< i argc)
+                           (get-reg regs (nth bytecode (+ arg-base i)))
+                           nil)))
+          (persistent! tenv))))))
 
 
 (defn- snap-frame

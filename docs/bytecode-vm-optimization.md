@@ -195,3 +195,69 @@ For IO-heavy code (frequent effects):
 - `src/cljc/yin/vm/register.cljc` - `reg-vm-run-fast`
 - `src/cljc/yin/vm/stack.cljc` - `stack-vm-run-fast`
 - `test/yin/vm/parity_test.cljc` - slow-vs-fast parity test
+
+## RegisterVM Reapplied Optimization Pass (2026-02-27)
+
+Scope:
+
+- Reapplied RegisterVM hot-path env binding optimization.
+- Reapplied cleanup to stop passing primitives via `:env` at call sites.
+
+Code changes:
+
+- `src/cljc/yin/vm/register.cljc`
+  - `bind-closure-env` small arity (`0..3`) uses direct/chained `assoc` and
+    avoids transient + varargs-seq overhead.
+  - transient fallback remains for larger arities.
+- Call-site cleanup:
+  - removed `create-vm {:env vm/primitives}` usage across src/test.
+  - removed `:env (merge vm/primitives env)` pattern (now `:env env`).
+  - primitives now come from VM `:primitives` (`vm/empty-state`) only.
+- Tests updated to assert lexical environment behavior directly (not primitive
+  duplication inside lexical `:env`).
+
+Validation:
+
+- `clj -M:test`: 213 tests, 734 assertions, 0 failures.
+
+Benchmark comparison (fast-only register, `n=50000`):
+
+- Baseline commit: `7b0828a`
+- Baseline:
+  - `clj -M:bench 50000 --fast-only --register-only`
+  - mean `148.945135 ms`
+- Current:
+  - same command
+  - mean `125.324975 ms`
+- Delta: `15.85%` faster.
+
+Profile-fast comparison:
+
+- Baseline:
+  - `clj -M:profile-fast 50000`
+  - mean `141.264520 ms`
+- Current:
+  - same command
+  - mean `132.037961 ms`
+- Delta: `6.53%` faster.
+
+Allocation comparison (JFR `jdk.ObjectAllocationSample` top-frame weight sum):
+
+- Baseline total: `5,477,362,552`
+- Current total: `4,378,212,128`
+- Delta: `20.06%` lower sampled allocation.
+
+Hotspot movement:
+
+- Reduced:
+  - `PersistentHashMap$ArrayNode.ensureEditable`: `25.52% -> 0.00%`
+  - `PersistentHashMap$BitmapIndexedNode.ensureEditable`: `3.90% -> 0.00%`
+  - `MapEntry.create`: `19.92% -> 11.42%`
+- New dominant small-map churn:
+  - `PersistentArrayMap.create`: `6.63%`
+  - `PersistentArrayMap.assoc`: `4.60%`
+
+Next steps (RegisterVM):
+
+1. Reduce `RT.longCast`/`nth` cast pressure in `reg-vm-run-fast`.
+2. Reduce remaining small-map allocation in `bind-closure-env` for closure calls.

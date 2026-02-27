@@ -89,7 +89,7 @@
   (let [datoms (vm/ast->datoms ast)
         {:keys [asm reg-count]} (register/ast-datoms->asm datoms)
         compiled (assoc (register/assemble asm) :reg-count reg-count)]
-    (vm/load-program (register/create-vm {:env vm/primitives}) compiled)))
+    (vm/load-program (register/create-vm) compiled)))
 
 
 (defn- load-stack-program
@@ -97,7 +97,7 @@
   (let [datoms (vm/ast->datoms ast)
         asm (stack/ast-datoms->asm datoms)
         compiled (stack/assemble asm)]
-    (vm/load-program (stack/create-vm {:env vm/primitives}) compiled)))
+    (vm/load-program (stack/create-vm) compiled)))
 
 
 (defn- bench-vm

@@ -14,7 +14,7 @@
   [ast]
   (let [datoms (vm/ast->datoms ast)
         root-id (ffirst datoms)
-        vm (semantic/create-vm {:env vm/primitives})]
+        vm (semantic/create-vm)]
     (-> vm
         (vm/load-program {:node root-id, :datoms datoms})
         (vm/run)
@@ -25,7 +25,7 @@
   [ast]
   (let [datoms (vm/ast->datoms ast)
         root-id (ffirst datoms)]
-    (-> (semantic/create-vm {:env vm/primitives})
+    (-> (semantic/create-vm)
         (vm/load-program {:node root-id, :datoms datoms}))))
 
 
@@ -44,9 +44,9 @@
       (is (empty? (vm/continuation vm)))
       (is (= {} (vm/store vm)))
       (is (= 42 (vm/value vm)))))
-  (testing "Environment contains primitives when provided"
-    (let [vm (semantic/create-vm {:env vm/primitives})]
-      (is (fn? (get (vm/environment vm) '+))))))
+  (testing "Environment stores lexical bindings only"
+    (let [vm (semantic/create-vm {:env {'x 1}})]
+      (is (= 1 (get (vm/environment vm) 'x))))))
 
 
 ;; =============================================================================
@@ -55,7 +55,7 @@
 
 (deftest eval-literal-test
   (testing "vm/eval evaluates a literal AST directly"
-    (let [result (vm/eval (semantic/create-vm {:env vm/primitives})
+    (let [result (vm/eval (semantic/create-vm)
                           {:type :literal, :value 42})]
       (is (vm/halted? result))
       (is (= 42 (vm/value result))))))
@@ -67,7 +67,7 @@
                :operator {:type :variable, :name '+},
                :operands [{:type :literal, :value 10}
                           {:type :literal, :value 20}]}
-          result (vm/eval (semantic/create-vm {:env vm/primitives}) ast)]
+          result (vm/eval (semantic/create-vm) ast)]
       (is (= 30 (vm/value result))))))
 
 
@@ -237,7 +237,7 @@
 (defn- make-stream-vm
   "Create a Semantic VM with primitives, suitable for stream operations."
   []
-  (semantic/create-vm {:env vm/primitives}))
+  (semantic/create-vm))
 
 
 (deftest stream-make-test
@@ -436,7 +436,7 @@
 
 (deftest continuation-park-resume-test
   (testing "Semantic VM handles vm/resume nodes emitted from AST conversion"
-    (let [vm0 (semantic/create-vm {:env vm/primitives})
+    (let [vm0 (semantic/create-vm)
           vm1 (vm/eval vm0 {:type :vm/park})
           parked-cont (vm/value vm1)
           parked-id (:id parked-cont)
@@ -449,7 +449,7 @@
 (deftest semantic-multi-load-test
   (testing
     "SemanticVM should handle multiple program loads without ID collisions"
-    (let [vm (semantic/create-vm {:env vm/primitives})
+    (let [vm (semantic/create-vm)
           ;; First load: a simple literal
           vm-1 (vm/eval vm {:type :literal, :value 1})
           _ (is (= 1 (vm/value vm-1)))

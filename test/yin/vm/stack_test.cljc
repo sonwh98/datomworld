@@ -16,7 +16,7 @@
   (let [datoms (vm/ast->datoms ast)
         asm (stack/ast-datoms->asm datoms)
         compiled (stack/assemble asm)
-        vm (stack/create-vm {:env vm/primitives})]
+        vm (stack/create-vm)]
     (-> vm
         (vm/load-program compiled)
         (vm/run)
@@ -29,7 +29,7 @@
   (let [datoms (vm/ast->datoms ast)
         asm (stack/ast-datoms->asm datoms)
         compiled (stack/assemble asm)]
-    (-> (stack/create-vm {:env vm/primitives})
+    (-> (stack/create-vm)
         (vm/load-program compiled))))
 
 
@@ -49,9 +49,9 @@
       (is (empty? (vm/continuation vm)))
       (is (= {} (vm/store vm)))
       (is (= 42 (vm/value vm)))))
-  (testing "Environment contains primitives when provided"
-    (let [vm (stack/create-vm {:env vm/primitives})]
-      (is (fn? (get (vm/environment vm) '+))))))
+  (testing "Environment stores lexical bindings only"
+    (let [vm (stack/create-vm {:env {'x 1}})]
+      (is (= 1 (get (vm/environment vm) 'x))))))
 
 
 ;; =============================================================================
@@ -60,7 +60,7 @@
 
 (deftest eval-literal-test
   (testing "vm/eval evaluates a literal AST directly"
-    (let [result (vm/eval (stack/create-vm {:env vm/primitives})
+    (let [result (vm/eval (stack/create-vm)
                           {:type :literal, :value 42})]
       (is (vm/halted? result))
       (is (= 42 (vm/value result))))))
@@ -72,7 +72,7 @@
                :operator {:type :variable, :name '+},
                :operands [{:type :literal, :value 10}
                           {:type :literal, :value 20}]}
-          result (vm/eval (stack/create-vm {:env vm/primitives}) ast)]
+          result (vm/eval (stack/create-vm) ast)]
       (is (= 30 (vm/value result))))))
 
 
@@ -242,7 +242,7 @@
 (defn- make-stream-vm
   "Create a Stack VM with primitives, suitable for stream operations."
   []
-  (stack/create-vm {:env vm/primitives}))
+  (stack/create-vm))
 
 
 (deftest stream-make-test
@@ -441,7 +441,7 @@
 
 (deftest continuation-park-resume-test
   (testing "Resuming a parked continuation continues after park"
-    (let [vm0 (stack/create-vm {:env vm/primitives})
+    (let [vm0 (stack/create-vm)
           vm1 (vm/eval vm0 {:type :vm/park})
           parked-cont (vm/value vm1)
           parked-id (:id parked-cont)

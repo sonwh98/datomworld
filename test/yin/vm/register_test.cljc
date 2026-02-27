@@ -16,7 +16,7 @@
   (let [datoms (vm/ast->datoms ast)
         {:keys [asm reg-count]} (register/ast-datoms->asm datoms)
         compiled (assoc (register/assemble asm) :reg-count reg-count)
-        vm (register/create-vm {:env vm/primitives})]
+        vm (register/create-vm)]
     (-> vm
         (vm/load-program compiled)
         (vm/run)
@@ -29,7 +29,7 @@
   (let [datoms (vm/ast->datoms ast)
         {:keys [asm reg-count]} (register/ast-datoms->asm datoms)
         compiled (assoc (register/assemble asm) :reg-count reg-count)]
-    (-> (register/create-vm {:env vm/primitives})
+    (-> (register/create-vm)
         (vm/load-program compiled))))
 
 
@@ -49,9 +49,9 @@
       (is (nil? (vm/continuation vm)))
       (is (= {} (vm/store vm)))
       (is (= 42 (vm/value vm)))))
-  (testing "Environment contains primitives when provided"
-    (let [vm (register/create-vm {:env vm/primitives})]
-      (is (fn? (get (vm/environment vm) '+))))))
+  (testing "Environment stores lexical bindings only"
+    (let [vm (register/create-vm {:env {'x 1}})]
+      (is (= 1 (get (vm/environment vm) 'x))))))
 
 
 ;; =============================================================================
@@ -60,7 +60,7 @@
 
 (deftest eval-literal-test
   (testing "vm/eval evaluates a literal AST directly"
-    (let [result (vm/eval (register/create-vm {:env vm/primitives})
+    (let [result (vm/eval (register/create-vm)
                           {:type :literal, :value 42})]
       (is (vm/halted? result))
       (is (= 42 (vm/value result))))))
@@ -72,7 +72,7 @@
                :operator {:type :variable, :name '+},
                :operands [{:type :literal, :value 10}
                           {:type :literal, :value 20}]}
-          result (vm/eval (register/create-vm {:env vm/primitives}) ast)]
+          result (vm/eval (register/create-vm) ast)]
       (is (= 30 (vm/value result))))))
 
 
@@ -356,7 +356,7 @@
           {:keys [asm reg-count]} (register/ast-datoms->asm (vm/ast->datoms
                                                               ast))
           compiled (assoc (register/assemble asm) :reg-count reg-count)
-          vm-inst (register/create-vm {:env vm/primitives})
+          vm-inst (register/create-vm)
           vm-loaded (vm/load-program vm-inst compiled)
           states (loop [v vm-loaded
                         acc []]
@@ -379,7 +379,7 @@
 (defn- make-stream-vm
   "Create a Register VM with primitives, suitable for stream operations."
   []
-  (register/create-vm {:env vm/primitives}))
+  (register/create-vm))
 
 
 (deftest stream-make-test
@@ -579,7 +579,7 @@
 (deftest continuation-park-resume-parity-test
   (testing
     "Register VM should support vm/park and vm/resume like other backends"
-    (let [vm0 (register/create-vm {:env vm/primitives})
+    (let [vm0 (register/create-vm)
           vm1 (vm/eval vm0 {:type :vm/park})
           parked-cont (vm/value vm1)
           parked-id (:id parked-cont)
@@ -591,7 +591,7 @@
 
 (deftest current-continuation-test
   (testing "Register VM supports :vm/current-continuation"
-    (let [vm0 (register/create-vm {:env vm/primitives})
+    (let [vm0 (register/create-vm)
           ;; Reify current continuation, then return 42
           ast {:type :application,
                :operator {:type :lambda,
@@ -740,7 +740,7 @@
           datoms (vm/ast->datoms ast)
           {:keys [asm reg-count]} (register/ast-datoms->asm datoms)
           compiled (assoc (register/assemble asm) :reg-count reg-count)
-          vm-inst (register/create-vm {:env vm/primitives})
+          vm-inst (register/create-vm)
           vm-loaded (vm/load-program vm-inst compiled)
           ;; Step through, collecting k depth at each step
           k-depth
