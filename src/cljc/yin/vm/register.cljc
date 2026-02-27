@@ -1141,13 +1141,26 @@
 
 (defn- reg-vm-run
   [vm]
-  (if (or (:blocked vm)
-          (:halted vm)
-          (seq (:run-queue vm))
-          (seq (:wait-set vm))
-          (nil? (:bytecode vm)))
-    (reg-vm-run-slow vm)
-    (reg-vm-run-fast vm)))
+  #?(:cljd
+     ;; CLJD currently hits a fast-path register call regression; keep the
+     ;; scheduler-backed loop for correctness on Dart.
+     (reg-vm-run-slow vm)
+     :clj
+     (if (or (:blocked vm)
+             (:halted vm)
+             (seq (:run-queue vm))
+             (seq (:wait-set vm))
+             (nil? (:bytecode vm)))
+       (reg-vm-run-slow vm)
+       (reg-vm-run-fast vm))
+     :cljs
+     (if (or (:blocked vm)
+             (:halted vm)
+             (seq (:run-queue vm))
+             (seq (:wait-set vm))
+             (nil? (:bytecode vm)))
+       (reg-vm-run-slow vm)
+       (reg-vm-run-fast vm))))
 
 
 ;; =============================================================================

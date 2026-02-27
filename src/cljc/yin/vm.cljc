@@ -160,8 +160,29 @@
      (let [default (when (odd? (count clauses)) (last clauses))
            paired (if default (butlast clauses) clauses)
            pairs (partition 2 paired)
-           resolved (mapcat (fn [[kw body]] [(get opcode-table kw) body])
-                            pairs)]
+           ;; Keep a local literal map so CLJD macro host compilation does not
+           ;; depend on resolving `opcode-table` as a host symbol.
+           opcodes {:literal 1,
+                    :load-var 2,
+                    :move 3,
+                    :lambda 4,
+                    :call 5,
+                    :return 6,
+                    :branch 7,
+                    :jump 8,
+                    :gensym 9,
+                    :store-get 10,
+                    :store-put 11,
+                    :stream-make 12,
+                    :stream-put 13,
+                    :stream-cursor 14,
+                    :stream-next 15,
+                    :stream-close 16,
+                    :park 17,
+                    :resume 18,
+                    :current-cont 19,
+                    :tailcall 20}
+           resolved (mapcat (fn [[kw body]] [(get opcodes kw) body]) pairs)]
        `(case (int ~op-expr) ~@resolved ~@(when default [default])))))
 
 

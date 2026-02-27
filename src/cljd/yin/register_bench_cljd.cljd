@@ -1,0 +1,125 @@
+(ns yin.register-bench-cljd
+  (:require
+    [yin.vm :as vm]
+    [yin.vm.register :as register]))
+
+
+(def ^:private benchmark-config
+  {:workload :closure-call
+   :iterations 20000
+   :samples 9
+   :warmup 4
+   :countdown-n 50000})
+
+
+(defn- now-ms
+  []
+  (/ (.-microsecondsSinceEpoch (DateTime/now)) 1000.0))
+
+
+(defn- mean
+  [xs]
+  (/ (reduce + 0 xs) (count xs)))
+
+
+(defn- median
+  [xs]
+  (let [sorted (vec (sort xs))
+        n (count sorted)
+        mid (quot n 2)]
+    (if (odd? n)
+      (nth sorted mid)
+      (/ (+ (nth sorted (dec mid))
+            (nth sorted mid))
+         2.0))))
+
+
+(defn- closure-call-ast
+  []
+  {:type :application
+   :operator {:type :lambda
+              :params ['x]
+              :body {:type :variable :name 'x}}
+   :operands [{:type :literal :value 42}]})
+
+
+(defn- tail-countdown-ast
+  [n]
+  (let [self-fn {:type :lambda
+                 :params ['self 'n]
+                 :body {:type :if
+                        :test {:type :application
+                               :operator {:type :variable :name '<}
+                               :operands [{:type :variable :name 'n}
+                                          {:type :literal :value 1}]}
+                        :consequent {:type :literal :value 0}
+                        :alternate {:type :application
+                                    :operator {:type :variable :name 'self}
+                                    :operands [{:type :variable :name 'self}
+                                               {:type :application
+                                                :operator {:type :variable
+                                                           :name '-}
+                                                :operands [{:type :variable
+                                                            :name 'n}
+                                                           {:type :literal
+                                                            :value 1}]}]
+                                    :tail? true}
+                        :tail? true}}]
+    {:type :application
+     :operator self-fn
+     :operands [self-fn {:type :literal :value n}]
+     :tail? true}))
+
+
+(defn- workload->ast
+  [{:keys [workload countdown-n]}]
+  (case workload
+    :closure-call (closure-call-ast)
+    :tail-countdown (tail-countdown-ast countdown-n)
+    (throw (ex-info "Unknown benchmark workload"
+                    {:workload workload}))))
+
+
+(defn- load-register-program
+  [ast]
+  (let [datoms (vm/ast->datoms ast)
+        {:keys [asm reg-count]} (register/ast-datoms->asm datoms)
+        compiled (assoc (register/assemble asm) :reg-count reg-count)]
+    (vm/load-program (register/create-vm) compiled)))
+
+
+(defn- run-iterations
+  [program iterations]
+  (dotimes [_ iterations]
+    (vm/run program)))
+
+
+(defn- sample-total-ms
+  [program iterations]
+  (let [start (now-ms)]
+    (run-iterations program iterations)
+    (- (now-ms) start)))
+
+
+(defn main
+  []
+  (let [{:keys [workload iterations samples warmup] :as cfg} benchmark-config
+        ast (workload->ast cfg)
+        program (load-register-program ast)]
+    (dotimes [_ warmup]
+      (run-iterations program iterations))
+    (let [sample-total (vec (for [_ (range samples)]
+                              (sample-total-ms program iterations)))
+          sample-per-iter (mapv #(/ % iterations) sample-total)]
+      (println (str "workload=" workload
+                    " iterations=" iterations
+                    " samples=" samples
+                    " warmup=" warmup))
+      (when (= workload :tail-countdown)
+        (println (str "countdown_n=" (:countdown-n cfg))))
+      (println (str "sample_total_ms=" sample-total))
+      (println (str "sample_per_iter_ms=" sample-per-iter))
+      (println (str "RESULT mean_total_ms=" (mean sample-total)
+                    " median_total_ms=" (median sample-total)
+                    " mean_per_iter_ms=" (mean sample-per-iter)
+                    " median_per_iter_ms=" (median sample-per-iter))))))

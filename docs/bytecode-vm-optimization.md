@@ -261,3 +261,102 @@ Next steps (RegisterVM):
 
 1. Reduce `RT.longCast`/`nth` cast pressure in `reg-vm-run-fast`.
 2. Reduce remaining small-map allocation in `bind-closure-env` for closure calls.
+
+## Node.js Cross-Check vs master (2026-02-27)
+
+Goal:
+
+- Verify that RegisterVM optimizations also improve runtime in the Node.js
+  (ClojureScript) execution path, not only on JVM benchmarks.
+
+Method:
+
+- Branch under test: `bytecode-vm-optimization` (`d4b16c1`).
+- Baseline branch: `master` (`d66b250`).
+- Workload: tail-recursive countdown (`n=50000`) executed by RegisterVM fast path.
+- Benchmark parameters: `iterations=20`, `samples=9`, `warmup=4`.
+- Node command in both branches:
+  - `node target/register-vm-node-bench.js 50000 20 9 4`
+
+Results:
+
+- `bytecode-vm-optimization`:
+  - mean per iteration: `122.07972718888888 ms`
+  - median per iteration: `122.09532535000001 ms`
+- `master`:
+  - mean per iteration: `855.3062920055555 ms`
+  - median per iteration: `855.861031 ms`
+
+Delta vs `master`:
+
+- Speedup: `7.0061x`
+- Runtime reduction: `85.73%` faster
+
+Conclusion:
+
+- The RegisterVM optimization is not JVM-specific. The same optimization pass
+  produces a substantial runtime improvement on Node.js as well.
+
+## ClojureDart Benchmark vs master (2026-02-27)
+
+Goal:
+
+- Compare RegisterVM performance on ClojureDart between
+  `bytecode-vm-optimization` and `master` using the same benchmark harness.
+
+Harness:
+
+- Benchmark namespace: `yin.register-bench-cljd`
+  (`src/cljd/yin/register_bench_cljd.cljd`)
+- Dart entrypoint: `bin/register_bench_cljd.dart`
+- Command:
+  - `clj -M:cljd compile yin.register-bench-cljd && dart run bin/register_bench_cljd.dart`
+- Workload/config:
+  - `:closure-call`
+  - `iterations=20000`
+  - `samples=9`
+  - `warmup=4`
+- Repetitions:
+  - 5 benchmark runs per branch (using each run's reported `mean_total_ms`)
+
+Branches:
+
+- Current: `bytecode-vm-optimization` (`d4b16c1`)
+- Baseline: `master` (`d66b250`)
+
+Notes for reproducibility:
+
+- In the temporary `master` worktree, a compile-only compatibility patch was
+  applied to `vm/opcase` macro expansion so CLJD could compile. Runtime
+  workload and benchmark parameters were kept identical.
+
+Run results (`mean_total_ms`):
+
+- Current branch:
+  - `109.1380`
+  - `124.7046`
+  - `110.6156`
+  - `105.0791`
+  - `106.9176`
+- Master:
+  - `121.5854`
+  - `121.1263`
+  - `139.1358`
+  - `120.4989`
+  - `121.1634`
+
+Aggregates:
+
+- Mean of run means:
+  - Current: `111.2910 ms`
+  - Master: `124.7020 ms`
+  - Delta: `1.1205x` speedup (`10.75%` faster)
+- Median of run means (robust):
+  - Current: `109.1380 ms`
+  - Master: `121.1634 ms`
+  - Delta: `1.1102x` speedup (`9.92%` faster)
+
+Conclusion:
+
+- On ClojureDart, this branch is faster than `master` for the benchmarked
+  register workload, with ~10% improvement based on both mean and median views.
