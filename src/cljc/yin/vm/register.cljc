@@ -309,10 +309,64 @@
       {:bytecode fixed, :pool @pool, :source-map source-map})))
 
 
+(defn- reg-array?
+  [regs]
+  #?(:clj (and regs (.isArray (class regs)))
+     :cljs (array? regs)))
+
+
+(defn- reg-array-get
+  [regs r]
+  #?(:clj (aget ^objects regs (int r))
+     :cljs (aget regs r)))
+
+
+(defn- reg-array-set!
+  [regs r v]
+  #?(:clj (aset ^objects regs (int r) v)
+     :cljs (aset regs r v)))
+
+
+(defn- reg-array-clone
+  [regs]
+  #?(:clj (aclone ^objects regs)
+     :cljs (.slice regs)))
+
+
+(defn- make-empty-regs-array
+  [n]
+  #?(:clj (object-array (int n))
+     :cljs (let [arr (js/Array. n)]
+             (loop [i 0]
+               (if (< i n)
+                 (do (aset arr i nil) (recur (inc i)))
+                 arr)))))
+
+
+(defn- regs->array
+  [regs]
+  (if (reg-array? regs)
+    regs
+    #?(:clj (object-array regs)
+       :cljs (let [n (count regs)
+                   arr (js/Array. n)]
+               (loop [i 0]
+                 (if (< i n)
+                   (do (aset arr i (nth regs i)) (recur (inc i)))
+                   arr))))))
+
+
+(defn- regs->vector
+  [regs]
+  (if (vector? regs) regs (vec regs)))
+
+
 (defn- get-reg
   "Get value from register."
   [regs r]
-  (nth regs r))
+  (if (reg-array? regs)
+    (reg-array-get regs r)
+    (nth regs r)))
 
 
 (defn- collect-call-args
@@ -353,22 +407,28 @@
                  (if (< i argc)
                    (get-reg regs (nth bytecode (+ arg-base i)))
                    nil))]
-    (case pcount
-      0 base-env
-      1 (assoc base-env (nth params 0) (arg-at 0))
-      2 (assoc base-env (nth params 0) (arg-at 0) (nth params 1) (arg-at 1))
-      3 (assoc base-env
-               (nth params 0)
-               (arg-at 0)
-               (nth params 1)
-               (arg-at 1)
-               (nth params 2)
-               (arg-at 2))
-      (loop [i 0
-             tenv (transient base-env)]
-        (if (< i pcount)
-          (recur (inc i) (assoc! tenv (nth params i) (arg-at i)))
-          (persistent! tenv))))))
+    (if (zero? pcount)
+      base-env
+      (let [tenv0 (transient base-env)]
+        (case pcount
+          1 (persistent! (assoc! tenv0 (nth params 0) (arg-at 0)))
+          2 (persistent! (assoc! (assoc! tenv0
+                                         (nth params 0)
+                                         (arg-at 0))
+                                 (nth params 1)
+                                 (arg-at 1)))
+          3 (persistent! (assoc! (assoc! (assoc! tenv0
+                                                 (nth params 0)
+                                                 (arg-at 0))
+                                         (nth params 1)
+                                         (arg-at 1))
+                                 (nth params 2)
+                                 (arg-at 2)))
+          (loop [i 0
+                 tenv tenv0]
+            (if (< i pcount)
+              (recur (inc i) (assoc! tenv (nth params i) (arg-at i)))
+              (persistent! tenv))))))))
 
 
 (defn- snap-frame
@@ -487,6 +547,7 @@
                        :body-addr body-addr,
                        :reg-count reg-count,
                        :empty-regs (vec (repeat reg-count nil)),
+                       :empty-regs-arr (make-empty-regs-array reg-count),
                        :env env,
                        :bytecode bytecode,
                        :pool pool}]
@@ -728,15 +789,18 @@
                    resume-from-run-queue))
 
 
+(declare fast-frame->map)
+
+
 (defn- materialize-fast-state
   "Materialize loop locals back into a RegisterVM value."
   [vm pc regs env store k bytecode pool id-counter]
   (assoc vm
          :pc pc
-         :regs regs
+         :regs (regs->vector regs)
          :env env
          :store store
-         :k k
+         :k (fast-frame->map k)
          :bytecode bytecode
          :pool pool
          :id-counter id-counter
@@ -762,7 +826,7 @@
     {:type :call-frame,
      :result-reg (nth frame 1),
      :pc (nth frame 2),
-     :regs (nth frame 3),
+     :regs (regs->vector (nth frame 3)),
      :env (nth frame 4),
      :bytecode (nth frame 5),
      :pool (nth frame 6),
@@ -775,7 +839,7 @@
    Falls back to the generic scheduler loop when stream/control effects appear."
   [vm]
   (loop [pc (:pc vm)
-         regs (:regs vm)
+         regs (regs->array (:regs vm))
          env (:env vm)
          store (:store vm)
          k (:k vm)
@@ -790,7 +854,7 @@
                         regs
                         env
                         store
-                        (fast-frame->map k)
+                        k
                         bytecode
                         pool
                         id-counter))]
@@ -801,25 +865,19 @@
           :literal
           (let [rd (nth bytecode (inc pc))
                 v (nth pool (nth bytecode (+ pc 2)))]
-            (recur (+ pc 3) (assoc regs rd v) env store k bytecode pool
-                   id-counter))
+            (reg-array-set! regs rd v)
+            (recur (+ pc 3) regs env store k bytecode pool id-counter))
           :load-var
           (let [rd (nth bytecode (inc pc))
                 name (nth pool (nth bytecode (+ pc 2)))
                 v (engine/resolve-var env store (:primitives vm) name)]
-            (recur (+ pc 3) (assoc regs rd v) env store k bytecode pool
-                   id-counter))
+            (reg-array-set! regs rd v)
+            (recur (+ pc 3) regs env store k bytecode pool id-counter))
           :move
           (let [rd (nth bytecode (inc pc))
                 rs (nth bytecode (+ pc 2))]
-            (recur (+ pc 3)
-                   (assoc regs rd (get-reg regs rs))
-                   env
-                   store
-                   k
-                   bytecode
-                   pool
-                   id-counter))
+            (reg-array-set! regs rd (get-reg regs rs))
+            (recur (+ pc 3) regs env store k bytecode pool id-counter))
           :lambda
           (let [rd (nth bytecode (inc pc))
                 params (nth pool (nth bytecode (+ pc 2)))
@@ -830,17 +888,12 @@
                          :body-addr body-addr,
                          :reg-count reg-count,
                          :empty-regs (vec (repeat reg-count nil)),
+                         :empty-regs-arr (make-empty-regs-array reg-count),
                          :env env,
                          :bytecode bytecode,
                          :pool pool}]
-            (recur (+ pc 5)
-                   (assoc regs rd closure)
-                   env
-                   store
-                   k
-                   bytecode
-                   pool
-                   id-counter))
+            (reg-array-set! regs rd closure)
+            (recur (+ pc 5) regs env store k bytecode pool id-counter))
           :call
           (let [rd (nth bytecode (inc pc))
                 rf (nth bytecode (+ pc 2))
@@ -863,24 +916,30 @@
                             id-counter)
                           (handle-native-result result rd next-pc)
                           reg-vm-run-slow)
-                      (recur next-pc
-                             (assoc regs rd result)
-                             env
-                             store
-                             k
-                             bytecode
-                             pool
-                             id-counter)))
+                      (do
+                        (reg-array-set! regs rd result)
+                        (recur next-pc
+                               regs
+                               env
+                               store
+                               k
+                               bytecode
+                               pool
+                               id-counter))))
                   (= :closure (:type fn-val))
                   (let [{clo-params :params,
                          body-addr :body-addr,
                          clo-env :env,
                          clo-bytecode :bytecode,
                          clo-pool :pool,
-                         empty-regs :empty-regs}
+                         empty-regs :empty-regs,
+                         empty-regs-arr :empty-regs-arr}
                         fn-val
-                        next-regs (or empty-regs
-                                      (vec (repeat (:reg-count fn-val) nil)))
+                        next-regs (reg-array-clone
+                                    (or empty-regs-arr
+                                        (some-> empty-regs regs->array)
+                                        (make-empty-regs-array
+                                          (:reg-count fn-val))))
                         new-frame (fast-call-frame
                                     rd
                                     next-pc
@@ -918,34 +977,42 @@
                     (if (module/effect? result)
                       (case (:effect result)
                         :vm/store-put
+                        (do
+                          (reg-array-set! regs rd (:val result))
+                          (recur next-pc
+                                 regs
+                                 env
+                                 (assoc store (:key result) (:val result))
+                                 k
+                                 bytecode
+                                 pool
+                                 id-counter))
+                        (throw (ex-info "Unhandled effect in tailcall"
+                                        {:effect result})))
+                      (do
+                        (reg-array-set! regs rd result)
                         (recur next-pc
-                               (assoc regs rd (:val result))
+                               regs
                                env
-                               (assoc store (:key result) (:val result))
+                               store
                                k
                                bytecode
                                pool
-                               id-counter)
-                        (throw (ex-info "Unhandled effect in tailcall"
-                                        {:effect result})))
-                      (recur next-pc
-                             (assoc regs rd result)
-                             env
-                             store
-                             k
-                             bytecode
-                             pool
-                             id-counter)))
+                               id-counter))))
                   (= :closure (:type fn-val))
                   (let [{clo-params :params,
                          body-addr :body-addr,
                          clo-env :env,
                          clo-bytecode :bytecode,
                          clo-pool :pool,
-                         empty-regs :empty-regs}
+                         empty-regs :empty-regs,
+                         empty-regs-arr :empty-regs-arr}
                         fn-val
-                        next-regs (or empty-regs
-                                      (vec (repeat (:reg-count fn-val) nil)))
+                        next-regs (reg-array-clone
+                                    (or empty-regs-arr
+                                        (some-> empty-regs regs->array)
+                                        (make-empty-regs-array
+                                          (:reg-count fn-val))))
                         new-env (bind-closure-env
                                   clo-env
                                   clo-params
@@ -970,7 +1037,7 @@
               (nil? k)
               (assoc vm
                      :pc pc
-                     :regs regs
+                     :regs (regs->vector regs)
                      :env env
                      :store store
                      :k k
@@ -987,10 +1054,11 @@
                     frame-env (nth k 4)
                     frame-bytecode (nth k 5)
                     frame-pool (nth k 6)
-                    parent-k (nth k 7)
-                    regs' (if rd (assoc frame-regs rd result) frame-regs)]
+                    parent-k (nth k 7)]
+                (when (some? rd)
+                  (reg-array-set! frame-regs rd result))
                 (recur frame-pc
-                       regs'
+                       frame-regs
                        frame-env
                        store
                        parent-k
@@ -999,12 +1067,13 @@
                        id-counter))
               :else
               (let [rd (:result-reg k)
-                    frame-regs (:regs k)
-                    regs' (if rd (assoc frame-regs rd result) frame-regs)
+                    frame-regs (regs->array (:regs k))
                     bytecode' (or (:bytecode k) bytecode)
                     pool' (or (:pool k) pool)]
+                (when (some? rd)
+                  (reg-array-set! frame-regs rd result))
                 (recur (:pc k)
-                       regs'
+                       frame-regs
                        (:env k)
                        store
                        (:k k)
@@ -1031,26 +1100,14 @@
           (let [rd (nth bytecode (inc pc))
                 prefix (nth pool (nth bytecode (+ pc 2)))
                 id (keyword (str prefix "-" id-counter))]
-            (recur (+ pc 3)
-                   (assoc regs rd id)
-                   env
-                   store
-                   k
-                   bytecode
-                   pool
-                   (inc id-counter)))
+            (reg-array-set! regs rd id)
+            (recur (+ pc 3) regs env store k bytecode pool (inc id-counter)))
           :store-get
           (let [rd (nth bytecode (inc pc))
                 key (nth pool (nth bytecode (+ pc 2)))
                 val (get store key)]
-            (recur (+ pc 3)
-                   (assoc regs rd val)
-                   env
-                   store
-                   k
-                   bytecode
-                   pool
-                   id-counter))
+            (reg-array-set! regs rd val)
+            (recur (+ pc 3) regs env store k bytecode pool id-counter))
           :store-put
           (let [rs (nth bytecode (inc pc))
                 key (nth pool (nth bytecode (+ pc 2)))
