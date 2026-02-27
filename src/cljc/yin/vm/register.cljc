@@ -262,7 +262,7 @@
           :move (let [[rd rs] args] (emit! (vm/opcode-table :move) rd rs))
           :lambda
           (let [[rd params addr reg-count] args]
-            (emit! (vm/opcode-table :lambda) rd (intern! params) reg-count)
+            (emit! (vm/opcode-table :lambda) rd (intern! (vec params)) reg-count)
             (emit-fixup! addr))
           :call (let [[rd rf arg-regs] args]
                   (emit! (vm/opcode-table :call) rd rf (count arg-regs))
@@ -348,27 +348,26 @@
   "Bind closure params from argument registers while preserving zipmap semantics:
    extra args are ignored and missing args bind as nil."
   [base-env params regs bytecode arg-base argc]
-  (let [paramv (if (vector? params) params (vec params))
-        pcount (count paramv)
+  (let [pcount (count params)
         arg-at (fn [i]
                  (if (< i argc)
                    (get-reg regs (nth bytecode (+ arg-base i)))
                    nil))]
     (case pcount
       0 base-env
-      1 (assoc base-env (nth paramv 0) (arg-at 0))
-      2 (assoc base-env (nth paramv 0) (arg-at 0) (nth paramv 1) (arg-at 1))
+      1 (assoc base-env (nth params 0) (arg-at 0))
+      2 (assoc base-env (nth params 0) (arg-at 0) (nth params 1) (arg-at 1))
       3 (assoc base-env
-               (nth paramv 0)
+               (nth params 0)
                (arg-at 0)
-               (nth paramv 1)
+               (nth params 1)
                (arg-at 1)
-               (nth paramv 2)
+               (nth params 2)
                (arg-at 2))
       (loop [i 0
              tenv (transient base-env)]
         (if (< i pcount)
-          (recur (inc i) (assoc! tenv (nth paramv i) (arg-at i)))
+          (recur (inc i) (assoc! tenv (nth params i) (arg-at i)))
           (persistent! tenv))))))
 
 
