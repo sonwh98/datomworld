@@ -5,8 +5,8 @@
 
 
 (def ^:private benchmark-config
-  {:workload :closure-call
-   :iterations 20000
+  {:workload :tail-countdown
+   :iterations 20
    :samples 9
    :warmup 4
    :countdown-n 50000})

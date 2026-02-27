@@ -445,3 +445,60 @@ more modest ~10% improvement. Three factors contribute to this delta:
 
 The next validation step is to re-run the `tail-recursive countdown` on CLJD
 using the newly re-enabled fast path (enabled by the `[:reg-array]` fix).
+
+## ClojureDart: Eliminate `[:reg-array]` Wrapper (2026-02-27)
+
+Root cause:
+
+- The `[:reg-array <native-list>]` wrapper was introduced to prevent confusion
+  between a bare Dart `List` (from `object-array`) and a ClojureDart
+  `PersistentVector`.
+- This was unnecessary: CLJD's `vector?` checks `IVector.satisfies()`, which
+  only matches `PersistentVector` and `MapEntry`. A bare Dart `List.filled()`
+  does NOT satisfy `IVector`.
+- Every register access paid for the wrapper: `(nth regs 1)` to unwrap the
+  tuple (a full persistent-vector `nth`), plus `(= :reg-array (nth regs 0))`
+  keyword comparison on every `reg-array?` check.
+
+Fix:
+
+- Eliminated the wrapper. All 7 CLJD reader-conditional branches now operate
+  on bare Dart Lists:
+  - `reg-array?`: `(and (some? regs) (not (vector? regs)))`
+  - `reg-array-get`: `(aget regs (int r))` (direct `List[]` access)
+  - `reg-array-set!`: `(aset regs (int r) v)` (direct `List[]=` assignment)
+  - `reg-array-clone`: `(aclone regs)` (direct `List.from`)
+  - `make-empty-regs-array`: `(object-array (int n))` (bare `List.filled`)
+  - `regs->array`: `(object-array regs)` (bare `List.from`)
+  - `regs->vector`: `(vec regs)` (no unwrap)
+
+Validation:
+
+- JVM: 213 tests, 734 assertions, 0 failures.
+- Node.js: 154 tests, 435 assertions, 0 failures.
+- CLJD: compiles without error (one benign dynamic warning on `[]=`).
+
+Benchmark (tail-recursive countdown, `n=50000`, `iterations=20`, `samples=9`,
+`warmup=4`):
+
+- Current branch (3 runs, `mean_per_iter_ms`):
+  - `111.81`, `114.63`, `113.56`
+  - Mean: `113.33 ms`
+- Master (3 runs, `mean_per_iter_ms`):
+  - `888.62`, `888.18`, `822.38`
+  - Mean: `866.39 ms`
+- Delta: `7.65x` speedup (`86.9%` faster)
+
+Closure-call workload (apples-to-apples with previous CLJD benchmark):
+
+- Before (with wrapper): mean `111.29 ms` (20000 iterations)
+- After (bare List): mean `90.29 ms` (20000 iterations)
+- Delta: `1.23x` speedup (`18.9%` faster)
+
+Cross-platform summary (tail-recursive countdown, `n=50000`):
+
+| Platform | Master (ms/iter) | Current (ms/iter) | Speedup |
+|----------|------------------|-------------------|---------|
+| Node.js  | 855              | 122               | 7.0x    |
+| JVM      | 419              | 97                | 4.3x    |
+| CLJD     | 866              | 113               | 7.6x    |

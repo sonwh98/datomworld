@@ -313,29 +313,28 @@
   [regs]
   #?(:clj (and regs (.isArray (class regs)))
      :cljs (array? regs)
-     :cljd (and (vector? regs)
-                (= :reg-array (nth regs 0 nil)))))
+     :cljd (and (some? regs) (not (vector? regs)))))
 
 
 (defn- reg-array-get
   [regs r]
   #?(:clj (aget ^objects regs (int r))
      :cljs (aget regs r)
-     :cljd (aget (nth regs 1) (int r))))
+     :cljd (aget regs (int r))))
 
 
 (defn- reg-array-set!
   [regs r v]
   #?(:clj (aset ^objects regs (int r) v)
      :cljs (aset regs r v)
-     :cljd (aset (nth regs 1) (int r) v)))
+     :cljd (aset regs (int r) v)))
 
 
 (defn- reg-array-clone
   [regs]
   #?(:clj (aclone ^objects regs)
      :cljs (.slice regs)
-     :cljd [:reg-array (aclone (nth regs 1))]))
+     :cljd (aclone regs)))
 
 
 (defn- make-empty-regs-array
@@ -346,7 +345,7 @@
                (if (< i n)
                  (do (aset arr i nil) (recur (inc i)))
                  arr)))
-     :cljd [:reg-array (object-array (int n))]))
+     :cljd (object-array (int n))))
 
 
 (defn- regs->array
@@ -354,7 +353,7 @@
   (if (reg-array? regs)
     regs
     #?(:clj (object-array regs)
-       :cljd [:reg-array (object-array regs)]
+       :cljd (object-array regs)
        :cljs (let [n (count regs)
                    arr (js/Array. n)]
                (loop [i 0]
@@ -366,9 +365,7 @@
 (defn- regs->vector
   [regs]
   (cond
-    (reg-array? regs)
-    #?(:cljd (vec (nth regs 1))
-       :default (vec regs))
+    (reg-array? regs) (vec regs)
     (vector? regs) regs
     :else (vec regs)))
 
