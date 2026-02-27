@@ -502,3 +502,70 @@ Cross-platform summary (tail-recursive countdown, `n=50000`):
 | Node.js  | 855              | 122               | 7.0x    |
 | JVM      | 419              | 97                | 4.3x    |
 | CLJD     | 866              | 113               | 7.6x    |
+
+## Flutter Feasibility Analysis
+
+### Instruction Throughput
+
+The tail-countdown benchmark executes ~8 bytecode instructions per loop iteration
+(load, compare, branch, subtract, tailcall setup). With `n=50000`:
+
+- ~400,000 bytecode instructions in 113ms (CLJD)
+- ~3.5 million instructions/sec
+
+### Frame Budget
+
+At 60fps the frame budget is 16.6ms. Estimated instruction capacity per frame:
+
+| Budget             | CLJD (native) | CLJS (WebView) |
+|--------------------|---------------|----------------|
+| 16ms (full frame)  | ~56,000       | ~52,000        |
+| 4ms (typical slice)| ~14,000       | ~13,000        |
+
+What fits within budget:
+
+- **Event handlers, reactive UI logic, small data transforms** (100-1,000
+  instructions): easily within a single frame on either path.
+- **Moderate computation** (filtering 500 items, evaluating a rules engine;
+  2,000-10,000 instructions): fine if not every frame.
+- **Heavy per-frame computation** (physics, large data pipelines, 50k-iteration
+  loops): exceeds the frame budget. Must be chunked across frames via
+  continuation parking or offloaded to a separate Dart isolate.
+
+### CLJD (native) vs. CLJS (embedded WebView)
+
+CLJD directly in the Flutter process is the better path:
+
+1. **No bridge latency.** WebView-to-Flutter communication goes through platform
+   channels (async message passing). Each round-trip adds 1-5ms. If the VM
+   reads/writes Flutter state, this cost is paid on every interaction.
+2. **Comparable raw speed.** CLJD (113ms) and Node.js (122ms) are within 8%.
+   On mobile devices the gap widens: iOS WKWebView disables JIT, making the
+   WebView JS engine significantly slower than desktop V8.
+3. **Memory.** An embedded WebView carries its own JS runtime (~20-50MB). CLJD
+   runs in the same Dart isolate with zero additional overhead.
+4. **Integration.** CLJD has direct access to Flutter widgets, Dart APIs, and
+   the Dart event loop. WebView requires serializing everything across the bridge.
+
+### Continuation Parking for Long-Running Computations
+
+The VM's continuation-based architecture is well-suited for cooperative
+scheduling within a Flutter frame budget:
+
+- Park a long-running computation mid-execution.
+- Resume it on the next frame (or after an async gap).
+- The UI thread is never blocked beyond the allocated time slice.
+
+This is the same mechanism used for effects and stream operations, applied to
+frame-budget management. No additional infrastructure is needed.
+
+### Verdict
+
+The RegisterVM is fast enough for a Flutter app using CLJD directly:
+
+- UI-driven logic (event handlers, state transitions, small reactive
+  computations) completes in under 1ms.
+- Heavier workloads can be chunked across frames using continuation parking
+  or run in a separate Dart isolate.
+- CLJS via embedded WebView works but adds unnecessary indirection. The only
+  reason to use it would be a dependency on browser-specific APIs.
