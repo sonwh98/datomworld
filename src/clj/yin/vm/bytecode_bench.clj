@@ -17,6 +17,21 @@
     default))
 
 
+(defn- parse-opts
+  [args]
+  (reduce (fn [{:keys [n] :as opts} arg]
+            (case arg
+              "--fast-only" (assoc opts :fast-only? true)
+              "--register-only" (assoc opts :register-only? true)
+              "--stack-only" (assoc opts :stack-only? true)
+              (assoc opts :n (parse-arg-long arg n))))
+          {:n 1000
+           :fast-only? false
+           :register-only? false
+           :stack-only? false}
+          args))
+
+
 (defn- tail-countdown-ast
   [n]
   (let [self-fn {:type :lambda,
@@ -86,31 +101,48 @@
 
 
 (defn- bench-vm
-  [vm-name program]
+  [vm-name program {:keys [fast-only?]}]
   (println (str "\n=== " vm-name " ==="))
 
-  ;; 1. Identify Hot Paths (Slow Path Analysis)
-  (println "Analyzing hot paths (slow path)...")
-  (let [{:keys [opcode-counts]} (track-opcodes program)
-        sorted-counts (reverse (sort-by second opcode-counts))]
-    (doseq [[op count] (take 10 sorted-counts)]
-      (println (format "  %-12s : %d" (str op) count))))
+  (when-not fast-only?
+    ;; 1. Identify Hot Paths (Slow Path Analysis)
+    (println "Analyzing hot paths (slow path)...")
+    (let [{:keys [opcode-counts]} (track-opcodes program)
+          sorted-counts (reverse (sort-by second opcode-counts))]
+      (doseq [[op count] (take 10 sorted-counts)]
+        (println (format "  %-12s : %d" (str op) count))))
+    ;; 2. Slow Path Benchmarking
+    (println "\nMeasuring SLOW path (Criterium quick-bench)...")
+    (criterium/quick-bench (run-slow program)))
 
-  ;; 2. Rigorous Benchmarking
-  (println "\nMeasuring SLOW path (Criterium quick-bench)...")
-  (criterium/quick-bench (run-slow program))
-
-  (println "\nMeasuring FAST path (Criterium quick-bench)...")
+  ;; 3. Fast Path Benchmarking
+  (println (if fast-only?
+             "Measuring FAST path only (Criterium quick-bench)..."
+             "\nMeasuring FAST path (Criterium quick-bench)..."))
   (criterium/quick-bench (vm/run program)))
 
 
 (defn -main
   [& args]
-  (let [n (parse-arg-long (nth args 0 nil) 1000)
-        ast (tail-countdown-ast n)
-        register-program (load-register-program ast)
-        stack-program (load-stack-program ast)]
-    (println "Bytecode VM optimization benchmark")
-    (println (str "workload: tail-recursive countdown n=" n))
-    (bench-vm "Register VM" register-program)
-    (bench-vm "Stack VM" stack-program)))
+  (let [{:keys [n fast-only? register-only? stack-only?] :as opts} (parse-opts
+                                                                     args)]
+    (when (and register-only? stack-only?)
+      (throw (ex-info "Cannot combine --register-only and --stack-only"
+                      {:args args})))
+    (let [run-register? (or register-only? (not stack-only?))
+          run-stack? (or stack-only? (not register-only?))
+          ast (tail-countdown-ast n)
+          register-program (load-register-program ast)
+          stack-program (load-stack-program ast)]
+      (println "Bytecode VM optimization benchmark")
+      (println (str "workload: tail-recursive countdown n=" n))
+      (println (str "mode: "
+                    (cond
+                      (and run-register? run-stack?) "register+stack"
+                      run-register? "register-only"
+                      :else "stack-only")
+                    (when fast-only? ", fast-only")))
+      (when run-register?
+        (bench-vm "Register VM" register-program opts))
+      (when run-stack?
+        (bench-vm "Stack VM" stack-program opts)))))

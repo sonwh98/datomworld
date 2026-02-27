@@ -348,15 +348,28 @@
   "Bind closure params from argument registers while preserving zipmap semantics:
    extra args are ignored and missing args bind as nil."
   [base-env params regs bytecode arg-base argc]
-  (loop [i 0
-         ps (seq params)
-         env base-env]
-    (if (seq ps)
-      (let [arg-val (if (< i argc)
-                      (get-reg regs (nth bytecode (+ arg-base i)))
-                      nil)]
-        (recur (inc i) (next ps) (assoc env (first ps) arg-val)))
-      env)))
+  (let [paramv (if (vector? params) params (vec params))
+        pcount (count paramv)
+        arg-at (fn [i]
+                 (if (< i argc)
+                   (get-reg regs (nth bytecode (+ arg-base i)))
+                   nil))]
+    (case pcount
+      0 base-env
+      1 (assoc base-env (nth paramv 0) (arg-at 0))
+      2 (assoc base-env (nth paramv 0) (arg-at 0) (nth paramv 1) (arg-at 1))
+      3 (assoc base-env
+               (nth paramv 0)
+               (arg-at 0)
+               (nth paramv 1)
+               (arg-at 1)
+               (nth paramv 2)
+               (arg-at 2))
+      (loop [i 0
+             tenv (transient base-env)]
+        (if (< i pcount)
+          (recur (inc i) (assoc! tenv (nth paramv i) (arg-at i)))
+          (persistent! tenv))))))
 
 
 (defn- snap-frame
@@ -732,6 +745,32 @@
          :blocked false))
 
 
+(defn- fast-call-frame
+  "Compact call-frame representation for the fast loop."
+  [result-reg next-pc regs env bytecode pool parent-k]
+  [:fast-call result-reg next-pc regs env bytecode pool parent-k])
+
+
+(defn- fast-call-frame?
+  [frame]
+  (and (vector? frame) (= :fast-call (nth frame 0 nil))))
+
+
+(defn- fast-frame->map
+  "Convert compact fast-loop call frames to map call frames for slow-path fallback."
+  [frame]
+  (if (fast-call-frame? frame)
+    {:type :call-frame,
+     :result-reg (nth frame 1),
+     :pc (nth frame 2),
+     :regs (nth frame 3),
+     :env (nth frame 4),
+     :bytecode (nth frame 5),
+     :pool (nth frame 6),
+     :k (fast-frame->map (nth frame 7))}
+    frame))
+
+
 (defn- reg-vm-run-fast
   "Fast register VM run loop that keeps hot execution state in locals.
    Falls back to the generic scheduler loop when stream/control effects appear."
@@ -752,7 +791,7 @@
                         regs
                         env
                         store
-                        k
+                        (fast-frame->map k)
                         bytecode
                         pool
                         id-counter))]
@@ -843,14 +882,14 @@
                         fn-val
                         next-regs (or empty-regs
                                       (vec (repeat (:reg-count fn-val) nil)))
-                        new-frame {:type :call-frame,
-                                   :result-reg rd,
-                                   :pc next-pc,
-                                   :regs regs,
-                                   :env env,
-                                   :bytecode bytecode,
-                                   :pool pool,
-                                   :k k}
+                        new-frame (fast-call-frame
+                                    rd
+                                    next-pc
+                                    regs
+                                    env
+                                    bytecode
+                                    pool
+                                    k)
                         new-env (bind-closure-env
                                   clo-env
                                   clo-params
@@ -928,7 +967,8 @@
           :return
           (let [rs (nth bytecode (inc pc))
                 result (get-reg regs rs)]
-            (if (nil? k)
+            (cond
+              (nil? k)
               (assoc vm
                      :pc pc
                      :regs regs
@@ -941,6 +981,24 @@
                      :halted true
                      :value result
                      :blocked false)
+              (fast-call-frame? k)
+              (let [rd (nth k 1)
+                    frame-pc (nth k 2)
+                    frame-regs (nth k 3)
+                    frame-env (nth k 4)
+                    frame-bytecode (nth k 5)
+                    frame-pool (nth k 6)
+                    parent-k (nth k 7)
+                    regs' (if rd (assoc frame-regs rd result) frame-regs)]
+                (recur frame-pc
+                       regs'
+                       frame-env
+                       store
+                       parent-k
+                       frame-bytecode
+                       frame-pool
+                       id-counter))
+              :else
               (let [rd (:result-reg k)
                     frame-regs (:regs k)
                     regs' (if rd (assoc frame-regs rd result) frame-regs)
