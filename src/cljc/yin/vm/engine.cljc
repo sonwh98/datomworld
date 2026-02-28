@@ -39,6 +39,12 @@
   (and (boolean (:halted vm)) (empty? (or (:run-queue vm) []))))
 
 
+(defn active-continuation?
+  "Returns true when the currently active continuation should keep stepping."
+  [vm]
+  (and (not (:blocked vm)) (not (:halted vm))))
+
+
 (defn- check-wait-set
   "Check wait-set entries against current store.
    Returns updated state with newly runnable entries moved to run-queue."

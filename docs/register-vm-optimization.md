@@ -15,10 +15,10 @@ Primary hot functions identified from JFR:
 Workload: tail-recursive countdown, `n=50000`
 
 - `clj -M:bench 50000`
-  - Register FAST mean: `441.683395 ms`
-  - Register SLOW mean: `477.014190 ms`
+  - Register hot loop mean: `441.683395 ms` (bench label: FAST)
+  - Register scheduler mean: `477.014190 ms` (bench label: SLOW)
 - `clj -M:profile 50000`
-  - Register FAST mean: `409.836342 ms`
+  - Register hot loop mean: `409.836342 ms` (bench label: FAST)
 
 Baseline JFR allocation attribution (`jdk.ObjectAllocationSample`, user-attributed):
 
@@ -33,7 +33,7 @@ The optimization used a staged approach:
 
 1. Measure first, optimize second.
 2. Keep interpreter semantics stable, optimize representation in hot path.
-3. Preserve explicit stream/effect boundaries by falling back to slow scheduler path for effect-heavy opcodes.
+3. Preserve explicit stream/effect boundaries by falling back to the scheduler layer for effect-heavy opcodes.
 4. Re-measure after each pass with same workload and commands.
 
 ## Step 1: Low-risk hot path cleanup
@@ -52,24 +52,24 @@ Effect:
 
 - Clear speedup, moderate allocation improvement in targeted hotspots.
 
-## Step 2: Medium-risk register-state fast loop
+## Step 2: Medium-risk register-state hot loop
 
 Files: `src/cljc/yin/vm/register.cljc`
 
 Changes:
 
-- Added `reg-vm-run-fast` local-state loop:
+- Added `reg-vm-run-active-continuation` local-state loop:
   - Keeps `pc`, `regs`, `env`, `store`, `k`, `bytecode`, `pool`, `id-counter` as loop locals.
   - Avoids per-instruction `RegisterVM` materialization in hot opcode path.
-- Added `reg-vm-run-slow` fallback for scheduler/effect path.
+- Added `reg-vm-run-scheduler` fallback for scheduler/effect path.
 - Added `reg-vm-run` dispatcher.
 - `reg-vm-eval` now uses `reg-vm-run`.
 - `IVMStep/step` still uses `reg-vm-step` (debug/single-step semantics unchanged).
 
 Technique detail:
 
-- The fast loop handles compute/control/store opcodes directly.
-- Stream/control operations preserve causality and scheduler behavior by falling back to immutable slow path.
+- The hot loop handles compute/control/store opcodes directly.
+- Stream/control operations preserve causality and scheduler behavior by falling back to the immutable scheduler layer.
 
 ## Step 3: Closure/env churn and benchmark harness split
 
@@ -82,17 +82,17 @@ Files:
 Changes:
 
 - Forced lambda params into vector form at bytecode assembly boundary (`intern! (vec params)`), so env binding can use indexed access cheaply.
-- Optimized `bind-closure-env` with small-arity fast paths and transient fallback.
-- Added compact fast call-frame representation (`:fast-call` vector) for fast loop, with conversion to map on slow-path fallback.
+- Optimized `bind-closure-env` with small-arity direct cases and transient fallback.
+- Added compact hot loop call-frame representation (`:fast-call` vector) for hot loop execution, with conversion to map on scheduler fallback.
 - Added benchmark harness modes:
   - `--fast-only`
   - `--register-only`
   - `--stack-only`
 - Added `:profile-fast` alias:
   - writes `/tmp/datomworld-bytecode-bench-fast.jfr`
-  - runs register fast path only (`--fast-only --register-only`)
+  - runs register hot loop execution only (`--fast-only --register-only`)
 
-## Step 4: Register-array fast path and closure env transient writes
+## Step 4: Register-array hot loop and closure env transient writes
 
 Files:
 
@@ -100,12 +100,12 @@ Files:
 
 Changes:
 
-- Added array-backed register helpers (`reg-array-*`, `regs->array`, `regs->vector`) and switched `reg-vm-run-fast` register writes from persistent `assoc` to in-place array writes.
+- Added array-backed register helpers (`reg-array-*`, `regs->array`, `regs->vector`) and switched `reg-vm-run-active-continuation` register writes from persistent `assoc` to in-place array writes.
 - Preserved immutable observation boundaries:
-  - fast-to-slow fallback materializes `:regs` back to vector form.
+  - hot loop-to-scheduler fallback materializes `:regs` back to vector form.
   - compact fast call frames are converted to map frames on fallback.
 - Extended closure payload with `:empty-regs-arr` template and cloned it on each call/tailcall to avoid aliasing across activations.
-- Kept slow path semantics intact (slow scheduler and step VM still operate on persistent vectors/maps).
+- Kept scheduler semantics intact (scheduler loop and step VM still operate on persistent vectors/maps).
 - Updated `bind-closure-env` small-arity paths to transient `assoc!` + `persistent!`, preserving zipmap semantics while reducing per-call map churn.
 
 Validation for this pass:
@@ -118,7 +118,7 @@ Validation for this pass:
 
 ### Performance vs baseline
 
-Register FAST (`n=50000`):
+Register hot loop (`n=50000`):
 
 - Baseline: `441.683395 ms`
 - Previous pass (before Step 4): `166.374222 ms`
@@ -126,7 +126,7 @@ Register FAST (`n=50000`):
 - Improvement vs previous pass: `11.91% faster`
 - Improvement vs baseline: `66.82% faster`
 
-Register SLOW (`n=50000`) also improved (from baseline) by about `18%` in mixed runs.
+Register scheduler (`n=50000`) also improved (from baseline) by about `18%` in mixed runs.
 
 ### Allocation vs baseline (mixed run)
 
@@ -147,10 +147,10 @@ From `clj -M:profile-fast 50000`:
 
 - `TOTAL_REGISTER_ALLOC_BYTES`: roughly `530k-580k` across repeated runs
 - Top register allocation contributors:
-  - `yin.vm.register$reg_vm_run_fast.invokeStatic` (majority)
+  - `yin.vm.register$reg_vm_run_hot_loop.invokeStatic` (majority)
   - `yin.vm.register$bind_closure_env.invokeStatic` (secondary)
 
-This indicates remaining allocation pressure is now concentrated inside fast-loop register updates and closure env binding, not generic scheduler map churn.
+This indicates remaining allocation pressure is now concentrated inside hot loop register updates and closure env binding, not generic scheduler map churn.
 
 ### Allocation after Step 4 (fast-only, top-frame sampled weight)
 
@@ -190,7 +190,7 @@ jfr view hot-methods /tmp/datomworld-bytecode-bench.jfr
 jfr view allocation-by-site /tmp/datomworld-bytecode-bench.jfr
 ```
 
-Fast-only register:
+Hot-loop-only register (`--fast-only`):
 
 ```bash
 clj -M:bench 50000 --fast-only --register-only
@@ -201,4 +201,4 @@ jfr view allocation-by-site /tmp/datomworld-bytecode-bench-fast.jfr
 
 ## Next Target
 
-Remaining high-impact allocation source in register fast-only mode is closure environment map construction (`PersistentHashMap` internals during `bind-closure-env`). The next pass should evaluate an env representation that avoids rebuilding large hash maps on every closure call while preserving explicit causality and immutable stream boundaries.
+Remaining high-impact allocation source in register hot loop-only (`--fast-only`) mode is closure environment map construction (`PersistentHashMap` internals during `bind-closure-env`). The next pass should evaluate an env representation that avoids rebuilding large hash maps on every closure call while preserving explicit causality and immutable stream boundaries.

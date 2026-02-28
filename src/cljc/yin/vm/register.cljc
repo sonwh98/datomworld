@@ -803,11 +803,11 @@
                                   (restore-frame base entry (:value entry)))))
 
 
-(defn- reg-vm-run-slow
+(defn- reg-vm-run-scheduler
   "Generic scheduler-backed run loop."
   [vm-state]
   (engine/run-loop vm-state
-                   (fn [v] (and (not (:blocked v)) (not (:halted v))))
+                   engine/active-continuation?
                    reg-vm-step
                    resume-from-run-queue))
 
@@ -857,7 +857,7 @@
     frame))
 
 
-(defn- reg-vm-run-fast
+(defn- reg-vm-run-active-continuation
   "Fast register VM run loop that keeps hot execution state in locals.
    Falls back to the generic scheduler loop when stream/control effects appear."
   [vm]
@@ -870,7 +870,7 @@
          pool (:pool vm)
          id-counter (:id-counter vm)]
     (let [op (nth bytecode pc nil)
-          fallback #(reg-vm-run-slow
+          fallback #(reg-vm-run-scheduler
                       (materialize-fast-state
                         vm
                         pc
@@ -938,7 +938,7 @@
                             pool
                             id-counter)
                           (handle-native-result result rd next-pc)
-                          reg-vm-run-slow)
+                          reg-vm-run-scheduler)
                       (do
                         (reg-array-set! regs rd result)
                         (recur next-pc
@@ -1150,13 +1150,19 @@
 
 (defn- reg-vm-run
   [vm]
+  ;; Fast path is valid only for a single active compute continuation.
+  ;; Any of these conditions means we must re-enter scheduler semantics:
+  ;; - :blocked / :wait-set: wait-set polling and wakeup checks.
+  ;; - :run-queue: dequeue + resume parked continuations.
+  ;; - :halted: current continuation finished, but scheduler may still have work.
+  ;; - nil :bytecode: no active instruction stream to execute.
   (if (or (:blocked vm)
           (:halted vm)
           (seq (:run-queue vm))
           (seq (:wait-set vm))
           (nil? (:bytecode vm)))
-    (reg-vm-run-slow vm)
-    (reg-vm-run-fast vm)))
+    (reg-vm-run-scheduler vm)
+    (reg-vm-run-active-continuation vm)))
 
 
 ;; =============================================================================

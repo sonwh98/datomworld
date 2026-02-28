@@ -474,7 +474,7 @@
                                         {:node root-id, :datoms datoms}))
             vm)]
     (engine/run-loop v
-                     (fn [v] (and (not (:blocked v)) (not (:halted v))))
+                     engine/active-continuation?
                      semantic-vm-step
                      resume-from-run-queue)))
 

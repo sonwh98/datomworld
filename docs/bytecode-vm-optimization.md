@@ -11,12 +11,12 @@ This negates the linear-access advantage bytecode VMs have over the AST walker. 
 
 ## Solution: Two-Layer Execution
 
-Introduce a mutable inner loop for the hot path. Materialize immutable state only at observation boundaries (effects, parking, halting, the `step` protocol).
+Introduce a mutable inner loop for the hot loop execution layer. Materialize immutable state only at observation boundaries (effects, parking, halting, the `step` protocol).
 
-- **Slow path** (`reg-vm-step` / `stack-step`): unchanged, immutable, used by `IVMStep/step` for debugging and single-stepping
-- **Fast path** (`reg-vm-run-fast` / `stack-vm-run-fast`): mutable inner loop, used by `eval`/`run`
+- **Step execution** (`reg-vm-step` / `stack-step`): unchanged, immutable, used by `IVMStep/step` for debugging and single-stepping
+- **Hot-loop execution** (`reg-vm-run-active-continuation` / `stack-vm-run-active-continuation`): mutable inner loop, used by `eval`/`run`
 
-Both paths produce identical results. The fast path replaces `engine/run-loop` with a self-contained `loop`/`recur` using mutable locals.
+Both layers produce identical results. The hot loop layer replaces `engine/run-loop` with a self-contained `loop`/`recur` using mutable locals.
 
 ## Cross-Platform Array Helpers
 
@@ -46,14 +46,14 @@ Add to `src/cljc/yin/vm/engine.cljc`:
 
 On JVM, `aget`/`aset` on `object-array` is O(1) direct memory access. On ClojureScript, `aget`/`aset` on a JS Array is O(1) property access. Both eliminate the O(log32 n) trie traversal.
 
-## Register VM Fast Path
+## Register VM Hot-Loop Execution
 
 File: `src/cljc/yin/vm/register.cljc`
 
 ### Mutable State Layout
 
 ```clojure
-(defn- reg-vm-run-fast [state]
+(defn- reg-vm-run-active-continuation [state]
   (let [vbc  (volatile! (to-array (:bytecode state)))   ; bytecode array (swapped on closure calls)
         vpl  (volatile! (to-array (:pool state)))       ; pool array (swapped on closure calls)
         vrs  (volatile! (to-array (:regs state)))       ; registers array (swapped on call/return)
@@ -103,7 +103,7 @@ Stream/park/resume ops: materialize immutable state, delegate to existing engine
 
 Called only at boundaries: effects, blocking, halting, parking, reification. Not called per instruction.
 
-## Stack VM Fast Path
+## Stack VM Hot-Loop Execution
 
 File: `src/cljc/yin/vm/stack.cljc`
 
@@ -146,7 +146,7 @@ Current stack VM closures store `body-bytes` (a `subvec` slice). Change to store
 
 ## Scheduler Integration
 
-The fast path handles run-queue/blocked/wait-set internally rather than delegating to `engine/run-loop`:
+The hot loop execution layer handles run-queue/blocked/wait-set internally rather than delegating to `engine/run-loop`:
 - After halting or blocking, check run-queue
 - If entries exist, re-hydrate mutable state from the entry and `recur`
 - If blocked, call `engine/check-wait-set`, check run-queue again
@@ -158,21 +158,21 @@ The fast path handles run-queue/blocked/wait-set internally rather than delegati
 - **`store`**: shared heap, needs persistence for effects
 - **`pool`**: read-only after compilation, converted to array for fast reads but persistent ref kept for closures
 - **Closure and frame maps**: semantic operations (reifying execution context), unavoidable
-- **`IVMStep/step`**: unchanged slow path for debuggability
+- **`IVMStep/step`**: unchanged step execution for debuggability
 
 ## Implementation Phases
 
 ### Phase 1: Array helpers in engine.cljc
 Add cross-platform `to-array`, `arr-get`, `arr-set!`, `arr-copy`, `make-obj-array`.
 
-### Phase 2: Register VM fast path
-Add `reg-vm-run-fast` to `register.cljc`. Start with common opcodes (`:literal`, `:load-var`, `:move`, `:branch`, `:jump`, `:return`), then add `:lambda`, `:call`, `:tailcall`, then stream/continuation ops. Wire `reg-vm-eval` to use it.
+### Phase 2: Register VM hot loop execution
+Add `reg-vm-run-active-continuation` to `register.cljc`. Start with common opcodes (`:literal`, `:load-var`, `:move`, `:branch`, `:jump`, `:return`), then add `:lambda`, `:call`, `:tailcall`, then stream/continuation ops. Wire `reg-vm-eval` to use it.
 
-### Phase 3: Stack VM fast path
-Add `stack-vm-run-fast` to `stack.cljc`. Mutable stack array, eliminate `subvec` closures. Wire `stack-vm-eval` to use it.
+### Phase 3: Stack VM hot loop execution
+Add `stack-vm-run-active-continuation` to `stack.cljc`. Mutable stack array, eliminate `subvec` closures. Wire `stack-vm-eval` to use it.
 
 ### Phase 4: Verification
-All existing tests pass. Add slow-vs-fast parity test to `test/yin/vm/parity_test.cljc`.
+All existing tests pass. Add step-vs-hot loop parity test to `test/yin/vm/parity_test.cljc`.
 
 ## Expected Impact
 
@@ -192,9 +192,9 @@ For IO-heavy code (frequent effects):
 ## Files
 
 - `src/cljc/yin/vm/engine.cljc` - array helpers
-- `src/cljc/yin/vm/register.cljc` - `reg-vm-run-fast`
-- `src/cljc/yin/vm/stack.cljc` - `stack-vm-run-fast`
-- `test/yin/vm/parity_test.cljc` - slow-vs-fast parity test
+- `src/cljc/yin/vm/register.cljc` - `reg-vm-run-active-continuation`
+- `src/cljc/yin/vm/stack.cljc` - `stack-vm-run-active-continuation`
+- `test/yin/vm/parity_test.cljc` - step-vs-hot loop parity test
 
 ## RegisterVM Reapplied Optimization Pass (2026-02-27)
 
@@ -259,7 +259,7 @@ Hotspot movement:
 
 Next steps (RegisterVM):
 
-1. Reduce `RT.longCast`/`nth` cast pressure in `reg-vm-run-fast`.
+1. Reduce `RT.longCast`/`nth` cast pressure in `reg-vm-run-active-continuation`.
 2. Reduce remaining small-map allocation in `bind-closure-env` for closure calls.
 
 ## Node.js Cross-Check vs master (2026-02-27)
@@ -273,7 +273,7 @@ Method:
 
 - Branch under test: `bytecode-vm-optimization` (`d4b16c1`).
 - Baseline branch: `master` (`d66b250`).
-- Workload: tail-recursive countdown (`n=50000`) executed by RegisterVM fast path.
+- Workload: tail-recursive countdown (`n=50000`) executed by RegisterVM hot loop execution.
 - Benchmark parameters: `iterations=20`, `samples=9`, `warmup=4`.
 - Node command in both branches:
   - `node target/register-vm-node-bench.js 50000 20 9 4`
@@ -426,11 +426,11 @@ more modest ~10% improvement. Three factors contribute to this delta:
      a bottleneck (documented in "Next steps") and affects all platforms, but
      shows up more prominently in this specific workload.
 
-2. **Execution Path (Fast vs. Slow)**:
-   - The reported ~10% gain for CLJD was measured on the **slow path**
-     (`reg-vm-run-slow`) using the scheduler-backed loop, whereas JVM/Node were
-     measured on the **fast path** (`reg-vm-run-fast`).
-   - The slow path pays a high per-instruction tax for `atom` updates and
+2. **Execution Layer (Hot-Loop vs Scheduler)**:
+   - The reported ~10% gain for CLJD was measured on the **scheduler layer**
+     (`reg-vm-run-scheduler`) using the scheduler-backed loop, whereas JVM/Node were
+     measured on the **hot loop layer** (`reg-vm-run-active-continuation`).
+   - The scheduler layer pays a high per-instruction tax for `atom` updates and
      run-queue checks, masking the efficiency gains of the register-based
      instruction set.
 
@@ -444,7 +444,7 @@ more modest ~10% improvement. Three factors contribute to this delta:
      arrays.
 
 The next validation step is to re-run the `tail-recursive countdown` on CLJD
-using the newly re-enabled fast path (enabled by the `[:reg-array]` fix).
+using the newly re-enabled hot loop layer (enabled by the `[:reg-array]` fix).
 
 ## ClojureDart: Eliminate `[:reg-array]` Wrapper (2026-02-27)
 
