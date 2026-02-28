@@ -215,8 +215,8 @@
 (defn continuation->vm-state
   [vm-key continuation]
   (let [base (if (stack-vm? vm-key)
-               (stack/create-vm {:env vm/primitives})
-               (register/create-vm {:env vm/primitives}))
+               (stack/create-vm)
+               (register/create-vm))
         resumed (reduce-kv (fn [acc k v] (assoc acc k v)) base continuation)]
     (assoc resumed :primitives vm/primitives)))
 
@@ -228,13 +228,13 @@
 
 (defn create-loaded-register-vm
   [{:keys [bytecode pool reg-count]}]
-  (-> (register/create-vm {:env vm/primitives})
+  (-> (register/create-vm)
       (vm/load-program {:bytecode bytecode, :pool pool, :reg-count reg-count})))
 
 
 (defn create-loaded-stack-vm
   [{:keys [bytecode pool]}]
-  (-> (stack/create-vm {:env vm/primitives})
+  (-> (stack/create-vm)
       (vm/load-program {:bytecode bytecode, :pool pool})))
 
 

@@ -296,6 +296,119 @@
   (let [u (fetch-short-unsigned bytes pc)] (if (>= u 32768) (- u 65536) u)))
 
 
+(def ^:private initial-stack-capacity 32)
+
+
+(defn- make-stack-array
+  [n]
+  #?(:clj (object-array (int n))
+     :cljs (let [arr (js/Array. n)]
+             (loop [i 0]
+               (if (< i n)
+                 (do (aset arr i nil) (recur (inc i)))
+                 arr)))
+     :cljd (object-array (int n))))
+
+
+(defn- stack-array-length
+  [arr]
+  #?(:clj (alength ^objects arr)
+     :cljs (.-length arr)
+     :cljd (alength arr)))
+
+
+(defn- stack-array-get
+  [arr idx]
+  #?(:clj (aget ^objects arr (int idx))
+     :cljs (aget arr idx)
+     :cljd (aget arr (int idx))))
+
+
+(defn- stack-array-set!
+  [arr idx val]
+  #?(:clj (aset ^objects arr (int idx) val)
+     :cljs (aset arr idx val)
+     :cljd (aset arr (int idx) val)))
+
+
+(defn- stack-array-grow
+  [arr min-capacity]
+  (let [old-len (stack-array-length arr)
+        new-len (loop [len (max 1 old-len)]
+                  (if (< len min-capacity)
+                    (recur (* 2 len))
+                    len))
+        new-arr (make-stack-array new-len)]
+    #?(:clj (System/arraycopy arr 0 new-arr 0 old-len)
+       :cljs (loop [i 0]
+               (when (< i old-len)
+                 (aset new-arr i (aget arr i))
+                 (recur (inc i))))
+       :cljd (dotimes [i old-len]
+               (aset new-arr i (aget arr i))))
+    new-arr))
+
+
+(defn- stack-array->vector
+  [arr sp]
+  (if (neg? sp)
+    []
+    (loop [i 0
+           out (transient [])]
+      (if (<= i sp)
+        (recur (inc i) (conj! out (stack-array-get arr i)))
+        (persistent! out)))))
+
+
+(defn- stack-vector->array+sp
+  [stack]
+  (let [n (count stack)
+        cap (max initial-stack-capacity n)
+        arr (make-stack-array cap)]
+    (loop [i 0]
+      (when (< i n)
+        (stack-array-set! arr i (nth stack i))
+        (recur (inc i))))
+    [arr (dec n)]))
+
+
+(defn- stack-push
+  [arr sp v]
+  (let [next-sp (inc sp)
+        arr' (if (< next-sp (stack-array-length arr))
+               arr
+               (stack-array-grow arr (inc next-sp)))]
+    (stack-array-set! arr' next-sp v)
+    [arr' next-sp]))
+
+
+(defn- stack-args->vector
+  [stack-arr fn-pos argc]
+  (loop [i 0
+         out (transient [])]
+    (if (< i argc)
+      (recur (inc i)
+             (conj! out (stack-array-get stack-arr (+ fn-pos 1 i))))
+      (persistent! out))))
+
+
+(defn- invoke-native-fast
+  [fn-val stack-arr fn-pos argc]
+  (case argc
+    0 (fn-val)
+    1 (fn-val (stack-array-get stack-arr (inc fn-pos)))
+    2 (fn-val (stack-array-get stack-arr (inc fn-pos))
+              (stack-array-get stack-arr (+ fn-pos 2)))
+    3 (fn-val (stack-array-get stack-arr (inc fn-pos))
+              (stack-array-get stack-arr (+ fn-pos 2))
+              (stack-array-get stack-arr (+ fn-pos 3)))
+    4 (fn-val (stack-array-get stack-arr (inc fn-pos))
+              (stack-array-get stack-arr (+ fn-pos 2))
+              (stack-array-get stack-arr (+ fn-pos 3))
+              (stack-array-get stack-arr (+ fn-pos 4)))
+    (apply fn-val (stack-args->vector stack-arr fn-pos argc))))
+
+
 (defn- snap-frame
   "Snapshot current VM frame for parking or reification."
   [{:keys [bytecode env call-stack pool]} stack pc]
@@ -372,25 +485,29 @@
                                       :stream-id (:stream-id r)}))}))
           (= :closure (:type fn-val))
           (let [{clo-params :params,
+                 clo-bytecode :bytecode,
                  clo-body :body-bytes,
+                 clo-body-start :body-start,
                  clo-env :env,
                  clo-pool :pool}
                 fn-val
+                target-bytecode (or clo-bytecode clo-body)
+                target-pc (or clo-body-start 0)
                 new-env (merge clo-env (zipmap clo-params args))
                 frame (snap-frame state stack-rest next-pc)]
             (if tail?
               ;; TCO: reuse current frame by
               ;; jumping directly to callee body.
               (assoc state
-                     :pc 0
-                     :bytecode clo-body
+                     :pc target-pc
+                     :bytecode target-bytecode
                      :stack []
                      :env new-env
                      :pool (or clo-pool pool)
                      :call-stack call-stack)
               (assoc state
-                     :pc 0
-                     :bytecode clo-body
+                     :pc target-pc
+                     :bytecode target-bytecode
                      :stack []
                      :env new-env
                      :pool (or clo-pool pool)
@@ -434,10 +551,12 @@
                 params (nth pool params-idx)
                 body-len (fetch-short-unsigned bytecode (+ pc 2))
                 body-start (+ pc 4)
-                body-bytes (subvec bytecode body-start (+ body-start body-len))
+                body-end (+ body-start body-len)
                 closure {:type :closure,
                          :params params,
-                         :body-bytes body-bytes,
+                         :body-start body-start,
+                         :body-end body-end,
+                         :bytecode bytecode,
                          :env env,
                          :pool pool}]
             (assoc state
@@ -586,6 +705,440 @@
                                   (restore-frame base entry (:value entry)))))
 
 
+(defn- stack-vm-run-scheduler
+  "Generic scheduler-backed run loop."
+  [vm-state]
+  (engine/run-loop vm-state
+                   engine/active-continuation?
+                   stack-step
+                   resume-from-run-queue))
+
+
+(defn- materialize-fast-state
+  "Materialize fast-loop locals back into a StackVM value."
+  [vm pc bytecode pool stack-arr sp env call-stack store id-counter]
+  (assoc vm
+         :pc pc
+         :bytecode bytecode
+         :pool pool
+         :stack (stack-array->vector stack-arr sp)
+         :env env
+         :call-stack call-stack
+         :store store
+         :id-counter id-counter
+         :halted false
+         :blocked false))
+
+
+(defn- halt-fast-state
+  [vm pc bytecode pool stack-arr sp env call-stack store id-counter result]
+  (assoc vm
+         :pc pc
+         :bytecode bytecode
+         :pool pool
+         :stack (stack-array->vector stack-arr sp)
+         :env env
+         :call-stack call-stack
+         :store store
+         :id-counter id-counter
+         :halted true
+         :blocked false
+         :value result))
+
+
+(defn- stack-vm-run-active-continuation
+  "Fast stack VM run loop with mutable stack storage.
+   Falls back to the generic scheduler loop for stream/control opcodes."
+  [vm]
+  (let [[stack-arr0 sp0] (stack-vector->array+sp (:stack vm))
+        primitives (:primitives vm)]
+    (loop [pc (:pc vm)
+           bytecode (:bytecode vm)
+           pool (:pool vm)
+           stack-arr stack-arr0
+           sp sp0
+           env (:env vm)
+           call-stack (:call-stack vm)
+           store (:store vm)
+           id-counter (:id-counter vm)]
+      (let [fallback #(stack-vm-run-scheduler
+                        (materialize-fast-state
+                          vm
+                          pc
+                          bytecode
+                          pool
+                          stack-arr
+                          sp
+                          env
+                          call-stack
+                          store
+                          id-counter))]
+        (if (>= pc (count bytecode))
+          (let [result (when-not (neg? sp) (stack-array-get stack-arr sp))]
+            (if (empty? call-stack)
+              (halt-fast-state vm
+                               pc
+                               bytecode
+                               pool
+                               stack-arr
+                               sp
+                               env
+                               call-stack
+                               store
+                               id-counter
+                               result)
+              (let [frame (peek call-stack)
+                    [restored-arr restored-sp0] (stack-vector->array+sp
+                                                  (:stack frame))
+                    [restored-arr restored-sp] (stack-push restored-arr
+                                                           restored-sp0
+                                                           result)]
+                (recur (:pc frame)
+                       (:bytecode frame)
+                       (or (:pool frame) pool)
+                       restored-arr
+                       restored-sp
+                       (:env frame)
+                       (:call-stack frame)
+                       store
+                       id-counter))))
+          (let [op (nth bytecode pc)]
+            (vm/opcase
+              op
+              :literal
+              (let [val-idx (nth bytecode (inc pc))
+                    val (nth pool val-idx)
+                    [next-arr next-sp] (stack-push stack-arr sp val)]
+                (recur (+ pc 2)
+                       bytecode
+                       pool
+                       next-arr
+                       next-sp
+                       env
+                       call-stack
+                       store
+                       id-counter))
+              :load-var
+              (let [sym-idx (nth bytecode (inc pc))
+                    sym (nth pool sym-idx)
+                    val (engine/resolve-var env store primitives sym)
+                    [next-arr next-sp] (stack-push stack-arr sp val)]
+                (recur (+ pc 2)
+                       bytecode
+                       pool
+                       next-arr
+                       next-sp
+                       env
+                       call-stack
+                       store
+                       id-counter))
+              :lambda
+              (let [params-idx (nth bytecode (inc pc))
+                    params (nth pool params-idx)
+                    body-len (fetch-short-unsigned bytecode (+ pc 2))
+                    body-start (+ pc 4)
+                    body-end (+ body-start body-len)
+                    closure {:type :closure,
+                             :params params,
+                             :body-start body-start,
+                             :body-end body-end,
+                             :bytecode bytecode,
+                             :env env,
+                             :pool pool}
+                    [next-arr next-sp] (stack-push stack-arr sp closure)]
+                (recur (+ pc 4 body-len)
+                       bytecode
+                       pool
+                       next-arr
+                       next-sp
+                       env
+                       call-stack
+                       store
+                       id-counter))
+              :call
+              (let [argc (nth bytecode (inc pc))
+                    fn-pos (- sp argc)
+                    fn-val (stack-array-get stack-arr fn-pos)
+                    stack-rest-sp (dec fn-pos)
+                    next-pc (+ pc 2)]
+                (cond
+                  (fn? fn-val)
+                  (let [result (invoke-native-fast fn-val stack-arr fn-pos argc)]
+                    (if (module/effect? result)
+                      (let [state' (materialize-fast-state
+                                     vm
+                                     pc
+                                     bytecode
+                                     pool
+                                     stack-arr
+                                     sp
+                                     env
+                                     call-stack
+                                     store
+                                     id-counter)
+                            stack-rest (stack-array->vector stack-arr
+                                                            stack-rest-sp)]
+                        (-> (handle-native-result
+                              state'
+                              result
+                              stack-rest
+                              next-pc
+                              {:stream/put
+                               (fn [_s _e r]
+                                 (merge
+                                   (snap-frame state' stack-rest next-pc)
+                                   {:reason :put,
+                                    :stream-id (:stream-id r),
+                                    :datom (:val result)})),
+                               :stream/next
+                               (fn [_s _e r]
+                                 (merge
+                                   (snap-frame state' stack-rest next-pc)
+                                   {:reason :next,
+                                    :cursor-ref (:cursor-ref r),
+                                    :stream-id (:stream-id r)}))})
+                            stack-vm-run-scheduler))
+                      (let [arr1 stack-arr
+                            sp1 stack-rest-sp
+                            [next-arr next-sp] (stack-push arr1 sp1 result)]
+                        (recur next-pc
+                               bytecode
+                               pool
+                               next-arr
+                               next-sp
+                               env
+                               call-stack
+                               store
+                               id-counter))))
+                  (= :closure (:type fn-val))
+                  (let [{clo-params :params,
+                         clo-bytecode :bytecode,
+                         clo-body :body-bytes,
+                         clo-body-start :body-start,
+                         clo-env :env,
+                         clo-pool :pool}
+                        fn-val
+                        target-bytecode (or clo-bytecode clo-body)
+                        target-pc (or clo-body-start 0)
+                        new-env (merge clo-env
+                                       (zipmap clo-params
+                                               (stack-args->vector
+                                                 stack-arr
+                                                 fn-pos
+                                                 argc)))
+                        frame (snap-frame {:bytecode bytecode,
+                                           :env env,
+                                           :call-stack call-stack,
+                                           :pool pool}
+                                          (stack-array->vector stack-arr
+                                                               stack-rest-sp)
+                                          next-pc)
+                        next-call-stack (conj call-stack frame)]
+                    (recur target-pc
+                           target-bytecode
+                           (or clo-pool pool)
+                           stack-arr
+                           -1
+                           new-env
+                           next-call-stack
+                           store
+                           id-counter))
+                  :else
+                  (throw (ex-info "Cannot apply non-function" {:fn fn-val}))))
+              :tailcall
+              (let [argc (nth bytecode (inc pc))
+                    fn-pos (- sp argc)
+                    fn-val (stack-array-get stack-arr fn-pos)
+                    stack-rest-sp (dec fn-pos)
+                    next-pc (+ pc 2)]
+                (cond
+                  (fn? fn-val)
+                  (let [result (invoke-native-fast fn-val stack-arr fn-pos argc)]
+                    (if (module/effect? result)
+                      (let [state' (materialize-fast-state
+                                     vm
+                                     pc
+                                     bytecode
+                                     pool
+                                     stack-arr
+                                     sp
+                                     env
+                                     call-stack
+                                     store
+                                     id-counter)
+                            stack-rest (stack-array->vector stack-arr
+                                                            stack-rest-sp)]
+                        (-> (handle-native-result
+                              state'
+                              result
+                              stack-rest
+                              next-pc
+                              {:stream/put
+                               (fn [_s _e r]
+                                 (merge
+                                   (snap-frame state' stack-rest next-pc)
+                                   {:reason :put,
+                                    :stream-id (:stream-id r),
+                                    :datom (:val result)})),
+                               :stream/next
+                               (fn [_s _e r]
+                                 (merge
+                                   (snap-frame state' stack-rest next-pc)
+                                   {:reason :next,
+                                    :cursor-ref (:cursor-ref r),
+                                    :stream-id (:stream-id r)}))})
+                            stack-vm-run-scheduler))
+                      (let [arr1 stack-arr
+                            sp1 stack-rest-sp
+                            [next-arr next-sp] (stack-push arr1 sp1 result)]
+                        (recur next-pc
+                               bytecode
+                               pool
+                               next-arr
+                               next-sp
+                               env
+                               call-stack
+                               store
+                               id-counter))))
+                  (= :closure (:type fn-val))
+                  (let [{clo-params :params,
+                         clo-bytecode :bytecode,
+                         clo-body :body-bytes,
+                         clo-body-start :body-start,
+                         clo-env :env,
+                         clo-pool :pool}
+                        fn-val
+                        target-bytecode (or clo-bytecode clo-body)
+                        target-pc (or clo-body-start 0)
+                        new-env (merge clo-env
+                                       (zipmap clo-params
+                                               (stack-args->vector
+                                                 stack-arr
+                                                 fn-pos
+                                                 argc)))]
+                    (recur target-pc
+                           target-bytecode
+                           (or clo-pool pool)
+                           stack-arr
+                           -1
+                           new-env
+                           call-stack
+                           store
+                           id-counter))
+                  :else
+                  (throw (ex-info "Cannot apply non-function" {:fn fn-val}))))
+              :branch
+              (let [offset (fetch-short-signed bytecode (inc pc))
+                    condition (stack-array-get stack-arr sp)]
+                (recur (if condition (+ pc 3 offset) (+ pc 3))
+                       bytecode
+                       pool
+                       stack-arr
+                       (dec sp)
+                       env
+                       call-stack
+                       store
+                       id-counter))
+              :jump
+              (let [offset (fetch-short-signed bytecode (inc pc))]
+                (recur (+ pc 3 offset)
+                       bytecode
+                       pool
+                       stack-arr
+                       sp
+                       env
+                       call-stack
+                       store
+                       id-counter))
+              :return
+              (let [result (when-not (neg? sp) (stack-array-get stack-arr sp))]
+                (if (empty? call-stack)
+                  (halt-fast-state vm
+                                   pc
+                                   bytecode
+                                   pool
+                                   stack-arr
+                                   sp
+                                   env
+                                   call-stack
+                                   store
+                                   id-counter
+                                   result)
+                  (let [frame (peek call-stack)
+                        [restored-arr restored-sp0]
+                        (stack-vector->array+sp (:stack frame))
+                        [restored-arr restored-sp]
+                        (stack-push restored-arr restored-sp0 result)]
+                    (recur (:pc frame)
+                           (:bytecode frame)
+                           (or (:pool frame) pool)
+                           restored-arr
+                           restored-sp
+                           (:env frame)
+                           (:call-stack frame)
+                           store
+                           id-counter))))
+              :gensym
+              (let [prefix-idx (nth bytecode (inc pc))
+                    prefix (nth pool prefix-idx)
+                    id (keyword (str prefix "-" id-counter))
+                    [next-arr next-sp] (stack-push stack-arr sp id)]
+                (recur (+ pc 2)
+                       bytecode
+                       pool
+                       next-arr
+                       next-sp
+                       env
+                       call-stack
+                       store
+                       (inc id-counter)))
+              :store-get
+              (let [key-idx (nth bytecode (inc pc))
+                    key (nth pool key-idx)
+                    val (get store key)
+                    [next-arr next-sp] (stack-push stack-arr sp val)]
+                (recur (+ pc 2)
+                       bytecode
+                       pool
+                       next-arr
+                       next-sp
+                       env
+                       call-stack
+                       store
+                       id-counter))
+              :store-put
+              (let [key-idx (nth bytecode (inc pc))
+                    key (nth pool key-idx)
+                    val (when-not (neg? sp) (stack-array-get stack-arr sp))]
+                (recur (+ pc 2)
+                       bytecode
+                       pool
+                       stack-arr
+                       sp
+                       env
+                       call-stack
+                       (assoc store key val)
+                       id-counter))
+              (fallback))))))))
+
+
+(defn- stack-vm-run
+  [vm]
+  ;; Fast path is valid only for a single active compute continuation.
+  ;; Any of these conditions means we must re-enter scheduler semantics:
+  ;; - :blocked / :wait-set: wait-set polling and wakeup checks.
+  ;; - :run-queue: dequeue + resume parked continuations.
+  ;; - :halted: current continuation finished, but scheduler may still have work.
+  ;; - nil :bytecode: no active instruction stream to execute.
+  (if (or (:blocked vm)
+          (:halted vm)
+          (seq (:run-queue vm))
+          (seq (:wait-set vm))
+          (nil? (:bytecode vm)))
+    (stack-vm-run-scheduler vm)
+    (stack-vm-run-active-continuation vm)))
+
+
 ;; =============================================================================
 ;; StackVM Protocol Implementation
 ;; =============================================================================
@@ -634,10 +1187,7 @@
                   compiled (assemble asm)]
               (stack-vm-load-program vm compiled))
             vm)]
-    (engine/run-loop v
-                     (fn [v] (and (not (:blocked v)) (not (:halted v))))
-                     stack-step
-                     resume-from-run-queue)))
+    (stack-vm-run v)))
 
 
 (extend-type StackVM

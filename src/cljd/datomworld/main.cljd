@@ -16,7 +16,7 @@
 
 (defn compile-and-run
   [ast]
-  (-> (ast-walker/create-vm {:env vm/primitives})
+  (-> (ast-walker/create-vm)
       (vm/load-program ast)
       (vm/run)
       (vm/value)))

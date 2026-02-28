@@ -25,19 +25,19 @@
 
 (defn- stack-stream-make-default-vm
   []
-  (-> (stack/create-vm {:env vm/primitives})
+  (-> (stack/create-vm)
       (vm/eval {:type :stream/make})))
 
 
 (defn- semantic-stream-make-default-vm
   []
-  (-> (semantic/create-vm {:env vm/primitives})
+  (-> (semantic/create-vm)
       (vm/eval {:type :stream/make})))
 
 
 (defn- register-stream-make-default-vm
   []
-  (-> (register/create-vm {:env vm/primitives})
+  (-> (register/create-vm)
       (vm/eval {:type :stream/make})))
 
 
@@ -57,9 +57,9 @@
   "Evaluate an AST across all VM backends and return their final values."
   [ast]
   {:ast-walker (vm/value (vm/eval (ast-walker/create-vm) ast)),
-   :stack (vm/value (vm/eval (stack/create-vm {:env vm/primitives}) ast)),
-   :semantic (vm/value (vm/eval (semantic/create-vm {:env vm/primitives}) ast)),
-   :register (vm/value (vm/eval (register/create-vm {:env vm/primitives})
+   :stack (vm/value (vm/eval (stack/create-vm) ast)),
+   :semantic (vm/value (vm/eval (semantic/create-vm) ast)),
+   :register (vm/value (vm/eval (register/create-vm)
                                 ast))})
 
 
@@ -79,9 +79,9 @@
               (str vm-type " should park in arg"))
           (let [vm (case vm-type
                      :ast-walker (ast-walker/create-vm)
-                     :stack (stack/create-vm {:env vm/primitives})
-                     :semantic (semantic/create-vm {:env vm/primitives})
-                     :register (register/create-vm {:env vm/primitives}))
+                     :stack (stack/create-vm)
+                     :semantic (semantic/create-vm)
+                     :register (register/create-vm))
                 ;; First run: evaluates (park) in operand position
                 vm-parked-1 (vm/eval vm ast)
                 reified-arg-from-vm (vm/value vm-parked-1)]
@@ -125,7 +125,7 @@
                 (fn [vm-type]
                   (let [vm (case vm-type
                              :ast-walker (ast-walker/create-vm)
-                             :stack (stack/create-vm {:env vm/primitives})
+                             :stack (stack/create-vm)
                              :semantic (semantic/create-vm {:env
                                                             vm/primitives})
                              :register (register/create-vm {:env
@@ -179,16 +179,16 @@
                :tail? true}]
       (doseq [vm-type [:ast-walker :semantic :stack :register]]
         (let [vm (case vm-type
-                   :ast-walker (-> (ast-walker/create-vm {:env vm/primitives})
+                   :ast-walker (-> (ast-walker/create-vm)
                                    (vm/load-program ast))
                    :semantic (let [datoms (vm/ast->datoms ast)
                                    root-id (apply max (map first datoms))]
-                               (-> (semantic/create-vm {:env vm/primitives})
+                               (-> (semantic/create-vm)
                                    (vm/load-program {:node root-id,
                                                      :datoms datoms})))
-                   :stack (-> (stack/create-vm {:env vm/primitives})
+                   :stack (-> (stack/create-vm)
                               (vm/eval ast))
-                   :register (-> (register/create-vm {:env vm/primitives})
+                   :register (-> (register/create-vm)
                                  (vm/eval ast)))]
           (loop [v vm
                  max-d 0]

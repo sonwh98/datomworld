@@ -12,7 +12,7 @@
 
 (deftest halted-vm-projection-test
   (testing "Halted VM projection shows result value"
-    (let [vm (-> (semantic/create-vm {:env vm/primitives})
+    (let [vm (-> (semantic/create-vm)
                  (vm/eval {:type :literal, :value 42}))
           datoms (proj/state->datom-stream vm)
           ctrl-datoms (filter (fn [[_e a _v _t _m]] (= a :cont/type)) datoms)
@@ -31,7 +31,7 @@
                           {:type :literal, :value 2}]}
           datoms (vm/ast->datoms ast)
           root-id (ffirst datoms)
-          vm (-> (semantic/create-vm {:env vm/primitives})
+          vm (-> (semantic/create-vm)
                  (vm/load-program {:node root-id, :datoms datoms}))
           ;; Step once: evaluates operator node, pushes :app-op frame
           vm-stepped (vm/step vm)
@@ -45,7 +45,7 @@
 
 (deftest projection-entity-ids-test
   (testing "Projected datoms use entity IDs in -2048 range"
-    (let [vm (-> (semantic/create-vm {:env vm/primitives})
+    (let [vm (-> (semantic/create-vm)
                  (vm/eval {:type :literal, :value 42}))
           datoms (proj/state->datom-stream vm)
           eids (map first datoms)]
@@ -61,7 +61,7 @@
                           :params ['x],
                           :body {:type :variable, :name 'x}},
                :operands [{:type :literal, :value 99}]}
-          vm (-> (semantic/create-vm {:env vm/primitives})
+          vm (-> (semantic/create-vm)
                  (vm/eval ast))
           datoms (proj/state->datom-stream vm)]
       (is (seq datoms) "Produces datoms for completed lambda application"))))
@@ -69,7 +69,7 @@
 
 (deftest parked-continuation-projection-test
   (testing "Parked continuations appear in projection"
-    (let [vm (-> (semantic/create-vm {:env vm/primitives})
+    (let [vm (-> (semantic/create-vm)
                  (vm/eval {:type :vm/park}))
           datoms (proj/state->datom-stream vm)
           parked-types (keep (fn [[_e a v _t _m]]

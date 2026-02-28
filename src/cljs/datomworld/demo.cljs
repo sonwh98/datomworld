@@ -545,25 +545,25 @@
 
 (defn- load-stack-state
   [bytecode pool]
-  (-> (stack/create-vm {:env vm/primitives})
+  (-> (stack/create-vm)
       (vm/load-program {:bytecode bytecode, :pool pool})))
 
 
 (defn- load-register-state
   [bytecode pool reg-count]
-  (-> (register/create-vm {:env vm/primitives})
+  (-> (register/create-vm)
       (vm/load-program {:bytecode bytecode, :pool pool, :reg-count reg-count})))
 
 
 (defn- load-semantic-state
   [root-id datoms]
-  (-> (semantic/create-vm {:env vm/primitives})
+  (-> (semantic/create-vm)
       (vm/load-program {:node root-id, :datoms datoms})))
 
 
 (defn- load-walker-state
   [ast]
-  (-> (walker/create-vm {:env vm/primitives})
+  (-> (walker/create-vm)
       (vm/load-program ast)))
 
 

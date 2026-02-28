@@ -43,7 +43,7 @@
           original-datoms (vm/ast->datoms ast)
           exported (transport/export-ast original-datoms)
           {:keys [datoms root-eid]} (transport/import-ast exported -3000 {})
-          vm (semantic/create-vm {:env vm/primitives})
+          vm (semantic/create-vm)
           result (-> vm
                      (vm/load-program {:node root-eid, :datoms datoms})
                      (vm/run)
@@ -130,7 +130,7 @@
       (is (= canonical-root imported-root)
           "Materialized datoms produce same hash as canonical vector form")
       ;; Verify the imported datoms actually evaluate correctly
-      (let [vm (semantic/create-vm {:env vm/primitives})
+      (let [vm (semantic/create-vm)
             result (-> vm
                        (vm/load-program {:node root-eid, :datoms datoms})
                        (vm/run)
@@ -154,7 +154,7 @@
                                  :operands [{:type :variable, :name 'x}
                                             {:type :literal, :value 1}]}},
                :operands [{:type :vm/park}]}
-          vm0 (semantic/create-vm {:env vm/primitives})
+          vm0 (semantic/create-vm)
           vm1 (vm/eval vm0 ast)
           parked-cont (vm/value vm1)
           ;; Get the AST datoms and content hashes
@@ -174,7 +174,7 @@
       ;; Resume on a fresh VM with the imported continuation and datoms
       ;; Inject the continuation state directly and resume with value 42
       ;; Expected: (+ 42 1) = 43
-      (let [fresh-vm (semantic/create-vm {:env vm/primitives})
+      (let [fresh-vm (semantic/create-vm)
             loaded (vm/load-program fresh-vm
                                     {:node (:root-eid ast-imported),
                                      :datoms (:datoms ast-imported)})
