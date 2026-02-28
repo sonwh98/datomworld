@@ -30,6 +30,7 @@
 
 (defrecord ASTWalkerVM
   [blocked      ; boolean, true if blocked
+   halted       ; boolean, true when active continuation has completed
    continuation ; reified continuation or nil
    control      ; current AST node or nil
    environment  ; persistent lexical scope map
@@ -388,15 +389,19 @@
   "Execute one step of ASTWalkerVM. Returns updated VM.
    eval operates directly on the record (assoc preserves record type)."
   [^ASTWalkerVM vm]
-  (cesk-transition vm nil))
+  (let [next-state (cesk-transition vm nil)]
+    ;; AST walker halting is derived from CESK liveness (no control and no
+    ;; continuation) rather than an opcode boundary.
+    (assoc next-state
+           :halted (and (not (:blocked next-state))
+                        (nil? (:control next-state))
+                        (nil? (:continuation next-state))))))
 
 
 (defn- vm-halted?
   "Returns true if VM has halted."
   [^ASTWalkerVM vm]
-  (and (nil? (:control vm))
-       (nil? (:continuation vm))
-       (empty? (or (:run-queue vm) []))))
+  (engine/halted-with-empty-queue? vm))
 
 
 (defn- vm-blocked?
@@ -414,7 +419,10 @@
 (defn- vm-load-program
   "Load an AST into the VM."
   [^ASTWalkerVM vm ast]
-  (assoc vm :control ast))
+  (assoc vm
+         :control ast
+         :halted false
+         :blocked false))
 
 
 (defn- vm-eval
@@ -424,7 +432,7 @@
   (let [v (if ast (vm-load-program vm ast) vm)]
     (engine/run-loop
       v
-      (fn [v] (and (not (:blocked v)) (or (:control v) (:continuation v))))
+      engine/active-continuation?
       vm-step
       resume-from-run-queue)))
 
@@ -460,4 +468,5 @@
                                :environment env,
                                :continuation nil,
                                :value nil,
+                               :halted true,
                                :blocked false})))))
