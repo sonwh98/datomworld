@@ -256,6 +256,47 @@
       (is (= 11 (vm/value result))))))
 
 
+(deftest eval-effectful-primitive-single-invocation-test
+  (testing "Effectful primitive should be invoked exactly once per application"
+    (let [calls (atom 0)
+          emit! (fn []
+                  (let [n (swap! calls inc)]
+                    {:effect :vm/store-put, :key :effect/calls, :val n}))
+          ast {:type :application,
+               :operator {:type :variable, :name 'emit!},
+               :operands []}
+          result (vm/eval (ast-walker/create-vm {:env {'emit! emit!}}) ast)]
+      (is (= 1 @calls) "Primitive should not be evaluated twice")
+      (is (= 1 (vm/value result)))
+      (is (= 1 (get (vm/store result) :effect/calls))))))
+
+
+(deftest eval-blocked-effect-preserves-current-env-test
+  (testing "Blocked effect should preserve the active lexical environment in VM state"
+    (let [vm0 (vm/eval (ast-walker/create-vm) {:type :stream/make, :buffer 2})
+          stream-ref (vm/value vm0)
+          vm1 (vm/eval vm0 {:type :stream/cursor,
+                            :source {:type :literal, :value stream-ref}})
+          cursor-ref (vm/value vm1)
+          block-next (fn [cursor] {:effect :stream/next, :cursor cursor})
+          vm-with-primitive (assoc vm1 :environment
+                                   (assoc (vm/environment vm1)
+                                          'block-next block-next))
+          ast {:type :application,
+               :operator {:type :lambda,
+                          :params ['x],
+                          :body {:type :application,
+                                 :operator {:type :variable, :name 'block-next},
+                                 :operands [{:type :variable, :name 'x}]}}
+               :operands [{:type :literal, :value cursor-ref}]}
+          result (vm/eval vm-with-primitive ast)
+          waiter (first (:wait-set result))]
+      (is (vm/blocked? result))
+      (is (= :yin/blocked (vm/value result)))
+      (is (= cursor-ref (get (vm/environment result) 'x)))
+      (is (= cursor-ref (get (:environment waiter) 'x))))))
+
+
 ;; =============================================================================
 ;; ast->datoms contract tests
 ;; =============================================================================

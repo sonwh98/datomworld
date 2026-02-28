@@ -1,7 +1,9 @@
 (ns yin.vm.bytecode-bench
   (:require
+    [clojure.string :as str]
     [criterium.core :as criterium]
     [yin.vm :as vm]
+    [yin.vm.ast-walker :as ast-walker]
     [yin.vm.register :as register]
     [yin.vm.stack :as stack]))
 
@@ -24,11 +26,15 @@
               "--fast-only" (assoc opts :fast-only? true)
               "--register-only" (assoc opts :register-only? true)
               "--stack-only" (assoc opts :stack-only? true)
+              "--ast-walker" (assoc opts :ast-walker? true)
+              "--ast-walker-only" (assoc opts :ast-walker-only? true)
               (assoc opts :n (parse-arg-long arg n))))
           {:n 1000
            :fast-only? false
            :register-only? false
-           :stack-only? false}
+           :stack-only? false
+           :ast-walker? false
+           :ast-walker-only? false}
           args))
 
 
@@ -100,6 +106,37 @@
     (vm/load-program (stack/create-vm) compiled)))
 
 
+(defn- track-ast-steps
+  "Runs the AST walker one step at a time, counting control node types."
+  [vm-state]
+  (let [counts (atom {})]
+    (loop [v vm-state]
+      (if (and (not (vm/halted? v)) (not (vm/blocked? v)))
+        (let [node-type (get (:control v) :type :no-control)]
+          (swap! counts update node-type (fnil inc 0))
+          (recur (vm/step v)))
+        {:final-vm v
+         :step-counts @counts}))))
+
+
+(defn- bench-ast-walker
+  [ast {:keys [fast-only?]}]
+  (println "\n=== AST Walker VM ===")
+  (let [loaded (vm/load-program (ast-walker/create-vm) ast)]
+    (when-not fast-only?
+      (println "Analyzing hot paths (step-by-step)...")
+      (let [{:keys [step-counts]} (track-ast-steps loaded)
+            sorted-counts (reverse (sort-by second step-counts))]
+        (doseq [[node-type count] (take 10 sorted-counts)]
+          (println (format "  %-16s : %d" (str node-type) count))))
+      (println "\nMeasuring SLOW path (step-by-step, Criterium quick-bench)...")
+      (criterium/quick-bench (run-slow loaded)))
+    (println (if fast-only?
+               "Measuring FAST path only (Criterium quick-bench)..."
+               "\nMeasuring FAST path (vm/run, Criterium quick-bench)..."))
+    (criterium/quick-bench (vm/run loaded))))
+
+
 (defn- bench-vm
   [vm-name program {:keys [fast-only?]}]
   (println (str "\n=== " vm-name " ==="))
@@ -124,25 +161,35 @@
 
 (defn -main
   [& args]
-  (let [{:keys [n fast-only? register-only? stack-only?] :as opts} (parse-opts
-                                                                     args)]
-    (when (and register-only? stack-only?)
-      (throw (ex-info "Cannot combine --register-only and --stack-only"
+  (let [{:keys [n fast-only? register-only? stack-only?
+                ast-walker? ast-walker-only?] :as opts} (parse-opts args)
+        exclusive-flags (cond-> []
+                          register-only? (conj "--register-only")
+                          stack-only? (conj "--stack-only")
+                          ast-walker-only? (conj "--ast-walker-only"))]
+    (when (> (count exclusive-flags) 1)
+      (throw (ex-info (str "Cannot combine " (str/join " and " exclusive-flags))
                       {:args args})))
-    (let [run-register? (or register-only? (not stack-only?))
-          run-stack? (or stack-only? (not register-only?))
+    (let [run-ast-walker? (or ast-walker-only? ast-walker?)
+          run-register? (and (not ast-walker-only?)
+                             (or register-only? (and (not stack-only?) (not ast-walker-only?))))
+          run-stack? (and (not ast-walker-only?)
+                          (or stack-only? (and (not register-only?) (not ast-walker-only?))))
           ast (tail-countdown-ast n)
-          register-program (load-register-program ast)
-          stack-program (load-stack-program ast)]
-      (println "Bytecode VM optimization benchmark")
+          mode-str (cond
+                     ast-walker-only? "ast-walker-only"
+                     register-only? "register-only"
+                     stack-only? "stack-only"
+                     ast-walker? (str "register+stack+ast-walker")
+                     :else "register+stack")]
+      (println "VM optimization benchmark")
       (println (str "workload: tail-recursive countdown n=" n))
-      (println (str "mode: "
-                    (cond
-                      (and run-register? run-stack?) "register+stack"
-                      run-register? "register-only"
-                      :else "stack-only")
-                    (when fast-only? ", fast-only")))
+      (println (str "mode: " mode-str (when fast-only? ", fast-only")))
       (when run-register?
-        (bench-vm "Register VM" register-program opts))
+        (let [program (load-register-program ast)]
+          (bench-vm "Register VM" program opts)))
       (when run-stack?
-        (bench-vm "Stack VM" stack-program opts)))))
+        (let [program (load-stack-program ast)]
+          (bench-vm "Stack VM" program opts)))
+      (when run-ast-walker?
+        (bench-ast-walker ast opts)))))

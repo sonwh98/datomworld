@@ -22,6 +22,9 @@
            :profile-fast {:extra-paths ["test"]
                           :jvm-opts ["-XX:StartFlightRecording=filename=/tmp/datomworld-bytecode-bench-fast.jfr,settings=profile,dumponexit=true"]
                           :main-opts ["-m" "yin.vm.bytecode-bench" "--fast-only" "--register-only"]}
+           :profile-ast-walker {:extra-paths ["test"]
+                                :jvm-opts ["-XX:StartFlightRecording=filename=/tmp/datomworld-ast-walker.jfr,settings=profile,dumponexit=true"]
+                                :main-opts ["-m" "yin.vm.bytecode-bench" "--ast-walker-only"]}
            :test {:extra-paths ["test"]
                   :extra-deps {io.github.cognitect-labs/test-runner
                                {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
