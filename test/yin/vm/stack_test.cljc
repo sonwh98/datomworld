@@ -445,7 +445,7 @@
           vm1 (vm/eval vm0 {:type :vm/park})
           parked-cont (vm/value vm1)
           parked-id (:id parked-cont)
-          vm2 (vm/eval vm1 {:type :vm/resume, :parked-id parked-id, :val 42})]
+          vm2 (vm/eval vm1 {:type :vm/resume, :parked-id parked-id, :val {:type :literal, :value 42}})]
       (is (= :parked-continuation (:type parked-cont)))
       (is (= 42 (vm/value vm2)))
       (is (nil? (get-in vm2 [:parked parked-id]))))))

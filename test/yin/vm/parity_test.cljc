@@ -91,7 +91,7 @@
             (let [vm-resumed-1 (vm/eval vm-parked-1
                                         {:type :vm/resume,
                                          :parked-id (:id reified-arg-from-vm),
-                                         :val :ignored})
+                                         :val {:type :literal, :value :ignored}})
                   reified-body (vm/value vm-resumed-1)]
               (is (= :parked-continuation (:type reified-body))
                   (str vm-type " should park in body"))
@@ -99,7 +99,7 @@
               (let [vm-resumed-2 (vm/eval vm-resumed-1
                                           {:type :vm/resume,
                                            :parked-id (:id reified-body),
-                                           :val 42})]
+                                           :val {:type :literal, :value 42}})]
                 (is (= 42 (vm/value vm-resumed-2))
                     (str vm-type " should return final value")))))))))
   (deftest continuation-in-function-frame-parity-test
@@ -135,7 +135,7 @@
                         vm-resumed (vm/eval vm-parked
                                             {:type :vm/resume,
                                              :parked-id (:id reified),
-                                             :val 5})]
+                                             :val {:type :literal, :value 5}})]
                     (vm/value vm-resumed)))]
             (is (= 15 (resume-with-5 :ast-walker)))
             (is (= 15 (resume-with-5 :stack)))

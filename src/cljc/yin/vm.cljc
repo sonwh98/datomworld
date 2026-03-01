@@ -188,8 +188,9 @@
 
 (def schema
   "DataScript schema for :yin/ AST datoms.
-   Declares ref attributes so DataScript resolves tempids during transaction."
-  {:yin/body {:db/valueType :db.type/ref},
+   Complete data model for the Universal AST as queryable datoms."
+  {;; Ref attributes (entity references, tempid resolution)
+   :yin/body {:db/valueType :db.type/ref},
    :yin/operator {:db/valueType :db.type/ref},
    :yin/operands {:db/valueType :db.type/ref,
                   :db/cardinality :db.cardinality/many},
@@ -198,7 +199,19 @@
    :yin/alternate {:db/valueType :db.type/ref},
    :yin/source {:db/valueType :db.type/ref},
    :yin/target {:db/valueType :db.type/ref},
-   :yin/val {:db/valueType :db.type/ref}})
+   :yin/val-node {:db/valueType :db.type/ref},
+   ;; Ground-value attributes
+   ;; DataScript only validates :db.type/ref and :db.type/tuple,
+   ;; so value types are declared in comments for the data model.
+   :yin/type {},        ; keyword (:literal, :variable, :lambda, ...)
+   :yin/value {},       ; polymorphic (number, string, boolean, keyword, ...)
+   :yin/name {},        ; symbol
+   :yin/params {},      ; vector of symbols
+   :yin/key {},         ; symbol
+   :yin/prefix {},      ; string
+   :yin/buffer {},      ; long
+   :yin/parked-id {},   ; keyword
+   :yin/tail? {}})
 
 
 (def ^:private cardinality-many-attrs
@@ -278,7 +291,7 @@
                                 (emit! e :yin/key (:key node)))
               :vm/store-put (do (emit! e :yin/type :vm/store-put)
                                 (emit! e :yin/key (:key node))
-                                (emit! e :yin/val (:val node)))
+                                (emit! e :yin/value (:val node)))
               ;; Stream operations
               :stream/make (do (emit! e :yin/type :stream/make)
                                (emit! e :yin/buffer (or (:buffer node) 1024)))
@@ -286,7 +299,7 @@
                               (let [target-id (convert (:target node))
                                     val-id (convert (:val node))]
                                 (emit! e :yin/target target-id)
-                                (emit! e :yin/val val-id)))
+                                (emit! e :yin/val-node val-id)))
               :stream/cursor (do (emit! e :yin/type :stream/cursor)
                                  (let [source-id (convert (:source node))]
                                    (emit! e :yin/source source-id)))
@@ -300,7 +313,8 @@
               :vm/park (emit! e :yin/type :vm/park)
               :vm/resume (do (emit! e :yin/type :vm/resume)
                              (emit! e :yin/parked-id (:parked-id node))
-                             (emit! e :yin/val (:val node)))
+                             (let [val-id (convert (:val node))]
+                               (emit! e :yin/val-node val-id)))
               :vm/current-continuation
               (emit! e :yin/type :vm/current-continuation)
               ;; Default

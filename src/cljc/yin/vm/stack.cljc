@@ -118,14 +118,14 @@
             ;; VM primitives
             :vm/gensym (emit! [:gensym (or (get-attr e :yin/prefix) "id")])
             :vm/store-get (emit! [:store-get (get-attr e :yin/key)])
-            :vm/store-put (let [val-node (get-attr e :yin/val)]
-                            (emit! [:push val-node])
+            :vm/store-put (let [val (get-attr e :yin/value)]
+                            (emit! [:push val])
                             (emit! [:store-put (get-attr e :yin/key)]))
             ;; Stream operations
             :stream/make (emit! [:stream-make
                                  (or (get-attr e :yin/buffer) 1024)])
             :stream/put (let [target-node (get-attr e :yin/target)
-                              val-node (get-attr e :yin/val)]
+                              val-node (get-attr e :yin/val-node)]
                           (compile-node val-node)
                           (compile-node target-node)
                           (emit! [:stream-put]))
@@ -141,7 +141,7 @@
             ;; Continuation primitives
             :vm/park (emit! [:park])
             :vm/resume (do (emit! [:push (get-attr e :yin/parked-id)])
-                           (emit! [:push (get-attr e :yin/val)])
+                           (compile-node (get-attr e :yin/val-node))
                            (emit! [:resume]))
             :vm/current-continuation (emit! [:current-cont])
             (throw (ex-info "Unknown node type in stack assembly compilation"

@@ -293,7 +293,19 @@
             (assoc state
                    :control {:type :value, :val value}
                    :env (:env frame)
-                   :stack new-stack)))))))
+                   :stack new-stack))
+          :resume-val
+          (let [resume-val val
+                parked-id (:parked-id frame)]
+            (engine/resume-continuation vm
+                                        parked-id
+                                        resume-val
+                                        (fn [new-state parked rv]
+                                          (assoc new-state
+                                                 :stack (:stack parked)
+                                                 :env (:env parked)
+                                                 :control {:type :value,
+                                                           :val rv})))))))))
 
 
 (defn handle-node-eval
@@ -336,7 +348,7 @@
                           val (get store key)]
                       (assoc vm :control {:type :value, :val val}))
       :vm/store-put (let [key (:yin/key node-map)
-                          val (:yin/val node-map)]
+                          val (:yin/value node-map)]
                       (assoc vm
                              :control {:type :value, :val val}
                              :store (assoc store key val)))
@@ -351,7 +363,7 @@
                            :control {:type :node, :id target-node}
                            :stack (conj stack
                                         {:type :stream-put-target,
-                                         :val-node (:yin/val node-map),
+                                         :val-node (:yin/val-node node-map),
                                          :env env})))
       :stream/cursor (let [source-node (:yin/source node-map)]
                        (assoc vm
@@ -372,16 +384,13 @@
       :vm/park (-> (engine/park-continuation vm {:stack stack, :env env})
                    (assoc :control nil))
       :vm/resume (let [parked-id (:yin/parked-id node-map)
-                       resume-val (:yin/val node-map)]
-                   (engine/resume-continuation vm
-                                               parked-id
-                                               resume-val
-                                               (fn [new-state parked rv]
-                                                 (assoc new-state
-                                                        :stack (:stack parked)
-                                                        :env (:env parked)
-                                                        :control {:type :value,
-                                                                  :val rv}))))
+                       val-node (:yin/val-node node-map)]
+                   (assoc vm
+                          :control {:type :node, :id val-node}
+                          :stack (conj stack
+                                       {:type :resume-val,
+                                        :parked-id parked-id,
+                                        :env env})))
       :vm/current-continuation
       (assoc vm
              :control {:type :value,

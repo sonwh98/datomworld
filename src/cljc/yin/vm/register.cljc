@@ -165,7 +165,7 @@
                               (emit! [:store-get rd (get-attr e :yin/key)])
                               rd)
               :vm/store-put (let [rd (alloc-reg!)]
-                              (emit! [:literal rd (get-attr e :yin/val)])
+                              (emit! [:literal rd (get-attr e :yin/value)])
                               (emit! [:store-put rd (get-attr e :yin/key)])
                               rd)
               ;; Stream operations
@@ -173,7 +173,7 @@
                              (emit! [:stream-make rd (get-attr e :yin/buffer)])
                              rd)
               :stream/put (let [target-ref (get-attr e :yin/target)
-                                val-ref (get-attr e :yin/val)
+                                val-ref (get-attr e :yin/val-node)
                                 val-reg (compile-node val-ref)
                                 target-reg (compile-node target-ref)]
                             (emit! [:stream-put val-reg target-reg])
@@ -198,11 +198,10 @@
                          (emit! [:park rd])
                          rd)
               :vm/resume (let [parked-id (get-attr e :yin/parked-id)
-                               val (get-attr e :yin/val)
+                               val-ref (get-attr e :yin/val-node)
                                rd (alloc-reg!)]
                            (emit! [:literal rd parked-id])
-                           (let [rv (alloc-reg!)]
-                             (emit! [:literal rv val])
+                           (let [rv (compile-node val-ref)]
                              (emit! [:resume rd rv])
                              rv))
               :vm/current-continuation (let [rd (alloc-reg!)]

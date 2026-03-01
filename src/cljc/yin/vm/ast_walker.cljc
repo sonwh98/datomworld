@@ -227,6 +227,20 @@
             (if blocked?
               (assoc state :control nil :continuation nil :halted false)
               (cesk-return state nil environment (:parent continuation) value)))
+          ;; Resume: val has been evaluated, now do the resume
+          :eval-resume-val
+          (let [resume-val (:value state)
+                parked-id (:parked-id continuation)]
+            (engine/resume-continuation
+              state
+              parked-id
+              resume-val
+              (fn [new-state parked rv]
+                (cesk-return new-state
+                             nil
+                             (:environment parked)
+                             (:continuation parked)
+                             rv))))
           ;; Default for unknown continuation
           (throw (ex-info "Unknown continuation type"
                           {:continuation-type cont-type,
@@ -318,16 +332,15 @@
                      (assoc :control nil
                             :continuation nil))
         ;; Resume a parked continuation with a value
-        :vm/resume (engine/resume-continuation
-                     state
-                     (:parked-id node)
+        :vm/resume
+        (cesk-return state
                      (:val node)
-                     (fn [new-state parked rv]
-                       (cesk-return new-state
-                                    nil
-                                    (:environment parked)
-                                    (:continuation parked)
-                                    rv)))
+                     environment
+                     {:type :eval-resume-val,
+                      :parked-id (:parked-id node),
+                      :parent continuation,
+                      :environment environment}
+                     (:value state))
         ;; ============================================================
         ;; Stream Operations (AST node forms)
         ;; ============================================================
