@@ -28,10 +28,98 @@
   #{:yin/operands})
 
 
-(defn find-by-type
-  "Find all nodes of a given type. db must satisfy IDaoDb."
-  [db node-type]
-  (db/find-eids-by-av db :yin/type node-type))
+;; --- Optimized Node Representation ---
+
+(def ^:private ATTR_TYPE 0)
+(def ^:private ATTR_VALUE 1)
+(def ^:private ATTR_NAME 2)
+(def ^:private ATTR_PARAMS 3)
+(def ^:private ATTR_BODY 4)
+(def ^:private ATTR_TEST 5)
+(def ^:private ATTR_CONSEQUENT 6)
+(def ^:private ATTR_ALTERNATE 7)
+(def ^:private ATTR_OPERATOR 8)
+(def ^:private ATTR_OPERANDS 9)
+(def ^:private ATTR_TARGET 10)
+(def ^:private ATTR_VAL_NODE 11)
+(def ^:private ATTR_KEY 12)
+(def ^:private ATTR_PREFIX 13)
+(def ^:private ATTR_BUFFER 14)
+(def ^:private ATTR_PARKED_ID 15)
+(def ^:private ATTR_TAIL 16)
+(def ^:private ATTR_SOURCE 17)
+(def ^:private ATTR_COUNT 18)
+
+
+;; --- Hot-loop continuation frame tags ---
+
+(def ^:private FT_IF :ft/if)
+(def ^:private FT_APP_OP :ft/app-op)
+(def ^:private FT_APP_ARGS :ft/app-args)
+(def ^:private FT_RESTORE_ENV :ft/restore-env)
+
+
+(def ^:private attr->idx
+  {:yin/type ATTR_TYPE
+   :yin/value ATTR_VALUE
+   :yin/name ATTR_NAME
+   :yin/params ATTR_PARAMS
+   :yin/body ATTR_BODY
+   :yin/test ATTR_TEST
+   :yin/consequent ATTR_CONSEQUENT
+   :yin/alternate ATTR_ALTERNATE
+   :yin/operator ATTR_OPERATOR
+   :yin/operands ATTR_OPERANDS
+   :yin/target ATTR_TARGET
+   :yin/val-node ATTR_VAL_NODE
+   :yin/key ATTR_KEY
+   :yin/prefix ATTR_PREFIX
+   :yin/buffer ATTR_BUFFER
+   :yin/parked-id ATTR_PARKED_ID
+   :yin/tail? ATTR_TAIL
+   :yin/source ATTR_SOURCE})
+
+
+(defn- make-semantic-object-array
+  [n]
+  #?(:clj (object-array (int n))
+     :cljs (let [arr (js/Array. n)]
+             (loop [i 0]
+               (if (< i n)
+                 (do (aset arr i nil) (recur (inc i)))
+                 arr)))
+     :cljd (object-array (int n))))
+
+
+(defn- semantic-object-array-get
+  [arr idx]
+  #?(:clj (aget ^objects arr (int idx))
+     :cljs (aget arr idx)
+     :cljd (aget arr (int idx))))
+
+
+(defn- semantic-object-array-set!
+  [arr idx val]
+  #?(:clj (aset ^objects arr (int idx) val)
+     :cljs (aset arr idx val)
+     :cljd (aset arr (int idx) val)))
+
+
+(defn- datom-node-attrs
+  "Get node attributes directly from indexed datoms.
+   Returns an Object array for O(1) attribute access."
+  [index node-id]
+  (let [datoms (get index node-id)
+        arr (make-semantic-object-array ATTR_COUNT)]
+    (doseq [[_e a v _t _m] datoms]
+      (when-let [idx (get attr->idx a)]
+        (if (contains? cardinality-many-attrs a)
+          (let [existing (semantic-object-array-get arr idx)]
+            (if (vector? v)
+              (semantic-object-array-set! arr idx (into (or existing []) v))
+              (semantic-object-array-set! arr idx (conj (or existing []) v))))
+          (semantic-object-array-set! arr idx v))))
+    arr))
 
 
 (defn get-node-attrs
@@ -40,17 +128,10 @@
   (db/entity-attrs db node-id))
 
 
-(defn- datom-node-attrs
-  "Get node attributes directly from indexed datoms."
-  [index node-id]
-  (reduce (fn [m [_e a v _t _m]]
-            (if (contains? cardinality-many-attrs a)
-              (if (vector? v)
-                (update m a (fnil into []) v)
-                (update m a (fnil conj []) v))
-              (assoc m a v)))
-          {}
-          (get index node-id)))
+(defn find-by-type
+  "Find all nodes of a given type. db must satisfy IDaoDb."
+  [db node-type]
+  (db/find-eids-by-av db :yin/type node-type))
 
 
 (defn find-applications
@@ -91,6 +172,8 @@
    store      ; heap memory
    value      ; final result value
    wait-set   ; vector of parked continuations waiting on streams
+   index-arr  ; array-backed node index for hot loop
+   index-base-id ; base id for index-arr offset calculation
    ])
 
 
@@ -98,11 +181,32 @@
 ;; VM: Execute AST Datoms
 ;; =============================================================================
 
+(defn- semantic-return
+  "Materialize SemanticVM state from CES fields."
+  [^SemanticVM vm control env stack halted? val]
+  (->SemanticVM
+    (:blocked vm)
+    control
+    (:datoms vm)
+    env
+    halted?
+    (:id-counter vm)
+    (:index vm)
+    (:node-id-counter vm)
+    (:parked vm)
+    (:primitives vm)
+    (:run-queue vm)
+    stack
+    (:store vm)
+    val
+    (:wait-set vm)
+    (:index-arr vm)
+    (:index-base-id vm)))
 
 
 (defn- handle-return-value
   [vm]
-  (let [{:keys [control _env stack _datoms _index _store id-counter]} vm
+  (let [{:keys [control stack]} vm
         val (:val control)]
     (if (empty? stack)
       (assoc vm
@@ -111,13 +215,13 @@
       (let [frame (peek stack)
             new-stack (pop stack)]
         (case (:type frame)
-          :if (let [{:keys [consequent alternate env]} frame]
+          :if (let [{consequent :consequent, alternate :alternate, env-restore :env} frame]
                 (assoc vm
                        :control {:type :node, :id (if val consequent alternate)}
-                       :env env
+                       :env env-restore
                        :stack new-stack))
           :app-op
-          (let [{:keys [operands env tail?]} frame
+          (let [{operands :operands, env-call :env, tail? :tail?} frame
                 fn-val val]
             (if (empty? operands)
               ;; 0-arity call
@@ -128,44 +232,44 @@
                           (engine/handle-effect vm result {})]
                       (assoc state
                              :control {:type :value, :val value}
-                             :env env
+                             :env env-call
                              :stack new-stack))
                     (assoc vm
                            :control {:type :value, :val result}
-                           :env env
+                           :env env-call
                            :stack new-stack)))
                 (if (= :closure (:type fn-val))
-                  (let [{:keys [body-node env]} fn-val]
+                  (let [{body-node :body-node, env-clo :env} fn-val]
                     (if tail?
                       ;; TCO: skip restore-env
                       (assoc vm
                              :control {:type :node, :id body-node}
-                             :env env
+                             :env env-clo
                              :stack new-stack)
                       (assoc vm
                              :control {:type :node, :id body-node}
-                             :env env ; Switch to closure env
+                             :env env-clo ; Switch to closure env
                              :stack (conj new-stack
                                           {:type :restore-env,
-                                           :env (:env frame)}))))
+                                           :env env-call}))))
                   (throw (ex-info "Cannot apply non-function" {:fn fn-val}))))
               ;; Prepare to eval args
-              (let [first-arg (first operands)
-                    rest-args (subvec operands 1)]
+              (let [first-arg (first operands)]
                 (assoc vm
                        :control {:type :node, :id first-arg}
-                       :env env
+                       :env env-call
                        :stack (conj new-stack
                                     {:type :app-args,
                                      :fn fn-val,
                                      :evaluated [],
-                                     :pending rest-args,
-                                     :env env,
+                                     :operands operands,
+                                     :next-idx 1,
+                                     :env env-call,
                                      :tail? tail?})))))
           :app-args
-          (let [{fn-val :fn, :keys [evaluated pending env tail?]} frame
+          (let [{fn-val :fn, evaluated :evaluated, operands :operands, next-idx :next-idx, env-call :env, tail? :tail?} frame
                 new-evaluated (conj evaluated val)]
-            (if (empty? pending)
+            (if (= next-idx (count operands))
               ;; All args evaluated, apply
               (if (fn? fn-val)
                 (let [result (apply fn-val new-evaluated)]
@@ -177,13 +281,13 @@
                             {:park-entry-fns
                              {:stream/put (fn [_s e r]
                                             {:stack new-stack,
-                                             :env env,
+                                             :env env-call,
                                              :reason :put,
                                              :stream-id (:stream-id r),
                                              :datom (:val e)}),
                               :stream/next (fn [_s _e r]
                                              {:stack new-stack,
-                                              :env env,
+                                              :env env-call,
                                               :reason :next,
                                               :cursor-ref (:cursor-ref r),
                                               :stream-id (:stream-id
@@ -192,15 +296,15 @@
                         (assoc state :control nil)
                         (assoc state
                                :control {:type :value, :val value}
-                               :env env
+                               :env env-call
                                :stack new-stack)))
                     (assoc vm
                            :control {:type :value, :val result}
-                           :env env
+                           :env env-call
                            :stack new-stack)))
                 (if (= :closure (:type fn-val))
-                  (let [{:keys [params body-node env]} fn-val
-                        new-env (merge env (zipmap params new-evaluated))]
+                  (let [{params :params, body-node :body-node, env-clo :env} fn-val
+                        new-env (merge env-clo (zipmap params new-evaluated))]
                     (if tail?
                       ;; TCO: skip restore-env
                       (assoc vm
@@ -212,18 +316,17 @@
                              :env new-env ; Closure env + args
                              :stack (conj new-stack
                                           {:type :restore-env,
-                                           :env (:env frame)}))))
+                                           :env env-call}))))
                   (throw (ex-info "Cannot apply non-function" {:fn fn-val}))))
               ;; More args to eval
-              (let [next-arg (first pending)
-                    rest-pending (subvec pending 1)]
+              (let [next-arg (nth operands next-idx)]
                 (assoc vm
                        :control {:type :node, :id next-arg}
-                       :env env
+                       :env env-call
                        :stack (conj new-stack
                                     (assoc frame
                                            :evaluated new-evaluated
-                                           :pending rest-pending))))))
+                                           :next-idx (inc next-idx)))))))
           :restore-env (assoc vm
                               :control control ; Pass value up
                               :env (:env frame) ; Restore caller env
@@ -305,77 +408,79 @@
                                                  :stack (:stack parked)
                                                  :env (:env parked)
                                                  :control {:type :value,
-                                                           :val rv})))))))))
+                                                           :val rv}))))
+          ;; Default
+          (throw (ex-info "Unknown frame type" {:frame frame})))))))
 
 
 (defn handle-node-eval
   [vm]
-  (let [{:keys [control env stack datoms index store primitives id-counter]} vm
+  (let [{:keys [control env stack datoms index store primitives]} vm
         node-id (:id control)
-        node-map (datom-node-attrs index node-id)
-        node-type (:yin/type node-map)]
+        node-arr ^objects (get index node-id)
+        node-type (aget node-arr ATTR_TYPE)]
     (case node-type
-      :literal (assoc vm :control {:type :value, :val (:yin/value node-map)})
-      :variable (let [name (:yin/name node-map)
+      :literal (assoc vm :control {:type :value, :val (aget node-arr ATTR_VALUE)})
+      :variable (let [name (aget node-arr ATTR_NAME)
                       val (engine/resolve-var env store primitives name)]
                   (assoc vm :control {:type :value, :val val}))
       :lambda (assoc vm
                      :control {:type :value,
                                :val {:type :closure,
-                                     :params (:yin/params node-map),
-                                     :body-node (:yin/body node-map),
+                                     :params (aget node-arr ATTR_PARAMS),
+                                     :body-node (aget node-arr ATTR_BODY),
                                      :datoms datoms,
                                      :env env}})
       :if (assoc vm
-                 :control {:type :node, :id (:yin/test node-map)}
+                 :control {:type :node, :id (aget node-arr ATTR_TEST)}
                  :stack (conj stack
                               {:type :if,
-                               :consequent (:yin/consequent node-map),
-                               :alternate (:yin/alternate node-map),
+                               :consequent (aget node-arr ATTR_CONSEQUENT),
+                               :alternate (aget node-arr ATTR_ALTERNATE),
                                :env env}))
       :application (assoc vm
-                          :control {:type :node, :id (:yin/operator node-map)}
+                          :control {:type :node, :id (aget node-arr ATTR_OPERATOR)}
                           :stack (conj stack
                                        {:type :app-op,
-                                        :operands (:yin/operands node-map),
+                                        :operands (aget node-arr ATTR_OPERANDS),
                                         :env env,
-                                        :tail? (:yin/tail? node-map)}))
+                                        :tail? (aget node-arr ATTR_TAIL)}))
       ;; VM primitives
-      :vm/gensym (let [prefix (or (:yin/prefix node-map) "id")
+      :vm/gensym (let [prefix (or (aget node-arr ATTR_PREFIX) "id")
                        [id s'] (engine/gensym vm prefix)]
                    (assoc s' :control {:type :value, :val id}))
-      :vm/store-get (let [key (:yin/key node-map)
+      :vm/store-get (let [key (aget node-arr ATTR_KEY)
                           val (get store key)]
                       (assoc vm :control {:type :value, :val val}))
-      :vm/store-put (let [key (:yin/key node-map)
-                          val (:yin/value node-map)]
+      :vm/store-put (let [key (aget node-arr ATTR_KEY)
+                          val (aget node-arr ATTR_VALUE)]
                       (assoc vm
                              :control {:type :value, :val val}
                              :store (assoc store key val)))
       ;; Stream operations
-      :stream/make (let [capacity (:yin/buffer node-map)
+      :stream/make (let [capacity (aget node-arr ATTR_BUFFER)
                          effect {:effect :stream/make, :capacity capacity}
                          {:keys [state value]}
                          (engine/handle-effect vm effect {})]
                      (assoc state :control {:type :value, :val value}))
-      :stream/put (let [target-node (:yin/target node-map)]
+      :stream/put (let [target-node (aget node-arr ATTR_TARGET)]
                     (assoc vm
                            :control {:type :node, :id target-node}
                            :stack (conj stack
                                         {:type :stream-put-target,
-                                         :val-node (:yin/val-node node-map),
+                                         :val-node (aget node-arr ATTR_VAL_NODE),
                                          :env env})))
-      :stream/cursor (let [source-node (:yin/source node-map)]
+      :stream/cursor (let [source-node (aget node-arr ATTR_SOURCE)]
                        (assoc vm
                               :control {:type :node, :id source-node}
                               :stack (conj stack
                                            {:type :stream-cursor-source, :env env})))
-      :stream/next (let [source-node (:yin/source node-map)]
+      :stream/next (let [source-node (aget node-arr ATTR_SOURCE)]
                      (assoc vm
                             :control {:type :node, :id source-node}
                             :stack (conj stack
                                          {:type :stream-next-cursor, :env env})))
-      :stream/close (let [source-node (:yin/source node-map)]
+      :stream/close (let [source-node (aget node-arr ATTR_SOURCE)]
                       (assoc vm
                              :control {:type :node, :id source-node}
                              :stack (conj stack
@@ -383,8 +488,8 @@
       ;; Continuation primitives
       :vm/park (-> (engine/park-continuation vm {:stack stack, :env env})
                    (assoc :control nil))
-      :vm/resume (let [parked-id (:yin/parked-id node-map)
-                       val-node (:yin/val-node node-map)]
+      :vm/resume (let [parked-id (aget node-arr ATTR_PARKED_ID)
+                       val-node (aget node-arr ATTR_VAL_NODE)]
                    (assoc vm
                           :control {:type :node, :id val-node}
                           :stack (conj stack
@@ -395,14 +500,101 @@
       (assoc vm
              :control {:type :value,
                        :val {:type :reified-continuation, :stack stack, :env env}})
-      (throw (ex-info "Unknown node type" {:node-map node-map})))))
+      (throw (ex-info "Unknown node type" {:node-type (aget node-arr ATTR_TYPE)})))))
+
+
+(defn- bind-semantic-env
+  [env-clo params evaluated]
+  (let [n (count params)]
+    (case n
+      0 env-clo
+      1 (assoc env-clo
+               (nth params 0) (nth evaluated 0))
+      2 (assoc env-clo
+               (nth params 0) (nth evaluated 0)
+               (nth params 1) (nth evaluated 1))
+      3 (assoc env-clo
+               (nth params 0) (nth evaluated 0)
+               (nth params 1) (nth evaluated 1)
+               (nth params 2) (nth evaluated 2))
+      (loop [idx 0
+             env env-clo]
+        (if (== idx n)
+          env
+          (recur (inc idx)
+                 (assoc env (nth params idx) (nth evaluated idx))))))))
+
+
+(defn- invoke-semantic-native
+  [fn-val evaluated]
+  (let [n (count evaluated)]
+    (case n
+      0 (fn-val)
+      1 (fn-val (nth evaluated 0))
+      2 (fn-val (nth evaluated 0) (nth evaluated 1))
+      3 (fn-val (nth evaluated 0) (nth evaluated 1) (nth evaluated 2))
+      4 (fn-val (nth evaluated 0) (nth evaluated 1) (nth evaluated 2) (nth evaluated 3))
+      (apply fn-val evaluated))))
+
+
+(defn- build-semantic-node-index-array
+  [index]
+  (if (empty? index)
+    [0 (make-semantic-object-array 0)]
+    (let [[min-id max-id]
+          (reduce-kv (fn [[mn mx] eid _]
+                       (if (nil? mn)
+                         [eid eid]
+                         [(min mn eid) (max mx eid)]))
+                     [nil nil]
+                     index)
+          arr (make-semantic-object-array (inc (- max-id min-id)))]
+      (doseq [[eid node-arr] index]
+        (semantic-object-array-set! arr (- eid min-id) node-arr))
+      [min-id arr])))
+
+
+(defn- fast-semantic-frame->map
+  [frame]
+  (if (vector? frame)
+    (case (nth frame 0)
+      :ft/if {:type :if,
+              :consequent (nth frame 1),
+              :alternate (nth frame 2),
+              :env (nth frame 3)}
+      :ft/app-op {:type :app-op,
+                  :operands (nth frame 1),
+                  :env (nth frame 2),
+                  :tail? (nth frame 3)}
+      :ft/app-args {:type :app-args,
+                    :fn (nth frame 1),
+                    :evaluated (nth frame 2),
+                    :operands (nth frame 3),
+                    :next-idx (nth frame 4),
+                    :env (nth frame 5),
+                    :tail? (nth frame 6)}
+      :ft/restore-env {:type :restore-env,
+                       :env (nth frame 1)}
+      frame)
+    frame))
+
+
+(defn- s-arr->map-stack
+  "Convert the active portion of the mutable stack array to a map-based stack vector."
+  [s-arr sp]
+  (let [n (inc sp)]
+    (loop [i 0
+           acc (transient [])]
+      (if (< i n)
+        (recur (inc i) (conj! acc (fast-semantic-frame->map (semantic-object-array-get s-arr i))))
+        (persistent! acc)))))
 
 
 (defn- semantic-step
   "Execute one step of the semantic VM.
    Operates directly on SemanticVM record (assoc preserves record type)."
   [^SemanticVM vm]
-  (let [{:keys [control _env _stack _datoms]} vm]
+  (let [{:keys [control]} vm]
     (if (= :value (:type control))
       ;; Handle return value from previous step
       (handle-return-value vm)
@@ -459,15 +651,280 @@
   "Load datoms into the VM.
    Expects {:node root-id :datoms [...]}."
   [^SemanticVM vm {:keys [node datoms]}]
-  (let [new-index (group-by first datoms)]
+  (let [datom-index (group-by first datoms)
+        node-map-index (into {} (map (fn [[eid _datoms]] [eid (datom-node-attrs datom-index eid)])
+                                     datom-index))
+        merged-index (merge (:index vm) node-map-index)
+        [index-base-id index-arr] (build-semantic-node-index-array merged-index)]
     (assoc vm
            :control {:type :node, :id node}
            :stack []
            :datoms (into (:datoms vm) datoms)
-           :index (merge (:index vm) new-index)
+           :index merged-index
+           :index-arr index-arr
+           :index-base-id index-base-id
            :halted false
            :value nil
            :blocked false)))
+
+
+(defn- semantic-run-active-continuation
+  "Hot loop that keeps CES state in JVM locals.
+   Uses a flat Object array for the stack to avoid vector allocations."
+  [^SemanticVM vm-init control-init env-init stack-init]
+  (let [index-arr (:index-arr vm-init)
+        index-base-id (int (:index-base-id vm-init))
+        primitives (:primitives vm-init)
+        datoms (:datoms vm-init)
+
+        ;; Flat stack array
+        stack-limit (int 4096)
+        s-arr (make-semantic-object-array stack-limit)
+        push-sp (fn [sp]
+                  (let [next-sp (inc sp)]
+                    (when (>= next-sp stack-limit)
+                      (throw (ex-info "Semantic VM stack overflow" {:stack-limit stack-limit})))
+                    next-sp))]
+
+    ;; Pre-fill stack-arr if resuming from non-empty stack
+    (loop [i 0]
+      (when (< i (count stack-init))
+        (semantic-object-array-set! s-arr i (nth stack-init i))
+        (recur (inc i))))
+
+    (loop [ctrl-tag (:type control-init)
+           ctrl-data (if (= :value (:type control-init))
+                       (:val control-init)
+                       (:id control-init))
+           env env-init
+           sp (int (dec (count stack-init))) ; stack pointer
+           vm vm-init]
+      (if (= ctrl-tag :value)
+        ;; --- 1. Handle Return Value ---
+        (let [val ctrl-data]
+          (if (< sp 0)
+            (semantic-return vm {:type :value, :val val} env [] true val)
+            (let [frame (semantic-object-array-get s-arr sp)
+                  new-sp (dec sp)
+                  frame-tag (when (vector? frame) (nth frame 0))]
+              (cond
+                (= :ft/if frame-tag)
+                (let [consequent (nth frame 1)
+                      alternate (nth frame 2)
+                      env-restore (nth frame 3)]
+                  (recur :node (if val consequent alternate)
+                         env-restore
+                         new-sp
+                         vm))
+
+                (= :ft/app-op frame-tag)
+                (let [operands (nth frame 1)
+                      env-call (nth frame 2)
+                      tail? (nth frame 3)
+                      fn-val val]
+                  (if (empty? operands)
+                    ;; Arity-0 call
+                    (cond
+                      (= :closure (:type fn-val))
+                      (let [{body-node :body-node, env-clo :env} fn-val]
+                        (if tail?
+                          (recur :node body-node env-clo new-sp vm)
+                          (let [next-sp (push-sp new-sp)]
+                            (semantic-object-array-set! s-arr next-sp [FT_RESTORE_ENV env-call])
+                            (recur :node body-node env-clo next-sp vm))))
+
+                      (fn? fn-val)
+                      (let [result (fn-val)]
+                        (if (module/effect? result)
+                          (let [state (semantic-return vm
+                                                       {:type :value, :val val}
+                                                       env
+                                                       (s-arr->map-stack s-arr sp)
+                                                       false
+                                                       val)
+                                {:keys [state value blocked?]} (engine/handle-effect state result {})]
+                            (if blocked?
+                              (assoc state :control nil)
+                              (recur :value value env-call new-sp state)))
+                          (recur :value result env-call new-sp vm)))
+
+                      :else (throw (ex-info "Cannot apply non-function" {:fn fn-val})))
+
+                    ;; Evaluate args
+                    (let [first-arg (nth operands 0)
+                          next-sp (push-sp new-sp)]
+                      (semantic-object-array-set! s-arr next-sp [FT_APP_ARGS fn-val [] operands 1 env-call tail?])
+                      (recur :node first-arg env-call next-sp vm))))
+
+                (= :ft/app-args frame-tag)
+                (let [fn-val (nth frame 1)
+                      evaluated (nth frame 2)
+                      operands (nth frame 3)
+                      next-idx (nth frame 4)
+                      env-call (nth frame 5)
+                      tail? (nth frame 6)
+                      new-evaluated (conj evaluated val)]
+                  (if (== next-idx (count operands))
+                    ;; All args evaluated, apply
+                    (cond
+                      (= :closure (:type fn-val))
+                      (let [{params :params, body-node :body-node, env-clo :env} fn-val
+                            new-env (bind-semantic-env env-clo params new-evaluated)]
+                        (if tail?
+                          (recur :node body-node new-env new-sp vm)
+                          (let [next-sp (push-sp new-sp)]
+                            (semantic-object-array-set! s-arr next-sp [FT_RESTORE_ENV env-call])
+                            (recur :node body-node new-env next-sp vm))))
+
+                      (fn? fn-val)
+                      (let [result (invoke-semantic-native fn-val new-evaluated)]
+                        (if (module/effect? result)
+                          (let [park-stack (s-arr->map-stack s-arr new-sp)
+                                state (semantic-return vm
+                                                       {:type :value, :val val}
+                                                       env
+                                                       (s-arr->map-stack s-arr sp)
+                                                       false
+                                                       val)
+                                {:keys [state value blocked?]}
+                                (engine/handle-effect
+                                  state
+                                  result
+                                  {:park-entry-fns
+                                   {:stream/put (fn [_s e r]
+                                                  {:stack park-stack,
+                                                   :env env-call,
+                                                   :reason :put,
+                                                   :stream-id (:stream-id r),
+                                                   :datom (:val e)}),
+                                    :stream/next (fn [_s _e r]
+                                                   {:stack park-stack,
+                                                    :env env-call,
+                                                    :reason :next,
+                                                    :cursor-ref (:cursor-ref r),
+                                                    :stream-id (:stream-id r)})}})]
+                            (if blocked?
+                              (assoc state :control nil)
+                              (recur :value value env-call new-sp state)))
+                          (recur :value result env-call new-sp vm)))
+
+                      :else (throw (ex-info "Cannot apply non-function" {:fn fn-val})))
+
+                    ;; More args
+                    (let [next-arg (nth operands next-idx)]
+                      (semantic-object-array-set! s-arr sp
+                                                  [FT_APP_ARGS fn-val new-evaluated operands (inc next-idx) env-call tail?])
+                      (recur :node next-arg env-call sp vm))))
+
+                (= :ft/restore-env frame-tag)
+                (recur ctrl-tag ctrl-data (nth frame 1) new-sp vm)
+
+                :else
+                ;; Fallback for map-based or unknown frames
+                (let [state (semantic-return vm
+                                             {:type :value, :val val}
+                                             env
+                                             (s-arr->map-stack s-arr sp)
+                                             false
+                                             val)
+                      next (handle-return-value state)]
+                  (if (or (:blocked next) (:halted next))
+                    next
+                    (let [next-control (:control next)
+                          next-tag (:type next-control)
+                          next-data (if (= :value next-tag)
+                                      (:val next-control)
+                                      (:id next-control))
+                          next-stack (:stack next)
+                          next-sp (int (dec (count next-stack)))]
+                      ;; Re-fill s-arr from slow path result
+                      (loop [i 0]
+                        (when (< i (count next-stack))
+                          (semantic-object-array-set! s-arr i (nth next-stack i))
+                          (recur (inc i))))
+                      (recur next-tag next-data (:env next) next-sp next))))))))
+
+        (if (= ctrl-tag :node)
+          ;; --- 2. Handle Node Evaluation ---
+          (let [node-id ctrl-data
+                node-arr ^objects (aget ^objects index-arr (unchecked-subtract-int (int node-id) index-base-id))
+                node-type (aget node-arr ATTR_TYPE)]
+            (case node-type
+              :literal (recur :value (aget node-arr ATTR_VALUE) env sp vm)
+              :variable (let [name (aget node-arr ATTR_NAME)
+                              resolved (engine/resolve-var env (:store vm) primitives name)]
+                          (recur :value resolved env sp vm))
+              :lambda (recur :value {:type :closure,
+                                     :params (aget node-arr ATTR_PARAMS),
+                                     :body-node (aget node-arr ATTR_BODY),
+                                     :datoms datoms,
+                                     :env env}
+                             env
+                             sp
+                             vm)
+              :if (let [next-sp (push-sp sp)]
+                    (semantic-object-array-set! s-arr next-sp
+                                                [FT_IF
+                                                 (aget node-arr ATTR_CONSEQUENT)
+                                                 (aget node-arr ATTR_ALTERNATE)
+                                                 env])
+                    (recur :node (aget node-arr ATTR_TEST) env next-sp vm))
+              :application (let [next-sp (push-sp sp)]
+                             (semantic-object-array-set! s-arr next-sp
+                                                         [FT_APP_OP
+                                                          (aget node-arr ATTR_OPERANDS)
+                                                          env
+                                                          (aget node-arr ATTR_TAIL)])
+                             (recur :node (aget node-arr ATTR_OPERATOR) env next-sp vm))
+
+              ;; Fallback for VM primitives and stream ops
+              (let [state (semantic-return vm
+                                           {:type :node, :id node-id}
+                                           env
+                                           (s-arr->map-stack s-arr sp)
+                                           false
+                                           nil)
+                    next (handle-node-eval state)]
+                (if (or (:blocked next) (nil? (:control next)))
+                  next
+                  (let [next-control (:control next)
+                        next-tag (:type next-control)
+                        next-data (if (= :value next-tag)
+                                    (:val next-control)
+                                    (:id next-control))
+                        next-stack (:stack next)
+                        next-sp (int (dec (count next-stack)))]
+                    ;; Re-fill s-arr from slow path result
+                    (loop [i 0]
+                      (when (< i (count next-stack))
+                        (semantic-object-array-set! s-arr i (nth next-stack i))
+                        (recur (inc i))))
+                    (recur next-tag next-data (:env next) next-sp next))))))
+
+          ;; --- 3. Exit: Halted, Blocked, or Scheduler ---
+          (let [control (case ctrl-tag
+                          :value {:type :value, :val ctrl-data}
+                          :node {:type :node, :id ctrl-data}
+                          nil)
+                result (semantic-return vm control env (s-arr->map-stack s-arr sp) false nil)]
+            (cond
+              (:blocked result) result
+              (seq (or (:run-queue result) []))
+              (if-let [resumed (resume-from-run-queue result)]
+                (let [resumed-control (:control resumed)
+                      resumed-tag (:type resumed-control)
+                      resumed-data (if (= :value resumed-tag)
+                                     (:val resumed-control)
+                                     (:id resumed-control))
+                      resumed-stack (:stack resumed)]
+                  ;; Re-fill s-arr from resumed stack
+                  (loop [i 0]
+                    (when (< i (count resumed-stack))
+                      (semantic-object-array-set! s-arr i (nth resumed-stack i))
+                      (recur (inc i))))
+                  (recur resumed-tag resumed-data (:env resumed) (int (dec (count resumed-stack))) resumed))
+                result)
+              :else result)))))))
 
 
 (defn- semantic-vm-eval
@@ -482,10 +939,12 @@
               (semantic-vm-load-program (assoc vm :node-id-counter next-node-id)
                                         {:node root-id, :datoms datoms}))
             vm)]
-    (engine/run-loop v
-                     engine/active-continuation?
-                     semantic-vm-step
-                     resume-from-run-queue)))
+    (if (or (:blocked v) (:halted v) (seq (:run-queue v)))
+      (engine/run-loop v
+                       engine/active-continuation?
+                       semantic-vm-step
+                       resume-from-run-queue)
+      (semantic-run-active-continuation v (:control v) (:env v) (:stack v)))))
 
 
 (extend-type SemanticVM
@@ -519,6 +978,8 @@
                               :stack [],
                               :datoms [],
                               :index {},
+                              :index-arr (make-semantic-object-array 0),
+                              :index-base-id 0,
                               :halted false,
                               :value nil,
                               :blocked false,

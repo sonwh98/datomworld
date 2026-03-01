@@ -1,0 +1,49 @@
+#:blog{:title "A tale of 4 Virtual Machines: Universal AST Benchmarks"
+       :date #inst "2026-02-28T16:00:00.000-00:00"
+       :abstract [:p "A performance analysis of the datom.world execution models, comparing the Register, Stack, Semantic, and AST Walker VMs. Includes details on how the Semantic VM was optimized to beat direct tree-walking."]
+       :content [:section.blog-article
+                 [:div.section-inner
+                  [:article
+                   :$blog-title
+                   :$blog-date
+
+                   [:p "In datom.world, the Universal AST serves as the canonical representation of code. Because everything is data, we can project this same AST into multiple execution models. We recently benchmarked our four primary VM implementations using a tail-recursive countdown (n=1000) to measure the overhead of each interpretation strategy."]
+
+                   [:h2 "Benchmark Results"]
+                   [:p "The results confirm that the closer we get to machine-like abstractions, the higher the performance ceiling. Notably, the Semantic VM—once the slowest—now outpaces the AST Walker by a significant margin:"]
+
+                   [:table.bench-results
+                    [:thead
+                     [:tr [:th "VM Implementation"] [:th "Mean Execution Time"] [:th "Relative Performance"]]]
+                    [:tbody
+                     [:tr [:td [:strong "Register VM"]] [:td "2.45 ms"] [:td "1.0x (Fastest)"]]
+                     [:tr [:td "Stack VM"] [:td "3.82 ms"] [:td "1.6x slower"]]
+                     [:tr [:td "Semantic VM"] [:td [:strong "4.38 ms"]] [:td "1.8x slower"]]
+                     [:tr [:td "AST Walker VM"] [:td "6.59 ms"] [:td "2.7x slower"]]]]
+
+                   [:h2 "Why the Register VM Wins"]
+                   [:p "The Register VM remains our performance leader due to three primary architectural advantages:"]
+
+                   [:h3 "1. Reduced Instruction Density"]
+                   [:p "A register machine expresses complex operations with fewer instructions. A single 'sub' instruction replaces the load-push-sub-store cycle of a stack machine, significantly reducing the overhead of the VM's internal dispatch loop."]
+
+                   [:h3 "2. Minimized Data Shuffling"]
+                   [:p "Unlike the Stack VM, which must 'shuffle' operands via persistent peek and pop operations, the Register VM accesses operands via direct index lookups. This stability minimizes allocation pressure and structural updates."]
+
+                   [:h2 "The Rise of the Semantic VM"]
+                   [:p "The most surprising result is the Semantic VM's massive performance leap, moving from ~27ms to ~4.4ms. By embracing its 'Compiled into Datoms' nature and implementing a linear execution stream, it now executes 50% faster than the AST Walker (which interprets native Clojure maps)."]
+
+                   [:h3 "How Datoms Beat Trees"]
+                   [:p "We achieved this by projecting the flat datom stream into a high-performance execution substrate:"]
+                   [:ul
+                    [:li [:strong "Linear Execution Stream: "] "By projecting the datom stream into a flat, array-backed index with primitive integer dispatch, we eliminated the overhead of persistent map lookups."]
+                    [:li [:strong "Flat Array Stack: "] "We replaced the persistent vector-based continuation stack with a high-performance Object array in the hot loop, drastically reducing allocation pressure."]
+                    [:li [:strong "Compact Node Projection: "] "Datoms are projected into compact records (type tag + attribute map), improving cache locality and memory efficiency."]
+                    [:li [:strong "Integer Dispatch: "] "The hot loop utilizes primitive integer 'case' dispatch, enabling the JVM to generate optimal branch tables (tableswitch)."]]
+
+                   [:h2 "Reproducibility"]
+                   [:p "To reproduce these results, you can run the benchmarking suite directly from the project root using the Clojure CLI:"]
+
+                   [:pre [:code "clj -M:bench --fast-only 1000"]]
+
+                   [:p "This command evaluates the 'fast path' (optimized VM loop) for all four implementations. You can also target specific VMs using flags like " [:code "--semantic-only"] " or " [:code "--register-only"] "."]]]]}
