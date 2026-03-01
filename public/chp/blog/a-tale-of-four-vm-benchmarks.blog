@@ -41,6 +41,20 @@
                     [:li [:strong "Compact Node Projection: "] "Datoms are projected into compact records (type tag + attribute map), improving cache locality and memory efficiency."]
                     [:li [:strong "Integer Dispatch: "] "The hot loop utilizes primitive integer 'case' dispatch, enabling the JVM to generate optimal branch tables (tableswitch)."]]
 
+                   [:h2 "The Robustness Tax"]
+                   [:p "During our optimization pass, we observed a 5% performance difference between a 'naked' array implementation (~4.5ms) and a 'robust' implementation (~4.7ms). This small delta represents the cost of restoring the safety guarantees inherent in Clojure's original persistent data structures."]
+
+                   [:h3 "Trading O(1) Copying for O(1) Stepping"]
+                   [:p "Clojure's persistent vectors provide near-zero overhead copying through structural sharing, but they incur an " [:code "O(log32 n)"] " traversal tax on every push and pop. Our Object array stack provides true " [:code "O(1)"] " stepping, but requires explicit " [:code "O(n)"] " memory copies when growing the stack or materializing state for effects."]
+
+                   [:h3 "Where the 5% Goes"]
+                   [:p "The robust version introduces three critical safeguards:"]
+                   [:ul
+                    [:li [:strong "Dynamic Resizing: "] "The stack now checks its capacity on every push and grows iteratively when needed, preventing array-bound crashes during deep recursion."]
+                    [:li [:strong "Safe Index Lookups: "] "Every node transition now includes a range guard, safely falling back to map lookups for cross-namespace or dynamically generated entity IDs."]
+                    [:li [:strong "Transient Materialization: "] "State synchronization now uses transient-based loops to minimize GC pressure, adding slight complexity compared to raw vector coercion."]]
+                   [:p "We consider this 'robustness tax' a mandatory investment. It ensures the Semantic VM remains as stable as the AST Walker while retaining its newly won 50% performance lead over tree-walking."]
+
                    [:h2 "Reproducibility"]
                    [:p "To reproduce these results, you can run the benchmarking suite directly from the project root using the Clojure CLI:"]
 

@@ -413,90 +413,92 @@
   [vm]
   (let [{:keys [control env stack datoms index store primitives]} vm
         node-id (:id control)
-        node-arr ^objects (get index node-id)
-        node-type (aget node-arr ATTR_TYPE)]
-    (case node-type
-      :literal (assoc vm :control {:type :value, :val (aget node-arr ATTR_VALUE)})
-      :variable (let [name (aget node-arr ATTR_NAME)
-                      val (engine/resolve-var env store primitives name)]
-                  (assoc vm :control {:type :value, :val val}))
-      :lambda (assoc vm
-                     :control {:type :value,
-                               :val {:type :closure,
-                                     :params (aget node-arr ATTR_PARAMS),
-                                     :body-node (aget node-arr ATTR_BODY),
-                                     :datoms datoms,
-                                     :env env}})
-      :if (assoc vm
-                 :control {:type :node, :id (aget node-arr ATTR_TEST)}
-                 :stack (conj stack
-                              {:type :if,
-                               :consequent (aget node-arr ATTR_CONSEQUENT),
-                               :alternate (aget node-arr ATTR_ALTERNATE),
-                               :env env}))
-      :application (assoc vm
-                          :control {:type :node, :id (aget node-arr ATTR_OPERATOR)}
-                          :stack (conj stack
-                                       {:type :app-op,
-                                        :operands (aget node-arr ATTR_OPERANDS),
-                                        :env env,
-                                        :tail? (aget node-arr ATTR_TAIL)}))
-      ;; VM primitives
-      :vm/gensym (let [prefix (or (aget node-arr ATTR_PREFIX) "id")
-                       [id s'] (engine/gensym vm prefix)]
-                   (assoc s' :control {:type :value, :val id}))
-      :vm/store-get (let [key (aget node-arr ATTR_KEY)
-                          val (get store key)]
+        node-arr ^objects (get index node-id)]
+    (if (nil? node-arr)
+      (throw (ex-info "Unknown node id in semantic slow path" {:node-id node-id}))
+      (let [node-type (aget node-arr ATTR_TYPE)]
+        (case node-type
+          :literal (assoc vm :control {:type :value, :val (aget node-arr ATTR_VALUE)})
+          :variable (let [name (aget node-arr ATTR_NAME)
+                          val (engine/resolve-var env store primitives name)]
                       (assoc vm :control {:type :value, :val val}))
-      :vm/store-put (let [key (aget node-arr ATTR_KEY)
-                          val (aget node-arr ATTR_VALUE)]
-                      (assoc vm
-                             :control {:type :value, :val val}
-                             :store (assoc store key val)))
-      ;; Stream operations
-      :stream/make (let [capacity (aget node-arr ATTR_BUFFER)
-                         effect {:effect :stream/make, :capacity capacity}
-                         {:keys [state value]}
-                         (engine/handle-effect vm effect {})]
-                     (assoc state :control {:type :value, :val value}))
-      :stream/put (let [target-node (aget node-arr ATTR_TARGET)]
-                    (assoc vm
-                           :control {:type :node, :id target-node}
-                           :stack (conj stack
-                                        {:type :stream-put-target,
-                                         :val-node (aget node-arr ATTR_VAL_NODE),
-                                         :env env})))
-      :stream/cursor (let [source-node (aget node-arr ATTR_SOURCE)]
-                       (assoc vm
-                              :control {:type :node, :id source-node}
+          :lambda (assoc vm
+                         :control {:type :value,
+                                   :val {:type :closure,
+                                         :params (aget node-arr ATTR_PARAMS),
+                                         :body-node (aget node-arr ATTR_BODY),
+                                         :datoms datoms,
+                                         :env env}})
+          :if (assoc vm
+                     :control {:type :node, :id (aget node-arr ATTR_TEST)}
+                     :stack (conj stack
+                                  {:type :if,
+                                   :consequent (aget node-arr ATTR_CONSEQUENT),
+                                   :alternate (aget node-arr ATTR_ALTERNATE),
+                                   :env env}))
+          :application (assoc vm
+                              :control {:type :node, :id (aget node-arr ATTR_OPERATOR)}
                               :stack (conj stack
-                                           {:type :stream-cursor-source, :env env})))
-      :stream/next (let [source-node (aget node-arr ATTR_SOURCE)]
-                     (assoc vm
-                            :control {:type :node, :id source-node}
-                            :stack (conj stack
-                                         {:type :stream-next-cursor, :env env})))
-      :stream/close (let [source-node (aget node-arr ATTR_SOURCE)]
-                      (assoc vm
-                             :control {:type :node, :id source-node}
-                             :stack (conj stack
-                                          {:type :stream-close-source, :env env})))
-      ;; Continuation primitives
-      :vm/park (-> (engine/park-continuation vm {:stack stack, :env env})
-                   (assoc :control nil))
-      :vm/resume (let [parked-id (aget node-arr ATTR_PARKED_ID)
-                       val-node (aget node-arr ATTR_VAL_NODE)]
-                   (assoc vm
-                          :control {:type :node, :id val-node}
-                          :stack (conj stack
-                                       {:type :resume-val,
-                                        :parked-id parked-id,
-                                        :env env})))
-      :vm/current-continuation
-      (assoc vm
-             :control {:type :value,
-                       :val {:type :reified-continuation, :stack stack, :env env}})
-      (throw (ex-info "Unknown node type" {:node-type (aget node-arr ATTR_TYPE)})))))
+                                           {:type :app-op,
+                                            :operands (aget node-arr ATTR_OPERANDS),
+                                            :env env,
+                                            :tail? (aget node-arr ATTR_TAIL)}))
+          ;; VM primitives
+          :vm/gensym (let [prefix (or (aget node-arr ATTR_PREFIX) "id")
+                           [id s'] (engine/gensym vm prefix)]
+                       (assoc s' :control {:type :value, :val id}))
+          :vm/store-get (let [key (aget node-arr ATTR_KEY)
+                              val (get store key)]
+                          (assoc vm :control {:type :value, :val val}))
+          :vm/store-put (let [key (aget node-arr ATTR_KEY)
+                              val (aget node-arr ATTR_VALUE)]
+                          (assoc vm
+                                 :control {:type :value, :val val}
+                                 :store (assoc store key val)))
+          ;; Stream operations
+          :stream/make (let [capacity (aget node-arr ATTR_BUFFER)
+                             effect {:effect :stream/make, :capacity capacity}
+                             {:keys [state value]}
+                             (engine/handle-effect vm effect {})]
+                         (assoc state :control {:type :value, :val value}))
+          :stream/put (let [target-node (aget node-arr ATTR_TARGET)]
+                        (assoc vm
+                               :control {:type :node, :id target-node}
+                               :stack (conj stack
+                                            {:type :stream-put-target,
+                                             :val-node (aget node-arr ATTR_VAL_NODE),
+                                             :env env})))
+          :stream/cursor (let [source-node (aget node-arr ATTR_SOURCE)]
+                           (assoc vm
+                                  :control {:type :node, :id source-node}
+                                  :stack (conj stack
+                                               {:type :stream-cursor-source, :env env})))
+          :stream/next (let [source-node (aget node-arr ATTR_SOURCE)]
+                         (assoc vm
+                                :control {:type :node, :id source-node}
+                                :stack (conj stack
+                                             {:type :stream-next-cursor, :env env})))
+          :stream/close (let [source-node (aget node-arr ATTR_SOURCE)]
+                          (assoc vm
+                                 :control {:type :node, :id source-node}
+                                 :stack (conj stack
+                                              {:type :stream-close-source, :env env})))
+          ;; Continuation primitives
+          :vm/park (-> (engine/park-continuation vm {:stack stack, :env env})
+                       (assoc :control nil))
+          :vm/resume (let [parked-id (aget node-arr ATTR_PARKED_ID)
+                           val-node (aget node-arr ATTR_VAL_NODE)]
+                       (assoc vm
+                              :control {:type :node, :id val-node}
+                              :stack (conj stack
+                                           {:type :resume-val,
+                                            :parked-id parked-id,
+                                            :env env})))
+          :vm/current-continuation
+          (assoc vm
+                 :control {:type :value,
+                           :val {:type :reified-continuation, :stack stack, :env env}})
+          (throw (ex-info "Unknown node type" {:node-type (aget node-arr ATTR_TYPE)})))))))
 
 
 (defn- bind-semantic-env
@@ -649,10 +651,10 @@
    Expects {:node root-id :datoms [...]}."
   [^SemanticVM vm {:keys [node datoms]}]
   (let [datom-index (group-by first datoms)
-        cardinality (count datom-index)
         node-map-index (into {} (map (fn [[eid _datoms]] [eid (datom-node-attrs datom-index eid)])
                                      datom-index))
         merged-index (merge (:index vm) node-map-index)
+        cardinality (count merged-index)
         [index-base-id index-arr] (build-semantic-node-index-array merged-index cardinality)]
     (assoc vm
            :control {:type :node, :id node}
@@ -681,8 +683,8 @@
         v-s-limit (volatile! 256)
 
         ensure-capacity! (fn [required-sp]
-                           (let [limit @v-s-limit]
-                             (when (>= required-sp limit)
+                           (loop [limit @v-s-limit]
+                             (if (>= required-sp limit)
                                (let [new-limit (* limit 2)
                                      new-arr (make-semantic-object-array new-limit)]
                                  (loop [i 0]
@@ -690,7 +692,9 @@
                                      (semantic-object-array-set! new-arr i (semantic-object-array-get @v-s-arr i))
                                      (recur (inc i))))
                                  (vreset! v-s-arr new-arr)
-                                 (vreset! v-s-limit new-limit)))))
+                                 (vreset! v-s-limit new-limit)
+                                 (recur new-limit))
+                               limit)))
 
         push! (fn [sp val]
                 (let [next-sp (inc sp)]
@@ -708,7 +712,12 @@
                         (dec n)))
 
         materialize-stack (fn [sp]
-                            (fast-semantic-stack->map (subvec (vec @v-s-arr) 0 (inc sp))))]
+                            (let [n (inc sp)]
+                              (loop [i 0
+                                     acc (transient [])]
+                                (if (< i n)
+                                  (recur (inc i) (conj! acc (fast-semantic-frame->map (semantic-object-array-get @v-s-arr i))))
+                                  (persistent! acc)))))]
 
     ;; Pre-fill stack-arr if resuming from non-empty stack
     (let [sp (if (empty? stack-init) -1 (copy-stack! stack-init))]
