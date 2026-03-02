@@ -59,7 +59,7 @@ This DataScript dependency prevents the VM from running on **ClojureDart**, whic
 | 1 | `src/cljc/dao/db.cljc` | Implement `DummyDaoDb` (portable). |
 | 2 | `src/cljc/yin/vm/semantic.cljc` | Update helpers to take `IDaoDb` instead of DataScript DB. |
 | 3 | `src/cljc/yin/vm.cljc` | Wrap DataScript requires and schema in reader conditionals. |
-| 4 | `src/cljs/datomworld/demo.cljs` | Update to use `dao.db/create` and `IDaoDb` protocol. |
+| 4 | `src/cljs/yin/demo/browser.cljs` | Update to use `dao.db/create` and `IDaoDb` protocol. |
 | 5 | Run tests | Ensure `clj -M:test` passes. |
 
 ## Verification

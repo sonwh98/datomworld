@@ -1,4 +1,4 @@
-(ns datomworld.demo
+(ns yin.demo.browser
   (:require
     ["@codemirror/lang-php" :refer [php]]
     ["@codemirror/lang-python" :refer [python]]
