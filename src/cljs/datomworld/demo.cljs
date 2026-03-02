@@ -358,10 +358,10 @@
 
 
 (def default-vm-pane-ratios
-  {:walker {:top 0.6, :middle 0.3, :bottom 0.1},
-   :semantic {:top 0.6, :middle 0.3, :bottom 0.1},
-   :register {:top 0.6, :middle 0.3, :bottom 0.1},
-   :stack {:top 0.6, :middle 0.3, :bottom 0.1}})
+  {:walker {:top 0.55, :middle 0.25, :bottom 0.2},
+   :semantic {:top 0.55, :middle 0.25, :bottom 0.2},
+   :register {:top 0.55, :middle 0.25, :bottom 0.2},
+   :stack {:top 0.55, :middle 0.25, :bottom 0.2}})
 
 
 (defonce app-state
