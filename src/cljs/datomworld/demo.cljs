@@ -1704,19 +1704,18 @@
                 (fn [state]
                   (when (not (:halted state))
                     (let [ctrl (:control state)
-                          info (if (= :node (:type ctrl))
-                                 (let [attrs (let [tx-data
-                                                   (vm/datoms->tx-data
-                                                     (:datoms state))
-                                                   {dao-db :db}
-                                                   (dao.db/from-tx-data
-                                                     vm/schema
-                                                     tx-data)]
-                                               (semantic/get-node-attrs
-                                                 dao-db
-                                                 (:id ctrl)))]
-                                   (str (:yin/type attrs)))
-                                 "Returning...")]
+                          info
+                          (if (= :node (:type ctrl))
+                            (let [attrs
+                                  (let [tx-data (vm/datoms->tx-data
+                                                  (:datoms state))
+                                        {dao-db :db}
+                                        (dao.db/from-tx-data vm/schema
+                                                             tx-data)]
+                                    (dao.db/entity-attrs dao-db
+                                                         (:id ctrl)))]
+                              (str (:yin/type attrs)))
+                            "Returning...")]
                       {:control ctrl, :info info}))),
                 :expanded-fn (fn [state]
                                {:control (:control state),
