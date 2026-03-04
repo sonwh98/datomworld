@@ -10,7 +10,7 @@
   - Function application (including stream operations via module system)
   - Conditionals (if)
   - Let bindings (let)
-  - Recursion via Z-combinator for def
+  - Top-level definitions via explicit yin/def store effects
 
   Stream operations (stream/make, stream/put, stream/take, >!, <!) are compiled
   as regular function applications and resolved through the module system at runtime.
@@ -23,39 +23,31 @@
 (declare compile-form)
 
 
-;; The Z combinator (strict fixed-point combinator) for recursion.
+;; Strict fixed-point combinator specialized by function arity.
+;; For arity=1 this is the classic Z combinator:
 ;; Z = λf. (λx. f (λv. x x v)) (λx. f (λv. x x v))
+(defn arity->z-combinator
+  [arity]
+  (let [params (mapv (fn [idx] (symbol (str "arg" idx))) (range arity))
+        recur-operands (mapv (fn [p] {:type :variable, :name p}) params)
+        recur-call {:type :application,
+                    :operator {:type :application,
+                               :operator {:type :variable, :name 'x},
+                               :operands [{:type :variable, :name 'x}]},
+                    :operands recur-operands}
+        recur-lambda {:type :lambda, :params params, :body recur-call}
+        x-lambda {:type :lambda,
+                  :params ['x],
+                  :body {:type :application,
+                         :operator {:type :variable, :name 'f},
+                         :operands [recur-lambda]}}]
+    {:type :lambda,
+     :params ['f],
+     :body {:type :application, :operator x-lambda, :operands [x-lambda]}}))
+
+
 (def Z-combinator
-  {:type :lambda,
-   :params ['f],
-   :body
-   {:type :application,
-    :operator {:type :lambda,
-               :params ['x],
-               :body {:type :application,
-                      :operator {:type :variable, :name 'f},
-                      :operands
-                      [{:type :lambda,
-                        :params ['v],
-                        :body {:type :application,
-                               :operator
-                               {:type :application,
-                                :operator {:type :variable, :name 'x},
-                                :operands [{:type :variable, :name 'x}]},
-                               :operands [{:type :variable, :name 'v}]}}]}},
-    :operands
-    [{:type :lambda,
-      :params ['x],
-      :body {:type :application,
-             :operator {:type :variable, :name 'f},
-             :operands
-             [{:type :lambda,
-               :params ['v],
-               :body {:type :application,
-                      :operator {:type :application,
-                                 :operator {:type :variable, :name 'x},
-                                 :operands [{:type :variable, :name 'x}]},
-                      :operands [{:type :variable, :name 'v}]}}]}}]}})
+  (arity->z-combinator 1))
 
 
 (defn literal?
@@ -93,8 +85,7 @@
 
 (defn compile-def
   "Compile a def form to Universal AST.
-   Note: This is for non-top-level defs or when not using compile-program.
-   It emits a yin/def application which requires environment support."
+   Emits a yin/def application which requires environment support."
   [sym value env tail?]
   (cond-> {:type :application,
            :operator {:type :variable, :name 'yin/def},
@@ -282,8 +273,7 @@
 
 (defn compile-program
   "Compile a sequence of Clojure forms into a single Universal AST.
-   Handles top-level defs by wrapping the rest of the program in a let/lambda.
-   Uses Z-combinator for recursive definitions."
+   Top-level defs compile to explicit yin/def store writes, sequenced via lambda."
   ([forms] (compile-program forms true))
   ([forms tail?]
    (if (empty? forms)
@@ -291,17 +281,12 @@
      (let [head (first forms)]
        (if (and (seq? head) (= 'def (first head)))
          (let [[_ name value] head]
-           ;; It's a definition: let name = (Z (fn [name] value)) in rest
+           ;; Evaluate def as an explicit store effect, then continue with rest.
            (cond-> {:type :application,
                     :operator {:type :lambda,
-                               :params [name],
+                               :params ['_],
                                :body (compile-program (rest forms) tail?)},
-                    :operands [{:type :application,
-                                :operator Z-combinator,
-                                :operands [{:type :lambda,
-                                            :params [name],
-                                            :body
-                                            (compile-form value false {})}]}]}
+                    :operands [(compile-def name value {} false)]}
              tail? (assoc :tail? true)))
          ;; Not a definition
          (if (= 1 (count forms))

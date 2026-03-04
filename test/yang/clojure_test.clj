@@ -17,6 +17,16 @@
        (vm/value))))
 
 
+(defn compile-program-and-run
+  ([forms] (compile-program-and-run forms {} {}))
+  ([forms env] (compile-program-and-run forms env {}))
+  ([forms env vm-opts]
+   (-> (ast-walker/create-vm (merge {:env env} vm-opts))
+       (vm/load-program (yang/compile-program forms))
+       (vm/run)
+       (vm/value))))
+
+
 (deftest test-compile-literals
   (testing "Compiling literal values"
     (testing "Numbers"
@@ -269,3 +279,35 @@
     (let [result (compile-and-run '(let [x 5] (+ x 1) (+ x 2) (* x 3)))]
       ;; Should evaluate to the last expression
       (is (= 15 result)))))
+
+
+(deftest test-compile-program-top-level-recursion-arity
+  (testing "Top-level def recursion preserves function arity"
+    (testing "Two-argument recursive function"
+      (is (= 3
+             (compile-program-and-run
+               '((def walk
+                   (fn [x max]
+                     (if (> x max)
+                       x
+                       (walk (+ x 1) max))))
+                 (walk -2 2))))))
+    (testing "Three-argument recursive function"
+      (is (= 11
+             (compile-program-and-run
+               '((def add-until
+                   (fn [x y max]
+                     (if (> x max)
+                       y
+                       (add-until (+ x 1) (+ y 1) max))))
+                 (add-until 0 5 5))))))))
+
+
+(deftest test-compile-program-top-level-redefinition
+  (testing "Top-level def redefinition updates subsequent lookups"
+    (is (= 8
+           (compile-program-and-run
+             '((def f (fn [x] (* x x)))
+               (def use-f (fn [x] (f x)))
+               (def f (fn [x] (* x (* x x))))
+               (use-f 2)))))))
