@@ -76,7 +76,7 @@
   [form]
   (and (seq? form)
        (symbol? (first form))
-       (contains? #{'fn 'if 'let 'quote 'do 'def} (first form))))
+       (contains? #{'fn 'if 'let 'quote 'do 'def 'ffi/call} (first form))))
 
 
 (defn compile-literal
@@ -128,6 +128,23 @@
         compiled-operands (mapv #(compile-form % false env) operands)]
     (cond-> {:type :application,
              :operator compiled-operator,
+             :operands compiled-operands}
+      tail? (assoc :tail? true))))
+
+
+(defn compile-ffi-call
+  "Compile an FFI call form to Universal AST.
+
+  Clojure: (ffi/call :op/name arg1 arg2)
+  AST: {:type :ffi/call
+        :op :op/name
+        :operands [<compiled-arg1> <compiled-arg2>]}"
+  [op operands env tail?]
+  (when-not (keyword? op)
+    (throw (ex-info "ffi/call op must be a keyword" {:op op})))
+  (let [compiled-operands (mapv #(compile-form % false env) operands)]
+    (cond-> {:type :ffi/call,
+             :op op,
              :operands compiled-operands}
       tail? (assoc :tail? true))))
 
@@ -225,33 +242,36 @@
      ;; Special forms and function application
      (seq? form)
      (let [[operator & operands] form]
-       (case operator
-         ;; Lambda: (fn [params] body)
-         fn (let [[params & body] operands
-                  ;; Handle multi-expression body with implicit do
-                  body-expr
-                  (if (= 1 (count body)) (first body) (cons 'do body))]
-              (compile-lambda params body-expr env tail?))
-         ;; Conditional: (if test consequent alternate?)
-         if (let [[test consequent alternate] operands]
-              (compile-if test consequent alternate env tail?))
-         ;; Let binding: (let [bindings] body)
-         let (let [[bindings & body] operands
-                   ;; Handle multi-expression body with implicit do
-                   body-expr
-                   (if (= 1 (count body)) (first body) (cons 'do body))]
-               (compile-let bindings body-expr env tail?))
-         ;; Do block: (do expr1 expr2 ...)
-         do (compile-do operands env tail?)
-         ;; Quote: (quote form)
-         quote (compile-quote (first operands) tail?)
-         ;; Def: (def sym value)
-         def (let [[sym value] operands] (compile-def sym value env tail?))
-         ;; Function application: (f arg1 arg2 ...)
-         ;; This includes stream operations (stream/make, stream/put,
-         ;; stream/take, >!, <!)
-         ;; which are resolved through the module system at runtime
-         (compile-application operator operands env tail?)))
+       (if (= operator 'ffi/call)
+         (let [[op & args] operands]
+           (compile-ffi-call op args env tail?))
+         (case operator
+           ;; Lambda: (fn [params] body)
+           fn (let [[params & body] operands
+                    ;; Handle multi-expression body with implicit do
+                    body-expr
+                    (if (= 1 (count body)) (first body) (cons 'do body))]
+                (compile-lambda params body-expr env tail?))
+           ;; Conditional: (if test consequent alternate?)
+           if (let [[test consequent alternate] operands]
+                (compile-if test consequent alternate env tail?))
+           ;; Let binding: (let [bindings] body)
+           let (let [[bindings & body] operands
+                     ;; Handle multi-expression body with implicit do
+                     body-expr
+                     (if (= 1 (count body)) (first body) (cons 'do body))]
+                 (compile-let bindings body-expr env tail?))
+           ;; Do block: (do expr1 expr2 ...)
+           do (compile-do operands env tail?)
+           ;; Quote: (quote form)
+           quote (compile-quote (first operands) tail?)
+           ;; Def: (def sym value)
+           def (let [[sym value] operands] (compile-def sym value env tail?))
+           ;; Function application: (f arg1 arg2 ...)
+           ;; This includes stream operations (stream/make, stream/put,
+           ;; stream/take, >!, <!)
+           ;; which are resolved through the module system at runtime
+           (compile-application operator operands env tail?))))
      ;; Unknown form type
      :else (throw (ex-info "Cannot compile unknown form type"
                            {:form form,

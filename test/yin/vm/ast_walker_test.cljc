@@ -22,7 +22,8 @@
 (deftest cesk-state-test
   (testing "Initial state"
     (let [vm (ast-walker/create-vm)]
-      (is (= {} (vm/store vm)))
+      (is (contains? (vm/store vm) vm/ffi-out-stream-key))
+      (is (contains? (vm/store vm) vm/ffi-out-cursor-key))
       (is (nil? (vm/control vm)))
       (is (nil? (vm/continuation vm)))))
   (testing "After load-program, control is non-nil"
@@ -34,7 +35,8 @@
                  (vm/load-program {:type :literal, :value 42})
                  (vm/run))]
       (is (nil? (vm/continuation vm)))
-      (is (= {} (vm/store vm)))
+      (is (contains? (vm/store vm) vm/ffi-out-stream-key))
+      (is (contains? (vm/store vm) vm/ffi-out-cursor-key))
       (is (= 42 (vm/value vm)))))
   (testing "Environment is empty by default (primitives resolved separately)"
     (is (= {} (vm/environment (ast-walker/create-vm))))))
@@ -271,6 +273,30 @@
       (is (= 1 (get (vm/store result) :effect/calls))))))
 
 
+(deftest eval-ffi-call-test
+  (testing "ffi/call dispatches through bridge dispatcher and resumes with result"
+    (let [ast {:type :ffi/call,
+               :op :op/echo,
+               :operands [{:type :literal, :value 42}]}
+          result (vm/eval (ast-walker/create-vm
+                            {:bridge-dispatcher {:op/echo identity}})
+                          ast)]
+      (is (vm/halted? result))
+      (is (= 42 (vm/value result))))))
+
+
+(deftest eval-ffi-call-missing-handler-test
+  (testing "ffi/call without registered handler throws ex-info with :op"
+    (let [ast {:type :ffi/call,
+               :op :op/missing,
+               :operands [{:type :literal, :value 1}]}]
+      (try
+        (vm/eval (ast-walker/create-vm) ast)
+        (is false "Expected missing handler exception")
+        (catch #?(:clj Exception :cljs :default :cljd Exception) e
+          (is (= :op/missing (:op (ex-data e)))))))))
+
+
 (deftest eval-blocked-effect-preserves-current-env-test
   (testing "Blocked effect should preserve the active lexical environment in VM state"
     (let [vm0 (vm/eval (ast-walker/create-vm) {:type :stream/make, :buffer 2})
@@ -350,6 +376,25 @@
       (is
         (every? neg-int? (nth operands-datom 2))
         ":yin/operands should contain tempid references (negative integers)"))))
+
+
+(deftest ast->datoms-ffi-call-shape-test
+  (testing ":ffi/call emits :yin/type, :yin/op, and :yin/operands"
+    (let [datoms (vec (vm/ast->datoms {:type :ffi/call,
+                                       :op :op/echo,
+                                       :operands [{:type :literal, :value 1}
+                                                  {:type :literal, :value 2}]}))
+          root-e (ffirst datoms)
+          root-datoms (filter #(= root-e (first %)) datoms)
+          type-datom (first (filter #(= :yin/type (second %)) root-datoms))
+          op-datom (first (filter #(= :yin/op (second %)) root-datoms))
+          operands-datom (first (filter #(= :yin/operands (second %))
+                                        root-datoms))]
+      (is (= :ffi/call (nth type-datom 2)))
+      (is (= :op/echo (nth op-datom 2)))
+      (is (vector? (nth operands-datom 2)))
+      (is (= 2 (count (nth operands-datom 2))))
+      (is (every? neg-int? (nth operands-datom 2))))))
 
 
 (deftest ast->datoms-options-test

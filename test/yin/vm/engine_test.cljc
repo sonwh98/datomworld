@@ -3,6 +3,7 @@
     [clojure.test :refer [deftest is testing]]
     [dao.stream :as ds]
     [yin.stream :as stream]
+    [yin.vm :as vm]
     [yin.vm.engine :as engine]))
 
 
@@ -192,3 +193,27 @@
           "e2 and e3 should remain in wait-set")
       (is (= #{:e2 :e3}
              (set (map (comp :id :continuation) (:wait-set result))))))))
+
+
+(deftest check-ffi-out-dispatch-and-enqueue-test
+  (testing "check-ffi-out dispatches one request and enqueues resumed continuation"
+    (let [ffi-out (ds/->LazySeqStream nil (atom {:log [], :head 0, :closed false}))
+          _ (ds/put! ffi-out {:op :op/echo, :args [42], :parked-id :parked-0})
+          state {:store {vm/ffi-out-stream-key ffi-out,
+                         vm/ffi-out-cursor-key {:stream-id vm/ffi-out-stream-key,
+                                                :position 0}},
+                 :bridge-dispatcher {:op/echo identity},
+                 :parked {:parked-0 {:id :parked-0,
+                                     :type :parked-continuation,
+                                     :continuation {:id :cont-0},
+                                     :environment {}}},
+                 :run-queue [],
+                 :wait-set [],
+                 :blocked true,
+                 :halted false}
+          next-state (engine/check-ffi-out state)
+          cursor-data (get-in next-state [:store vm/ffi-out-cursor-key])]
+      (is (= 1 (:position cursor-data)))
+      (is (nil? (get-in next-state [:parked :parked-0])))
+      (is (= 1 (count (:run-queue next-state))))
+      (is (= 42 (:value (first (:run-queue next-state))))))))

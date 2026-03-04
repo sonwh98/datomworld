@@ -32,7 +32,8 @@
 (deftest cesk-state-test
   (testing "Initial state"
     (let [vm (semantic/create-vm)]
-      (is (= {} (vm/store vm)))
+      (is (contains? (vm/store vm) vm/ffi-out-stream-key))
+      (is (contains? (vm/store vm) vm/ffi-out-cursor-key))
       (is (nil? (vm/control vm)))
       (is (empty? (vm/continuation vm)))))
   (testing "After load-program, control is non-nil"
@@ -42,7 +43,8 @@
     (let [vm (-> (load-ast {:type :literal, :value 42})
                  (vm/run))]
       (is (empty? (vm/continuation vm)))
-      (is (= {} (vm/store vm)))
+      (is (contains? (vm/store vm) vm/ffi-out-stream-key))
+      (is (contains? (vm/store vm) vm/ffi-out-cursor-key))
       (is (= 42 (vm/value vm)))))
   (testing "Environment stores lexical bindings only"
     (let [vm (semantic/create-vm {:env {'x 1}})]
@@ -69,6 +71,18 @@
                           {:type :literal, :value 20}]}
           result (vm/eval (semantic/create-vm) ast)]
       (is (= 30 (vm/value result))))))
+
+
+(deftest eval-ffi-call-test
+  (testing "Semantic VM executes ffi/call via bridge dispatcher"
+    (let [ast {:type :ffi/call,
+               :op :op/echo,
+               :operands [{:type :literal, :value 42}]}
+          result (vm/eval (semantic/create-vm
+                            {:bridge-dispatcher {:op/echo identity}})
+                          ast)]
+      (is (vm/halted? result))
+      (is (= 42 (vm/value result))))))
 
 
 (deftest literal-test

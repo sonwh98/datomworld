@@ -43,7 +43,8 @@
 (def ^:private ATTR_PARKED_ID 15)
 (def ^:private ATTR_TAIL 16)
 (def ^:private ATTR_SOURCE 17)
-(def ^:private ATTR_COUNT 18)
+(def ^:private ATTR_OP 18)
+(def ^:private ATTR_COUNT 19)
 
 
 ;; --- Hot-loop continuation frame tags (primitive integers) ---
@@ -72,7 +73,8 @@
    :yin/buffer ATTR_BUFFER
    :yin/parked-id ATTR_PARKED_ID
    :yin/tail? ATTR_TAIL
-   :yin/source ATTR_SOURCE})
+   :yin/source ATTR_SOURCE
+   :yin/op ATTR_OP})
 
 
 (defn- make-semantic-object-array
@@ -163,6 +165,7 @@
    node-id-counter ; unique negative ID counter for AST nodes
    parked     ; parked continuations
    primitives ; primitive operations
+   bridge-dispatcher ; FFI op keyword -> native fn
    run-queue  ; vector of runnable continuations
    stack      ; continuation stack
    store      ; heap memory
@@ -191,6 +194,7 @@
     (:node-id-counter vm)
     (:parked vm)
     (:primitives vm)
+    (:bridge-dispatcher vm)
     (:run-queue vm)
     stack
     (:store vm)
@@ -198,6 +202,20 @@
     (:wait-set vm)
     (:index-arr vm)
     (:index-base-id vm)))
+
+
+(defn- park-and-enqueue-ffi
+  "Park the current semantic continuation stack and emit an FFI request."
+  [vm op args stack env]
+  (let [parked (engine/park-continuation vm {:stack stack, :env env})
+        parked-id (get-in parked [:value :id])
+        request {:op op, :args args, :parked-id parked-id}
+        enqueued (engine/enqueue-ffi-request parked request)]
+    (assoc enqueued
+           :control nil
+           :value :yin/blocked
+           :blocked true
+           :halted false)))
 
 
 (defn- handle-return-value
@@ -315,6 +333,19 @@
                                            :env env-call}))))
                   (throw (ex-info "Cannot apply non-function" {:fn fn-val}))))
               ;; More args to eval
+              (let [next-arg (nth operands next-idx)]
+                (assoc vm
+                       :control {:type :node, :id next-arg}
+                       :env env-call
+                       :stack (conj new-stack
+                                    (assoc frame
+                                           :evaluated new-evaluated
+                                           :next-idx (inc next-idx)))))))
+          :ffi-args
+          (let [{op :op, evaluated :evaluated, operands :operands, next-idx :next-idx, env-call :env} frame
+                new-evaluated (conj evaluated val)]
+            (if (= next-idx (count operands))
+              (park-and-enqueue-ffi vm op new-evaluated new-stack env-call)
               (let [next-arg (nth operands next-idx)]
                 (assoc vm
                        :control {:type :node, :id next-arg}
@@ -443,6 +474,19 @@
                                             :operands (aget node-arr ATTR_OPERANDS),
                                             :env env,
                                             :tail? (aget node-arr ATTR_TAIL)}))
+          :ffi/call (let [operands (or (aget node-arr ATTR_OPERANDS) [])
+                          op (aget node-arr ATTR_OP)]
+                      (if (empty? operands)
+                        (park-and-enqueue-ffi vm op [] stack env)
+                        (assoc vm
+                               :control {:type :node, :id (first operands)}
+                               :stack (conj stack
+                                            {:type :ffi-args,
+                                             :op op,
+                                             :evaluated [],
+                                             :operands operands,
+                                             :next-idx 1,
+                                             :env env}))))
           ;; VM primitives
           :vm/gensym (let [prefix (or (aget node-arr ATTR_PREFIX) "id")
                            [id s'] (engine/gensym vm prefix)]
@@ -941,7 +985,20 @@
                         nil)
               result (semantic-return vm control env (materialize-stack sp) false nil)]
           (cond
-            (:blocked result) result
+            (:blocked result)
+            (let [v' (-> result
+                         engine/check-wait-set
+                         engine/check-ffi-out)]
+              (if-let [resumed (resume-from-run-queue v')]
+                (let [resumed-control (:control resumed)
+                      resumed-tag (:type resumed-control)
+                      resumed-data (if (= :value resumed-tag)
+                                     (:val resumed-control)
+                                     (:id resumed-control))
+                      resumed-stack (:stack resumed)
+                      resumed-sp (copy-stack! resumed-stack)]
+                  (recur resumed-tag resumed-data (:env resumed) resumed-sp resumed))
+                v'))
             (seq (or (:run-queue result) []))
             (if-let [resumed (resume-from-run-queue result)]
               (let [resumed-control (:control resumed)
@@ -973,7 +1030,18 @@
                        engine/active-continuation?
                        semantic-vm-step
                        resume-from-run-queue)
-      (semantic-run-active-continuation v (:control v) (:env v) (:stack v)))))
+      (let [result (semantic-run-active-continuation v
+                                                     (:control v)
+                                                     (:env v)
+                                                     (:stack v))]
+        ;; Fast path may return blocked immediately after parking.
+        ;; Re-enter scheduler once so idle handlers (wait-set/FFI) can run.
+        (if (:blocked result)
+          (engine/run-loop result
+                           engine/active-continuation?
+                           semantic-vm-step
+                           resume-from-run-queue)
+          result)))))
 
 
 (extend-type SemanticVM
@@ -997,11 +1065,13 @@
 
 (defn create-vm
   "Create a new SemanticVM with optional opts map.
-   Accepts {:env map, :primitives map}."
+   Accepts {:env map, :primitives map, :bridge-dispatcher map}."
   ([] (create-vm {}))
   ([opts]
    (let [env (or (:env opts) {})]
-     (map->SemanticVM (merge (vm/empty-state (select-keys opts [:primitives]))
+     (map->SemanticVM (merge (vm/empty-state (select-keys opts
+                                                          [:primitives
+                                                           :bridge-dispatcher]))
                              {:control nil,
                               :env env,
                               :stack [],

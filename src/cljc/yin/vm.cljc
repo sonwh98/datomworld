@@ -1,7 +1,9 @@
 (ns yin.vm
   "Defines the canonical data model (Datoms), schema, and primitives for the Yin Abstract Machine.
    This namespace acts as the shared kernel/substrate for all execution engines (stack, register, walker)."
-  (:refer-clojure :exclude [eval]))
+  (:refer-clojure :exclude [eval])
+  (:require
+    [dao.stream :as ds]))
 
 
 ;; =============================================================================
@@ -124,6 +126,16 @@
    'yin/def (fn [k v] {:effect :vm/store-put, :key k, :val v})})
 
 
+(def ffi-out-stream-key
+  "Store key for the shared FFI outbound request stream."
+  :yin/ffi-out)
+
+
+(def ffi-out-cursor-key
+  "Store key for the shared FFI outbound stream cursor."
+  :yin/ffi-out-cursor)
+
+
 ;; =============================================================================
 ;; Bytecode Opcodes
 ;; =============================================================================
@@ -149,7 +161,8 @@
    :park 17,
    :resume 18,
    :current-cont 19,
-   :tailcall 20})
+   :tailcall 20,
+   :ffi-call 21})
 
 
 #?(:clj
@@ -181,7 +194,8 @@
                     :park 17,
                     :resume 18,
                     :current-cont 19,
-                    :tailcall 20}
+                    :tailcall 20,
+                    :ffi-call 21}
            resolved (mapcat (fn [[kw body]] [(get opcodes kw) body]) pairs)]
        `(case (int ~op-expr) ~@resolved ~@(when default [default])))))
 
@@ -206,6 +220,7 @@
    :yin/type {},        ; keyword (:literal, :variable, :lambda, ...)
    :yin/value {},       ; polymorphic (number, string, boolean, keyword, ...)
    :yin/name {},        ; symbol
+   :yin/op {},          ; keyword (FFI operation key)
    :yin/params {},      ; vector of symbols
    :yin/key {},         ; symbol
    :yin/prefix {},      ; string
@@ -277,6 +292,10 @@
                                                        (:operands node))]
                                  (emit! e :yin/operator op-id)
                                  (emit! e :yin/operands operand-ids)))
+              :ffi/call (do (emit! e :yin/type :ffi/call)
+                            (emit! e :yin/op (:op node))
+                            (let [operand-ids (mapv convert (:operands node))]
+                              (emit! e :yin/operands operand-ids)))
               :if (do (emit! e :yin/type :if)
                       (let [test-id (convert (:test node))
                             cons-id (convert (:consequent node))
@@ -326,13 +345,17 @@
 
 (defn empty-state
   "Return an initial immutable VM state map.
-   Contains: :store {}, :parked {}, :id-counter 0, :primitives map,
-   :run-queue [], :wait-set []."
+   Contains: FFI stream wiring in :store, :parked {}, :id-counter 0,
+   :primitives map, :bridge-dispatcher map, :run-queue [], :wait-set []."
   ([] (empty-state {}))
   ([opts]
-   {:store {},
+   {:store
+    (let [ffi-stream (ds/->LazySeqStream nil (atom {:log [], :head 0, :closed false}))]
+      {ffi-out-stream-key ffi-stream,
+       ffi-out-cursor-key {:stream-id ffi-out-stream-key, :position 0}}),
     :parked {},
     :id-counter 0,
     :run-queue [],
     :wait-set [],
+    :bridge-dispatcher (or (:bridge-dispatcher opts) {}),
     :primitives (or (:primitives opts) primitives)}))

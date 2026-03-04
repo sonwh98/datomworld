@@ -66,6 +66,7 @@
      [:stream-cursor rd rs]           - rd := cursor for stream rs
      [:stream-next rd rs]             - rd := next value from cursor rs
      [:stream-close rd rs]            - close stream rs, rd := nil
+     [:ffi-call rd op args]           - park, enqueue FFI request, resume into rd
 
    Uses simple linear register allocation."
   [ast-as-datoms]
@@ -130,6 +131,13 @@
                     ;; Result register
                     rd (alloc-reg!)]
                 (emit! [(if tail? :tailcall :call) rd fn-reg arg-regs])
+                rd)
+              :ffi/call
+              (let [operand-refs (or (get-attr e :yin/operands) [])
+                    arg-regs (mapv #(compile-node % false) operand-refs)
+                    op (get-attr e :yin/op)
+                    rd (alloc-reg!)]
+                (emit! [:ffi-call rd op arg-regs])
                 rd)
               :if (let [test-ref (get-attr e :yin/test)
                         cons-ref (get-attr e :yin/consequent)
@@ -268,6 +276,12 @@
                   (doseq [ar arg-regs] (emit! ar)))
           :tailcall (let [[rd rf arg-regs] args]
                       (emit! (vm/opcode-table :tailcall) rd rf (count arg-regs))
+                      (doseq [ar arg-regs] (emit! ar)))
+          :ffi-call (let [[rd op arg-regs] args]
+                      (emit! (vm/opcode-table :ffi-call)
+                             rd
+                             (intern! op)
+                             (count arg-regs))
                       (doseq [ar arg-regs] (emit! ar)))
           :return (let [[rs] args] (emit! (vm/opcode-table :return) rs))
           :branch (let [[rt then-addr else-addr] args]
@@ -666,6 +680,22 @@
                          :pc body-addr))
                 :else (throw (ex-info "Cannot call non-function"
                                       {:fn fn-val}))))
+        :ffi-call
+        (let [rd (nth bytecode (inc pc))
+              op (nth pool (nth bytecode (+ pc 2)))
+              argc (nth bytecode (+ pc 3))
+              arg-base (+ pc 4)
+              args (collect-call-args regs bytecode arg-base argc)
+              next-pc (+ arg-base argc)
+              parked (engine/park-continuation state
+                                               (snap-frame state rd next-pc))
+              parked-id (get-in parked [:value :id])
+              request {:op op, :args args, :parked-id parked-id}
+              enqueued (engine/enqueue-ffi-request parked request)]
+          (assoc enqueued
+                 :value :yin/blocked
+                 :blocked true
+                 :halted false))
         :return
         (let [rs (nth bytecode (inc pc))
               result (get-reg regs rs)]
@@ -1250,11 +1280,13 @@
 
 (defn create-vm
   "Create a new RegisterVM with optional opts map.
-   Accepts {:env map, :primitives map}."
+   Accepts {:env map, :primitives map, :bridge-dispatcher map}."
   ([] (create-vm {}))
   ([opts]
    (let [env (or (:env opts) {})]
-     (map->RegisterVM (merge (vm/empty-state (select-keys opts [:primitives]))
+     (map->RegisterVM (merge (vm/empty-state (select-keys opts
+                                                          [:primitives
+                                                           :bridge-dispatcher]))
                              {:regs [],
                               :k nil,
                               :env env,

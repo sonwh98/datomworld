@@ -37,6 +37,7 @@
    id-counter   ; integer counter for unique IDs
    parked       ; parked continuations map
    primitives   ; primitive operations map
+   bridge-dispatcher ; FFI op keyword -> native fn
    run-queue    ; vector of runnable continuations
    store        ; heap memory map
    value        ; last computed value
@@ -60,6 +61,7 @@
       (:id-counter vm)
       (:parked vm)
       (:primitives vm)
+      (:bridge-dispatcher vm)
       (:run-queue vm)
       (:store vm)
       val
@@ -92,6 +94,23 @@
         (assoc state :control nil :continuation nil :halted false)
         (cesk-return state nil env continuation value)))
     (cesk-return state nil env continuation result)))
+
+
+(defn- park-and-enqueue-ffi
+  "Park the current continuation and emit an FFI request to :yin/ffi-out."
+  [state op args continuation env]
+  (let [parked (engine/park-continuation state
+                                         {:continuation continuation,
+                                          :environment env})
+        parked-id (get-in parked [:value :id])
+        request {:op op, :args args, :parked-id parked-id}
+        enqueued (engine/enqueue-ffi-request parked request)]
+    (assoc enqueued
+           :control nil
+           :continuation nil
+           :value :yin/blocked
+           :blocked true
+           :halted false)))
 
 
 (defn- apply-function
@@ -172,6 +191,26 @@
                 saved-env (or (:environment continuation) environment)
                 branch (if test-value (:consequent frame) (:alternate frame))]
             (cesk-return state branch saved-env (:parent continuation) test-value))
+          :eval-ffi-operand
+          (let [frame (:frame continuation)
+                operand-value (:value state)
+                evaluated (conj (or (:evaluated frame) []) operand-value)
+                operands (:operands frame)
+                saved-env (or (:environment continuation) environment)]
+            (if (= (count evaluated) (count operands))
+              (park-and-enqueue-ffi state
+                                    (:op frame)
+                                    evaluated
+                                    (:parent continuation)
+                                    saved-env)
+              (let [next-idx (count evaluated)
+                    next-node (nth operands next-idx)
+                    updated-frame (assoc frame :evaluated evaluated)]
+                (cesk-return state
+                             next-node
+                             saved-env
+                             (assoc continuation :frame updated-frame)
+                             nil))))
           ;; Stream continuation: evaluate target for put
           :eval-stream-put-target
           (let [frame (:frame continuation)
@@ -280,6 +319,21 @@
                       :environment environment,
                       :type :eval-test}
                      (:value state))
+        :ffi/call
+        (let [operands (or (:operands node) [])
+              op (:op node)]
+          (if (empty? operands)
+            (park-and-enqueue-ffi state op [] continuation environment)
+            (cesk-return state
+                         (first operands)
+                         environment
+                         {:frame {:op op,
+                                  :operands operands,
+                                  :evaluated []},
+                          :parent continuation,
+                          :environment environment,
+                          :type :eval-ffi-operand}
+                         (:value state))))
         ;; ============================================================
         ;; VM Primitives for Store Operations
         ;; ============================================================
@@ -525,7 +579,9 @@
         (let [result (cesk-return vm control env cont val)]
           (cond
             (:blocked result)
-            (let [v' (engine/check-wait-set result)]
+            (let [v' (-> result
+                         engine/check-wait-set
+                         engine/check-ffi-out)]
               (if-let [resumed (resume-from-run-queue v')]
                 (recur (:control resumed) (:environment resumed)
                        (:continuation resumed) (:value resumed) resumed)
@@ -604,8 +660,13 @@
   "Evaluate an AST. Owns the step loop with scheduler.
    When ast is non-nil, loads it first. When nil, resumes from current state."
   [^ASTWalkerVM vm ast]
-  (let [v (if ast (vm-load-program vm ast) vm)]
-    (ast-walker-run v)))
+  (let [v (if ast (vm-load-program vm ast) vm)
+        result (ast-walker-run v)]
+    ;; Fast path may yield a blocked state immediately after parking.
+    ;; Re-enter scheduler once so idle handlers (wait-set/FFI) can run.
+    (if (:blocked result)
+      (ast-walker-run-scheduler result)
+      result)))
 
 
 (extend-type ASTWalkerVM
@@ -629,11 +690,13 @@
 
 (defn create-vm
   "Create a new ASTWalkerVM with optional opts map.
-   Accepts {:env map, :primitives map}."
+   Accepts {:env map, :primitives map, :bridge-dispatcher map}."
   ([] (create-vm {}))
   ([opts]
    (let [env (or (:env opts) {})
-         base (vm/empty-state (select-keys opts [:primitives]))]
+         base (vm/empty-state (select-keys opts
+                                           [:primitives
+                                            :bridge-dispatcher]))]
      (map->ASTWalkerVM (merge base
                               {:control nil,
                                :environment env,

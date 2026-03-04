@@ -73,6 +73,7 @@
      [:stream-cursor]    - pop stream-ref, push cursor-ref
      [:stream-next]      - pop cursor-ref, push next value (may block)
      [:stream-close]     - pop stream-ref, close it, push nil
+     [:ffi-call op argc] - park, enqueue FFI request, resume with result
      [:park]             - park current continuation
      [:resume]           - pop val and parked-id, resume parked cont
      [:current-cont]     - push reified continuation"
@@ -103,6 +104,11 @@
               (compile-node op-node)
               (doseq [arg-node operand-nodes] (compile-node arg-node))
               (emit! [(if tail? :tailcall :call) (count operand-nodes)]))
+            :ffi/call
+            (let [operand-nodes (or (get-attr e :yin/operands) [])
+                  op (get-attr e :yin/op)]
+              (doseq [arg-node operand-nodes] (compile-node arg-node))
+              (emit! [:ffi-call op (count operand-nodes)]))
             :if (let [test-node (get-attr e :yin/test)
                       cons-node (get-attr e :yin/consequent)
                       alt-node (get-attr e :yin/alternate)
@@ -186,6 +192,7 @@
                        :stream-cursor 1
                        :stream-next 1
                        :stream-close 1
+                       :ffi-call 3
                        :park 1
                        :resume 1
                        :current-cont 1
@@ -275,6 +282,11 @@
                              (swap! emit-offset + 1))
             :stream-close (do (emit-byte! (vm/opcode-table :stream-close))
                               (swap! emit-offset + 1))
+            :ffi-call (let [idx (add-constant arg1)]
+                        (emit-byte! (vm/opcode-table :ffi-call))
+                        (emit-byte! idx)
+                        (emit-byte! arg2)
+                        (swap! emit-offset + 3))
             :park (do (emit-byte! (vm/opcode-table :park))
                       (swap! emit-offset + 1))
             :resume (do (emit-byte! (vm/opcode-table :resume))
@@ -671,6 +683,24 @@
             (assoc state
                    :pc (+ pc 1)
                    :stack (conj stack-rest value)))
+          :ffi-call
+          (let [op-idx (nth bytecode (inc pc))
+                argc (nth bytecode (+ pc 2))
+                op-name (nth pool op-idx)
+                n (count stack)
+                args (subvec stack (- n argc) n)
+                stack-rest (subvec stack 0 (- n argc))
+                parked (engine/park-continuation state
+                                                 (snap-frame state
+                                                             stack-rest
+                                                             (+ pc 3)))
+                parked-id (get-in parked [:value :id])
+                request {:op op-name, :args args, :parked-id parked-id}
+                enqueued (engine/enqueue-ffi-request parked request)]
+            (assoc enqueued
+                   :value :yin/blocked
+                   :blocked true
+                   :halted false))
           :park
           (engine/park-continuation state (snap-frame state stack pc))
           :resume ; OP_RESUME - pop val, pop parked-id
@@ -1211,11 +1241,13 @@
 
 (defn create-vm
   "Create a new StackVM with optional opts map.
-   Accepts {:env map, :primitives map}."
+   Accepts {:env map, :primitives map, :bridge-dispatcher map}."
   ([] (create-vm {}))
   ([opts]
    (let [env (or (:env opts) {})]
-     (map->StackVM (merge (vm/empty-state (select-keys opts [:primitives]))
+     (map->StackVM (merge (vm/empty-state (select-keys opts
+                                                       [:primitives
+                                                        :bridge-dispatcher]))
                           {:pc 0,
                            :bytecode [],
                            :stack [],

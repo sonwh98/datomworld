@@ -8,9 +8,10 @@
 
 
 (defn compile-and-run
-  ([form] (compile-and-run form {}))
-  ([form env]
-   (-> (ast-walker/create-vm {:env env})
+  ([form] (compile-and-run form {} {}))
+  ([form env] (compile-and-run form env {}))
+  ([form env vm-opts]
+   (-> (ast-walker/create-vm (merge {:env env} vm-opts))
        (vm/load-program (yang/compile form))
        (vm/run)
        (vm/value))))
@@ -69,6 +70,16 @@
       (let [ast (yang/compile '(+ (* 2 3) 4))]
         (is (= :application (:type ast)))
         (is (= :application (get-in ast [:operands 0 :type])))))))
+
+
+(deftest test-compile-ffi-call
+  (testing "Compiling ffi/call special form"
+    (let [ast (yang/compile '(ffi/call :op/echo 1 2))]
+      (is (= :ffi/call (:type ast)))
+      (is (= :op/echo (:op ast)))
+      (is (= [{:type :literal, :value 1}
+              {:type :literal, :value 2}]
+             (:operands ast))))))
 
 
 (deftest test-compile-if
@@ -147,6 +158,11 @@
       (is (= 42 (compile-and-run '((fn [f x] (f x)) (fn [n] (* n 2)) 21)))))
     (testing "Nested let bindings"
       (is (= 3 (compile-and-run '(let [x 1] (let [y 2] (+ x y)))))))
+    (testing "FFI call"
+      (is (= 42
+             (compile-and-run '(ffi/call :op/echo 42)
+                              {}
+                              {:bridge-dispatcher {:op/echo identity}}))))
     (testing "Complex expression"
       (is
         (= 22

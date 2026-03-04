@@ -36,7 +36,8 @@
 (deftest cesk-state-test
   (testing "Initial state"
     (let [vm (stack/create-vm)]
-      (is (= {} (vm/store vm)))
+      (is (contains? (vm/store vm) vm/ffi-out-stream-key))
+      (is (contains? (vm/store vm) vm/ffi-out-cursor-key))
       (is (empty? (vm/continuation vm)))))
   (testing "After load-program, control has bytecode"
     (let [vm (load-ast {:type :literal, :value 42})
@@ -47,7 +48,8 @@
     (let [vm (-> (load-ast {:type :literal, :value 42})
                  (vm/run))]
       (is (empty? (vm/continuation vm)))
-      (is (= {} (vm/store vm)))
+      (is (contains? (vm/store vm) vm/ffi-out-stream-key))
+      (is (contains? (vm/store vm) vm/ffi-out-cursor-key))
       (is (= 42 (vm/value vm)))))
   (testing "Environment stores lexical bindings only"
     (let [vm (stack/create-vm {:env {'x 1}})]
@@ -74,6 +76,28 @@
                           {:type :literal, :value 20}]}
           result (vm/eval (stack/create-vm) ast)]
       (is (= 30 (vm/value result))))))
+
+
+(deftest ffi-call-asm-shape-test
+  (testing ":ffi/call compiles to [:ffi-call op argc] in stack asm"
+    (let [ast {:type :ffi/call,
+               :op :op/echo,
+               :operands [{:type :literal, :value 42}]}
+          asm (stack/ast-datoms->asm (vm/ast->datoms ast))
+          ffi-instr (some #(when (= :ffi-call (first %)) %) asm)]
+      (is (= [:ffi-call :op/echo 1] ffi-instr)))))
+
+
+(deftest ffi-call-eval-test
+  (testing "Stack VM executes ffi/call via bridge dispatcher"
+    (let [ast {:type :ffi/call,
+               :op :op/echo,
+               :operands [{:type :literal, :value 42}]}
+          result (vm/eval (stack/create-vm
+                            {:bridge-dispatcher {:op/echo identity}})
+                          ast)]
+      (is (vm/halted? result))
+      (is (= 42 (vm/value result))))))
 
 
 (deftest literal-test
