@@ -162,7 +162,12 @@
       (is (= 42
              (compile-and-run '(ffi/call :op/echo 42)
                               {}
-                              {:bridge-dispatcher {:op/echo identity}}))))
+                              {:bridge-dispatcher {:op/echo identity}})))
+      (is (nil?
+            (compile-and-run '(ffi/call :clj/println "FFI hello world")
+                             {}
+                             {:bridge-dispatcher {:clj/println println}}))))
+
     (testing "Complex expression"
       (is
         (= 22
