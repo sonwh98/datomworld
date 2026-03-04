@@ -16,6 +16,7 @@
     [datascript.db :as db]
     [datascript.query :as dq]
     [datomworld.continuation-stream-demo :as cont-demo]
+    [datomworld.equation-plotter-demo :as plotter-demo]
     [reagent.core :as r]
     [reagent.dom :as rdom]
     [yang.clojure :as yang]
@@ -1911,12 +1912,18 @@
 
 (defn- hash->demo
   [hash-value]
-  (if (= hash-value "#pipeline") :pipeline :continuation))
+  (case hash-value
+    "#pipeline" :pipeline
+    "#plotter" :plotter
+    :continuation))
 
 
 (defn- demo->hash
   [demo-id]
-  (if (= demo-id :pipeline) "#pipeline" "#continuation"))
+  (case demo-id
+    :pipeline "#pipeline"
+    :plotter "#plotter"
+    "#continuation"))
 
 
 (defonce demo-shell-state
@@ -1926,7 +1933,8 @@
 
 (def demo-options
   [{:id :continuation, :label "Continuation Example"}
-   {:id :pipeline, :label "Pipeline Compilation"}])
+   {:id :pipeline, :label "Pipeline Compilation"}
+   {:id :plotter, :label "Equation Plotter"}])
 
 
 (defn sync-demo-from-hash!
@@ -1996,7 +2004,10 @@
 (defn root-shell
   []
   (let [selected-demo (:selected-demo @demo-shell-state)]
-    [:<> (if (= selected-demo :pipeline) [main-view] [cont-demo/main-view])
+    [:<> (case selected-demo
+           :pipeline [main-view]
+           :plotter [plotter-demo/main-view]
+           [cont-demo/main-view])
      [demo-switcher-menu]]))
 
 
