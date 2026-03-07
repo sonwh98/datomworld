@@ -11,7 +11,8 @@
     [yin.vm.register-test]
     [yin.vm.semantic-test]
     [yin.vm.stack-test]
-    [yin.vm.state-projection-test]))
+    [yin.vm.state-projection-test]
+    [yin.vm.wasm-test]))
 
 
 (defn -main
@@ -26,7 +27,8 @@
              'yin.vm.register-test
              'yin.vm.semantic-test
              'yin.vm.stack-test
-             'yin.vm.state-projection-test))
+             'yin.vm.state-projection-test
+             'yin.vm.wasm-test))
 
 
 (set! *main-cli-fn* -main)
