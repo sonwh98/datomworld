@@ -215,6 +215,144 @@
 
 
 ;; =============================================================================
+;; Program Extraction and AST-Map Compilation (V2)
+;; =============================================================================
+
+(defn extract-program
+  "Extract top-level named functions from compile-program output.
+   Returns {:fns [{:name sym :params [...] :body ast} ...] :main ast}."
+  [ast]
+  (loop [node ast
+         fns  []]
+    (let [op       (:operator node)
+          operands (:operands node)
+          def-expr (first operands)]
+      (if (and (= :application (:type node))
+               (= :lambda (:type op))
+               (= ['_] (:params op))
+               (= 1 (count operands))
+               (= :application (:type def-expr))
+               (= :variable (-> def-expr :operator :type))
+               (= 'yin/def (-> def-expr :operator :name))
+               (= 2 (count (:operands def-expr)))
+               (= :literal (:type (first (:operands def-expr))))
+               (= :lambda (:type (second (:operands def-expr)))))
+        (let [name-lit (:value (first (:operands def-expr)))
+              lambda   (second (:operands def-expr))]
+          (when-not (symbol? name-lit)
+            (throw (ex-info "wasm: def name must be symbol"
+                            {:name name-lit})))
+          (recur (:body op)
+                 (conj fns {:name   name-lit
+                            :params (:params lambda)
+                            :body   (:body lambda)})))
+        {:fns fns
+         :main node}))))
+
+
+(defn- compile-body
+  "Compile a Yang AST map to symbolic WAT-like IR.
+   param-map: {symbol -> local-idx}
+   func-map:  {symbol -> func-idx}"
+  [ast param-map func-map]
+  (letfn [(coerce-to-bool
+            [code]
+            (if (= (:type code) :i32)
+              code
+              ;; Yin/Clojure truthiness: all numbers are truthy.
+              {:type :i32, :instrs (into (:instrs code) [[:drop] [:i32.const 1]])}))
+
+          (promote-to-f64
+            [code]
+            (if (= (:type code) :f64)
+              code
+              {:type :f64, :instrs (conj (:instrs code) [:f64.convert_i32_s])}))
+
+          (compile-node
+            [node]
+            (case (:type node)
+              :literal
+              (let [v (:value node)]
+                (if (boolean? v)
+                  {:type :i32, :instrs [[:i32.const (if v 1 0)]]}
+                  {:type :f64, :instrs [[:f64.const (double v)]]}))
+
+              :variable
+              (let [name (:name node)]
+                (if-let [idx (get param-map name)]
+                  {:type :f64, :instrs [[:local.get idx]]}
+                  (throw (ex-info "wasm: unresolved variable (only params allowed in fn body)"
+                                  {:name name}))))
+
+              :application
+              (let [op   (:operator node)
+                    args (:operands node)]
+                (when-not (= :variable (:type op))
+                  (throw (ex-info "wasm: unsupported application operator (must be symbol)"
+                                  {:operator (:type op)})))
+                (let [op-name (:name op)]
+                  (if-let [func-idx (get func-map op-name)]
+                    ;; User function call: all args must match f64 parameter type.
+                    (let [arg-codes (mapv #(promote-to-f64 (compile-node %)) args)]
+                      {:type :f64
+                       :instrs (into (reduce into [] (map :instrs arg-codes))
+                                     [[:call func-idx]])})
+                    ;; Primitive op
+                    (compile-primitive-op op-name args compile-node coerce-to-bool))))
+
+              :if
+              (let [test-code   (coerce-to-bool (compile-node (:test node)))
+                    cons-code   (compile-node (:consequent node))
+                    alt-code    (compile-node (:alternate node))
+                    result-type (if (or (= :f64 (:type cons-code))
+                                        (= :f64 (:type alt-code)))
+                                  :f64
+                                  :i32)
+                    cons-final  (if (= result-type :f64) (promote-to-f64 cons-code) cons-code)
+                    alt-final   (if (= result-type :f64) (promote-to-f64 alt-code) alt-code)]
+                {:type result-type
+                 :instrs (-> (:instrs test-code)
+                             (into [[:if result-type]])
+                             (into (:instrs cons-final))
+                             (conj [:else])
+                             (into (:instrs alt-final))
+                             (conj [:end]))})
+
+              (throw (ex-info "wasm: unsupported AST node type" {:node-type (:type node)}))))]
+    (compile-node ast)))
+
+
+(defn program->asm
+  "Compile extracted program {:fns [...] :main ast} to wasm IR.
+   V1: returns {:fns [] :main {:type ... :instrs ...}}
+   V2: returns {:fns [{:params [...] :result-type ... :instrs [...]} ...]
+                :main {:params [] :result-type ... :instrs [...]}}"
+  [{:keys [fns main]}]
+  (if (empty? fns)
+    {:fns []
+     :main (ast-datoms->asm (vm/ast->datoms main))}
+    (let [func-map     (into {} (map-indexed (fn [i {:keys [name]}] [name i]) fns))
+          ensure-f64   (fn [code]
+                         (if (= :f64 (:type code))
+                           code
+                           {:type :f64
+                            :instrs (conj (:instrs code) [:f64.convert_i32_s])}))
+          compiled-fns (mapv (fn [{:keys [params body]}]
+                               (let [param-map (into {} (map-indexed (fn [i p] [p i]) params))
+                                     code      (ensure-f64 (compile-body body param-map func-map))]
+                                 {:params      (vec (repeat (count params) :f64))
+                                  :result-type :f64
+                                  :instrs      (:instrs code)}))
+                             fns)
+          main-code    (compile-body main {} func-map)]
+      {:fns compiled-fns
+       :main {:params      []
+              :result-type (:type main-code)
+              :type        (:type main-code)
+              :instrs      (:instrs main-code)}})))
+
+
+;; =============================================================================
 ;; Assembler: symbolic IR -> WASM binary bytes
 ;; =============================================================================
 
@@ -236,6 +374,8 @@
     :i32.eqz   [0x45]
     :i32.and   [0x71]
     :i32.or    [0x72]
+    :local.get (into [0x20] (leb128 (second instr)))
+    :call      (into [0x10] (leb128 (second instr)))
     :if        [0x04 (if (= (second instr) :f64) 0x7C 0x7F)]
     :else      [0x05]
     :end       [0x0B]
@@ -286,6 +426,51 @@
                       (into export-section code-section))))))
 
 
+(defn assemble-multi
+  "Encode multi-function wasm IR to bytes.
+   Falls back to single-function assemble when :fns is empty."
+  [{:keys [fns main]}]
+  (if (empty? fns)
+    (assemble main)
+    (let [all-fns       (conj (vec fns) main)
+          main-idx      (count fns)
+          type-byte     (fn [t]
+                          (case t
+                            :f64 0x7C
+                            :i32 0x7F
+                            (throw (ex-info "wasm: unsupported wasm type" {:type t}))))
+          encode-type   (fn [{:keys [params result-type type]}]
+                          (let [result (or result-type type)]
+                            (into [0x60]
+                                  (into (into (leb128 (count params))
+                                              (mapv type-byte params))
+                                        [0x01 (type-byte result)]))))
+          type-entries  (mapv encode-type all-fns)
+          type-payload  (into (leb128 (count type-entries))
+                              (reduce into [] type-entries))
+          type-section  (vec-section 0x01 type-payload)
+          func-payload  (into (leb128 (count all-fns))
+                              (mapcat leb128 (range (count all-fns))))
+          func-section  (vec-section 0x03 func-payload)
+          export-payload (into [0x01                     ; one export
+                                0x04 109 97 105 110      ; "main"
+                                0x00]                    ; kind=function
+                               (leb128 main-idx))
+          export-section (vec-section 0x07 export-payload)
+          encode-body    (fn [{:keys [instrs]}]
+                           (let [instr-bytes (reduce #(into %1 (encode-instr %2)) [] instrs)
+                                 body        (into [0x00] (conj instr-bytes 0x0B))]
+                             (into (leb128 (count body)) body)))
+          code-payload   (into (leb128 (count all-fns))
+                               (reduce into [] (mapv encode-body all-fns)))
+          code-section   (vec-section 0x0A code-payload)]
+      (into [0x00 0x61 0x73 0x6D
+             0x01 0x00 0x00 0x00]
+            (into type-section
+                  (into func-section
+                        (into export-section code-section)))))))
+
+
 ;; =============================================================================
 ;; WASM Runtime (CLJS-only)
 ;; =============================================================================
@@ -313,11 +498,14 @@
   (if (nil? ast)
     vm
     #?(:cljs
-       (let [ir     (-> ast vm/ast->datoms ast-datoms->asm)
-             raw    (-> ir assemble run-wasm-bytes)
-             result (if (= (:type ir) :i32)
-                      (not (zero? raw))
-                      raw)]
+       (let [program   (extract-program ast)
+             ir        (program->asm program)
+             raw       (-> ir assemble-multi run-wasm-bytes)
+             main-type (or (:result-type (:main ir))
+                           (:type (:main ir)))
+             result    (if (= main-type :i32)
+                         (not (zero? raw))
+                         raw)]
          (assoc vm :halted true :value result))
        :clj
        (throw (ex-info "wasm: JVM execution not supported" {})))))

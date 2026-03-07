@@ -1,6 +1,7 @@
 (ns yin.vm.wasm-test
   (:require
     [clojure.test :refer [deftest is testing]]
+    [yang.clojure :as yang]
     [yin.vm :as vm]
     [yin.vm.wasm :as wasm]))
 
@@ -97,6 +98,55 @@
     (let [ir    {:type :i32 :instrs [[:i32.const 1]]}
           bytes (wasm/assemble ir)]
       (is (some #(= 0x7F %) bytes)))))
+
+
+;; =============================================================================
+;; Program extraction and multi-function IR (platform-agnostic)
+;; =============================================================================
+
+(deftest extract-program-test
+  (testing "single literal returns empty fns"
+    (let [{:keys [fns main]} (wasm/extract-program {:type :literal, :value 42})]
+      (is (empty? fns))
+      (is (= {:type :literal, :value 42} main))))
+
+  (testing "extracts one def and main"
+    (let [lambda {:type :lambda, :params ['n], :body {:type :literal, :value 0}}
+          ast    {:type :application
+                  :operator {:type :lambda
+                             :params ['_]
+                             :body {:type :application
+                                    :operator {:type :variable, :name 'fib}
+                                    :operands [{:type :literal, :value 7}]}}
+                  :operands [{:type :application
+                              :operator {:type :variable, :name 'yin/def}
+                              :operands [{:type :literal, :value 'fib}
+                                         lambda]}]}
+          {:keys [fns main]} (wasm/extract-program ast)]
+      (is (= 1 (count fns)))
+      (is (= 'fib (:name (first fns))))
+      (is (= ['n] (:params (first fns))))
+      (is (= {:type :application
+              :operator {:type :variable, :name 'fib}
+              :operands [{:type :literal, :value 7}]}
+             main)))))
+
+
+(deftest program->asm-fib-test
+  (testing "fib IR contains local.get and call"
+    (let [fib-ast (yang/compile-program
+                    '[(def fib
+                        (fn [n]
+                          (if (< n 2)
+                            n
+                            (+ (fib (- n 1))
+                               (fib (- n 2))))))
+                      (fib 7)])
+          {:keys [fns main]} (wasm/program->asm (wasm/extract-program fib-ast))]
+      (is (= 1 (count fns)))
+      (is (some #(= [:local.get 0] %) (:instrs (first fns))))
+      (is (some #(= [:call 0] %) (:instrs (first fns))))
+      (is (some #(= [:call 0] %) (:instrs main))))))
 
 
 ;; =============================================================================
@@ -211,4 +261,33 @@
                     :test (lit false)
                     :consequent (lit 42.0)
                     :alternate (lit true)}]
-           (is (= 1.0 (vm/value (vm/eval (wasm/create-vm) ast)))))))))
+           (is (= 1.0 (vm/value (vm/eval (wasm/create-vm) ast)))))))
+
+
+     (deftest eval-fibonacci-test
+       (testing "(fib 7) -> 13.0"
+         (let [ast    (yang/compile-program
+                        '[(def fib
+                            (fn [n]
+                              (if (< n 2)
+                                n
+                                (+ (fib (- n 1))
+                                   (fib (- n 2))))))
+                          (fib 7)])
+               result (vm/eval (wasm/create-vm) ast)]
+           (is (vm/halted? result))
+           (is (= 13.0 (vm/value result))))))
+
+
+     (deftest eval-factorial-test
+       (testing "(fact 5) -> 120.0"
+         (let [ast    (yang/compile-program
+                        '[(def fact
+                            (fn [n]
+                              (if (= n 0)
+                                1
+                                (* n (fact (- n 1))))))
+                          (fact 5)])
+               result (vm/eval (wasm/create-vm) ast)]
+           (is (vm/halted? result))
+           (is (= 120.0 (vm/value result))))))))
