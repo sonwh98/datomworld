@@ -8,9 +8,10 @@
 
 
 (defn compile-and-run
-  ([ast] (compile-and-run ast {}))
-  ([ast env]
-   (-> (ast-walker/create-vm {:env env})
+  ([ast] (compile-and-run ast {} {}))
+  ([ast env] (compile-and-run ast env {}))
+  ([ast env vm-opts]
+   (-> (ast-walker/create-vm (merge {:env env} vm-opts))
        (vm/load-program ast)
        (vm/run)
        (vm/value))))
@@ -22,6 +23,9 @@
     (is (= [[:string "hello"] [:newline nil]] (py/tokenize "\"hello\"")))
     (is (= [[:identifier "x"] [:operator "+"] [:number "1"] [:newline nil]]
            (py/tokenize "x + 1")))
+    (is (= [[:identifier "ffi.call"] [:lparen "("] [:string "op/echo"] [:comma ","]
+            [:number "42"] [:rparen ")"] [:newline nil]]
+           (py/tokenize "ffi.call(\"op/echo\", 42)")))
     (is (= [[:keyword "lambda"] [:identifier "x"] [:colon ":"] [:identifier "x"]
             [:operator "*"] [:number "2"] [:newline nil]]
            (py/tokenize "lambda x: x * 2")))))
@@ -113,6 +117,19 @@
         (is (= :application (get-in ast [:operands 0 :type])))))))
 
 
+(deftest test-compile-ffi-call
+  (testing "Compiling Python ffi.call forms"
+    (let [ast (py/compile "ffi.call(\"op/echo\", 1, 2)")]
+      (is (= :ffi/call (:type ast)))
+      (is (= :op/echo (:op ast)))
+      (is (= [{:type :literal, :value 1}
+              {:type :literal, :value 2}]
+             (:operands ast))))
+    (testing "ffi.call requires string op literal"
+      (is (thrown? Exception
+            (py/compile "ffi.call(42)"))))))
+
+
 (deftest test-compile-if-expr
   (testing "Compiling Python if expressions"
     (let [ast (py/compile "10 if x > 5 else 20")]
@@ -150,7 +167,13 @@
     (testing "If expression - false branch"
       (is (= 20 (compile-and-run (py/compile "10 if False else 20")))))
     (testing "If with comparison"
-      (is (= 100 (compile-and-run (py/compile "100 if 3 < 5 else 200")))))))
+      (is (= 100 (compile-and-run (py/compile "100 if 3 < 5 else 200")))))
+    (testing "FFI call via bridge dispatcher"
+      (is (= 42
+             (compile-and-run
+               (py/compile "ffi.call(\"op/echo\", 42)")
+               {}
+               {:bridge-dispatcher {:op/echo identity}}))))))
 
 
 (deftest test-python-to-clojure-equivalence

@@ -160,6 +160,57 @@ separate thread. No wrapper function. The engine loop handles dispatch when idle
 
 ---
 
+## How to use `ffi/call`
+
+`ffi/call` always follows the same flow:
+
+1. Register host handlers in `:bridge-dispatcher`.
+2. Compile or construct a `:ffi/call` AST node.
+3. Load program into a VM and run.
+4. Read the resumed value from `vm/value`.
+
+### Clojure example
+
+```clojure
+(require '[yang.clojure :as yang]
+         '[yin.vm :as vm]
+         '[yin.vm.ast-walker :as ast-walker])
+
+(defn compile-and-run
+  [form vm-opts]
+  (-> (ast-walker/create-vm vm-opts)
+      (vm/load-program (yang/compile form))
+      (vm/run)
+      (vm/value)))
+
+(compile-and-run
+  '(ffi/call :op/echo 42)
+  {:bridge-dispatcher {:op/echo identity}})
+;; => 42
+```
+
+### Python example
+
+Use `ffi.call("op/name", ...)` in Python source. The first argument is the FFI op key
+as a string and is compiled to a keyword:
+
+```clojure
+(require '[yang.python :as py]
+         '[yin.vm :as vm]
+         '[yin.vm.ast-walker :as ast-walker])
+
+(-> (ast-walker/create-vm
+      {:bridge-dispatcher {:op/echo identity}})
+    (vm/load-program (py/compile "ffi.call(\"op/echo\", \"hello from python\")"))
+    (vm/run)
+    (vm/value))
+;; => "hello from python"
+```
+
+If no handler exists for the op keyword, the VM throws `ex-info` with `{:op ...}`.
+
+---
+
 ## Bridge Dispatcher Contract
 
 ```clojure

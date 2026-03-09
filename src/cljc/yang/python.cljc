@@ -31,7 +31,10 @@
              [:string #"^'([^']*)'"]
              [:keyword
               #"^(def|lambda|return|if|else|and|or|not|True|False|None)\b"]
-             [:identifier #"^[a-zA-Z_][a-zA-Z0-9_]*"]
+             ;; Allow dotted names (e.g. ffi.call) so frontends can map to
+             ;; namespaced operations during compilation.
+             [:identifier
+              #"^[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*"]
              [:operator #"^(==|!=|<=|>=|<|>|\+|-|\*|/|=)"] [:lparen #"^\("]
              [:rparen #"^\)"] [:comma #"^,"] [:colon #"^:"]
              [:whitespace #"^[ \t]+"]]
@@ -371,6 +374,27 @@
    "not" 'not})
 
 
+(defn- compile-ffi-call
+  "Compile a Python ffi.call form to the Universal AST :ffi/call node.
+
+   Python: ffi.call(\"op/echo\", 1, 2)
+   AST:    {:type :ffi/call, :op :op/echo, :operands [...]}"
+  [args tail?]
+  (let [[op-node & ffi-args] args]
+    (when-not op-node
+      (throw (ex-info "ffi.call requires op as first argument"
+                      {:args args})))
+    (let [op-value (when (= :literal (:py-type op-node))
+                     (:value op-node))]
+      (when-not (and (string? op-value) (not (str/blank? op-value)))
+        (throw (ex-info "ffi.call op must be a non-empty string literal"
+                        {:op op-node})))
+      (cond-> {:type :ffi/call,
+               :op (keyword op-value),
+               :operands (mapv #(compile-stmt % false) ffi-args)}
+        tail? (assoc :tail? true)))))
+
+
 (defn compile-stmt
   ([node] (compile-stmt node false))
   ([node tail?]
@@ -385,10 +409,13 @@
                      :operands [(compile-stmt (:left node) false)
                                 (compile-stmt (:right node) false)]}
               tail? (assoc :tail? true))
-     :call (cond-> {:type :application,
-                    :operator (compile-stmt (:function node) false),
-                    :operands (mapv #(compile-stmt % false) (:args node))}
-             tail? (assoc :tail? true))
+     :call (if (and (= :variable (:py-type (:function node)))
+                    (= 'ffi.call (:name (:function node))))
+             (compile-ffi-call (:args node) tail?)
+             (cond-> {:type :application,
+                      :operator (compile-stmt (:function node) false),
+                      :operands (mapv #(compile-stmt % false) (:args node))}
+               tail? (assoc :tail? true)))
      :lambda (let [body (compile-stmt (:body node) true)]
                (cond-> {:type :lambda, :params (:params node), :body body}
                  tail? (assoc :tail? true)))
