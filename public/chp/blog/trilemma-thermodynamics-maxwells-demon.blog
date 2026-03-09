@@ -1,0 +1,109 @@
+#:blog{:title "Consensus as Entropy Reduction: Thermodynamics and Maxwell's Demon"
+       :date #inst "2026-03-02T08:30:00.000-00:00"
+       :abstract
+       [:p
+        "Consensus can be treated as "
+        [:strong "entropy reduction"]
+        " across distributed observers. Security, decentralization, and scalability become thermodynamic tradeoffs in how much disagreement a system can remove per unit resource."]
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+
+          [:p
+           "The trilemma is easier to reason about when expressed in thermodynamic language."]
+
+          [:p
+           "Distributed systems accumulate informational entropy: different nodes hold different beliefs about the same evolving history. Consensus is the mechanism that reduces that entropy."]
+
+          [:h2 "Entropy in Distributed Ledgers"]
+
+          [:pre
+           [:code
+            "Entropy here means disagreement:
+S_A != S_B != S_C
+
+Consensus work means reducing disagreement:
+S_A ~= S_B ~= S_C"]]
+
+          [:p
+           "The cost of this reduction is paid in network traffic, validation, cryptography, storage, and latency."]
+
+          [:h2 "A Thermodynamic Reading of the Trilemma"]
+
+          [:table
+           [:thead
+            [:tr
+             [:th "Property"]
+             [:th "Thermodynamic Reading"]]]
+           [:tbody
+            [:tr
+             [:td "Decentralization"]
+             [:td "Many independent observers, high potential disagreement"]]
+            [:tr
+             [:td "Security"]
+             [:td "Strong entropy reduction through verification and fault tolerance"]]
+            [:tr
+             [:td "Scalability"]
+             [:td "Low marginal cost per additional event"]]]]
+
+          [:p
+           "You cannot maximize all three because stronger entropy reduction across more observers requires more physical work."]
+
+          [:h2 "Validators as Maxwell Demons"]
+
+          [:p
+           "Maxwell's demon sorts particles to produce local order. Validators do an analogous job: they sort valid and invalid state transitions to produce ledger order."]
+
+          [:p
+           "The key lesson from modern thermodynamics also carries over: information handling is not free. Observation, storage, and update all incur cost."]
+
+          [:ul.bulleted
+           [:li "Observe candidate transactions"]
+           [:li "Classify valid vs invalid"]
+           [:li "Emit ordered accepted history"]
+           [:li "Pay computational and communication cost"]]
+
+          [:h2 "Where Datom.world Changes the Framing"]
+
+          [:p
+           "Datom.world separates "
+           [:strong "global event evolution"]
+           " from "
+           [:strong "local interpretation"]
+           "."]
+
+          [:p
+           "Instead of forcing a single monolithic materialization everywhere, interpreters can specialize while still sharing the same append-only substrate."]
+
+          [:p
+           "This does not remove thermodynamic limits. It changes where costs are paid and how explicitly causality is represented."]
+
+          [:h2 "Conclusion"]
+
+          [:p
+           [:strong "Consensus is an entropy management strategy."]
+           " The trilemma is the budget constraint for that strategy under finite communication and computation."]
+
+          [:p
+           "A useful redesign principle follows: minimize unnecessary global agreement, maximize explicit shared history, and keep interpretation local where possible."]
+
+          [:p [:strong "Related Reading:"]]
+          [:ul.bulleted
+           [:li
+            [:a {:href "/blog/blockchain-trilemma-bounded-observation.blog"}
+             "The Blockchain Trilemma Is a Bounded Observation Problem"]]
+           [:li
+            [:a {:href "/blog/maxwells-demon-economic-value.blog"}
+             "Maxwell's Demon and Economic Value"]]
+           [:li
+            [:a {:href "/blog/stream-vs-interface-architecture.blog"}
+             "Stream vs Interface Architecture"]]
+           [:li
+            [:a {:href "/blog/daodb-distributed-database-immutable-streams.blog"}
+             "DaoDB: Distributed Database from Immutable Streams"]]
+           [:li
+            [:a {:href "/blog/path-integral-history-and-datom-streams.blog"}
+             "Path Integrals and Datom Streams: History Is Primary"]]]]]]} 

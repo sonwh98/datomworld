@@ -1,0 +1,113 @@
+#:blog{:title "Datoms as Spacetime Events"
+       :date #inst "2026-03-04T09:00:00.000-00:00"
+       :abstract
+       [:p
+        "Modern physics is event-first, not object-first. The datom tuple "
+        [:code "[e a v t m]"]
+        " fits this view: each fact is a causal event, and higher structures emerge through interpretation."]
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+
+          [:p
+           "A strong reason the Datom.world model aligns with physics is that both are event-first."]
+
+          [:p
+           "Relativity and quantum theory are most naturally written in terms of events and causal structure. Datom.world does the same for computation."]
+
+          [:h2 "From Objects to Events"]
+
+          [:p
+           "Object-first models ask what things are. Event-first models ask what happened, when, and under what causal context."]
+
+          [:p
+           "The datom primitive captures that directly:"]
+
+          [:pre
+           [:code
+            "[e a v t m]
+ e: entity reference
+ a: attribute/observable
+ v: value
+ t: transaction time in stream
+ m: metadata/causal context reference"]]
+
+          [:h2 "Physics Mapping"]
+
+          [:table
+           [:thead
+            [:tr
+             [:th "Datom Field"]
+             [:th "Physics Analogue"]]]
+           [:tbody
+            [:tr [:td [:code "e"]] [:td "System or degree of freedom"]]
+            [:tr [:td [:code "a"]] [:td "Observable"]]
+            [:tr [:td [:code "v"]] [:td "Measured value"]]
+            [:tr [:td [:code "t"]] [:td "Event ordering coordinate"]]
+            [:tr [:td [:code "m"]] [:td "Causal or provenance linkage"]]]]
+
+          [:p
+           "This is not claiming databases are literal quantum systems. It is claiming the structural grammar of event description is shared."]
+
+          [:h2 "Streams as Event Histories"]
+
+          [:p
+           "A datom stream is a causal history. State is a projection over a bounded prefix of that history."]
+
+          [:p
+           "Here "
+           [:code "prefix"]
+           " is the standard distributed-systems term: the initial contiguous part of an ordered append-only history (often called a log prefix)."]
+
+          [:pre
+           [:code
+            "state(t) = interpret(prefix(stream, t))"]]
+
+          [:p
+           "Different interpreters can project different structures from the same history: graph view, relational view, object view, executable continuation view."]
+
+          [:h2 "Why Metadata Matters"]
+
+          [:p
+           "In many discussions this fifth coordinate is written as context or cause. In Datom.world it is "
+           [:code "m"]
+           ", an explicit metadata entity reference."]
+
+          [:p
+           "That keeps causality and provenance first-class without embedding behavior in the tuple itself."]
+
+          [:h2 "Relation to Existing Theory"]
+
+          [:ul.bulleted
+           [:li "Event sourcing: history is canonical, state is derived"]
+           [:li "Causal models: ordering is partial, not just sequential"]
+           [:li "Causal set intuition: discrete events plus causal relation"]]
+
+          [:h2 "Conclusion"]
+
+          [:p
+           "Datoms are a minimal event calculus for software systems: explicit about what happened, when it happened, and what context made it meaningful."]
+
+          [:p
+           "That event-first foundation is why the same model can support code, data, runtime state projections, and cross-node transport."]
+
+          [:p [:strong "Related Reading:"]]
+          [:ul.bulleted
+           [:li
+            [:a {:href "/blog/architecture.blog"}
+             "The Trillion-Dollar Glitch: Why Software Architecture Fails"]]
+           [:li
+            [:a {:href "/blog/rdf-vs-datoms.blog"}
+             "RDF Triples vs Datoms"]]
+           [:li
+            [:a {:href "/blog/datoms-as-streams.blog"}
+             "Datoms as Streams"]]
+           [:li
+            [:a {:href "/blog/path-integral-history-and-datom-streams.blog"}
+             "Path Integrals and Datom Streams: History Is Primary"]]
+           [:li
+            [:a {:href "/blog/process-calculus-causal-categories-datom-interpreters.blog"}
+             "From pi-Calculus to Causal Categories: Interpreters as Functors"]]]]]]} 

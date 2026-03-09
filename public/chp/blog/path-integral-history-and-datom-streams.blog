@@ -1,0 +1,108 @@
+#:blog{:title "Path Integrals and Datom Streams: History Is Primary"
+       :date #inst "2026-03-07T09:30:00.000-00:00"
+       :abstract
+       [:p
+        "Feynman's path integral treats evolution as a sum over histories. Datom systems record one realized history, then derive state by interpretation. Both are "
+        [:strong "history-first"]
+        " views of reality and computation."]
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+
+          [:p
+           "Path integral intuition clarifies why event streams are such a strong base abstraction: histories come first, derived state comes later."]
+
+          [:h2 "The Path Integral Perspective"]
+
+          [:p
+           "In Feynman's formulation, an outcome amplitude is computed as a contribution from many possible histories, not a single privileged trajectory."]
+
+          [:p
+           "At a conceptual level:"]
+
+          [:pre
+           [:code
+            "Outcome = sum over possible histories"]]
+
+          [:p
+           "The key shift is from object snapshots to temporal structure."]
+
+          [:h2 "The Datom Perspective"]
+
+          [:p
+           "A datom stream records realized history as immutable events:"]
+
+          [:pre
+           [:code
+            "d1 -> d2 -> d3 -> d4 -> ..."]]
+
+          [:p
+           "State is not stored as a mutable singleton. It is interpreted from bounded history."]
+
+          [:p
+           "Terminology note: "
+           [:code "history prefix"]
+           " means the initial contiguous segment of the event log. This is a standard distributed-systems concept used to compare node histories."]
+
+          [:pre
+           [:code
+            "state = interpreter(history-prefix)"]]
+
+          [:h2 "Where the Analogy Is Tight"]
+
+          [:ul.bulleted
+           [:li "History is the primary object"]
+           [:li "Observers/interpreters extract observables from history"]
+           [:li "Causality constrains valid orderings"]]
+
+          [:h2 "Where the Analogy Is Not Literal"]
+
+          [:p
+           "Path integrals operate over possible histories with complex amplitudes. Datom systems store one realized history with explicit causal metadata."]
+
+          [:p
+           "So this is a structural analogy, not an equation of physical and computational mechanisms."]
+
+          [:h2 "Implication for System Design"]
+
+          [:p
+           "When history is primary, architecture becomes simpler:"]
+
+          [:ul.bulleted
+           [:li "Append-only facts instead of mutable hidden state"]
+           [:li "Deterministic replay and time travel"]
+           [:li "Multiple interpreters over one substrate"]]
+
+          [:p
+           "This is exactly the Datom.world split between stream substrate and interpreter semantics."]
+
+          [:h2 "Conclusion"]
+
+          [:p
+           "A practical summary is: "
+           [:strong "computation is interpretation of causal history"]
+           "."]
+
+          [:p
+           "That statement is compatible with event sourcing practice and with the path-integral style insistence that histories, not snapshots, are fundamental."]
+
+          [:p [:strong "Related Reading:"]]
+          [:ul.bulleted
+           [:li
+            [:a {:href "/blog/datoms-as-spacetime-events.blog"}
+             "Datoms as Spacetime Events"]]
+           [:li
+            [:a {:href "/blog/blockchain-trilemma-bounded-observation.blog"}
+             "The Blockchain Trilemma Is a Bounded Observation Problem"]]
+           [:li
+            [:a {:href "/blog/computation-dimensional-expansion-compression.blog"}
+             "Computation as Dimensional Expansion and Compression"]]
+           [:li
+            [:a {:href "/blog/ast-higher-dimensional-datom-streams.blog"}
+             "AST as Higher Dimensional Datom Streams"]]
+           [:li
+            [:a {:href "/blog/process-calculus-causal-categories-datom-interpreters.blog"}
+             "From pi-Calculus to Causal Categories: Interpreters as Functors"]]]]]]} 

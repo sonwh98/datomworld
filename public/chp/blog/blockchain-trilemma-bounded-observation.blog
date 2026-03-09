@@ -1,0 +1,120 @@
+#:blog{:title "The Blockchain Trilemma Is a Bounded Observation Problem"
+       :date #inst "2026-03-01T08:00:00.000-00:00"
+       :abstract
+       [:p
+        "The trilemma is usually framed as decentralization, security, and scalability. A more precise view is that it emerges from "
+        [:strong "bounded observation"]
+        ": nodes see different prefixes of global history, so they must pay to reconcile those views."]
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+
+          [:p
+           "A useful question is whether the blockchain trilemma is fundamental, or whether it is an artifact of how we model distributed systems."]
+
+          [:p
+           "The standard statement is well known: you cannot maximize "
+           [:strong "decentralization"]
+           ", "
+           [:strong "security"]
+           ", and "
+           [:strong "scalability"]
+           " at the same time. Most systems optimize two and pay with the third."]
+
+          [:p
+           "Terminology note: in this article, "
+           [:code "prefix"]
+           " means a log prefix (history prefix): the contiguous initial segment of an append-only stream from its start up to bound "
+           [:code "t"]
+           ". This is standard distributed-systems terminology in replication and consensus."]
+
+          [:h2 "A More Structural Reformulation"]
+
+          [:p
+           "The trilemma can be reframed as an observation problem:"]
+
+          [:pre
+           [:code
+            "Let S be global system history
+Let Oi be node i's observed history
+
+When Oi != Oj, nodes must reconcile
+Reconciliation cost = communication + validation + storage + latency"]]
+
+          [:p
+           "In this framing, the trilemma is not mystical. It is the cost of reconciling partial observers into a coherent causal history."]
+
+          [:h2 "Why the Universal Wave Function Analogy Helps"]
+
+          [:p
+           "If every observer had direct access to the same full state, consensus would be unnecessary:"]
+
+          [:pre
+           [:code
+            "Idealized condition:
+Oi = S for all i
+
+Then:
+No reconciliation
+No fork resolution
+No consensus rounds"]]
+
+          [:p
+           "That is why the universal wave function analogy is interesting. It isolates the core issue: consensus exists because observation is local, delayed, and incomplete."]
+
+          [:h2 "Datom Stream Interpretation"]
+
+          [:p
+           "In Datom.world terms, global state is not a mutable object. It is an append-only history:"]
+
+          [:pre
+           [:code
+            "S(t) = prefix(stream, t)"]]
+
+          [:p
+           "Each node observes a local prefix. Differences in observed prefix produce disagreement. Consensus is the protocol cost of reconciling those prefixes under adversarial conditions."]
+
+          [:h2 "Why the Tradeoff Returns"]
+
+          [:p
+           "Even with a universal stream abstraction, physical constraints remain:"]
+
+          [:ul.bulleted
+           [:li "Propagation is finite"]
+           [:li "Bandwidth is finite"]
+           [:li "Verification is finite"]
+           [:li "Storage and indexing are finite"]]
+
+          [:p
+           "So the trilemma does not vanish in real systems. It reappears as a consequence of bounded information propagation."]
+
+          [:h2 "Conclusion"]
+
+          [:p
+           "A precise claim is: "
+           [:strong "the blockchain trilemma is a consequence of bounded observation of a global history"]
+           "."]
+
+          [:p
+           "This reframing aligns with Datom.world architecture: one immutable stream, many local interpreters, explicit causal reconciliation."]
+
+          [:p [:strong "Related Reading:"]]
+          [:ul.bulleted
+           [:li
+            [:a {:href "/blog/architecture.blog"}
+             "The Trillion-Dollar Glitch: Why Software Architecture Fails"]]
+           [:li
+            [:a {:href "/blog/datom-world-wave-function-collapse.blog"}
+             "Datom.World and the Collapse of the Wave Function"]]
+           [:li
+            [:a {:href "/blog/unitarity-and-communication-limits.blog"}
+             "Unitarity, pi-Calculus, and the Cosmic Speed Limit"]]
+           [:li
+            [:a {:href "/blog/trilemma-thermodynamics-maxwells-demon.blog"}
+             "Consensus as Entropy Reduction: Thermodynamics and Maxwell's Demon"]]
+           [:li
+            [:a {:href "/blog/datoms-as-spacetime-events.blog"}
+             "Datoms as Spacetime Events"]]]]]]} 

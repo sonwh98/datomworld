@@ -1,0 +1,108 @@
+#:blog{:title "From pi-Calculus to Causal Categories: Interpreters as Functors"
+       :date #inst "2026-03-08T10:00:00.000-00:00"
+       :abstract
+       [:p
+        "Datom streams align with process calculi and causal categories: computation is interaction, history is causal structure, and interpreters behave like "
+        [:strong "functors"]
+        " from event streams to application-specific views."]
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+
+          [:p
+           "When we say everything is a stream, we are not inventing a one-off metaphor. We are landing in a well-studied family of formalisms: process calculi, causal models, and categorical semantics."]
+
+          [:h2 "Process Calculus: Computation as Interaction"]
+
+          [:p
+           "pi-calculus models systems as communicating processes. The primitive is not mutable object state. The primitive is interaction over channels."]
+
+          [:p
+           "Datom streams can encode those interactions directly as event records."]
+
+          [:pre
+           [:code
+            "[e a v t m]
+
+Read as:
+entity e emitted/observed value v on channel a
+at transaction t with metadata context m"]]
+
+          [:p
+           "This gives a concrete stream representation for communication histories."]
+
+          [:h2 "Causal Categories: Histories as Structured Morphisms"]
+
+          [:p
+           "Category-oriented treatments of processes model systems as objects and transformations as morphisms, constrained by causal composition."]
+
+          [:p
+           "A datom stream is compatible with this view: each appended event composes into a larger causal history."]
+
+          [:pre
+           [:code
+            "d1 ; d2 ; d3 ...
+
+History is composition under causal constraints"]]
+
+          [:h2 "Interpreters as Functors"]
+
+          [:p
+           "Given one datom history, different interpreters construct different structures:"]
+
+          [:ul.bulleted
+           [:li "Graph interpreter -> knowledge graph"]
+           [:li "Ledger interpreter -> account/balance projection"]
+           [:li "Runtime interpreter -> continuation/state projection"]]
+
+          [:p
+           "Category language captures this cleanly: an interpreter is functor-like, preserving enough source structure while mapping into a target semantic domain."]
+
+          [:h2 "Knowledge Representation Connection"]
+
+          [:p
+           "RDF triples and Datomic datoms are nearby points in the same design space. Datom.world extends this line with explicit stream-local time and metadata references as first-class causal coordinates."]
+
+          [:p
+           "That extension matters because distributed systems need provenance, partial order, and interpretation boundaries without hidden global state."]
+
+          [:h2 "Why This Matters for Architecture"]
+
+          [:ul.bulleted
+           [:li "Interaction-first models avoid implicit control flow"]
+           [:li "Causal history is explicit and queryable"]
+           [:li "Multiple semantics can coexist over one immutable substrate"]]
+
+          [:p
+           "This is the same invariant Datom.world enforces: fixed tuple substrate, explicit causality, interpreter-defined meaning."]
+
+          [:h2 "Conclusion"]
+
+          [:p
+           "A concise statement is: "
+           [:strong "Datom.world is an interaction calculus with a causal event substrate"]
+           "."]
+
+          [:p
+           "That is why it aligns with distributed systems, category-theoretic database ideas, and physics-inspired event models without collapsing them into one theory."]
+
+          [:p [:strong "Related Reading:"]]
+          [:ul.bulleted
+           [:li
+            [:a {:href "/blog/pi-calculus-rqm-interaction.blog"}
+             "pi-Calculus, RQM, and the Primacy of Interaction"]]
+           [:li
+            [:a {:href "/blog/rdf-vs-datoms.blog"}
+             "RDF Triples vs Datoms"]]
+           [:li
+            [:a {:href "/blog/structure-vs-interpretation.blog"}
+             "Structure vs Interpretation"]]
+           [:li
+            [:a {:href "/blog/datoms-as-spacetime-events.blog"}
+             "Datoms as Spacetime Events"]]
+           [:li
+            [:a {:href "/blog/path-integral-history-and-datom-streams.blog"}
+             "Path Integrals and Datom Streams: History Is Primary"]]]]]]} 
