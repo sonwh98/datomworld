@@ -215,14 +215,24 @@
 
 (defn index-datoms
   "Index AST datoms by entity.
-   Returns {:by-entity map, :get-attr fn, :root-id int}."
-  [ast-as-datoms]
-  (let [datoms (vec ast-as-datoms)
-        by-entity (group-by first datoms)
-        get-attr (fn [e attr]
-                   (some (fn [[_ a v]] (when (= a attr) v)) (get by-entity e)))
-        root-id (apply max (keys by-entity))]
-    {:by-entity by-entity, :get-attr get-attr, :root-id root-id}))
+   Returns {:by-entity map, :get-attr fn, :root-id int}.
+
+   Optional opts:
+   - :by-entity precomputed {eid [datom ...]} index
+   - :root-id explicit root entity id override"
+  ([ast-as-datoms] (index-datoms ast-as-datoms {}))
+  ([ast-as-datoms {:keys [by-entity root-id]}]
+   (let [datoms (vec ast-as-datoms)
+         by-entity (or by-entity (group-by first datoms))
+         get-attr (fn [e attr]
+                    ;; Use last-write-wins for repeated [e a] assertions in
+                    ;; append order within a bounded stream snapshot.
+                    (some (fn [[_ a v]] (when (= a attr) v))
+                          (rseq (vec (get by-entity e)))))
+         root-id (or root-id
+                     (when (seq by-entity)
+                       (apply max (keys by-entity))))]
+     {:by-entity by-entity, :get-attr get-attr, :root-id root-id})))
 
 
 (defn- resume-entries-with-nil

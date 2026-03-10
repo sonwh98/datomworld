@@ -1,7 +1,6 @@
 (ns yin.register-bench-cljd
   (:require
-    [yin.vm :as vm]
-    [yin.vm.register :as register]))
+    [yin.vm :as vm]))
 
 
 (def ^:private benchmark-config
@@ -83,9 +82,8 @@
 (defn- load-register-program
   [ast]
   (let [datoms (vm/ast->datoms ast)
-        {:keys [asm reg-count]} (register/ast-datoms->asm datoms)
-        compiled (assoc (register/assemble asm) :reg-count reg-count)]
-    (vm/load-program (register/create-vm) compiled)))
+        root-id (apply max (map first datoms))]
+    (vm/load-program (register/create-vm) {:node root-id :datoms datoms})))
 
 
 (defn- run-iterations

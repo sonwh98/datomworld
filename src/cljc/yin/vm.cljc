@@ -64,8 +64,8 @@
     [vm program]
     "Load a program into the VM. Program format is VM-specific:
      - ASTWalkerVM: AST map
-     - RegisterVM: {:bytecode [...] :pool [...]}
-     - StackVM: {:bytecode [...] :pool [...]}
+     - RegisterVM: {:node root-id :datoms [...]}
+     - StackVM: {:node root-id :datoms [...]}
      - SemanticVM: {:node root-id :datoms [...]}
      Returns new VM with program loaded."))
 

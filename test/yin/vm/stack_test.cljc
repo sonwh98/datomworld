@@ -11,14 +11,13 @@
 ;; =============================================================================
 
 (defn compile-and-run
-  "Compile AST to stack bytecode and run to completion."
+  "Compile AST to datoms and run to completion."
   [ast]
-  (let [datoms (vm/ast->datoms ast)
-        asm (stack/ast-datoms->asm datoms)
-        compiled (stack/assemble asm)
+  (let [datoms (vec (vm/ast->datoms ast))
+        root-id (apply max (map first datoms))
         vm (stack/create-vm)]
     (-> vm
-        (vm/load-program compiled)
+        (vm/load-program {:node root-id, :datoms datoms})
         (vm/run)
         (vm/value))))
 
@@ -26,11 +25,27 @@
 (defn- load-ast
   "Compile and load AST into a Stack VM without running it."
   [ast]
-  (let [datoms (vm/ast->datoms ast)
-        asm (stack/ast-datoms->asm datoms)
-        compiled (stack/assemble asm)]
+  (let [datoms (vec (vm/ast->datoms ast))
+        root-id (apply max (map first datoms))]
     (-> (stack/create-vm)
-        (vm/load-program compiled))))
+        (vm/load-program {:node root-id, :datoms datoms}))))
+
+
+(defn- ast->program
+  [ast]
+  (let [datoms (vec (vm/ast->datoms ast))
+        root-id (apply max (map first datoms))]
+    {:node root-id, :datoms datoms}))
+
+
+(defn- step-until-halt
+  [vm-state]
+  (loop [v vm-state
+         ticks 0]
+    (cond
+      (vm/halted? v) v
+      (> ticks 2000) (throw (ex-info "Step limit exceeded" {:ticks ticks}))
+      :else (recur (vm/step v) (inc ticks)))))
 
 
 (deftest cesk-state-test
@@ -76,6 +91,22 @@
                           {:type :literal, :value 20}]}
           result (vm/eval (stack/create-vm) ast)]
       (is (= 30 (vm/value result))))))
+
+
+(deftest load-program-canonical-stream-test
+  (testing "Stack VM accepts canonical {:node :datoms} programs"
+    (let [program (ast->program {:type :application,
+                                 :operator {:type :variable, :name '+},
+                                 :operands [{:type :literal, :value 10}
+                                            {:type :literal, :value 20}]})
+          result (-> (stack/create-vm)
+                     (vm/load-program program)
+                     (vm/run))]
+      (is (vm/halted? result))
+      (is (= 30 (vm/value result)))
+      (is (= (:node program) (:program-root-eid result)))
+      (is (= 1 (:active-compiled-version result)))
+      (is (seq (:compiled-by-version result))))))
 
 
 (deftest ffi-call-asm-shape-test
@@ -257,6 +288,43 @@
                :operands [{:type :literal, :value 10}
                           {:type :literal, :value 5}]}]
       (is (= 14 (compile-and-run ast))))))
+
+
+(deftest boundary-recompile-test
+  (testing "In-flight execution completes on old artifact; reload runs new version"
+    (let [program-v1 (ast->program {:type :application,
+                                    :operator {:type :variable, :name '+},
+                                    :operands [{:type :literal, :value 1}
+                                               {:type :literal, :value 2}]})
+          program-v2 (ast->program {:type :literal, :value 42})
+          vm0 (-> (stack/create-vm)
+                  (vm/load-program program-v1))
+          vm1 (stack/append-program-datoms vm0
+                                           (:datoms program-v2)
+                                           (:node program-v2))
+          vm2 (step-until-halt vm1)
+          vm3 (vm/load-program vm2 {:node (:program-root-eid vm2),
+                                    :datoms (:program-datoms vm2)})
+          vm4 (vm/run vm3)]
+      (is (= 3 (vm/value vm2)))
+      (is (= 2 (:program-version vm2)))
+      (is (= 2 (:active-compiled-version vm2)))
+      (is (= 42 (vm/value vm4))))))
+
+
+(deftest compiled-cache-retention-test
+  (testing "Compiled cache keeps newest versions plus pinned versions"
+    (let [program-v1 (ast->program {:type :literal, :value 1})
+          program-v2 (ast->program {:type :literal, :value 2})
+          program-v3 (ast->program {:type :literal, :value 3})
+          vm0 (stack/create-vm {:compiled-cache-limit 1})
+          vm1 (vm/load-program vm0 program-v1)
+          ;; Pin version 1 through a runnable continuation entry.
+          vm1 (assoc vm1 :run-queue [{:type :call-frame, :compiled-version 1}])
+          vm2 (vm/load-program vm1 program-v2)
+          vm3 (vm/load-program vm2 program-v3)]
+      (is (= #{1 2} (set (keys (:compiled-by-version vm2)))))
+      (is (= #{1 3} (set (keys (:compiled-by-version vm3))))))))
 
 
 ;; =============================================================================

@@ -27,6 +27,10 @@
 (defrecord RegisterVM
   [blocked    ; true if blocked
    bytecode   ; numeric bytecode vector
+   compiled-by-version ; {program-version -> compiled artifact}
+   compiled-cache-limit ; max retained compiled artifacts
+   active-compiled-version ; compiled program version for new control transfers
+   compile-dirty? ; canonical datom stream changed since last compile
    env        ; lexical environment
    halted     ; true if execution completed
    id-counter ; unique ID counter
@@ -34,6 +38,10 @@
    parked     ; parked continuations
    pc         ; program counter
    pool       ; constant pool
+   program-datoms ; canonical bounded datom stream snapshot
+   program-index ; derived datom index for compilation
+   program-root-eid ; root entity id of canonical program
+   program-version ; monotonic program version for append/recompile lifecycle
    primitives ; primitive operations
    regs       ; virtual registers vector
    run-queue  ; vector of runnable continuations
@@ -41,6 +49,10 @@
    value      ; final result value
    wait-set   ; vector of parked continuations waiting on streams
    ])
+
+
+(def ^:private default-compiled-cache-limit 8)
+(def ^:private derived-metadata-eid 1)
 
 
 (defn ast-datoms->asm
@@ -68,161 +80,168 @@
      [:stream-close rd rs]            - close stream rs, rd := nil
      [:ffi-call rd op args]           - park, enqueue FFI request, resume into rd
 
-   Uses simple linear register allocation."
-  [ast-as-datoms]
-  (let [{:keys [get-attr root-id]} (engine/index-datoms ast-as-datoms)
-        ;; Assembly accumulator
-        bytecode (atom [])
-        emit! (fn [instr] (swap! bytecode conj instr))
-        current-addr #(count @bytecode)
-        ;; Register allocator (simple linear allocation, unbounded)
-        reg-counter (atom 0)
-        alloc-reg! (fn []
-                     (let [r @reg-counter]
-                       (swap! reg-counter inc)
-                       r))
-        reset-regs! (fn [] (reset! reg-counter 0))]
-    ;; Compile entity to assembly, returns the register holding the result
-    (letfn
-      [(compile-node
-         ([e] (compile-node e false))
-         ([e tail?]
-          (let [node-type (get-attr e :yin/type)]
-            (case node-type
-              :literal (let [rd (alloc-reg!)]
-                         (emit! [:literal rd (get-attr e :yin/value)])
-                         rd)
-              :variable (let [rd (alloc-reg!)]
-                          (emit! [:load-var rd (get-attr e :yin/name)])
+   Uses simple linear register allocation.
+
+   Optional opts:
+   - :root-id explicit root entity id
+   - :by-entity precomputed entity index {eid [datom ...]}."
+  ([ast-as-datoms] (ast-datoms->asm ast-as-datoms {}))
+  ([ast-as-datoms {:keys [root-id by-entity]}]
+   (let [{:keys [get-attr root-id]} (engine/index-datoms ast-as-datoms
+                                                         {:root-id root-id,
+                                                          :by-entity by-entity})
+         ;; Assembly accumulator
+         bytecode (atom [])
+         emit! (fn [instr] (swap! bytecode conj instr))
+         current-addr #(count @bytecode)
+         ;; Register allocator (simple linear allocation, unbounded)
+         reg-counter (atom 0)
+         alloc-reg! (fn []
+                      (let [r @reg-counter]
+                        (swap! reg-counter inc)
+                        r))
+         reset-regs! (fn [] (reset! reg-counter 0))]
+     ;; Compile entity to assembly, returns the register holding the result
+     (letfn
+       [(compile-node
+          ([e] (compile-node e false))
+          ([e tail?]
+           (let [node-type (get-attr e :yin/type)]
+             (case node-type
+               :literal (let [rd (alloc-reg!)]
+                          (emit! [:literal rd (get-attr e :yin/value)])
                           rd)
-              :lambda
-              (let [params (get-attr e :yin/params)
-                    body-ref (get-attr e :yin/body)
-                    rd (alloc-reg!)
-                    closure-idx (current-addr)]
-                ;; Emit closure with placeholder for address and
-                ;; reg-count
-                (emit! [:lambda rd params :placeholder :placeholder])
-                ;; Jump over body
-                (let [jump-idx (current-addr)]
-                  (emit! [:jump :placeholder])
-                  ;; Body starts here - fresh register scope
-                  (let [body-addr (current-addr)
-                        saved-reg-counter @reg-counter]
-                    (reset-regs!)
-                    (let [result-reg (compile-node body-ref true)
-                          max-regs @reg-counter]
-                      (emit! [:return result-reg])
-                      ;; Restore register counter
-                      (reset! reg-counter saved-reg-counter)
-                      ;; Patch addresses and register count
-                      (let [after-body (current-addr)]
-                        (swap! bytecode assoc-in [closure-idx 3] body-addr)
-                        (swap! bytecode assoc-in [closure-idx 4] max-regs)
-                        (swap! bytecode assoc-in [jump-idx 1] after-body)))))
-                rd)
-              :application
-              (let [op-ref (get-attr e :yin/operator)
-                    operand-refs (get-attr e :yin/operands)
-                    ;; Compile operands first (never in tail position)
-                    arg-regs (mapv #(compile-node % false) operand-refs)
-                    ;; Compile operator (never in tail position)
-                    fn-reg (compile-node op-ref false)
-                    ;; Result register
-                    rd (alloc-reg!)]
-                (emit! [(if tail? :tailcall :call) rd fn-reg arg-regs])
-                rd)
-              :ffi/call
-              (let [operand-refs (or (get-attr e :yin/operands) [])
-                    arg-regs (mapv #(compile-node % false) operand-refs)
-                    op (get-attr e :yin/op)
-                    rd (alloc-reg!)]
-                (emit! [:ffi-call rd op arg-regs])
-                rd)
-              :if (let [test-ref (get-attr e :yin/test)
-                        cons-ref (get-attr e :yin/consequent)
-                        alt-ref (get-attr e :yin/alternate)
-                        ;; Compile test (never in tail position)
-                        test-reg (compile-node test-ref false)
-                        ;; Result register (shared by both branches)
-                        rd (alloc-reg!)
-                        branch-idx (current-addr)]
-                    ;; Emit branch with placeholders
-                    (emit! [:branch test-reg :then :else])
-                    ;; Consequent (propagate tail?)
-                    (let [then-addr (current-addr)
-                          cons-reg (compile-node cons-ref tail?)]
-                      (emit! [:move rd cons-reg])
-                      (let [jump-idx (current-addr)]
-                        (emit! [:jump :end])
-                        ;; Alternate (propagate tail?)
-                        (let [else-addr (current-addr)
-                              alt-reg (compile-node alt-ref tail?)]
-                          (emit! [:move rd alt-reg])
-                          ;; Patch addresses
-                          (let [end-addr (current-addr)]
-                            (swap! bytecode assoc-in [branch-idx 2] then-addr)
-                            (swap! bytecode assoc-in [branch-idx 3] else-addr)
-                            (swap! bytecode assoc-in [jump-idx 1] end-addr)))))
-                    rd)
-              ;; VM primitives
-              :vm/gensym (let [rd (alloc-reg!)]
-                           (emit! [:gensym rd (get-attr e :yin/prefix)])
+               :variable (let [rd (alloc-reg!)]
+                           (emit! [:load-var rd (get-attr e :yin/name)])
                            rd)
-              :vm/store-get (let [rd (alloc-reg!)]
-                              (emit! [:store-get rd (get-attr e :yin/key)])
-                              rd)
-              :vm/store-put (let [rd (alloc-reg!)]
-                              (emit! [:literal rd (get-attr e :yin/value)])
-                              (emit! [:store-put rd (get-attr e :yin/key)])
-                              rd)
-              ;; Stream operations
-              :stream/make (let [rd (alloc-reg!)]
-                             (emit! [:stream-make rd (get-attr e :yin/buffer)])
-                             rd)
-              :stream/put (let [target-ref (get-attr e :yin/target)
-                                val-ref (get-attr e :yin/val-node)
-                                val-reg (compile-node val-ref)
-                                target-reg (compile-node target-ref)]
-                            (emit! [:stream-put val-reg target-reg])
-                            val-reg)
-              :stream/cursor (let [source-ref (get-attr e :yin/source)
-                                   source-reg (compile-node source-ref)
-                                   rd (alloc-reg!)]
-                               (emit! [:stream-cursor rd source-reg])
+               :lambda
+               (let [params (get-attr e :yin/params)
+                     body-ref (get-attr e :yin/body)
+                     rd (alloc-reg!)
+                     closure-idx (current-addr)]
+                 ;; Emit closure with placeholder for address and
+                 ;; reg-count
+                 (emit! [:lambda rd params :placeholder :placeholder])
+                 ;; Jump over body
+                 (let [jump-idx (current-addr)]
+                   (emit! [:jump :placeholder])
+                   ;; Body starts here - fresh register scope
+                   (let [body-addr (current-addr)
+                         saved-reg-counter @reg-counter]
+                     (reset-regs!)
+                     (let [result-reg (compile-node body-ref true)
+                           max-regs @reg-counter]
+                       (emit! [:return result-reg])
+                       ;; Restore register counter
+                       (reset! reg-counter saved-reg-counter)
+                       ;; Patch addresses and register count
+                       (let [after-body (current-addr)]
+                         (swap! bytecode assoc-in [closure-idx 3] body-addr)
+                         (swap! bytecode assoc-in [closure-idx 4] max-regs)
+                         (swap! bytecode assoc-in [jump-idx 1] after-body)))))
+                 rd)
+               :application
+               (let [op-ref (get-attr e :yin/operator)
+                     operand-refs (get-attr e :yin/operands)
+                     ;; Compile operands first (never in tail position)
+                     arg-regs (mapv #(compile-node % false) operand-refs)
+                     ;; Compile operator (never in tail position)
+                     fn-reg (compile-node op-ref false)
+                     ;; Result register
+                     rd (alloc-reg!)]
+                 (emit! [(if tail? :tailcall :call) rd fn-reg arg-regs])
+                 rd)
+               :ffi/call
+               (let [operand-refs (or (get-attr e :yin/operands) [])
+                     arg-regs (mapv #(compile-node % false) operand-refs)
+                     op (get-attr e :yin/op)
+                     rd (alloc-reg!)]
+                 (emit! [:ffi-call rd op arg-regs])
+                 rd)
+               :if (let [test-ref (get-attr e :yin/test)
+                         cons-ref (get-attr e :yin/consequent)
+                         alt-ref (get-attr e :yin/alternate)
+                         ;; Compile test (never in tail position)
+                         test-reg (compile-node test-ref false)
+                         ;; Result register (shared by both branches)
+                         rd (alloc-reg!)
+                         branch-idx (current-addr)]
+                     ;; Emit branch with placeholders
+                     (emit! [:branch test-reg :then :else])
+                     ;; Consequent (propagate tail?)
+                     (let [then-addr (current-addr)
+                           cons-reg (compile-node cons-ref tail?)]
+                       (emit! [:move rd cons-reg])
+                       (let [jump-idx (current-addr)]
+                         (emit! [:jump :end])
+                         ;; Alternate (propagate tail?)
+                         (let [else-addr (current-addr)
+                               alt-reg (compile-node alt-ref tail?)]
+                           (emit! [:move rd alt-reg])
+                           ;; Patch addresses
+                           (let [end-addr (current-addr)]
+                             (swap! bytecode assoc-in [branch-idx 2] then-addr)
+                             (swap! bytecode assoc-in [branch-idx 3] else-addr)
+                             (swap! bytecode assoc-in [jump-idx 1] end-addr)))))
+                     rd)
+               ;; VM primitives
+               :vm/gensym (let [rd (alloc-reg!)]
+                            (emit! [:gensym rd (get-attr e :yin/prefix)])
+                            rd)
+               :vm/store-get (let [rd (alloc-reg!)]
+                               (emit! [:store-get rd (get-attr e :yin/key)])
                                rd)
-              :stream/next (let [source-ref (get-attr e :yin/source)
-                                 source-reg (compile-node source-ref)
-                                 rd (alloc-reg!)]
-                             (emit! [:stream-next rd source-reg])
-                             rd)
-              :stream/close (let [source-ref (get-attr e :yin/source)
+               :vm/store-put (let [rd (alloc-reg!)]
+                               (emit! [:literal rd (get-attr e :yin/value)])
+                               (emit! [:store-put rd (get-attr e :yin/key)])
+                               rd)
+               ;; Stream operations
+               :stream/make (let [rd (alloc-reg!)]
+                              (emit! [:stream-make rd (get-attr e :yin/buffer)])
+                              rd)
+               :stream/put (let [target-ref (get-attr e :yin/target)
+                                 val-ref (get-attr e :yin/val-node)
+                                 val-reg (compile-node val-ref)
+                                 target-reg (compile-node target-ref)]
+                             (emit! [:stream-put val-reg target-reg])
+                             val-reg)
+               :stream/cursor (let [source-ref (get-attr e :yin/source)
+                                    source-reg (compile-node source-ref)
+                                    rd (alloc-reg!)]
+                                (emit! [:stream-cursor rd source-reg])
+                                rd)
+               :stream/next (let [source-ref (get-attr e :yin/source)
                                   source-reg (compile-node source-ref)
                                   rd (alloc-reg!)]
-                              (emit! [:stream-close rd source-reg])
+                              (emit! [:stream-next rd source-reg])
                               rd)
-              ;; Continuation primitives
-              :vm/park (let [rd (alloc-reg!)]
-                         (emit! [:park rd])
-                         rd)
-              :vm/resume (let [parked-id (get-attr e :yin/parked-id)
-                               val-ref (get-attr e :yin/val-node)
-                               rd (alloc-reg!)]
-                           (emit! [:literal rd parked-id])
-                           (let [rv (compile-node val-ref)]
-                             (emit! [:resume rd rv])
-                             rv))
-              :vm/current-continuation (let [rd (alloc-reg!)]
-                                         (emit! [:current-cont rd])
-                                         rd)
-              ;; Unknown type
-              (throw (ex-info
-                       "Unknown node type in register assembly compilation"
-                       {:type node-type, :entity e}))))))]
-      (let [result-reg (compile-node root-id true)
-            max-regs @reg-counter]
-        (emit! [:return result-reg])
-        {:asm @bytecode, :reg-count max-regs}))))
+               :stream/close (let [source-ref (get-attr e :yin/source)
+                                   source-reg (compile-node source-ref)
+                                   rd (alloc-reg!)]
+                               (emit! [:stream-close rd source-reg])
+                               rd)
+               ;; Continuation primitives
+               :vm/park (let [rd (alloc-reg!)]
+                          (emit! [:park rd])
+                          rd)
+               :vm/resume (let [parked-id (get-attr e :yin/parked-id)
+                                val-ref (get-attr e :yin/val-node)
+                                rd (alloc-reg!)]
+                            (emit! [:literal rd parked-id])
+                            (let [rv (compile-node val-ref)]
+                              (emit! [:resume rd rv])
+                              rv))
+               :vm/current-continuation (let [rd (alloc-reg!)]
+                                          (emit! [:current-cont rd])
+                                          rd)
+               ;; Unknown type
+               (throw (ex-info
+                        "Unknown node type in register assembly compilation"
+                        {:type node-type, :entity e}))))))]
+       (let [result-reg (compile-node root-id true)
+             max-regs @reg-counter]
+         (emit! [:return result-reg])
+         {:asm @bytecode, :reg-count max-regs})))))
 
 
 (defn assemble
@@ -320,6 +339,167 @@
                         @fixups)
           source-map (into {} (map (fn [[k v]] [v k]) offsets))]
       {:bytecode fixed, :pool @pool, :source-map source-map})))
+
+
+(defn- canonical-program?
+  [program]
+  (and (map? program)
+       (contains? program :node)
+       (contains? program :datoms)))
+
+
+(defn- build-program-index
+  [datoms]
+  (group-by first (vec datoms)))
+
+
+(defn- executable-program-datom?
+  [[_e a _v _t m]]
+  (and (keyword? a)
+       (= "yin" (namespace a))
+       (not= m derived-metadata-eid)))
+
+
+(defn- frame-versions
+  [frame]
+  (loop [f frame
+         acc #{}]
+    (if (map? f)
+      (let [acc (cond-> acc
+                  (some? (:compiled-version f))
+                  (conj (:compiled-version f)))]
+        (if-let [parent (:k f)]
+          (recur parent acc)
+          acc))
+      acc)))
+
+
+(defn- collect-frame-versions
+  [frames]
+  (reduce (fn [acc frame] (into acc (frame-versions frame)))
+          #{}
+          frames))
+
+
+(defn- pinned-compiled-versions
+  [vm]
+  (let [active-k (:k vm)
+        parked-frames (vals (or (:parked vm) {}))
+        run-entries (or (:run-queue vm) [])
+        wait-entries (or (:wait-set vm) [])]
+    (-> #{}
+        (cond-> (some? (:active-compiled-version vm))
+          (conj (:active-compiled-version vm)))
+        (into (frame-versions active-k))
+        (into (collect-frame-versions parked-frames))
+        (into (collect-frame-versions run-entries))
+        (into (collect-frame-versions wait-entries))
+        (disj nil))))
+
+
+(defn- trim-compiled-cache
+  [vm]
+  (let [compiled (or (:compiled-by-version vm) {})
+        limit (max 1 (or (:compiled-cache-limit vm) default-compiled-cache-limit))
+        versions (sort (keys compiled))
+        keep-newest (set (take-last limit versions))
+        keep (into keep-newest (pinned-compiled-versions vm))]
+    (assoc vm
+           :compiled-by-version
+           (reduce-kv (fn [m version artifact]
+                        (if (contains? keep version)
+                          (assoc m version artifact)
+                          m))
+                      {}
+                      compiled))))
+
+
+(defn- compile-register-artifact
+  [program-root-eid program-datoms program-index]
+  (let [{:keys [asm reg-count]}
+        (ast-datoms->asm program-datoms
+                         {:root-id program-root-eid,
+                          :by-entity program-index})]
+    (assoc (assemble asm) :reg-count reg-count)))
+
+
+(defn- cache-compiled-artifact
+  [vm version artifact program-index]
+  (-> vm
+      (assoc :program-index program-index
+             :compile-dirty? false
+             :active-compiled-version version)
+      (update :compiled-by-version (fnil assoc {}) version artifact)
+      trim-compiled-cache))
+
+
+(defn- ensure-compiled-version
+  [vm version]
+  (if-let [artifact (get-in vm [:compiled-by-version version])]
+    [vm artifact]
+    (let [program-datoms (vec (or (:program-datoms vm) []))
+          program-root-eid (:program-root-eid vm)]
+      (when (or (empty? program-datoms) (nil? program-root-eid))
+        (throw (ex-info "Canonical program is not loaded"
+                        {:program-version version})))
+      (let [program-index (or (:program-index vm)
+                              (build-program-index program-datoms))
+            artifact (compile-register-artifact program-root-eid
+                                                program-datoms
+                                                program-index)
+            vm' (cache-compiled-artifact vm version artifact program-index)]
+        [vm' artifact]))))
+
+
+(defn- maybe-recompile-at-boundary
+  "Compile the current canonical program version if dirty.
+   Called at explicit dispatch boundaries only."
+  [vm]
+  (if (and (:compile-dirty? vm)
+           (seq (:program-datoms vm))
+           (some? (:program-root-eid vm)))
+    (let [version (:program-version vm)
+          [vm' _artifact] (ensure-compiled-version vm version)]
+      vm')
+    vm))
+
+
+(defn append-program-datoms
+  "Append datoms to the canonical program stream.
+   Optionally update the root eid for the new program version."
+  ([vm datoms] (append-program-datoms vm datoms nil))
+  ([vm datoms new-root-eid]
+   (when-not (some? (:program-root-eid vm))
+     (throw (ex-info "append-program-datoms requires a canonical program"
+                     {})))
+   (let [appended (vec datoms)]
+     (if (and (empty? appended) (nil? new-root-eid))
+       vm
+       (let [version (inc (or (:program-version vm) 0))
+             executable? (or (some executable-program-datom? appended)
+                             (some? new-root-eid))]
+         (-> vm
+             (update :program-datoms into appended)
+             (assoc :program-version version
+                    :program-root-eid (or new-root-eid
+                                          (:program-root-eid vm))
+                    :compile-dirty? (or (:compile-dirty? vm) executable?)
+                    :program-index (if executable?
+                                     nil
+                                     (:program-index vm)))))))))
+
+
+(defn- activate-compiled-artifact
+  [vm artifact]
+  (assoc vm
+         :regs (vec (repeat (:reg-count artifact 0) nil))
+         :k nil
+         :pc 0
+         :bytecode (:bytecode artifact)
+         :pool (:pool artifact)
+         :halted false
+         :value nil
+         :blocked false))
 
 
 (defn- reg-array?
@@ -469,13 +649,14 @@
 
 (defn- snap-frame
   "Snapshot current VM frame for parking or reification."
-  [{:keys [regs k env bytecode pool]} rd next-pc]
+  [{:keys [regs k env bytecode pool active-compiled-version]} rd next-pc]
   {:pc next-pc,
    :regs regs,
    :k k,
    :env env,
    :bytecode bytecode,
    :pool pool,
+   :compiled-version active-compiled-version,
    :result-reg rd})
 
 
@@ -503,7 +684,9 @@
           :k (:k frame)
           :env (:env frame)
           :bytecode (or (:bytecode frame) (:bytecode state))
-          :pool (or (:pool frame) (:pool state))))
+          :pool (or (:pool frame) (:pool state))
+          :active-compiled-version (or (:compiled-version frame)
+                                       (:active-compiled-version state))))
   ([state frame value]
    (let [rd (:result-reg frame)]
      (assoc state
@@ -512,7 +695,9 @@
             :k (:k frame)
             :env (:env frame)
             :bytecode (or (:bytecode frame) (:bytecode state))
-            :pool (or (:pool frame) (:pool state))))))
+            :pool (or (:pool frame) (:pool state))
+            :active-compiled-version (or (:compiled-version frame)
+                                         (:active-compiled-version state))))))
 
 
 (defn- handle-native-result
@@ -545,10 +730,19 @@
 ;; Register Bytecode VM (numeric opcodes, flat int vector, constant pool)
 ;; =============================================================================
 
+(declare maybe-recompile-at-boundary)
+
+
 (defn- reg-vm-step
   "Execute one bytecode instruction. Returns updated state."
   [state]
-  (let [{:keys [bytecode pool pc regs env store k primitives]} state
+  (let [op0 (nth (:bytecode state) (:pc state) nil)
+        state (if (and (:compile-dirty? state)
+                       (or (= op0 (vm/opcode-table :call))
+                           (= op0 (vm/opcode-table :tailcall))))
+                (maybe-recompile-at-boundary state)
+                state)
+        {:keys [bytecode pool pc regs env store k primitives]} state
         op (nth bytecode pc nil)]
     (if (nil? op)
       (throw (ex-info "Bytecode ended without return instruction" {:pc pc}))
@@ -586,7 +780,8 @@
                        :empty-regs-arr (make-empty-regs-array reg-count),
                        :env env,
                        :bytecode bytecode,
-                       :pool pool}]
+                       :pool pool,
+                       :compiled-version (:active-compiled-version state)}]
           (assoc state
                  :regs (assoc regs rd closure)
                  :pc (+ pc 5)))
@@ -606,6 +801,7 @@
                        clo-env :env,
                        clo-bytecode :bytecode,
                        clo-pool :pool,
+                       clo-version :compiled-version,
                        empty-regs :empty-regs} fn-val
                       next-regs (or empty-regs
                                     (vec (repeat (:reg-count fn-val) nil)))
@@ -616,6 +812,7 @@
                                  :env env,
                                  :bytecode bytecode,
                                  :pool pool,
+                                 :compiled-version (:active-compiled-version state),
                                  :k k}
                       new-env (bind-closure-env
                                 clo-env
@@ -630,6 +827,8 @@
                          :env new-env
                          :bytecode clo-bytecode
                          :pool clo-pool
+                         :active-compiled-version (or clo-version
+                                                      (:active-compiled-version state))
                          :pc body-addr))
                 :else (throw (ex-info "Cannot call non-function"
                                       {:fn fn-val}))))
@@ -660,6 +859,7 @@
                        clo-env :env,
                        clo-bytecode :bytecode,
                        clo-pool :pool,
+                       clo-version :compiled-version,
                        empty-regs :empty-regs}
                       fn-val
                       next-regs (or empty-regs
@@ -677,6 +877,8 @@
                          :env new-env
                          :bytecode clo-bytecode
                          :pool clo-pool
+                         :active-compiled-version (or clo-version
+                                                      (:active-compiled-version state))
                          :pc body-addr))
                 :else (throw (ex-info "Cannot call non-function"
                                       {:fn fn-val}))))
@@ -829,7 +1031,8 @@
   [state]
   (engine/resume-from-run-queue state
                                 (fn [base entry]
-                                  (restore-frame base entry (:value entry)))))
+                                  (-> (restore-frame base entry (:value entry))
+                                      maybe-recompile-at-boundary))))
 
 
 (defn- reg-vm-run-scheduler
@@ -1179,13 +1382,9 @@
 
 (defn- reg-vm-run
   [vm]
-  ;; Fast path is valid only for a single active compute continuation.
-  ;; Any of these conditions means we must re-enter scheduler semantics:
-  ;; - :blocked / :wait-set: wait-set polling and wakeup checks.
-  ;; - :run-queue: dequeue + resume parked continuations.
-  ;; - :halted: current continuation finished, but scheduler may still have work.
-  ;; - nil :bytecode: no active instruction stream to execute.
-  (if (or (:blocked vm)
+  ;; Boundary recompilation requires scheduler checkpoints when dirty.
+  (if (or (:compile-dirty? vm)
+          (:blocked vm)
           (:halted vm)
           (seq (:run-queue vm))
           (seq (:wait-set vm))
@@ -1219,40 +1418,54 @@
 (defn- reg-vm-reset
   "Reset RegisterVM execution state to initial baseline, preserving loaded program."
   [^RegisterVM vm]
-  (assoc vm
-         :regs (vec (repeat (count (:regs vm)) nil))
-         :k nil
-         :pc 0
-         :halted false
-         :value nil
-         :blocked false))
+  (if-let [artifact (get-in vm [:compiled-by-version
+                                (:active-compiled-version vm)])]
+    (activate-compiled-artifact vm artifact)
+    (assoc vm
+           :regs (vec (repeat (count (:regs vm)) nil))
+           :k nil
+           :pc 0
+           :halted false
+           :value nil
+           :blocked false)))
+
+
+(defn- reg-vm-load-canonical-program
+  "Load canonical datom-form program into the VM."
+  [^RegisterVM vm {:keys [node datoms]}]
+  (let [program-version (inc (or (:program-version vm) 0))
+        program-datoms (vec datoms)
+        vm' (assoc vm
+                   :program-root-eid node
+                   :program-datoms program-datoms
+                   :program-version program-version
+                   :program-index nil
+                   :compile-dirty? true)
+        [compiled-vm artifact] (ensure-compiled-version vm' program-version)]
+    (activate-compiled-artifact compiled-vm artifact)))
 
 
 (defn- reg-vm-load-program
-  "Load bytecode into the VM.
-   Accepts {:bytecode [...] :pool [...]}."
+  "Load a program into the Register VM.
+   Expects canonical form: {:node root-id :datoms [...]}."
   [^RegisterVM vm program]
-  (assoc vm
-         :regs (vec (repeat (:reg-count program 0) nil))
-         :k nil
-         :pc 0
-         :bytecode (:bytecode program)
-         :pool (:pool program)
-         :halted false
-         :value nil
-         :blocked false))
+  (if (canonical-program? program)
+    (reg-vm-load-canonical-program vm program)
+    (throw (ex-info "Unsupported register program form"
+                    {:expected {:node :datoms},
+                     :program program}))))
 
 
 (defn- reg-vm-eval
   "Evaluate an AST. Owns the step loop with scheduler.
-   When ast is non-nil, compiles through datoms -> asm -> bytecode and loads.
+   When ast is non-nil, normalizes through vm/ast->datoms and loads via the
+   canonical {:node :datoms} path.
    When nil, resumes from current state."
   [^RegisterVM vm ast]
   (let [v (if ast
-            (let [datoms (vm/ast->datoms ast)
-                  {:keys [asm reg-count]} (ast-datoms->asm datoms)
-                  compiled (assoc (assemble asm) :reg-count reg-count)]
-              (reg-vm-load-program vm compiled))
+            (let [datoms (vec (vm/ast->datoms ast))
+                  root-id (apply max (map first datoms))]
+              (reg-vm-load-program vm {:node root-id, :datoms datoms}))
             vm)]
     (reg-vm-run v)))
 
@@ -1293,6 +1506,15 @@
                               :pc 0,
                               :bytecode nil,
                               :pool nil,
+                              :compiled-by-version {},
+                              :compiled-cache-limit (or (:compiled-cache-limit opts)
+                                                        default-compiled-cache-limit),
+                              :active-compiled-version nil,
+                              :compile-dirty? false,
+                              :program-root-eid nil,
+                              :program-datoms [],
+                              :program-version 0,
+                              :program-index nil,
                               :halted false,
                               :value nil,
                               :blocked false})))))

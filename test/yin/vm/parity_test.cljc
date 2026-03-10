@@ -63,6 +63,31 @@
                                 ast))})
 
 
+(deftest canonical-datom-program-parity-test
+  (testing "Semantic/Register/Stack agree when loading the same datom program"
+    (let [ast {:type :application,
+               :operator {:type :variable, :name '+},
+               :operands [{:type :literal, :value 20}
+                          {:type :literal, :value 22}]}
+          datoms (vec (vm/ast->datoms ast))
+          root-id (apply max (map first datoms))
+          program {:node root-id, :datoms datoms}
+          semantic-value (-> (semantic/create-vm)
+                             (vm/load-program program)
+                             (vm/run)
+                             (vm/value))
+          register-value (-> (register/create-vm)
+                             (vm/load-program program)
+                             (vm/run)
+                             (vm/value))
+          stack-value (-> (stack/create-vm)
+                          (vm/load-program program)
+                          (vm/run)
+                          (vm/value))]
+      (is (= semantic-value register-value))
+      (is (= semantic-value stack-value)))))
+
+
 (deftest continuation-nested-park-parity-test
   (testing "All VMs should handle nested parks (arg then body) correctly"
     ;; AST: ((fn [x] (park)) (park))

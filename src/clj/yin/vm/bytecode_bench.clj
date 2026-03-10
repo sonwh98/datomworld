@@ -96,17 +96,15 @@
 (defn- load-register-program
   [ast]
   (let [datoms (vm/ast->datoms ast)
-        {:keys [asm reg-count]} (register/ast-datoms->asm datoms)
-        compiled (assoc (register/assemble asm) :reg-count reg-count)]
-    (vm/load-program (register/create-vm) compiled)))
+        root-id (apply max (map first datoms))]
+    (vm/load-program (register/create-vm) {:node root-id :datoms datoms})))
 
 
 (defn- load-stack-program
   [ast]
   (let [datoms (vm/ast->datoms ast)
-        asm (stack/ast-datoms->asm datoms)
-        compiled (stack/assemble asm)]
-    (vm/load-program (stack/create-vm) compiled)))
+        root-id (apply max (map first datoms))]
+    (vm/load-program (stack/create-vm) {:node root-id :datoms datoms})))
 
 
 (defn- load-semantic-program

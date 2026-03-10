@@ -32,12 +32,20 @@
   [blocked    ; true if blocked
    bytecode   ; bytecode vector
    call-stack ; call frames for function returns
+   compiled-by-version ; {program-version -> compiled artifact}
+   compiled-cache-limit ; max retained compiled artifacts
+   active-compiled-version ; compiled program version for new control transfers
+   compile-dirty? ; canonical datom stream changed since last compile
    env        ; lexical environment
    halted     ; true if execution completed
    id-counter ; unique ID counter
    parked     ; parked continuations
    pc         ; program counter
    pool       ; constant pool
+   program-datoms ; canonical bounded datom stream snapshot
+   program-index ; derived datom index for compilation
+   program-root-eid ; root entity id of canonical program
+   program-version ; monotonic program version for append/recompile lifecycle
    primitives ; primitive operations
    run-queue  ; vector of runnable continuations
    stack      ; operand stack
@@ -46,6 +54,10 @@
    wait-set   ; vector of parked continuations waiting on
    ;; streams
    ])
+
+
+(def ^:private default-compiled-cache-limit 8)
+(def ^:private derived-metadata-eid 1)
 
 
 ;; =============================================================================
@@ -76,83 +88,90 @@
      [:ffi-call op argc] - park, enqueue FFI request, resume with result
      [:park]             - park current continuation
      [:resume]           - pop val and parked-id, resume parked cont
-     [:current-cont]     - push reified continuation"
-  [ast-as-datoms]
-  (let [{:keys [get-attr root-id]} (engine/index-datoms ast-as-datoms)
-        instructions (atom [])
-        emit! (fn [instr] (swap! instructions conj instr))
-        label-counter (atom 0)
-        gen-label! (fn [prefix]
-                     (keyword (str prefix "-" (swap! label-counter inc))))]
-    (letfn
-      [(compile-node
-         ([e] (compile-node e false))
-         ([e tail?]
-          (case (get-attr e :yin/type)
-            :literal (emit! [:push (get-attr e :yin/value)])
-            :variable (emit! [:load (get-attr e :yin/name)])
-            :lambda (let [params (get-attr e :yin/params)
-                          body-node (get-attr e :yin/body)
-                          skip-label (gen-label! "after-lambda")]
-                      (emit! [:lambda params skip-label])
-                      (compile-node body-node true)
-                      (emit! [:return])
-                      (emit! [:label skip-label]))
-            :application
-            (let [op-node (get-attr e :yin/operator)
-                  operand-nodes (get-attr e :yin/operands)]
-              (compile-node op-node)
-              (doseq [arg-node operand-nodes] (compile-node arg-node))
-              (emit! [(if tail? :tailcall :call) (count operand-nodes)]))
-            :ffi/call
-            (let [operand-nodes (or (get-attr e :yin/operands) [])
-                  op (get-attr e :yin/op)]
-              (doseq [arg-node operand-nodes] (compile-node arg-node))
-              (emit! [:ffi-call op (count operand-nodes)]))
-            :if (let [test-node (get-attr e :yin/test)
-                      cons-node (get-attr e :yin/consequent)
-                      alt-node (get-attr e :yin/alternate)
-                      cons-label (gen-label! "then")
-                      end-label (gen-label! "end")]
-                  (compile-node test-node)
-                  (emit! [:branch cons-label])
-                  (compile-node alt-node tail?)
-                  (emit! [:jump end-label])
-                  (emit! [:label cons-label])
-                  (compile-node cons-node tail?)
-                  (emit! [:label end-label]))
-            ;; VM primitives
-            :vm/gensym (emit! [:gensym (or (get-attr e :yin/prefix) "id")])
-            :vm/store-get (emit! [:store-get (get-attr e :yin/key)])
-            :vm/store-put (let [val (get-attr e :yin/value)]
-                            (emit! [:push val])
-                            (emit! [:store-put (get-attr e :yin/key)]))
-            ;; Stream operations
-            :stream/make (emit! [:stream-make
-                                 (or (get-attr e :yin/buffer) 1024)])
-            :stream/put (let [target-node (get-attr e :yin/target)
-                              val-node (get-attr e :yin/val-node)]
-                          (compile-node val-node)
-                          (compile-node target-node)
-                          (emit! [:stream-put]))
-            :stream/cursor (let [source-node (get-attr e :yin/source)]
-                             (compile-node source-node)
-                             (emit! [:stream-cursor]))
-            :stream/next (let [source-node (get-attr e :yin/source)]
-                           (compile-node source-node)
-                           (emit! [:stream-next]))
-            :stream/close (let [source-node (get-attr e :yin/source)]
+     [:current-cont]     - push reified continuation
+
+   Optional opts:
+   - :root-id explicit root entity id
+   - :by-entity precomputed entity index {eid [datom ...]}."
+  ([ast-as-datoms] (ast-datoms->asm ast-as-datoms {}))
+  ([ast-as-datoms {:keys [root-id by-entity]}]
+   (let [{:keys [get-attr root-id]} (engine/index-datoms ast-as-datoms
+                                                         {:root-id root-id,
+                                                          :by-entity by-entity})
+         instructions (atom [])
+         emit! (fn [instr] (swap! instructions conj instr))
+         label-counter (atom 0)
+         gen-label! (fn [prefix]
+                      (keyword (str prefix "-" (swap! label-counter inc))))]
+     (letfn
+       [(compile-node
+          ([e] (compile-node e false))
+          ([e tail?]
+           (case (get-attr e :yin/type)
+             :literal (emit! [:push (get-attr e :yin/value)])
+             :variable (emit! [:load (get-attr e :yin/name)])
+             :lambda (let [params (get-attr e :yin/params)
+                           body-node (get-attr e :yin/body)
+                           skip-label (gen-label! "after-lambda")]
+                       (emit! [:lambda params skip-label])
+                       (compile-node body-node true)
+                       (emit! [:return])
+                       (emit! [:label skip-label]))
+             :application
+             (let [op-node (get-attr e :yin/operator)
+                   operand-nodes (get-attr e :yin/operands)]
+               (compile-node op-node)
+               (doseq [arg-node operand-nodes] (compile-node arg-node))
+               (emit! [(if tail? :tailcall :call) (count operand-nodes)]))
+             :ffi/call
+             (let [operand-nodes (or (get-attr e :yin/operands) [])
+                   op (get-attr e :yin/op)]
+               (doseq [arg-node operand-nodes] (compile-node arg-node))
+               (emit! [:ffi-call op (count operand-nodes)]))
+             :if (let [test-node (get-attr e :yin/test)
+                       cons-node (get-attr e :yin/consequent)
+                       alt-node (get-attr e :yin/alternate)
+                       cons-label (gen-label! "then")
+                       end-label (gen-label! "end")]
+                   (compile-node test-node)
+                   (emit! [:branch cons-label])
+                   (compile-node alt-node tail?)
+                   (emit! [:jump end-label])
+                   (emit! [:label cons-label])
+                   (compile-node cons-node tail?)
+                   (emit! [:label end-label]))
+             ;; VM primitives
+             :vm/gensym (emit! [:gensym (or (get-attr e :yin/prefix) "id")])
+             :vm/store-get (emit! [:store-get (get-attr e :yin/key)])
+             :vm/store-put (let [val (get-attr e :yin/value)]
+                             (emit! [:push val])
+                             (emit! [:store-put (get-attr e :yin/key)]))
+             ;; Stream operations
+             :stream/make (emit! [:stream-make
+                                  (or (get-attr e :yin/buffer) 1024)])
+             :stream/put (let [target-node (get-attr e :yin/target)
+                               val-node (get-attr e :yin/val-node)]
+                           (compile-node val-node)
+                           (compile-node target-node)
+                           (emit! [:stream-put]))
+             :stream/cursor (let [source-node (get-attr e :yin/source)]
+                              (compile-node source-node)
+                              (emit! [:stream-cursor]))
+             :stream/next (let [source-node (get-attr e :yin/source)]
                             (compile-node source-node)
-                            (emit! [:stream-close]))
-            ;; Continuation primitives
-            :vm/park (emit! [:park])
-            :vm/resume (do (emit! [:push (get-attr e :yin/parked-id)])
-                           (compile-node (get-attr e :yin/val-node))
-                           (emit! [:resume]))
-            :vm/current-continuation (emit! [:current-cont])
-            (throw (ex-info "Unknown node type in stack assembly compilation"
-                            {:type (get-attr e :yin/type), :entity e})))))]
-      (compile-node root-id true) @instructions)))
+                            (emit! [:stream-next]))
+             :stream/close (let [source-node (get-attr e :yin/source)]
+                             (compile-node source-node)
+                             (emit! [:stream-close]))
+             ;; Continuation primitives
+             :vm/park (emit! [:park])
+             :vm/resume (do (emit! [:push (get-attr e :yin/parked-id)])
+                            (compile-node (get-attr e :yin/val-node))
+                            (emit! [:resume]))
+             :vm/current-continuation (emit! [:current-cont])
+             (throw (ex-info "Unknown node type in stack assembly compilation"
+                             {:type (get-attr e :yin/type), :entity e})))))]
+       (compile-node root-id true) @instructions))))
 
 
 (defn assemble
@@ -296,6 +315,164 @@
       {:bytecode @bytes, :pool @pool, :source-map @source-map})))
 
 
+(defn- canonical-program?
+  [program]
+  (and (map? program)
+       (contains? program :node)
+       (contains? program :datoms)))
+
+
+(defn- build-program-index
+  [datoms]
+  (group-by first (vec datoms)))
+
+
+(defn- executable-program-datom?
+  [[_e a _v _t m]]
+  (and (keyword? a)
+       (= "yin" (namespace a))
+       (not= m derived-metadata-eid)))
+
+
+(declare collect-frame-versions)
+
+
+(defn- frame-versions
+  [frame]
+  (if (map? frame)
+    (let [self (cond-> #{}
+                 (some? (:compiled-version frame))
+                 (conj (:compiled-version frame)))]
+      (into self (collect-frame-versions (:call-stack frame))))
+    #{}))
+
+
+(defn- collect-frame-versions
+  [frames]
+  (reduce (fn [acc frame] (into acc (frame-versions frame)))
+          #{}
+          (or frames [])))
+
+
+(defn- pinned-compiled-versions
+  [vm]
+  (let [parked-frames (vals (or (:parked vm) {}))
+        run-entries (or (:run-queue vm) [])
+        wait-entries (or (:wait-set vm) [])]
+    (-> #{}
+        (cond-> (some? (:active-compiled-version vm))
+          (conj (:active-compiled-version vm)))
+        (into (collect-frame-versions (:call-stack vm)))
+        (into (collect-frame-versions parked-frames))
+        (into (collect-frame-versions run-entries))
+        (into (collect-frame-versions wait-entries))
+        (disj nil))))
+
+
+(defn- trim-compiled-cache
+  [vm]
+  (let [compiled (or (:compiled-by-version vm) {})
+        limit (max 1 (or (:compiled-cache-limit vm) default-compiled-cache-limit))
+        versions (sort (keys compiled))
+        keep-newest (set (take-last limit versions))
+        keep (into keep-newest (pinned-compiled-versions vm))]
+    (assoc vm
+           :compiled-by-version
+           (reduce-kv (fn [m version artifact]
+                        (if (contains? keep version)
+                          (assoc m version artifact)
+                          m))
+                      {}
+                      compiled))))
+
+
+(defn- compile-stack-artifact
+  [program-root-eid program-datoms program-index]
+  (assemble
+    (ast-datoms->asm program-datoms
+                     {:root-id program-root-eid,
+                      :by-entity program-index})))
+
+
+(defn- cache-compiled-artifact
+  [vm version artifact program-index]
+  (-> vm
+      (assoc :program-index program-index
+             :compile-dirty? false
+             :active-compiled-version version)
+      (update :compiled-by-version (fnil assoc {}) version artifact)
+      trim-compiled-cache))
+
+
+(defn- ensure-compiled-version
+  [vm version]
+  (if-let [artifact (get-in vm [:compiled-by-version version])]
+    [vm artifact]
+    (let [program-datoms (vec (or (:program-datoms vm) []))
+          program-root-eid (:program-root-eid vm)]
+      (when (or (empty? program-datoms) (nil? program-root-eid))
+        (throw (ex-info "Canonical program is not loaded"
+                        {:program-version version})))
+      (let [program-index (or (:program-index vm)
+                              (build-program-index program-datoms))
+            artifact (compile-stack-artifact program-root-eid
+                                             program-datoms
+                                             program-index)
+            vm' (cache-compiled-artifact vm version artifact program-index)]
+        [vm' artifact]))))
+
+
+(defn- maybe-recompile-at-boundary
+  "Compile the current canonical program version if dirty.
+   Called at explicit dispatch boundaries only."
+  [vm]
+  (if (and (:compile-dirty? vm)
+           (seq (:program-datoms vm))
+           (some? (:program-root-eid vm)))
+    (let [version (:program-version vm)
+          [vm' _artifact] (ensure-compiled-version vm version)]
+      vm')
+    vm))
+
+
+(defn append-program-datoms
+  "Append datoms to the canonical program stream.
+   Optionally update the root eid for the new program version."
+  ([vm datoms] (append-program-datoms vm datoms nil))
+  ([vm datoms new-root-eid]
+   (when-not (some? (:program-root-eid vm))
+     (throw (ex-info "append-program-datoms requires a canonical program"
+                     {})))
+   (let [appended (vec datoms)]
+     (if (and (empty? appended) (nil? new-root-eid))
+       vm
+       (let [version (inc (or (:program-version vm) 0))
+             executable? (or (some executable-program-datom? appended)
+                             (some? new-root-eid))]
+         (-> vm
+             (update :program-datoms into appended)
+             (assoc :program-version version
+                    :program-root-eid (or new-root-eid
+                                          (:program-root-eid vm))
+                    :compile-dirty? (or (:compile-dirty? vm) executable?)
+                    :program-index (if executable?
+                                     nil
+                                     (:program-index vm)))))))))
+
+
+(defn- activate-compiled-artifact
+  [vm artifact]
+  (assoc vm
+         :pc 0
+         :bytecode (:bytecode artifact)
+         :pool (:pool artifact)
+         :stack []
+         :call-stack []
+         :halted false
+         :value nil
+         :blocked false))
+
+
 (defn- fetch-short-unsigned
   [bytes pc]
   (let [hi (nth bytes pc)
@@ -423,13 +600,14 @@
 
 (defn- snap-frame
   "Snapshot current VM frame for parking or reification."
-  [{:keys [bytecode env call-stack pool]} stack pc]
+  [{:keys [bytecode env call-stack pool active-compiled-version]} stack pc]
   {:pc pc,
    :bytecode bytecode,
    :stack stack,
    :env env,
    :call-stack call-stack,
-   :pool pool})
+   :pool pool,
+   :compiled-version active-compiled-version})
 
 
 (defn- handle-native-result
@@ -459,7 +637,9 @@
           :stack (:stack frame)
           :env (:env frame)
           :call-stack (:call-stack frame)
-          :pool (or (:pool frame) (:pool state))))
+          :pool (or (:pool frame) (:pool state))
+          :active-compiled-version (or (:compiled-version frame)
+                                       (:active-compiled-version state))))
   ([state frame value]
    (assoc state
           :pc (:pc frame)
@@ -467,7 +647,9 @@
           :stack (conj (:stack frame) value)
           :env (:env frame)
           :call-stack (:call-stack frame)
-          :pool (or (:pool frame) (:pool state)))))
+          :pool (or (:pool frame) (:pool state))
+          :active-compiled-version (or (:compiled-version frame)
+                                       (:active-compiled-version state)))))
 
 
 (defn- apply-op
@@ -501,7 +683,8 @@
                  clo-body :body-bytes,
                  clo-body-start :body-start,
                  clo-env :env,
-                 clo-pool :pool}
+                 clo-pool :pool,
+                 clo-version :compiled-version}
                 fn-val
                 target-bytecode (or clo-bytecode clo-body)
                 target-pc (or clo-body-start 0)
@@ -516,6 +699,8 @@
                      :stack []
                      :env new-env
                      :pool (or clo-pool pool)
+                     :active-compiled-version (or clo-version
+                                                  (:active-compiled-version state))
                      :call-stack call-stack)
               (assoc state
                      :pc target-pc
@@ -523,6 +708,8 @@
                      :stack []
                      :env new-env
                      :pool (or clo-pool pool)
+                     :active-compiled-version (or clo-version
+                                                  (:active-compiled-version state))
                      :call-stack (conj call-stack frame))))
           :else (throw (ex-info "Cannot apply non-function" {:fn fn-val})))))
 
@@ -531,7 +718,13 @@
   "Execute one stack VM instruction. Returns updated state.
    When execution completes, :halted is true and :value contains the result."
   [state]
-  (let [{:keys [pc bytecode stack env call-stack pool store primitives
+  (let [op0 (nth (:bytecode state) (:pc state) nil)
+        state (if (and (:compile-dirty? state)
+                       (or (= op0 (vm/opcode-table :call))
+                           (= op0 (vm/opcode-table :tailcall))))
+                (maybe-recompile-at-boundary state)
+                state)
+        {:keys [pc bytecode stack env call-stack pool store primitives
                 id-counter]}
         state]
     (if (>= pc (count bytecode))
@@ -570,7 +763,8 @@
                          :body-end body-end,
                          :bytecode bytecode,
                          :env env,
-                         :pool pool}]
+                         :pool pool,
+                         :compiled-version (:active-compiled-version state)}]
             (assoc state
                    :pc (+ pc 4 body-len)
                    :stack (conj stack closure)))
@@ -732,7 +926,8 @@
   [state]
   (engine/resume-from-run-queue state
                                 (fn [base entry]
-                                  (restore-frame base entry (:value entry)))))
+                                  (-> (restore-frame base entry (:value entry))
+                                      maybe-recompile-at-boundary))))
 
 
 (defn- stack-vm-run-scheduler
@@ -1154,13 +1349,9 @@
 
 (defn- stack-vm-run
   [vm]
-  ;; Fast path is valid only for a single active compute continuation.
-  ;; Any of these conditions means we must re-enter scheduler semantics:
-  ;; - :blocked / :wait-set: wait-set polling and wakeup checks.
-  ;; - :run-queue: dequeue + resume parked continuations.
-  ;; - :halted: current continuation finished, but scheduler may still have work.
-  ;; - nil :bytecode: no active instruction stream to execute.
-  (if (or (:blocked vm)
+  ;; Boundary recompilation requires scheduler checkpoints when dirty.
+  (if (or (:compile-dirty? vm)
+          (:blocked vm)
           (:halted vm)
           (seq (:run-queue vm))
           (seq (:wait-set vm))
@@ -1191,31 +1382,42 @@
   (engine/vm-value vm))
 
 
+(defn- stack-vm-load-canonical-program
+  "Load canonical datom-form program into the VM."
+  [^StackVM vm {:keys [node datoms]}]
+  (let [program-version (inc (or (:program-version vm) 0))
+        program-datoms (vec datoms)
+        vm' (assoc vm
+                   :program-root-eid node
+                   :program-datoms program-datoms
+                   :program-version program-version
+                   :program-index nil
+                   :compile-dirty? true)
+        [compiled-vm artifact] (ensure-compiled-version vm' program-version)]
+    (activate-compiled-artifact compiled-vm artifact)))
+
+
 (defn- stack-vm-load-program
-  "Load bytecode into the VM.
-   Expects {:bytecode [...] :pool [...]}."
-  [^StackVM vm {:keys [bytecode pool]}]
-  (assoc vm
-         :pc 0
-         :bytecode (vec bytecode)
-         :stack []
-         :call-stack []
-         :pool pool
-         :halted false
-         :value nil
-         :blocked false))
+  "Load a program into the Stack VM.
+   Expects canonical form: {:node root-id :datoms [...]}."
+  [^StackVM vm program]
+  (if (canonical-program? program)
+    (stack-vm-load-canonical-program vm program)
+    (throw (ex-info "Unsupported stack program form"
+                    {:expected {:node :datoms},
+                     :program program}))))
 
 
 (defn- stack-vm-eval
   "Evaluate an AST. Owns the step loop with scheduler.
-   When ast is non-nil, compiles through datoms -> asm -> bytecode and loads.
+   When ast is non-nil, normalizes through vm/ast->datoms and loads via the
+   canonical {:node :datoms} path.
    When nil, resumes from current state."
   [^StackVM vm ast]
   (let [v (if ast
-            (let [datoms (vm/ast->datoms ast)
-                  asm (ast-datoms->asm datoms)
-                  compiled (assemble asm)]
-              (stack-vm-load-program vm compiled))
+            (let [datoms (vec (vm/ast->datoms ast))
+                  root-id (apply max (map first datoms))]
+              (stack-vm-load-program vm {:node root-id, :datoms datoms}))
             vm)]
     (stack-vm-run v)))
 
@@ -1254,6 +1456,15 @@
                            :env env,
                            :call-stack [],
                            :pool [],
+                           :compiled-by-version {},
+                           :compiled-cache-limit (or (:compiled-cache-limit opts)
+                                                     default-compiled-cache-limit),
+                           :active-compiled-version nil,
+                           :compile-dirty? false,
+                           :program-root-eid nil,
+                           :program-datoms [],
+                           :program-version 0,
+                           :program-index nil,
                            :halted false,
                            :value nil,
                            :blocked false})))))

@@ -13,11 +13,9 @@ Bytecode remains a derived projection/cache, not the source of truth.
 - Program model
   - Canonical input for register/stack becomes semantic-style datom program
     maps.
-  - Keep backward compatibility for existing bytecode-form `load-program`
-    inputs.
 
 - VM loading/eval contract
-  - `load-program` supports `{:node :datoms}` as primary form.
+  - `load-program` accepts only `{:node :datoms}`.
   - `eval` explicitly normalizes AST via `vm/ast->datoms`, builds
     `{:node root-id :datoms ...}`, then loads via the same path.
 
@@ -99,11 +97,9 @@ This preserves determinism and serialization boundaries.
 - Add boundary-recompile test: append datoms mid-execution, verify in-flight
   frame completes on old artifact and next call uses new artifact.
 - Add cache-retention test: enforce N-version cap with active-frame pinning.
-- Keep existing bytecode `load-program` tests passing unchanged.
 
 ## Acceptance Criteria
 
 - Existing suites pass with no regressions.
 - New stream-program, boundary-recompile, and cache-retention behaviors are
   covered and passing.
-- Bytecode compatibility path remains intact.

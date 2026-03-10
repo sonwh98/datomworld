@@ -379,10 +379,14 @@
      :root-eids nil,
      :semantic-stats nil,
      :register-asm nil,
+     :register-datoms nil,
+     :register-root-ids nil,
      :register-bytecode nil,
      :register-result nil,
      :register-source-map nil,
      :stack-asm nil,
+     :stack-datoms nil,
+     :stack-root-ids nil,
      :stack-bytecode nil,
      :stack-result nil,
      :stack-source-map nil,
@@ -545,15 +549,15 @@
 
 
 (defn- load-stack-state
-  [bytecode pool]
+  [root-id datoms]
   (-> (stack/create-vm)
-      (vm/load-program {:bytecode bytecode, :pool pool})))
+      (vm/load-program {:node root-id, :datoms datoms})))
 
 
 (defn- load-register-state
-  [bytecode pool reg-count]
+  [root-id datoms]
   (-> (register/create-vm)
-      (vm/load-program {:bytecode bytecode, :pool pool, :reg-count reg-count})))
+      (vm/load-program {:node root-id, :datoms datoms})))
 
 
 (defn- load-semantic-state
@@ -573,19 +577,24 @@
   (try (let [forms (read-ast-forms)
              results (mapv (fn [ast]
                              (let [datoms (vm/ast->datoms ast)
+                                   root-id (apply max (map first datoms))
                                    asm (stack/ast-datoms->asm datoms)
                                    result (stack/assemble asm)]
                                {:asm asm,
+                                :datoms datoms,
+                                :root-id root-id,
                                 :bytecode (:bytecode result),
                                 :pool (:pool result),
                                 :source-map (:source-map result)}))
                            forms)
              last-result (last results)
              initial-state (when last-result
-                             (load-stack-state (:bytecode last-result)
-                                               (:pool last-result)))]
+                             (load-stack-state (:root-id last-result)
+                                               (:datoms last-result)))]
          (swap! app-state assoc
                 :stack-asm (mapv :asm results)
+                :stack-datoms (mapv :datoms results)
+                :stack-root-ids (mapv :root-id results)
                 :stack-bytecode (mapv :bytecode results)
                 :stack-pool (mapv :pool results)
                 :stack-source-map (mapv :source-map results)
@@ -596,18 +605,20 @@
          (swap! app-state assoc
                 :error (str "Stack Compile Error: " (.-message e))
                 :stack-asm nil
+                :stack-datoms nil
+                :stack-root-ids nil
                 :stack-bytecode nil)
          (clear-vm-state! :stack)
          nil)))
 
 
 (defn reset-stack
-  "Reset stack VM to initial state from compiled bytecode."
+  "Reset stack VM to initial state from canonical datom program."
   []
-  (let [bytecode (last (:stack-bytecode @app-state))
-        pool (last (:stack-pool @app-state))]
-    (when (and bytecode pool)
-      (let [initial-state (load-stack-state bytecode pool)]
+  (let [datoms (last (:stack-datoms @app-state))
+        root-id (last (:stack-root-ids @app-state))]
+    (when (and datoms root-id)
+      (let [initial-state (load-stack-state root-id datoms)]
         (set-vm-state! :stack initial-state)
         (swap! app-state assoc :stack-result nil)))))
 
@@ -783,10 +794,13 @@
     (let [forms (read-ast-forms)
           results (mapv (fn [ast]
                           (let [datoms (vm/ast->datoms ast)
+                                root-id (apply max (map first datoms))
                                 {:keys [asm reg-count]}
                                 (register/ast-datoms->asm datoms)
                                 result (register/assemble asm)]
                             {:asm asm,
+                             :datoms datoms,
+                             :root-id root-id,
                              :reg-count reg-count,
                              :bytecode (:bytecode result),
                              :pool (:pool result),
@@ -794,11 +808,12 @@
                         forms)
           last-result (last results)
           initial-state (when last-result
-                          (load-register-state (:bytecode last-result)
-                                               (:pool last-result)
-                                               (:reg-count last-result)))]
+                          (load-register-state (:root-id last-result)
+                                               (:datoms last-result)))]
       (swap! app-state assoc
              :register-asm (mapv :asm results)
+             :register-datoms (mapv :datoms results)
+             :register-root-ids (mapv :root-id results)
              :register-bytecode (mapv :bytecode results)
              :register-pool (mapv :pool results)
              :register-reg-counts (mapv :reg-count results)
@@ -810,22 +825,23 @@
       (swap! app-state assoc
              :error (str "Register Compile Error: " (.-message e))
              :register-asm nil
+             :register-datoms nil
+             :register-root-ids nil
              :register-bytecode nil)
       (clear-vm-state! :register)
       nil)))
 
 
 (defn reset-register
-  "Reset register VM to initial state from compiled bytecode."
+  "Reset register VM to initial state from canonical datom program."
   []
-  (let [bytecode (last (:register-bytecode @app-state))
-        pool (last (:register-pool @app-state))
-        reg-count (last (:register-reg-counts @app-state))
+  (let [datoms (last (:register-datoms @app-state))
+        root-id (last (:register-root-ids @app-state))
         state (get-in @app-state [:vm-states :register :state])]
-    (when (and bytecode pool)
+    (when (and datoms root-id)
       (let [initial-state (if (and state (satisfies? vm/IVMReset state))
                             (vm/reset state)
-                            (load-register-state bytecode pool reg-count))]
+                            (load-register-state root-id datoms))]
         (set-vm-state! :register initial-state)
         (swap! app-state assoc :register-result nil)))))
 
