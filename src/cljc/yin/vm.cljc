@@ -102,7 +102,7 @@
 ;; - enforce fixed arities (host ops like + are variadic),
 ;; - expose macro-like forms (and/or) as callable values,
 ;; - shape return values/effects for VM contracts (e.g. rest, yin/def).
-(def primitives
+(def ^:private primitives
   {'+ (fn [a b] (+ a b)),
    '- (fn [a b] (- a b)),
    '* (fn [a b] (* a b)),
@@ -203,7 +203,7 @@
        `(case (int ~op-expr) ~@resolved ~@(when default [default])))))
 
 
-(def schema
+(def ^:private schema
   "DataScript schema for :yin/ AST datoms.
    Complete data model for the Universal AST as queryable datoms."
   {;; Ref attributes (entity references, tempid resolution)
@@ -249,7 +249,7 @@
   #{:yin/operands})
 
 
-(defn datoms->tx-data
+(defn- datoms->tx-data
   "Convert [e a v t m] datoms to DataScript tx-data [:db/add e a v].
    Expands cardinality-many vector values into individual assertions.
 
