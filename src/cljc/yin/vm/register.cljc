@@ -14,7 +14,8 @@
   (:require
     [yin.module :as module]
     [yin.vm :as vm]
-    [yin.vm.engine :as engine])
+    [yin.vm.engine :as engine]
+    [yin.vm.macro :as macro])
   #?(:cljs
      (:require-macros
        [yin.vm :refer [opcase]])))
@@ -35,6 +36,7 @@
    halted     ; true if execution completed
    id-counter ; unique ID counter
    k          ; continuation (call frame stack)
+   macro-registry ; {macro-lambda-eid -> (fn [ctx] {:datoms [...] :root-eid eid})}
    parked     ; parked continuations
    pc         ; program counter
    pool       ; constant pool
@@ -1431,13 +1433,18 @@
 
 
 (defn- reg-vm-load-canonical-program
-  "Load canonical datom-form program into the VM."
+  "Load canonical datom-form program into the VM.
+   Runs macro expansion before bytecode compilation if macro-registry is set."
   [^RegisterVM vm {:keys [node datoms]}]
-  (let [program-version (inc (or (:program-version vm) 0))
-        program-datoms (vec datoms)
+  (let [registry (or (:macro-registry vm) {})
+        {:keys [datoms root-eid]}
+        (if (seq registry)
+          (macro/expand-all (vec datoms) node registry)
+          {:datoms (vec datoms) :root-eid node})
+        program-version (inc (or (:program-version vm) 0))
         vm' (assoc vm
-                   :program-root-eid node
-                   :program-datoms program-datoms
+                   :program-root-eid root-eid
+                   :program-datoms datoms
                    :program-version program-version
                    :program-index nil
                    :compile-dirty? true)
@@ -1493,7 +1500,7 @@
 
 (defn create-vm
   "Create a new RegisterVM with optional opts map.
-   Accepts {:env map, :primitives map, :bridge-dispatcher map}."
+   Accepts {:env map, :primitives map, :bridge-dispatcher map, :macro-registry map}."
   ([] (create-vm {}))
   ([opts]
    (let [env (or (:env opts) {})]
@@ -1511,6 +1518,7 @@
                                                         default-compiled-cache-limit),
                               :active-compiled-version nil,
                               :compile-dirty? false,
+                              :macro-registry (or (:macro-registry opts) {}),
                               :program-root-eid nil,
                               :program-datoms [],
                               :program-version 0,

@@ -67,7 +67,10 @@
      - RegisterVM: {:node root-id :datoms [...]}
      - StackVM: {:node root-id :datoms [...]}
      - SemanticVM: {:node root-id :datoms [...]}
-     Returns new VM with program loaded."))
+     Macro expansion (if a macro-registry is set on the VM) runs automatically
+     inside load-program for register/stack/semantic. No per-call opts are
+     exposed; expansion behaviour is a VM-instance invariant, not a call-site
+     decision. Returns new VM with program loaded."))
 
 
 (defprotocol IVMState
@@ -217,7 +220,7 @@
    ;; Ground-value attributes
    ;; DataScript only validates :db.type/ref and :db.type/tuple,
    ;; so value types are declared in comments for the data model.
-   :yin/type {},        ; keyword (:literal, :variable, :lambda, ...)
+   :yin/type {},        ; keyword (:literal, :variable, :lambda, :yin/macro-expand, ...)
    :yin/value {},       ; polymorphic (number, string, boolean, keyword, ...)
    :yin/name {},        ; symbol
    :yin/op {},          ; keyword (FFI operation key)
@@ -226,7 +229,18 @@
    :yin/prefix {},      ; string
    :yin/buffer {},      ; long
    :yin/parked-id {},   ; keyword
-   :yin/tail? {}})
+   :yin/tail? {},       ; boolean (tail-position flag)
+   ;; Macro attributes
+   :yin/macro? {},          ; boolean — true if lambda is a macro
+   :yin/phase-policy {},    ; keyword — :compile | :runtime | :both
+   ;; Macro expansion event attributes
+   :yin/source-call {:db/valueType :db.type/ref}, ; EID of the :yin/macro-expand call site
+   :yin/macro {:db/valueType :db.type/ref},        ; EID of the macro lambda entity
+   :yin/expansion-root {:db/valueType :db.type/ref}, ; EID of the top expansion node
+   :yin/phase {},      ; keyword — :compile or :runtime
+   :yin/error {},      ; structured error (optional)
+   :yin/capability {}  ; Shibi capability ref (optional)
+   })
 
 
 (def ^:private cardinality-many-attrs
@@ -336,6 +350,14 @@
                                (emit! e :yin/val-node val-id)))
               :vm/current-continuation
               (emit! e :yin/type :vm/current-continuation)
+              ;; Macro call site — operator is the macro lambda entity ref,
+              ;; operands are unevaluated AST refs (not evaluated runtime values)
+              :yin/macro-expand
+              (do (emit! e :yin/type :yin/macro-expand)
+                  (let [op-id (convert (:operator node))
+                        operand-ids (mapv convert (:operands node))]
+                    (emit! e :yin/operator op-id)
+                    (emit! e :yin/operands operand-ids)))
               ;; Default
               (throw (ex-info "Unknown AST node type"
                               {:type type, :node node})))

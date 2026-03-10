@@ -3,7 +3,8 @@
     [dao.db :as db]
     [yin.module :as module]
     [yin.vm :as vm]
-    [yin.vm.engine :as engine]))
+    [yin.vm.engine :as engine]
+    [yin.vm.macro :as macro]))
 
 
 ;; =============================================================================
@@ -161,7 +162,7 @@
    env        ; lexical environment
    halted     ; true if execution completed
    id-counter ; unique ID counter
-   index      ; Entity index {eid [datom...]}
+   index      ; Entity index {eid node-attr-array}
    node-id-counter ; unique negative ID counter for AST nodes
    parked     ; parked continuations
    primitives ; primitive operations
@@ -173,7 +174,11 @@
    wait-set   ; vector of parked continuations waiting on streams
    index-arr  ; array-backed node index for hot loop
    index-base-id ; base id for index-arr offset calculation
+   macro-registry ; {macro-lambda-eid -> (fn [ctx] {:datoms [...] :root-eid eid})}
    ])
+
+
+(declare semantic-expand-macro-call)
 
 
 ;; =============================================================================
@@ -201,7 +206,8 @@
     val
     (:wait-set vm)
     (:index-arr vm)
-    (:index-base-id vm)))
+    (:index-base-id vm)
+    (:macro-registry vm)))
 
 
 (defn- park-and-enqueue-ffi
@@ -542,6 +548,9 @@
           (assoc vm
                  :control {:type :value,
                            :val {:type :reified-continuation, :stack stack, :env env}})
+          ;; Runtime macro expansion: expand :yin/macro-expand node inline
+          :yin/macro-expand
+          (semantic-expand-macro-call vm node-id node-arr env stack)
           (throw (ex-info "Unknown node type" {:node-type (aget node-arr ATTR_TYPE)})))))))
 
 
@@ -703,6 +712,66 @@
            :halted false
            :value nil
            :blocked false)))
+
+
+(defn semantic-append-datoms
+  "Append new datoms to the semantic VM's index without resetting execution state.
+   Used by the macro expander to inject expansion output at runtime."
+  [^SemanticVM vm new-datoms]
+  (let [new-datom-index (group-by first new-datoms)
+        new-node-map-index (into {}
+                                 (map (fn [[eid _datoms]]
+                                        [eid (datom-node-attrs new-datom-index eid)])
+                                      new-datom-index))
+        merged-index (merge (:index vm) new-node-map-index)
+        cardinality (count merged-index)
+        [index-base-id index-arr] (build-semantic-node-index-array merged-index cardinality)]
+    (assoc vm
+           :datoms (into (:datoms vm) new-datoms)
+           :index merged-index
+           :index-arr index-arr
+           :index-base-id index-base-id)))
+
+
+(defn- semantic-expand-macro-call
+  "Expand a :yin/macro-expand node at runtime.
+   Returns updated VM with expansion appended to datom index and control
+   pointing to the expansion root."
+  [^SemanticVM vm node-id node-arr env stack]
+  (let [macro-registry (:macro-registry vm)
+        macro-lambda-eid (aget node-arr ATTR_OPERATOR)
+        arg-eids (or (aget node-arr ATTR_OPERANDS) [])
+        macro-fn (get macro-registry macro-lambda-eid)]
+    (when-not macro-fn
+      (throw (ex-info "No macro registered for runtime :yin/macro-expand"
+                      {:macro-lambda-eid macro-lambda-eid
+                       :call-eid node-id
+                       :registered-keys (keys macro-registry)})))
+    (let [;; Build by-entity from raw datoms for the macro context
+          by-entity (group-by first (:datoms vm))
+          get-attr (fn [eid attr]
+                     (some (fn [[_ a v]] (when (= a attr) v))
+                           (rseq (vec (get by-entity eid)))))
+          eid-counter (macro/make-eid-counter! (:datoms vm))
+          event-eid (swap! eid-counter dec)
+          fresh-eid-fn (fn [] (swap! eid-counter dec))
+          ctx {:get-attr get-attr
+               :by-entity by-entity
+               :arg-eids arg-eids
+               :fresh-eid fresh-eid-fn
+               :phase :runtime}
+          result (macro-fn ctx)
+          exp-datoms (:datoms result)
+          exp-root (:root-eid result)
+          evt-datoms (macro/expansion-event-datoms
+                       event-eid node-id macro-lambda-eid exp-root :runtime)
+          marked-exp (macro/mark-with-provenance exp-datoms event-eid)
+          all-new (vec (concat evt-datoms marked-exp))
+          updated-vm (semantic-append-datoms vm all-new)]
+      (assoc updated-vm
+             :control {:type :node, :id exp-root}
+             :env env
+             :stack stack))))
 
 
 (defn- semantic-run-active-continuation
@@ -959,7 +1028,7 @@
                                                       (aget node-arr ATTR_TAIL)])]
                                (recur :node (aget node-arr ATTR_OPERATOR) env next-sp vm))
 
-                ;; Fallback for VM primitives and stream ops
+                ;; Fallback for VM primitives, stream ops, and runtime macro expansion
                 (let [state (semantic-return vm
                                              {:type :node, :id node-id}
                                              env
@@ -967,7 +1036,11 @@
                                              false
                                              nil)
                       next (handle-node-eval state)]
-                  (if (or (:blocked next) (nil? (:control next)))
+                  (if (or (:blocked next)
+                          (nil? (:control next))
+                          ;; Index changed (e.g., runtime macro expanded new nodes):
+                          ;; exit hot loop so outer eval can restart with updated index
+                          (not (identical? (:index next) index)))
                     next
                     (let [next-control (:control next)
                           next-tag (:type next-control)
@@ -1030,18 +1103,25 @@
                        engine/active-continuation?
                        semantic-vm-step
                        resume-from-run-queue)
-      (let [result (semantic-run-active-continuation v
-                                                     (:control v)
-                                                     (:env v)
-                                                     (:stack v))]
-        ;; Fast path may return blocked immediately after parking.
-        ;; Re-enter scheduler once so idle handlers (wait-set/FFI) can run.
-        (if (:blocked result)
-          (engine/run-loop result
-                           engine/active-continuation?
-                           semantic-vm-step
-                           resume-from-run-queue)
-          result)))))
+      ;; Run hot loop, restarting when runtime macro expansion updates the index
+      (loop [v v]
+        (let [result (semantic-run-active-continuation v
+                                                       (:control v)
+                                                       (:env v)
+                                                       (:stack v))]
+          (cond
+            ;; Blocked: hand off to scheduler (FFI, stream wait-set, run-queue)
+            (:blocked result)
+            (engine/run-loop result
+                             engine/active-continuation?
+                             semantic-vm-step
+                             resume-from-run-queue)
+            ;; Not halted and still has pending control: runtime macro expanded new nodes,
+            ;; restart hot loop with the updated index
+            (and (not (:halted result)) (some? (:control result)))
+            (recur result)
+            ;; Halted or no pending control
+            :else result))))))
 
 
 (extend-type SemanticVM
@@ -1065,7 +1145,7 @@
 
 (defn create-vm
   "Create a new SemanticVM with optional opts map.
-   Accepts {:env map, :primitives map, :bridge-dispatcher map}."
+   Accepts {:env map, :primitives map, :bridge-dispatcher map, :macro-registry map}."
   ([] (create-vm {}))
   ([opts]
    (let [env (or (:env opts) {})]
@@ -1082,4 +1162,5 @@
                               :halted false,
                               :value nil,
                               :blocked false,
-                              :node-id-counter -1024})))))
+                              :node-id-counter -1024,
+                              :macro-registry (or (:macro-registry opts) {})})))))
