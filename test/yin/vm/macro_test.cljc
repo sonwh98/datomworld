@@ -106,7 +106,7 @@
                   [-1025 :yin/body -1026 0 0]
                   [-1026 :yin/type :literal 0 0]
                   [-1026 :yin/value 42 0 0]]
-          {:keys [get-attr]} (engine/index-datoms datoms)]
+          {:keys [get-attr]} (vm/index-datoms datoms)]
       (is (= :lambda (get-attr -1025 :yin/type)))
       (is (= true (get-attr -1025 :yin/macro?)))
       (is (= :compile (get-attr -1025 :yin/phase-policy))))))
@@ -129,7 +129,7 @@
       (is (true? (:expanded? result)))
       (is (not= -1025 (:root-eid result)) "Root should have changed")
       ;; New root should be the literal 99 node
-      (let [{:keys [get-attr]} (engine/index-datoms (:datoms result) {:root-id (:root-eid result)})]
+      (let [{:keys [get-attr]} (vm/index-datoms (:datoms result) {:root-id (:root-eid result)})]
         (is (= :literal (get-attr (:root-eid result) :yin/type)))
         (is (= 99 (get-attr (:root-eid result) :yin/value))))))
 
@@ -158,7 +158,7 @@
           event-datoms (filter (fn [[_e a v]] (and (= a :yin/type) (= v :macro-expand-event)))
                                datoms)
           event-eid (ffirst event-datoms)
-          {:keys [get-attr]} (engine/index-datoms datoms)]
+          {:keys [get-attr]} (vm/index-datoms datoms)]
       (is (some? event-eid) "An expansion event entity should exist")
       (is (= :macro-expand-event (get-attr event-eid :yin/type)))
       (is (= -1025 (get-attr event-eid :yin/source-call))
@@ -226,7 +226,7 @@
                   [lit10-eid :yin/value 10 0 0]]
           registry {macro-lambda-eid (make-literal-macro 99)}
           {:keys [datoms root-eid expanded?]} (macro/expand-once datoms app-eid registry)
-          {:keys [get-attr]} (engine/index-datoms datoms {:root-id root-eid})]
+          {:keys [get-attr]} (vm/index-datoms datoms {:root-id root-eid})]
       (is (true? expanded?))
       ;; New root should be a new application node
       (is (= :application (get-attr root-eid :yin/type)))
@@ -252,7 +252,7 @@
                        [-1025 :yin/operands [] 0 0]]
           registry {macro-lambda-eid (make-literal-macro 42)}
           {:keys [datoms root-eid]} (macro/expand-all call-datoms -1025 registry)
-          {:keys [get-attr]} (engine/index-datoms datoms {:root-id root-eid})]
+          {:keys [get-attr]} (vm/index-datoms datoms {:root-id root-eid})]
       (is (= :literal (get-attr root-eid :yin/type)))
       (is (= 42 (get-attr root-eid :yin/value)))))
 
@@ -276,7 +276,7 @@
                        [-1025 :yin/operator macro-a-eid 0 0]
                        [-1025 :yin/operands [] 0 0]]
           {:keys [datoms root-eid]} (macro/expand-all call-datoms -1025 registry)
-          {:keys [get-attr]} (engine/index-datoms datoms {:root-id root-eid})]
+          {:keys [get-attr]} (vm/index-datoms datoms {:root-id root-eid})]
       (is (= :literal (get-attr root-eid :yin/type)))
       (is (= 7 (get-attr root-eid :yin/value))))))
 
@@ -460,7 +460,7 @@
                   [call-eid :yin/operands [] 0 0]]
           registry {macro-lambda-eid (make-literal-macro 5)}
           {:keys [datoms root-eid]} (macro/expand-all datoms call-eid registry)
-          {:keys [get-attr by-entity]} (engine/index-datoms datoms {:root-id root-eid})
+          {:keys [get-attr by-entity]} (vm/index-datoms datoms {:root-id root-eid})
           ;; Find the event entity
           event-eid (first (keep (fn [[eid]]
                                    (when (= :macro-expand-event (get-attr eid :yin/type))

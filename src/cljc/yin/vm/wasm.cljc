@@ -7,7 +7,7 @@
    Pipeline:
      yin AST map
        -> vm/ast->datoms          (existing)
-       -> engine/index-datoms     (existing)
+       -> vm/index-datoms          (existing)
        -> ast-datoms->asm         (symbolic WAT-like IR, platform-agnostic)
        -> assemble                (symbolic IR -> WASM binary bytes, platform-agnostic)
        -> WebAssembly.Module      (Node.js built-in, CLJS-only)
@@ -149,8 +149,8 @@
    Each recursive call returns {:type :f64|:i32, :instrs [...]}, allowing
    :if to pick the correct WASM result type."
   [datoms]
-  (let [{:keys [by-entity root-id]} (engine/index-datoms datoms)
-        ;; engine/index-datoms uses (some ...) for get-attr, which treats false
+  (let [{:keys [by-entity root-id]} (vm/index-datoms datoms)
+        ;; vm/index-datoms uses (some ...) for get-attr, which treats false
         ;; as falsy and returns nil. We need reduce+reduced to handle false values.
         get-attr (fn [e attr]
                    (reduce (fn [_ [_ a v]]

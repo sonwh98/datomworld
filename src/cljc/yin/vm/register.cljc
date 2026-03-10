@@ -89,9 +89,9 @@
    - :by-entity precomputed entity index {eid [datom ...]}."
   ([ast-as-datoms] (ast-datoms->asm ast-as-datoms {}))
   ([ast-as-datoms {:keys [root-id by-entity]}]
-   (let [{:keys [get-attr root-id]} (engine/index-datoms ast-as-datoms
-                                                         {:root-id root-id,
-                                                          :by-entity by-entity})
+   (let [{:keys [get-attr root-id]} (vm/index-datoms ast-as-datoms
+                                                     {:root-id root-id,
+                                                      :by-entity by-entity})
          ;; Assembly accumulator
          bytecode (atom [])
          emit! (fn [instr] (swap! bytecode conj instr))

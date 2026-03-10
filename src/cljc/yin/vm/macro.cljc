@@ -10,6 +10,7 @@
    - Runtime: semantic VM expands :yin/macro-expand nodes inline
    - Guard limits: max depth 100, max datoms 10,000"
   (:require
+    [yin.vm :as vm]
     [yin.vm.engine :as engine]))
 
 
@@ -219,7 +220,7 @@
   ([datoms root-eid macro-registry]
    (expand-once datoms root-eid macro-registry {}))
   ([datoms root-eid macro-registry opts]
-   (let [{:keys [by-entity get-attr]} (engine/index-datoms datoms {:root-id root-eid})
+   (let [{:keys [by-entity get-attr]} (vm/index-datoms datoms {:root-id root-eid})
          phase (or (:phase opts) :compile)
          eid-counter (make-eid-counter! datoms)
          [new-root new-datoms expanded?]
