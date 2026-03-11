@@ -46,6 +46,10 @@
                    [:h3 "5. Object-Capability Security (E, Agoric)"]
                    [:p "Perhaps the most significant departure is security. Allowing code to rewrite itself at runtime is inherently dangerous in a multi-tenant system. Yin.vm requires a " [:strong "ShiBi capability token"] " to execute a runtime " [:code ":yin/macro-expand"] " event. A rogue continuation cannot inject new code unless the host explicitly granted it a capability token scoped to the target program stream and the specific macro namespace."]
 
+                   [:h3 "6. Cross-Language Metaprogramming"]
+                   [:p "Traditional macros are deeply tied to the syntax of their host language. A Clojure macro cannot expand Python code. In datom.world, macro expansion happens purely on the Universal AST datom stream, making it completely language-agnostic."]
+                   [:p "This enables a unique architecture for non-homoiconic languages like Python or JavaScript. Writing AST-manipulating macros in these languages is notoriously painful. Instead of forcing it, Yin.vm treats macros as a cross-language database service. A macro can be seamlessly authored in " [:code "yang.clojure"] " and persisted in DaoDB. When the " [:code "yang.python"] " compiler encounters a macro invocation, it doesn't parse text; it queries DaoDB for the macro's canonical lambda EID and emits a " [:code ":yin/macro-expand"] " node. The burden of metaprogramming is gracefully shifted to the Lisp layer, while the benefits are universally shared across all frontends."]
+
                    [:h2 "Conclusion"]
                    [:p "By treating macro expansion not as a compiler phase, but as a capability-gated, auditable database transaction, Yin.vm achieves Lisp's expressive power, Unison's structural purity, and Datomic's temporal observability. It is a new foundation for dynamic metaprogramming."]
                    ]]]}
