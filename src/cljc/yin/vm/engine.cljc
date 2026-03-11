@@ -6,7 +6,7 @@
     [yin.vm :as vm]))
 
 
-(defn ^:private resolve-var
+(defn resolve-var
   "Look up a variable name: env -> store -> primitives -> module system."
   [env store primitives name]
   (if-let [pair (find env name)]
@@ -22,31 +22,31 @@
   (keyword (str prefix "-" id-counter)))
 
 
-(defn ^:private vm-blocked?
+(defn vm-blocked?
   "Returns true if the VM is blocked."
   [vm]
   (boolean (:blocked vm)))
 
 
-(defn ^:private vm-value
+(defn vm-value
   "Returns the current value of the VM."
   [vm]
   (:value vm))
 
 
-(defn ^:private halted-with-empty-queue?
+(defn halted-with-empty-queue?
   "Returns true if the VM has halted and its run-queue is empty."
   [vm]
   (and (boolean (:halted vm)) (empty? (or (:run-queue vm) []))))
 
 
-(defn ^:private active-continuation?
+(defn active-continuation?
   "Returns true when the currently active continuation should keep stepping."
   [vm]
   (and (not (:blocked vm)) (not (:halted vm))))
 
 
-(defn ^:private check-wait-set
+(defn check-wait-set
   "Check wait-set entries against current store.
    Returns updated state with newly runnable entries moved to run-queue."
   [state]
@@ -155,7 +155,7 @@
       state)))
 
 
-(defn ^:private check-ffi-out
+(defn check-ffi-out
   "Idle handler for FFI requests.
    Performs one non-blocking read from :yin/ffi-out-cursor.
    If a request is available, dispatches through :bridge-dispatcher and enqueues
@@ -219,7 +219,7 @@
   (mapv #(assoc % :value nil) entries))
 
 
-(defn ^:private resume-from-run-queue
+(defn resume-from-run-queue
   "Pop first entry from run-queue, merge store-updates, and restore VM-specific context."
   [state restore-fn]
   (let [run-queue (or (:run-queue state) [])]
@@ -234,7 +234,7 @@
         (restore-fn base entry)))))
 
 
-(defn ^:private park-continuation
+(defn park-continuation
   "Add a parked continuation entry and halt the VM."
   [state cont-fields]
   (let [park-id (keyword (str "parked-" (:id-counter state)))
@@ -246,7 +246,7 @@
                :id-counter (inc (:id-counter state))))))
 
 
-(defn ^:private resume-continuation
+(defn resume-continuation
   "Restore state from a parked continuation."
   [state parked-id resume-val restore-fn]
   (if-let [parked (get-in state [:parked parked-id])]
@@ -261,7 +261,7 @@
   (update state :wait-set (fnil conj []) entry))
 
 
-(defn ^:private gensym
+(defn gensym
   "Generate a unique ID and return [id updated-state]."
   ([state] (gensym state "id"))
   ([state prefix]

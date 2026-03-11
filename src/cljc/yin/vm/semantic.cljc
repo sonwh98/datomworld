@@ -733,45 +733,59 @@
            :index-base-id index-base-id)))
 
 
+(declare invoke-macro-lambda)
+
+
 (defn- semantic-expand-macro-call
   "Expand a :yin/macro-expand node at runtime.
    Returns updated VM with expansion appended to datom index and control
    pointing to the expansion root."
   [^SemanticVM vm node-id node-arr env stack]
   (let [macro-registry (:macro-registry vm)
-        macro-lambda-eid (aget node-arr ATTR_OPERATOR)
+        op-eid (aget node-arr ATTR_OPERATOR)
         arg-eids (or (aget node-arr ATTR_OPERANDS) [])
-        macro-fn (get macro-registry macro-lambda-eid)]
-    (when-not macro-fn
-      (throw (ex-info "No macro registered for runtime :yin/macro-expand"
-                      {:macro-lambda-eid macro-lambda-eid
-                       :call-eid node-id
-                       :registered-keys (keys macro-registry)})))
-    (let [;; Build by-entity from raw datoms for the macro context
-          by-entity (group-by first (:datoms vm))
-          get-attr (fn [eid attr]
-                     (some (fn [[_ a v]] (when (= a attr) v))
-                           (rseq (vec (get by-entity eid)))))
-          eid-counter (macro/make-eid-counter! (:datoms vm))
-          event-eid (swap! eid-counter dec)
-          fresh-eid-fn (fn [] (swap! eid-counter dec))
-          ctx {:get-attr get-attr
-               :by-entity by-entity
-               :arg-eids arg-eids
-               :fresh-eid fresh-eid-fn
-               :phase :runtime}
-          result (macro-fn ctx)
-          exp-datoms (:datoms result)
-          exp-root (:root-eid result)
-          evt-datoms (macro/expansion-event-datoms
-                       event-eid node-id macro-lambda-eid exp-root :runtime)
-          marked-exp (macro/mark-with-provenance exp-datoms event-eid)
-          all-new (vec (concat evt-datoms marked-exp))
-          updated-vm (semantic-append-datoms vm all-new)]
-      (assoc updated-vm
-             :control {:type :node, :id exp-root}
-             :env env
-             :stack stack))))
+        ;; Resolve variable-operator references to their macro lambda EID.
+        ;; Yang emits :yin/macro-expand with a :variable operator node when
+        ;; the macro EID is not statically known (user-defined macros).
+        by-entity (group-by first (:datoms vm))
+        get-attr (fn [eid attr]
+                   (some (fn [[_ a v]] (when (= a attr) v))
+                         (rseq (vec (get by-entity eid)))))
+        macro-lambda-eid
+        (if (= :variable (get-attr op-eid :yin/type))
+          (let [vname (get-attr op-eid :yin/name)]
+            (or (get macro/default-name-registry vname)
+                (macro/find-macro-lambda-by-name vname (:datoms vm) get-attr)
+                op-eid))
+          op-eid)
+        macro-fn (get macro-registry macro-lambda-eid)
+        eid-counter (macro/make-eid-counter! (:datoms vm))
+        event-eid (swap! eid-counter dec)
+        fresh-eid-fn (fn [] (swap! eid-counter dec))
+        ctx {:get-attr get-attr
+             :by-entity by-entity
+             :arg-eids arg-eids
+             :fresh-eid fresh-eid-fn
+             :phase :runtime}
+        result (if macro-fn
+                 (macro-fn ctx)
+                 (if (get-attr macro-lambda-eid :yin/macro?)
+                   (invoke-macro-lambda macro-lambda-eid ctx (:datoms vm))
+                   (throw (ex-info "No macro registered and lambda not found"
+                                   {:macro-lambda-eid macro-lambda-eid
+                                    :call-eid node-id
+                                    :registered-keys (keys macro-registry)}))))
+        exp-datoms (:datoms result)
+        exp-root (:root-eid result)
+        evt-datoms (macro/expansion-event-datoms
+                     event-eid node-id macro-lambda-eid exp-root :runtime)
+        marked-exp (macro/mark-with-provenance exp-datoms event-eid)
+        all-new (vec (concat evt-datoms marked-exp))
+        updated-vm (semantic-append-datoms vm all-new)]
+    (assoc updated-vm
+           :control {:type :node, :id exp-root}
+           :env env
+           :stack stack)))
 
 
 (defn- semantic-run-active-continuation
@@ -1164,3 +1178,33 @@
                               :blocked false,
                               :node-id-counter -1024,
                               :macro-registry (or (:macro-registry opts) {})})))))
+
+
+(defn invoke-macro-lambda
+  "Execute a macro lambda body in a fresh SemanticVM seeded with `datoms`.
+   params are bound to arg-eids (integer AST entity refs).
+   Returns {:datoms [] :root-eid result-eid}."
+  [lambda-eid ctx datoms]
+  (let [{:keys [arg-eids get-attr fresh-eid]} ctx
+        params   (get-attr lambda-eid :yin/params)
+        body-eid (get-attr lambda-eid :yin/body)
+        env      (zipmap params arg-eids)
+        vm-base  (create-vm)
+        vm-data  (semantic-append-datoms vm-base datoms)
+        vm-ready (assoc vm-data
+                        :control {:type :node, :id body-eid}
+                        :env env
+                        :halted false
+                        :blocked false
+                        :stack [])
+        result-vm (vm/run vm-ready)
+        raw-val   (vm/value result-vm)]
+    (if (and (map? raw-val) (contains? raw-val :type))
+      ;; Macro returned an AST map: convert to datoms using current counter
+      (let [[root-id exp-datoms] (vm/ast->datoms-with-root
+                                   raw-val {:id-start (fresh-eid)})]
+        {:datoms exp-datoms :root-eid root-id})
+      ;; Macro returned an EID (existing structure) or expansion output map
+      (if (and (map? raw-val) (contains? raw-val :root-eid))
+        raw-val
+        {:datoms [] :root-eid raw-val}))))

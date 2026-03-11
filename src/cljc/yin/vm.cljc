@@ -102,7 +102,7 @@
 ;; - enforce fixed arities (host ops like + are variadic),
 ;; - expose macro-like forms (and/or) as callable values,
 ;; - shape return values/effects for VM contracts (e.g. rest, yin/def).
-(def ^:private primitives
+(def primitives
   {'+ (fn [a b] (+ a b)),
    '- (fn [a b] (- a b)),
    '* (fn [a b] (* a b)),
@@ -203,7 +203,7 @@
        `(case (int ~op-expr) ~@resolved ~@(when default [default])))))
 
 
-(def ^:private schema
+(def schema
   "DataScript schema for :yin/ AST datoms.
    Complete data model for the Universal AST as queryable datoms."
   {;; Ref attributes (entity references, tempid resolution)
@@ -249,7 +249,7 @@
   #{:yin/operands})
 
 
-(defn- datoms->tx-data
+(defn datoms->tx-data
   "Convert [e a v t m] datoms to DataScript tx-data [:db/add e a v].
    Expands cardinality-many vector values into individual assertions.
 
@@ -267,8 +267,9 @@
           datoms))
 
 
-(defn ast->datoms
+(defn ast->datoms-with-root
   "Convert AST map into a vector of datoms. A datom is [e a v t m].
+   Returns [root-id datoms].
 
    Entity IDs are tempids (negative integers: -1024, -1025, -1026...) that get resolved
    to actual entity IDs when transacted. The transactor assigns real positive IDs.
@@ -277,92 +278,113 @@
      :t - transaction ID (default 0)
      :m - metadata entity reference (default 0, nil metadata)
      :id-start - starting entity ID for tempids (default -1024)"
-  ([ast] (ast->datoms ast {}))
+  ([ast] (ast->datoms-with-root ast {}))
   ([ast opts]
    (let [id-counter (atom (or (:id-start opts) -1024))
          t (or (:t opts) 0)
          m (or (:m opts) 0)
          gen-id #(swap! id-counter dec)
          datoms (atom [])
-         emit! (fn [e attr val] (swap! datoms conj [e attr val t m]))]
+         emit! (fn [e attr val] (swap! datoms conj [e attr val t m]))
+         ;; Track pre-assigned EIDs already emitted so that a shared lambda-ast
+         ;; (same :eid in definition operand and call-site operator) is processed
+         ;; exactly once; every reference resolves to the same EID.
+         seen-eids (atom #{})]
      (letfn
        [(convert
           [node]
-          (let [e (gen-id)
+          (let [pre-eid (:eid node)
+                e       (or pre-eid (gen-id))
                 {:keys [type tail?]} node]
-            (when tail? (emit! e :yin/tail? true))
-            (case type
-              :literal (do (emit! e :yin/type :literal)
-                           (emit! e :yin/value (:value node)))
-              :variable (do (emit! e :yin/type :variable)
-                            (emit! e :yin/name (:name node)))
-              :lambda (do (emit! e :yin/type :lambda)
-                          (emit! e :yin/params (:params node))
-                          (let [body-id (convert (:body node))]
-                            (emit! e :yin/body body-id)))
-              :application (do (emit! e :yin/type :application)
-                               (let [op-id (convert (:operator node))
-                                     operand-ids (mapv convert
-                                                       (:operands node))]
-                                 (emit! e :yin/operator op-id)
-                                 (emit! e :yin/operands operand-ids)))
-              :ffi/call (do (emit! e :yin/type :ffi/call)
-                            (emit! e :yin/op (:op node))
-                            (let [operand-ids (mapv convert (:operands node))]
-                              (emit! e :yin/operands operand-ids)))
-              :if (do (emit! e :yin/type :if)
-                      (let [test-id (convert (:test node))
-                            cons-id (convert (:consequent node))
-                            alt-id (convert (:alternate node))]
-                        (emit! e :yin/test test-id)
-                        (emit! e :yin/consequent cons-id)
-                        (emit! e :yin/alternate alt-id)))
-              ;; VM primitives
-              :vm/gensym (do (emit! e :yin/type :vm/gensym)
-                             (emit! e :yin/prefix (or (:prefix node) "id")))
-              :vm/store-get (do (emit! e :yin/type :vm/store-get)
-                                (emit! e :yin/key (:key node)))
-              :vm/store-put (do (emit! e :yin/type :vm/store-put)
-                                (emit! e :yin/key (:key node))
-                                (emit! e :yin/value (:val node)))
-              ;; Stream operations
-              :stream/make (do (emit! e :yin/type :stream/make)
-                               (emit! e :yin/buffer (or (:buffer node) 1024)))
-              :stream/put (do (emit! e :yin/type :stream/put)
-                              (let [target-id (convert (:target node))
-                                    val-id (convert (:val node))]
-                                (emit! e :yin/target target-id)
-                                (emit! e :yin/val-node val-id)))
-              :stream/cursor (do (emit! e :yin/type :stream/cursor)
-                                 (let [source-id (convert (:source node))]
-                                   (emit! e :yin/source source-id)))
-              :stream/next (do (emit! e :yin/type :stream/next)
-                               (let [source-id (convert (:source node))]
-                                 (emit! e :yin/source source-id)))
-              :stream/close (do (emit! e :yin/type :stream/close)
-                                (let [source-id (convert (:source node))]
-                                  (emit! e :yin/source source-id)))
-              ;; Continuation primitives
-              :vm/park (emit! e :yin/type :vm/park)
-              :vm/resume (do (emit! e :yin/type :vm/resume)
-                             (emit! e :yin/parked-id (:parked-id node))
-                             (let [val-id (convert (:val node))]
-                               (emit! e :yin/val-node val-id)))
-              :vm/current-continuation
-              (emit! e :yin/type :vm/current-continuation)
-              ;; Macro call site — operator is the macro lambda entity ref,
-              ;; operands are unevaluated AST refs (not evaluated runtime values)
-              :yin/macro-expand
-              (do (emit! e :yin/type :yin/macro-expand)
-                  (let [op-id (convert (:operator node))
-                        operand-ids (mapv convert (:operands node))]
-                    (emit! e :yin/operator op-id)
-                    (emit! e :yin/operands operand-ids)))
-              ;; Default
-              (throw (ex-info "Unknown AST node type"
-                              {:type type, :node node})))
-            e))]
-       (convert ast) @datoms))))
+            (if (and pre-eid (contains? @seen-eids pre-eid))
+              ;; Shared reference already emitted — return EID without re-emitting.
+              e
+              (do
+                (when pre-eid (swap! seen-eids conj pre-eid))
+                (when tail? (emit! e :yin/tail? true))
+                (case type
+                  :literal (do (emit! e :yin/type :literal)
+                               (emit! e :yin/value (:value node)))
+                  :variable (do (emit! e :yin/type :variable)
+                                (emit! e :yin/name (:name node)))
+                  :lambda (do (emit! e :yin/type :lambda)
+                              (when (:macro? node)
+                                (emit! e :yin/macro? true)
+                                (emit! e :yin/phase-policy (or (:phase-policy node) :compile)))
+                              (emit! e :yin/params (:params node))
+                              (let [body-id (convert (:body node))]
+                                (emit! e :yin/body body-id)))
+                  :application (do (emit! e :yin/type :application)
+                                   (let [op-id (convert (:operator node))
+                                         operand-ids (mapv convert
+                                                           (:operands node))]
+                                     (emit! e :yin/operator op-id)
+                                     (emit! e :yin/operands operand-ids)))
+                  :ffi/call (do (emit! e :yin/type :ffi/call)
+                                (emit! e :yin/op (:op node))
+                                (let [operand-ids (mapv convert (:operands node))]
+                                  (emit! e :yin/operands operand-ids)))
+                  :if (do (emit! e :yin/type :if)
+                          (let [test-id (convert (:test node))
+                                cons-id (convert (:consequent node))
+                                alt-id (convert (:alternate node))]
+                            (emit! e :yin/test test-id)
+                            (emit! e :yin/consequent cons-id)
+                            (emit! e :yin/alternate alt-id)))
+                  ;; VM primitives
+                  :vm/gensym (do (emit! e :yin/type :vm/gensym)
+                                 (emit! e :yin/prefix (or (:prefix node) "id")))
+                  :vm/store-get (do (emit! e :yin/type :vm/store-get)
+                                    (emit! e :yin/key (:key node)))
+                  :vm/store-put (do (emit! e :yin/type :vm/store-put)
+                                    (emit! e :yin/key (:key node))
+                                    (emit! e :yin/value (:val node)))
+                  ;; Stream operations
+                  :stream/make (do (emit! e :yin/type :stream/make)
+                                   (emit! e :yin/buffer (or (:buffer node) 1024)))
+                  :stream/put (do (emit! e :yin/type :stream/put)
+                                  (let [target-id (convert (:target node))
+                                        val-id (convert (:val node))]
+                                    (emit! e :yin/target target-id)
+                                    (emit! e :yin/val-node val-id)))
+                  :stream/cursor (do (emit! e :yin/type :stream/cursor)
+                                     (let [source-id (convert (:source node))]
+                                       (emit! e :yin/source source-id)))
+                  :stream/next (do (emit! e :yin/type :stream/next)
+                                   (let [source-id (convert (:source node))]
+                                     (emit! e :yin/source source-id)))
+                  :stream/close (do (emit! e :yin/type :stream/close)
+                                    (let [source-id (convert (:source node))]
+                                      (emit! e :yin/source source-id)))
+                  ;; Continuation primitives
+                  :vm/park (emit! e :yin/type :vm/park)
+                  :vm/resume (do (emit! e :yin/type :vm/resume)
+                                 (emit! e :yin/parked-id (:parked-id node))
+                                 (let [val-id (convert (:val node))]
+                                   (emit! e :yin/val-node val-id)))
+                  :vm/current-continuation
+                  (emit! e :yin/type :vm/current-continuation)
+                  ;; Macro call site — operator is the macro lambda entity ref,
+                  ;; operands are unevaluated AST refs (not evaluated runtime values)
+                  :yin/macro-expand
+                  (do (emit! e :yin/type :yin/macro-expand)
+                      (let [op-id (convert (:operator node))
+                            operand-ids (mapv convert (:operands node))]
+                        (emit! e :yin/operator op-id)
+                        (emit! e :yin/operands operand-ids)))
+                  ;; Default
+                  (throw (ex-info "Unknown AST node type"
+                                  {:type type, :node node})))
+                e))))]
+       (let [root-id (convert ast)]
+         [root-id @datoms])))))
+
+
+(defn ast->datoms
+  "Convert AST map into a vector of datoms. A datom is [e a v t m]."
+  ([ast] (ast->datoms ast {}))
+  ([ast opts]
+   (second (ast->datoms-with-root ast opts))))
 
 
 (defn index-datoms

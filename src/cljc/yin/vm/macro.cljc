@@ -106,18 +106,36 @@
           orig)))
 
 
+(defn find-macro-lambda-by-name
+  "Scan datoms for a (yin/def sym lambda) application where lambda has :yin/macro? true.
+   Returns the lambda EID or nil. Used to resolve variable-operator macro calls.
+   Scan happens on the raw datom vector (last-write-wins per stream order)."
+  [sym datoms get-attr]
+  (some (fn [[eid a v]]
+          (when (and (= a :yin/type) (= v :application))
+            (let [op-eid (get-attr eid :yin/operator)]
+              (when (= 'yin/def (get-attr op-eid :yin/name))
+                (let [[key-eid val-eid] (get-attr eid :yin/operands)]
+                  (when (and (= sym (get-attr key-eid :yin/value))
+                             (get-attr val-eid :yin/macro?))
+                    val-eid))))))
+        (rseq (vec datoms))))
+
+
 (defn- transform
   "Post-order tree transform. Expands all :yin/macro-expand nodes reachable from eid.
 
    macro-registry: {macro-lambda-eid -> (fn [ctx] {:datoms [...] :root-eid eid})}
+   name-registry:  {symbol -> macro-lambda-eid} for bootstrap macros (e.g. defmacro)
    phase: :compile or :runtime
    visited: set of EIDs in the current DFS path (cycle guard)
+   invoke-lambda: (fn [lambda-eid ctx] {:datoms [...] :root-eid eid}) or nil
 
    Returns [result-eid new-datoms expanded?] where:
    - result-eid: EID to use in place of eid (same as eid if no expansion)
    - new-datoms: new datoms produced during this subtree's expansion
    - expanded?: true if any expansion occurred"
-  [get-attr by-entity eid macro-registry eid-counter phase visited]
+  [get-attr by-entity datoms eid macro-registry name-registry eid-counter phase visited invoke-lambda]
   (if (contains? visited eid)
     ;; Shared reference or cycle guard: return original EID unchanged
     [eid [] false]
@@ -125,15 +143,20 @@
       (cond
         ;; Macro call site: invoke the macro and return the expansion root
         (= :yin/macro-expand node-type)
-        (let [macro-lambda-eid (get-attr eid :yin/operator)
+        (let [op-eid (get-attr eid :yin/operator)
+              ;; Resolve variable-operator references to their macro lambda EID.
+              ;; Yang emits :yin/macro-expand with a :variable operator node when
+              ;; the macro EID is not statically known (user-defined macros).
+              ;; Bootstrap macros are resolved via name-registry; user-defined via datom scan.
+              macro-lambda-eid
+              (if (= :variable (get-attr op-eid :yin/type))
+                (let [vname (get-attr op-eid :yin/name)]
+                  (or (get name-registry vname)
+                      (find-macro-lambda-by-name vname datoms get-attr)
+                      op-eid))
+                op-eid)
               arg-eids (or (get-attr eid :yin/operands) [])
               macro-fn (get macro-registry macro-lambda-eid)]
-          (when-not macro-fn
-            (throw (ex-info "No macro function registered for macro lambda EID"
-                            {:macro-lambda-eid macro-lambda-eid
-                             :call-eid eid
-                             :phase phase
-                             :registered-keys (keys macro-registry)})))
           (let [event-eid (swap! eid-counter dec)
                 fresh-eid-fn (fn [] (swap! eid-counter dec))
                 ctx {:get-attr get-attr
@@ -141,7 +164,17 @@
                      :arg-eids arg-eids
                      :fresh-eid fresh-eid-fn
                      :phase phase}
-                result (macro-fn ctx)
+                result (cond
+                         macro-fn
+                         (macro-fn ctx)
+                         (and invoke-lambda (get-attr macro-lambda-eid :yin/macro?))
+                         (invoke-lambda macro-lambda-eid ctx)
+                         :else
+                         (throw (ex-info "No macro fn registered and no invoke-lambda provided"
+                                         {:macro-lambda-eid macro-lambda-eid
+                                          :call-eid eid
+                                          :phase phase
+                                          :registered-keys (keys macro-registry)})))
                 exp-datoms (:datoms result)
                 exp-root (:root-eid result)
                 evt-datoms (expansion-event-datoms
@@ -159,8 +192,8 @@
                     (keep (fn [attr]
                             (when-let [child-eid (get-attr eid attr)]
                               (let [[new-child child-datoms child-exp?]
-                                    (transform get-attr by-entity child-eid
-                                               macro-registry eid-counter phase visited')]
+                                    (transform get-attr by-entity datoms child-eid
+                                               macro-registry name-registry eid-counter phase visited' invoke-lambda)]
                                 [attr {:old child-eid
                                        :new new-child
                                        :datoms child-datoms
@@ -171,8 +204,8 @@
               (into {}
                     (keep (fn [attr]
                             (when-let [child-eids (get-attr eid attr)]
-                              (let [results (mapv #(transform get-attr by-entity %
-                                                              macro-registry eid-counter phase visited')
+                              (let [results (mapv #(transform get-attr by-entity datoms %
+                                                              macro-registry name-registry eid-counter phase visited' invoke-lambda)
                                                   child-eids)]
                                 [attr {:old child-eids
                                        :new (mapv first results)
@@ -199,6 +232,23 @@
 
 
 ;; =============================================================================
+;; Bootstrap: defmacro EID and name registry (needed by expand-once)
+;; =============================================================================
+
+(def defmacro-eid
+  "Reserved bootstrap EID for the defmacro macro lambda.
+   Pre-seeded in default-name-registry so yang-compiled (defmacro ...) forms
+   resolve correctly without requiring defmacro to be stored in DaoDB first."
+  -1)
+
+
+(def default-name-registry
+  "Bootstrap name->EID map for macros known before any defmacro runs.
+   Merged into every expand-once call so (defmacro ...) forms always resolve."
+  {'defmacro defmacro-eid})
+
+
+;; =============================================================================
 ;; Public API
 ;; =============================================================================
 
@@ -222,9 +272,11 @@
   ([datoms root-eid macro-registry opts]
    (let [{:keys [by-entity get-attr]} (vm/index-datoms datoms {:root-id root-eid})
          phase (or (:phase opts) :compile)
+         name-registry (merge default-name-registry (or (:name-registry opts) {}))
+         invoke-lambda (:invoke-lambda opts)
          eid-counter (make-eid-counter! datoms)
          [new-root new-datoms expanded?]
-         (transform get-attr by-entity root-eid macro-registry eid-counter phase #{})]
+         (transform get-attr by-entity datoms root-eid macro-registry name-registry eid-counter phase #{} invoke-lambda)]
      {:datoms (vec (concat datoms new-datoms))
       :root-eid new-root
       :expanded? expanded?})))
@@ -268,3 +320,53 @@
   "Returns true if the entity at eid is a :yin/macro-expand node."
   [get-attr eid]
   (= :yin/macro-expand (get-attr eid :yin/type)))
+
+
+;; =============================================================================
+;; Bootstrap: defmacro function and registry
+;; =============================================================================
+
+(def defmacro-fn
+  "Bootstrap macro function for defmacro.
+
+   Transforms: (defmacro name params body)
+   Into datoms for: (def name (lambda params body))  ; lambda has :yin/macro? true
+
+   arg-eids = [name-eid params-eid body-eid]
+     name-eid   -> :variable node (:yin/name = symbol) or :literal (:yin/value = symbol)
+     params-eid -> :literal node (:yin/value = params vector)
+     body-eid   -> body AST node (used directly as the lambda :yin/body)"
+  (fn [{:keys [arg-eids get-attr fresh-eid]}]
+    (let [name-eid   (nth arg-eids 0)
+          params-eid (nth arg-eids 1)
+          body-eid   (nth arg-eids 2)
+          ;; Name comes as a :variable node from yang (bare symbol in source),
+          ;; or as a :literal from datom-level tests.
+          macro-name (or (get-attr name-eid :yin/name)
+                         (get-attr name-eid :yin/value))
+          params     (get-attr params-eid :yin/value)
+          lambda-eid (fresh-eid)
+          def-eid    (fresh-eid)
+          key-eid    (fresh-eid)
+          op-eid     (fresh-eid)]
+      {:datoms
+       [[lambda-eid :yin/type         :lambda      0 0]
+        [lambda-eid :yin/macro?       true         0 0]
+        [lambda-eid :yin/phase-policy :compile     0 0]
+        [lambda-eid :yin/params       params       0 0]
+        [lambda-eid :yin/body         body-eid     0 0]
+        [op-eid     :yin/type         :variable    0 0]
+        [op-eid     :yin/name         'yin/def     0 0]
+        [key-eid    :yin/type         :literal     0 0]
+        [key-eid    :yin/value        macro-name   0 0]
+        [def-eid    :yin/type         :application 0 0]
+        [def-eid    :yin/operator     op-eid       0 0]
+        [def-eid    :yin/operands     [key-eid lambda-eid] 0 0]]
+       :root-eid def-eid})))
+
+
+(def default-macro-registry
+  "Bootstrap macro-registry containing defmacro.
+   Merge with user registries when creating VMs:
+     (create-vm {:macro-registry (merge macro/default-macro-registry my-macros)})"
+  {defmacro-eid defmacro-fn})

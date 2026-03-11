@@ -479,6 +479,237 @@
 
 
 ;; =============================================================================
+;; Bootstrap: defmacro-fn unit tests
+;; =============================================================================
+
+(deftest defmacro-fn-unit-test
+  (testing "defmacro-fn produces correct datoms for name/params/body"
+    ;; Build minimal datoms: name as :literal, params as :literal, body as :literal
+    (let [name-eid   -100
+          params-eid -101
+          body-eid   -102
+          datoms     [[name-eid   :yin/type  :literal  0 0]
+                      [name-eid   :yin/value 'my-mac   0 0]
+                      [params-eid :yin/type  :literal  0 0]
+                      [params-eid :yin/value '[x]      0 0]
+                      [body-eid   :yin/type  :literal  0 0]
+                      [body-eid   :yin/value 42        0 0]]
+          {:keys [get-attr]} (vm/index-datoms datoms)
+          eid-counter (atom -200)
+          fresh-eid   #(swap! eid-counter dec)
+          ctx {:arg-eids  [name-eid params-eid body-eid]
+               :get-attr  get-attr
+               :fresh-eid fresh-eid
+               :phase     :compile}
+          result (macro/defmacro-fn ctx)
+          result-datoms (:datoms result)
+          root-eid      (:root-eid result)
+          {:keys [get-attr]} (vm/index-datoms result-datoms)]
+      ;; Root is an :application (the def node)
+      (is (= :application (get-attr root-eid :yin/type))
+          "root is :application")
+      ;; Operator is a :variable named yin/def
+      (let [op-eid (get-attr root-eid :yin/operator)]
+        (is (= :variable (get-attr op-eid :yin/type)))
+        (is (= 'yin/def  (get-attr op-eid :yin/name))))
+      ;; Operands: [key-eid lambda-eid]
+      (let [[key-eid lambda-eid] (get-attr root-eid :yin/operands)]
+        ;; key is a :literal with the macro name
+        (is (= :literal  (get-attr key-eid :yin/type)))
+        (is (= 'my-mac   (get-attr key-eid :yin/value)))
+        ;; lambda has :yin/macro? true and :yin/phase-policy :compile
+        (is (= :lambda   (get-attr lambda-eid :yin/type)))
+        (is (= true      (get-attr lambda-eid :yin/macro?)))
+        (is (= :compile  (get-attr lambda-eid :yin/phase-policy)))
+        (is (= '[x]      (get-attr lambda-eid :yin/params)))
+        (is (= body-eid  (get-attr lambda-eid :yin/body)))))))
+
+
+(deftest defmacro-fn-variable-name-test
+  (testing "defmacro-fn resolves name from :variable node (yang source form)"
+    ;; yang emits (defmacro my-mac ...) with my-mac as a :variable node
+    (let [name-eid   -110
+          params-eid -111
+          body-eid   -112
+          datoms     [[name-eid   :yin/type :variable 0 0]
+                      [name-eid   :yin/name 'my-mac   0 0]
+                      [params-eid :yin/type :literal  0 0]
+                      [params-eid :yin/value '[a b]   0 0]
+                      [body-eid   :yin/type :literal  0 0]
+                      [body-eid   :yin/value nil       0 0]]
+          {:keys [get-attr]} (vm/index-datoms datoms)
+          eid-counter (atom -200)
+          fresh-eid   #(swap! eid-counter dec)
+          ctx {:arg-eids  [name-eid params-eid body-eid]
+               :get-attr  get-attr
+               :fresh-eid fresh-eid
+               :phase     :compile}
+          result (macro/defmacro-fn ctx)
+          {:keys [get-attr]} (vm/index-datoms (:datoms result))
+          [key-eid lambda-eid] (get-attr (:root-eid result) :yin/operands)]
+      (is (= 'my-mac  (get-attr key-eid :yin/value))
+          "macro name extracted from :variable node")
+      (is (= '[a b]   (get-attr lambda-eid :yin/params))))))
+
+
+;; =============================================================================
+;; defmacro end-to-end: expand-all with default-macro-registry
+;; =============================================================================
+
+(deftest defmacro-expand-all-test
+  (testing "expand-all expands (defmacro identity-mac [x] x) via default-macro-registry"
+    ;; Build datoms for: (defmacro identity-mac [x] x-ref)
+    ;; which is a :yin/macro-expand node with operator = defmacro-eid
+    ;; arg-eids = [name-lit params-lit body-var]
+    (let [name-eid   -10
+          params-eid -11
+          body-eid   -12
+          mac-call   -13
+          datoms     [[name-eid   :yin/type  :literal     0 0]
+                      [name-eid   :yin/value 'identity-mac 0 0]
+                      [params-eid :yin/type  :literal     0 0]
+                      [params-eid :yin/value '[x]         0 0]
+                      [body-eid   :yin/type  :variable    0 0]
+                      [body-eid   :yin/name  'x           0 0]
+                      ;; The defmacro call site
+                      [mac-call   :yin/type     :yin/macro-expand    0 0]
+                      [mac-call   :yin/operator macro/defmacro-eid   0 0]
+                      [mac-call   :yin/operands [name-eid params-eid body-eid] 0 0]]
+          {:keys [datoms root-eid]}
+          (macro/expand-all datoms mac-call macro/default-macro-registry)
+          {:keys [get-attr]} (vm/index-datoms datoms {:root-id root-eid})]
+      ;; After expansion, the root should be a :application (yin/def ...)
+      (is (= :application (get-attr root-eid :yin/type))
+          "root is a yin/def application")
+      (let [op-eid (get-attr root-eid :yin/operator)]
+        (is (= 'yin/def (get-attr op-eid :yin/name))
+            "operator is yin/def"))
+      (let [[key-eid lambda-eid] (get-attr root-eid :yin/operands)]
+        (is (= 'identity-mac (get-attr key-eid :yin/value))
+            "key is 'identity-mac")
+        (is (= true (get-attr lambda-eid :yin/macro?))
+            "lambda has :yin/macro? true")
+        (is (= :compile (get-attr lambda-eid :yin/phase-policy))
+            "lambda has :yin/phase-policy :compile")))))
+
+
+;; =============================================================================
+;; yang.clojure compile-program: defmacro emits :yin/macro-expand
+;; =============================================================================
+
+(deftest yang-compile-program-defmacro-test
+  (testing "compile-program with defmacro emits :yin/macro-expand call site"
+    (let [compile-program (requiring-resolve 'yang.clojure/compile-program)
+          ast (compile-program '[(defmacro identity-mac
+                                   [x]
+                                   x)
+                                 (identity-mac 99)])
+          datoms (vm/ast->datoms ast)
+          {:keys [get-attr by-entity]} (vm/index-datoms datoms)
+          ;; Find any :yin/macro-expand node
+          mac-expand-eid (some (fn [eid]
+                                 (when (= :yin/macro-expand (get-attr eid :yin/type))
+                                   eid))
+                               (keys by-entity))]
+      (is (some? mac-expand-eid)
+          "compile-program emits at least one :yin/macro-expand node")
+      (when mac-expand-eid
+        (let [op-eid (get-attr mac-expand-eid :yin/operator)]
+          (is (= :lambda (get-attr op-eid :yin/type))
+              "macro-expand operator is the macro lambda directly (no synthetic name lookup)")
+          (is (true? (get-attr op-eid :yin/macro?))
+              "operator lambda carries :yin/macro? true")
+          ;; Macro identity: the call-site operator EID must equal the lambda EID
+          ;; stored in the yin/def application.  Verifies shared-reference deduplication:
+          ;; both the definition operand and the call-site operator resolve to the same entity.
+          (let [def-app-eid (some (fn [eid]
+                                    (when (and (= :application (get-attr eid :yin/type))
+                                               (= 'yin/def (get-attr (get-attr eid :yin/operator) :yin/name)))
+                                      eid))
+                                  (keys by-entity))
+                stored-lambda-eid (when def-app-eid
+                                    (second (get-attr def-app-eid :yin/operands)))]
+            (is (some? def-app-eid)
+                "datom stream contains a yin/def application for the macro")
+            (is (= stored-lambda-eid op-eid)
+                "call-site operator EID equals stored yin/def lambda EID (canonical macro identity)")))))))
+
+
+;; =============================================================================
+;; User macro: VM-native execution without host fn registration
+;; =============================================================================
+
+(deftest user-macro-vm-native-execution-test
+  (testing "user macro defined via defmacro expands via VM, no host fn registration needed"
+    ;; Build datoms as if (defmacro identity-mac [x] x) already ran:
+    ;; lambda entity with :yin/macro? true and body = variable 'x
+    ;; plus the (yin/def identity-mac lambda) structure for find-macro-lambda-by-name
+    ;; Then (identity-mac 42): :yin/macro-expand with variable operator 'identity-mac
+    (let [body-eid   -100  ; :variable 'x
+          lambda-eid -101  ; lambda entity
+          def-eid    -102  ; (yin/def identity-mac lambda) application
+          op-eid     -103  ; :variable 'yin/def
+          key-eid    -104  ; :literal 'identity-mac
+          lit42-eid  -200  ; :literal 42
+          var-eid    -201  ; :variable 'identity-mac (operator of call)
+          call-eid   -202  ; :yin/macro-expand call
+          datoms     [[body-eid   :yin/type         :variable     0 0]
+                      [body-eid   :yin/name         'x            0 0]
+                      [lambda-eid :yin/type         :lambda       0 0]
+                      [lambda-eid :yin/macro?       true          0 0]
+                      [lambda-eid :yin/phase-policy :compile      0 0]
+                      [lambda-eid :yin/params       '[x]          0 0]
+                      [lambda-eid :yin/body         body-eid      0 0]
+                      [op-eid     :yin/type         :variable     0 0]
+                      [op-eid     :yin/name         'yin/def      0 0]
+                      [key-eid    :yin/type         :literal      0 0]
+                      [key-eid    :yin/value        'identity-mac 0 0]
+                      [def-eid    :yin/type         :application  0 0]
+                      [def-eid    :yin/operator     op-eid        0 0]
+                      [def-eid    :yin/operands     [key-eid lambda-eid] 0 0]
+                      [lit42-eid  :yin/type         :literal      0 0]
+                      [lit42-eid  :yin/value        42            0 0]
+                      [var-eid    :yin/type         :variable     0 0]
+                      [var-eid    :yin/name         'identity-mac 0 0]
+                      [call-eid   :yin/type         :yin/macro-expand 0 0]
+                      [call-eid   :yin/operator     var-eid       0 0]
+                      [call-eid   :yin/operands     [lit42-eid]   0 0]]
+          invoke-fn  (fn [leid ctx]
+                       (semantic/invoke-macro-lambda leid ctx datoms))
+          {:keys [datoms root-eid]}
+          (macro/expand-all (vec datoms) call-eid macro/default-macro-registry
+                            {:invoke-lambda invoke-fn})
+          {:keys [get-attr]} (vm/index-datoms datoms {:root-id root-eid})]
+      (is (= :literal (get-attr root-eid :yin/type))
+          "expansion root is a literal node")
+      (is (= 42 (get-attr root-eid :yin/value))
+          "expansion root has value 42"))))
+
+
+(deftest yang-macro-ordering-test
+  (testing "macro name not visible to forms before its defmacro"
+    (let [compile-program (requiring-resolve 'yang.clojure/compile-program)
+          ;; (identity-mac 1) appears BEFORE (defmacro identity-mac ...)
+          ;; so it should compile as a regular :application, not :yin/macro-expand
+          ast (compile-program '[(identity-mac 1)
+                                 (defmacro identity-mac
+                                   [x]
+                                   x)])
+          datoms (vm/ast->datoms ast)
+          {:keys [get-attr by-entity]} (vm/index-datoms datoms)
+          ;; Find any :yin/macro-expand node whose operator is identity-mac
+          identity-mac-expand
+          (some (fn [eid]
+                  (when (= :yin/macro-expand (get-attr eid :yin/type))
+                    (let [op-eid (get-attr eid :yin/operator)]
+                      (when (= 'identity-mac (get-attr op-eid :yin/name))
+                        eid))))
+                (keys by-entity))]
+      (is (nil? identity-mac-expand)
+          "identity-mac call before defmacro is not emitted as :yin/macro-expand"))))
+
+
+;; =============================================================================
 ;; Semantic VM: append-program-datoms for boundary-runtime test
 ;; =============================================================================
 

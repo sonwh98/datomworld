@@ -15,7 +15,8 @@
     [yin.module :as module]
     [yin.vm :as vm]
     [yin.vm.engine :as engine]
-    [yin.vm.macro :as macro])
+    [yin.vm.macro :as macro]
+    [yin.vm.semantic :as semantic])
   #?(:cljs
      (:require-macros
        [yin.vm :refer [opcase]])))
@@ -1437,10 +1438,12 @@
    Runs macro expansion before bytecode compilation if macro-registry is set."
   [^RegisterVM vm {:keys [node datoms]}]
   (let [registry (or (:macro-registry vm) {})
+        d (vec datoms)
         {:keys [datoms root-eid]}
-        (if (seq registry)
-          (macro/expand-all (vec datoms) node registry)
-          {:datoms (vec datoms) :root-eid node})
+        (macro/expand-all d node registry
+                          {:invoke-lambda
+                           (fn [lambda-eid ctx]
+                             (semantic/invoke-macro-lambda lambda-eid ctx d))})
         program-version (inc (or (:program-version vm) 0))
         vm' (assoc vm
                    :program-root-eid root-eid
