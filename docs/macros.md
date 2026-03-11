@@ -34,7 +34,7 @@ This spec assumes register/stack already follow
 
 - Security policy
   - Compile-time expansion: always allowed in trusted build context.
-  - Runtime expansion: requires Shibi capability token scoped to:
+  - Runtime expansion: requires Shibi capability token (TODO: Not implemented yet) scoped to:
     - `macro/expand` authority
     - target stream/program scope
     - allowed phase `:runtime`
@@ -89,7 +89,7 @@ This spec assumes register/stack already follow
 - Guard overflow is a hard expansion error with structured metadata.
 - Invalid expansion output is a hard error. No silent fallback.
 
-## Runtime Capability Scope
+## Runtime Capability Scope (TODO: Not implemented yet)
 
 - Runtime Shibi capability checks scope `macro/expand` authority to
   `:program-root-eid` from VM state.
