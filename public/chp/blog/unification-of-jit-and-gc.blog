@@ -1,0 +1,323 @@
+#:blog{:title "The Unification of JIT and GC"
+       :date #inst "2026-03-13T00:00:00.000-00:00"
+       :abstract
+       [:p "Once Yin.vm externalizes CESK state as datom streams, JIT compilation and garbage collection stop being separate runtime subsystems and become two stream interpreters over the same execution log. A third interpreter, operating at the timescale of sessions, extends that coverage to patterns no execution-frequency profiler accumulates. All three answer by emitting datoms into the same continuation scheduler."]
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+
+          [:p.subtitle
+           [:em
+            "When optimization, reclamation, and long-horizon analysis become three interpretations of the same stream."]]
+
+          [:p
+           "In mainstream virtual machines, JIT compilation and garbage collection are treated as separate systems. "
+           "One rewrites execution so it runs faster. The other stops execution so memory can be reclaimed. "
+           "They are usually implemented as enormous, tightly-coupled subsystems because both must understand hidden runtime state: stacks, registers, object headers, safepoints, stack maps, and moving heaps."]
+
+          [:p
+           "Yin.vm starts from a different place. "
+           "Its execution state is organized as a CESK machine, and that state can be projected into "
+           [:strong "datom streams"]
+           ". Once control, environment, store, and continuation become observable data, JIT and GC stop looking like distinct species. "
+           "They become two analyzers over the same append-only execution log."]
+
+          [:p
+           "Yin.vm is hosted on the JVM, JavaScript, and Dart. "
+           "Its JIT targets the host environment, not bare metal. "
+           "This is not a limitation; it is the point. "
+           "Because Yin.vm sits above a capable host runtime, it can externalize logical execution state as streams and let the host handle physical code generation and physical memory reclamation. "
+           "Yin.vm manages meaning. "
+           "The host manages physics."]
+
+          [:h2 "Streams First"]
+
+          [:p
+           "During execution, Yin.vm can emit datoms describing what is happening. "
+           "Those datoms can represent hot call sites, observed argument shapes, continuation transitions, store growth, and reachability edges. "
+           "Because streams are location-independent, the analysis does not need to happen inside the same process or even on the same machine."]
+
+          [:pre
+           [:code
+            "[42 :vm/event :call 991 0]\n[42 :vm/arg-shape [:int :int] 991 0]\n[108 :vm/reachable-from 42 991 0]\n[204 :vm/allocated-by 42 991 0]"]]
+
+          [:p
+           "The important shift is architectural, not merely an implementation detail. "
+           "Profiling is no longer hidden mutable counters inside a runtime. "
+           "It is another stream. "
+           "Reachability is no longer something only a local heap walker can know. "
+           "It is another interpretation of the same stream. "
+           "The "
+           [:code "m"]
+           " field of each datom carries provenance: which transaction, which agent, which causal chain produced this fact. "
+           "JIT and GC analyzers can use "
+           [:code "m"]
+           " to attribute their output datoms back to the analysis event that produced them, making the audit trail explicit."]
+
+          [:h2 "A Hosted JIT, Not a Native JIT"]
+
+          [:p
+           "For Yin.vm, a JIT does not have to emit raw machine code pages. "
+           "It can emit a payload suitable for the host runtime:"]
+
+          [:ul.bulleted
+           [:li "On the JVM, it can synthesize bytecode or another executable host-level representation that HotSpot can optimize further."]
+           [:li "In JavaScript, it can synthesize specialized functions or another form the engine can tier up aggressively."]
+           [:li "In Dart, it can emit a more compact execution payload for a precompiled dispatcher, or another portable target when the runtime permits it."]]
+
+          [:p
+           "The point is not that Yin.vm replaces the host JIT. "
+           "The point is that Yin.vm can restructure its own control flow and data flow so the host JIT sees a simpler, flatter, more stable program. "
+           "Yin.vm performs semantic optimization. "
+           "The host performs final physical optimization."]
+
+          [:h2 "Continuations Make the Swap Ordinary"]
+
+          [:p
+           "The hardest part of a traditional JIT is often not code generation. "
+           "It is on-stack replacement: switching from interpreted execution to optimized execution while the program is already in motion. "
+           "That problem is painful when the rest of the computation lives in an implicit hardware stack."]
+
+          [:p
+           "Yin.vm has first-class continuations. "
+           "So the rest of the computation is already reified as data. "
+           "When optimized code arrives, the machine does not need heroic stack surgery. "
+           "It pauses at an explicit continuation boundary and resumes with a different control component."]
+
+          [:pre
+           [:code
+            "&lt;c, env, store, k&gt;\n-&gt;\n&lt;c-opt, env, store, k&gt;"]]
+
+          [:p
+           "That same mechanism also handles deoptimization. "
+           "If an optimized path made an assumption that no longer holds, Yin.vm can resume the generic interpreter with the same environment, store, and continuation. "
+           "Upgrade and bailout become the same shape of transition."]
+
+          [:h2 "Garbage Collection as Stream Work"]
+
+          [:p
+           "Now consider garbage collection under the same model. "
+           "If allocations and reference updates are emitted as datoms, a GC does not need direct access to local RAM in order to understand logical liveness. "
+           "It can consume the stream, maintain a shadow graph of the CESK state, and determine which entities are no longer reachable from active continuations."]
+
+          [:p
+           "A remote analyzer can then send deallocation datoms back to Yin.vm. "
+           "Those datoms are not imperative interrupts. "
+           "They are translated into ordinary deallocation continuations and scheduled cooperatively alongside user continuations."]
+
+          [:pre
+           [:code
+            "step(user)\nstep(user)\nstep(gc-cleanup)\nstep(user)"]]
+
+          [:p
+           "This means there is no mandatory stop-the-world collector at the Yin.vm layer. "
+           "Logical cleanup is woven into the continuation scheduler like a coroutine. "
+           "When a cleanup continuation drops the last logical reference to an entity, the host runtime's own GC is free to reclaim physical memory on its own terms."]
+
+          [:h2 "A Promotion Boundary"]
+
+          [:p
+           "A fully remote collector is not the only option. "
+           "Yin.vm can also keep a lightweight local reference-counting layer for obvious short-lived garbage. "
+           "If an entity is created and dies before its datoms are flushed outward, those datoms can be elided entirely. "
+           "Nothing remote needs to know about that ephemeral object."]
+
+          [:p
+           "Once state is published onto the stream, however, it becomes eligible for broader analysis: cycle detection, shadow-graph tracing, and log compaction. "
+           "So the stream boundary naturally acts like a promotion boundary. "
+           "Local mechanisms handle the nursery. "
+           "Remote mechanisms handle long-lived structure and cycles."]
+
+          [:h2 "The Unification"]
+
+          [:p
+           "At this point the symmetry becomes hard to ignore. "
+           "JIT and GC have the same overall shape:"]
+
+          [:pre
+           [:code
+            "stream-of-datoms -> analysis -> stream-of-datoms"]]
+
+          [:p
+           "The difference is not in the interface. "
+           "It is only in what each analyzer looks for."]
+
+          [:table
+           [:thead
+            [:tr
+             [:th "Subsystem"]
+             [:th "What it searches for"]
+             [:th "What it emits"]]]
+           [:tbody
+            [:tr
+             [:td [:strong "JIT"]]
+             [:td "Dense, hot, type-stable control paths"]
+             [:td "Swap, specialize, or resume-with-optimized-control datoms"]]
+            [:tr
+             [:td [:strong "GC"]]
+             [:td "Sparse, unreachable, overwritten, or dead structure"]
+             [:td "Drop-reference, evict, or compact datoms"]]]]
+
+          [:p
+           "Both are stream interpreters. "
+           "Both feed the same inbox. "
+           "Both are converted into ordinary continuations by the same router. "
+           "Both modify future execution without mutating the past."]
+
+          [:h2 "When the JIT Becomes a Collector"]
+
+          [:p
+           "The unification goes further. "
+           "A JIT analyzing a hot path already traverses the same structure the collector cares about. "
+           "If it can prove that some temporary environment, closure, or intermediate value does not escape beyond an optimized region, it does not need to wait for a separate GC pass."]
+
+          [:p
+           "It can emit cleanup datoms itself, or weave cleanup steps directly into the optimized continuation's exit path. "
+           "That is not an extra subsystem. "
+           "It is simply the optimizer taking responsibility for the lifetime facts it has already proven."]
+
+          [:p
+           "In traditional runtimes, escape analysis usually remains trapped inside the compiler as a local optimization. "
+           "In Yin.vm, the same proof can become explicit stream output. "
+           "Optimization and reclamation become two consequences of the same analysis."]
+
+          [:p
+           "This is not a special case. "
+           "It is structural. "
+           "The JIT is already traversing the same execution graph the collector needs. "
+           "Any entity the JIT touches, it can assess for liveness as a byproduct. "
+           "The cleanup datom costs nothing extra: it is emitted from work the JIT was already doing."]
+
+          [:h2 "When the Collector Becomes a JIT"]
+
+          [:p
+           "The same logic runs in the other direction. "
+           "The collector traverses cold-path structure anyway: that is how it finds unreachable entities. "
+           "In identifying what is dead, it also sees what is alive and has not changed across many transactions. "
+           "That second observation is something a traditional JIT never accumulates: structural stability over time."]
+
+          [:p
+           "A cold continuation with the same shape, the same environment structure, and the same downstream attribute lookup is a better optimization candidate than a hot path that is polymorphic and unpredictable. "
+           "Execution frequency is one optimization signal. "
+           "Structural stability is another. "
+           "The collector sees the second signal as a natural byproduct of its traversal."]
+
+          [:p
+           "It can emit optimization datoms from that observation: this cold path is stable, specialize it. "
+           "Those datoms enter the same continuation scheduler as JIT output and GC cleanup. "
+           "The VM does not need to know the source was the collector."]
+
+          [:h2 "A Third Tier"]
+
+          [:p
+           "The datom stream is persistent. "
+           "An LLM can observe it."]
+
+          [:p
+           "A traditional JIT's profiling window is measured in milliseconds. "
+           "The collector's stability window is measured in transactions. "
+           "An LLM's context spans sessions, agents, and nodes. "
+           "It can see patterns that neither instrument accumulates enough signal to act on."]
+
+          [:p
+           "A long-lived object representing a user's access profile, a schema that evolves slowly, a query plan that stabilizes over weeks: these are invisible to execution-frequency profiling. "
+           "They are fully visible in the datom stream. "
+           "The LLM observes the stream, recognizes the pattern, and emits an optimization datom. "
+           "The VM schedules it alongside everything else."]
+
+          [:p
+           "The LLM is not a special subsystem. "
+           "It is another stream interpreter, operating at a longer timescale, emitting the same datom format into the same router."]
+
+          [:h2 "The Full Coverage"]
+
+          [:p
+           "Together, the three interpreters tile the full optimization space:"]
+
+          [:table
+           [:thead
+            [:tr
+             [:th "Interpreter"]
+             [:th "Signal"]
+             [:th "Timescale"]
+             [:th "Object class"]]]
+           [:tbody
+            [:tr
+             [:td [:strong "JIT"]]
+             [:td "Execution frequency"]
+             [:td "Milliseconds"]
+             [:td "Hot paths, short-lived"]]
+            [:tr
+             [:td [:strong "GC"]]
+             [:td "Structural stability"]
+             [:td "Transactions to hours"]
+             [:td "Cold paths, medium-lived"]]
+            [:tr
+             [:td [:strong "LLM"]]
+             [:td "Semantic patterns"]
+             [:td "Sessions to days"]
+             [:td "Long-lived, cross-agent"]]]]
+
+          [:p
+           "Traditional runtimes cover the first row. "
+           "Yin.vm covers all three. "
+           "Each interpreter emits the same datom format. "
+           "The continuation scheduler handles them without distinguishing the source."]
+
+          [:p
+           "When Yin.vm targets WebAssembly, this coverage has a concrete performance argument. "
+           "A traditional compiler targeting WASM emits static code with no runtime profile. "
+           "A traditional JIT targeting WASM specializes only hot paths and leaves cold paths untouched. "
+           "Two of Yin.vm's three optimization signals, structural stability and semantic patterns, do not require execution frequency as input. "
+           "Paths that are never hot remain optimizable."]
+
+          [:h2 "Why Mainstream Runtimes Did Not Land Here"]
+
+          [:p
+           "This architecture is not a denial of the Von Neumann model. "
+           "CESK is still a model of control, environment, store, and continuation. "
+           "What changes is not the machine's components, but how their evolution is represented. "
+           "Instead of destructive local updates, Yin.vm can treat those changes as append-only events."]
+
+          [:p
+           "Mainstream VMs were optimized for a different design center: single-machine performance with implicit stacks and contiguous heaps. "
+           "Given those premises, it made sense to keep JIT and GC as local, invasive, hardware-sympathetic mechanisms. "
+           "Yin.vm inherits a different opportunity because it sits above powerful host runtimes. "
+           "It can externalize logical state while delegating physical memory management and physical machine-code generation downward."]
+
+          [:p
+           "That is why this architecture does not need to beat HotSpot or V8 at their own game. "
+           "It changes the game. "
+           "The host runtime remains responsible for physics. "
+           "Yin.vm becomes responsible for meaning, causality, and mobility."]
+
+          [:p
+           "The three-tier picture follows from the same externalization premise. "
+           "A runtime that represents execution state as streams can be observed at any timescale by any interpreter that reads that format. "
+           "Mainstream runtimes never reached a second or third tier because their state was not observable: it lived in opaque heaps, implicit stacks, and internal profiler counters. "
+           "There was no stream to attach a second reader to."]
+
+          [:h2 "Conclusion"]
+
+          [:p
+           "Once CESK state is observable as datom streams, JIT and GC stop being separate mysteries. "
+           "They become two views over the same execution history, each capable of performing the other's work as a byproduct of its own traversal. "
+           "A third interpreter, operating at the timescale of sessions rather than milliseconds, extends the same coverage to patterns no execution-frequency profiler accumulates."]
+
+          [:p
+           "That is the deeper claim: in a stream-native VM, optimization and collection are not opposing forces. "
+           "They are cooperative interpretations of the same data, covering different timescales, scheduled through the same continuation machinery. "
+           "On a host like WebAssembly, this coverage reaches paths that traditional compilers and JITs leave unoptimized by design."]
+
+          [:h2 "Related Posts"]
+
+          [:ul.bulleted
+           [:li
+            [:a {:href "/blog/the-cesk-machine-control-environment-store-continuation.blog"} "The CESK Machine: Control, Environment, Store, Continuation"]]
+           [:li
+            [:a {:href "/blog/beyond-ffi-yin-vm-datom-streaming.blog"} "Beyond FFI with Datom Streams"]]
+           [:li
+            [:a {:href "/blog/computation-moves-data-stays.blog"} "Computation Moves, Data Stays"]]]]]]}
