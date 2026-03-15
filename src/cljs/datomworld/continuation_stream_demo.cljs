@@ -18,11 +18,11 @@
 
 
 (def source-example
-  "(def sum-to
-  (fn [n]
-    (if (= n 0)
-      0
-      (+ n (sum-to (- n 1))))))
+  "(defn sum-to
+  [n]
+  (if (= n 0)
+    0
+    (+ n (sum-to (- n 1)))))
 
 ;; Example: (sum-to 3) => 6 (1 + 2 + 3)
 (sum-to 100)")
