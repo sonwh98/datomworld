@@ -149,6 +149,20 @@
       (is (some #(= [:call 0] %) (:instrs main))))))
 
 
+(deftest program->asm-defn-test
+  (testing "compile-program defn output stays compatible with wasm extraction"
+    (let [ast (yang/compile-program
+                '[(defn double
+                    [x]
+                    (* x 2))
+                  (double 3)])
+          {:keys [fns main]} (wasm/extract-program ast)
+          asm (wasm/program->asm {:fns fns :main main})]
+      (is (= 1 (count fns)))
+      (is (= 'double (:name (first fns))))
+      (is (some #(= [:call 0] %) (:instrs (:main asm)))))))
+
+
 ;; =============================================================================
 ;; End-to-end eval (CLJS only — requires WebAssembly runtime)
 ;; =============================================================================

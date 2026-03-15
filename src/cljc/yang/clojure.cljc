@@ -25,13 +25,11 @@
   as regular function applications and resolved through the module system at runtime.
 
   The compiler is written in .cljc format to run on both JVM and Node.js."
-  (:refer-clojure :exclude [compile])
-  (:require
-    [yin.vm.macro :as macro]))
+  (:refer-clojure :exclude [compile]))
 
 
 ;; Forward declaration for mutual recursion
-(declare compile-form)
+(declare compile-form compile-lambda)
 
 
 ;; Strict fixed-point combinator specialized by function arity.
@@ -76,7 +74,8 @@
 
 (def initial-macro-env
   "Compile-time map of macro names to metadata known before any defmacro.
-   Seeds compile-program so (defmacro ...) forms emit :yin/macro-expand."
+   Seeds compile-program so (defmacro ...) forms emit :yin/macro-expand.
+   User-space macros like defn are defined via defmacro in stdlib-forms."
   {'defmacro {:type :bootstrap}})
 
 
@@ -84,6 +83,53 @@
   "Remove shadowed names from the macro environment."
   [macro-env names]
   (apply dissoc macro-env names))
+
+
+(defn- strip-symbol-meta
+  "Return an equal symbol without reader metadata."
+  [sym]
+  (if (namespace sym)
+    (symbol (namespace sym) (name sym))
+    (symbol (name sym))))
+
+
+(defn- compile-macro-operands
+  "Compile macro operands, optionally shadowing macro names in later operands.
+   Macros opt into this by setting metadata on the defining symbol:
+   ^{:yang/shadow-params-operand 1 :yang/shadow-body-start 2}"
+  [operands env macro-env macro-info]
+  (if-let [shadow-operand (:yang/shadow-params-operand macro-info)]
+    (let [params-form (nth operands shadow-operand nil)
+          body-start  (or (:yang/shadow-body-start macro-info)
+                          (inc shadow-operand))]
+      (if (vector? params-form)
+        (let [body-macro-env (shadow-macro-env macro-env params-form)]
+          (vec
+            (map-indexed (fn [idx operand]
+                           (compile-form operand
+                                         false
+                                         env
+                                         (if (>= idx body-start)
+                                           body-macro-env
+                                           macro-env)))
+                         operands)))
+        (mapv #(compile-form % false env macro-env) operands)))
+    (mapv #(compile-form % false env macro-env) operands)))
+
+
+(defn- compile-defn
+  "Compile a defn form natively to a yin/def application.
+   This path is used only when no defmacro named defn is in scope."
+  [fn-name params body-forms env tail? macro-env]
+  (let [body-expr (cond
+                    (empty? body-forms) nil
+                    (= 1 (count body-forms)) (first body-forms)
+                    :else (cons 'do body-forms))]
+    (cond-> {:type :application
+             :operator {:type :variable, :name 'yin/def}
+             :operands [{:type :literal, :value fn-name}
+                        (compile-lambda params body-expr env false macro-env)]}
+      tail? (assoc :tail? true))))
 
 
 (defn special-form?
@@ -284,11 +330,19 @@
          (let [macro-info   (get macro-env operator)
                operator-ast (if-let [la (:lambda-ast macro-info)]
                               la
-                              {:type :variable, :name operator})]
+                              {:type :variable, :name operator})
+               compiled-operands (compile-macro-operands operands env macro-env macro-info)]
            (cond-> {:type     :yin/macro-expand
                     :operator operator-ast
-                    :operands (mapv #(compile-form % false env macro-env) operands)}
+                    :operands compiled-operands}
              tail? (assoc :tail? true)))
+         ;; Native defn fallback: used only when no defmacro defn is in scope
+         ;; and the form actually matches defn syntax.
+         (and (= operator 'defn)
+              (<= 2 (count operands))
+              (vector? (second operands)))
+         (let [[fn-name params & body-forms] operands]
+           (compile-defn fn-name params body-forms env tail? macro-env))
 
          ;; Special forms
          :else
@@ -343,7 +397,11 @@
                      ;; The lambda gets a pre-allocated :eid so that the same object
                      ;; in macro-env and at each call site resolves to one entity.
                      (and (seq? head) (= 'defmacro (first head)))
-                     (let [macro-name  (second head)
+                     (let [macro-name-form (second head)
+                           macro-name  (strip-symbol-meta macro-name-form)
+                           macro-hints (select-keys (meta macro-name-form)
+                                                    [:yang/shadow-params-operand
+                                                     :yang/shadow-body-start])
                            params      (nth head 2)
                            body-forms  (nthrest head 3)
                            body-expr   (cond (empty? body-forms) nil
@@ -364,7 +422,10 @@
                                         :operator {:type :variable, :name 'yin/def}
                                         :operands [{:type :literal, :value macro-name}
                                                    lambda-ast]}
-                           new-env     (assoc macro-env macro-name {:type :user :lambda-ast lambda-ast})]
+                           new-env     (assoc macro-env macro-name
+                                              (merge {:type :user
+                                                      :lambda-ast lambda-ast}
+                                                     macro-hints))]
                        (cond-> {:type     :application
                                 :operator {:type :lambda, :params ['_]
                                            :body (go rest-forms new-env)}

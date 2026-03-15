@@ -365,8 +365,55 @@
        :root-eid def-eid})))
 
 
+(defn sequence-body-eids
+  "Sequence multiple body EIDs into nested lambda-application chains (do desugaring).
+   Returns [root-eid new-datoms].
+   Empty body produces a nil literal node."
+  [body-eids fresh-eid]
+  (cond
+    (empty? body-eids)
+    (let [nil-eid (fresh-eid)]
+      [nil-eid [[nil-eid :yin/type  :literal 0 0]
+                [nil-eid :yin/value nil      0 0]]])
+    (= 1 (count body-eids))
+    [(first body-eids) []]
+    :else
+    (let [[first-eid & rest-eids] body-eids
+          [rest-eid  rest-datoms] (sequence-body-eids rest-eids fresh-eid)
+          fn-eid  (fresh-eid)
+          app-eid (fresh-eid)]
+      [app-eid (vec (concat rest-datoms
+                            [[fn-eid  :yin/type     :lambda      0 0]
+                             [fn-eid  :yin/params   ['_]         0 0]
+                             [fn-eid  :yin/body     rest-eid     0 0]
+                             [app-eid :yin/type     :application 0 0]
+                             [app-eid :yin/operator fn-eid       0 0]
+                             [app-eid :yin/operands [first-eid]  0 0]]))])))
+
+
 (def default-macro-registry
   "Bootstrap macro-registry containing defmacro.
    Merge with user registries when creating VMs:
      (create-vm {:macro-registry (merge macro/default-macro-registry my-macros)})"
   {defmacro-eid defmacro-fn})
+
+
+;; =============================================================================
+;; Standard library: macro definitions expressed via defmacro
+;; =============================================================================
+
+(def stdlib-forms
+  "Standard macro definitions expressed using defmacro.
+   Prepend to any program that relies on these macros.
+
+   defn: defines a named function.
+     (defn name params body...)
+     -> (def name (fn params body-sequenced))"
+  '[(defmacro ^{:yang/shadow-params-operand 1
+                :yang/shadow-body-start 2}
+      defn
+      [fn-name fn-params & body]
+      (let [b (yin/sequence-body body)
+            l (yin/make-lambda fn-params b)
+            d (yin/make-def fn-name l)]
+        d))])
