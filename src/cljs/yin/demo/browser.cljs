@@ -877,15 +877,15 @@
    {:name "Clojure: Closure Power",
     :lang :clojure,
     :code
-    "(def make-power\n  (fn [e]\n    (fn [b]\n      (if (= e 0)\n        1\n        (* b ((make-power (- e 1)) b))))))\n((make-power 3) 2)"}
+    "(defn make-power [e]\n  (fn [b]\n    (if (= e 0)\n      1\n      (* b ((make-power (- e 1)) b)))))\n((make-power 3) 2)"}
    {:name "Clojure: Factorial",
     :lang :clojure,
     :code
-    "(def fact (fn [n]\n  (if (= n 0)\n    1\n    (* n (fact (- n 1))))))\n(fact 5)"}
+    "(defn fact [n]\n  (if (= n 0)\n    1\n    (* n (fact (- n 1)))))\n(fact 5)"}
    {:name "Clojure: Fibonacci",
     :lang :clojure,
     :code
-    "(def fib (fn [n]\n  (if (< n 2)\n    n\n    (+ (fib (- n 1)) (fib (- n 2))))))\n(fib 7)"}
+    "(defn fib [n]\n  (if (< n 2)\n    n\n    (+ (fib (- n 1)) (fib (- n 2)))))\n(fib 7)"}
    {:name "Python: Basic Math", :lang :python, :code "10 + 20"}
    {:name "Python: Closure Power",
     :lang :python,

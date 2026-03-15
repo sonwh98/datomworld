@@ -157,7 +157,7 @@
 ;; =============================================================================
 
 (def default-source
-  "(def f (fn [x] (* x x)))
+  "(defn f [x] (* x x))
 (def plot-loop
   (fn [x-min x-max]
     (if (> x-min x-max)
