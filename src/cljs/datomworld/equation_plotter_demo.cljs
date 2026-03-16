@@ -157,14 +157,13 @@
 ;; =============================================================================
 
 (def default-source
-  "(def f (fn [x] (* x x)))
-(def plot-loop
-  (fn [x-min x-max]
-    (if (> x-min x-max)
-      nil
-      (do
-        (ffi/call :plot/point x-min (f x-min))
-        (plot-loop (+ x-min 0.05) x-max)))))
+  "(defn f [x] (* x x))
+(defn plot-loop [x-min x-max]
+  (if (> x-min x-max)
+    nil
+    (do
+      (ffi/call :plot/point x-min (f x-min))
+      (plot-loop (+ x-min 0.05) x-max))))
 (plot-loop -10 10)")
 
 

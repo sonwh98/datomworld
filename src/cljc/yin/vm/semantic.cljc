@@ -3,7 +3,8 @@
     [dao.db :as db]
     [yin.module :as module]
     [yin.vm :as vm]
-    [yin.vm.engine :as engine]))
+    [yin.vm.engine :as engine]
+    [yin.vm.macro :as macro]))
 
 
 ;; =============================================================================
@@ -161,7 +162,7 @@
    env        ; lexical environment
    halted     ; true if execution completed
    id-counter ; unique ID counter
-   index      ; Entity index {eid [datom...]}
+   index      ; Entity index {eid node-attr-array}
    node-id-counter ; unique negative ID counter for AST nodes
    parked     ; parked continuations
    primitives ; primitive operations
@@ -173,7 +174,11 @@
    wait-set   ; vector of parked continuations waiting on streams
    index-arr  ; array-backed node index for hot loop
    index-base-id ; base id for index-arr offset calculation
+   macro-registry ; {macro-lambda-eid -> (fn [ctx] {:datoms [...] :root-eid eid})}
    ])
+
+
+(declare semantic-expand-macro-call)
 
 
 ;; =============================================================================
@@ -201,7 +206,8 @@
     val
     (:wait-set vm)
     (:index-arr vm)
-    (:index-base-id vm)))
+    (:index-base-id vm)
+    (:macro-registry vm)))
 
 
 (defn- park-and-enqueue-ffi
@@ -542,6 +548,9 @@
           (assoc vm
                  :control {:type :value,
                            :val {:type :reified-continuation, :stack stack, :env env}})
+          ;; Runtime macro expansion: expand :yin/macro-expand node inline
+          :yin/macro-expand
+          (semantic-expand-macro-call vm node-id node-arr env stack)
           (throw (ex-info "Unknown node type" {:node-type (aget node-arr ATTR_TYPE)})))))))
 
 
@@ -703,6 +712,98 @@
            :halted false
            :value nil
            :blocked false)))
+
+
+(defn semantic-append-datoms
+  "Append new datoms to the semantic VM's index without resetting execution state.
+   For new EIDs, creates a fresh node entry.
+   For existing EIDs, patches individual attributes (preserves existing attrs).
+   Used by the macro expander to inject expansion output at runtime."
+  [^SemanticVM vm new-datoms]
+  (let [old-index (:index vm)
+        new-datom-index (group-by first new-datoms)
+        updated-index
+        (reduce (fn [idx [eid eid-datoms]]
+                  (if-let [existing-arr (get idx eid)]
+                    ;; Existing node: copy array and patch in new attributes
+                    (let [arr (make-semantic-object-array ATTR_COUNT)]
+                      (dotimes [i ATTR_COUNT]
+                        (semantic-object-array-set! arr i (semantic-object-array-get existing-arr i)))
+                      (doseq [[_e a v _t _m] eid-datoms]
+                        (when-let [ai (get attr->idx a)]
+                          (if (contains? cardinality-many-attrs a)
+                            (let [existing (semantic-object-array-get arr ai)]
+                              (if (vector? v)
+                                (semantic-object-array-set! arr ai (into (or existing []) v))
+                                (semantic-object-array-set! arr ai (conj (or existing []) v))))
+                            (semantic-object-array-set! arr ai v))))
+                      (assoc idx eid arr))
+                    ;; New node: build fresh array from its datoms
+                    (assoc idx eid (datom-node-attrs new-datom-index eid))))
+                old-index
+                new-datom-index)
+        cardinality (count updated-index)
+        [index-base-id index-arr] (build-semantic-node-index-array updated-index cardinality)]
+    (assoc vm
+           :datoms (into (:datoms vm) new-datoms)
+           :index updated-index
+           :index-arr index-arr
+           :index-base-id index-base-id)))
+
+
+(declare invoke-macro-lambda)
+
+
+(defn- semantic-expand-macro-call
+  "Expand a :yin/macro-expand node at runtime.
+   Returns updated VM with expansion appended to datom index and control
+   pointing to the expansion root."
+  [^SemanticVM vm node-id node-arr env stack]
+  (let [macro-registry (:macro-registry vm)
+        op-eid (aget node-arr ATTR_OPERATOR)
+        arg-eids (or (aget node-arr ATTR_OPERANDS) [])
+        ;; Resolve variable-operator references to their macro lambda EID.
+        ;; Yang emits :yin/macro-expand with a :variable operator node when
+        ;; the macro EID is not statically known (user-defined macros).
+        by-entity (group-by first (:datoms vm))
+        get-attr (fn [eid attr]
+                   (some (fn [[_ a v]] (when (= a attr) v))
+                         (rseq (vec (get by-entity eid)))))
+        macro-lambda-eid
+        (if (= :variable (get-attr op-eid :yin/type))
+          (let [vname (get-attr op-eid :yin/name)]
+            (or (get macro/default-name-registry vname)
+                (macro/find-macro-lambda-by-name vname (:datoms vm) get-attr)
+                op-eid))
+          op-eid)
+        macro-fn (get macro-registry macro-lambda-eid)
+        eid-counter (macro/make-eid-counter! (:datoms vm))
+        event-eid (swap! eid-counter dec)
+        fresh-eid-fn (fn [] (swap! eid-counter dec))
+        ctx {:get-attr get-attr
+             :by-entity by-entity
+             :arg-eids arg-eids
+             :fresh-eid fresh-eid-fn
+             :phase :runtime}
+        result (if macro-fn
+                 (macro-fn ctx)
+                 (if (get-attr macro-lambda-eid :yin/macro?)
+                   (invoke-macro-lambda macro-lambda-eid ctx (:datoms vm))
+                   (throw (ex-info "No macro registered and lambda not found"
+                                   {:macro-lambda-eid macro-lambda-eid
+                                    :call-eid node-id
+                                    :registered-keys (keys macro-registry)}))))
+        exp-datoms (:datoms result)
+        exp-root (:root-eid result)
+        evt-datoms (macro/expansion-event-datoms
+                     event-eid node-id macro-lambda-eid exp-root :runtime)
+        marked-exp (macro/mark-with-provenance exp-datoms event-eid)
+        all-new (vec (concat evt-datoms marked-exp))
+        updated-vm (semantic-append-datoms vm all-new)]
+    (assoc updated-vm
+           :control {:type :node, :id exp-root}
+           :env env
+           :stack stack)))
 
 
 (defn- semantic-run-active-continuation
@@ -959,7 +1060,7 @@
                                                       (aget node-arr ATTR_TAIL)])]
                                (recur :node (aget node-arr ATTR_OPERATOR) env next-sp vm))
 
-                ;; Fallback for VM primitives and stream ops
+                ;; Fallback for VM primitives, stream ops, and runtime macro expansion
                 (let [state (semantic-return vm
                                              {:type :node, :id node-id}
                                              env
@@ -967,7 +1068,11 @@
                                              false
                                              nil)
                       next (handle-node-eval state)]
-                  (if (or (:blocked next) (nil? (:control next)))
+                  (if (or (:blocked next)
+                          (nil? (:control next))
+                          ;; Index changed (e.g., runtime macro expanded new nodes):
+                          ;; exit hot loop so outer eval can restart with updated index
+                          (not (identical? (:index next) index)))
                     next
                     (let [next-control (:control next)
                           next-tag (:type next-control)
@@ -1030,18 +1135,25 @@
                        engine/active-continuation?
                        semantic-vm-step
                        resume-from-run-queue)
-      (let [result (semantic-run-active-continuation v
-                                                     (:control v)
-                                                     (:env v)
-                                                     (:stack v))]
-        ;; Fast path may return blocked immediately after parking.
-        ;; Re-enter scheduler once so idle handlers (wait-set/FFI) can run.
-        (if (:blocked result)
-          (engine/run-loop result
-                           engine/active-continuation?
-                           semantic-vm-step
-                           resume-from-run-queue)
-          result)))))
+      ;; Run hot loop, restarting when runtime macro expansion updates the index
+      (loop [v v]
+        (let [result (semantic-run-active-continuation v
+                                                       (:control v)
+                                                       (:env v)
+                                                       (:stack v))]
+          (cond
+            ;; Blocked: hand off to scheduler (FFI, stream wait-set, run-queue)
+            (:blocked result)
+            (engine/run-loop result
+                             engine/active-continuation?
+                             semantic-vm-step
+                             resume-from-run-queue)
+            ;; Not halted and still has pending control: runtime macro expanded new nodes,
+            ;; restart hot loop with the updated index
+            (and (not (:halted result)) (some? (:control result)))
+            (recur result)
+            ;; Halted or no pending control
+            :else result))))))
 
 
 (extend-type SemanticVM
@@ -1065,7 +1177,7 @@
 
 (defn create-vm
   "Create a new SemanticVM with optional opts map.
-   Accepts {:env map, :primitives map, :bridge-dispatcher map}."
+   Accepts {:env map, :primitives map, :bridge-dispatcher map, :macro-registry map}."
   ([] (create-vm {}))
   ([opts]
    (let [env (or (:env opts) {})]
@@ -1082,4 +1194,133 @@
                               :halted false,
                               :value nil,
                               :blocked false,
-                              :node-id-counter -1024})))))
+                              :node-id-counter -1024,
+                              :macro-registry (or (:macro-registry opts) {})})))))
+
+
+(defn- bind-variadic-params
+  "Bind params vector to arg-eids, handling & rest syntax.
+   Returns env map. For [a b & rest] with [e1 e2 e3 e4],
+   produces {a e1, b e2, rest [e3 e4]}."
+  [params arg-eids]
+  (loop [ps (seq params) args (seq arg-eids) env {}]
+    (cond
+      (nil? ps) env
+      (= '& (first ps)) (assoc env (second ps) (vec args))
+      :else (recur (next ps) (next args) (assoc env (first ps) (first args))))))
+
+
+(defn invoke-macro-lambda
+  "Execute a macro lambda body in a fresh SemanticVM seeded with `datoms`.
+   params are bound to arg-eids (integer AST entity refs).
+   Supports variadic params with & rest syntax.
+   Injects yin/get-attr, yin/sequence-body, yin/make-lambda, yin/make-def
+   as primitives so macro bodies can inspect and construct AST nodes.
+   Returns {:datoms [...] :root-eid result-eid}."
+  [lambda-eid ctx datoms]
+  (let [{:keys [arg-eids get-attr fresh-eid]} ctx
+        params   (get-attr lambda-eid :yin/params)
+        body-eid (get-attr lambda-eid :yin/body)
+        env      (bind-variadic-params params arg-eids)
+        ;; Datoms emitted by AST-builder primitives during macro body execution.
+        ;; extra-datoms: raw vector returned to the caller as {:datoms ...}.
+        ;; extra-index:  {eid {attr v}} map for O(1) lookup in local-get / mark-tail!.
+        extra-datoms (atom [])
+        extra-index  (atom {})
+        emit!        (fn [ds]
+                       (swap! extra-datoms into ds)
+                       (swap! extra-index
+                              (fn [idx]
+                                (reduce (fn [acc [e a v _ _]] (assoc-in acc [e a] v))
+                                        idx ds))))
+        local-get    (fn [eid attr]
+                       (or (get-attr eid attr)
+                           (get-in @extra-index [eid attr])))
+        ;; Macro-context primitives: only available inside a macro body VM.
+        macro-prims
+        {'yin/get-attr
+         (fn [eid attr] (local-get eid attr))
+         'yin/sequence-body
+         (fn [body-eids]
+           (let [bv (vec body-eids)
+                 [root-eid new-ds] (macro/sequence-body-eids bv fresh-eid)]
+             (emit! new-ds)
+             root-eid))
+         'yin/make-lambda
+         (fn [params-eid body-eid]
+           (let [lparams (get-attr params-eid :yin/value)
+                 leid    (fresh-eid)]
+             ;; Mark tail-position application nodes so TCO fires correctly.
+             ;; The body of any lambda is always in tail position.
+             ;; Recurse into :if branches and lambda operators (let/do desugaring).
+             ;; local-get checks both the outer VM's datoms and extra-index so that
+             ;; fresh nodes from yin/sequence-body are reachable.
+             (let [visited (volatile! #{})]
+               (letfn [(mark-tail!
+                         [eid]
+                         (when (and eid (not (contains? @visited eid)))
+                           (vswap! visited conj eid)
+                           (let [t (local-get eid :yin/type)]
+                             (cond
+                               (#{:application :yin/macro-expand} t)
+                               (do (emit! [[eid :yin/tail? true 0 0]])
+                                   (let [op-eid (local-get eid :yin/operator)]
+                                     (when (= :lambda (local-get op-eid :yin/type))
+                                       (mark-tail! (local-get op-eid :yin/body)))))
+                               (= :if t)
+                               (do (mark-tail! (local-get eid :yin/consequent))
+                                   (mark-tail! (local-get eid :yin/alternate)))))))]
+                 (mark-tail! body-eid)))
+             (emit! [[leid :yin/type   :lambda  0 0]
+                     [leid :yin/params lparams  0 0]
+                     [leid :yin/body   body-eid 0 0]])
+             leid))
+         'yin/make-def
+         (fn [name-eid value-eid]
+           (let [dname  (or (get-attr name-eid :yin/name)
+                            (get-attr name-eid :yin/value))
+                 op-eid  (fresh-eid)
+                 key-eid (fresh-eid)
+                 def-eid (fresh-eid)]
+             (emit! [[op-eid  :yin/type     :variable              0 0]
+                     [op-eid  :yin/name     'yin/def               0 0]
+                     [key-eid :yin/type     :literal               0 0]
+                     [key-eid :yin/value    dname                  0 0]
+                     [def-eid :yin/type     :application           0 0]
+                     [def-eid :yin/operator op-eid                 0 0]
+                     [def-eid :yin/operands [key-eid value-eid]    0 0]])
+             def-eid))}
+        vm-base  (create-vm)
+        vm-data  (semantic-append-datoms vm-base datoms)
+        vm-ready (assoc vm-data
+                        :primitives (merge (:primitives vm-data) macro-prims)
+                        :control {:type :node, :id body-eid}
+                        :env env
+                        :halted false
+                        :blocked false
+                        :stack [])
+        result-vm (vm/run vm-ready)
+        raw-val   (vm/value result-vm)
+        extra     (vec @extra-datoms)]
+    (cond
+      ;; Ambiguous: a map with both :type and :root-eid is a macro bug.
+      (and (map? raw-val) (contains? raw-val :type) (contains? raw-val :root-eid))
+      (throw (ex-info "Macro returned ambiguous map with both :type and :root-eid"
+                      {:value raw-val}))
+      ;; Macro returned an AST map: convert to datoms using current counter.
+      (and (map? raw-val) (contains? raw-val :type))
+      (let [[root-id exp-datoms] (vm/ast->datoms-with-root
+                                   raw-val {:id-start (fresh-eid)})]
+        {:datoms (into extra exp-datoms) :root-eid root-id})
+      ;; Macro returned a pre-packaged {:datoms [...] :root-eid ...} map.
+      (and (map? raw-val) (contains? raw-val :root-eid))
+      (update raw-val :datoms #(into extra (or % [])))
+      ;; Macro returned a negative-integer EID pointing to a node it created.
+      (and (integer? raw-val) (neg? raw-val))
+      {:datoms extra :root-eid raw-val}
+      ;; Macro returned a plain value — wrap it in a literal node.
+      :else
+      (let [lit-eid (fresh-eid)]
+        (emit! [[lit-eid :yin/type :literal 0 0]
+                [lit-eid :yin/value raw-val  0 0]])
+        {:datoms (vec @extra-datoms) :root-eid lit-eid}))))

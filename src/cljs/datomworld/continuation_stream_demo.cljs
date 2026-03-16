@@ -18,11 +18,11 @@
 
 
 (def source-example
-  "(def sum-to
-  (fn [n]
-    (if (= n 0)
-      0
-      (+ n (sum-to (- n 1))))))
+  "(defn sum-to
+  [n]
+  (if (= n 0)
+    0
+    (+ n (sum-to (- n 1)))))
 
 ;; Example: (sum-to 3) => 6 (1 + 2 + 3)
 (sum-to 100)")
@@ -227,29 +227,24 @@
 
 
 (defn create-loaded-register-vm
-  [{:keys [bytecode pool reg-count]}]
-  (-> (register/create-vm)
-      (vm/load-program {:bytecode bytecode, :pool pool, :reg-count reg-count})))
+  [ast-datoms]
+  (let [root-id (apply max (map first ast-datoms))]
+    (-> (register/create-vm)
+        (vm/load-program {:node root-id, :datoms ast-datoms}))))
 
 
 (defn create-loaded-stack-vm
-  [{:keys [bytecode pool]}]
-  (-> (stack/create-vm)
-      (vm/load-program {:bytecode bytecode, :pool pool})))
+  [ast-datoms]
+  (let [root-id (apply max (map first ast-datoms))]
+    (-> (stack/create-vm)
+        (vm/load-program {:node root-id, :datoms ast-datoms}))))
 
 
 (defn create-initial-vm
   [state vm-key]
   (if (stack-vm? vm-key)
-    (when (and (:stack-bytecode state) (:stack-pool state))
-      (create-loaded-stack-vm {:bytecode (:stack-bytecode state),
-                               :pool (:stack-pool state)}))
-    (when (and (:register-bytecode state)
-               (:register-pool state)
-               (:register-reg-count state))
-      (create-loaded-register-vm {:bytecode (:register-bytecode state),
-                                  :pool (:register-pool state),
-                                  :reg-count (:register-reg-count state)}))))
+    (when (:ast-datoms state) (create-loaded-stack-vm (:ast-datoms state)))
+    (when (:ast-datoms state) (create-loaded-register-vm (:ast-datoms state)))))
 
 
 (defn enqueue-continuation
@@ -326,15 +321,12 @@
 
 (defn reset-execution!
   []
-  (let [{:keys [register-bytecode register-pool register-reg-count]} @app-state]
-    (when (and register-bytecode register-pool register-reg-count)
+  (let [{:keys [ast-datoms]} @app-state]
+    (when ast-datoms
       (stop-run-loop!)
       (let [{:keys [continuation-stream cursors pending-continuations]}
             (ct/init-state [:register-vm :stack-vm])
-            initial-vm (create-loaded-register-vm {:bytecode register-bytecode,
-                                                   :pool register-pool,
-                                                   :reg-count
-                                                   register-reg-count})]
+            initial-vm (create-loaded-register-vm ast-datoms)]
         (swap! app-state assoc
                :register-vm initial-vm
                :stack-vm nil
@@ -367,9 +359,7 @@
             (stack/assemble stack-asm)
             {:keys [continuation-stream cursors pending-continuations]}
             (ct/init-state [:register-vm :stack-vm])
-            initial-vm (create-loaded-register-vm {:bytecode bytecode,
-                                                   :pool pool,
-                                                   :reg-count reg-count})]
+            initial-vm (create-loaded-register-vm ast-datoms)]
         (swap! app-state assoc
                :ast ast
                :ast-datoms ast-datoms

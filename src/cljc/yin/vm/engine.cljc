@@ -213,18 +213,6 @@
           :else v)))
 
 
-(defn index-datoms
-  "Index AST datoms by entity.
-   Returns {:by-entity map, :get-attr fn, :root-id int}."
-  [ast-as-datoms]
-  (let [datoms (vec ast-as-datoms)
-        by-entity (group-by first datoms)
-        get-attr (fn [e attr]
-                   (some (fn [[_ a v]] (when (= a attr) v)) (get by-entity e)))
-        root-id (apply max (keys by-entity))]
-    {:by-entity by-entity, :get-attr get-attr, :root-id root-id}))
-
-
 (defn- resume-entries-with-nil
   "Set :value to nil on each entry, for waking parked continuations after stream close."
   [entries]
