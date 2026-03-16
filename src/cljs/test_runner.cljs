@@ -1,7 +1,6 @@
 (ns test-runner
   (:require
     [cljs.test :refer-macros [run-tests]]
-    [dao.db.core-test]
     [dao.stream-test]
     [datomworld.continuation-transport-test]
     [yin.content-test]
