@@ -12,9 +12,6 @@
     [cljs.reader :as reader]
     [clojure.walk :as walk]
     [dao.db :as dao.db]
-    [datascript.core :as d]
-    [datascript.db :as db]
-    [datascript.query :as dq]
     [datomworld.continuation-stream-demo :as cont-demo]
     [datomworld.equation-plotter-demo :as plotter-demo]
     [reagent.core :as r]
@@ -27,26 +24,6 @@
     [yin.vm.register :as register]
     [yin.vm.semantic :as semantic]
     [yin.vm.stack :as stack]))
-
-
-;; Fix DataScript query under Closure advanced compilation.
-(let [original-lookup dq/lookup-pattern-db
-      prop->idx {"e" 0, "a" 1, "v" 2, "tx" 3}]
-  (set! dq/lookup-pattern-db
-        (fn [context db pattern]
-          (let [rel (original-lookup context db pattern)
-                tuples (:tuples rel)]
-            (if (and (seq tuples) (instance? db/Datom (first tuples)))
-              (let [new-attrs (reduce-kv (fn [m k v]
-                                           (assoc m k (get prop->idx v v)))
-                                         {}
-                                         (:attrs rel))
-                    new-tuples (mapv (fn [d]
-                                       (to-array [(nth d 0) (nth d 1) (nth d 2)
-                                                  (nth d 3) (nth d 4)]))
-                                     tuples)]
-                (dq/->Relation new-attrs new-tuples))
-              rel)))))
 
 
 (defn pretty-print
@@ -374,10 +351,9 @@
      :walker-result nil,
      :semantic-result nil,
      :datoms nil,
-     :ds-db nil,
+     :dao-db nil,
      :root-ids nil,
-     :root-eids nil,
-     :semantic-stats nil,
+     :root-eids nil,     :semantic-stats nil,
      :register-asm nil,
      :register-datoms nil,
      :register-root-ids nil,
@@ -702,17 +678,14 @@
           all-datom-groups (mapv vm/ast->datoms forms)
           all-datoms-before (vec (mapcat identity all-datom-groups))
           root-ids (mapv (fn [dg] (apply max (map first dg))) all-datom-groups)
-          empty-db (d/empty-db vm/schema)
           tx-data (vm/datoms->tx-data all-datoms-before)
-          conn (d/conn-from-db empty-db)
-          {:keys [tempids]} (d/transact! conn tx-data)
-          db @conn
+          {:keys [db tempids]} (dao.db/from-tx-data vm/schema tx-data)
+          dao-db db
           all-datoms (mapv (fn [d]
                              [(nth d 0) (nth d 1) (nth d 2) (nth d 3)
                               nil])
-                           (d/datoms db :eavt))
+                           (dao.db/datoms dao-db :eavt))
           root-eids (mapv #(get tempids % %) root-ids)
-          dao-db (dao.db/->DaoDb db)
           stats {:total-datoms (count all-datoms),
                  :lambdas (count (semantic/find-lambdas dao-db)),
                  :applications (count (semantic/find-applications dao-db)),
@@ -723,7 +696,7 @@
                           (load-semantic-state last-root all-datoms))]
       (swap! app-state assoc
              :datoms all-datoms
-             :ds-db db
+             :dao-db dao-db
              :root-ids root-ids
              :root-eids root-eids
              :semantic-stats stats
@@ -734,7 +707,7 @@
       (swap! app-state assoc
              :error (.-message e)
              :datoms nil
-             :ds-db nil
+             :dao-db nil
              :root-ids nil
              :semantic-stats nil)
       (clear-vm-state! :semantic)
@@ -769,10 +742,10 @@
 
 (defn run-query
   []
-  (let [db (:ds-db @app-state)]
+  (let [db (:dao-db @app-state)]
     (if (nil? db)
       (swap! app-state assoc
-             :error "No DataScript db. Click \"Compile ->\" first."
+             :error "No database. Click \"Compile ->\" first."
              :query-result nil)
       (try (let [query (reader/read-string (:query-text @app-state))
                  extra-bindings (parse-in-bindings query)
@@ -780,7 +753,7 @@
                               (let [input-text (or (:query-inputs @app-state)
                                                    "")]
                                 (reader/read-string (str "[" input-text "]"))))
-                 result (apply d/q query db (or extra-vals []))]
+                 result (dao.db/q db query (or extra-vals []))]
              (swap! app-state assoc :query-result result :error nil))
            (catch js/Error e
              (swap! app-state assoc

@@ -3,7 +3,30 @@
    Independent of yin/yang. Currently backed by DataScript,
    but the protocol allows future implementations."
   (:require
-    [datascript.core :as d]))
+    [datascript.core :as d]
+    #?@(:cljs [[datascript.db :as db]
+               [datascript.query :as dq]])))
+
+
+#?(:cljs
+   ;; Fix DataScript query under Closure advanced compilation.
+   (let [original-lookup dq/lookup-pattern-db
+         prop->idx {"e" 0, "a" 1, "v" 2, "tx" 3}]
+     (set! dq/lookup-pattern-db
+           (fn [context db pattern]
+             (let [rel (original-lookup context db pattern)
+                   tuples (:tuples rel)]
+               (if (and (seq tuples) (instance? db/Datom (first tuples)))
+                 (let [new-attrs (reduce-kv (fn [m k v]
+                                              (assoc m k (get prop->idx v v)))
+                                            {}
+                                            (:attrs rel))
+                       new-tuples (mapv (fn [d]
+                                          (to-array [(nth d 0) (nth d 1) (nth d 2)
+                                                     (nth d 3) (nth d 4)]))
+                                        tuples)]
+                   (dq/->Relation new-attrs new-tuples))
+                 rel))))))
 
 
 (defprotocol IDaoDb
@@ -45,7 +68,7 @@
        set))
 
 
-(defrecord DaoDb
+(defrecord DaoDbDataScript
   [ds-db]
 
   IDaoDb
@@ -54,7 +77,7 @@
     [_ tx-data]
     (let [conn (d/conn-from-db ds-db)
           {:keys [tempids]} (d/transact! conn tx-data)]
-      {:db (DaoDb. @conn), :tempids tempids}))
+      {:db (DaoDbDataScript. @conn), :tempids tempids}))
 
 
   (q [_ query inputs] (apply d/q query ds-db inputs))
@@ -86,7 +109,7 @@
 (defn create
   "Create an empty DaoDb from a schema."
   [schema]
-  (->DaoDb (d/empty-db schema)))
+  (->DaoDbDataScript (d/empty-db schema)))
 
 
 (defn from-tx-data
