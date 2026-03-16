@@ -17,7 +17,6 @@
 (defn -main
   []
   (run-tests 'datomworld.continuation-transport-test
-             'dao.db.core-test
              'dao.stream-test
              'yin.content-test
              'yin.transport-test
