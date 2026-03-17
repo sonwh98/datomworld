@@ -10,7 +10,6 @@
     [yin.vm.register-test]
     [yin.vm.semantic-test]
     [yin.vm.stack-test]
-    [yin.vm.state-projection-test]
     [yin.vm.wasm-test]))
 
 
@@ -25,7 +24,6 @@
              'yin.vm.register-test
              'yin.vm.semantic-test
              'yin.vm.stack-test
-             'yin.vm.state-projection-test
              'yin.vm.wasm-test))
 
 

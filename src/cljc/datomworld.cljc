@@ -1,4 +1,6 @@
-(ns dao.db.primitives
+(ns datomworld
+  "Core primitives for datom.world.
+   A datom is the fundamental unit of information: an immutable 5-tuple [e a v t m]."
   #?(:cljs
      (:require
        [goog.crypt :as crypt]
@@ -35,6 +37,4 @@
 
 (defn merkle-id-for-node
   [attributes]
-  ;; Merkle Identity: ID is hash of the sorted attribute map
-  ;; This ensures structural sharing for identical nodes.
   (sha256 (str (into (sorted-map) attributes))))

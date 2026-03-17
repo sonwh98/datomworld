@@ -3,7 +3,7 @@
    Computes gauge-invariant content hashes over [a v] pairs,
    replacing entity-ref values with content hashes of referenced entities."
   (:require
-    [dao.db.primitives :as p]
+    [datomworld :as dw]
     [yin.vm :as vm]))
 
 
@@ -53,7 +53,7 @@
         resolved (into (sorted-map)
                        (map (fn [[a v]] [a (resolve-value a v hash-cache)]))
                        av-map)]
-    (str "sha256:" (p/sha256 (pr-str resolved)))))
+    (str "sha256:" (dw/sha256 (pr-str resolved)))))
 
 
 (defn- entity-refs
