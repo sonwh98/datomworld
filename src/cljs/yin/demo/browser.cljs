@@ -12,6 +12,7 @@
     [cljs.reader :as reader]
     [clojure.walk :as walk]
     [dao.db :as dao.db]
+    [dao.db.datascript :as ds-db]
     [datomworld.continuation-stream-demo :as cont-demo]
     [datomworld.equation-plotter-demo :as plotter-demo]
     [reagent.core :as r]
@@ -679,7 +680,7 @@
           all-datoms-before (vec (mapcat identity all-datom-groups))
           root-ids (mapv (fn [dg] (apply max (map first dg))) all-datom-groups)
           tx-data (vm/datoms->tx-data all-datoms-before)
-          {:keys [db tempids]} (dao.db/from-tx-data vm/schema tx-data)
+          {:keys [db tempids]} (ds-db/from-tx-data vm/schema tx-data)
           dao-db db
           all-datoms (mapv (fn [d]
                              [(nth d 0) (nth d 1) (nth d 2) (nth d 3)
@@ -753,7 +754,7 @@
                               (let [input-text (or (:query-inputs @app-state)
                                                    "")]
                                 (reader/read-string (str "[" input-text "]"))))
-                 result (dao.db/q db query (or extra-vals []))]
+                 result (apply dao.db/q query db (or extra-vals []))]
              (swap! app-state assoc :query-result result :error nil))
            (catch js/Error e
              (swap! app-state assoc
@@ -1700,8 +1701,7 @@
                                   (let [tx-data (vm/datoms->tx-data
                                                   (:datoms state))
                                         {dao-db :db}
-                                        (dao.db/from-tx-data vm/schema
-                                                             tx-data)]
+                                        (ds-db/from-tx-data vm/schema tx-data)]
                                     (dao.db/entity-attrs dao-db
                                                          (:id ctrl)))]
                               (str (:yin/type attrs)))

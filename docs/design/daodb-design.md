@@ -1,392 +1,268 @@
-# DaoDB: Native Tuple Store Design
+# DaoDB: Three-Component Architecture
 
-## Context
+## Overview
 
-The project has one DaoDB implementation in `dao.db.cljc`:
-- `DaoDbDataScript` — DataScript-backed (4-tuple datoms, external dependency)
+DaoDB is the native tuple store for datom.world. It stores immutable 5-tuple datoms
+`[e a v t m]`, maintains five sorted-set indexes (EAVT, AEVT, AVET, VAET, MEAT), and provides
+a Datalog query engine (`d/q`) over those indexes.
 
-It does not support the full `[e a v t m]` 5-tuple spec, EAVT/AEVT/AVET/VAET indexes, or a native Datalog engine.
-
-This design introduces a full native DaoDB: pure Clojure, ClojureScript, and ClojureDart, no DataScript dependency, proper 5-tuple datoms with `m` as an entity ID, four sorted-set indexes, transaction pipeline, schema, and an embedded `d/q`.
-
-Jank support is planned for a future phase. Jank is a Clojure dialect targeting native code via LLVM. Once jank stabilizes its `#?(:jank ...)` reader conditional, the only expected change is a `:jank` branch in `type-rank` for float detection.
-
-Decisions:
-- Scope: full native replacement (not extending DaoDbDataScript)
-- `m` field: accept map shorthand in tx-data; auto-create metadata entity
-- Query engine: included in DaoDB
-- **One new namespace**: comparators, index helpers, schema bootstrap, tx pipeline, and query engine are all cohesive. They live together in `dao.db.native` until internal entropy demands extraction.
+The architecture follows Datomic's logical split: **Storage**, **Transactor**, and
+**Query Engine** are three distinct logical components defined by protocol boundaries.
+"Logical" means the boundary is a protocol interface, not a deployment constraint. The
+same three components can run in one process (in-memory, no serialization overhead) or
+be deployed across separate machines communicating via network. Same protocol, different
+topology.
 
 ---
 
-## File Layout
+## Data Model
 
-### New files
+Datoms are 5-tuples: `[e a v t m]`.
 
-| File | Namespace | Role |
-|------|-----------|------|
-| `src/cljc/dao/db/native.cljc` | `dao.db.native` | Everything: comparators, sorted-set index helpers, schema bootstrap, tx pipeline, Datalog query engine, `NativeDaoDb` record, `empty-db`, `create`, `as-of`, `since` |
+- `e` — entity ID (negative = tempid, positive = committed)
+- `a` — attribute (namespaced keyword)
+- `v` — value (ground value or entity reference)
+- `t` — transaction ID (monotonic integer, stream-local)
+- `m` — metadata entity reference (always integer, never nil; `0` = no metadata)
 
-### Modified files
+Schema is itself datoms. System entities `0–1024` carry universal meaning. User entities
+start at `1025`. See `CLAUDE.md` for the full spec.
 
-- `src/cljc/dao/db.cljc` — add `extend-type NativeDaoDb IDaoDb` + `create-native` factory; keep `IDaoDb` protocol, `DaoDbDataScript`, and existing factories unchanged. Remove DataScript require only in Phase 2.
+**Five indexes**, each a sorted set of datoms sorted by a different leading-component order:
 
-### Kept unchanged
+| Index | Sort order       | Insertion condition          | Primary use                        |
+|-------|------------------|------------------------------|------------------------------------|
+| EAVT  | e, a, v, t       | always                       | All attributes of an entity        |
+| AEVT  | a, e, v, t       | always                       | All entities with a given attribute|
+| AVET  | a, v, e, t       | indexed or ref attr          | Find entity by attribute + value   |
+| VAET  | v, a, e, t       | ref attr only                | Reverse reference lookup           |
+| MEAT  | m, e, a, t       | m != 0                       | Provenance and derivation queries  |
 
-- `src/cljc/datomworld.cljc` — `Datom` record, `->datom`, `type-rank`, `compare-vals` (read-only)
-- `src/cljc/yin/vm.cljc` — `yin.vm/schema` map (read-only)
+EAVT and AEVT are unconditional. AVET, VAET, and MEAT use conditional insertion to
+keep their sizes bounded: AVET only for attributes marked `:db/index true` or typed as
+`:db.type/ref`; VAET only for `:db.type/ref` attributes; MEAT only when `m != 0`
+(m=0 means "no metadata" — not useful to index).
+
+`v` is excluded from MEAT because provenance queries resolve to `(m, e, a)` — the
+value is retrieved after the fact from EAVT. Including `v` for large blob/string
+datasets would inflate the index for no lookup benefit.
+
+**Seek helpers for MEAT:**
+
+```clojure
+(seek-m  [meat m])     ; all datoms tagged with m=X
+(seek-me [meat m e])   ; all datoms tagged with m=X on entity e
+```
+
+### Provenance Queries
+
+The `m` component is first-class in DaoDB. Two hot query patterns depend on it:
+
+- **Exclude derived datoms** (`m=1`, `:db/derived`): every content-hash computation
+  must filter out derived datoms before hashing. Without MEAT this would be a full
+  scan of all indexes on every hash operation.
+- **Provenance lookup** (`m=event-eid`): given a macro-expansion event or a
+  transaction provenance entity, find every datom it caused. Used for audit trails,
+  incremental recomputation, and access-control enforcement.
+
+MEAT makes both patterns O(log n) instead of O(n).
 
 ---
 
-## NativeDaoDb Record
+## Three-Component Model
+
+### Storage (`IDaoStorage`)
+
+Append-only log of datom segments, keyed by transaction range.
 
 ```clojure
-(defrecord NativeDaoDb
-  [eavt           ; sorted-set of Datom by [e a v t m]
-   aevt           ; sorted-set of Datom by [a e v t m]
-   avet           ; sorted-set of Datom by [a v e t m] — only indexed/ref attrs
-   vaet           ; sorted-set of Datom by [v a e t m] — only :db.type/ref attrs
-   schema         ; {attr-kw {:db/valueType ... :db/cardinality ...}} — cache
-   next-t         ; integer, monotonic tx counter
-   next-eid       ; integer, next perm entity ID (starts at 1025)
-   ref-attrs      ; set of keywords with :db.type/ref
-   card-many      ; set of keywords with :db.cardinality/many
-   unique-attrs   ; set of keywords with :db/unique
-   indexed-attrs  ; set of keywords with :db/index true
-   ])
+(defprotocol IDaoStorage
+  (write-segment! [this segment])      ; segment = seq of datoms; returns t
+  (read-segments  [this t-min t-max])  ; returns seq of datom seqs
+  (latest-t       [this]))             ; highest committed t
 ```
+
+Storage is dumb: no schema awareness, no query capability. The only invariant is that
+segments are immutable once written (append-only log). Pluggable backends:
+
+- **In-memory sorted-set** — current implementation, used in tests and development
+- **File** — segments written to disk, indexed by t-range
+- **Remote DB** — PostgreSQL, DynamoDB, etc.
+- **Cloud object store** — S3-compatible, segments as blobs
+
+Swapping the storage backend requires no changes to the transactor or query logic.
+
+### Transactor (`IDaoTransactor`)
+
+Single writer. Serializes all transactions to preserve monotonic `t`.
+
+```clojure
+(defprotocol IDaoTransactor
+  (transact! [this tx-data])   ; returns {:db-after db :tempids {...} :tx-data [...]}
+  (current-db [this]))         ; returns current db value (the four indexes)
+```
+
+Responsibilities:
+
+- **Tempid resolution** — assigns permanent entity IDs to negative tempids
+- **Schema enforcement** — validates attribute types and value types
+- **Cardinality checks** — enforces `:db.cardinality/one` and `:db.cardinality/many`
+- **Index building** — updates EAVT/AEVT always; AVET/VAET/MEAT conditionally after each transaction
+- **Monotonic `t`** — guarantees every committed transaction has a strictly greater `t`
+
+When distributed: one transactor per DaoDB; peers submit transaction requests via
+channel or RPC. When in-process: a function/record that holds the mutable transaction
+counter and index state.
+
+### Query Engine (`IDaoQueryEngine`)
+
+Read-only. Holds a cached snapshot of the database value (the four indexes).
+
+```clojure
+(defprotocol IDaoQueryEngine
+  (q               [this query inputs])
+  (datoms          [this index pattern])
+  (entity-attrs    [this eid])
+  (find-eids-by-av [this a v]))
+```
+
+No write access. A new db value is obtained by calling `(:db-after result)` after a
+transaction. When in-process, queries run against in-memory sorted-set indexes directly.
+When distributed, a peer maintains a local index cache and fetches segments from Storage
+on miss.
 
 ---
 
-## Index Design
+## Deployment Topologies
 
-### Heterogeneous value comparator
+The protocol boundary is the same in both topologies. The logical split enables:
 
-`type-rank` and `compare-vals` live in `datomworld.cljc`. Each platform has a distinct float predicate:
+- Multiple read peers sharing one transactor (Datomic-style read scaling).
+- Hot standby: a second transactor can take over if the primary fails.
+- Storage can be swapped without changing transactor or query logic.
 
-```clojure
-;; In datomworld.cljc
-(defn type-rank [x]
-  (cond (nil? x)     0
-        (boolean? x) 1
-        (integer? x) 2
-        #?(:clj  (float? x)
-           :cljs  (and (number? x) (not (integer? x)))
-           :cljd  (dart/is? x double)) 3
-        (string? x)  4
-        (keyword? x) 5
-        (symbol? x)  6
-        :else         7))
+### Single-process (current use case)
 
-(defn compare-vals [a b]
-  (let [ra (type-rank a) rb (type-rank b)]
-    (if (= ra rb) (compare a b) (compare ra rb))))
+All three components share the same memory space. No serialization overhead.
+
+```
+[App]
+  |
+  +-- query  --> [QueryEngine] <-- indexes (in-memory sorted sets)
+  |                                     ^
+  +-- transact -> [Transactor] ---------+
+                       |
+                   [Storage (in-memory atom)]
 ```
 
-Platform notes:
-- CLJ: `float?` covers `Float` and `Double`.
-- CLJS: all JS numbers are `number?`; integers pass `integer?` (uses `js/Number.isInteger`).
-- CLJD: Dart has a concrete `double` type; `dart/is?` is the CLJD type-test macro.
+### Split-process (future)
 
-```clojure
-(defn make-comparator [positions]
-  (fn [d1 d2]
-    (loop [[p & ps] positions]
-      (if (nil? p) 0
-        (let [c (compare-vals (get d1 p) (get d2 p))]
-          (if (zero? c) (recur ps) c))))))
-
-(def eavt-cmp (make-comparator [:e :a :v :t :m]))
-(def aevt-cmp (make-comparator [:a :e :v :t :m]))
-(def avet-cmp (make-comparator [:a :v :e :t :m]))
-(def vaet-cmp (make-comparator [:v :a :e :t :m]))
+```
+[App / Peer]
+  |
+  +-- query  --> [QueryEngine (in-process, local index cache)]
+  |                     |
+  |               fetch segments on miss
+  |                     |
+  +-- transact -> [Transactor (remote)] --> [Storage (remote)]
 ```
 
-In Clojure, the function returned by `make-comparator` is passed directly to `sorted-set-by`. ClojureScript accepts the same plain fn.
-
-### Range seek via `subseq`
-
-Nil-field sentinel datoms as lower bounds (nil has rank 0 = lowest):
-
-```clojure
-(defn seek-e [eavt e]
-  (take-while #(= e (:e %)) (subseq eavt >= (->Datom e nil nil nil nil))))
-
-(defn seek-ea [eavt e a]
-  (if (= a FREE)
-    (seek-e eavt e)
-    (take-while #(and (= e (:e %)) (= a (:a %)))
-                (subseq eavt >= (->Datom e a nil nil nil)))))
-
-(defn seek-av [avet a v]
-  (take-while #(and (= a (:a %)) (= v (:v %)))
-              (subseq avet >= (->Datom nil a v nil nil))))
-
-(defn seek-a [aevt a]
-  (take-while #(= a (:a %)) (subseq aevt >= (->Datom nil a nil nil nil))))
-```
-
-`(empty sorted-set-by-cmp)` preserves the comparator, enabling `as-of`/`since` to rebuild filtered indexes with the same ordering.
+The Peer runs the Query Engine in-process for low-latency reads. Writes go to the remote
+Transactor, which updates Storage and broadcasts the new segment to connected peers. Each
+peer refreshes its local cache on receipt.
 
 ---
 
-## Transaction Pipeline
+## In-Process Implementation: `InMemoryDaoDB`
 
-```
-run-tx [db tx-data]
-  1. parse-tx-data      → seq of op-maps {:op :e :a :v :m-raw}
-  2. expand-m-maps      → replace map :m-raw with metadata entity; emit extra datoms
-  3. collect-tempids    → find all negative e and ref v values
-  4. resolve-tempids    → assign perm IDs starting at next-eid
-  5. apply-tempid-map   → rewrite e and ref-v in all ops
-  6. assign-t           → t = db.next-t for all datoms
-  7. enforce-cardinality → :db.cardinality/one: retract prior [e a ?v] from all indexes
-  8. update-indexes     → conj Datom into eavt+aevt; conditionally avet (indexed-attrs+ref), vaet (ref-attrs)
-  9. rebuild-schema     → if any datom touches :db/ident/:db/valueType/:db/cardinality/:db/unique, rebuild schema cache + derived sets
-  10. return            → {:db db', :tempids {tempid → perm-id}}
-```
-
-### Accepted tx-data forms
-
-- `[:db/add e a v]` — m defaults to 0
-- `[:db/add e a v m]` — m is integer
-- `[:db/add e a v {:key val}]` — m is map; auto-creates metadata entity
-- `[:db/retract e a v]` — physical delete from all indexes
-- `{:db/id e, :attr val, ...}` — map form expands to :db/add ops
-
-### Map m expansion
+The current implementation in `src/cljc/dao/db/in_memory.cljc` is a single record that
+wraps all three logical components:
 
 ```clojure
-(defn expand-m-map [op next-eid t]
-  (if (map? (:m-raw op))
-    (let [meta-eid next-eid
-          extra (mapv (fn [[k v]] (->Datom meta-eid k v t 0)) (:m-raw op))]
-      [(assoc op :m meta-eid) extra (inc next-eid)])
-    [(assoc op :m (:m-raw op)) [] next-eid]))
+(defrecord InMemoryDaoDB
+  [eavt aevt avet vaet meat
+   log
+   schema next-t next-eid
+   ref-attrs card-many unique-attrs indexed-attrs])
 ```
+
+- `eavt/aevt/avet/vaet/meat` — five sorted-set indexes
+- `log` — vector of `[t [Datom ...]]`, one entry per committed transaction (including
+  bootstrap at t=0). This is the temporal index: `as-of`/`since` rebuild the five
+  sorted-set indexes from a filtered log slice rather than O(n×5) scan across all sets.
+- `schema` — cached `{attr-kw {:db/valueType ... :db/cardinality ...}}` map
+- `next-t` / `next-eid` — monotonic counters for transaction IDs and entity IDs
+
+This is the current implementation. The conceptual framing (three logical components
+defined by protocols) is the goal. The physical record can remain a single unit for the
+in-process case.
+
+`InMemoryDaoDB` satisfies all three protocols. The same record is both writer and reader
+in the single-process topology. In the split-process topology, the Peer record would
+satisfy only `IDaoQueryEngine`; a separate Transactor process would satisfy
+`IDaoTransactor` and delegate to a `IDaoStorage` backend.
+
+### Datomic-Compatible API
+
+The `dao.db` namespace exposes a Datomic-compatible public API:
+
+| Function | Signature | Notes |
+|----------|-----------|-------|
+| `q` | `(q query & inputs)` | `$` binds to first input |
+| `datoms` | `(datoms db index & components)` | optional leading-component filter |
+| `entity` | `(entity db eid)` | returns map with `:db/id`; card-many = sets |
+| `pull` | `(pull db pattern eid)` | supports `[*]`, keywords, ref maps |
+| `pull-many` | `(pull-many db pattern eids)` | returns vector of maps |
+| `with` | `(with db tx-data)` | returns `{:db-after ... :tempids ...}` |
+| `transact` | `(transact db tx-data)` | same as `with`; also returns `:db-after` |
+| `basis-t` | `(basis-t db)` | last committed transaction ID |
+| `as-of` | `(as-of db t)` | snapshot at or before t |
+| `since` | `(since db t)` | snapshot strictly after t |
+
+Factory functions: `create-in-memory` (no DataScript dependency); `create` (DataScript-backed, legacy).
 
 ---
 
-## Schema (`dao.db.native`)
-
-Schema is stored as datoms in EAVT and cached in `NativeDaoDb.schema` map. Bootstrap datoms (t=0, m=0) pre-populate system entities 2-13 on `empty-db`:
-
-```clojure
-(def bootstrap-datoms
-  [(->Datom 2  :db/ident :db/ident           0 0)
-   (->Datom 3  :db/ident :db/valueType       0 0)
-   (->Datom 4  :db/ident :db/cardinality     0 0)
-   (->Datom 5  :db/ident :db/unique          0 0)
-   (->Datom 6  :db/ident :db/index           0 0)
-   (->Datom 7  :db/ident :db.cardinality/one 0 0)
-   (->Datom 8  :db/ident :db.cardinality/many 0 0)
-   (->Datom 9  :db/ident :db.type/ref        0 0)
-   (->Datom 10 :db/ident :db.type/string     0 0)
-   (->Datom 11 :db/ident :db.type/long       0 0)
-   (->Datom 12 :db/ident :db.type/boolean    0 0)
-   (->Datom 13 :db/ident :db.type/keyword    0 0)])
-```
-
-`build-schema-cache [eavt]`:
-1. Scan EAVT for `:db/ident` datoms — build `eid → kw` map.
-2. For each entity that has `:db/valueType`, `:db/cardinality`, `:db/unique`, or `:db/index` datoms, collect those attribute-value pairs.
-3. Key the result by ident-kw: `{:yin/operands {:db/cardinality :db.cardinality/many, :db/valueType :db.type/ref}, ...}`.
-4. Derive `ref-attrs`, `card-many`, `unique-attrs`, `indexed-attrs` as sets from the cache.
-
-The existing `yin.vm/schema` (DataScript-format map `{:yin/type {} :yin/operands {...} ...}`) is installable via `(native/create yin.vm/schema)` which converts each entry to `[:db/add tempid :db/ident attr-kw]` plus attribute datoms.
-
----
-
-## Datalog Query Engine
-
-### Data model
-
-- **Binding**: `{?sym value}` — a map from logic variables to ground values
-- **Relation**: `[binding ...]` — a sequence of bindings (the working set)
-- **FREE**: `::free` sentinel — matches any value, never bound
-
-### Core functions
-
-```clojure
-;; FREE and _ wildcards match anything without binding
-(defn unify [binding sym val]
-  (cond
-    (= sym FREE) binding
-    (= sym '_)   binding
-    (not (symbol? sym)) (when (= sym val) binding)
-    (contains? binding sym) (when (= (get binding sym) val) binding)
-    :else (assoc binding sym val)))
-
-;; Select datoms from the best available index
-(defn select-datoms [db e a v]
-  (cond
-    (not= e FREE)                                    (seek-ea (:eavt db) e a)
-    (and (not= a FREE) (not= v FREE)
-         (contains? (:indexed-attrs db) a))          (seek-av (:avet db) a v)
-    (not= a FREE)                                    (seek-a (:aevt db) a)
-    :else                                            (seq (:eavt db))))
-
-;; Evaluate one where clause against db, extending each binding in the relation
-(defn eval-clause [db clause binding]
-  (let [[ce ca cv ct cm] (pad-to-5 clause)
-        e-val (resolve-binding binding ce)
-        a-val (resolve-binding binding ca)
-        v-val (resolve-binding binding cv)
-        datoms (select-datoms db e-val a-val v-val)]
-    (keep (fn [d]
-            (-> binding
-                (unify ce (:e d))
-                (and-then #(unify % ca (:a d)))
-                (and-then #(unify % cv (:v d)))
-                (and-then #(unify % ct (:t d)))
-                (and-then #(unify % cm (:m d)))))
-          datoms)))
-
-;; Entry point
-(defn q [query & inputs]
-  (let [{:keys [find in where]} (normalize-query query)
-        db (first inputs)
-        param-pairs (filter (fn [[s _]] (not= '$ s))
-                            (map vector (or in ['$]) inputs))
-        init-bindings (reduce (fn [bs [sym val]] (mapv #(assoc % sym val) bs))
-                              [{}] param-pairs)
-        result (eval-where db where init-bindings)]
-    (into #{} (map (fn [b] (mapv #(get b %) find)) result))))
-```
-
-`:in` bindings: `$` is always the first input (the db); other in-symbols bind scalars as constants injected into every initial binding.
-
----
-
-## `IDaoDb` Implementation (`dao.db.native`)
-
-`NativeDaoDb` does not require `dao.db` to avoid a circular dependency (`dao.db.cljc` requires `dao.db.native` for the factory). Protocol extension is done via `extend-type` in `dao.db.cljc` after both namespaces are loaded.
-
-```clojure
-;; In dao.db.native — plain functions, no protocol reference
-(defn native-transact [db tx-data]    (run-tx db tx-data))
-(defn native-q [db query inputs]      (apply q query db inputs))
-(defn native-datoms [db index]        (seq (get db (keyword (name index)))))
-(defn native-entity-attrs [db eid]    ...)
-(defn native-find-eids-by-av [db a v] ...)
-
-;; In dao.db.cljc — import class on CLJ only; extend-type uses platform-specific symbol
-#?(:clj (:import [dao.db.native NativeDaoDb]))
-
-;; CLJ: NativeDaoDb resolves to the imported Java class.
-;; CLJS/CLJD: native/NativeDaoDb resolves via the require alias (no class import needed).
-(extend-type #?(:clj NativeDaoDb :cljs native/NativeDaoDb :cljd native/NativeDaoDb)
-  IDaoDb
-  (transact [db tx-data]    (native/native-transact db tx-data))
-  (q [db query inputs]      (native/native-q db query inputs))
-  ...)
-```
-
-`find-eids-by-av`: uses AVET when `a ∈ indexed-attrs` (O(log n)), else linear scan of AEVT.
-
----
-
-## History (`as-of` / `since`)
-
-Plain functions, not on the protocol — avoids breaking other `IDaoDb` implementors:
-
-```clojure
-(defn as-of [db t]
-  (let [keep? #(<= (:t %) t)
-        f     #(into (empty %) (filter keep? %))]
-    (-> db
-        (update :eavt f) (update :aevt f)
-        (update :avet f) (update :vaet f))))
-
-(defn since [db t]
-  (let [keep? #(> (:t %) t)
-        f     #(into (empty %) (filter keep? %))]
-    (-> db
-        (update :eavt f) (update :aevt f)
-        (update :avet f) (update :vaet f))))
-```
-
-`(empty sorted-set)` preserves the comparator in both Clj and Cljs, so the filtered copy is still a properly ordered sorted-set.
-
----
-
-## Circular Dependency Resolution
-
-`dao.db.cljc` requires `dao.db.native` (for the `create-native` factory).
-`dao.db.native` must NOT require `dao.db` (would create a cycle).
-
-Solution: define all protocol-dispatching logic as plain public functions in `dao.db.native`, then call `extend-type` in `dao.db.cljc`:
+## Transaction Pipeline (Transactor internals)
 
 ```
-datomworld           (Datom, type-rank, compare-vals)
-dao.db.native   ←  datomworld   (indexes, schema, tx, query, NativeDaoDb record)
-dao.db          ←  dao.db.native  (extend-type here; keeps datascript in Phase 1)
+tx-data (seq of assertions/retractions)
+  |
+  v
+1. Parse        — normalize [:db/add e a v] and [:db/retract e a v] forms
+2. Tempid       — resolve negative e to permanent IDs; build tempid->eid map
+3. Schema check — validate a is a known attribute; validate v type
+4. Cardinality  — for :one attributes, retract existing value before asserting new one
+5. Stamp t      — assign the next monotonic transaction ID
+6. Index update — insert datoms into EAVT and AEVT (always); conditionally into AVET, VAET, and MEAT
+7. Write segment— append the committed datom batch to Storage
+8. Return       — {:db-after <new db value> :tempids <map> :tx-data <committed datoms>}
 ```
 
----
-
-## ClojureDart Platform Notes
-
-`dao.db.native` is designed to compile on all three platforms without CLJD-specific guards in the implementation itself. The only platform-specific points are in the two call sites that touch the host type system:
-
-### `type-rank` (in `datomworld.cljc`)
-
-Float detection requires a platform branch. Add `:cljd (dart/is? x double)` alongside the existing `:clj`/`:cljs` branches. All other `cond` arms (`nil?`, `boolean?`, `integer?`, `string?`, `keyword?`, `symbol?`) work unchanged on Dart.
-
-### `extend-type` (in `dao.db.cljc`)
-
-CLJ resolves the record as a Java class via `(:import [dao.db.native NativeDaoDb])`. CLJS and CLJD both use the namespace-qualified symbol `native/NativeDaoDb` — no import needed:
-
-```clojure
-(extend-type #?(:clj NativeDaoDb :cljs native/NativeDaoDb :cljd native/NativeDaoDb)
-  IDaoDb ...)
-```
-
-### Core primitives
-
-`sorted-set-by`, `subseq`, `compare`, and persistent data structures (`{}`, `[]`, `#{}`) are all available in ClojureDart. No guards are needed in the comparators, seek helpers, tx pipeline, or query engine.
-
-### Object arrays
-
-`dao.db.native` does not use object arrays. If the semantic VM's array-backed node index (`make-semantic-object-array`) is ever ported to run inside ClojureDart, it must follow the existing pattern from `semantic.cljc`:
-
-```clojure
-#?(:clj  (object-array n)
-   :cljs  (js/Array. n)
-   :cljd  (object-array (int n)))
-```
-
-### sha256 (in `datomworld.cljc`)
-
-`sha256` currently has `:clj` and `:cljs` branches only. For full CLJD support, a `:cljd` branch using the Dart `crypto` package would be needed — this is out of scope for the native DaoDB but should be added when content-addressing features are used on Dart.
+Each step is a pure function from `(state, input)` to `(state, output)`. No hidden
+mutation outside the index atoms.
 
 ---
 
 ## Migration Path
 
-**Phase 1 (this design):** Add `create-native` to `dao.db.cljc`. All new tests use `NativeDaoDb`. Existing callers of `dao.db/create` still get DataScript.
+**Phase 1 (done):** `InMemoryDaoDB` implemented in `dao.db.in-memory` alongside the
+DataScript-backed `DaoDbDataScript`. Both extend `IDaoDb`.
 
-**Phase 2:** Replace `dao.db/create` to delegate to `NativeDaoDb`. Remove DataScript require.
+**Phase 2 (done):** `create-in-memory` added as the canonical constructor for
+`InMemoryDaoDB`. `create-native` is a deprecated alias pointing to `create-in-memory`.
+`create` still returns `DaoDbDataScript` for backward compatibility.
 
-**Phase 3:** Delete `DaoDbDataScript` record after all tests pass.
-
----
-
-## Tests
-
-One test file: `test/dao/db/native_test.cljc`.
-
-- **Tx pipeline**: 4-tuple, 5-tuple, map tx-data forms; map-m → metadata entity; tempid resolution; cardinality-one replaces; cardinality-many accumulates; `:db/retract` removes from all four indexes
-- **Query engine**: simple pattern, two-variable join, multi-clause join, `:in $ ?x` scalar binding, empty result, `_` wildcard
-- **Record**: `empty-db` has bootstrap schema entities; schema install via `yin.vm/schema`; `entity-attrs` including card-many vectors; `find-eids-by-av` using AEVT scan; `datoms` sort order; `as-of` / `since` correctness
-- **Integration**: load `yin.vm/schema`, transact AST datoms for `(+ 1 2)`, run SemanticVM to completion
 
 ---
 
-## Critical Files
+## What This Design Does Not Cover
 
-- `src/cljc/dao/db/native.cljc` — **new**: all implementation
-- `src/cljc/dao/db.cljc` — **modified**: `extend-type NativeDaoDb IDaoDb` + `create-native`
-- `src/cljc/datomworld.cljc` — **modified**: added `type-rank`, `compare-vals`
-- `src/cljc/yin/vm.cljc` — `yin.vm/schema` map — read-only
-- `test/dao/db/native_test.cljc` — **new**: all tests
+- **Durable storage backends** — file and remote backends are placeholders; their
+  implementations will have separate design docs.
+- **Peer synchronization protocol** — how peers receive segment broadcasts from the
+  Transactor in the split-process topology.
+- **Cross-namespace queries** — described in `CLAUDE.md`; not specific to DaoDB
+  internals.
+- **Content addressing** — DaoDB stores datoms; content hash computation is done by the
+  caller (the AST layer) before assertion.

@@ -2,7 +2,7 @@
   (:require
     [cljs.pprint :as pprint]
     [cljs.reader :as reader]
-    [dao.db :as dao.db]
+    [dao.db.datascript :as ds-db]
     [reagent.core :as r]
     [yin.vm :as vm]))
 
@@ -124,7 +124,7 @@
                  datoms (vec (vm/ast->datoms ast))
                  root-id (ffirst datoms)
                  tx-data (vm/datoms->tx-data datoms)
-                 {:keys [db tempids]} (dao.db/from-tx-data vm/schema tx-data)
+                 {:keys [db tempids]} (ds-db/from-tx-data vm/schema tx-data)
                  root-eid (get tempids root-id)]
              (swap! app-state assoc
                     :ast-as-text ast-text
