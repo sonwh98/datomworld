@@ -2,7 +2,7 @@
   (:require
     [cljs.pprint :as pprint]
     [cljs.reader :as reader]
-    [datascript.core :as d]
+    [dao.db.datascript :as ds-db]
     [reagent.core :as r]
     [yin.vm :as vm]))
 
@@ -113,7 +113,7 @@
 ;; =============================================================================
 
 (defn sync!
-  "Reconstruct AST from block tree, convert to datoms, transact into DataScript,
+  "Reconstruct AST from block tree, convert to datoms, transact into DaoDb,
    and write results into app-state."
   [app-state]
   (let [st @editor-state
@@ -124,14 +124,12 @@
                  datoms (vec (vm/ast->datoms ast))
                  root-id (ffirst datoms)
                  tx-data (vm/datoms->tx-data datoms)
-                 conn (d/conn-from-db (d/empty-db vm/schema))
-                 {:keys [tempids]} (d/transact! conn tx-data)
-                 db @conn
+                 {:keys [db tempids]} (ds-db/from-tx-data vm/schema tx-data)
                  root-eid (get tempids root-id)]
              (swap! app-state assoc
                     :ast-as-text ast-text
                     :datoms datoms
-                    :ds-db db
+                    :dao-db db
                     :root-ids [root-id]
                     :root-eids [root-eid]
                     :error nil))
@@ -143,7 +141,7 @@
       (swap! app-state assoc
              :ast-as-text ""
              :datoms nil
-             :ds-db nil
+             :dao-db nil
              :root-ids nil
              :root-eids nil))))
 
