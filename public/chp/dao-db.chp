@@ -8,20 +8,22 @@
          [:span.status-pill "The Indexer"]
          [:h1 "DaoDB"]
          [:p.section-lead
-          "DaoDB is a " [:strong "datom stream interpreter"] " that materializes queryable indexes. "
-          "Built on " [:a {:href "/dao-stream.chp"} "DaoStream"] ", it observes flowing datoms—some ephemeral, some persistent—and selectively consumes them to create covered indexes optimized for Datalog queries."]
+          "DaoDB is a " [:strong "family of datom stream interpreters"] ", a moduli space of databases over a canonical datom stream. "
+          "The default implementation materializes queryable covered indexes, but the broader architecture allows different DaoDBs to expose different materialized views over the same datom stream. "
+          "Built on " [:a {:href "/dao-stream.chp"} "DaoStream"] ", it observes flowing datoms, some ephemeral, some persistent, and selectively consumes them to construct queryable structures."]
          [:p
           "Unlike traditional databases that own and manage data, DaoDB is an " [:strong "interpreter"] " of datom streams. "
           "Datoms originate from " [:a {:href "/dao-stream.chp"} "DaoStream"] "—a flow of five-element tuples [e a v t m] representing entity, attribute, value, time, and metadata. "
           "The underlying stream can be implemented as an ephemeral transport or as a persistent log (like Kafka). "
-          "DaoDB observes this flow and " [:strong "stores datoms by materializing covered indexes"] " from the datoms it chooses to consume. "
-          "Every piece of data in DaoDB is a materialized index " [:strong "derived from"] " the stream. "
+          "In the default implementation, DaoDB observes this flow and " [:strong "stores datoms by materializing covered indexes"] " from the datoms it chooses to consume. "
+          "Every piece of data in that implementation is a materialized index " [:strong "derived from"] " the stream. "
           "These indexes are append-only and immutable, creating a complete history of all observed state changes. "
           "DaoDB doesn't just store current state—it materializes queryable views of " [:strong "all states that flowed through the stream"] ", making time travel, audit trails, and undo fundamental capabilities."]
          [:p
           "Not all datoms in a stream need to be stored in DaoDB. "
           "DaoDB selectively consumes the datoms it needs to materialize its indexes, deciding what to store based on query patterns and retention policies. "
-          "This allows different nodes to maintain different views of the same streams—some storing everything, others keeping only recent data or specific attributes."]]]
+          "This allows different nodes to maintain different views of the same streams—some storing everything, others keeping only recent data or specific attributes. "
+          "For the broader architectural framing, see " [:a {:href "/blog/daodb-moduli-space-of-databases.blog"} "DaoDB Beyond Covered Indexes"] "."]]]
        [:section.section-light
         [:div.section-inner
          [:h2 "The Five-Element Tuple"]
@@ -71,13 +73,19 @@
           "What entities have a specific attribute? What changed between two points in time? Which datoms share causal relationships? "
           "The same datom can appear in multiple indexes (EAVT, AEVT, AVET, VAET) to support efficient lookups from different perspectives."]
          [:p
+          "Those covered indexes are the " [:strong "default materialized-view package"] ", not the essence of DaoDB itself. "
+          "Other DaoDB implementations can expose different view families, or derive views on demand, while preserving the same datom-stream substrate and historical semantics. "
+          "One point in that moduli space looks relational, with covered indexes and Datalog. Other points can look document-oriented, columnar, time-series, graph-oriented, or otherwise specialized. "
+          "That broader design is outlined in " [:a {:href "/blog/daodb-moduli-space-of-databases.blog"} "DaoDB Beyond Covered Indexes"] "."]
+         [:p
           "DaoDB is inspired by " [:strong "Datomic"] " but extends its ideas far beyond traditional database use cases. "
           "While Datomic pioneered datoms for application data, DaoDB applies the same principles to " [:strong "code as data"] "—storing ASTs, execution traces, and compiler intermediate representations as queryable datom streams. "
           "This enables " [:a {:href "/blog/datalog-compiler-infrastructure.blog"} "every optimization to become queryable"] " and code itself to be treated as a living, temporal database."]
          [:p
           "DaoDB implements " [:strong "Datomic's syntax of Datalog"] "—a declarative query language built on Horn clauses, fixed-point semantics, and guaranteed termination. "
           "Queries are expressed as EDN data structures, making them homoiconic (code as data) and composable. "
-          "Learn more about " [:a {:href "/blog/what-makes-datalog-datalog.blog"} "what makes Datalog Datalog"] "."]
+          "In the default implementation, Datalog sits on top of covered indexes; across the broader DaoDB moduli space, it becomes one relational query surface among others. "
+          "Learn more about " [:a {:href "/blog/what-makes-datalog-datalog.blog"} "what makes Datalog Datalog"] " and how " [:a {:href "/blog/daodb-moduli-space-of-databases.blog"} "DaoDB Beyond Covered Indexes"] " reframes querying and view construction."]
          [:p
           "Because indexes are materialized from immutable streams, queries naturally support temporal access. "
           "Ask what the world looked like at any point in history. "
