@@ -5,17 +5,18 @@
 DaoStream has two explicit parts:
 
 1. A **stream descriptor**, which is a first-class value.
-2. A **StreamHost**, which takes that descriptor and constructs or
-   attaches to a concrete transport.
+2. An **operational realization (`open!`)**, which takes that descriptor and
+   constructs or attaches to a concrete transport.
 
 The descriptor is canonical. It is serializable, can be stored, can be sent on
-other streams, and does not depend on any one runtime backend. The StreamHost
-is operational. It realizes the descriptor as an in-memory transport, a
-WebSocket transport, or another transport that preserves the same stream
+other streams, and does not depend on any one runtime backend. The `open!`
+multimethod is operational. It realizes the descriptor as an in-memory transport,
+a WebSocket transport, or another transport that preserves the same stream
 semantics.
 
 Because the descriptor is a value, a stream can be sent on a stream. Any Yin VM
-host that receives the descriptor can realize it through its local StreamHost.
+host that receives the descriptor can realize it through its local `open!`
+implementation.
 
 DaoStream can transport arbitrary bytes or other values. The most common
 Datom.world use case is transport of datoms. Most things in Datom.world are
@@ -27,7 +28,7 @@ stream-mediated. Interaction with DaoDB is via streams. FFI is also built on
 DaoStream rather than treated as a separate imperative escape hatch.
 
 This applies even to meta-runtime services. JIT and GC can be driven by datoms
-emitted on streams. Any StreamHost that observes the relevant streams can
+emitted on streams. Any observer that monitors the relevant streams can
 compile, collect, or otherwise optimize in response to those datoms.
 
 ## Core Model
@@ -172,7 +173,7 @@ cursors directly.
 
 This keeps `Seqable` in the value world of Clojure core functions. Hidden
 blocking and live-growth semantics belong to cursor-based reading and the
-StreamHost, not to `Seqable`.
+`open!` implementation, not to `Seqable`.
 
 ## Close, Bounding, and Gaps
 
@@ -189,9 +190,9 @@ A gap is a discontinuity: a cursor's position refers to a value that the
 transport no longer retains. Gaps are not caused by reading. A gap exists when a
 transport does not retain the full historical prefix. If a cursor falls behind the retention
 boundary, it observes a gap. What happens next (error, skip to earliest retained
-position, sentinel value) is a StreamHost policy decision. Different StreamHosts may
-handle gaps differently for the same transport type. The core stream model does
-not prescribe gap behavior.
+position, sentinel value) is a transport-specific policy decision. Different
+realizations may handle gaps differently for the same transport type. The core
+stream model does not prescribe gap behavior.
 
 ## Backpressure
 
@@ -205,12 +206,12 @@ The primary DaoStream model is writer parking:
 
 - the writer attempts an append
 - the bounded transport reports full
-- the StreamHost parks the writer continuation until space exists or the
+- the realization layer (`open!`) parks the writer continuation until space exists or the
   transport's policy changes
 
 The descriptor carries boundedness and backpressure policy under `:transport`,
-but exact enforcement still lives in the StreamHost and transport. Different
-StreamHosts may realize the same descriptor with different mechanics while
+but exact enforcement still lives in the realization and transport. Different
+implementations may realize the same descriptor with different mechanics while
 preserving the same high-level semantics.
 
 Backpressure does not require destructive reads in the canonical model. If a
@@ -221,10 +222,10 @@ another policy, that is transport-specific behavior.
 
 Streams can be sent on streams because a stream exists as a descriptor value.
 That descriptor can travel unchanged and be realized on any Yin VM host that
-implements the corresponding StreamHost.
+implements the corresponding `open!` method.
 
 If stream A carries the descriptor for stream B, the receiver can read that
-descriptor from A, then hand it to a StreamHost to construct or attach
+descriptor from A, then hand it to `open!` to construct or attach
 to a transport for B.
 
 No special ontology is required here:
@@ -232,7 +233,7 @@ No special ontology is required here:
 - stream descriptor is data
 - streams carry data
 - therefore streams can carry stream descriptors
-- a Yin VM host can realize a received stream descriptor locally through its StreamHost
+- a Yin VM host can realize a received stream descriptor locally through `open!`
 
 This is the channel-mobility property.
 
@@ -242,22 +243,22 @@ A descriptor may carry Shibi capability tokens under `:shibi` when a stream
 must be interpreted on an untrusted node.
 
 The token is part of the descriptor's authorization context, not part of the
-transport's identity. The StreamHost is responsible for deciding whether the
-descriptor is allowed to resolve into an operational transport in the current
-trust context.
+transport's identity. The realization layer (`open!`) is responsible for
+deciding whether the descriptor is allowed to resolve into an operational
+transport in the current trust context.
 
 Design constraints:
 
 - possession of a descriptor alone is not automatically sufficient authority
 - descriptor-carried Shibi tokens may be embedded or referenced
-- validation, confinement, and revocation are StreamHost concerns
+- validation, confinement, and revocation are concerns of the realization layer
 - transport mechanics do not define trust semantics
 
 ## VM Integration
 
-The VM interacts with streams through effect descriptors and StreamHosts.
+The VM interacts with streams through effect descriptors and `open!` realizations.
 Stream blocking and resumption are not core stream semantics. They are runtime
-behavior in the StreamHost and scheduler.
+behavior in the transport and scheduler.
 
 This includes interaction with DaoDB, FFI, host I/O, and meta-runtime services
 such as JIT and GC. In Datom.world, these interactions are modeled through
@@ -273,7 +274,7 @@ Current operational model:
 - `close` resumes blocked readers with end-of-stream
 
 This is already one form of stream and continuation unification at the
-StreamHost layer. It does not change the core descriptor model.
+`open!` layer. It does not change the core descriptor model.
 
 ## RingBufferStream Implementation
 
@@ -378,7 +379,7 @@ on those indexes.
 - Protocol separation: split `IStream` into `IDaoStreamReader`, `IDaoStreamWriter`, `IDaoStreamBound`.
 - Gap policy: current implementation returns `:daostream/gap` (behavior defined). Document policy for
   gap handling (error, skip to earliest, sentinel).
-- Backpressure and writer parking: `open!` dispatch to StreamHost layer; currently `put!` returns `:full`.
+- Backpressure and writer parking: `open!` dispatch to transport-specific logic; currently `put!` returns `:full`.
 - Seek operation: `(seek [this cursor pos])` for position-based jumping (target, not implemented).
 - WebSocket transport alignment: `src/cljc/dao/stream/ws.cljc` needs review for protocol compliance.
 - VM bridge: `src/cljc/yin/stream.cljc` integration with effect layer via descriptor-based `open!`.
@@ -392,5 +393,5 @@ The design target is descriptor-first, transport-agnostic via `open!` multi-meth
 - retention and eviction policies
 - gap signaling for bounded-retention transports
 - explicit transport protocol names in code
-- stream-local continuation waiters for open-stream StreamHosts
+- transport-local continuation waiters for open-stream realizations
 - DaoDB-specific stream consumption contracts
