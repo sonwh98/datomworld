@@ -51,6 +51,9 @@ All compilers produce the same Universal AST format:
 ### 3. Cross-Platform
 Each compiler is written in `.cljc` format to run on both JVM and Node.js.
 
+### 4. Deterministic Transformation
+Compilation is a pure function of the input stream and its interpreter. Given the same source stream and compiler, you always get the same Universal AST (local interpretation/materialized view).
+
 ## Future Compilers
 
 ### Python Compiler (`yang.python`)
