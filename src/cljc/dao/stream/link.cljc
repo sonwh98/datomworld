@@ -61,8 +61,7 @@
 (defn make-link-state
   [local-stream]
   {:local-stream local-stream,
-   :remote-stream (ds/->RingBufferStream nil
-                                         (atom {:log [], :head 0, :closed false})),
+   :remote-stream (ds/make-ring-buffer-stream nil),
    :local-pos 0,
    :remote-pos 0,
    :status :connecting})

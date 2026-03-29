@@ -9,9 +9,9 @@
 ;; =============================================================================
 
 (defn- make-stream
-  ([] (ds/->RingBufferStream nil (atom {:log [], :head 0, :closed false})))
+  ([] (ds/make-ring-buffer-stream nil))
   ([capacity]
-   (ds/->RingBufferStream capacity (atom {:log [], :head 0, :closed false}))))
+   (ds/make-ring-buffer-stream capacity)))
 
 
 ;; =============================================================================
@@ -192,3 +192,112 @@
           r1 (ds/next s1 {:position 0})]
       (is (= descriptor (:ok r1))
           "Descriptor passes through a stream unchanged"))))
+
+
+;; =============================================================================
+;; Edge Case Tests
+;; =============================================================================
+
+(deftest nil-value-round-trip-test
+  (testing "nil is a valid value for put!/take!"
+    (let [s (make-stream)]
+      (is (= :ok (ds/put! s nil)))
+      (is (= {:ok nil} (ds/take! s)))))
+  (testing "nil is a valid value for put!/next"
+    (let [s (make-stream)]
+      (ds/put! s nil)
+      (let [r (ds/next s {:position 0})]
+        (is (= {:ok nil, :cursor {:position 1}} r))))))
+
+
+(deftest close-idempotent-test
+  (testing "close! called twice does not throw and closed? stays true"
+    (let [s (make-stream)]
+      (ds/close! s)
+      (ds/close! s)
+      (is (true? (ds/closed? s))))))
+
+
+(deftest take-on-closed-stream-with-data-test
+  (testing "take! drains remaining data from a closed stream before returning :end"
+    (let [s (make-stream)]
+      (ds/put! s :x)
+      (ds/put! s :y)
+      (ds/close! s)
+      (is (= {:ok :x} (ds/take! s)))
+      (is (= {:ok :y} (ds/take! s)))
+      (is (= :end (ds/take! s))))))
+
+
+(deftest memory-reclamation-test
+  (testing "take! removes consumed entries from the buffer map"
+    (let [s (ds/make-ring-buffer-stream nil)]
+      (ds/put! s :a)
+      (ds/put! s :b)
+      (ds/take! s)
+      (let [state @(:state-atom s)]
+        (is (not (contains? (:buffer state) 0)) "Entry at index 0 should be removed after take!")
+        (is (contains? (:buffer state) 1) "Entry at index 1 should still be present")))))
+
+
+(deftest zero-capacity-test
+  (testing "capacity=0 rejects every put!"
+    (let [s (ds/make-ring-buffer-stream 0)]
+      (is (= :full (ds/put! s :a))))))
+
+
+(deftest capacity-one-boundary-test
+  (testing "capacity=1: full after one put!, freed after take!"
+    (let [s (ds/make-ring-buffer-stream 1)]
+      (is (= :ok (ds/put! s :a)))
+      (is (= :full (ds/put! s :b)))
+      (is (= {:ok :a} (ds/take! s)))
+      (is (= :ok (ds/put! s :b)))
+      (is (= {:ok :b} (ds/take! s))))))
+
+
+(deftest put-take-cycle-index-continuity-test
+  (testing "absolute indices advance monotonically across multiple put!/take! cycles"
+    (let [s (ds/make-ring-buffer-stream nil)]
+      (ds/put! s :a)
+      (ds/take! s)
+      (ds/put! s :b)
+      (let [state @(:state-atom s)]
+        (is (= 1 (:head state)) "head should be 1 after one take!")
+        (is (= 2 (:tail state)) "tail should be 2 after two puts!"))
+      (is (= {:ok :b} (ds/take! s))))))
+
+
+(deftest next-beyond-tail-test
+  (testing "next with position beyond tail returns :blocked on open stream"
+    (let [s (make-stream)]
+      (ds/put! s :a)
+      (is (= :blocked (ds/next s {:position 99})))))
+  (testing "next with position beyond tail returns :end on closed stream"
+    (let [s (make-stream)]
+      (ds/put! s :a)
+      (ds/close! s)
+      (is (= :end (ds/next s {:position 99}))))))
+
+
+(deftest seq-stops-at-gap-test
+  (testing "->seq starting at 0 returns empty when head > 0 (cursor behind head)"
+    (let [s (make-stream)]
+      (ds/put! s :a)
+      (ds/put! s :b)
+      (ds/take! s)
+      ;; head is now 1; ->seq starts cursor at 0 which is a gap
+      (is (= [] (vec (ds/->seq nil s)))))))
+
+
+(deftest open-descriptor-capacity-test
+  (testing "open! with :capacity propagates to make-ring-buffer-stream"
+    (let [s (ds/open! {:transport {:type :ringbuffer :mode :create :capacity 3}})]
+      (is (= :ok (ds/put! s 1)))
+      (is (= :ok (ds/put! s 2)))
+      (is (= :ok (ds/put! s 3)))
+      (is (= :full (ds/put! s 4)))))
+  (testing "open! with nil :capacity is unbounded"
+    (let [s (ds/open! {:transport {:type :ringbuffer :mode :create :capacity nil}})]
+      (dotimes [i 1000] (ds/put! s i))
+      (is (= 1000 (ds/length s))))))

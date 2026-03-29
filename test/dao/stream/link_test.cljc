@@ -12,7 +12,7 @@
 
 (defn- make-stream
   []
-  (ds/->RingBufferStream nil (atom {:log [], :head 0, :closed false})))
+  (ds/make-ring-buffer-stream nil))
 
 
 (defn- make-stream-with

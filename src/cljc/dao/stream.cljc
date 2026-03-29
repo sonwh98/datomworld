@@ -49,10 +49,14 @@
 ;; RingBufferStream — reference implementation
 ;; =============================================================================
 ;;
-;; state-atom holds: {:log [] :head 0 :closed false}
-;;   :log    — vector of all appended values
-;;   :head   — absolute index of next take! position
+;; state-atom holds: {:buffer {} :head 0 :tail 0 :closed false}
+;;   :buffer — map of absolute-index -> value
+;;   :head   — absolute index of next take! position (oldest available)
+;;   :tail   — absolute index of next put! position
 ;;   :closed — boolean
+;;
+;; Memory is reclaimed during take! via dissoc.
+;; Cursors reading at pos < head receive :daostream/gap.
 
 (defrecord RingBufferStream
   [capacity state-atom]
@@ -61,28 +65,42 @@
 
   (put!
     [_this val]
-    (let [state @state-atom]
-      (when (:closed state)
+    (let [result (swap! state-atom
+                        (fn [s]
+                          (let [head (:head s)
+                                tail (:tail s)
+                                available (- tail head)]
+                            (cond
+                              (:closed s)
+                              (assoc s ::put-result ::closed)
+                              (and capacity (>= available capacity))
+                              (assoc s ::put-result :full)
+                              :else
+                              (-> s
+                                  (assoc-in [:buffer tail] val)
+                                  (update :tail inc)
+                                  (assoc ::put-result :ok))))))]
+      (when (= (::put-result result) ::closed)
         (throw (ex-info "Cannot put to closed stream" {})))
-      (let [log (:log state)
-            head (:head state)
-            available (- (count log) head)]
-        (if (and capacity (>= available capacity))
-          :full
-          (do (swap! state-atom update :log conj val) :ok)))))
+      (::put-result result)))
 
 
   (take!
     [_this]
-    (let [state @state-atom
-          head (:head state)
-          log (:log state)
-          len (count log)]
-      (if (< head len)
-        (let [val (get log head)]
-          (swap! state-atom update :head inc)
-          {:ok val})
-        (if (:closed state) :end :empty))))
+    (let [result (swap! state-atom
+                        (fn [s]
+                          (let [head (:head s)
+                                tail (:tail s)]
+                            (if (< head tail)
+                              (let [val (get-in s [:buffer head])]
+                                (-> s
+                                    (update :buffer dissoc head)
+                                    (update :head inc)
+                                    (assoc ::take-result {:ok val})))
+                              (if (:closed s)
+                                (assoc s ::take-result :end)
+                                (assoc s ::take-result :empty))))))]
+      (::take-result result)))
 
 
   (next
@@ -90,18 +108,18 @@
     (let [pos (:position cursor)
           state @state-atom
           head (:head state)
-          log (:log state)
-          len (count log)]
+          tail (:tail state)]
       (cond (< pos head) :daostream/gap
-            (< pos len) {:ok (get log pos),
-                         :cursor (update cursor :position inc)}
+            (< pos tail) {:ok (get-in state [:buffer pos]),
+                          :cursor (update cursor :position inc)}
             (:closed state) :end
             :else :blocked)))
 
 
   (length
     [_this]
-    (let [state @state-atom] (- (count (:log state)) (:head state))))
+    (let [state @state-atom]
+      (- (:tail state) (:head state))))
 
 
   (close! [_this] (swap! state-atom assoc :closed true) nil)
@@ -110,9 +128,14 @@
   (closed? [_this] (:closed @state-atom)))
 
 
+(defn make-ring-buffer-stream
+  "Create a new RingBufferStream transport."
+  [capacity]
+  (->RingBufferStream capacity (atom {:buffer {} :head 0 :tail 0 :closed false})))
+
+
 (defmethod open! :ringbuffer [descriptor]
-  (->RingBufferStream (get-in descriptor [:transport :capacity])
-                      (atom {:log [] :head 0 :closed false})))
+  (make-ring-buffer-stream (get-in descriptor [:transport :capacity])))
 
 
 ;; =============================================================================
