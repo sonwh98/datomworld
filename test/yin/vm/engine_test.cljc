@@ -197,7 +197,7 @@
 
 (deftest check-ffi-out-dispatch-and-enqueue-test
   (testing "check-ffi-out dispatches one request and enqueues resumed continuation"
-    (let [ffi-out (ds/->LazySeqStream nil (atom {:log [], :head 0, :closed false}))
+    (let [ffi-out (ds/->RingBufferStream nil (atom {:log [], :head 0, :closed false}))
           _ (ds/put! ffi-out {:op :op/echo, :args [42], :parked-id :parked-0})
           state {:store {vm/ffi-out-stream-key ffi-out,
                          vm/ffi-out-cursor-key {:stream-id vm/ffi-out-stream-key,

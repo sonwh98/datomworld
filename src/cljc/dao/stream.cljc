@@ -8,7 +8,7 @@
      :closed   false} ;; snapshot of closed status at serialization time
 
   IStream (operational, not serializable):
-    Protocol with stateful implementations. LazySeqStream is the reference
+    Protocol with stateful implementations. RingBufferStream is the reference
     implementation backed by an atom.
 
   Cursor (plain map, constructed inline by caller):
@@ -46,7 +46,7 @@
 
 
 ;; =============================================================================
-;; LazySeqStream — reference implementation
+;; RingBufferStream — reference implementation
 ;; =============================================================================
 ;;
 ;; state-atom holds: {:log [] :head 0 :closed false}
@@ -54,7 +54,7 @@
 ;;   :head   — absolute index of next take! position
 ;;   :closed — boolean
 
-(defrecord LazySeqStream
+(defrecord RingBufferStream
   [capacity state-atom]
 
   IStream
@@ -111,8 +111,8 @@
 
 
 (defmethod open! :ringbuffer [descriptor]
-  (->LazySeqStream (get-in descriptor [:transport :capacity])
-                   (atom {:log [] :head 0 :closed false})))
+  (->RingBufferStream (get-in descriptor [:transport :capacity])
+                      (atom {:log [] :head 0 :closed false})))
 
 
 ;; =============================================================================

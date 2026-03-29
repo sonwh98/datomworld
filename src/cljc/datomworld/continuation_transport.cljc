@@ -2,7 +2,7 @@
   "Pure transport stream helpers shared across hosts.
 
   Transport state:
-    {:continuation-stream <LazySeqStream>
+    {:continuation-stream <RingBufferStream>
      :cursors {:register-vm {:position n} :stack-vm {:position n}}
      :pending-continuations {position continuation}}"
   (:require
@@ -14,7 +14,7 @@
    identifying the consuming VMs (e.g. [:register-vm :stack-vm])."
   [vm-keys]
   {:continuation-stream
-   (ds/->LazySeqStream nil (atom {:log [], :head 0, :closed false})),
+   (ds/->RingBufferStream nil (atom {:log [], :head 0, :closed false})),
    :cursors (into {} (map (fn [k] [k {:position 0}])) vm-keys),
    :pending-continuations {}})
 

@@ -12,7 +12,7 @@
 
 (defn- make-stream
   []
-  (ds/->LazySeqStream nil (atom {:log [], :head 0, :closed false})))
+  (ds/->RingBufferStream nil (atom {:log [], :head 0, :closed false})))
 
 
 (defn- make-stream-with

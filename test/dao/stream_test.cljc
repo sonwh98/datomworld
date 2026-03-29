@@ -9,17 +9,17 @@
 ;; =============================================================================
 
 (defn- make-stream
-  ([] (ds/->LazySeqStream nil (atom {:log [], :head 0, :closed false})))
+  ([] (ds/->RingBufferStream nil (atom {:log [], :head 0, :closed false})))
   ([capacity]
-   (ds/->LazySeqStream capacity (atom {:log [], :head 0, :closed false}))))
+   (ds/->RingBufferStream capacity (atom {:log [], :head 0, :closed false}))))
 
 
 ;; =============================================================================
-;; LazySeqStream Tests
+;; RingBufferStream Tests
 ;; =============================================================================
 
 (deftest lazy-seq-stream-test
-  (testing "Fresh LazySeqStream is open and empty"
+  (testing "Fresh RingBufferStream is open and empty"
     (let [s (make-stream)]
       (is (false? (ds/closed? s)))
       (is (= 0 (ds/length s))))))
