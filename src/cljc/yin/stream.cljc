@@ -13,7 +13,7 @@
   Reads go through cursors, not directly from streams.
   Cursors advance independently: multiple readers, same stream.
 
-  Internally backed by dao.stream (IStream protocol, LazySeqStream impl).
+  Streams are realized via dao.stream/open! multimethod.
   The VM handles parking, resumption, and scheduling."
   (:require
     [dao.stream :as ds]
@@ -77,8 +77,10 @@
    Returns [stream-ref updated-state]."
   [state effect id]
   (let [capacity (:capacity effect)
-        stream (ds/->LazySeqStream capacity
-                                   (atom {:log [], :head 0, :closed false}))
+        descriptor {:transport {:type :ringbuffer
+                                :mode :create
+                                :capacity capacity}}
+        stream (ds/open! descriptor)
         new-store (assoc (:store state) id stream)
         stream-ref {:type :stream-ref, :id id}]
     [stream-ref (assoc state :store new-store)]))

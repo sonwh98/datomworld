@@ -416,7 +416,9 @@
   ([] (empty-state {}))
   ([opts]
    {:store
-    (let [ffi-stream (ds/->LazySeqStream nil (atom {:log [], :head 0, :closed false}))]
+    (let [ffi-stream (ds/open! {:transport {:type :ringbuffer
+                                            :mode :create
+                                            :capacity nil}})]
       {ffi-out-stream-key ffi-stream,
        ffi-out-cursor-key {:stream-id ffi-out-stream-key, :position 0}}),
     :parked {},

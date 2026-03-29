@@ -40,6 +40,11 @@
 ;; Reads: boolean.
 
 
+(defmulti open!
+  "Realize a descriptor into an operational IStream transport."
+  (fn [descriptor] (get-in descriptor [:transport :type])))
+
+
 ;; =============================================================================
 ;; LazySeqStream — reference implementation
 ;; =============================================================================
@@ -103,6 +108,11 @@
 
 
   (closed? [_this] (:closed @state-atom)))
+
+
+(defmethod open! :ringbuffer [descriptor]
+  (->LazySeqStream (get-in descriptor [:transport :capacity])
+                   (atom {:log [] :head 0 :closed false})))
 
 
 ;; =============================================================================
