@@ -1,18 +1,19 @@
 (ns dao.stream.ws
-  "WebSocket-backed IStream.
+  "WebSocket-backed stream using three orthogonal protocols.
 
    Three entry points:
      CLJ listen!   — start an http-kit WebSocket server, return WebSocketStream
      CLJ connect!  — connect via Java 11 built-in WebSocket client
      CLJS connect! — connect via browser WebSocket
 
-   Both sides get back a WebSocketStream that satisfies dao.stream/IStream:
-     put!    — send a datom to the remote peer
-     take!   — destructive read from remote-stream
-     next    — non-destructive read from remote-stream at cursor
-     length  — count of received (unread) datoms
-     close!  — send close message and shut down
-     closed? — true if link status is :closed"
+   Both sides get back a WebSocketStream satisfying:
+     IDaoStreamWriter — put! sends a datom to the remote peer
+     IDaoStreamReader — next reads non-destructively from remote-stream at cursor
+     IDaoStreamBound  — close! and closed? manage lifecycle
+
+   Utilities (non-protocol):
+     drain-one!      — destructive read from remote-stream (legacy support)
+     count-available — count of received (unread) datoms (metadata query)"
   (:require
     [dao.stream :as ds]
     [dao.stream.link :as link]
@@ -27,7 +28,7 @@
 (defrecord WebSocketStream
   [link-state-atom send-fn-atom]
 
-  ds/IStream
+  ds/IDaoStreamWriter
 
   (put!
     [_ val]
@@ -38,14 +39,12 @@
       :ok))
 
 
-  (take! [_] (ds/take! (:remote-stream @link-state-atom)))
-
+  ds/IDaoStreamReader
 
   (next [_ c] (ds/next (:remote-stream @link-state-atom) c))
 
 
-  (length [_] (ds/length (:remote-stream @link-state-atom)))
-
+  ds/IDaoStreamBound
 
   (close!
     [_]

@@ -155,14 +155,17 @@
    Returns result map:
    {:value val, :state s}                value available, head advanced
    {:park true, :stream-id id, :state s} empty (open stream, no data)
-   {:value nil, :state s}                end of closed stream"
+   {:value nil, :state s}                end of closed stream
+
+   NOTE: This uses ds/drain-one! (utility function) not a protocol method,
+   since destructive consumption is not part of the canonical model."
   [state effect]
   (let [stream-ref (:stream effect)
         stream-id (:id stream-ref)
         stream (get (:store state) stream-id)]
     (when (nil? stream)
       (throw (ex-info "Invalid stream reference" {:ref stream-ref})))
-    (let [result (ds/take! stream)]
+    (let [result (ds/drain-one! stream)]
       (cond (map? result) {:value (:ok result), :state state}
             (= :empty result) {:park true, :stream-id stream-id, :state state}
             (= :end result) {:value nil, :state state}))))

@@ -22,7 +22,7 @@
   (testing "Fresh RingBufferStream is open and empty"
     (let [s (make-stream)]
       (is (false? (ds/closed? s)))
-      (is (= 0 (ds/length s))))))
+      (is (= 0 (ds/count-available s))))))
 
 
 (deftest put-take-test
@@ -30,11 +30,11 @@
     (let [s (make-stream)]
       (is (= :ok (ds/put! s :a)))
       (is (= :ok (ds/put! s :b)))
-      (is (= 2 (ds/length s)))
-      (is (= {:ok :a} (ds/take! s)))
-      (is (= 1 (ds/length s)))
-      (is (= {:ok :b} (ds/take! s)))
-      (is (= 0 (ds/length s))))))
+      (is (= 2 (ds/count-available s)))
+      (is (= {:ok :a} (ds/drain-one! s)))
+      (is (= 1 (ds/count-available s)))
+      (is (= {:ok :b} (ds/drain-one! s)))
+      (is (= 0 (ds/count-available s))))))
 
 
 (deftest cursor-next-test
@@ -45,7 +45,7 @@
           r1 (ds/next s {:position 0})]
       (is (= :a (:ok r1)))
       (is (= {:position 1} (:cursor r1)))
-      (is (= 2 (ds/length s)) "next does not consume")
+      (is (= 2 (ds/count-available s)) "next does not consume")
       (let [r2 (ds/next s (:cursor r1))]
         (is (= :b (:ok r2)))
         (is (= {:position 2} (:cursor r2))))))
@@ -79,21 +79,21 @@
   (testing "take! returns :end on closed empty stream"
     (let [s (make-stream)]
       (ds/close! s)
-      (is (= :end (ds/take! s))))))
+      (is (= :end (ds/drain-one! s))))))
 
 
 (deftest length-test
   (testing "length tracks puts and takes"
     (let [s (make-stream)]
-      (is (= 0 (ds/length s)))
+      (is (= 0 (ds/count-available s)))
       (ds/put! s :a)
-      (is (= 1 (ds/length s)))
+      (is (= 1 (ds/count-available s)))
       (ds/put! s :b)
-      (is (= 2 (ds/length s)))
-      (ds/take! s)
-      (is (= 1 (ds/length s)))
-      (ds/take! s)
-      (is (= 0 (ds/length s))))))
+      (is (= 2 (ds/count-available s)))
+      (ds/drain-one! s)
+      (is (= 1 (ds/count-available s)))
+      (ds/drain-one! s)
+      (is (= 0 (ds/count-available s))))))
 
 
 (deftest gap-test
@@ -101,7 +101,7 @@
     (let [s (make-stream)]
       (ds/put! s :a)
       (ds/put! s :b)
-      (ds/take! s)
+      (ds/drain-one! s)
       (is (= :daostream/gap (ds/next s {:position 0}))
           "Cursor at pos 0 with head at 1 should return gap")
       (let [r (ds/next s {:position 1})] (is (= :b (:ok r)))))))
@@ -133,7 +133,7 @@
           _ (ds/put! s :beta)
           values (vec (ds/->seq nil s))]
       (is (= [:alpha :beta] values))
-      (is (= 2 (ds/length s))
+      (is (= 2 (ds/count-available s))
           "Calling next via ->seq must not consume values"))))
 
 
@@ -143,7 +143,7 @@
       (is (= :ok (ds/put! s :a)))
       (is (= :ok (ds/put! s :b)))
       (is (= :full (ds/put! s :c)))
-      (ds/take! s)
+      (ds/drain-one! s)
       (is (= :ok (ds/put! s :c))))))
 
 
@@ -158,11 +158,11 @@
 
 (deftest take-sentinels-test
   (testing ":empty on empty open stream"
-    (let [s (make-stream)] (is (= :empty (ds/take! s)))))
+    (let [s (make-stream)] (is (= :empty (ds/drain-one! s)))))
   (testing ":end on closed empty stream"
     (let [s (make-stream)]
       (ds/close! s)
-      (is (= :end (ds/take! s))))))
+      (is (= :end (ds/drain-one! s))))))
 
 
 ;; =============================================================================
@@ -178,7 +178,7 @@
           r1 (ds/next s1 {:position 0})
           recovered-s2 (:ok r1)]
       (is (some? recovered-s2) "Recovered value should be a stream")
-      (is (= 1 (ds/length recovered-s2)) "Recovered stream should have 1 value")
+      (is (= 1 (ds/count-available recovered-s2)) "Recovered stream should have 1 value")
       (let [r2 (ds/next recovered-s2 {:position 0})]
         (is (= :payload (:ok r2))
             "Reading from recovered stream yields the original value")))))
@@ -202,7 +202,7 @@
   (testing "nil is a valid value for put!/take!"
     (let [s (make-stream)]
       (is (= :ok (ds/put! s nil)))
-      (is (= {:ok nil} (ds/take! s)))))
+      (is (= {:ok nil} (ds/drain-one! s)))))
   (testing "nil is a valid value for put!/next"
     (let [s (make-stream)]
       (ds/put! s nil)
@@ -224,9 +224,9 @@
       (ds/put! s :x)
       (ds/put! s :y)
       (ds/close! s)
-      (is (= {:ok :x} (ds/take! s)))
-      (is (= {:ok :y} (ds/take! s)))
-      (is (= :end (ds/take! s))))))
+      (is (= {:ok :x} (ds/drain-one! s)))
+      (is (= {:ok :y} (ds/drain-one! s)))
+      (is (= :end (ds/drain-one! s))))))
 
 
 (deftest memory-reclamation-test
@@ -234,7 +234,7 @@
     (let [s (ds/open! {:transport {:type :ringbuffer, :capacity nil}})]
       (ds/put! s :a)
       (ds/put! s :b)
-      (ds/take! s)
+      (ds/drain-one! s)
       (let [state @(:state-atom s)]
         (is (not (contains? (:buffer state) 0)) "Entry at index 0 should be removed after take!")
         (is (contains? (:buffer state) 1) "Entry at index 1 should still be present")))))
@@ -251,21 +251,21 @@
     (let [s (ds/open! {:transport {:type :ringbuffer, :capacity 1}})]
       (is (= :ok (ds/put! s :a)))
       (is (= :full (ds/put! s :b)))
-      (is (= {:ok :a} (ds/take! s)))
+      (is (= {:ok :a} (ds/drain-one! s)))
       (is (= :ok (ds/put! s :b)))
-      (is (= {:ok :b} (ds/take! s))))))
+      (is (= {:ok :b} (ds/drain-one! s))))))
 
 
 (deftest put-take-cycle-index-continuity-test
   (testing "absolute indices advance monotonically across multiple put!/take! cycles"
     (let [s (ds/open! {:transport {:type :ringbuffer, :capacity nil}})]
       (ds/put! s :a)
-      (ds/take! s)
+      (ds/drain-one! s)
       (ds/put! s :b)
       (let [state @(:state-atom s)]
         (is (= 1 (:head state)) "head should be 1 after one take!")
         (is (= 2 (:tail state)) "tail should be 2 after two puts!"))
-      (is (= {:ok :b} (ds/take! s))))))
+      (is (= {:ok :b} (ds/drain-one! s))))))
 
 
 (deftest next-beyond-tail-test
@@ -285,7 +285,7 @@
     (let [s (make-stream)]
       (ds/put! s :a)
       (ds/put! s :b)
-      (ds/take! s)
+      (ds/drain-one! s)
       ;; head is now 1; ->seq starts cursor at 0 which is a gap
       (is (= [] (vec (ds/->seq nil s)))))))
 
@@ -300,4 +300,4 @@
   (testing "open! with nil :capacity is unbounded"
     (let [s (ds/open! {:transport {:type :ringbuffer :mode :create :capacity nil}})]
       (dotimes [i 1000] (ds/put! s i))
-      (is (= 1000 (ds/length s))))))
+      (is (= 1000 (ds/count-available s))))))

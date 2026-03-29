@@ -147,7 +147,7 @@
       (is (= checked checked-again)
           "Scheduler should be stable after dropping closed-stream :put waiter")
       (is (ds/closed? stream-after) "Closed-stream state must be preserved")
-      (is (= 1 (ds/length stream-after))
+      (is (= 1 (ds/count-available stream-after))
           "Dropped :put waiter must not append into closed stream"))))
 
 

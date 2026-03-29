@@ -1,15 +1,22 @@
 (ns dao.stream
   "DaoStream: bidirectional channel with cursors.
 
-  Two distinct things:
+  Three orthogonal protocol boundaries:
+
+  IDaoStreamReader (canonical read model):
+    Non-destructive, cursor-based reading. Multiple cursors advance independently.
+    (next [stream cursor]) → {:ok val :cursor cursor'} | :blocked | :end | :daostream/gap
+
+  IDaoStreamWriter (canonical write model):
+    Append-only writes.
+    (put! [stream val]) → :ok | :full (throws if closed)
+
+  IDaoStreamBound (lifecycle):
+    (close! [stream]) → nil
+    (closed? [stream]) → boolean
 
   Descriptor (serializable):
-    {:capacity nil    ;; nil = unbounded, int = bounded
-     :closed   false} ;; snapshot of closed status at serialization time
-
-  IStream (operational, not serializable):
-    Protocol with stateful implementations. RingBufferStream is the reference
-    implementation backed by an atom.
+    {:transport {:type :ringbuffer :capacity nil-or-int}}
 
   Cursor (plain map, constructed inline by caller):
     {:position n}"
@@ -17,27 +24,41 @@
 
 
 ;; =============================================================================
-;; IStream Protocol
+;; Stream Protocols (Orthogonal Boundaries)
 ;; =============================================================================
 
-(defprotocol IStream
+(defprotocol IDaoStreamReader
+  "Non-destructive, cursor-based reading. Multiple cursors on the same stream
+   advance independently without consuming values."
 
-  (put! [this val])
-  ;; Mutates: appends val. Returns :ok or :full. Throws if closed.
-  (take! [this])
-  ;; Mutates: consumes next value. Returns {:ok val}, :empty (open), or
-  ;; :end (closed).
-  (next [this cursor])
-  ;; Reads at cursor position. Returns {:ok val :cursor cursor'}, :blocked,
-  ;; :end, or :daostream/gap.
-  (length [this])
-  ;; Reads: count of available (untaken) values.
-  (close! [this])
-  ;; Mutates: marks stream closed.
-  (closed? [this]))
+  (next
+    [this cursor]
+    "Returns {:ok val :cursor cursor'} if value exists at cursor position.
+     Returns :blocked if stream is open and position is at end.
+     Returns :end if stream is closed and position is at or past end.
+     Returns :daostream/gap if cursor position has been evicted by transport."))
 
 
-;; Reads: boolean.
+(defprotocol IDaoStreamWriter
+  "Append-only writes. No destructive consumption."
+
+  (put!
+    [this val]
+    "Appends val. Returns :ok if successful, :full if transport is capacity-bounded
+     and full. Throws ex-info if stream is closed."))
+
+
+(defprotocol IDaoStreamBound
+  "Lifecycle: closing streams and checking closed status."
+
+  (close!
+    [this]
+    "Marks stream closed. Does not erase existing data. Existing readers continue
+     to see previously appended values.")
+
+  (closed?
+    [this]
+    "Returns boolean. True if stream has been closed."))
 
 
 (defmulti open!
@@ -61,7 +82,7 @@
 (defrecord RingBufferStream
   [capacity state-atom]
 
-  IStream
+  IDaoStreamWriter
 
   (put!
     [_this val]
@@ -85,23 +106,7 @@
       (::put-result result)))
 
 
-  (take!
-    [_this]
-    (let [result (swap! state-atom
-                        (fn [s]
-                          (let [head (:head s)
-                                tail (:tail s)]
-                            (if (< head tail)
-                              (let [val (get-in s [:buffer head])]
-                                (-> s
-                                    (update :buffer dissoc head)
-                                    (update :head inc)
-                                    (assoc ::take-result {:ok val})))
-                              (if (:closed s)
-                                (assoc s ::take-result :end)
-                                (assoc s ::take-result :empty))))))]
-      (::take-result result)))
-
+  IDaoStreamReader
 
   (next
     [_this cursor]
@@ -116,11 +121,7 @@
             :else :blocked)))
 
 
-  (length
-    [_this]
-    (let [state @state-atom]
-      (- (:tail state) (:head state))))
-
+  IDaoStreamBound
 
   (close! [_this] (swap! state-atom assoc :closed true) nil)
 
@@ -134,15 +135,67 @@
 
 
 ;; =============================================================================
-;; Utilities
+;; Utilities (Non-Protocol)
 ;; =============================================================================
 
+(defn drain-one!
+  "Destructively consume one value from stream.
+   Returns {:ok val} if a value exists, :empty if stream is open and no values
+   available, or :end if stream is closed and drained.
+
+   NOT part of the canonical model. Use (next stream cursor) with cursor-based
+   reading for reliable, non-destructive traversal. drain-one! is provided for
+   legacy compatibility and specific use cases requiring destructive consumption."
+  [stream]
+  (cond
+    (instance? RingBufferStream stream)
+    (let [{:keys [state-atom]} stream
+          result (swap! state-atom
+                        (fn [s]
+                          (let [head (:head s)
+                                tail (:tail s)]
+                            (if (< head tail)
+                              (let [val (get-in s [:buffer head])]
+                                (-> s
+                                    (update :buffer dissoc head)
+                                    (update :head inc)
+                                    (assoc ::take-result {:ok val})))
+                              (if (:closed s)
+                                (assoc s ::take-result :end)
+                                (assoc s ::take-result :empty))))))]
+      (::take-result result))
+    :else
+    (throw (ex-info "drain-one! not supported for this stream transport" {:stream stream}))))
+
+
+(defn count-available
+  "Returns count of appended but unconsumed values in stream.
+
+   Transport-specific metadata query. NOT part of the canonical model. This count
+   is only meaningful for transports that track head/tail indices and is not a
+   reliable indicator of stream state (e.g., after drain-one!, counts change)."
+  [stream]
+  (cond
+    (instance? RingBufferStream stream)
+    (let [{:keys [state-atom]} stream
+          state @state-atom]
+      (- (:tail state) (:head state)))
+    :else
+    (throw (ex-info "count-available not supported for this stream transport" {:stream stream}))))
+
+
 (defn ->seq
-  "Convert an `IStream` into a lazy Clojure sequence of values that have been
-   appended but not yet consumed.  A cursor walks the stream until `next` hits
-   `:blocked`, `:end`, or a gap, at which point the lazy sequence terminates.
-   The `ctx` argument is ignored here but retained so callers can keep the same
-   calling shape they use for other stream helpers."
+  "Convert a stream into a lazy Clojure sequence of values using cursor-based
+   reading via the IDaoStreamReader protocol. A cursor walks the stream until
+   (next stream cursor) hits :blocked, :end, or a gap, at which point the lazy
+   sequence terminates.
+
+   The returned sequence is a snapshot at call time. For open streams, the
+   sequence does not grow as new values are appended; create a new sequence
+   or use cursors directly to observe new appends.
+
+   The `ctx` argument is ignored but retained for compatibility with other
+   stream helpers."
   [_ stream]
   (when stream
     (letfn [(walk

@@ -102,37 +102,35 @@ identity; it is the resource produced by `open!`.
 
 ## Stream Protocols
 
-### Current: IStream Protocol (monolithic)
+### Current: Separate Protocol Boundaries
 
-All transports implement `IStream` with these operations:
-
-- `(put! [this val])` → `:ok` or `:full`; throws if closed.
-- `(take! [this])` → `{:ok val}`, `:empty` (open), or `:end` (closed).
-  - **Note**: Destructive consumption; not part of canonical model (target: remove).
-- `(next [this cursor])` → `{:ok val :cursor cursor'}`, `:blocked`, `:end`, or `:daostream/gap`.
-  - Non-destructive cursor-based reading. Cursor advanced without consuming the value.
-- `(length [this])` → Count of available (untaken) values.
-- `(close! [this])` → Marks stream closed; existing data remains readable.
-- `(closed? [this])` → Boolean.
-
-### Target: Separate Protocol Boundaries
-
-Design goal is to split `IStream` into protocol boundaries:
+All transports implement three orthogonal protocols:
 
 - **Reader Protocol** (`IDaoStreamReader`):
-  - `(next [this cursor])` → non-destructive traversal.
+  - `(next [this cursor])` → `{:ok val :cursor cursor'}`, `:blocked`, `:end`, or `:daostream/gap`.
+    Non-destructive, cursor-based traversal. Multiple cursors on same stream advance independently.
   - `(seek [this cursor pos])` → position-based seeking (target, not yet implemented).
 
 - **Writer Protocol** (`IDaoStreamWriter`):
-  - `(put! [this val])` → append-only writes.
+  - `(put! [this val])` → `:ok` or `:full`; throws if closed.
+    Append-only writes. Returns `:full` if transport is capacity-bounded and full.
 
 - **Bounding Protocol** (`IDaoStreamBound`):
-  - `(close! [this])` → stop future appends.
-  - `(closed? [this])` → query closed status.
+  - `(close! [this])` → marks stream closed; existing data remains readable.
+  - `(closed? [this])` → returns boolean closed status.
 
-- **Clojure Integration** (`Seqable`):
-  - `(seq [this])` → snapshot-based lazy sequence at call time.
-  - Live growth handled via cursors, not `Seqable`.
+This split makes the canonical model explicit: reading, writing, and lifecycle are orthogonal concerns. A transport may implement all three (as RingBufferStream and WebSocketStream do), or implement only the protocols relevant to its role.
+
+### Non-Protocol Utilities
+
+Destructive consumption and stream metadata are available as utilities, not protocol methods:
+
+- `(drain-one! [stream])` → `{:ok val}`, `:empty` (open), or `:end` (closed).
+  Destructively consumes one value. **Not part of the canonical model** — use `next` with cursor-based reading for reliable traversal.
+- `(count-available [stream])` → integer count of appended but unconsumed values.
+  Transport-specific metadata query. Not part of the canonical model.
+- `(->seq [stream])` → lazy Clojure sequence.
+  Snapshot-based traversal at call time. Live growth handled via cursors, not sequences.
 
 ## Cursor-Based Reading
 
@@ -356,42 +354,51 @@ on those indexes.
 ## Current Implementation Status
 
 **What's implemented:**
-- `src/cljc/dao/stream.cljc` defines monolithic `IStream` protocol.
+- `src/cljc/dao/stream.cljc` defines three orthogonal protocols:
+  - `IDaoStreamReader` with `next` for non-destructive cursor-based reading.
+  - `IDaoStreamWriter` with `put!` for append-only writes.
+  - `IDaoStreamBound` with `close!` and `closed?` for lifecycle.
 - `open!` multi-method dispatches on `(get-in descriptor [:transport :type])`.
   - `:ringbuffer` method creates `RingBufferStream` with capacity from descriptor.
 - `RingBufferStream` reference implementation:
-  - Map-backed storage with memory reclamation via `dissoc` in `take!`.
+  - Map-backed storage with memory reclamation via `dissoc` in `drain-one!` utility.
   - Absolute indexing (`head`, `tail`) enabling cursor-based reads and gap detection.
   - Bounded capacity with `:full` return on overflow.
   - Factory: `open!` with `:ringbuffer` transport type.
+  - Extends `IDaoStreamReader`, `IDaoStreamWriter`, `IDaoStreamBound`.
 - Cursor-based `next` method returns `{:ok val :cursor cursor'}`, `:blocked`, `:end`, or `:daostream/gap`.
-- Lazy `->seq` utility walks with cursor; terminates at `:blocked`, `:end`, or gap.
+- Utility functions (not protocol methods):
+  - `->seq` lazy sequence walks with cursor; terminates at `:blocked`, `:end`, or gap.
+  - `drain-one!` destructively consumes one value (not canonical model).
+  - `count-available` returns count of appended but unconsumed values (transport-specific metadata).
 - Descriptor shape (current): `{:transport {:type :ringbuffer :capacity nil-or-int} :closed bool}`.
+- `WebSocketStream` and link transport updated to use new protocol boundaries.
 
 **What still needs work:**
-- `take!` is destructive; not part of canonical model (target: remove or move to separate protocol).
 - Full descriptor schema expansion:
   - `:stream/id` for canonical identity.
   - `:transport :mode` (`:create` vs `:attach`).
   - `:transport :retention` policy for eviction strategy.
   - `:transport :backpressure` policy (target: `:park-writer`).
   - `:shibi` trust metadata support.
-- Protocol separation: split `IStream` into `IDaoStreamReader`, `IDaoStreamWriter`, `IDaoStreamBound`.
 - Gap policy: current implementation returns `:daostream/gap` (behavior defined). Document policy for
   gap handling (error, skip to earliest, sentinel).
 - Backpressure and writer parking: `open!` dispatch to transport-specific logic; currently `put!` returns `:full`.
 - Seek operation: `(seek [this cursor pos])` for position-based jumping (target, not implemented).
-- WebSocket transport alignment: `src/cljc/dao/stream/ws.cljc` needs review for protocol compliance.
-- VM bridge: `src/cljc/yin/stream.cljc` integration with effect layer via descriptor-based `open!`.
+- Transport-local continuation waiters: move blocked readers/writers from VM scheduler into transport-local state,
+  indexed by cursor position or read/write condition.
 
-The design target is descriptor-first, transport-agnostic via `open!` multi-method, cursor-based, and gap-aware.
+The design target is descriptor-first, transport-agnostic via `open!` multi-method, cursor-based, gap-aware, and
+with orthogonal protocol boundaries that enable precise capability expression.
 
 ## Deferred
 
-- additional transport schemas beyond the initial descriptor contract
-- typed streams
-- retention and eviction policies
-- gap signaling for bounded-retention transports
-- explicit transport protocol names in code
-- transport-local continuation waiters for open-stream realizations
-- DaoDB-specific stream consumption contracts
+- Additional transport schemas beyond the initial descriptor contract (`:stream/id`, `:transport :mode`, `:retention`, `:backpressure`, `:shibi`).
+- Typed streams (fixed-size datom streams for cache-efficient layouts and SIMD operations).
+- Retention and eviction policies.
+- Gap signaling and policy for bounded-retention transports.
+- Seek operation for position-based jumping.
+- Transport-local continuation waiters: move blocked readers/writers from VM scheduler into transport-local state.
+  This enables precise resumption on stream events and is prerequisite for `:park-writer` backpressure.
+- DaoDB-specific stream consumption contracts.
+- Seqable integration (currently via `->seq` utility).
