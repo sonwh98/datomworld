@@ -36,73 +36,62 @@ compile, collect, or otherwise optimize in response to those datoms.
 
 A stream exists as a descriptor value.
 
-Every stream descriptor has three top-level sections:
-
-- `:stream/id` - required canonical stream identity or address
-- `:transport` - required transport realization request
-- `:shibi` - optional Shibi trust metadata for untrusted nodes
+**Current implementation** uses a simplified form:
 
 ```clojure
-{:type :daostream/descriptor
- :stream/id ...
+{:transport {:type :ringbuffer
+             :capacity 1024}  ;; nil for unbounded
+ :closed false}                ;; snapshot at serialization time
+```
+
+**Design target** includes three top-level sections:
+
+```clojure
+{:stream/id ...                ;; canonical stream identity
  :transport {:type :ringbuffer
              :mode :create
              :capacity 1024
              :retention {:type :keep-all}
              :backpressure {:type :park-writer}}
- :shibi {...}}
+ :shibi {...}}                 ;; optional trust metadata
 ```
 
 Field semantics:
 
 - `:stream/id` names the stream independently of any one runtime transport
-- `:transport` is StreamHost-facing pure data that describes how to create or
-  attach to a transport
+- `:transport` is pure data that describes how to create or attach to a transport
+  - `:type` - transport kind such as `:ringbuffer` or `:websocket`
+  - `:mode` - `:create` or `:attach` (target, not yet implemented)
+  - `:capacity` - `nil` for unbounded, int for bounded (ringbuffer only)
+  - `:retention` - policy for memory reclamation (target, not yet implemented)
+  - `:backpressure` - how to handle full transport (target, not yet implemented)
 - `:shibi` carries optional authority metadata and is orthogonal to transport
-  identity
-
-All `:transport` maps must contain:
-
-- `:type` - transport kind such as `:ringbuffer` or `:websocket`
-- `:mode` - `:create` or `:attach`
-
-Example transport maps:
-
-```clojure
-{:type :ringbuffer
- :mode :create
- :capacity 1024
- :retention {:type :keep-all}
- :backpressure {:type :park-writer}}
-```
-
-```clojure
-{:type :websocket
- :mode :attach
- :url "wss://example.test/stream"
- :stream/key ...
- :codec :transit}
-```
+  identity (target, not yet implemented)
 
 The descriptor must remain plain serializable data. It must not contain runtime
 transport state such as buffer contents, cursor positions, blocked waiters,
 socket handles, or continuation state.
 
-### StreamHost
+### Stream Realization (open!)
 
 A stream exists as a descriptor value. To become operational, it must be
-realized by a **StreamHost**. The StreamHost is the authority or environment that
-provides the namespace and realizes descriptors into transports.
-
-The `IDaoStreamHost` protocol defines the primary entry point for the system:
+realized into an operational transport. The primary entry point is the `open!`
+multi-method, which dispatches on transport type:
 
 ```clojure
-(defprotocol IDaoStreamHost
-  (open! [this descriptor]
-    "Realize a descriptor into an operational transport resource."))
+(defmulti open!
+  "Realize a descriptor into an operational IStream transport."
+  (fn [descriptor] (get-in descriptor [:transport :type])))
 ```
 
-The name **StreamHost** is chosen over **Factory** to emphasize the relationship between the system and the resource: a **Factory** implies a "create and forget" relationship, whereas a **StreamHost** suggests an authoritative, ongoing environment that manages the resource's lifecycle, namespace, and routing.
+The dispatcher extracts `:type` from the `:transport` section of the descriptor
+(e.g., `:ringbuffer`, `:websocket`). Each transport implementation provides
+a `defmethod` for its type.
+
+This multi-method approach decouples descriptor schema from implementation.
+New transports can be added without modifying the core `open!` entry point.
+Different runtimes may implement `open!` differently while preserving the same
+descriptor semantics.
 
 ### Transport
 
@@ -112,29 +101,37 @@ identity; it is the resource produced by `open!`.
 
 ## Stream Protocols
 
-DaoStream is not one monolithic protocol. A transport implements the specific
-protocol boundaries it supports.
+### Current: IStream Protocol (monolithic)
 
-### 1. Reader Protocol (`IDaoStreamReader`)
-Required for readable streams. Supports non-destructive traversal.
-- `(next [this cursor])` -> Returns `{:ok val :cursor next-cursor}`, `:daostream/blocked`, or `:daostream/end`.
-- `(seek [this cursor pos])` -> Returns a new cursor at the absolute position.
+All transports implement `IStream` with these operations:
 
-### 2. Writer Protocol (`IDaoStreamWriter`)
-Required for writable streams. Supports append-only writes.
-- `(put! [this val])` -> Returns `:ok` or `:daostream/full`.
+- `(put! [this val])` → `:ok` or `:full`; throws if closed.
+- `(take! [this])` → `{:ok val}`, `:empty` (open), or `:end` (closed).
+  - **Note**: Destructive consumption; not part of canonical model (target: remove).
+- `(next [this cursor])` → `{:ok val :cursor cursor'}`, `:blocked`, `:end`, or `:daostream/gap`.
+  - Non-destructive cursor-based reading. Cursor advanced without consuming the value.
+- `(length [this])` → Count of available (untaken) values.
+- `(close! [this])` → Marks stream closed; existing data remains readable.
+- `(closed? [this])` → Boolean.
 
-### 3. Bounding Protocol (`IDaoStreamBound`)
-Required for closeable streams. Manages the transition to a finite state.
-- `(close! [this])` -> Stops future appends; existing data remains readable.
-- `(closed? [this])` -> Returns true if the stream is closed.
+### Target: Separate Protocol Boundaries
 
-### 4. Clojure Integration (`Seqable`)
-All transports must implement `clojure.lang.Seqable`.
-- `(seq [this])` -> Returns a snapshot-based lazy sequence of the current
-  retained prefix. The sequence terminates at the length of the stream at the
-  moment `seq` was called.
-- Live growth is handled via `next` and cursors, not via `Seqable`.
+Design goal is to split `IStream` into protocol boundaries:
+
+- **Reader Protocol** (`IDaoStreamReader`):
+  - `(next [this cursor])` → non-destructive traversal.
+  - `(seek [this cursor pos])` → position-based seeking (target, not yet implemented).
+
+- **Writer Protocol** (`IDaoStreamWriter`):
+  - `(put! [this val])` → append-only writes.
+
+- **Bounding Protocol** (`IDaoStreamBound`):
+  - `(close! [this])` → stop future appends.
+  - `(closed? [this])` → query closed status.
+
+- **Clojure Integration** (`Seqable`):
+  - `(seq [this])` → snapshot-based lazy sequence at call time.
+  - Live growth handled via cursors, not `Seqable`.
 
 ## Cursor-Based Reading
 
@@ -278,6 +275,35 @@ Current operational model:
 This is already one form of stream and continuation unification at the
 StreamHost layer. It does not change the core descriptor model.
 
+## RingBufferStream Implementation
+
+The reference `RingBufferStream` transport is map-backed with memory reclamation:
+
+```
+state-atom: {:buffer {}       ;; map of absolute-index -> value
+             :head 0          ;; absolute index of oldest available value
+             :tail 0          ;; absolute index of next put! position
+             :closed false}
+```
+
+**Memory reclamation**: `take!` removes the consumed value from `:buffer` via `dissoc`.
+Absolute indexing (`head`, `tail`) enables:
+- **Cursor advancement** without stored position state in the transport.
+- **Gap detection** when a cursor falls behind the retention boundary: `pos < head` → `:daostream/gap`.
+- **Capacity bounding** via `capacity` field: `put!` returns `:full` when `(- tail head) >= capacity`.
+
+**Cursor semantics**:
+- Cursor is a plain map: `{:position n}`.
+- `next` at position `pos` returns:
+  - `{:ok val :cursor {:position (inc pos)}}` if `head <= pos < tail`.
+  - `:daostream/gap` if `pos < head` (value evicted).
+  - `:end` if `pos >= tail` and stream is closed.
+  - `:blocked` if `pos >= tail` and stream is open (live data pending).
+
+**Lazy sequence** via `->seq`:
+Walks the stream with a cursor starting at position 0. Terminates when `next` returns
+`:blocked`, `:end`, or `:daostream/gap`. Lazy realization allows tailing open streams.
+
 ## Stream and Continuation Unification
 
 Open-stream runtime behavior is already unified with continuations in the
@@ -291,7 +317,7 @@ formulation is:
 
 In current implementations, blocked readers and writers live in the VM
 scheduler's wait-set rather than inside the transport value itself. That still
-constitutes unification at the StreamHost layer:
+constitutes unification at the `open!` dispatch layer:
 
 - `next` either returns a value or causes the current continuation to be parked
   on behalf of the stream read
@@ -307,7 +333,7 @@ not merely analogous to stream behavior. It is the same causal pattern.
 
 What remains deferred is not the existence of unification, but the location of
 the waiter state. A future refinement may move continuation waiters from the VM
-scheduler into transport-local StreamHost state, indexed by cursor position or
+scheduler into transport-local state, indexed by cursor position or
 a similar read or write condition.
 
 This unification should not collapse the descriptor into continuation state. The
@@ -328,21 +354,36 @@ on those indexes.
 
 ## Current Implementation Status
 
-The current code does not fully match this design yet.
+**What's implemented:**
+- `src/cljc/dao/stream.cljc` defines monolithic `IStream` protocol.
+- `open!` multi-method dispatches on `(get-in descriptor [:transport :type])`.
+  - `:ringbuffer` method creates `RingBufferStream` with capacity from descriptor.
+- `RingBufferStream` reference implementation:
+  - Map-backed storage with memory reclamation via `dissoc` in `take!`.
+  - Absolute indexing (`head`, `tail`) enabling cursor-based reads and gap detection.
+  - Bounded capacity with `:full` return on overflow.
+  - Factory: `make-ring-buffer-stream`.
+- Cursor-based `next` method returns `{:ok val :cursor cursor'}`, `:blocked`, `:end`, or `:daostream/gap`.
+- Lazy `->seq` utility walks with cursor; terminates at `:blocked`, `:end`, or gap.
+- Descriptor shape (current): `{:transport {:type :ringbuffer :capacity nil-or-int} :closed bool}`.
 
-- `src/cljc/dao/stream.cljc` currently conflates descriptor and transport in a
-  stateful `IStream` implementation.
-- `take!` exists in the current code, but destructive consumption is not part of
-  the canonical DaoStream model.
-- `dao.stream/->seq` is currently lazy and may observe appends that happen
-  during later realization before it terminates at `:blocked`, so it does not
-  yet match the target snapshot semantics for `Seqable` on open streams.
-- `src/cljc/dao/stream/ws.cljc` is a concrete transport realization.
-- `src/cljc/dao/stream/link.cljc` is a replication/link protocol over stream
-  transports.
-- `src/cljc/yin/stream.cljc` bridges stream operations into the VM effect layer.
+**What still needs work:**
+- `take!` is destructive; not part of canonical model (target: remove or move to separate protocol).
+- Full descriptor schema expansion:
+  - `:stream/id` for canonical identity.
+  - `:transport :mode` (`:create` vs `:attach`).
+  - `:transport :retention` policy for eviction strategy.
+  - `:transport :backpressure` policy (target: `:park-writer`).
+  - `:shibi` trust metadata support.
+- Protocol separation: split `IStream` into `IDaoStreamReader`, `IDaoStreamWriter`, `IDaoStreamBound`.
+- Gap policy: current implementation returns `:daostream/gap` (behavior defined). Document policy for
+  gap handling (error, skip to earliest, sentinel).
+- Backpressure and writer parking: `open!` dispatch to StreamHost layer; currently `put!` returns `:full`.
+- Seek operation: `(seek [this cursor pos])` for position-based jumping (target, not implemented).
+- WebSocket transport alignment: `src/cljc/dao/stream/ws.cljc` needs review for protocol compliance.
+- VM bridge: `src/cljc/yin/stream.cljc` integration with effect layer via descriptor-based `open!`.
 
-The design target is descriptor-first, StreamHost-driven, and cursor-based.
+The design target is descriptor-first, transport-agnostic via `open!` multi-method, cursor-based, and gap-aware.
 
 ## Deferred
 
