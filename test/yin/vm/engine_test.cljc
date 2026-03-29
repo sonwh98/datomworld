@@ -197,7 +197,7 @@
 
 (deftest check-ffi-out-dispatch-and-enqueue-test
   (testing "check-ffi-out dispatches one request and enqueues resumed continuation"
-    (let [ffi-out (ds/make-ring-buffer-stream nil)
+    (let [ffi-out (ds/open! {:transport {:type :ringbuffer, :capacity nil}})
           _ (ds/put! ffi-out {:op :op/echo, :args [42], :parked-id :parked-0})
           state {:store {vm/ffi-out-stream-key ffi-out,
                          vm/ffi-out-cursor-key {:stream-id vm/ffi-out-stream-key,

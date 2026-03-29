@@ -103,7 +103,7 @@
       Accepts one connection; further connections are rejected."
      ([port] (listen! port nil))
      ([port opts]
-      (let [local (ds/make-ring-buffer-stream (:capacity opts))
+      (let [local (ds/open! {:transport {:type :ringbuffer, :capacity (:capacity opts)}})
             stream (make-ws-stream local)
             stop! (http-server/run-server
                     (fn [req]
@@ -128,7 +128,7 @@
           "Connect to a WebSocket server at url. Returns WebSocketStream."
           ([url] (connect! url nil))
           ([url opts]
-           (let [local (ds/make-ring-buffer-stream (:capacity opts))
+           (let [local (ds/open! {:transport {:type :ringbuffer, :capacity (:capacity opts)}})
                  stream (make-ws-stream local)
                  client (java.net.http.HttpClient/newHttpClient)
                  ws-ref (atom nil)
@@ -171,7 +171,7 @@
            "Connect to a WebSocket server at url. Returns WebSocketStream."
            ([url] (connect! url nil))
            ([url opts]
-            (let [local (ds/make-ring-buffer-stream (:capacity opts))
+            (let [local (ds/open! {:transport {:type :ringbuffer, :capacity (:capacity opts)}})
                   stream (make-ws-stream local)
                   ws (js/WebSocket. url)]
               (set! (.-onopen ws) #(on-open! stream (fn [msg] (.send ws msg))))

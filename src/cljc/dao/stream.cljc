@@ -128,14 +128,9 @@
   (closed? [_this] (:closed @state-atom)))
 
 
-(defn make-ring-buffer-stream
-  "Create a new RingBufferStream transport."
-  [capacity]
-  (->RingBufferStream capacity (atom {:buffer {} :head 0 :tail 0 :closed false})))
-
-
 (defmethod open! :ringbuffer [descriptor]
-  (make-ring-buffer-stream (get-in descriptor [:transport :capacity])))
+  (let [capacity (get-in descriptor [:transport :capacity])]
+    (->RingBufferStream capacity (atom {:buffer {} :head 0 :tail 0 :closed false}))))
 
 
 ;; =============================================================================

@@ -362,7 +362,7 @@ on those indexes.
   - Map-backed storage with memory reclamation via `dissoc` in `take!`.
   - Absolute indexing (`head`, `tail`) enabling cursor-based reads and gap detection.
   - Bounded capacity with `:full` return on overflow.
-  - Factory: `make-ring-buffer-stream`.
+  - Factory: `open!` with `:ringbuffer` transport type.
 - Cursor-based `next` method returns `{:ok val :cursor cursor'}`, `:blocked`, `:end`, or `:daostream/gap`.
 - Lazy `->seq` utility walks with cursor; terminates at `:blocked`, `:end`, or gap.
 - Descriptor shape (current): `{:transport {:type :ringbuffer :capacity nil-or-int} :closed bool}`.

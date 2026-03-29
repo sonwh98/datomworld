@@ -9,9 +9,9 @@
 ;; =============================================================================
 
 (defn- make-stream
-  ([] (ds/make-ring-buffer-stream nil))
+  ([] (ds/open! {:transport {:type :ringbuffer, :capacity nil}}))
   ([capacity]
-   (ds/make-ring-buffer-stream capacity)))
+   (ds/open! {:transport {:type :ringbuffer, :capacity capacity}})))
 
 
 ;; =============================================================================
@@ -231,7 +231,7 @@
 
 (deftest memory-reclamation-test
   (testing "take! removes consumed entries from the buffer map"
-    (let [s (ds/make-ring-buffer-stream nil)]
+    (let [s (ds/open! {:transport {:type :ringbuffer, :capacity nil}})]
       (ds/put! s :a)
       (ds/put! s :b)
       (ds/take! s)
@@ -242,13 +242,13 @@
 
 (deftest zero-capacity-test
   (testing "capacity=0 rejects every put!"
-    (let [s (ds/make-ring-buffer-stream 0)]
+    (let [s (ds/open! {:transport {:type :ringbuffer, :capacity 0}})]
       (is (= :full (ds/put! s :a))))))
 
 
 (deftest capacity-one-boundary-test
   (testing "capacity=1: full after one put!, freed after take!"
-    (let [s (ds/make-ring-buffer-stream 1)]
+    (let [s (ds/open! {:transport {:type :ringbuffer, :capacity 1}})]
       (is (= :ok (ds/put! s :a)))
       (is (= :full (ds/put! s :b)))
       (is (= {:ok :a} (ds/take! s)))
@@ -258,7 +258,7 @@
 
 (deftest put-take-cycle-index-continuity-test
   (testing "absolute indices advance monotonically across multiple put!/take! cycles"
-    (let [s (ds/make-ring-buffer-stream nil)]
+    (let [s (ds/open! {:transport {:type :ringbuffer, :capacity nil}})]
       (ds/put! s :a)
       (ds/take! s)
       (ds/put! s :b)
@@ -291,7 +291,7 @@
 
 
 (deftest open-descriptor-capacity-test
-  (testing "open! with :capacity propagates to make-ring-buffer-stream"
+  (testing "open! with :capacity propagates to ringbuffer transport"
     (let [s (ds/open! {:transport {:type :ringbuffer :mode :create :capacity 3}})]
       (is (= :ok (ds/put! s 1)))
       (is (= :ok (ds/put! s 2)))
