@@ -18,7 +18,7 @@
 ;; RingBufferStream Tests
 ;; =============================================================================
 
-(deftest lazy-seq-stream-test
+(deftest ring-buffer-stream-test
   (testing "Fresh RingBufferStream is open and empty"
     (let [s (make-stream)]
       (is (false? (ds/closed? s)))
