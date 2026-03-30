@@ -1,6 +1,7 @@
 (ns yin.vm.engine
   (:refer-clojure :exclude [gensym])
   (:require
+    [dao.stream :as ds]
     [yin.module :as module]
     [yin.stream :as stream]
     [yin.vm :as vm]))
@@ -46,9 +47,26 @@
   (and (not (:blocked vm)) (not (:halted vm))))
 
 
+(defn- make-run-queue-entries
+  "Transform woken reader-waiter entries (from put!) into run-queue entries.
+   Computes store-updates for cursor position advance."
+  [state woken]
+  (mapv
+    (fn [{:keys [entry value position]}]
+      (let [cursor-id (:id (:cursor-ref entry))
+            cursor-data (get (:store state) cursor-id)
+            store-updates (when position
+                            {cursor-id (assoc cursor-data :position (inc position))})]
+        (assoc entry :value value :store-updates store-updates)))
+    woken))
+
+
 (defn check-wait-set
   "Check wait-set entries against current store.
-   Returns updated state with newly runnable entries moved to run-queue."
+   Returns updated state with newly runnable entries moved to run-queue.
+
+   NOTE: :next and :take entries are now handled by the transport (IDaoStreamWaitable).
+   Only :put entries (writer parking) remain."
   [state]
   (let [wait-set (or (:wait-set state) [])
         run-queue (or (:run-queue state) [])]
@@ -67,48 +85,9 @@
             (let [entry (first remaining)
                   rest-entries (rest remaining)]
               (case (:reason entry)
-                :next
-                (let [cursor-ref (:cursor-ref entry)
-                      cursor-id (:id cursor-ref)
-                      cursor-data (get store cursor-id)
-                      stream-ref (:stream-ref cursor-data)
-                      _stream-id (:id stream-ref)
-                      effect {:effect :stream/next, :cursor cursor-ref}
-                      result (stream/handle-next (assoc state :store store)
-                                                 effect)]
-                  (if (:park result)
-                    (recur rest-entries (conj new-wait entry) new-run store)
-                    (let [updated-store (:store (:state result))]
-                      (recur rest-entries
-                             new-wait
-                             (conj new-run
-                                   (assoc entry
-                                          :value (:value result)
-                                          :store-updates (when (not= store
-                                                                     updated-store)
-                                                           updated-store)))
-                             (or updated-store store)))))
-                :take
-                (let [stream-id (:stream-id entry)
-                      stream-ref {:type :stream-ref, :id stream-id}
-                      effect {:effect :stream/take, :stream stream-ref}
-                      result (stream/handle-take (assoc state :store store)
-                                                 effect)]
-                  (if (:park result)
-                    (recur rest-entries (conj new-wait entry) new-run store)
-                    (let [updated-store (:store (:state result))]
-                      (recur rest-entries
-                             new-wait
-                             (conj new-run
-                                   (assoc entry
-                                          :value (:value result)
-                                          :store-updates (when (not= store
-                                                                     updated-store)
-                                                           updated-store)))
-                             (or updated-store store)))))
                 :put (let [stream-id (:stream-id entry)
                            stream (get store stream-id)]
-                       (if (:closed stream)
+                       (if (ds/closed? stream)
                          (recur rest-entries new-wait new-run store)
                          (let [datom (:datom entry)
                                stream-ref {:type :stream-ref, :id stream-id}
@@ -123,13 +102,18 @@
                                     (conj new-wait entry)
                                     new-run
                                     store)
-                             (let [updated-store (:store (:state result))]
+                             (let [updated-store (:store (:state result))
+                                   woken (:woke result)
+                                   woken-entries (make-run-queue-entries
+                                                   (assoc state :store updated-store)
+                                                   woken)]
                                (recur rest-entries
                                       new-wait
-                                      (conj new-run
-                                            (assoc entry
-                                                   :value (:value result)
-                                                   :store-updates updated-store))
+                                      (into new-run
+                                            (cons (assoc entry
+                                                         :value (:value result)
+                                                         :store-updates updated-store)
+                                                  woken-entries))
                                       (or updated-store store)))))))
                 ;; Unknown reason, keep waiting
                 (recur rest-entries (conj new-wait entry) new-run store)))))))))
@@ -305,13 +289,31 @@
                            (stream/handle-cursor s' effect id)]
                        {:state new-state, :value cursor-ref, :blocked? false})
       :stream/put (let [result (stream/handle-put state effect)]
-                    (handle-stream-block result
-                                         (when park-entry
-                                           (park-entry state effect result))))
+                    (if (:park result)
+                      (handle-stream-block result
+                                           (when park-entry
+                                             (park-entry state effect result)))
+                      (let [woken (:woke result)
+                            base {:state (:state result), :value (:value result), :blocked? false}]
+                        (if (seq woken)
+                          (let [entries (make-run-queue-entries (:state result) woken)]
+                            (update base :state update :run-queue into entries))
+                          base))))
       :stream/next (let [result (stream/handle-next state effect)]
-                     (handle-stream-block result
-                                          (when park-entry
-                                            (park-entry state effect result))))
+                     (if (:park result)
+                       (let [built-entry (when park-entry (park-entry state effect result))
+                             stream-id   (:stream-id result)
+                             stream      (get (:store state) stream-id)
+                             cursor-id   (:id (:cursor-ref result))
+                             position    (:position (get (:store state) cursor-id))]
+                         (if (and built-entry (satisfies? ds/IDaoStreamWaitable stream))
+                           (do (ds/register-reader-waiter! stream position built-entry)
+                               {:state (assoc (:state result) :blocked true :halted false
+                                              :value :yin/blocked)
+                                :value :yin/blocked
+                                :blocked? true})
+                           (handle-stream-block result built-entry)))
+                       {:state (:state result), :value (:value result), :blocked? false}))
       :stream/take (let [result (stream/handle-take state effect)]
                      (handle-stream-block result
                                           (when park-entry

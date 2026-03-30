@@ -315,12 +315,13 @@
                                  :operator {:type :variable, :name 'block-next},
                                  :operands [{:type :variable, :name 'x}]}}
                :operands [{:type :literal, :value cursor-ref}]}
-          result (vm/eval vm-with-primitive ast)
-          waiter (first (:wait-set result))]
+          result (vm/eval vm-with-primitive ast)]
+      ;; NOTE: With transport-local readers, the waiter is registered directly
+      ;; on the transport (RingBufferStream), not in wait-set. So we check that
+      ;; the VM is blocked and the environment is preserved in the VM state.
       (is (vm/blocked? result))
       (is (= :yin/blocked (vm/value result)))
-      (is (= cursor-ref (get (vm/environment result) 'x)))
-      (is (= cursor-ref (get (:environment waiter) 'x))))))
+      (is (= cursor-ref (get (vm/environment result) 'x))))))
 
 
 ;; =============================================================================

@@ -36,7 +36,7 @@
           [state' msg] (link/local-put state val)]
       (reset! link-state-atom state')
       (when-let [send-fn @send-fn-atom] (send-fn (transit/encode msg)))
-      :ok))
+      {:result :ok, :woke []}))
 
 
   ds/IDaoStreamReader
@@ -52,7 +52,7 @@
       (send-fn (transit/encode (link/close-msg))))
     (let [state (:remote-stream @link-state-atom)] (ds/close! state))
     (swap! link-state-atom assoc :status :closed)
-    nil)
+    {:woke []})
 
 
   (closed? [_] (= :closed (:status @link-state-atom))))

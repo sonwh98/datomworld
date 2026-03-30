@@ -9,11 +9,14 @@
 
   IDaoStreamWriter (canonical write model):
     Append-only writes.
-    (put! [stream val]) → :ok | :full (throws if closed)
+    (put! [stream val]) → {:result :ok, :woke [...]} | {:result :full} (throws if closed)
 
   IDaoStreamBound (lifecycle):
-    (close! [stream]) → nil
+    (close! [stream]) → {:woke [...]}
     (closed? [stream]) → boolean
+
+  IDaoStreamWaitable (optional — transport-local reader waking):
+    (register-reader-waiter! [stream position entry])
 
   Descriptor (serializable):
     {:transport {:type :ringbuffer :capacity nil-or-int}}
@@ -53,12 +56,22 @@
 
   (close!
     [this]
-    "Marks stream closed. Does not erase existing data. Existing readers continue
-     to see previously appended values.")
+    "Marks stream closed. Does not erase existing data. Returns {:woke [...]}
+     with any reader-waiters that were resolved.")
 
   (closed?
     [this]
     "Returns boolean. True if stream has been closed."))
+
+
+(defprotocol IDaoStreamWaitable
+  "Optional protocol: transport-local reader-waiter registration.
+   Enables readers to register at the transport instead of the VM scheduler."
+
+  (register-reader-waiter!
+    [this position entry]
+    "Register a waiter (wait-set entry) for a specific cursor position.
+     Called when ds/next returns :blocked to avoid polling."))
 
 
 (defmulti open!
@@ -70,14 +83,17 @@
 ;; RingBufferStream — reference implementation
 ;; =============================================================================
 ;;
-;; state-atom holds: {:buffer {} :head 0 :tail 0 :closed false}
-;;   :buffer — map of absolute-index -> value
-;;   :head   — absolute index of next take! position (oldest available)
-;;   :tail   — absolute index of next put! position
-;;   :closed — boolean
+;; state-atom holds: {:buffer {} :head 0 :tail 0 :closed false :reader-waiters {}}
+;;   :buffer         — map of absolute-index -> value
+;;   :head           — absolute index of next take! position (oldest available)
+;;   :tail           — absolute index of next put! position
+;;   :closed         — boolean
+;;   :reader-waiters — map of position -> wait-set-entry; woken when put! appends
 ;;
-;; Memory is reclaimed during take! via dissoc.
+;; Memory is reclaimed during drain-one! via dissoc.
 ;; Cursors reading at pos < head receive :daostream/gap.
+;; When put! appends at position p and (get reader-waiters p) exists:
+;;   the entry is removed from reader-waiters and returned in {:woke [...]}
 
 (defrecord RingBufferStream
   [capacity state-atom]
@@ -97,13 +113,24 @@
                               (and capacity (>= available capacity))
                               (assoc s ::put-result :full)
                               :else
-                              (-> s
-                                  (assoc-in [:buffer tail] val)
-                                  (update :tail inc)
-                                  (assoc ::put-result :ok))))))]
+                              (let [woken-entry (get (:reader-waiters s) tail)
+                                    next-state (-> s
+                                                   (assoc-in [:buffer tail] val)
+                                                   (update :tail inc))]
+                                (if woken-entry
+                                  (-> next-state
+                                      (update :reader-waiters dissoc tail)
+                                      (assoc ::put-result {:ok :ok, :woken-entry woken-entry}))
+                                  (assoc next-state ::put-result {:ok :ok})))))))]
       (when (= (::put-result result) ::closed)
         (throw (ex-info "Cannot put to closed stream" {})))
-      (::put-result result)))
+      (let [{:keys [woken-entry]} (::put-result result)]
+        (if (= :full (::put-result result))
+          {:result :full}
+          {:result :ok,
+           :woke (if woken-entry
+                   [{:entry woken-entry, :value val, :position (dec (:tail result))}]
+                   [])}))))
 
 
   IDaoStreamReader
@@ -123,15 +150,29 @@
 
   IDaoStreamBound
 
-  (close! [_this] (swap! state-atom assoc :closed true) nil)
+  (close!
+    [_this]
+    (swap! state-atom
+           (fn [s]
+             (assoc s :closed true)))
+    (let [reader-waiters (:reader-waiters @state-atom)]
+      {:woke (mapv (fn [[_pos entry]] {:entry entry, :value nil})
+                   reader-waiters)}))
 
 
-  (closed? [_this] (:closed @state-atom)))
+  (closed? [_this] (:closed @state-atom))
+
+
+  IDaoStreamWaitable
+
+  (register-reader-waiter!
+    [_this position entry]
+    (swap! state-atom assoc-in [:reader-waiters position] entry)))
 
 
 (defmethod open! :ringbuffer [descriptor]
   (let [capacity (get-in descriptor [:transport :capacity])]
-    (->RingBufferStream capacity (atom {:buffer {} :head 0 :tail 0 :closed false}))))
+    (->RingBufferStream capacity (atom {:buffer {} :head 0 :tail 0 :closed false :reader-waiters {}}))))
 
 
 ;; =============================================================================

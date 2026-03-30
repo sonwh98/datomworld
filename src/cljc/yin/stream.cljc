@@ -89,7 +89,7 @@
 (defn handle-put
   "Handle :stream/put effect. Appends value to stream.
    Returns result map:
-   {:value v, :state s}                    on success
+   {:value v, :state s, :woke [...]}       on success
    {:park true, :stream-id id, :state s}   if at capacity"
   [state effect]
   (let [stream-ref (:stream effect)
@@ -99,9 +99,9 @@
     (when (nil? stream)
       (throw (ex-info "Invalid stream reference" {:ref stream-ref})))
     (let [result (ds/put! stream val)]
-      (if (= :ok result)
-        {:value val, :state state}
-        {:park true, :stream-id stream-id, :state state}))))
+      (if (= :full (:result result))
+        {:park true, :stream-id stream-id, :state state}
+        {:value val, :state state, :woke (:woke result)}))))
 
 
 (defn handle-cursor
@@ -174,22 +174,14 @@
 (defn handle-close
   "Handle :stream/close effect. Closes the stream.
    Returns {:state s', :resume-parked [parked-entries...]}
-   where parked-entries are wait-set entries to resume with nil."
+   where parked-entries are wait-set entries woken by the transport."
   [state effect]
   (let [stream-ref (:stream effect)
         stream-id (:id stream-ref)
-        stream (get (:store state) stream-id)]
-    (ds/close! stream)
-    ;; Find parked :next and :take continuations waiting on this stream.
-    ;; Both resume with nil (end-of-stream). :put waiters are not woken.
-    (let [wait-set (or (:wait-set state) [])
-          {to-resume true, to-keep false}
-          (group-by (fn [entry]
-                      (and (= stream-id (:stream-id entry))
-                           (#{:next :take} (:reason entry))))
-                    wait-set)]
-      {:state (assoc state :wait-set (vec (or to-keep []))),
-       :resume-parked (or to-resume [])})))
+        stream (get (:store state) stream-id)
+        {:keys [woke]} (ds/close! stream)]
+    {:state state,
+     :resume-parked woke}))
 
 
 ;; ============================================================

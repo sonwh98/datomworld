@@ -28,8 +28,8 @@
 (deftest put-take-test
   (testing "put! / take! round trip with length tracking"
     (let [s (make-stream)]
-      (is (= :ok (ds/put! s :a)))
-      (is (= :ok (ds/put! s :b)))
+      (is (= :ok (:result (ds/put! s :a))))
+      (is (= :ok (:result (ds/put! s :b))))
       (is (= 2 (ds/count-available s)))
       (is (= {:ok :a} (ds/drain-one! s)))
       (is (= 1 (ds/count-available s)))
@@ -140,11 +140,11 @@
 (deftest capacity-test
   (testing "put! returns :full at capacity, :ok after take! frees space"
     (let [s (make-stream 2)]
-      (is (= :ok (ds/put! s :a)))
-      (is (= :ok (ds/put! s :b)))
-      (is (= :full (ds/put! s :c)))
+      (is (= :ok (:result (ds/put! s :a))))
+      (is (= :ok (:result (ds/put! s :b))))
+      (is (= :full (:result (ds/put! s :c))))
       (ds/drain-one! s)
-      (is (= :ok (ds/put! s :c))))))
+      (is (= :ok (:result (ds/put! s :c)))))))
 
 
 (deftest next-sentinels-test
@@ -201,7 +201,7 @@
 (deftest nil-value-round-trip-test
   (testing "nil is a valid value for put!/take!"
     (let [s (make-stream)]
-      (is (= :ok (ds/put! s nil)))
+      (is (= :ok (:result (ds/put! s nil))))
       (is (= {:ok nil} (ds/drain-one! s)))))
   (testing "nil is a valid value for put!/next"
     (let [s (make-stream)]
@@ -243,16 +243,16 @@
 (deftest zero-capacity-test
   (testing "capacity=0 rejects every put!"
     (let [s (ds/open! {:transport {:type :ringbuffer, :capacity 0}})]
-      (is (= :full (ds/put! s :a))))))
+      (is (= :full (:result (ds/put! s :a)))))))
 
 
 (deftest capacity-one-boundary-test
   (testing "capacity=1: full after one put!, freed after take!"
     (let [s (ds/open! {:transport {:type :ringbuffer, :capacity 1}})]
-      (is (= :ok (ds/put! s :a)))
-      (is (= :full (ds/put! s :b)))
+      (is (= :ok (:result (ds/put! s :a))))
+      (is (= :full (:result (ds/put! s :b))))
       (is (= {:ok :a} (ds/drain-one! s)))
-      (is (= :ok (ds/put! s :b)))
+      (is (= :ok (:result (ds/put! s :b))))
       (is (= {:ok :b} (ds/drain-one! s))))))
 
 
@@ -293,10 +293,10 @@
 (deftest open-descriptor-capacity-test
   (testing "open! with :capacity propagates to ringbuffer transport"
     (let [s (ds/open! {:transport {:type :ringbuffer :mode :create :capacity 3}})]
-      (is (= :ok (ds/put! s 1)))
-      (is (= :ok (ds/put! s 2)))
-      (is (= :ok (ds/put! s 3)))
-      (is (= :full (ds/put! s 4)))))
+      (is (= :ok (:result (ds/put! s 1))))
+      (is (= :ok (:result (ds/put! s 2))))
+      (is (= :ok (:result (ds/put! s 3))))
+      (is (= :full (:result (ds/put! s 4))))))
   (testing "open! with nil :capacity is unbounded"
     (let [s (ds/open! {:transport {:type :ringbuffer :mode :create :capacity nil}})]
       (dotimes [i 1000] (ds/put! s i))

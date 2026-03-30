@@ -42,40 +42,10 @@
       (is (empty? (:run-queue result))))))
 
 
-(deftest check-wait-set-stream-next-test
-  (testing
-    "check-wait-set wakes up a :next parked continuation when data becomes available"
-    (let [state {:store {}, :id-counter 0}
-          ;; 1. Make stream
-          [id s'] (engine/gensym state "stream")
-          [stream-ref state]
-          (stream/handle-make s' {:capacity 10} (constantly id))
-          stream-id (:id stream-ref)
-          ;; 2. Make cursor
-          [id s'] (engine/gensym state "cursor")
-          [cursor-ref state]
-          (stream/handle-cursor s' {:stream stream-ref} (constantly id))
-          ;; 3. Park a continuation for :next
-          parked-entry {:reason :next,
-                        :cursor-ref cursor-ref,
-                        :stream-id stream-id,
-                        :continuation {:type :some-cont}}
-          state (assoc state
-                       :wait-set [parked-entry]
-                       :run-queue [])
-          ;; 4. check-wait-set should NOT wake it yet (stream is empty)
-          state-still-blocked (#'yin.vm.engine/check-wait-set state)
-          _ (is (= 1 (count (:wait-set state-still-blocked))))
-          _ (is (empty? (:run-queue state-still-blocked)))
-          ;; 5. Put data into stream
-          state-with-data (stream/handle-put state-still-blocked
-                                             {:stream stream-ref, :val 42})
-          ;; 6. check-wait-set should now wake it
-          state-runnable (#'yin.vm.engine/check-wait-set
-                          (:state state-with-data))]
-      (is (empty? (:wait-set state-runnable)))
-      (is (= 1 (count (:run-queue state-runnable))))
-      (is (= 42 (:value (first (:run-queue state-runnable))))))))
+;; NOTE: :next entries are now handled by transport-local readers (IDaoStreamWaitable).
+;; check-wait-set no longer processes :next entries. Readers are registered directly
+;; on the transport via register-reader-waiter! and woken via put! return values.
+;; See handle-effect :stream/next for the new path.
 
 
 (deftest check-wait-set-stream-put-test
@@ -151,48 +121,32 @@
           "Dropped :put waiter must not append into closed stream"))))
 
 
-(deftest check-wait-set-mixed-status-test
+(deftest check-wait-set-put-writer-parking-test
   (testing
-    "check-wait-set handles multiple entries, waking some and keeping others"
+    "check-wait-set wakes up a :put parked continuation when data becomes available"
     (let [state {:store {}, :id-counter 0}
-          ;; 1. Make two streams
+          ;; 1. Make stream with capacity 1
           [id s'] (engine/gensym state "stream")
-          [s1 state] (stream/handle-make s' {:capacity 1} (constantly id))
-          [id s'] (engine/gensym state "stream")
-          [s2 state] (stream/handle-make s' {:capacity 1} (constantly id))
-          ;; 2. Fill s1, s2 is empty
-          state (:state (stream/handle-put state {:stream s1, :val 1}))
-          ;; 3. Park entries:
-          ;;    e1: :next on s1 (runnable)
-          ;;    e2: :next on s2 (blocked)
-          ;;    e3: :put on s1 (blocked)
-          [id s'] (engine/gensym state "cursor")
-          [c1 state] (stream/handle-cursor s' {:stream s1} (constantly id))
-          [id s'] (engine/gensym state "cursor")
-          [c2 state] (stream/handle-cursor s' {:stream s2} (constantly id))
-          e1 {:reason :next,
-              :cursor-ref c1,
-              :stream-id (:id s1),
-              :continuation {:id :e1}}
-          e2 {:reason :next,
-              :cursor-ref c2,
-              :stream-id (:id s2),
-              :continuation {:id :e2}}
-          e3 {:reason :put,
-              :stream-id (:id s1),
-              :datom 2,
-              :continuation {:id :e3}}
+          [stream-ref state]
+          (stream/handle-make s' {:capacity 1} id)
+          stream-id (:id stream-ref)
+          ;; 2. Fill the stream
+          state (:state (stream/handle-put state {:stream stream-ref, :val 1}))
+          ;; 3. Park a continuation for :put (blocked because full)
+          parked-entry {:reason :put,
+                        :stream-id stream-id,
+                        :datom 2,
+                        :continuation {:id :e1}}
           state (assoc state
-                       :wait-set [e1 e2 e3]
+                       :wait-set [parked-entry]
                        :run-queue [])
-          ;; 4. Run scheduler
-          result (#'yin.vm.engine/check-wait-set state)]
-      (is (= 1 (count (:run-queue result))) "Only e1 should be runnable")
-      (is (= :e1 (:id (:continuation (first (:run-queue result))))))
-      (is (= 2 (count (:wait-set result)))
-          "e2 and e3 should remain in wait-set")
-      (is (= #{:e2 :e3}
-             (set (map (comp :id :continuation) (:wait-set result))))))))
+          ;; 4. Manually simulate space becoming available
+          state-with-capacity (update-in state [:store stream-id] assoc :capacity 2)
+          ;; 5. check-wait-set should now wake the :put waiter
+          result (#'yin.vm.engine/check-wait-set state-with-capacity)]
+      (is (= 1 (count (:run-queue result))) "Parked :put should be runnable")
+      (is (= :e1 (:id (:continuation (first (:run-queue result)))))
+          "Woken entry should be e1"))))
 
 
 (deftest check-ffi-out-dispatch-and-enqueue-test
