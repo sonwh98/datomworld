@@ -31,9 +31,9 @@
       (is (= :ok (:result (ds/put! s :a))))
       (is (= :ok (:result (ds/put! s :b))))
       (is (= 2 (ds/count-available s)))
-      (is (= {:ok :a} (ds/drain-one! s)))
+      (is (= :a (:ok (ds/drain-one! s))))
       (is (= 1 (ds/count-available s)))
-      (is (= {:ok :b} (ds/drain-one! s)))
+      (is (= :b (:ok (ds/drain-one! s))))
       (is (= 0 (ds/count-available s))))))
 
 
@@ -202,7 +202,7 @@
   (testing "nil is a valid value for put!/take!"
     (let [s (make-stream)]
       (is (= :ok (:result (ds/put! s nil))))
-      (is (= {:ok nil} (ds/drain-one! s)))))
+      (is (= nil (:ok (ds/drain-one! s))))))
   (testing "nil is a valid value for put!/next"
     (let [s (make-stream)]
       (ds/put! s nil)
@@ -224,8 +224,8 @@
       (ds/put! s :x)
       (ds/put! s :y)
       (ds/close! s)
-      (is (= {:ok :x} (ds/drain-one! s)))
-      (is (= {:ok :y} (ds/drain-one! s)))
+      (is (= :x (:ok (ds/drain-one! s))))
+      (is (= :y (:ok (ds/drain-one! s))))
       (is (= :end (ds/drain-one! s))))))
 
 
@@ -251,9 +251,9 @@
     (let [s (ds/open! {:transport {:type :ringbuffer, :capacity 1}})]
       (is (= :ok (:result (ds/put! s :a))))
       (is (= :full (:result (ds/put! s :b))))
-      (is (= {:ok :a} (ds/drain-one! s)))
+      (is (= :a (:ok (ds/drain-one! s))))
       (is (= :ok (:result (ds/put! s :b))))
-      (is (= {:ok :b} (ds/drain-one! s))))))
+      (is (= :b (:ok (ds/drain-one! s)))))))
 
 
 (deftest put-take-cycle-index-continuity-test
@@ -265,7 +265,7 @@
       (let [state @(:state-atom s)]
         (is (= 1 (:head state)) "head should be 1 after one take!")
         (is (= 2 (:tail state)) "tail should be 2 after two puts!"))
-      (is (= {:ok :b} (ds/drain-one! s))))))
+      (is (= :b (:ok (ds/drain-one! s)))))))
 
 
 (deftest next-beyond-tail-test
@@ -301,3 +301,73 @@
     (let [s (ds/open! {:transport {:type :ringbuffer :mode :create :capacity nil}})]
       (dotimes [i 1000] (ds/put! s i))
       (is (= 1000 (ds/count-available s))))))
+
+
+;; =============================================================================
+;; Writer Parking Tests (transport-local waking)
+;; =============================================================================
+
+(deftest writer-waiter-woken-by-drain-test
+  (testing "drain-one! wakes a registered writer-waiter and writes its datom"
+    (let [s (ds/open! {:transport {:type :ringbuffer, :capacity 1}})]
+      ;; Fill the stream
+      (is (= :ok (:result (ds/put! s :value1))))
+      ;; Try to put another but it's full
+      (is (= :full (:result (ds/put! s :value2))))
+      ;; Register a writer-waiter with a datom
+      (ds/register-writer-waiter! s {:reason :put, :datom :value2, :continuation {:type :test}})
+      ;; Drain frees space
+      (let [drain-result (ds/drain-one! s)]
+        ;; Consumed value should be value1
+        (is (= :value1 (:ok drain-result)))
+        ;; Writer should be woken with its datom
+        (is (= 1 (count (:woke drain-result))))
+        (let [woken-entry (first (:woke drain-result))]
+          (is (= :value2 (:value woken-entry)))
+          (is (= {:type :test} (:continuation (:entry woken-entry))))))
+      ;; Verify value2 is now in the stream
+      (is (= :value2 (:ok (ds/drain-one! s)))))))
+
+
+(deftest drain-one-no-writer-waiters-test
+  (testing "drain-one! returns empty :woke when no writers are registered"
+    (let [s (ds/open! {:transport {:type :ringbuffer, :capacity nil}})]
+      (ds/put! s :x)
+      (let [result (ds/drain-one! s)]
+        (is (= :x (:ok result)))
+        (is (= [] (:woke result)))))))
+
+
+(deftest close-wakes-writer-waiters-test
+  (testing "close! wakes both reader-waiters and writer-waiters with :value nil"
+    (let [s (ds/open! {:transport {:type :ringbuffer, :capacity nil}})]
+      ;; Register a reader-waiter
+      (ds/register-reader-waiter! s 0 {:reason :next, :cursor-ref {:type :cursor-ref, :id :c1}})
+      ;; Register a writer-waiter
+      (ds/register-writer-waiter! s {:reason :put, :datom :val, :continuation {:type :write}})
+      ;; Close the stream
+      (let [close-result (ds/close! s)]
+        ;; Should have 2 woken entries (1 reader, 1 writer)
+        (is (= 2 (count (:woke close-result))))
+        ;; All should have :value nil
+        (doseq [entry (:woke close-result)]
+          (is (= nil (:value entry))))))))
+
+
+(deftest close-does-not-append-writer-datom-test
+  (testing "close! resolves parked writers without letting drain-one! append them later"
+    (let [s (ds/open! {:transport {:type :ringbuffer, :capacity 1}})]
+      (is (= :ok (:result (ds/put! s :value1))))
+      (ds/register-writer-waiter! s {:reason :put, :datom :value2, :continuation {:type :write}})
+      (let [close-result (ds/close! s)
+            woken (first (:woke close-result))]
+        (is (= 1 (count (:woke close-result))))
+        (is (nil? (:value woken))))
+      (let [drain-result (ds/drain-one! s)]
+        (is (= :value1 (:ok drain-result)))
+        (is (= [] (:woke drain-result))
+            "drain-one! should not wake or append a writer after close!"))
+      (is (= :end (ds/next s {:position 1}))
+          "no writer datom should appear after the original closed-stream value")
+      (is (= :end (ds/drain-one! s))
+          "closed stream should be drained after its original value"))))

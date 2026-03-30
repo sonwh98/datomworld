@@ -47,17 +47,20 @@
   (and (not (:blocked vm)) (not (:halted vm))))
 
 
-(defn- make-run-queue-entries
-  "Transform woken reader-waiter entries (from put!) into run-queue entries.
-   Computes store-updates for cursor position advance."
+(defn- make-woken-run-queue-entries
+  "Transform transport-level woken entries (readers or writers) into run-queue entries.
+   Readers (with :cursor-ref) compute :store-updates for cursor advance.
+   Writers (no :cursor-ref) just stamp :value."
   [state woken]
   (mapv
     (fn [{:keys [entry value position]}]
-      (let [cursor-id (:id (:cursor-ref entry))
-            cursor-data (get (:store state) cursor-id)
-            store-updates (when position
-                            {cursor-id (assoc cursor-data :position (inc position))})]
-        (assoc entry :value value :store-updates store-updates)))
+      (if-let [cursor-ref (:cursor-ref entry)]
+        (let [cursor-id (:id cursor-ref)
+              cursor-data (get (:store state) cursor-id)
+              store-updates (when position
+                              {cursor-id (assoc cursor-data :position (inc position))})]
+          (assoc entry :value value :store-updates store-updates))
+        (assoc entry :value value)))
     woken))
 
 
@@ -104,7 +107,7 @@
                                     store)
                              (let [updated-store (:store (:state result))
                                    woken (:woke result)
-                                   woken-entries (make-run-queue-entries
+                                   woken-entries (make-woken-run-queue-entries
                                                    (assoc state :store updated-store)
                                                    woken)]
                                (recur rest-entries
@@ -198,9 +201,12 @@
 
 
 (defn- resume-entries-with-nil
-  "Set :value to nil on each entry, for waking parked continuations after stream close."
+  "Set :value to nil on each entry, for waking parked continuations after stream close.
+   Handles raw transport entries {:entry map, :value val}."
   [entries]
-  (mapv #(assoc % :value nil) entries))
+  (mapv (fn [{:keys [entry]}]
+          (assoc entry :value nil))
+        entries))
 
 
 (defn resume-from-run-queue
@@ -290,13 +296,20 @@
                        {:state new-state, :value cursor-ref, :blocked? false})
       :stream/put (let [result (stream/handle-put state effect)]
                     (if (:park result)
-                      (handle-stream-block result
-                                           (when park-entry
-                                             (park-entry state effect result)))
+                      (let [built-entry (when park-entry (park-entry state effect result))
+                            stream-id   (:stream-id result)
+                            stream      (get (:store state) stream-id)]
+                        (if (and built-entry (satisfies? ds/IDaoStreamWaitable stream))
+                          (do (ds/register-writer-waiter! stream built-entry)
+                              {:state (assoc (:state result) :blocked true :halted false
+                                             :value :yin/blocked)
+                               :value :yin/blocked
+                               :blocked? true})
+                          (handle-stream-block result built-entry)))
                       (let [woken (:woke result)
                             base {:state (:state result), :value (:value result), :blocked? false}]
                         (if (seq woken)
-                          (let [entries (make-run-queue-entries (:state result) woken)]
+                          (let [entries (make-woken-run-queue-entries (:state result) woken)]
                             (update base :state update :run-queue into entries))
                           base))))
       :stream/next (let [result (stream/handle-next state effect)]
@@ -315,9 +328,16 @@
                            (handle-stream-block result built-entry)))
                        {:state (:state result), :value (:value result), :blocked? false}))
       :stream/take (let [result (stream/handle-take state effect)]
-                     (handle-stream-block result
-                                          (when park-entry
-                                            (park-entry state effect result))))
+                     (if (:park result)
+                       (handle-stream-block result
+                                            (when park-entry
+                                              (park-entry state effect result)))
+                       (let [woken (:woke result)
+                             base {:state (:state result), :value (:value result), :blocked? false}]
+                         (if (seq woken)
+                           (let [entries (make-woken-run-queue-entries (:state result) woken)]
+                             (update base :state update :run-queue into entries))
+                           base))))
       :stream/close (let [close-result (stream/handle-close state effect)
                           new-state (:state close-result)
                           to-resume (:resume-parked close-result)

@@ -149,6 +149,86 @@
           "Woken entry should be e1"))))
 
 
+(deftest close-enqueues-flattened-transport-writer-entry-test
+  (testing
+    "stream close should enqueue the parked writer entry itself, not a nested {:entry ...} wrapper"
+    (let [state {:store {}, :id-counter 0, :run-queue []}
+          [id s'] (engine/gensym state "stream")
+          [stream-ref state] (stream/handle-make s' {:capacity 1} id)
+          stream-id (:id stream-ref)
+          state (:state (stream/handle-put state {:stream stream-ref, :val 1}))
+          put-effect {:effect :stream/put, :stream stream-ref, :val 2}
+          put-result (engine/handle-effect
+                       state
+                       put-effect
+                       {:park-entry-fns
+                        {:stream/put
+                         (fn [_s _e r]
+                           {:reason :put,
+                            :stream-id (:stream-id r),
+                            :datom 2,
+                            :continuation {:id :writer-1}})}})
+          blocked-state (:state put-result)
+          close-result (engine/handle-effect blocked-state
+                                             {:effect :stream/close, :stream stream-ref}
+                                             {})
+          run-entry (first (get-in close-result [:state :run-queue]))]
+      (is (:blocked? put-result))
+      (is (= 1 (count (get-in close-result [:state :run-queue]))))
+      (is (= {:id :writer-1} (:continuation run-entry))
+          "Queued writer should keep its original continuation fields at top level")
+      (is (false? (contains? run-entry :entry))
+          "Run-queue entry should be flattened before resumption")
+      (is (nil? (:value run-entry))))))
+
+
+(deftest take-enqueues-reader-cursor-advance-when-waking-reader-and-writer-test
+  (testing
+    "stream take should preserve cursor advance metadata when it wakes a parked reader and writer together"
+    (let [state {:store {}, :id-counter 0, :run-queue []}
+          [stream-id s'] (engine/gensym state "stream")
+          [stream-ref state] (stream/handle-make s' {:capacity 1} stream-id)
+          state (:state (stream/handle-put state {:stream stream-ref, :val :a}))
+          [cursor-id s''] (engine/gensym state "cursor")
+          [cursor-ref state] (stream/handle-cursor s'' {:stream stream-ref} cursor-id)
+          state (:state (stream/handle-next state {:cursor cursor-ref}))
+          next-result (engine/handle-effect
+                        state
+                        {:effect :stream/next, :cursor cursor-ref}
+                        {:park-entry-fns
+                         {:stream/next
+                          (fn [_s _e r]
+                            {:reason :next,
+                             :cursor-ref (:cursor-ref r),
+                             :stream-id (:stream-id r),
+                             :continuation {:id :reader}})}})
+          put-result (engine/handle-effect
+                       (:state next-result)
+                       {:effect :stream/put, :stream stream-ref, :val :b}
+                       {:park-entry-fns
+                        {:stream/put
+                         (fn [_s _e r]
+                           {:reason :put,
+                            :stream-id (:stream-id r),
+                            :datom :b,
+                            :continuation {:id :writer}})}})
+          take-result (engine/handle-effect (:state put-result)
+                                            {:effect :stream/take, :stream stream-ref}
+                                            {})
+          run-queue (get-in take-result [:state :run-queue])
+          reader-entry (some #(when (= {:id :reader} (:continuation %)) %) run-queue)
+          writer-entry (some #(when (= {:id :writer} (:continuation %)) %) run-queue)]
+      (is (:blocked? next-result))
+      (is (:blocked? put-result))
+      (is (= :a (:value take-result)))
+      (is (= 2 (count run-queue)))
+      (is (= :b (:value writer-entry)))
+      (is (= :b (:value reader-entry)))
+      (is (= {cursor-id {:stream-id stream-id, :position 2}}
+             (:store-updates reader-entry))
+          "Reader wake from take! must advance the parked cursor past the appended datom"))))
+
+
 (deftest check-ffi-out-dispatch-and-enqueue-test
   (testing "check-ffi-out dispatches one request and enqueues resumed continuation"
     (let [ffi-out (ds/open! {:transport {:type :ringbuffer, :capacity nil}})

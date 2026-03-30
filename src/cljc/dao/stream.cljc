@@ -65,13 +65,18 @@
 
 
 (defprotocol IDaoStreamWaitable
-  "Optional protocol: transport-local reader-waiter registration.
-   Enables readers to register at the transport instead of the VM scheduler."
+  "Optional protocol: transport-local waiter registration.
+   Enables readers and writers to register at the transport instead of the VM scheduler."
 
   (register-reader-waiter!
     [this position entry]
-    "Register a waiter (wait-set entry) for a specific cursor position.
-     Called when ds/next returns :blocked to avoid polling."))
+    "Register a reader waiter for a specific cursor position.
+     Called when ds/next returns :blocked to avoid polling.")
+
+  (register-writer-waiter!
+    [this entry]
+    "Register a writer waiter. Called when ds/put! returns :full to avoid polling.
+     The entry contains the datom to write; drain-one! will write it and wake the waiter."))
 
 
 (defmulti open!
@@ -83,17 +88,20 @@
 ;; RingBufferStream — reference implementation
 ;; =============================================================================
 ;;
-;; state-atom holds: {:buffer {} :head 0 :tail 0 :closed false :reader-waiters {}}
-;;   :buffer         — map of absolute-index -> value
-;;   :head           — absolute index of next take! position (oldest available)
-;;   :tail           — absolute index of next put! position
-;;   :closed         — boolean
-;;   :reader-waiters — map of position -> wait-set-entry; woken when put! appends
+;; state-atom holds: {:buffer {} :head 0 :tail 0 :closed false :reader-waiters {} :writer-waiters []}
+;;   :buffer          — map of absolute-index -> value
+;;   :head            — absolute index of next take! position (oldest available)
+;;   :tail            — absolute index of next put! position
+;;   :closed          — boolean
+;;   :reader-waiters  — map of position -> wait-set-entry; woken when put! appends at that position
+;;   :writer-waiters  — vector of wait-set-entries; first one woken when drain-one! frees space
 ;;
 ;; Memory is reclaimed during drain-one! via dissoc.
 ;; Cursors reading at pos < head receive :daostream/gap.
 ;; When put! appends at position p and (get reader-waiters p) exists:
-;;   the entry is removed from reader-waiters and returned in {:woke [...]}
+;;   the entry is removed from reader-waiters and returned in {:woke [...]}.
+;; When drain-one! frees space and (seq writer-waiters) is true:
+;;   the first writer is popped, its datom written to buffer[tail], and returned in {:woke [...]}
 
 (defrecord RingBufferStream
   [capacity state-atom]
@@ -152,12 +160,15 @@
 
   (close!
     [_this]
-    (swap! state-atom
-           (fn [s]
-             (assoc s :closed true)))
-    (let [reader-waiters (:reader-waiters @state-atom)]
-      {:woke (mapv (fn [[_pos entry]] {:entry entry, :value nil})
-                   reader-waiters)}))
+    (let [state @state-atom]
+      (swap! state-atom
+             (fn [s]
+               (assoc s :closed true :reader-waiters {} :writer-waiters [])))
+      (let [reader-woken (mapv (fn [[_pos entry]] {:entry entry, :value nil})
+                               (:reader-waiters state))
+            writer-woken (mapv (fn [entry] {:entry entry, :value nil})
+                               (:writer-waiters state))]
+        {:woke (into reader-woken writer-woken)})))
 
 
   (closed? [_this] (:closed @state-atom))
@@ -167,12 +178,17 @@
 
   (register-reader-waiter!
     [_this position entry]
-    (swap! state-atom assoc-in [:reader-waiters position] entry)))
+    (swap! state-atom assoc-in [:reader-waiters position] entry))
+
+
+  (register-writer-waiter!
+    [_this entry]
+    (swap! state-atom update :writer-waiters conj entry)))
 
 
 (defmethod open! :ringbuffer [descriptor]
   (let [capacity (get-in descriptor [:transport :capacity])]
-    (->RingBufferStream capacity (atom {:buffer {} :head 0 :tail 0 :closed false :reader-waiters {}}))))
+    (->RingBufferStream capacity (atom {:buffer {} :head 0 :tail 0 :closed false :reader-waiters {} :writer-waiters []}))))
 
 
 ;; =============================================================================
@@ -181,12 +197,15 @@
 
 (defn drain-one!
   "Destructively consume one value from stream.
-   Returns {:ok val} if a value exists, :empty if stream is open and no values
-   available, or :end if stream is closed and drained.
+   Returns {:ok val, :woke [...]} if a value exists (including any woken writers),
+   :empty if stream is open and no values available, or :end if stream is closed and drained.
 
    NOT part of the canonical model. Use (next stream cursor) with cursor-based
    reading for reliable, non-destructive traversal. drain-one! is provided for
-   legacy compatibility and specific use cases requiring destructive consumption."
+   legacy compatibility and specific use cases requiring destructive consumption.
+
+   When a writer-waiter is woken, its datom is atomically written to the stream
+   and included in the :woke return value."
   [stream]
   (cond
     (instance? RingBufferStream stream)
@@ -196,11 +215,30 @@
                           (let [head (:head s)
                                 tail (:tail s)]
                             (if (< head tail)
-                              (let [val (get-in s [:buffer head])]
-                                (-> s
-                                    (update :buffer dissoc head)
-                                    (update :head inc)
-                                    (assoc ::take-result {:ok val})))
+                              (let [val (get-in s [:buffer head])
+                                    s' (-> s
+                                           (update :buffer dissoc head)
+                                           (update :head inc))
+                                    writer-waiters (:writer-waiters s')]
+                                (if (seq writer-waiters)
+                                  ;; Pop first writer, write their datom, wake them.
+                                  ;; ALSO: check if any reader was waiting for this new tail position.
+                                  (let [writer-entry (first writer-waiters)
+                                        datom (:datom writer-entry)
+                                        tail (:tail s')
+                                        reader-entry (get (:reader-waiters s') tail)
+                                        s'' (-> s'
+                                                (assoc-in [:buffer tail] datom)
+                                                (update :tail inc)
+                                                (update :writer-waiters (comp vec rest))
+                                                (cond-> reader-entry (update :reader-waiters dissoc tail))
+                                                (assoc ::take-result
+                                                       {:ok val,
+                                                        :woke (cond-> [{:entry writer-entry, :value datom}]
+                                                                reader-entry (conj {:entry reader-entry, :value datom, :position tail}))}))]
+                                    s'')
+                                  ;; No writer waiting
+                                  (assoc s' ::take-result {:ok val, :woke []})))
                               (if (:closed s)
                                 (assoc s ::take-result :end)
                                 (assoc s ::take-result :empty))))))]

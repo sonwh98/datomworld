@@ -101,7 +101,9 @@
     (let [result (ds/put! stream val)]
       (if (= :full (:result result))
         {:park true, :stream-id stream-id, :state state}
-        {:value val, :state state, :woke (:woke result)}))))
+        {:value val,
+         :state state,
+         :woke (:woke result)}))))
 
 
 (defn handle-cursor
@@ -153,7 +155,7 @@
 (defn handle-take
   "Handle :stream/take effect. Destructively consumes next value.
    Returns result map:
-   {:value val, :state s}                value available, head advanced
+   {:value val, :state s, :woke [...]}  value available, head advanced, woken writers
    {:park true, :stream-id id, :state s} empty (open stream, no data)
    {:value nil, :state s}                end of closed stream
 
@@ -166,7 +168,9 @@
     (when (nil? stream)
       (throw (ex-info "Invalid stream reference" {:ref stream-ref})))
     (let [result (ds/drain-one! stream)]
-      (cond (map? result) {:value (:ok result), :state state}
+      (cond (map? result) {:value (:ok result),
+                           :state state,
+                           :woke (:woke result)}
             (= :empty result) {:park true, :stream-id stream-id, :state state}
             (= :end result) {:value nil, :state state}))))
 
