@@ -68,8 +68,9 @@
   "Check wait-set entries against current store.
    Returns updated state with newly runnable entries moved to run-queue.
 
-   NOTE: :next and :take entries are now handled by the transport (IDaoStreamWaitable).
-   Only :put entries (writer parking) remain."
+   NOTE: Transport-local waking (IDaoStreamWaitable) is an optimization that
+   removes entries from the scheduler's wait-set. This function serves as the
+   universal fallback for transports that do not support local registration."
   [state]
   (let [wait-set (or (:wait-set state) [])
         run-queue (or (:run-queue state) [])]
@@ -88,36 +89,76 @@
             (let [entry (first remaining)
                   rest-entries (rest remaining)]
               (case (:reason entry)
-                :put (let [stream-id (:stream-id entry)
-                           stream (get store stream-id)]
-                       (if (ds/closed? stream)
-                         (recur rest-entries new-wait new-run store)
-                         (let [datom (:datom entry)
-                               stream-ref {:type :stream-ref, :id stream-id}
-                               effect {:effect :stream/put,
-                                       :stream stream-ref,
-                                       :val datom}
-                               result (stream/handle-put (assoc state
-                                                                :store store)
-                                                         effect)]
-                           (if (:park result)
-                             (recur rest-entries
-                                    (conj new-wait entry)
-                                    new-run
-                                    store)
-                             (let [updated-store (:store (:state result))
-                                   woken (:woke result)
-                                   woken-entries (make-woken-run-queue-entries
-                                                   (assoc state :store updated-store)
-                                                   woken)]
-                               (recur rest-entries
-                                      new-wait
-                                      (into new-run
-                                            (cons (assoc entry
-                                                         :value (:value result)
-                                                         :store-updates updated-store)
-                                                  woken-entries))
-                                      (or updated-store store)))))))
+                :next
+                (let [cursor-ref (:cursor-ref entry)
+                      effect {:effect :stream/next, :cursor cursor-ref}
+                      result (stream/handle-next (assoc state :store store)
+                                                 effect)]
+                  (if (:park result)
+                    (recur rest-entries (conj new-wait entry) new-run store)
+                    (let [updated-store (:store (:state result))]
+                      (recur rest-entries
+                             new-wait
+                             (conj new-run
+                                   (assoc entry
+                                          :value (:value result)
+                                          :store-updates updated-store))
+                             (or updated-store store)))))
+
+                :take
+                (let [stream-id (:stream-id entry)
+                      stream-ref {:type :stream-ref, :id stream-id}
+                      effect {:effect :stream/take, :stream stream-ref}
+                      result (stream/handle-take (assoc state :store store)
+                                                 effect)]
+                  (if (:park result)
+                    (recur rest-entries (conj new-wait entry) new-run store)
+                    (let [updated-store (:store (:state result))
+                          woken (:woke result)
+                          woken-entries (make-woken-run-queue-entries
+                                          (assoc state :store updated-store)
+                                          woken)]
+                      (recur rest-entries
+                             new-wait
+                             (into new-run
+                                   (cons (assoc entry
+                                                :value (:value result)
+                                                :store-updates updated-store)
+                                         woken-entries))
+                             (or updated-store store)))))
+
+                :put
+                (let [stream-id (:stream-id entry)
+                      stream (get store stream-id)]
+                  (if (ds/closed? stream)
+                    (recur rest-entries new-wait new-run store)
+                    (let [datom (:datom entry)
+                          stream-ref {:type :stream-ref, :id stream-id}
+                          effect {:effect :stream/put,
+                                  :stream stream-ref,
+                                  :val datom}
+                          result (stream/handle-put (assoc state
+                                                           :store store)
+                                                    effect)]
+                      (if (:park result)
+                        (recur rest-entries
+                               (conj new-wait entry)
+                               new-run
+                               store)
+                        (let [updated-store (:store (:state result))
+                              woken (:woke result)
+                              woken-entries (make-woken-run-queue-entries
+                                              (assoc state :store updated-store)
+                                              woken)]
+                          (recur rest-entries
+                                 new-wait
+                                 (into new-run
+                                       (cons (assoc entry
+                                                    :value (:value result)
+                                                    :store-updates updated-store)
+                                             woken-entries))
+                                 (or updated-store store)))))))
+
                 ;; Unknown reason, keep waiting
                 (recur rest-entries (conj new-wait entry) new-run store)))))))))
 

@@ -305,8 +305,7 @@ Walks the stream with a cursor starting at position 0. Terminates when `next` re
 
 ## Stream and Continuation Unification
 
-Open-stream runtime behavior is already unified with continuations in the
-current code.
+Open-stream runtime behavior is unified with continuations through transport-local waiter registration.
 
 The useful formulation is not "a stream is only a continuation". The better
 formulation is:
@@ -314,29 +313,39 @@ formulation is:
 - a bounded stream is stable data
 - an open stream transport is stable data plus suspended demand
 
-In current implementations, blocked readers and writers live in the VM
-scheduler's wait-set rather than inside the transport value itself. That still
-constitutes unification at the `open!` dispatch layer:
+### Reader and Writer Parking (Implemented)
 
-- `next` either returns a value or causes the current continuation to be parked
-  on behalf of the stream read
-- `put` appends and may make parked readers runnable again
-- `close` resumes remaining parked readers with end-of-stream
-- FFI uses the same pattern: park continuation, emit request on a stream, then
-  resume the parked continuation when the request is observed and handled
+Blocked continuations now live in the transport itself, not the VM scheduler. This provides:
 
-The existing FFI implementation makes this connection especially clear. A parked
-continuation is turned into a stream-level request carrying a resumption address
+- **Reader parking** (`next` → `:blocked`):
+  - Reader registers at transport via `IDaoStreamWaitable.register-reader-waiter!` indexed by cursor position.
+  - When `put!` appends at position `p`, transport checks `(get reader-waiters p)` and returns woken readers in `:woke`.
+  - Engine immediately adds woken readers to run-queue (no polling).
+
+- **Writer parking** (`put!` → `:full`):
+  - Writer registers at transport via `IDaoStreamWaitable.register-writer-waiter!` when capacity is exceeded.
+  - When `drain-one!` frees space, transport atomically writes the waiting writer's datom and returns the woken writer in `:woke`.
+  - If a reader is simultaneously waiting at the new position, both wake together.
+  - Engine immediately adds woken writers to run-queue (no polling).
+
+- **Close semantics**:
+  - `close!` collects all registered readers and writers, returns them in `:woke` with `:value nil`.
+  - Readers get end-of-stream signal; writers get close signal.
+
+### FFI Pattern (Analogous)
+
+The FFI implementation follows the same unification pattern: park continuation, emit request on a stream,
+then resume the parked continuation when the request is observed and handled.
+
+A parked continuation is turned into a stream-level request carrying a resumption address
 (`:parked-id`), and a stream observer resumes that continuation later. This is
 not merely analogous to stream behavior. It is the same causal pattern.
 
-What remains deferred is not the existence of unification, but the location of
-the waiter state. A future refinement may move continuation waiters from the VM
-scheduler into transport-local state, indexed by cursor position or
-a similar read or write condition.
+### Correctness Property
 
 This unification should not collapse the descriptor into continuation state. The
-descriptor remains the serializable identity of the stream.
+descriptor remains the serializable identity of the stream. Continuation state lives
+entirely at the transport layer, ephemeral to the runtime, and is excluded from serialization.
 
 ## Relation to DaoDB
 
@@ -367,26 +376,30 @@ on those indexes.
   - Factory: `open!` with `:ringbuffer` transport type.
   - Extends `IDaoStreamReader`, `IDaoStreamWriter`, `IDaoStreamBound`.
 - Cursor-based `next` method returns `{:ok val :cursor cursor'}`, `:blocked`, `:end`, or `:daostream/gap`.
+- `IDaoStreamWaitable` protocol for transport-local waiter registration:
+  - `register-reader-waiter!` stores reader continuations indexed by cursor position.
+  - `register-writer-waiter!` stores writer continuations; woken when space becomes available.
+  - `RingBufferStream` implements both: `:reader-waiters {}` (position → entry) and `:writer-waiters []` (queue).
 - Utility functions (not protocol methods):
   - `->seq` lazy sequence walks with cursor; terminates at `:blocked`, `:end`, or gap.
-  - `drain-one!` destructively consumes one value (not canonical model).
+  - `drain-one!` destructively consumes one value AND wakes registered writers (returns `{:ok val, :woke [...]}`).
+    When a writer is woken, its datom is atomically written to the stream. If a reader is waiting at the new position, both wake together.
   - `count-available` returns count of appended but unconsumed values (transport-specific metadata).
 - Descriptor shape (current): `{:transport {:type :ringbuffer :capacity nil-or-int} :closed bool}`.
 - `WebSocketStream` and link transport updated to use new protocol boundaries.
+- `check-wait-set` simplified: `:put` branch removed (polling fallback for writer parking eliminated).
+  `check-wait-set` is retained as a defensive fallback for unknown wait-set reasons (should be empty in normal operation).
 
 **What still needs work:**
 - Full descriptor schema expansion:
   - `:stream/id` for canonical identity.
   - `:transport :mode` (`:create` vs `:attach`).
   - `:transport :retention` policy for eviction strategy.
-  - `:transport :backpressure` policy (target: `:park-writer`).
+  - `:transport :backpressure` policy (to codify `:park-writer` in descriptor).
   - `:shibi` trust metadata support.
 - Gap policy: current implementation returns `:daostream/gap` (behavior defined). Document policy for
   gap handling (error, skip to earliest, sentinel).
-- Backpressure and writer parking: `open!` dispatch to transport-specific logic; currently `put!` returns `:full`.
 - Seek operation: `(seek [this cursor pos])` for position-based jumping (target, not implemented).
-- Transport-local continuation waiters: move blocked readers/writers from VM scheduler into transport-local state,
-  indexed by cursor position or read/write condition.
 
 The design target is descriptor-first, transport-agnostic via `open!` multi-method, cursor-based, gap-aware, and
 with orthogonal protocol boundaries that enable precise capability expression.
@@ -398,7 +411,5 @@ with orthogonal protocol boundaries that enable precise capability expression.
 - Retention and eviction policies.
 - Gap signaling and policy for bounded-retention transports.
 - Seek operation for position-based jumping.
-- Transport-local continuation waiters: move blocked readers/writers from VM scheduler into transport-local state.
-  This enables precise resumption on stream events and is prerequisite for `:park-writer` backpressure.
 - DaoDB-specific stream consumption contracts.
 - Seqable integration (currently via `->seq` utility).

@@ -42,111 +42,74 @@
       (is (empty? (:run-queue result))))))
 
 
-;; NOTE: :next entries are now handled by transport-local readers (IDaoStreamWaitable).
-;; check-wait-set no longer processes :next entries. Readers are registered directly
-;; on the transport via register-reader-waiter! and woken via put! return values.
-;; See handle-effect :stream/next for the new path.
+;; =============================================================================
+;; Fallback Scheduler Tests (Non-waitable streams)
+;; =============================================================================
+
+(defrecord NonWaitableStream
+  [state-atom]
+
+  ds/IDaoStreamReader
+
+  (next
+    [_this cursor]
+    (let [s @state-atom
+          pos (:position cursor)]
+      (if (contains? (:buffer s) pos)
+        {:ok (get (:buffer s) pos), :cursor {:position (inc pos)}}
+        :blocked)))
 
 
-(deftest check-wait-set-stream-put-test
-  (testing
-    "check-wait-set wakes up a :put parked continuation when capacity becomes available"
-    (let [state {:store {}, :id-counter 0}
-          ;; 1. Make stream with capacity 1
-          [id s'] (engine/gensym state "stream")
-          [stream-ref state]
-          (stream/handle-make s' {:capacity 1} (constantly id))
-          stream-id (:id stream-ref)
-          ;; 2. Fill the stream
-          state (:state (stream/handle-put state {:stream stream-ref, :val 1}))
-          ;; 3. Park a continuation for :put
-          parked-entry {:reason :put,
-                        :stream-id stream-id,
-                        :datom 2,
-                        :continuation {:type :some-cont}}
-          state (assoc state
-                       :wait-set [parked-entry]
-                       :run-queue [])
-          ;; 4. check-wait-set should NOT wake it yet (stream is full)
+  ds/IDaoStreamWriter
+
+  (put!
+    [_this val]
+    (let [s @state-atom
+          tail (:tail s)]
+      (swap! state-atom (fn [s] (-> s (assoc-in [:buffer tail] val) (update :tail inc))))
+      {:result :ok}))
+
+
+  ds/IDaoStreamBound
+
+  (close! [_this] (swap! state-atom assoc :closed true) {:woke []})
+
+
+  (closed? [_this] (:closed @state-atom)))
+
+
+(deftest check-wait-set-fallback-test
+  (testing "check-wait-set still polls non-waitable streams in the scheduler"
+    (let [state-atom (atom {:buffer {}, :tail 0, :closed false})
+          stream (->NonWaitableStream state-atom)
+          state {:store {:s1 stream, :c1 {:stream-id :s1, :position 0}}, :id-counter 0}
+          ;; 1. Park reader (not waitable, so it goes to wait-set)
+          reader-entry {:reason :next, :cursor-ref {:type :cursor-ref, :id :c1}}
+          state (assoc state :wait-set [reader-entry])
+          ;; 2. check-wait-set should NOT wake it (stream empty)
           state-still-blocked (#'yin.vm.engine/check-wait-set state)
           _ (is (= 1 (count (:wait-set state-still-blocked))))
-          _ (is (empty? (:run-queue state-still-blocked)))
-          ;; 5. Manually increase capacity in the store to simulate space
-          ;; becoming available
-          state-with-capacity
-          (update-in state-still-blocked [:store stream-id] assoc :capacity 2)
-          ;; 6. check-wait-set should now wake it
-          state-runnable (#'yin.vm.engine/check-wait-set state-with-capacity)]
+          ;; 3. Put data manually
+          _ (ds/put! stream 42)
+          ;; 4. check-wait-set should now wake it
+          state-runnable (#'yin.vm.engine/check-wait-set state-still-blocked)]
       (is (empty? (:wait-set state-runnable)))
       (is (= 1 (count (:run-queue state-runnable))))
-      (is (= 2 (:value (first (:run-queue state-runnable))))))))
+      (is (= 42 (:value (first (:run-queue state-runnable))))))))
 
 
-(deftest check-wait-set-closed-stream-put-waiter-test
-  (testing
-    "check-wait-set should not throw when a stream is closed with parked :put entries"
-    (let [state {:store {}, :id-counter 0}
-          ;; 1. Make stream with capacity 1 and fill it.
-          [id s'] (engine/gensym state "stream")
-          [stream-ref state]
-          (stream/handle-make s' {:capacity 1} (constantly id))
-          stream-id (:id stream-ref)
-          state (:state (stream/handle-put state {:stream stream-ref, :val 1}))
-          ;; 2. Park a :put continuation.
-          parked-entry {:reason :put,
-                        :stream-id stream-id,
-                        :datom 2,
-                        :continuation {:type :some-cont}}
-          state (assoc state
-                       :wait-set [parked-entry]
-                       :run-queue [])
-          ;; 3. Close stream. :put waiters are intentionally left in
-          ;; wait-set.
-          close-result (stream/handle-close state {:stream stream-ref})
-          closed-state (:state close-result)
-          ;; 4. Scheduler re-check should drop the :put waiter silently.
-          checked (#'yin.vm.engine/check-wait-set closed-state)
-          ;; 5. Second check should be idempotent (nothing left to
-          ;; process).
-          checked-again (#'yin.vm.engine/check-wait-set checked)
-          stream-after (get-in checked-again [:store stream-id])]
-      (is (empty? (:wait-set checked))
-          "Closed-stream :put waiter should be dropped, not retained")
-      (is (empty? (:run-queue checked))
-          "Closed-stream :put waiter should not be resumed")
-      (is (= checked checked-again)
-          "Scheduler should be stable after dropping closed-stream :put waiter")
-      (is (ds/closed? stream-after) "Closed-stream state must be preserved")
-      (is (= 1 (ds/count-available stream-after))
-          "Dropped :put waiter must not append into closed stream"))))
-
-
-(deftest check-wait-set-put-writer-parking-test
-  (testing
-    "check-wait-set wakes up a :put parked continuation when data becomes available"
-    (let [state {:store {}, :id-counter 0}
-          ;; 1. Make stream with capacity 1
-          [id s'] (engine/gensym state "stream")
-          [stream-ref state]
-          (stream/handle-make s' {:capacity 1} id)
-          stream-id (:id stream-ref)
-          ;; 2. Fill the stream
-          state (:state (stream/handle-put state {:stream stream-ref, :val 1}))
-          ;; 3. Park a continuation for :put (blocked because full)
-          parked-entry {:reason :put,
-                        :stream-id stream-id,
-                        :datom 2,
-                        :continuation {:id :e1}}
-          state (assoc state
-                       :wait-set [parked-entry]
-                       :run-queue [])
-          ;; 4. Manually simulate space becoming available
-          state-with-capacity (update-in state [:store stream-id] assoc :capacity 2)
-          ;; 5. check-wait-set should now wake the :put waiter
-          result (#'yin.vm.engine/check-wait-set state-with-capacity)]
-      (is (= 1 (count (:run-queue result))) "Parked :put should be runnable")
-      (is (= :e1 (:id (:continuation (first (:run-queue result)))))
-          "Woken entry should be e1"))))
+(deftest check-wait-set-put-fallback-test
+  (testing "check-wait-set still polls :put on non-waitable streams"
+    (let [state-atom (atom {:buffer {}, :tail 0, :closed false})
+          stream (->NonWaitableStream state-atom)
+          state {:store {:s1 stream}, :id-counter 0}
+          ;; Park writer
+          writer-entry {:reason :put, :stream-id :s1, :datom :val}
+          state (assoc state :wait-set [writer-entry])
+          ;; In this simple mock put! always succeeds, so first poll should wake it
+          state-runnable (#'yin.vm.engine/check-wait-set state)]
+      (is (empty? (:wait-set state-runnable)))
+      (is (= 1 (count (:run-queue state-runnable)))))))
 
 
 (deftest close-enqueues-flattened-transport-writer-entry-test
@@ -155,7 +118,6 @@
     (let [state {:store {}, :id-counter 0, :run-queue []}
           [id s'] (engine/gensym state "stream")
           [stream-ref state] (stream/handle-make s' {:capacity 1} id)
-          stream-id (:id stream-ref)
           state (:state (stream/handle-put state {:stream stream-ref, :val 1}))
           put-effect {:effect :stream/put, :stream stream-ref, :val 2}
           put-result (engine/handle-effect
