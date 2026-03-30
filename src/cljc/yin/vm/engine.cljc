@@ -91,18 +91,20 @@
               (case (:reason entry)
                 :next
                 (let [cursor-ref (:cursor-ref entry)
+                      cursor-id (:id cursor-ref)
                       effect {:effect :stream/next, :cursor cursor-ref}
                       result (stream/handle-next (assoc state :store store)
                                                  effect)]
                   (if (:park result)
                     (recur rest-entries (conj new-wait entry) new-run store)
-                    (let [updated-store (:store (:state result))]
+                    (let [updated-store (:store (:state result))
+                          cursor-update {cursor-id (get updated-store cursor-id)}]
                       (recur rest-entries
                              new-wait
                              (conj new-run
                                    (assoc entry
                                           :value (:value result)
-                                          :store-updates updated-store))
+                                          :store-updates cursor-update))
                              (or updated-store store)))))
 
                 :take
@@ -114,6 +116,7 @@
                   (if (:park result)
                     (recur rest-entries (conj new-wait entry) new-run store)
                     (let [updated-store (:store (:state result))
+                          stream-update {stream-id (get updated-store stream-id)}
                           woken (:woke result)
                           woken-entries (make-woken-run-queue-entries
                                           (assoc state :store updated-store)
@@ -123,7 +126,7 @@
                              (into new-run
                                    (cons (assoc entry
                                                 :value (:value result)
-                                                :store-updates updated-store)
+                                                :store-updates stream-update)
                                          woken-entries))
                              (or updated-store store)))))
 
@@ -131,7 +134,10 @@
                 (let [stream-id (:stream-id entry)
                       stream (get store stream-id)]
                   (if (ds/closed? stream)
-                    (recur rest-entries new-wait new-run store)
+                    (recur rest-entries
+                           new-wait
+                           (conj new-run (assoc entry :value nil))
+                           store)
                     (let [datom (:datom entry)
                           stream-ref {:type :stream-ref, :id stream-id}
                           effect {:effect :stream/put,
@@ -146,6 +152,7 @@
                                new-run
                                store)
                         (let [updated-store (:store (:state result))
+                              stream-update {stream-id (get updated-store stream-id)}
                               woken (:woke result)
                               woken-entries (make-woken-run-queue-entries
                                               (assoc state :store updated-store)
@@ -155,7 +162,7 @@
                                  (into new-run
                                        (cons (assoc entry
                                                     :value (:value result)
-                                                    :store-updates updated-store)
+                                                    :store-updates stream-update)
                                              woken-entries))
                                  (or updated-store store)))))))
 
@@ -259,7 +266,7 @@
             rest-queue (subvec run-queue 1)
             base (assoc state
                         :run-queue rest-queue
-                        :store (or (:store-updates entry) (:store state))
+                        :store (merge (:store state) (:store-updates entry))
                         :blocked false
                         :halted false)]
         (restore-fn base entry)))))

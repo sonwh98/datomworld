@@ -315,7 +315,9 @@ formulation is:
 
 ### Reader and Writer Parking (Implemented)
 
-Blocked continuations now live in the transport itself, not the VM scheduler. This provides:
+Blocked continuations can now live in the transport itself as an optimization, bypassing the VM scheduler's polling. Transports that do not implement `IDaoStreamWaitable` still rely on the scheduler's `check-wait-set` fallback.
+
+For waitable transports:
 
 - **Reader parking** (`next` → `:blocked`):
   - Reader registers at transport via `IDaoStreamWaitable.register-reader-waiter!` indexed by cursor position.
@@ -344,8 +346,9 @@ not merely analogous to stream behavior. It is the same causal pattern.
 ### Correctness Property
 
 This unification should not collapse the descriptor into continuation state. The
-descriptor remains the serializable identity of the stream. Continuation state lives
-entirely at the transport layer, ephemeral to the runtime, and is excluded from serialization.
+descriptor remains the serializable identity of the stream. Waiter state may
+live either in a waitable transport or in the VM scheduler fallback, but in
+both cases it is ephemeral runtime state and excluded from serialization.
 
 ## Relation to DaoDB
 
@@ -385,10 +388,11 @@ on those indexes.
   - `drain-one!` destructively consumes one value AND wakes registered writers (returns `{:ok val, :woke [...]}`).
     When a writer is woken, its datom is atomically written to the stream. If a reader is waiting at the new position, both wake together.
   - `count-available` returns count of appended but unconsumed values (transport-specific metadata).
-- Descriptor shape (current): `{:transport {:type :ringbuffer :capacity nil-or-int} :closed bool}`.
+- Descriptor shape (current): `{:transport {:type :ringbuffer :mode :create :capacity nil-or-int}}`.
 - `WebSocketStream` and link transport updated to use new protocol boundaries.
-- `check-wait-set` simplified: `:put` branch removed (polling fallback for writer parking eliminated).
-  `check-wait-set` is retained as a defensive fallback for unknown wait-set reasons (should be empty in normal operation).
+- `check-wait-set` remains the universal polling fallback for non-waitable streams,
+  handling `:next`, `:put`, and `:take`. Waitable transports bypass it for normal
+  reader and writer parking.
 
 **What still needs work:**
 - Full descriptor schema expansion:

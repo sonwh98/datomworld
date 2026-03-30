@@ -109,7 +109,80 @@
           ;; In this simple mock put! always succeeds, so first poll should wake it
           state-runnable (#'yin.vm.engine/check-wait-set state)]
       (is (empty? (:wait-set state-runnable)))
-      (is (= 1 (count (:run-queue state-runnable)))))))
+      (is (= 1 (count (:run-queue state-runnable))))
+      (is (= :val (get-in @state-atom [:buffer 0])) "Datom should be written"))))
+
+
+(deftest check-wait-set-resumes-closed-put-fallback-test
+  (testing "check-wait-set resumes closed non-waitable :put waiters with nil"
+    (let [state-atom (atom {:buffer {}, :tail 0, :closed false})
+          stream (->NonWaitableStream state-atom)
+          state {:store {:s1 stream}, :id-counter 0}
+          writer-entry {:reason :put, :stream-id :s1, :datom :val}
+          state (assoc state :wait-set [writer-entry])
+          _ (ds/close! stream)
+          checked (#'yin.vm.engine/check-wait-set state)]
+      (is (empty? (:wait-set checked)))
+      (is (= 1 (count (:run-queue checked))))
+      (is (nil? (:value (first (:run-queue checked)))))
+      (is (true? (ds/closed? stream)))
+      (is (empty? (:buffer @state-atom)))
+      (is (= 0 (:tail @state-atom))))))
+
+
+(defrecord NonWaitableRingBufferStream
+  [state-atom]
+
+  ds/IDaoStreamReader
+
+  (next
+    [_this cursor]
+    (let [s @state-atom
+          head (:head s)
+          pos (:position cursor)]
+      (cond (>= pos (:tail s)) :blocked
+            (< pos head) :daostream/gap
+            :else {:ok (get-in s [:buffer pos]), :cursor {:position (inc pos)}})))
+
+
+  ds/IDaoStreamWriter
+
+  (put!
+    [_this val]
+    (let [s @state-atom
+          capacity 1] ; fixed capacity for test
+      (if (>= (- (:tail s) (:head s)) capacity)
+        {:result :full}
+        (do (swap! state-atom (fn [s] (-> s (assoc-in [:buffer (:tail s)] val) (update :tail inc))))
+            {:result :ok}))))
+
+
+  ds/IDaoStreamBound
+
+  (close! [_this] (swap! state-atom assoc :closed true) {:woke []})
+
+
+  (closed? [_this] (:closed @state-atom)))
+
+
+(deftest check-wait-set-put-fallback-after-capacity-freed-test
+  (testing "check-wait-set still polls :put on non-waitable streams after capacity is freed"
+    (let [state-atom (atom {:buffer {0 :a}, :tail 1, :head 0, :closed false})
+          stream (->NonWaitableRingBufferStream state-atom)
+          state {:store {:s1 stream}, :id-counter 0}
+          ;; 1. Park writer on :put because it's full (capacity 1)
+          writer-entry {:reason :put, :stream-id :s1, :datom :b}
+          state (assoc state :wait-set [writer-entry])
+          ;; 2. check-wait-set should NOT wake it
+          state-blocked (#'yin.vm.engine/check-wait-set state)
+          _ (is (= 1 (count (:wait-set state-blocked))))
+          ;; 3. Manually drain (advance head)
+          _ (swap! state-atom (fn [s] (-> s (update :buffer dissoc 0) (update :head inc))))
+          ;; 4. check-wait-set should now wake it via polling
+          state-runnable (#'yin.vm.engine/check-wait-set state-blocked)]
+      (is (empty? (:wait-set state-runnable)))
+      (is (= 1 (count (:run-queue state-runnable))))
+      (is (= :b (get-in @state-atom [:buffer 1])) "Writer should have written :b"))))
 
 
 (deftest close-enqueues-flattened-transport-writer-entry-test
@@ -174,6 +247,10 @@
                             :stream-id (:stream-id r),
                             :datom :b,
                             :continuation {:id :writer}})}})
+          stream-after-next (get-in next-result [:state :store stream-id])
+          stream-after-put (get-in put-result [:state :store stream-id])
+          reader-waiter-count-after-next (count (:reader-waiters @(:state-atom stream-after-next)))
+          writer-waiter-count-after-put (count (:writer-waiters @(:state-atom stream-after-put)))
           take-result (engine/handle-effect (:state put-result)
                                             {:effect :stream/take, :stream stream-ref}
                                             {})
@@ -182,6 +259,10 @@
           writer-entry (some #(when (= {:id :writer} (:continuation %)) %) run-queue)]
       (is (:blocked? next-result))
       (is (:blocked? put-result))
+      (is (empty? (or (get-in next-result [:state :wait-set]) [])))
+      (is (empty? (or (get-in put-result [:state :wait-set]) [])))
+      (is (= 1 reader-waiter-count-after-next))
+      (is (= 1 writer-waiter-count-after-put))
       (is (= :a (:value take-result)))
       (is (= 2 (count run-queue)))
       (is (= :b (:value writer-entry)))
