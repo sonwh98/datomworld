@@ -22,16 +22,33 @@
 (defn- bridge-step
   [vm handlers cursor]
   (let [call-in (get (vm/store vm) vm/call-in-stream-key)
-        {:keys [ok cursor']} (ds/next call-in cursor)]
+        {:keys [ok] :as next-result} (ds/next call-in cursor)
+        cursor' (:cursor next-result)]
     (if ok
       (let [{call-id :dao.stream/call-id, call-op :dao.stream/call-op, call-args :dao.stream/call-args} ok
             result (apply (get handlers call-op) (or call-args []))
             call-out (get (vm/store vm) vm/call-out-stream-key)
-            put-result (ds/put! call-out (dao.stream.call/call-response call-id result))
+            response (dao.stream.call/call-response call-id result)
+            put-result (ds/put! call-out response)
             woke (:woke put-result)
-            entries (engine/make-woken-run-queue-entries vm woke)
+            entries (if (seq woke)
+                      (engine/make-woken-run-queue-entries vm woke)
+                      (let [parked (get-in vm [:parked call-id])
+                            cursor-data (get-in vm [:store vm/call-out-cursor-key])]
+                        (when-not parked
+                          (throw (ex-info "Cannot synthesize FFI resume entry"
+                                          {:call-id call-id
+                                           :parked-ids (keys (:parked vm))})))
+                        [(assoc parked
+                                :type :ffi-call-resumer
+                                :value response
+                                :store-updates
+                                {vm/call-out-cursor-key
+                                 (update cursor-data :position inc)})]))
             vm' (update vm :run-queue (fnil into []) entries)]
-        [vm' cursor'])
+        [vm' cursor' {:request ok
+                      :wake-count (count woke)
+                      :entry-count (count entries)}])
       [vm cursor])))
 
 
@@ -86,10 +103,16 @@
                       {:value (vm/value ran)}))
 
       :else
-      (let [[bridged cursor'] (bridge-step ran handlers cursor)]
-        {:status :bridged
-         :vm bridged
-         :cursor cursor'}))))
+      (let [[bridged cursor' bridge-result] (bridge-step ran handlers cursor)]
+        (if (nil? bridge-result)
+          (throw (ex-info "VM blocked without pending dao.stream.call request"
+                          {:blocked (:blocked ran)
+                           :halted (:halted ran)
+                           :run-queue (count (or (:run-queue ran) []))
+                           :wait-set (count (or (:wait-set ran) []))}))
+          {:status :bridged
+           :vm bridged
+           :cursor cursor'})))))
 
 
 (defn- run-with-bridge!
