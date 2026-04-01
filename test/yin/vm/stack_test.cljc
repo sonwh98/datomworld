@@ -15,7 +15,8 @@
 (defn- bridge-step
   [vm handlers cursor]
   (let [call-in (get (vm/store vm) vm/call-in-stream-key)
-        {:keys [ok cursor']} (ds/next call-in cursor)]
+        {:keys [ok] :as next-result} (ds/next call-in cursor)
+        cursor' (:cursor next-result)]
     (if ok
       (let [{call-id :dao.stream/call-id, call-op :dao.stream/call-op, call-args :dao.stream/call-args} ok
             result (apply (get handlers call-op) (or call-args []))

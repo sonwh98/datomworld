@@ -1,8 +1,11 @@
 (ns yin.vm.register-test
   (:require
+    #?(:clj [clojure.edn :as reader]
+       :cljs [cljs.reader :as reader])
     [clojure.test :refer [deftest is testing]]
     [dao.stream :as ds]
     [dao.stream.call :as dao.stream.call]
+    [yang.clojure :as yang]
     [yin.vm :as vm]
     [yin.vm.engine :as engine]
     [yin.vm.register :as register]))
@@ -15,7 +18,8 @@
 (defn- bridge-step
   [vm handlers cursor]
   (let [call-in (get (vm/store vm) vm/call-in-stream-key)
-        {:keys [ok cursor']} (ds/next call-in cursor)]
+        {:keys [ok] :as next-result} (ds/next call-in cursor)
+        cursor' (:cursor next-result)]
     (if ok
       (let [{call-id :dao.stream/call-id, call-op :dao.stream/call-op, call-args :dao.stream/call-args} ok
             result (apply (get handlers call-op) (or call-args []))
@@ -154,6 +158,37 @@
             result (vm/eval vm' nil)]
         (is (vm/halted? result))
         (is (= 42 (vm/value result)))))))
+
+
+(deftest repeated-ffi-call-program-test
+  (testing "Register VM halts after many sequential ffi/call cycles"
+    (let [source "(defn plot-loop [i]
+  (if (> i 199)
+    nil
+    (do
+      (ffi/call :plot/point i (* i i))
+      (plot-loop (+ i 1))))
+)
+(plot-loop 0)"
+          forms (reader/read-string (str "[" source "]"))
+          ast (yang/compile-program forms)
+          program (ast->program ast)
+          calls (atom [])
+          handlers {:plot/point (fn [x y]
+                                  (swap! calls conj [x y])
+                                  nil)}]
+      (loop [v (-> (register/create-vm)
+                   (vm/load-program program)
+                   (vm/run))
+             cursor {:position 0}]
+        (if (vm/halted? v)
+          (do
+            (is (nil? (vm/value v)))
+            (is (= 200 (count @calls)))
+            (is (= [0 0] (first @calls)))
+            (is (= [199 39601] (last @calls))))
+          (let [[v' cursor'] (bridge-step v handlers cursor)]
+            (recur (vm/run v') cursor')))))))
 
 
 (deftest bytecode-basic-test

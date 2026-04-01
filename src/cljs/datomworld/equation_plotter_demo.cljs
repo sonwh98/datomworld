@@ -16,30 +16,148 @@
     [yin.vm.register :as register]))
 
 
+(declare app-state plot-state)
+
+
 (defn- bridge-step
   [vm handlers cursor]
   (let [call-in (get (vm/store vm) vm/call-in-stream-key)
-        {:keys [ok cursor']} (ds/next call-in cursor)]
+        {:keys [ok] :as next-result} (ds/next call-in cursor)
+        cursor' (:cursor next-result)]
     (if ok
-      (let [{:dao/keys [call-id call-op call-args]} ok
+      (let [{:dao.stream/keys [call-id call-op call-args]} ok
             result (apply (get handlers call-op) (or call-args []))
             call-out (get (vm/store vm) vm/call-out-stream-key)
-            put-result (ds/put! call-out (dao.stream.call/call-response call-id result))
+            response (dao.stream.call/call-response call-id result)
+            put-result (ds/put! call-out response)
             woke (:woke put-result)
-            entries (engine/make-woken-run-queue-entries vm woke)
+            entries (if (seq woke)
+                      (engine/make-woken-run-queue-entries vm woke)
+                      (let [parked (get-in vm [:parked call-id])
+                            cursor-data (get-in vm [:store vm/call-out-cursor-key])]
+                        (when-not parked
+                          (throw (ex-info "Cannot synthesize FFI resume entry"
+                                          {:call-id call-id
+                                           :parked-ids (keys (:parked vm))})))
+                        [(assoc parked
+                                :type :ffi-call-resumer
+                                :value response
+                                :store-updates
+                                {vm/call-out-cursor-key
+                                 (update cursor-data :position inc)})]))
             vm' (update vm :run-queue (fnil into []) entries)]
-        [vm' cursor'])
-      [vm cursor])))
+        [vm' cursor' {:request ok
+                      :wake-count (count woke)
+                      :entry-count (count entries)}])
+      [vm cursor nil])))
 
 
-(defn- run-with-bridge
+(def ^:private bridge-cycles-per-frame 24)
+
+
+(defonce run-raf-id (atom nil))
+
+
+(defn- cancel-run-loop!
+  []
+  (when-let [raf-id @run-raf-id]
+    (js/cancelAnimationFrame raf-id)
+    (reset! run-raf-id nil)))
+
+
+(defn- make-plot-handler
+  [points* call-count*]
+  (fn [x y]
+    (when (and (number? x) (number? y)
+               (js/isFinite x) (js/isFinite y))
+      (vswap! points* conj [x y]))
+    (vswap! call-count* inc)
+    nil))
+
+
+(defn- flush-plot-batch!
+  [points* call-count*]
+  (let [points @points*
+        call-count @call-count*]
+    (when (or (seq points) (pos? call-count))
+      (swap! plot-state
+             (fn [state]
+               (-> state
+                   (update :points into points)
+                   (update :call-count + call-count))))
+      (vreset! points* [])
+      (vreset! call-count* 0))))
+
+
+(defn- run-cycle
+  [vm handlers cursor]
+  (let [ran (vm/run vm)]
+    (cond
+      (vm/halted? ran)
+      {:status :halted
+       :vm ran
+       :cursor cursor}
+
+      (not (:blocked ran))
+      (throw (ex-info "Register VM yielded without halting or blocking"
+                      {:value (vm/value ran)}))
+
+      :else
+      (let [[bridged cursor' bridge-result] (bridge-step ran handlers cursor)]
+        (if (nil? bridge-result)
+          (throw (ex-info "VM blocked without pending dao.stream.call request"
+                          {:blocked (:blocked ran)
+                           :halted (:halted ran)
+                           :run-queue (count (or (:run-queue ran) []))
+                           :wait-set (count (or (:wait-set ran) []))}))
+          {:status :bridged
+           :vm bridged
+           :cursor cursor'})))))
+
+
+(defn- run-with-bridge!
   [vm handlers]
-  (loop [v (vm/run vm)
-         cursor {:position 0}]
-    (if (or (vm/halted? v) (not (:blocked v)))
-      v
-      (let [[v' cursor'] (bridge-step v handlers cursor)]
-        (recur (vm/run v') cursor')))))
+  (let [points* (volatile! [])
+        call-count* (volatile! 0)
+        handlers' (update handlers :plot/point
+                          (fn [_] (make-plot-handler points* call-count*)))]
+    (letfn [(finish!
+              [final-vm]
+              (flush-plot-batch! points* call-count*)
+              (cancel-run-loop!)
+              (swap! app-state assoc
+                     :running? false
+                     :error nil
+                     :result (vm/value final-vm)))
+
+            (fail!
+              [e]
+              (flush-plot-batch! points* call-count*)
+              (cancel-run-loop!)
+              (swap! app-state assoc
+                     :running? false
+                     :error (str "Runtime error: " (.-message e))))
+
+            (step-frame!
+              [state cursor]
+              (try
+                (loop [v state
+                       c cursor
+                       cycles 0]
+                  (if (>= cycles bridge-cycles-per-frame)
+                    (do
+                      (flush-plot-batch! points* call-count*)
+                      (reset! run-raf-id
+                              (js/requestAnimationFrame
+                                (fn []
+                                  (step-frame! v c)))))
+                    (let [{:keys [status vm cursor]} (run-cycle v handlers' c)]
+                      (if (= :halted status)
+                        (finish! vm)
+                        (recur vm cursor (inc cycles))))))
+                (catch :default e
+                  (fail! e))))]
+      (step-frame! vm {:position 0}))))
 
 
 ;; =============================================================================
@@ -203,6 +321,9 @@
            :pool nil
            :reg-count nil
            :ast nil
+           :program nil
+           :running? false
+           :result nil
            :error nil}))
 
 
@@ -210,27 +331,40 @@
 ;; Compile: source -> register VM bytecode
 ;; =============================================================================
 
+(defn- ast->program
+  [ast]
+  (let [datoms (vec (vm/ast->datoms ast))
+        root-id (apply max (map first datoms))]
+    {:node root-id
+     :datoms datoms}))
+
+
 (defn compile!
   "Compile the source editor contents to register VM bytecode."
   []
   (try
+    (cancel-run-loop!)
     (let [source (:source @app-state)
           forms (reader/read-string (str "[" source "]"))
           ast (yang/compile-program forms)
-          datoms (vm/ast->datoms ast)
+          {:keys [datoms] :as program} (ast->program ast)
           {:keys [asm reg-count]} (register/ast-datoms->asm datoms)
           result (register/assemble asm)]
       (swap! app-state assoc
              :ast ast
+             :program program
              :asm asm
              :bytecode (:bytecode result)
              :pool (:pool result)
              :reg-count reg-count
+             :running? false
+             :result nil
              :error nil))
     (catch :default e
       (swap! app-state assoc
              :error (str "Compile error: " (.-message e))
-             :asm nil :bytecode nil :pool nil :reg-count nil :ast nil))))
+             :asm nil :bytecode nil :pool nil :reg-count nil
+             :ast nil :program nil :running? false :result nil))))
 
 
 ;; =============================================================================
@@ -242,18 +376,20 @@
    FFI :plot/point calls are dispatched to the ClojureScript plot-point function."
   []
   (try
-    (let [{:keys [ast]} @app-state]
-      (when-not ast
+    (let [{:keys [program]} @app-state]
+      (when-not program
         (throw (ex-info "Nothing compiled. Click Compile first." {})))
+      (cancel-run-loop!)
       (clear-plot!)
       (let [handlers {:plot/point plot-point}
             vm-instance (register/create-vm
                           {:primitives (merge vm/primitives math-primitives)})
-            vm-loaded (vm/load-program vm-instance ast)]
-        (run-with-bridge vm-loaded handlers)
-        (swap! app-state assoc :error nil)))
+            vm-loaded (vm/load-program vm-instance program)]
+        (swap! app-state assoc :running? true :result nil :error nil)
+        (run-with-bridge! vm-loaded handlers)))
     (catch :default e
       (swap! app-state assoc
+             :running? false
              :error (str "Runtime error: " (.-message e))))))
 
 
@@ -326,7 +462,7 @@
 
 (defn main-view
   []
-  (let [{:keys [source asm error]} @app-state
+  (let [{:keys [source asm error running?]} @app-state
         {:keys [points call-count]} @plot-state]
     [:div {:style {:min-height "100vh"
                    :background "#060817"
@@ -351,15 +487,16 @@
      [:div {:style {:display "flex" :gap "8px" :align-items "center"
                     :margin-bottom "16px"}}
       [:button {:on-click compile!
+                :disabled running?
                 :style (merge btn-style {:background "#238636"})}
        "Compile"]
       [:button {:on-click execute!
-                :disabled (nil? (:ast @app-state))
+                :disabled (or running? (nil? (:program @app-state)))
                 :style (merge btn-style
-                              (if (:ast @app-state)
+                              (if (and (:program @app-state) (not running?))
                                 {:background "#1f6feb"}
                                 {:background "#333" :cursor "not-allowed"}))}
-       "Execute"]]
+       (if running? "Running..." "Execute")]]
 
      ;; Register assembly (shown after compile)
      (when asm
