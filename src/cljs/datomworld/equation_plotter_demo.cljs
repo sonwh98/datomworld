@@ -7,10 +7,39 @@
     ["codemirror" :refer [basicSetup]]
     [cljs.reader :as reader]
     [clojure.string :as str]
+    [dao.stream :as ds]
+    [dao.stream.call :as dao.stream.call]
     [reagent.core :as r]
     [yang.clojure :as yang]
     [yin.vm :as vm]
+    [yin.vm.engine :as engine]
     [yin.vm.register :as register]))
+
+
+(defn- bridge-step
+  [vm handlers cursor]
+  (let [call-in (get (vm/store vm) vm/call-in-stream-key)
+        {:keys [ok cursor']} (ds/next call-in cursor)]
+    (if ok
+      (let [{:dao/keys [call-id call-op call-args]} ok
+            result (apply (get handlers call-op) (or call-args []))
+            call-out (get (vm/store vm) vm/call-out-stream-key)
+            put-result (ds/put! call-out (dao.stream.call/call-response call-id result))
+            woke (:woke put-result)
+            entries (engine/make-woken-run-queue-entries vm woke)
+            vm' (update vm :run-queue (fnil into []) entries)]
+        [vm' cursor'])
+      [vm cursor])))
+
+
+(defn- run-with-bridge
+  [vm handlers]
+  (loop [v (vm/run vm)
+         cursor {:position 0}]
+    (if (or (vm/halted? v) (not (:blocked v)))
+      v
+      (let [[v' cursor'] (bridge-step v handlers cursor)]
+        (recur (vm/run v') cursor')))))
 
 
 ;; =============================================================================
@@ -217,10 +246,11 @@
       (when-not ast
         (throw (ex-info "Nothing compiled. Click Compile first." {})))
       (clear-plot!)
-      (let [vm-instance (register/create-vm
-                          {:primitives (merge vm/primitives math-primitives)
-                           :bridge-dispatcher {:plot/point plot-point}})
-            result (vm/eval vm-instance ast)]
+      (let [handlers {:plot/point plot-point}
+            vm-instance (register/create-vm
+                          {:primitives (merge vm/primitives math-primitives)})
+            vm-loaded (vm/load-program vm-instance ast)]
+        (run-with-bridge vm-loaded handlers)
         (swap! app-state assoc :error nil)))
     (catch :default e
       (swap! app-state assoc

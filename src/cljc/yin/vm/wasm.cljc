@@ -37,8 +37,7 @@
 ;; =============================================================================
 
 (defrecord WasmVM
-  [bridge-dispatcher ; FFI bridge dispatcher map
-   control          ; current control state (nil for wasm vm)
+  [control          ; current control state (nil for wasm vm)
    env              ; lexical environment
    halted           ; true if execution completed
    id-counter       ; unique ID counter
@@ -541,11 +540,10 @@
 
 (defn create-vm
   "Create a new WasmVM with optional opts map.
-   Accepts {:env map, :primitives map, :bridge-dispatcher map}."
+   Accepts {:env map, :primitives map}."
   ([] (create-vm {}))
   ([opts]
-   (map->WasmVM (merge (vm/empty-state (select-keys opts [:primitives
-                                                          :bridge-dispatcher]))
+   (map->WasmVM (merge (vm/empty-state (select-keys opts [:primitives]))
                        {:halted  false
                         :value   nil
                         :control nil

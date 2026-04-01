@@ -1,6 +1,8 @@
 (ns yin.vm.semantic
   (:require
     [dao.db :as db]
+    [dao.stream :as ds]
+    [dao.stream.call :as dao.stream.call]
     [yin.module :as module]
     [yin.vm :as vm]
     [yin.vm.engine :as engine]
@@ -166,7 +168,6 @@
    node-id-counter ; unique negative ID counter for AST nodes
    parked     ; parked continuations
    primitives ; primitive operations
-   bridge-dispatcher ; FFI op keyword -> native fn
    run-queue  ; vector of runnable continuations
    stack      ; continuation stack
    store      ; heap memory
@@ -199,7 +200,6 @@
     (:node-id-counter vm)
     (:parked vm)
     (:primitives vm)
-    (:bridge-dispatcher vm)
     (:run-queue vm)
     stack
     (:store vm)
@@ -210,14 +210,37 @@
     (:macro-registry vm)))
 
 
-(defn- park-and-enqueue-ffi
-  "Park the current semantic continuation stack and emit an FFI request."
+(defn- park-and-call
+  "Park the current semantic continuation stack and emit a DaoCall request."
   [vm op args stack env]
-  (let [parked (engine/park-continuation vm {:stack stack, :env env})
+  (let [;; 1. Park the continuation with a response-processing frame
+        response-stack (conj stack {:type :ffi-call})
+        parked (engine/park-continuation vm {:stack response-stack, :env env})
         parked-id (get-in parked [:value :id])
-        request {:op op, :args args, :parked-id parked-id}
-        enqueued (engine/enqueue-ffi-request parked request)]
-    (assoc enqueued
+
+        ;; 2. Get response stream from store
+        call-out (get-in parked [:store vm/call-out-stream-key])
+        cursor-data (get-in parked [:store vm/call-out-cursor-key])
+        cursor-pos (:position cursor-data)
+
+        ;; 3. Register as reader-waiter on response stream
+        waiter-entry {:cursor-ref {:type :cursor-ref, :id vm/call-out-cursor-key}
+                      :reason :next
+                      :stream-id vm/call-out-stream-key
+                      :stack response-stack
+                      :env env}
+        _ (when (satisfies? ds/IDaoStreamWaitable call-out)
+            (ds/register-reader-waiter! call-out cursor-pos waiter-entry))
+
+        ;; 4. Get request stream from store
+        call-in (get-in parked [:store vm/call-in-stream-key])
+
+        ;; 5. Build and emit request
+        request (dao.stream.call/call-request parked-id op args)
+        _ (ds/put! call-in request)]
+
+    ;; 6. Return blocked state
+    (assoc parked
            :control nil
            :value :yin/blocked
            :blocked true
@@ -351,7 +374,7 @@
           (let [{op :op, evaluated :evaluated, operands :operands, next-idx :next-idx, env-call :env} frame
                 new-evaluated (conj evaluated val)]
             (if (= next-idx (count operands))
-              (park-and-enqueue-ffi vm op new-evaluated new-stack env-call)
+              (park-and-call vm op new-evaluated new-stack env-call)
               (let [next-arg (nth operands next-idx)]
                 (assoc vm
                        :control {:type :node, :id next-arg}
@@ -360,6 +383,11 @@
                                     (assoc frame
                                            :evaluated new-evaluated
                                            :next-idx (inc next-idx)))))))
+          :ffi-call
+          (let [result-value (:dao.stream/call-value val)]
+            (assoc vm
+                   :control {:type :value, :val result-value}
+                   :stack new-stack))
           :restore-env (assoc vm
                               :control control ; Pass value up
                               :env (:env frame) ; Restore caller env
@@ -483,7 +511,7 @@
           :ffi/call (let [operands (or (aget node-arr ATTR_OPERANDS) [])
                           op (aget node-arr ATTR_OP)]
                       (if (empty? operands)
-                        (park-and-enqueue-ffi vm op [] stack env)
+                        (park-and-call vm op [] stack env)
                         (assoc vm
                                :control {:type :node, :id (first operands)}
                                :stack (conj stack
@@ -1091,9 +1119,7 @@
               result (semantic-return vm control env (materialize-stack sp) false nil)]
           (cond
             (:blocked result)
-            (let [v' (-> result
-                         engine/check-wait-set
-                         engine/check-ffi-out)]
+            (let [v' (engine/check-wait-set result)]
               (if-let [resumed (resume-from-run-queue v')]
                 (let [resumed-control (:control resumed)
                       resumed-tag (:type resumed-control)
@@ -1177,13 +1203,11 @@
 
 (defn create-vm
   "Create a new SemanticVM with optional opts map.
-   Accepts {:env map, :primitives map, :bridge-dispatcher map, :macro-registry map}."
+   Accepts {:env map, :primitives map, :macro-registry map}."
   ([] (create-vm {}))
   ([opts]
    (let [env (or (:env opts) {})]
-     (map->SemanticVM (merge (vm/empty-state (select-keys opts
-                                                          [:primitives
-                                                           :bridge-dispatcher]))
+     (map->SemanticVM (merge (vm/empty-state (select-keys opts [:primitives]))
                              {:control nil,
                               :env env,
                               :stack [],

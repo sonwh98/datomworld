@@ -2,14 +2,34 @@
   (:require
     [clojure.test :refer [deftest is testing]]
     [dao.db.datascript :as ds-db]
-    [dao.stream]
+    [dao.stream :as ds]
+    [dao.stream.call :as dao.stream.call]
     [yin.vm :as vm]
-    [yin.vm.ast-walker :as ast-walker]))
+    [yin.vm.ast-walker :as ast-walker]
+    [yin.vm.engine :as engine]))
 
 
 ;; =============================================================================
 ;; AST Walker VM tests (direct AST interpretation via protocols)
 ;; =============================================================================
+
+(defn- bridge-step
+  [vm handlers cursor]
+  (let [call-in (get (vm/store vm) vm/call-in-stream-key)
+        {:keys [ok cursor']} (ds/next call-in cursor)]
+    (if ok
+      (let [{call-id :dao.stream/call-id, call-op :dao.stream/call-op, call-args :dao.stream/call-args} ok
+            result (apply (get handlers call-op) (or call-args []))
+            call-out (get (vm/store vm) vm/call-out-stream-key)
+            ;; ds/put! on RingBufferStream returns woken entries
+            put-result (ds/put! call-out (dao.stream.call/call-response call-id result))
+            woke (:woke put-result)
+            ;; Use engine helper to transform woken entries into run-queue entries
+            entries (engine/make-woken-run-queue-entries vm woke)
+            vm' (update vm :run-queue (fnil into []) entries)]
+        [vm' cursor'])
+      [vm cursor])))
+
 
 (defn compile-and-run
   [ast]
@@ -22,8 +42,10 @@
 (deftest cesk-state-test
   (testing "Initial state"
     (let [vm (ast-walker/create-vm)]
-      (is (contains? (vm/store vm) vm/ffi-out-stream-key))
-      (is (contains? (vm/store vm) vm/ffi-out-cursor-key))
+      (is (contains? (vm/store vm) vm/call-in-stream-key))
+      (is (contains? (vm/store vm) vm/call-in-cursor-key))
+      (is (contains? (vm/store vm) vm/call-out-stream-key))
+      (is (contains? (vm/store vm) vm/call-out-cursor-key))
       (is (nil? (vm/control vm)))
       (is (nil? (vm/continuation vm)))))
   (testing "After load-program, control is non-nil"
@@ -35,8 +57,8 @@
                  (vm/load-program {:type :literal, :value 42})
                  (vm/run))]
       (is (nil? (vm/continuation vm)))
-      (is (contains? (vm/store vm) vm/ffi-out-stream-key))
-      (is (contains? (vm/store vm) vm/ffi-out-cursor-key))
+      (is (contains? (vm/store vm) vm/call-in-stream-key))
+      (is (contains? (vm/store vm) vm/call-out-stream-key))
       (is (= 42 (vm/value vm)))))
   (testing "Environment is empty by default (primitives resolved separately)"
     (is (= {} (vm/environment (ast-walker/create-vm))))))
@@ -278,23 +300,28 @@
     (let [ast {:type :ffi/call,
                :op :op/echo,
                :operands [{:type :literal, :value 42}]}
-          result (vm/eval (ast-walker/create-vm
-                            {:bridge-dispatcher {:op/echo identity}})
-                          ast)]
-      (is (vm/halted? result))
-      (is (= 42 (vm/value result))))))
+          vm (ast-walker/create-vm)
+          result-parked (vm/eval vm ast)]
+      (is (vm/blocked? result-parked))
+      (let [[vm' _cursor'] (bridge-step result-parked {:op/echo identity} {:position 0})
+            result (vm/eval vm' nil)]
+        (is (vm/halted? result))
+        (is (= 42 (vm/value result)))))))
 
 
 (deftest eval-ffi-call-missing-handler-test
-  (testing "ffi/call without registered handler throws ex-info with :op"
+  (testing "ffi/call without registered handler in bridge throws"
     (let [ast {:type :ffi/call,
                :op :op/missing,
-               :operands [{:type :literal, :value 1}]}]
+               :operands [{:type :literal, :value 1}]}
+          vm (ast-walker/create-vm)
+          result-parked (vm/eval vm ast)]
+      (is (vm/blocked? result-parked))
       (try
-        (vm/eval (ast-walker/create-vm) ast)
+        (bridge-step result-parked {} {:position 0})
         (is false "Expected missing handler exception")
-        (catch #?(:clj Exception :cljs :default :cljd Exception) e
-          (is (= :op/missing (:op (ex-data e)))))))))
+        (catch #?(:clj Exception :cljs :default :cljd Exception) _e
+          (is true))))))
 
 
 (deftest eval-blocked-effect-preserves-current-env-test

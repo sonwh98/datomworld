@@ -2,6 +2,7 @@
   (:require
     [clojure.test :refer [deftest is testing]]
     [dao.stream :as ds]
+    [dao.stream.call :as dao.stream.call]
     [yin.stream :as stream]
     [yin.vm :as vm]
     [yin.vm.engine :as engine]))
@@ -272,14 +273,12 @@
           "Reader wake from take! must advance the parked cursor past the appended datom"))))
 
 
-(deftest check-ffi-out-dispatch-and-enqueue-test
-  (testing "check-ffi-out dispatches one request and enqueues resumed continuation"
-    (let [ffi-out (ds/open! {:transport {:type :ringbuffer, :capacity nil}})
-          _ (ds/put! ffi-out {:op :op/echo, :args [42], :parked-id :parked-0})
-          state {:store {vm/ffi-out-stream-key ffi-out,
-                         vm/ffi-out-cursor-key {:stream-id vm/ffi-out-stream-key,
-                                                :position 0}},
-                 :bridge-dispatcher {:op/echo identity},
+(deftest daocall-dispatch-and-wake-test
+  (testing "DaoCall response wakes caller and advances cursor"
+    (let [call-out (ds/open! {:transport {:type :ringbuffer, :capacity nil}})
+          state {:store {vm/call-out-stream-key call-out,
+                         vm/call-out-cursor-key {:stream-id vm/call-out-stream-key,
+                                                 :position 0}},
                  :parked {:parked-0 {:id :parked-0,
                                      :type :parked-continuation,
                                      :continuation {:id :cont-0},
@@ -288,9 +287,25 @@
                  :wait-set [],
                  :blocked true,
                  :halted false}
-          next-state (engine/check-ffi-out state)
-          cursor-data (get-in next-state [:store vm/ffi-out-cursor-key])]
-      (is (= 1 (:position cursor-data)))
-      (is (nil? (get-in next-state [:parked :parked-0])))
+          ;; 1. Register reader-waiter on call-out (happens during ffi-call)
+          waiter-entry {:cursor-ref {:type :cursor-ref, :id vm/call-out-cursor-key}
+                        :reason :next
+                        :stream-id vm/call-out-stream-key
+                        :continuation {:id :cont-0}}
+          _ (ds/register-reader-waiter! call-out 0 waiter-entry)
+
+          ;; 2. Bridge puts response to call-out
+          response (dao.stream.call/call-response :parked-0 42)
+          put-result (ds/put! call-out response)
+          woke (:woke put-result)
+          _ (is (= 1 (count woke)))
+
+          ;; 3. Use engine to process woken entries
+          entries (engine/make-woken-run-queue-entries state woke)
+          next-state (update state :run-queue into entries)
+          run-entry (first (:run-queue next-state))]
+
       (is (= 1 (count (:run-queue next-state))))
-      (is (= 42 (:value (first (:run-queue next-state))))))))
+      (is (= response (:value run-entry)))
+      (is (= {vm/call-out-cursor-key {:stream-id vm/call-out-stream-key, :position 1}}
+             (:store-updates run-entry))))))

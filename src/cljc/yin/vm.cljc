@@ -129,14 +129,34 @@
    'yin/def (fn [k v] {:effect :vm/store-put, :key k, :val v})})
 
 
+(def call-in-stream-key
+  "Store key for the shared FFI inbound request stream (caller writes, callee reads)."
+  :yin/call-in)
+
+
+(def call-in-cursor-key
+  "Store key for the shared FFI inbound stream cursor."
+  :yin/call-in-cursor)
+
+
+(def call-out-stream-key
+  "Store key for the shared FFI outbound response stream (callee writes, caller reads)."
+  :yin/call-out)
+
+
+(def call-out-cursor-key
+  "Store key for the shared FFI outbound stream cursor."
+  :yin/call-out-cursor)
+
+
 (def ffi-out-stream-key
-  "Store key for the shared FFI outbound request stream."
-  :yin/ffi-out)
+  "Store key for the shared FFI outbound request stream (deprecated alias for call-in)."
+  call-in-stream-key)
 
 
 (def ffi-out-cursor-key
-  "Store key for the shared FFI outbound stream cursor."
-  :yin/ffi-out-cursor)
+  "Store key for the shared FFI outbound stream cursor (deprecated alias for call-in-cursor)."
+  call-in-cursor-key)
 
 
 ;; =============================================================================
@@ -411,19 +431,25 @@
 
 (defn empty-state
   "Return an initial immutable VM state map.
-   Contains: FFI stream wiring in :store, :parked {}, :id-counter 0,
-   :primitives map, :bridge-dispatcher map, :run-queue [], :wait-set []."
+   Contains: DaoCall stream wiring in :store, :parked {}, :id-counter 0,
+   :primitives map, :run-queue [], :wait-set []."
   ([] (empty-state {}))
   ([opts]
-   {:store
-    (let [ffi-stream (ds/open! {:transport {:type :ringbuffer
+   (let [call-in (or (:call-in opts)
+                     (ds/open! {:transport {:type :ringbuffer
                                             :mode :create
-                                            :capacity nil}})]
-      {ffi-out-stream-key ffi-stream,
-       ffi-out-cursor-key {:stream-id ffi-out-stream-key, :position 0}}),
-    :parked {},
-    :id-counter 0,
-    :run-queue [],
-    :wait-set [],
-    :bridge-dispatcher (or (:bridge-dispatcher opts) {}),
-    :primitives (or (:primitives opts) primitives)}))
+                                            :capacity nil}}))
+         call-out (or (:call-out opts)
+                      (ds/open! {:transport {:type :ringbuffer
+                                             :mode :create
+                                             :capacity nil}}))]
+     {:store
+      {call-in-stream-key  call-in
+       call-in-cursor-key  {:stream-id call-in-stream-key, :position 0}
+       call-out-stream-key call-out
+       call-out-cursor-key {:stream-id call-out-stream-key, :position 0}},
+      :parked {},
+      :id-counter 0,
+      :run-queue [],
+      :wait-set [],
+      :primitives (or (:primitives opts) primitives)})))

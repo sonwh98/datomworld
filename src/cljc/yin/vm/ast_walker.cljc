@@ -1,5 +1,7 @@
 (ns yin.vm.ast-walker
   (:require
+    [dao.stream :as ds]
+    [dao.stream.call :as dao.stream.call]
     [yin.module :as module]
     [yin.vm :as vm]
     [yin.vm.engine :as engine]))
@@ -37,7 +39,6 @@
    id-counter   ; integer counter for unique IDs
    parked       ; parked continuations map
    primitives   ; primitive operations map
-   bridge-dispatcher ; FFI op keyword -> native fn
    run-queue    ; vector of runnable continuations
    store        ; heap memory map
    value        ; last computed value
@@ -61,7 +62,6 @@
       (:id-counter vm)
       (:parked vm)
       (:primitives vm)
-      (:bridge-dispatcher vm)
       (:run-queue vm)
       (:store vm)
       val
@@ -96,16 +96,41 @@
     (cesk-return state nil env continuation result)))
 
 
-(defn- park-and-enqueue-ffi
-  "Park the current continuation and emit an FFI request to :yin/ffi-out."
+(defn- park-and-call
+  "Park continuation and register as reader-waiter on call-out response stream."
   [state op args continuation env]
-  (let [parked (engine/park-continuation state
-                                         {:continuation continuation,
+  (let [;; 1. Park the continuation with a response-processing frame
+        response-cont {:type :eval-ffi-call
+                       :parent continuation
+                       :environment env}
+        parked (engine/park-continuation state
+                                         {:continuation response-cont,
                                           :environment env})
         parked-id (get-in parked [:value :id])
-        request {:op op, :args args, :parked-id parked-id}
-        enqueued (engine/enqueue-ffi-request parked request)]
-    (assoc enqueued
+
+        ;; 2. Get response stream from store
+        call-out (get-in parked [:store vm/call-out-stream-key])
+        cursor-data (get-in parked [:store vm/call-out-cursor-key])
+        cursor-pos (:position cursor-data)
+
+        ;; 3. Register as reader-waiter on response stream
+        waiter-entry {:continuation response-cont
+                      :environment env
+                      :cursor-ref {:type :cursor-ref, :id vm/call-out-cursor-key}
+                      :reason :next
+                      :stream-id vm/call-out-stream-key}
+        _ (when (satisfies? ds/IDaoStreamWaitable call-out)
+            (ds/register-reader-waiter! call-out cursor-pos waiter-entry))
+
+        ;; 4. Get request stream from store
+        call-in (get-in parked [:store vm/call-in-stream-key])
+
+        ;; 5. Build and emit request
+        request (dao.stream.call/call-request parked-id op args)
+        _ (ds/put! call-in request)]
+
+    ;; 6. Return blocked state
+    (assoc parked
            :control nil
            :continuation nil
            :value :yin/blocked
@@ -198,11 +223,11 @@
                 operands (:operands frame)
                 saved-env (or (:environment continuation) environment)]
             (if (= (count evaluated) (count operands))
-              (park-and-enqueue-ffi state
-                                    (:op frame)
-                                    evaluated
-                                    (:parent continuation)
-                                    saved-env)
+              (park-and-call state
+                             (:op frame)
+                             evaluated
+                             (:parent continuation)
+                             saved-env)
               (let [next-idx (count evaluated)
                     next-node (nth operands next-idx)
                     updated-frame (assoc frame :evaluated evaluated)]
@@ -211,6 +236,9 @@
                              saved-env
                              (assoc continuation :frame updated-frame)
                              nil))))
+          :eval-ffi-call
+          (let [result-value (:dao.stream/call-value (:value state))]
+            (cesk-return state nil environment (:parent continuation) result-value))
           ;; Stream continuation: evaluate target for put
           :eval-stream-put-target
           (let [frame (:frame continuation)
@@ -323,7 +351,7 @@
         (let [operands (or (:operands node) [])
               op (:op node)]
           (if (empty? operands)
-            (park-and-enqueue-ffi state op [] continuation environment)
+            (park-and-call state op [] continuation environment)
             (cesk-return state
                          (first operands)
                          environment
@@ -579,9 +607,7 @@
         (let [result (cesk-return vm control env cont val)]
           (cond
             (:blocked result)
-            (let [v' (-> result
-                         engine/check-wait-set
-                         engine/check-ffi-out)]
+            (let [v' (engine/check-wait-set result)]
               (if-let [resumed (resume-from-run-queue v')]
                 (recur (:control resumed) (:environment resumed)
                        (:continuation resumed) (:value resumed) resumed)
@@ -690,13 +716,11 @@
 
 (defn create-vm
   "Create a new ASTWalkerVM with optional opts map.
-   Accepts {:env map, :primitives map, :bridge-dispatcher map}."
+   Accepts {:env map, :primitives map}."
   ([] (create-vm {}))
   ([opts]
    (let [env (or (:env opts) {})
-         base (vm/empty-state (select-keys opts
-                                           [:primitives
-                                            :bridge-dispatcher]))]
+         base (vm/empty-state (select-keys opts [:primitives]))]
      (map->ASTWalkerVM (merge base
                               {:control nil,
                                :environment env,

@@ -11,6 +11,8 @@
    2. Assembly to numeric bytecode encoding (assemble)
    3. Numeric bytecode VM (step, run via protocols)"
   (:require
+    [dao.stream :as ds]
+    [dao.stream.call :as dao.stream.call]
     [yin.module :as module]
     [yin.vm :as vm]
     [yin.vm.engine :as engine]
@@ -886,14 +888,29 @@
                 n (count stack)
                 args (subvec stack (- n argc) n)
                 stack-rest (subvec stack 0 (- n argc))
-                parked (engine/park-continuation state
-                                                 (snap-frame state
-                                                             stack-rest
-                                                             (+ pc 3)))
+                next-pc (+ pc 3)
+                park-snapshot (snap-frame state stack-rest next-pc)
+                parked (engine/park-continuation state park-snapshot)
                 parked-id (get-in parked [:value :id])
-                request {:op op-name, :args args, :parked-id parked-id}
-                enqueued (engine/enqueue-ffi-request parked request)]
-            (assoc enqueued
+
+                ;; Register reader-waiter on call-out response stream
+                call-out (get-in parked [:store vm/call-out-stream-key])
+                cursor-data (get-in parked [:store vm/call-out-cursor-key])
+                cursor-pos (:position cursor-data)
+                waiter-entry (assoc park-snapshot
+                                    :type :ffi-call-resumer
+                                    :cursor-ref {:type :cursor-ref
+                                                 :id vm/call-out-cursor-key}
+                                    :reason :next
+                                    :stream-id vm/call-out-stream-key)
+                _ (when (satisfies? ds/IDaoStreamWaitable call-out)
+                    (ds/register-reader-waiter! call-out cursor-pos waiter-entry))
+
+                ;; Emit request to call-in stream
+                call-in (get-in parked [:store vm/call-in-stream-key])
+                request (dao.stream.call/call-request parked-id op-name args)
+                _ (ds/put! call-in request)]
+            (assoc parked
                    :value :yin/blocked
                    :blocked true
                    :halted false))
@@ -928,8 +945,12 @@
   [state]
   (engine/resume-from-run-queue state
                                 (fn [base entry]
-                                  (-> (restore-frame base entry (:value entry))
-                                      maybe-recompile-at-boundary))))
+                                  (let [val (:value entry)
+                                        val' (if (= :ffi-call-resumer (:type entry))
+                                               (:dao.stream/call-value val)
+                                               val)]
+                                    (-> (restore-frame base entry val')
+                                        maybe-recompile-at-boundary)))))
 
 
 (defn- stack-vm-run-scheduler
@@ -1452,13 +1473,11 @@
 
 (defn create-vm
   "Create a new StackVM with optional opts map.
-   Accepts {:env map, :primitives map, :bridge-dispatcher map, :macro-registry map}."
+   Accepts {:env map, :primitives map, :macro-registry map}."
   ([] (create-vm {}))
   ([opts]
    (let [env (or (:env opts) {})]
-     (map->StackVM (merge (vm/empty-state (select-keys opts
-                                                       [:primitives
-                                                        :bridge-dispatcher]))
+     (map->StackVM (merge (vm/empty-state (select-keys opts [:primitives]))
                           {:pc 0,
                            :bytecode [],
                            :stack [],

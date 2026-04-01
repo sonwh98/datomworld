@@ -12,6 +12,8 @@
    The compilation pipeline is: AST datoms -> ast-datoms->asm (symbolic IR) -> assemble (numeric).
    See ast-datoms->asm docstring for the full instruction set."
   (:require
+    [dao.stream :as ds]
+    [dao.stream.call :as dao.stream.call]
     [yin.module :as module]
     [yin.vm :as vm]
     [yin.vm.engine :as engine]
@@ -892,12 +894,28 @@
               arg-base (+ pc 4)
               args (collect-call-args regs bytecode arg-base argc)
               next-pc (+ arg-base argc)
-              parked (engine/park-continuation state
-                                               (snap-frame state rd next-pc))
+              park-snapshot (snap-frame state rd next-pc)
+              parked (engine/park-continuation state park-snapshot)
               parked-id (get-in parked [:value :id])
-              request {:op op, :args args, :parked-id parked-id}
-              enqueued (engine/enqueue-ffi-request parked request)]
-          (assoc enqueued
+
+              ;; Register reader-waiter on call-out response stream
+              call-out (get-in parked [:store vm/call-out-stream-key])
+              cursor-data (get-in parked [:store vm/call-out-cursor-key])
+              cursor-pos (:position cursor-data)
+              waiter-entry (assoc park-snapshot
+                                  :type :ffi-call-resumer
+                                  :cursor-ref {:type :cursor-ref
+                                               :id vm/call-out-cursor-key}
+                                  :reason :next
+                                  :stream-id vm/call-out-stream-key)
+              _ (when (satisfies? ds/IDaoStreamWaitable call-out)
+                  (ds/register-reader-waiter! call-out cursor-pos waiter-entry))
+
+              ;; Emit request to call-in stream
+              call-in (get-in parked [:store vm/call-in-stream-key])
+              request (dao.stream.call/call-request parked-id op args)
+              _ (ds/put! call-in request)]
+          (assoc parked
                  :value :yin/blocked
                  :blocked true
                  :halted false))
@@ -1034,8 +1052,12 @@
   [state]
   (engine/resume-from-run-queue state
                                 (fn [base entry]
-                                  (-> (restore-frame base entry (:value entry))
-                                      maybe-recompile-at-boundary))))
+                                  (let [val (:value entry)
+                                        val' (if (= :ffi-call-resumer (:type entry))
+                                               (:dao.stream/call-value val)
+                                               val)]
+                                    (-> (restore-frame base entry val')
+                                        maybe-recompile-at-boundary)))))
 
 
 (defn- reg-vm-run-scheduler
@@ -1503,13 +1525,11 @@
 
 (defn create-vm
   "Create a new RegisterVM with optional opts map.
-   Accepts {:env map, :primitives map, :bridge-dispatcher map, :macro-registry map}."
+   Accepts {:env map, :primitives map, :macro-registry map}."
   ([] (create-vm {}))
   ([opts]
    (let [env (or (:env opts) {})]
-     (map->RegisterVM (merge (vm/empty-state (select-keys opts
-                                                          [:primitives
-                                                           :bridge-dispatcher]))
+     (map->RegisterVM (merge (vm/empty-state (select-keys opts [:primitives]))
                              {:regs [],
                               :k nil,
                               :env env,

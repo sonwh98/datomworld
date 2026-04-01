@@ -1,14 +1,34 @@
 (ns yin.vm.register-test
   (:require
     [clojure.test :refer [deftest is testing]]
-    [dao.stream]
+    [dao.stream :as ds]
+    [dao.stream.call :as dao.stream.call]
     [yin.vm :as vm]
+    [yin.vm.engine :as engine]
     [yin.vm.register :as register]))
 
 
 ;; =============================================================================
 ;; Bytecode VM tests (full pipeline through numeric bytecode)
 ;; =============================================================================
+
+(defn- bridge-step
+  [vm handlers cursor]
+  (let [call-in (get (vm/store vm) vm/call-in-stream-key)
+        {:keys [ok cursor']} (ds/next call-in cursor)]
+    (if ok
+      (let [{call-id :dao.stream/call-id, call-op :dao.stream/call-op, call-args :dao.stream/call-args} ok
+            result (apply (get handlers call-op) (or call-args []))
+            call-out (get (vm/store vm) vm/call-out-stream-key)
+            ;; ds/put! on RingBufferStream returns woken entries
+            put-result (ds/put! call-out (dao.stream.call/call-response call-id result))
+            woke (:woke put-result)
+            ;; Use engine helper to transform woken entries into run-queue entries
+            entries (engine/make-woken-run-queue-entries vm woke)
+            vm' (update vm :run-queue (fnil into []) entries)]
+        [vm' cursor'])
+      [vm cursor])))
+
 
 (defn compile-and-run-bc
   "Compile AST to datoms and run to completion."
@@ -51,8 +71,10 @@
 (deftest cesk-state-test
   (testing "Initial state"
     (let [vm (register/create-vm)]
-      (is (contains? (vm/store vm) vm/ffi-out-stream-key))
-      (is (contains? (vm/store vm) vm/ffi-out-cursor-key))
+      (is (contains? (vm/store vm) vm/call-in-stream-key))
+      (is (contains? (vm/store vm) vm/call-in-cursor-key))
+      (is (contains? (vm/store vm) vm/call-out-stream-key))
+      (is (contains? (vm/store vm) vm/call-out-cursor-key))
       (is (nil? (vm/continuation vm)))))
   (testing "After load-program, control has bytecode"
     (let [vm (load-ast {:type :literal, :value 42})
@@ -63,8 +85,8 @@
     (let [vm (-> (load-ast {:type :literal, :value 42})
                  (vm/run))]
       (is (nil? (vm/continuation vm)))
-      (is (contains? (vm/store vm) vm/ffi-out-stream-key))
-      (is (contains? (vm/store vm) vm/ffi-out-cursor-key))
+      (is (contains? (vm/store vm) vm/call-in-stream-key))
+      (is (contains? (vm/store vm) vm/call-out-stream-key))
       (is (= 42 (vm/value vm)))))
   (testing "Environment stores lexical bindings only"
     (let [vm (register/create-vm {:env {'x 1}})]
@@ -121,15 +143,17 @@
 
 
 (deftest ffi-call-eval-test
-  (testing "Register VM executes ffi/call via bridge dispatcher"
+  (testing "Register VM executes ffi/call via DaoCall streams"
     (let [ast {:type :ffi/call,
                :op :op/echo,
                :operands [{:type :literal, :value 42}]}
-          result (vm/eval (register/create-vm
-                            {:bridge-dispatcher {:op/echo identity}})
-                          ast)]
-      (is (vm/halted? result))
-      (is (= 42 (vm/value result))))))
+          vm (register/create-vm)
+          result-parked (vm/eval vm ast)]
+      (is (vm/blocked? result-parked))
+      (let [[vm' _cursor'] (bridge-step result-parked {:op/echo identity} {:position 0})
+            result (vm/eval vm' nil)]
+        (is (vm/halted? result))
+        (is (= 42 (vm/value result)))))))
 
 
 (deftest bytecode-basic-test

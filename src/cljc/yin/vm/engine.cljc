@@ -47,7 +47,7 @@
   (and (not (:blocked vm)) (not (:halted vm))))
 
 
-(defn- make-woken-run-queue-entries
+(defn make-woken-run-queue-entries
   "Transform transport-level woken entries (readers or writers) into run-queue entries.
    Readers (with :cursor-ref) compute :store-updates for cursor advance.
    Writers (no :cursor-ref) just stamp :value."
@@ -173,61 +173,6 @@
 (declare handle-effect resume-continuation)
 
 
-(defn enqueue-ffi-request
-  "Append an FFI request to the shared outbound stream.
-   Request shape:
-   {:op keyword :args vector :parked-id keyword}."
-  [state request]
-  (let [{:keys [state blocked?]}
-        (handle-effect state
-                       {:effect :stream/put,
-                        :stream {:type :stream-ref, :id vm/ffi-out-stream-key},
-                        :val request}
-                       {})]
-    (if blocked?
-      (throw (ex-info "FFI out stream must not block"
-                      {:request request}))
-      state)))
-
-
-(defn check-ffi-out
-  "Idle handler for FFI requests.
-   Performs one non-blocking read from :yin/ffi-out-cursor.
-   If a request is available, dispatches through :bridge-dispatcher and enqueues
-   the resumed continuation into :run-queue."
-  [state]
-  (if (and (contains? (:store state) vm/ffi-out-stream-key)
-           (contains? (:store state) vm/ffi-out-cursor-key))
-    (let [result (stream/handle-next state
-                                     {:effect :stream/next,
-                                      :cursor {:type :cursor-ref,
-                                               :id vm/ffi-out-cursor-key}})]
-      (if (:park result)
-        state
-        (let [state' (:state result)
-              request (:value result)]
-          (if (map? request)
-            (let [{:keys [op args parked-id]} request
-                  handler (get (:bridge-dispatcher state') op)]
-              (when-not parked-id
-                (throw (ex-info "FFI request missing parked-id"
-                                {:request request})))
-              (when-not (fn? handler)
-                (throw (ex-info "No FFI handler registered for op"
-                                {:op op})))
-              (let [resume-val (apply handler (or args []))]
-                (resume-continuation state'
-                                     parked-id
-                                     resume-val
-                                     (fn [new-state parked rv]
-                                       (update new-state
-                                               :run-queue
-                                               (fnil conj [])
-                                               (assoc parked :value rv))))))
-            state'))))
-    state))
-
-
 (defn run-loop
   "Generic eval loop with scheduler support.
    active? is a predicate that returns true when the VM should keep stepping.
@@ -236,9 +181,7 @@
   [state active? step-fn resume-fn]
   (loop [v state]
     (cond (active? v) (recur (step-fn v))
-          (:blocked v) (let [v' (-> v
-                                    check-wait-set
-                                    check-ffi-out)]
+          (:blocked v) (let [v' (check-wait-set v)]
                          (if-let [resumed (resume-fn v')]
                            (recur resumed)
                            v'))
