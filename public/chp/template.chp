@@ -44,6 +44,7 @@
      [:a {:href "/yang.chp"} "Yang"]
      [:a {:href "/dao-stream.chp"} "DaoStream"]
      [:a {:href "/dao-db.chp"} "DaoDB"]
+     [:a {:href "/dao-space.chp"} "DaoSpace"]
      [:a {:href "/dao-flow.chp"} "DaoFlow"]
      [:a {:href "/shibi.chp"} "Shibi"]
      [:a {:href "/blog/index.chp"} "Blog"]

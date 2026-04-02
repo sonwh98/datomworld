@@ -101,6 +101,9 @@
           "LocalStorage becomes "
           [:a {:href "/dao-db.chp"} "DaoDB"]
           ", an app that materializes queryable indexes from those streams. "
+          "The shared coordination space becomes "
+          [:a {:href "/dao-space.chp"} "DaoSpace"]
+          ", a tuple space implementation that enables stigmergic coordination between agents via Datalog queries over shared streams. "
           "And instead of the DOM, "
           [:a {:href "/dao-flow.chp"} "DaoFlow"]
           " interprets streams as renderable interfaces, treating the UI as an emergent view of living data."]
