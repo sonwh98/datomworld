@@ -13,7 +13,7 @@
   (let [stream-ref (vm/value vm-state)
         stream-id (:id stream-ref)
         stream (get (vm/store vm-state) stream-id)]
-    (:capacity stream)))
+    (.-capacity stream)))
 
 
 (defn- ast-walker-stream-make-default-vm

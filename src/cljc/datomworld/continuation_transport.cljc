@@ -23,7 +23,7 @@
   "Append one datom-like event record to transport.
    Returns [transport' datom]."
   [transport a v]
-  (let [len (ds/count-available transport)
+  (let [len (count transport)
         e (+ 7000 len)
         t (+ 1 len)
         datom [e a v t 0]
@@ -35,7 +35,7 @@
   "Append a continuation summary to transport and store the full continuation
    payload off-stream in :pending-continuations."
   [state summary continuation]
-  (let [pos (ds/count-available (:continuation-stream state))
+  (let [pos (count (:continuation-stream state))
         [transport* _] (append-datom (:continuation-stream state)
                                      :stream/continuation
                                      summary)]

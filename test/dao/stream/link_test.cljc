@@ -72,7 +72,7 @@
     (let [local (make-stream)
           state (link/make-link-state local)]
       (is (= local (:local-stream state)))
-      (is (= 0 (ds/count-available (:remote-stream state))))
+      (is (= 0 (count (:remote-stream state))))
       (is (= 0 (:local-pos state)))
       (is (= 0 (:remote-pos state)))
       (is (= :connecting (:status state))))))
@@ -88,7 +88,7 @@
           state (link/make-link-state local)
           msg (link/put-msg [[:e1 :a1 :v1 0 0] [:e2 :a2 :v2 1 0]] 0)
           state' (link/handle-put state msg)]
-      (is (= 2 (ds/count-available (:remote-stream state'))))
+      (is (= 2 (count (:remote-stream state'))))
       (is (= 2 (:remote-pos state')))
       (is (= [:e1 :a1 :v1 0 0] (first (stream->vec (:remote-stream state')))))
       (is (= [:e2 :a2 :v2 1 0]
@@ -99,7 +99,7 @@
           state' (-> state
                      (link/handle-put (link/put-msg [[:a]] 0))
                      (link/handle-put (link/put-msg [[:b]] 1)))]
-      (is (= 2 (ds/count-available (:remote-stream state'))))
+      (is (= 2 (count (:remote-stream state'))))
       (is (= [[:a] [:b]] (stream->vec (:remote-stream state')))))))
 
 
@@ -146,7 +146,7 @@
           state' (link/handle-sync-response state msg)]
       (is (= :connected (:status state')))
       (is (= 2 (:remote-pos state')))
-      (is (= 2 (ds/count-available (:remote-stream state'))))
+      (is (= 2 (count (:remote-stream state'))))
       (is (= [[:d1] [:d2]] (stream->vec (:remote-stream state')))))))
 
 
@@ -172,7 +172,7 @@
     (let [local (make-stream)
           state (link/make-link-state local)
           [state' msg] (link/local-put state [:e :a :v 0 0])]
-      (is (= 1 (ds/count-available (:local-stream state'))))
+      (is (= 1 (count (:local-stream state'))))
       (is (= 1 (:local-pos state')))
       (is (= :datom/put (:type msg)))
       (is (= [[:e :a :v 0 0]] (:datoms msg)))
@@ -196,7 +196,7 @@
           state (link/make-link-state local)]
       (testing "put dispatch"
         (let [[state' response] (link/dispatch state (link/put-msg [[:d1]] 0))]
-          (is (= 1 (ds/count-available (:remote-stream state'))))
+          (is (= 1 (count (:remote-stream state'))))
           (is (nil? response))))
       (testing "sync-request dispatch"
         (let [[_ response] (link/dispatch state (link/sync-request-msg 0))]
@@ -250,10 +250,10 @@
           ;; B handles A's sync-response (A had two datoms)
           [state-b'' _] (link/dispatch state-b' resp-a)]
       ;; A's remote-stream should be empty (B had nothing)
-      (is (= 0 (ds/count-available (:remote-stream state-a''))))
+      (is (= 0 (count (:remote-stream state-a''))))
       (is (= :connected (:status state-a'')))
       ;; B's remote-stream should have A's two datoms
-      (is (= 2 (ds/count-available (:remote-stream state-b''))))
+      (is (= 2 (count (:remote-stream state-b''))))
       (is (= :connected (:status state-b'')))
       (is (= [-1 :yin/type :literal 0 0]
              (first (stream->vec (:remote-stream state-b'')))))

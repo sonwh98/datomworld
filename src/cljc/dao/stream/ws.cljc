@@ -12,8 +12,7 @@
      IDaoStreamBound  — close! and closed? manage lifecycle
 
    Utilities (non-protocol):
-     drain-one!      — destructive read from remote-stream (legacy support)
-     count-available — count of received (unread) datoms (metadata query)"
+     drain-one!      — destructive read from remote-stream (legacy support)"
   (:require
     [dao.stream :as ds]
     [dao.stream.link :as link]

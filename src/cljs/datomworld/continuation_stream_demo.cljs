@@ -724,7 +724,7 @@
               :stack-vm-control (vm-control-counter :stack-vm stack-vm),
               :register-cursor (get-in cursors [:register-vm :position]),
               :stack-cursor (get-in cursors [:stack-vm :position]),
-              :stream-length (ds/count-available continuation-stream),
+              :stream-length (count continuation-stream),
               :completed? completed?,
               :result result}]
          [:div

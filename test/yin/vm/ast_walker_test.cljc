@@ -526,7 +526,7 @@
           stream-id (:id (vm/value vm))
           stream (get (vm/store vm) stream-id)]
       (is (some? stream))
-      (is (= 1024 (:capacity stream))))))
+      (is (= 1024 (.-capacity stream))))))
 
 
 (deftest stream-put-test
@@ -544,7 +544,7 @@
                            (vm/run))
           stream (get (vm/store vm-after-put) stream-id)]
       (is (= 42 (vm/value vm-after-put)))
-      (is (= 1 (dao.stream/count-available stream)))))
+      (is (= 1 (count stream)))))
   (testing "stream/put multiple values"
     (let [vm-with-stream (-> (ast-walker/create-vm)
                              (vm/load-program {:type :stream/make, :buffer 10})
@@ -561,7 +561,7 @@
                             (vm/load-program (put-ast 2))
                             (vm/run))
           stream (get (vm/store vm-after-puts) stream-id)]
-      (is (= 2 (dao.stream/count-available stream))))))
+      (is (= 2 (count stream))))))
 
 
 (deftest stream-cursor-next-test

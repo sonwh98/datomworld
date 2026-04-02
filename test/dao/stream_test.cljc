@@ -22,7 +22,7 @@
   (testing "Fresh RingBufferStream is open and empty"
     (let [s (make-stream)]
       (is (false? (ds/closed? s)))
-      (is (= 0 (ds/count-available s))))))
+      (is (= 0 (count s))))))
 
 
 (deftest put-take-test
@@ -30,11 +30,11 @@
     (let [s (make-stream)]
       (is (= :ok (:result (ds/put! s :a))))
       (is (= :ok (:result (ds/put! s :b))))
-      (is (= 2 (ds/count-available s)))
+      (is (= 2 (count s)))
       (is (= :a (:ok (ds/drain-one! s))))
-      (is (= 1 (ds/count-available s)))
+      (is (= 1 (count s)))
       (is (= :b (:ok (ds/drain-one! s))))
-      (is (= 0 (ds/count-available s))))))
+      (is (= 0 (count s))))))
 
 
 (deftest cursor-next-test
@@ -45,7 +45,7 @@
           r1 (ds/next s {:position 0})]
       (is (= :a (:ok r1)))
       (is (= {:position 1} (:cursor r1)))
-      (is (= 2 (ds/count-available s)) "next does not consume")
+      (is (= 2 (count s)) "next does not consume")
       (let [r2 (ds/next s (:cursor r1))]
         (is (= :b (:ok r2)))
         (is (= {:position 2} (:cursor r2))))))
@@ -85,15 +85,15 @@
 (deftest length-test
   (testing "length tracks puts and takes"
     (let [s (make-stream)]
-      (is (= 0 (ds/count-available s)))
+      (is (= 0 (count s)))
       (ds/put! s :a)
-      (is (= 1 (ds/count-available s)))
+      (is (= 1 (count s)))
       (ds/put! s :b)
-      (is (= 2 (ds/count-available s)))
+      (is (= 2 (count s)))
       (ds/drain-one! s)
-      (is (= 1 (ds/count-available s)))
+      (is (= 1 (count s)))
       (ds/drain-one! s)
-      (is (= 0 (ds/count-available s))))))
+      (is (= 0 (count s))))))
 
 
 (deftest gap-test
@@ -133,7 +133,7 @@
           _ (ds/put! s :beta)
           values (vec (ds/->seq nil s))]
       (is (= [:alpha :beta] values))
-      (is (= 2 (ds/count-available s))
+      (is (= 2 (count s))
           "Calling next via ->seq must not consume values"))))
 
 
@@ -178,7 +178,7 @@
           r1 (ds/next s1 {:position 0})
           recovered-s2 (:ok r1)]
       (is (some? recovered-s2) "Recovered value should be a stream")
-      (is (= 1 (ds/count-available recovered-s2)) "Recovered stream should have 1 value")
+      (is (= 1 (count recovered-s2)) "Recovered stream should have 1 value")
       (let [r2 (ds/next recovered-s2 {:position 0})]
         (is (= :payload (:ok r2))
             "Reading from recovered stream yields the original value")))))
@@ -235,7 +235,7 @@
       (ds/put! s :a)
       (ds/put! s :b)
       (ds/drain-one! s)
-      (let [state @(:state-atom s)]
+      (let [state @(.-state-atom s)]
         (is (not (contains? (:buffer state) 0)) "Entry at index 0 should be removed after take!")
         (is (contains? (:buffer state) 1) "Entry at index 1 should still be present")))))
 
@@ -262,7 +262,7 @@
       (ds/put! s :a)
       (ds/drain-one! s)
       (ds/put! s :b)
-      (let [state @(:state-atom s)]
+      (let [state @(.-state-atom s)]
         (is (= 1 (:head state)) "head should be 1 after one take!")
         (is (= 2 (:tail state)) "tail should be 2 after two puts!"))
       (is (= :b (:ok (ds/drain-one! s)))))))
@@ -300,7 +300,7 @@
   (testing "open! with nil :capacity is unbounded"
     (let [s (ds/open! {:transport {:type :ringbuffer :mode :create :capacity nil}})]
       (dotimes [i 1000] (ds/put! s i))
-      (is (= 1000 (ds/count-available s))))))
+      (is (= 1000 (count s))))))
 
 
 ;; =============================================================================
@@ -371,3 +371,17 @@
           "no writer datom should appear after the original closed-stream value")
       (is (= :end (ds/drain-one! s))
           "closed stream should be drained after its original value"))))
+
+
+(deftest clojure-core-count-test
+  (testing "RingBufferStream supports clojure.core/count"
+    (let [s (make-stream)]
+      (is (= 0 (count s)) "Empty stream has count 0")
+      (ds/put! s :a)
+      (is (= 1 (count s)) "Stream with 1 item has count 1")
+      (ds/put! s :b)
+      (is (= 2 (count s)) "Stream with 2 items has count 2")
+      (ds/drain-one! s)
+      (is (= 1 (count s)) "After draining 1, count is 1")
+      (ds/drain-one! s)
+      (is (= 0 (count s)) "After draining all, count is 0"))))

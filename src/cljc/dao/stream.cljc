@@ -104,87 +104,187 @@
 ;; When drain-one! frees space and (seq writer-waiters) is true:
 ;;   the first writer is popped, its datom written to buffer[tail], and returned in {:woke [...]}
 
-(defrecord RingBufferStream
-  [capacity state-atom]
+#?(:clj
+   (deftype RingBufferStream
+     [capacity state-atom]
 
-  IDaoStreamWriter
+     clojure.lang.Counted
 
-  (put!
-    [_this val]
-    (let [result (swap! state-atom
-                        (fn [s]
-                          (let [head (:head s)
-                                tail (:tail s)
-                                available (- tail head)]
-                            (cond
-                              (:closed s)
-                              (assoc s ::put-result ::closed)
-                              (and capacity (>= available capacity))
-                              (assoc s ::put-result :full)
-                              :else
-                              (let [woken-entry (get (:reader-waiters s) tail)
-                                    next-state (-> s
-                                                   (assoc-in [:buffer tail] val)
-                                                   (update :tail inc))]
-                                (if woken-entry
-                                  (-> next-state
-                                      (update :reader-waiters dissoc tail)
-                                      (assoc ::put-result {:ok :ok, :woken-entry woken-entry}))
-                                  (assoc next-state ::put-result {:ok :ok})))))))]
-      (when (= (::put-result result) ::closed)
-        (throw (ex-info "Cannot put to closed stream" {})))
-      (let [{:keys [woken-entry]} (::put-result result)]
-        (if (= :full (::put-result result))
-          {:result :full}
-          {:result :ok,
-           :woke (if woken-entry
-                   [{:entry woken-entry, :value val, :position (dec (:tail result))}]
-                   [])}))))
+     (count
+       [_]
+       (let [state @state-atom]
+         (- (:tail state) (:head state))))
 
 
-  IDaoStreamReader
+     IDaoStreamWriter
 
-  (next
-    [_this cursor]
-    (let [pos (:position cursor)
-          state @state-atom
-          head (:head state)
-          tail (:tail state)]
-      (cond (< pos head) :daostream/gap
-            (< pos tail) {:ok (get-in state [:buffer pos]),
-                          :cursor (update cursor :position inc)}
-            (:closed state) :end
-            :else :blocked)))
-
-
-  IDaoStreamBound
-
-  (close!
-    [_this]
-    (let [state @state-atom]
-      (swap! state-atom
-             (fn [s]
-               (assoc s :closed true :reader-waiters {} :writer-waiters [])))
-      (let [reader-woken (mapv (fn [[_pos entry]] {:entry entry, :value nil})
-                               (:reader-waiters state))
-            writer-woken (mapv (fn [entry] {:entry entry, :value nil})
-                               (:writer-waiters state))]
-        {:woke (into reader-woken writer-woken)})))
-
-
-  (closed? [_this] (:closed @state-atom))
-
-
-  IDaoStreamWaitable
-
-  (register-reader-waiter!
-    [_this position entry]
-    (swap! state-atom assoc-in [:reader-waiters position] entry))
+     (put!
+       [_this val]
+       (let [result (swap! state-atom
+                           (fn [s]
+                             (let [head (:head s)
+                                   tail (:tail s)
+                                   available (- tail head)]
+                               (cond
+                                 (:closed s)
+                                 (assoc s ::put-result ::closed)
+                                 (and capacity (>= available capacity))
+                                 (assoc s ::put-result :full)
+                                 :else
+                                 (let [woken-entry (get (:reader-waiters s) tail)
+                                       next-state (-> s
+                                                      (assoc-in [:buffer tail] val)
+                                                      (update :tail inc))]
+                                   (if woken-entry
+                                     (-> next-state
+                                         (update :reader-waiters dissoc tail)
+                                         (assoc ::put-result {:ok :ok, :woken-entry woken-entry}))
+                                     (assoc next-state ::put-result {:ok :ok})))))))]
+         (when (= (::put-result result) ::closed)
+           (throw (ex-info "Cannot put to closed stream" {})))
+         (let [{:keys [woken-entry]} (::put-result result)]
+           (if (= :full (::put-result result))
+             {:result :full}
+             {:result :ok,
+              :woke (if woken-entry
+                      [{:entry woken-entry, :value val, :position (dec (:tail result))}]
+                      [])}))))
 
 
-  (register-writer-waiter!
-    [_this entry]
-    (swap! state-atom update :writer-waiters conj entry)))
+     IDaoStreamReader
+
+     (next
+       [_this cursor]
+       (let [pos (:position cursor)
+             state @state-atom
+             head (:head state)
+             tail (:tail state)]
+         (cond (< pos head) :daostream/gap
+               (< pos tail) {:ok (get-in state [:buffer pos]),
+                             :cursor (update cursor :position inc)}
+               (:closed state) :end
+               :else :blocked)))
+
+
+     IDaoStreamBound
+
+     (close!
+       [_this]
+       (let [state @state-atom]
+         (swap! state-atom
+                (fn [s]
+                  (assoc s :closed true :reader-waiters {} :writer-waiters [])))
+         (let [reader-woken (mapv (fn [[_pos entry]] {:entry entry, :value nil})
+                                  (:reader-waiters state))
+               writer-woken (mapv (fn [entry] {:entry entry, :value nil})
+                                  (:writer-waiters state))]
+           {:woke (into reader-woken writer-woken)})))
+
+
+     (closed? [_this] (:closed @state-atom))
+
+
+     IDaoStreamWaitable
+
+     (register-reader-waiter!
+       [_this position entry]
+       (swap! state-atom assoc-in [:reader-waiters position] entry))
+
+
+     (register-writer-waiter!
+       [_this entry]
+       (swap! state-atom update :writer-waiters conj entry)))
+
+   :cljs
+   (deftype RingBufferStream
+     [capacity state-atom]
+
+     ICounted
+
+     (-count
+       [_]
+       (let [state @state-atom]
+         (- (:tail state) (:head state))))
+
+
+     IDaoStreamWriter
+
+     (put!
+       [_this val]
+       (let [result (swap! state-atom
+                           (fn [s]
+                             (let [head (:head s)
+                                   tail (:tail s)
+                                   available (- tail head)]
+                               (cond
+                                 (:closed s)
+                                 (assoc s ::put-result ::closed)
+                                 (and capacity (>= available capacity))
+                                 (assoc s ::put-result :full)
+                                 :else
+                                 (let [woken-entry (get (:reader-waiters s) tail)
+                                       next-state (-> s
+                                                      (assoc-in [:buffer tail] val)
+                                                      (update :tail inc))]
+                                   (if woken-entry
+                                     (-> next-state
+                                         (update :reader-waiters dissoc tail)
+                                         (assoc ::put-result {:ok :ok, :woken-entry woken-entry}))
+                                     (assoc next-state ::put-result {:ok :ok})))))))]
+         (when (= (::put-result result) ::closed)
+           (throw (ex-info "Cannot put to closed stream" {})))
+         (let [{:keys [woken-entry]} (::put-result result)]
+           (if (= :full (::put-result result))
+             {:result :full}
+             {:result :ok,
+              :woke (if woken-entry
+                      [{:entry woken-entry, :value val, :position (dec (:tail result))}]
+                      [])}))))
+
+
+     IDaoStreamReader
+
+     (next
+       [_this cursor]
+       (let [pos (:position cursor)
+             state @state-atom
+             head (:head state)
+             tail (:tail state)]
+         (cond (< pos head) :daostream/gap
+               (< pos tail) {:ok (get-in state [:buffer pos]),
+                             :cursor (update cursor :position inc)}
+               (:closed state) :end
+               :else :blocked)))
+
+
+     IDaoStreamBound
+
+     (close!
+       [_this]
+       (let [state @state-atom]
+         (swap! state-atom
+                (fn [s]
+                  (assoc s :closed true :reader-waiters {} :writer-waiters [])))
+         (let [reader-woken (mapv (fn [[_pos entry]] {:entry entry, :value nil})
+                                  (:reader-waiters state))
+               writer-woken (mapv (fn [entry] {:entry entry, :value nil})
+                                  (:writer-waiters state))]
+           {:woke (into reader-woken writer-woken)})))
+
+
+     (closed? [_this] (:closed @state-atom))
+
+
+     IDaoStreamWaitable
+
+     (register-reader-waiter!
+       [_this position entry]
+       (swap! state-atom assoc-in [:reader-waiters position] entry))
+
+
+     (register-writer-waiter!
+       [_this entry]
+       (swap! state-atom update :writer-waiters conj entry))))
 
 
 (defmethod open! :ringbuffer [descriptor]
@@ -210,7 +310,7 @@
   [stream]
   (cond
     (instance? RingBufferStream stream)
-    (let [{:keys [state-atom]} stream
+    (let [state-atom (.-state-atom stream)
           result (swap! state-atom
                         (fn [s]
                           (let [head (:head s)
@@ -246,22 +346,6 @@
       (::take-result result))
     :else
     (throw (ex-info "drain-one! not supported for this stream transport" {:stream stream}))))
-
-
-(defn count-available
-  "Returns count of appended but unconsumed values in stream.
-
-   Transport-specific metadata query. NOT part of the canonical model. This count
-   is only meaningful for transports that track head/tail indices and is not a
-   reliable indicator of stream state (e.g., after drain-one!, counts change)."
-  [stream]
-  (cond
-    (instance? RingBufferStream stream)
-    (let [{:keys [state-atom]} stream
-          state @state-atom]
-      (- (:tail state) (:head state)))
-    :else
-    (throw (ex-info "count-available not supported for this stream transport" {:stream stream}))))
 
 
 (defn ->seq

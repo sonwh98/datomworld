@@ -131,8 +131,8 @@ Destructive consumption and stream metadata are available as utilities, not prot
 
 - `(drain-one! [stream])` → `{:ok val}`, `:empty` (open), or `:end` (closed).
   Destructively consumes one value. **Not part of the canonical model** — use `next` with cursor-based reading for reliable traversal.
-- `(count-available [stream])` → integer count of appended but unconsumed values.
-  Transport-specific metadata query. Not part of the canonical model.
+- `(count stream)` → integer count of retained values for streams that choose to implement the host `Counted` protocol.
+  `Counted` is optional. When a concrete stream type supports it, `count` is valid as transport-specific metadata, not as part of the canonical stream model.
 - `(->seq [stream])` → lazy Clojure sequence.
   Snapshot-based traversal at call time. Live growth handled via cursors, not sequences.
 
@@ -609,6 +609,7 @@ DaoStream makes no assumptions about the transport's internals. The only contrac
   - Bounded capacity with `:full` return on overflow.
   - Factory: `open!` with `:ringbuffer` transport type.
   - Extends `IDaoStreamReader`, `IDaoStreamWriter`, `IDaoStreamBound`.
+  - Optionally implements host `Counted`; in the current implementation `(count stream)` returns `(- tail head)`.
 - Cursor-based `next` method returns `{:ok val :cursor cursor'}`, `:blocked`, `:end`, or `:daostream/gap`.
 - `IDaoStreamWaitable` protocol for transport-local waiter registration:
   - `register-reader-waiter!` stores reader wake entries indexed by cursor position.
@@ -618,7 +619,6 @@ DaoStream makes no assumptions about the transport's internals. The only contrac
   - `->seq` lazy sequence walks with cursor; terminates at `:blocked`, `:end`, or gap.
   - `drain-one!` destructively consumes one value AND wakes registered writers (returns `{:ok val, :woke [...]}`).
     When a writer is woken, its datom is atomically written to the stream. If a reader is waiting at the new position, both wake together.
-  - `count-available` returns count of appended but unconsumed values (transport-specific metadata).
 - Descriptor shape (current): `{:transport {:type :ringbuffer :mode :create :capacity nil-or-int}}`.
 - `check-wait-set` remains the universal polling fallback for non-waitable streams,
   handling `:next`, `:put`, and `:take` in current runtimes. Waitable transports
