@@ -176,3 +176,28 @@
               (set! (.-onmessage ws) #(on-message! stream (.-data %)))
               (set! (.-onclose ws) #(on-close! stream))
               stream))))
+
+
+;; =============================================================================
+;; Descriptor-based open! integration
+;; =============================================================================
+
+#?(:clj
+   (defmethod ds/open! :websocket
+     [descriptor]
+     (let [{:keys [mode url port capacity]} (:transport descriptor)]
+       (case mode
+         :listen  (listen! port {:capacity capacity})
+         :connect (connect! url {:capacity capacity})
+         (throw (ex-info "websocket transport mode must be :listen or :connect"
+                         {:descriptor descriptor, :mode mode}))))))
+
+
+#?(:cljs
+   (defmethod ds/open! :websocket
+     [descriptor]
+     (let [{:keys [mode url capacity]} (:transport descriptor)]
+       (case mode
+         :connect (connect! url {:capacity capacity})
+         (throw (ex-info "websocket mode :listen not supported in CLJS (use :connect)"
+                         {:descriptor descriptor, :mode mode}))))))
