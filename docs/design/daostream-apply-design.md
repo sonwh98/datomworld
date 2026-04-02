@@ -120,13 +120,12 @@ response stream.
 Caller (Yin VM executing :dao.stream.apply/call)
   1. Evaluate operands → [val1 val2]
   2. Call engine/park-continuation → {:type :parked-continuation :id :parked-0 ...}
-  3. Advance ::call-out-cursor from position 0 to 1
-  4. Call register-reader-waiter! on call-out stream at position 0
+  3. Register as reader-waiter on call-out stream at current cursor position
      (waiter entry contains the parked continuation's stack, env)
-  5. Call put! on call-in stream: {:dao.stream.apply/id :parked-0 :dao.stream.apply/op :op/add
+  4. Call put! on call-in stream: {:dao.stream.apply/id :parked-0 :dao.stream.apply/op :op/add
                                     :dao.stream.apply/args [10 20]}
-  6. Set :blocked true, return control to run-loop
-  7. run-loop continues with next runnable continuation (no spin, no poll)
+  5. Set :blocked true, return control to run-loop
+  6. run-loop continues with next runnable continuation (no spin, no poll)
 
 Idle Loop (engine)
   When run-queue and wait-set exhausted:
@@ -269,7 +268,7 @@ with `park-and-call` (which registers a waiter, writes a request, and parks).
 
 **Old (current) behavior**:
 ```
-:dao.stream.apply/call → park → write to ::call-out → return blocked
+:dao.stream.apply/call → park → write to ::call-in → return blocked
            (no waiter registration; polling happens at idle via check-call-out)
 ```
 

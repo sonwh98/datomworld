@@ -21,6 +21,7 @@ The design rests on three principles:
                  │          :cursor   {...}}│
                  │ :store                   │
                  │   :yin/call-in           │──► stream (request)
+                 │   :yin/call-in-cursor    │──► read head for request (bridge)
                  │   :yin/call-out          │◄── stream (response)
                  │   :yin/call-out-cursor   │◄── read head for response
                  └──────────────────────────┘
