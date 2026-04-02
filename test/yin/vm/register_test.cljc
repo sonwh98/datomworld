@@ -4,7 +4,7 @@
        :cljs [cljs.reader :as reader])
     [clojure.test :refer [deftest is testing]]
     [dao.stream :as ds]
-    [dao.stream.call :as dao.stream.call]
+    [dao.stream.apply :as dao.stream.apply]
     [yang.clojure :as yang]
     [yin.vm :as vm]
     [yin.vm.engine :as engine]
@@ -21,11 +21,13 @@
         {:keys [ok] :as next-result} (ds/next call-in cursor)
         cursor' (:cursor next-result)]
     (if ok
-      (let [{call-id :dao.stream/call-id, call-op :dao.stream/call-op, call-args :dao.stream/call-args} ok
-            result (apply (get handlers call-op) (or call-args []))
+      (let [{request-id :dao.stream.apply/id
+             request-op :dao.stream.apply/op
+             request-args :dao.stream.apply/args} ok
+            result (apply (get handlers request-op) (or request-args []))
             call-out (get (vm/store vm) vm/call-out-stream-key)
             ;; ds/put! on RingBufferStream returns woken entries
-            put-result (ds/put! call-out (dao.stream.call/call-response call-id result))
+            put-result (ds/put! call-out (dao.stream.apply/response request-id result))
             woke (:woke put-result)
             ;; Use engine helper to transform woken entries into run-queue entries
             entries (engine/make-woken-run-queue-entries vm woke)
@@ -161,7 +163,7 @@
 
 
 (deftest repeated-ffi-call-program-test
-  (testing "Register VM halts after many sequential ffi/call cycles"
+  (testing "Register VM halts after many sequential ffi/call cycles via create-vm bridge"
     (let [source "(defn plot-loop [i]
   (if (> i 199)
     nil
@@ -176,19 +178,15 @@
           calls (atom [])
           handlers {:plot/point (fn [x y]
                                   (swap! calls conj [x y])
-                                  nil)}]
-      (loop [v (-> (register/create-vm)
-                   (vm/load-program program)
-                   (vm/run))
-             cursor {:position 0}]
-        (if (vm/halted? v)
-          (do
-            (is (nil? (vm/value v)))
-            (is (= 200 (count @calls)))
-            (is (= [0 0] (first @calls)))
-            (is (= [199 39601] (last @calls))))
-          (let [[v' cursor'] (bridge-step v handlers cursor)]
-            (recur (vm/run v') cursor')))))))
+                                  nil)}
+          result (-> (register/create-vm {:bridge handlers})
+                     (vm/load-program program)
+                     (vm/run))]
+      (is (vm/halted? result))
+      (is (nil? (vm/value result)))
+      (is (= 200 (count @calls)))
+      (is (= [0 0] (first @calls)))
+      (is (= [199 39601] (last @calls))))))
 
 
 (deftest bytecode-basic-test

@@ -1,8 +1,14 @@
-# DaoStreamCall Design: Generalized Async Call Protocol over DaoStream
+# DaoStreamApply Design: Clojure `apply` over DaoStream
 
 ## Overview
 
-DaoStreamCall is a generalized, transport-independent async call protocol built on top of DaoStream.
+DaoStreamApply is an implementation of Clojure `apply` across streams.
+It reifies function application as explicit DaoStream data: an operation plus evaluated
+arguments on a request stream, followed by the resulting value on a response stream.
+Unlike Clojure `apply`, which is synchronous and returns immediately in the current call
+stack, DaoStreamApply is asynchronous: the application is emitted as stream traffic and
+the caller resumes only when a response arrives.
+The protocol is transport-independent and built on top of DaoStream.
 It unifies:
 - In-process VM ↔ host bridge calls
 - Cross-process VM ↔ remote service calls (via WebSocket or any DaoStream transport)
@@ -16,7 +22,10 @@ deployment topology.
 
 ## Core Philosophy
 
-Everything is a stream. Calls are stream I/O. Continuations are readers. Responses are values.
+Everything is a stream. Function application is stream I/O. Continuations are readers. Responses are values.
+`apply` does not disappear into a host callback. It is represented directly as stream traffic.
+This is why DaoStreamApply is async even though Clojure `apply` is sync: the operation
+crosses a stream boundary and completion is represented by a later response.
 The protocol is minimal: five datom attributes, two stream descriptors, zero new VM opcodes,
 zero new scheduler logic. Transport is DaoStream. Scheduling is free.
 
@@ -26,12 +35,12 @@ zero new scheduler logic. Transport is DaoStream. Scheduling is free.
 
 ### Endpoint Descriptor
 
-A DaoStreamCall endpoint is a pair of stream descriptors:
+A DaoStreamApply endpoint is a pair of stream descriptors:
 
 ```clojure
 ;; Immutable, serializable, first-class value
-{:dao.stream/call-in  <stream-descriptor>    ;; callee reads requests here
- :dao.stream/call-out <stream-descriptor>}   ;; caller reads responses here
+{:dao.stream.apply/request  <stream-descriptor>    ;; callee reads requests here
+ :dao.stream.apply/response <stream-descriptor>}   ;; caller reads responses here
 ```
 
 Both descriptors conform to the DaoStream descriptor schema:
@@ -43,14 +52,14 @@ Both descriptors conform to the DaoStream descriptor schema:
 
 Example endpoint (in-process, unbounded):
 ```clojure
-{:dao.stream/call-in  {:transport {:type :ringbuffer :mode :create :capacity nil}}
- :dao.stream/call-out {:transport {:type :ringbuffer :mode :create :capacity nil}}}
+{:dao.stream.apply/request  {:transport {:type :ringbuffer :mode :create :capacity nil}}
+ :dao.stream.apply/response {:transport {:type :ringbuffer :mode :create :capacity nil}}}
 ```
 
 Example endpoint (cross-process, over WebSocket):
 ```clojure
-{:dao.stream/call-in  {:transport {:type :websocket :mode :connect :url "ws://host:port/in"}}
- :dao.stream/call-out {:transport {:type :websocket :mode :connect :url "ws://host:port/out"}}}
+{:dao.stream.apply/request  {:transport {:type :websocket :mode :connect :url "ws://host:port/in"}}
+ :dao.stream.apply/response {:transport {:type :websocket :mode :connect :url "ws://host:port/out"}}}
 ```
 
 **Key property (Channel Mobility)**: The endpoint descriptor is a plain value. It can be
@@ -63,19 +72,19 @@ is the detail; the endpoint is the contract.
 A caller emits a request on the `call-in` stream:
 
 ```clojure
-{:dao.stream/call-id   <keyword>    ;; opaque return address; usually a parked continuation ID
- :dao.stream/call-op   keyword      ;; operation name; opaque to the protocol
- :dao.stream/call-args vector}      ;; evaluated argument values [val1 val2 ...]
+{:dao.stream.apply/id   <keyword>    ;; opaque return address; usually a parked continuation ID
+ :dao.stream.apply/op   keyword      ;; operation name; opaque to the protocol
+ :dao.stream.apply/args vector}      ;; evaluated argument values [val1 val2 ...]
 ```
 
 Example request from a VM `:ffi/call`:
 ```clojure
-{:dao.stream/call-id   :parked-0
- :dao.stream/call-op   :op/add
- :dao.stream/call-args [10 20]}
+{:dao.stream.apply/id   :parked-0
+ :dao.stream.apply/op   :op/add
+ :dao.stream.apply/args [10 20]}
 ```
 
-The `:dao.stream/call-id` is the routing address for the response. The protocol does not
+The `:dao.stream.apply/id` is the routing address for the response. The protocol does not
 prescribe its format; the caller chooses it. A Yin VM uses the parked continuation's
 generated keyword (`:parked-N`). A stateless HTTP gateway might use a UUID.
 
@@ -84,17 +93,17 @@ generated keyword (`:parked-N`). A stateless HTTP gateway might use a UUID.
 A callee emits a response on the `call-out` stream:
 
 ```clojure
-{:dao.stream/call-id    <keyword>   ;; must match the request's :dao.stream/call-id
- :dao.stream/call-value <any>}      ;; the result value
+{:dao.stream.apply/id    <keyword>   ;; must match the request's :dao.stream.apply/id
+ :dao.stream.apply/value <any>}      ;; the result value
 ```
 
 Example response:
 ```clojure
-{:dao.stream/call-id    :parked-0
- :dao.stream/call-value 30}
+{:dao.stream.apply/id    :parked-0
+ :dao.stream.apply/value 30}
 ```
 
-The `:dao.stream/call-value` can be any Clojure value (or transit-serializable value for
+The `:dao.stream.apply/value` can be any Clojure value (or transit-serializable value for
 cross-process). Errors are represented as values (e.g., `{:error "..." :code ...}`) —
 the protocol has no exception semantics.
 
@@ -102,7 +111,7 @@ the protocol has no exception semantics.
 
 ## Scheduling Mechanism
 
-DaoStreamCall unifies with stream reading. A parked continuation IS a reader-waiter on the
+DaoStreamApply unifies with stream reading. A parked continuation IS a reader-waiter on the
 response stream.
 
 ### Call Sequence (Synchronous In-Process Example)
@@ -114,8 +123,8 @@ Caller (Yin VM executing :ffi/call)
   3. Advance ::call-out-cursor from position 0 to 1
   4. Call register-reader-waiter! on call-out stream at position 0
      (waiter entry contains the parked continuation's stack, env)
-  5. Call put! on call-in stream: {:dao.stream/call-id :parked-0 :dao.stream/call-op :op/add
-                                    :dao.stream/call-args [10 20]}
+  5. Call put! on call-in stream: {:dao.stream.apply/id :parked-0 :dao.stream.apply/op :op/add
+                                    :dao.stream.apply/args [10 20]}
   6. Set :blocked true, return control to run-loop
   7. run-loop continues with next runnable continuation (no spin, no poll)
 
@@ -126,10 +135,10 @@ Idle Loop (engine)
 
 Callee (Host Bridge, running in a thread or event loop)
   1. Call next on call-in stream at cursor {:position 0}
-  2. Read request: {:dao.stream/call-id :parked-0 :dao.stream/call-op :op/add :dao.stream/call-args [10 20]}
+  2. Read request: {:dao.stream.apply/id :parked-0 :dao.stream.apply/op :op/add :dao.stream.apply/args [10 20]}
   3. Dispatch: (get handlers :op/add) → the + function
   4. Call (apply + [10 20]) → 30
-  5. Call put! on call-out stream: {:dao.stream/call-id :parked-0 :dao.stream/call-value 30}
+  5. Call put! on call-out stream: {:dao.stream.apply/id :parked-0 :dao.stream.apply/value 30}
   6. Transport (RingBufferStream) checks: is there a reader-waiter at this position?
      Yes: returns {:result :ok :woke [{:entry waiter-entry :value response :position 0}]}
 
@@ -138,7 +147,7 @@ Transport (IDaoStreamWaitable)
   Woke entry:
     {:entry {:cursor-ref {:type :cursor-ref :id ::call-out-cursor}
              :stack [...] :env {...}}
-     :value {:dao.stream/call-id :parked-0 :dao.stream/call-value 30}
+     :value {:dao.stream.apply/id :parked-0 :dao.stream.apply/value 30}
      :position 0}
 
 Resume Path (engine/make-woken-run-queue-entries)
@@ -149,7 +158,7 @@ Resume Path (engine/make-woken-run-queue-entries)
      {:cursor-ref {...}
       :stack [...]
       :env {...}
-      :value {:dao.stream/call-id :parked-0 :dao.stream/call-value 30}
+      :value {:dao.stream.apply/id :parked-0 :dao.stream.apply/value 30}
       :store-updates {::call-out-cursor {:position 1}}}
 
 resume-from-run-queue (existing path)
@@ -162,7 +171,7 @@ resume-from-run-queue (existing path)
 
 VM resumes
   The :control `:value` node evaluates to the response-map. The :ffi/call AST node
-  extracts `:dao.stream/call-value` from it and returns that as the final result.
+  extracts `:dao.stream.apply/value` from it and returns that as the final result.
 ```
 
 ### Fallback Polling (Non-Waitable Transports)
@@ -202,7 +211,7 @@ any stream; it does not care whether the stream is waitable or not.
 
 ### Store Streams
 
-When a Yin VM is created, `empty-state` initializes two DaoStreamCall streams in the store:
+When a Yin VM is created, `empty-state` initializes two DaoStreamApply streams in the store:
 
 ```clojure
 {:store
@@ -235,7 +244,7 @@ The `:ffi/call` AST node is unchanged:
 
 ```clojure
 {:type     :ffi/call
- :op       keyword         ;; e.g. :op/add (becomes :dao.stream/call-op)
+ :op       keyword         ;; e.g. :op/add (becomes :dao.stream.apply/op)
  :operands [node1 node2]}  ;; expressions; evaluated before call
 ```
 
@@ -301,7 +310,7 @@ Pseudocode for `park-and-call`:
         call-in      (get-in parked [:store ::vm/call-in])
 
         ;; 5. Build and emit request
-        request      (dao.stream.call/call-request parked-id op args)
+        request      (dao.stream.apply/request parked-id op args)
         _            (ds/put! call-in request)]
 
     ;; 6. Return blocked state
@@ -322,14 +331,14 @@ entry to the scheduler's wait-set (fallback path). This is automatic; no special
 ### Response Extraction
 
 When a continuation resumes with the response map, the `:ffi/call` evaluation extracts
-`:dao.stream/call-value` and returns it as the call result.
+`:dao.stream.apply/value` and returns it as the application result.
 
 In `handle-return-value` (semantic.cljc), after the response is resumed:
 
 ```clojure
-;; response-map is: {:dao.stream/call-id :parked-0 :dao.stream/call-value result}
+;; response-map is: {:dao.stream.apply/id :parked-0 :dao.stream.apply/value result}
 :ffi/call
-(let [result-value (:dao.stream/call-value (get-in vm [:control :val]))]
+(let [result-value (:dao.stream.apply/value (get-in vm [:control :val]))]
   (assoc vm :control {:type :value :val result-value}))
 ```
 
@@ -339,9 +348,9 @@ and the VM code can inspect them if needed.
 
 ---
 
-## New File: `src/cljc/dao/stream/call.cljc`
+## New File: `src/cljc/dao/stream/apply.cljc`
 
-This file defines the DaoStreamCall protocol at the stream level, independent of any VM.
+This file defines the DaoStreamApply protocol at the stream level, independent of any VM.
 
 ### API
 
@@ -350,43 +359,48 @@ This file defines the DaoStreamCall protocol at the stream level, independent of
   "Create an endpoint descriptor from two stream descriptors.
 
   Args:
-    call-in-descriptor  - stream descriptor where callee reads requests
-    call-out-descriptor - stream descriptor where caller reads responses
+    request-descriptor  - stream descriptor where callee reads requests
+    response-descriptor - stream descriptor where caller reads responses
 
   Returns:
-    {:dao.stream/call-in <in-desc> :dao.stream/call-out <out-desc>}
+    {:dao.stream.apply/request <request-desc>
+     :dao.stream.apply/response <response-desc>}
 
   Example:
     (make-endpoint {:transport {:type :ringbuffer :capacity nil}}
                    {:transport {:type :ringbuffer :capacity nil}})"
-  [call-in-descriptor call-out-descriptor]
-  {:dao.stream/call-in call-in-descriptor
-   :dao.stream/call-out call-out-descriptor})
+  [request-descriptor response-descriptor]
+  {:dao.stream.apply/request request-descriptor
+   :dao.stream.apply/response response-descriptor})
 
-(defn call-request
+(defn request
   "Create a request datom.
 
   Args:
-    call-id - keyword or other opaque ID; must be present in response
-    op      - keyword naming the operation
-    args    - vector of argument values
+    id   - keyword or other opaque ID; must be present in response
+    op   - keyword naming the operation
+    args - vector of argument values
 
   Returns:
-    {:dao.stream/call-id <id> :dao.stream/call-op <op> :dao.stream/call-args <args>}"
-  [call-id op args]
-  {:dao.stream/call-id call-id :dao.stream/call-op op :dao.stream/call-args args})
+    {:dao.stream.apply/id <id>
+     :dao.stream.apply/op <op>
+     :dao.stream.apply/args <args>}"
+  [id op args]
+  {:dao.stream.apply/id id
+   :dao.stream.apply/op op
+   :dao.stream.apply/args args})
 
-(defn call-response
+(defn response
   "Create a response datom.
 
   Args:
-    call-id - keyword; must match request's :dao.stream/call-id for routing
-    value   - any value (result, error, etc.)
+    id    - keyword; must match request's :dao.stream.apply/id for routing
+    value - any value (result, error, etc.)
 
   Returns:
-    {:dao.stream/call-id <id> :dao.stream/call-value <value>}"
-  [call-id value]
-  {:dao.stream/call-id call-id :dao.stream/call-value value})
+    {:dao.stream.apply/id <id> :dao.stream.apply/value <value>}"
+  [id value]
+  {:dao.stream.apply/id id :dao.stream.apply/value value})
 ```
 
 **No scheduling or transport logic in this file.** Transport is DaoStream (caller's
@@ -490,7 +504,7 @@ Replace `park-and-enqueue-ffi` with `park-and-call`:
         _            (when (satisfies? ds/IDaoStreamWaitable call-out)
                        (ds/register-reader-waiter! call-out cursor-pos waiter-entry))
         call-in      (get-in parked [:store vm/call-in-stream-key])
-        request      (dao.stream.call/call-request parked-id op args)
+        request      (dao.stream.apply/request parked-id op args)
         _            (ds/put! call-in request)]
     (assoc parked
            :control nil
@@ -512,7 +526,7 @@ Update the `:ffi/call` case in `handle-node-eval`:
 
 Add requires:
 ```clojure
-[dao.stream.call :as dao.stream.call]
+[dao.stream.apply :as dao.stream.apply]
 ```
 
 ### Changes to `src/cljc/yin/vm/stack.cljc` and `src/cljc/yin/vm/register.cljc`
@@ -544,7 +558,7 @@ a bridge helper function that reads from `call-in` and writes to `call-out`:
       (let [{:dao/keys [call-id call-op call-args]} ok
             result (apply (get handlers call-op) call-args)
             call-out (get (vm/store vm) ::vm/call-out)]
-        (ds/put! call-out (dao.stream.call/call-response call-id result))
+        (ds/put! call-out (dao.stream.apply/response call-id result))
         [vm cursor'])))
 ```
 
@@ -554,25 +568,25 @@ a bridge helper function that reads from `call-in` and writes to `call-out`:
 
 ### Endpoint Descriptor
 ```clojure
-{:dao.stream/call-in  {:transport {:type :ringbuffer
-                            :mode :create
-                            :capacity nil}}
- :dao.stream/call-out {:transport {:type :ringbuffer
-                            :mode :create
-                            :capacity nil}}}
+{:dao.stream.apply/request  {:transport {:type :ringbuffer
+                                  :mode :create
+                                  :capacity nil}}
+ :dao.stream.apply/response {:transport {:type :ringbuffer
+                                  :mode :create
+                                  :capacity nil}}}
 ```
 
 ### Request Map
 ```clojure
-{:dao.stream/call-id   :parked-0
- :dao.stream/call-op   :op/add
- :dao.stream/call-args [10 20]}
+{:dao.stream.apply/id   :parked-0
+ :dao.stream.apply/op   :op/add
+ :dao.stream.apply/args [10 20]}
 ```
 
 ### Response Map
 ```clojure
-{:dao.stream/call-id    :parked-0
- :dao.stream/call-value 30}
+{:dao.stream.apply/id    :parked-0
+ :dao.stream.apply/value 30}
 ```
 
 ### Waiter Entry (registered on call-out stream)
@@ -587,7 +601,7 @@ a bridge helper function that reads from `call-in` and writes to `call-out`:
 ### Woke Item (returned by put! on call-out)
 ```clojure
 {:entry    <waiter-entry>
- :value    {:dao.stream/call-id :parked-0 :dao.stream/call-value 30}
+ :value    {:dao.stream.apply/id :parked-0 :dao.stream.apply/value 30}
  :position 0}
 ```
 
@@ -614,7 +628,7 @@ Default. VM and bridge share ringbuffer streams in memory.
                        (let [{:dao/keys [call-id call-op call-args]} ok
                              result (apply (get handlers call-op) call-args)
                              call-out (get (vm/store vm) ::vm/call-out)]
-                         (ds/put! call-out (dao.stream.call/call-response call-id result))))
+                         (ds/put! call-out (dao.stream.apply/response call-id result))))
                      (recur (or cursor' c)))))]
 
   @vm-task))
@@ -661,7 +675,7 @@ The protocol has no exception semantics. Errors are values.
                (apply handler args)
                (catch Exception e
                  {:error (str e) :type :exception}))]
-  (ds/put! call-out (dao.stream.call/call-response call-id result)))
+  (ds/put! call-out (dao.stream.apply/response call-id result)))
 
 ;; VM receives error as a value
 {:error "..." :type :exception}
@@ -675,8 +689,8 @@ The VM can inspect the response and decide how to handle it.
 
 ### Protocol Level (`test/dao/stream/call_test.cljc`)
 
-1. `call-request` produces the correct datom shape.
-2. `call-response` produces the correct datom shape.
+1. `request` produces the correct datom shape.
+2. `response` produces the correct datom shape.
 3. `make-endpoint` bundles descriptors correctly.
 4. Endpoint descriptor round-trips through a stream (channel mobility).
 
@@ -689,14 +703,14 @@ The VM can inspect the response and decide how to handle it.
 5. Handler return value becomes the call result.
 6. VM remains blocked if bridge does not respond.
 7. Bridge throws if handler is missing.
-8. Two concurrent VMs with shared streams route responses by `:dao.stream/call-id` correctly.
+8. Two concurrent VMs with shared streams route responses by `:dao.stream.apply/id` correctly.
 9. No `check-ffi-out` symbol in `engine.cljc`.
 10. No `:bridge-dispatcher` in `vm/empty-state`.
 
 ### Integration
 
 1. Stack and register VMs follow the same pattern as semantic VM.
-2. Macro expansion, if applicable, works with DaoStreamCall (existing macro system).
+2. Macro expansion, if applicable, works with DaoStreamApply (existing macro system).
 3. Bytecode encoding/decoding of `:ffi-call` opcode is unchanged.
 
 ---
@@ -705,7 +719,7 @@ The VM can inspect the response and decide how to handle it.
 
 ### Why Streams?
 
-Streams are the universal abstraction. By making calls stream-based, DaoStreamCall:
+Streams are the universal abstraction. By making function application stream-based, DaoStreamApply:
 - Inherits bidirectionality (can go either direction over a link).
 - Inherits transport abstraction (ringbuffer, websocket, socket, file, etc.).
 - Inherits concurrency semantics (multiple concurrent calls, out-of-order responses).

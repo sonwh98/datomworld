@@ -1,60 +1,28 @@
 (ns yang.clojure-test
   (:require
     [clojure.test :refer :all]
-    [dao.stream :as ds]
-    [dao.stream.call :as dao.stream.call]
     [yang.clojure :as yang]
     [yin.stream]
     [yin.vm :as vm]
-    [yin.vm.ast-walker :as ast-walker]
-    [yin.vm.engine :as engine]))
-
-
-(defn- bridge-step
-  [vm handlers cursor]
-  (let [call-in (get (vm/store vm) vm/call-in-stream-key)
-        {:keys [ok] :as next-result} (ds/next call-in cursor)
-        cursor' (:cursor next-result)]
-    (if ok
-      (let [{call-id :dao.stream/call-id, call-op :dao.stream/call-op, call-args :dao.stream/call-args} ok
-            result (apply (get handlers call-op) (or call-args []))
-            call-out (get (vm/store vm) vm/call-out-stream-key)
-            put-result (ds/put! call-out (dao.stream.call/call-response call-id result))
-            woke (:woke put-result)
-            entries (engine/make-woken-run-queue-entries vm woke)
-            vm' (update vm :run-queue (fnil into []) entries)]
-        [vm' cursor'])
-      [vm cursor])))
-
-
-(defn- run-with-bridge
-  [vm handlers]
-  (loop [v (vm/run vm)
-         cursor {:position 0}]
-    (if (or (vm/halted? v) (not (:blocked v)))
-      v
-      (let [[v' cursor'] (bridge-step v handlers cursor)]
-        (recur (vm/run v') cursor')))))
+    [yin.vm.ast-walker :as ast-walker]))
 
 
 (defn compile-and-run
   ([form] (compile-and-run form {} {}))
   ([form env] (compile-and-run form env {}))
   ([form env vm-opts]
-   (let [handlers (:bridge-dispatcher vm-opts)
-         vm (ast-walker/create-vm (merge {:env env} (dissoc vm-opts :bridge-dispatcher)))
+   (let [vm (ast-walker/create-vm (merge {:env env} vm-opts))
          vm-loaded (vm/load-program vm (yang/compile form))]
-     (vm/value (run-with-bridge vm-loaded handlers)))))
+     (vm/value (vm/run vm-loaded)))))
 
 
 (defn compile-program-and-run
   ([forms] (compile-program-and-run forms {} {}))
   ([forms env] (compile-program-and-run forms env {}))
   ([forms env vm-opts]
-   (let [handlers (:bridge-dispatcher vm-opts)
-         vm (ast-walker/create-vm (merge {:env env} (dissoc vm-opts :bridge-dispatcher)))
+   (let [vm (ast-walker/create-vm (merge {:env env} vm-opts))
          vm-loaded (vm/load-program vm (yang/compile-program forms))]
-     (vm/value (run-with-bridge vm-loaded handlers)))))
+     (vm/value (vm/run vm-loaded)))))
 
 
 (deftest test-compile-literals
@@ -202,11 +170,11 @@
       (is (= 42
              (compile-and-run '(ffi/call :op/echo 42)
                               {}
-                              {:bridge-dispatcher {:op/echo identity}})))
+                              {:bridge {:op/echo identity}})))
       (is (nil?
             (compile-and-run '(ffi/call :clj/println "FFI hello world")
                              {}
-                             {:bridge-dispatcher {:clj/println println}}))))
+                             {:bridge {:clj/println println}}))))
 
     (testing "Complex expression"
       (is

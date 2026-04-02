@@ -2,7 +2,7 @@
   (:require
     [clojure.test :refer [deftest is testing]]
     [dao.stream :as ds]
-    [dao.stream.call :as dao.stream.call]
+    [dao.stream.apply :as dao.stream.apply]
     [yin.stream :as stream]
     [yin.vm :as vm]
     [yin.vm.engine :as engine]))
@@ -295,7 +295,7 @@
           _ (ds/register-reader-waiter! call-out 0 waiter-entry)
 
           ;; 2. Bridge puts response to call-out
-          response (dao.stream.call/call-response :parked-0 42)
+          response (dao.stream.apply/response :parked-0 42)
           put-result (ds/put! call-out response)
           woke (:woke put-result)
           _ (is (= 1 (count woke)))

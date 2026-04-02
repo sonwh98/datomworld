@@ -1,10 +1,11 @@
 (ns yin.vm.ast-walker
   (:require
     [dao.stream :as ds]
-    [dao.stream.call :as dao.stream.call]
+    [dao.stream.apply :as dao.stream.apply]
     [yin.module :as module]
     [yin.vm :as vm]
-    [yin.vm.engine :as engine]))
+    [yin.vm.engine :as engine]
+    [yin.vm.host-ffi :as host-ffi]))
 
 
 ;; =============================================================================
@@ -32,6 +33,7 @@
 
 (defrecord ASTWalkerVM
   [blocked      ; boolean, true if blocked
+   bridge       ; explicit host-side FFI bridge state
    halted       ; boolean, true when active continuation has completed
    continuation ; reified continuation or nil
    control      ; current AST node or nil
@@ -55,6 +57,7 @@
   (let [blocked (:blocked vm)]
     (->ASTWalkerVM
       blocked
+      (:bridge vm)
       (and (not blocked) (nil? control) (nil? cont))
       cont
       control
@@ -126,7 +129,7 @@
         call-in (get-in parked [:store vm/call-in-stream-key])
 
         ;; 5. Build and emit request
-        request (dao.stream.call/call-request parked-id op args)
+        request (dao.stream.apply/request parked-id op args)
         _ (ds/put! call-in request)]
 
     ;; 6. Return blocked state
@@ -237,7 +240,7 @@
                              (assoc continuation :frame updated-frame)
                              nil))))
           :eval-ffi-call
-          (let [result-value (:dao.stream/call-value (:value state))]
+          (let [result-value (:dao.stream.apply/value (:value state))]
             (cesk-return state nil environment (:parent continuation) result-value))
           ;; Stream continuation: evaluate target for put
           :eval-stream-put-target
@@ -687,12 +690,15 @@
    When ast is non-nil, loads it first. When nil, resumes from current state."
   [^ASTWalkerVM vm ast]
   (let [v (if ast (vm-load-program vm ast) vm)
-        result (ast-walker-run v)]
-    ;; Fast path may yield a blocked state immediately after parking.
-    ;; Re-enter scheduler once so idle handlers (wait-set/FFI) can run.
-    (if (:blocked result)
-      (ast-walker-run-scheduler result)
-      result)))
+        run-loaded
+        (fn [state]
+          (let [result (ast-walker-run state)]
+            ;; Fast path may yield a blocked state immediately after parking.
+            ;; Re-enter scheduler once so idle handlers (wait-set/FFI) can run.
+            (if (:blocked result)
+              (ast-walker-run-scheduler result)
+              result)))]
+    (host-ffi/maybe-run v run-loaded)))
 
 
 (extend-type ASTWalkerVM
@@ -716,13 +722,15 @@
 
 (defn create-vm
   "Create a new ASTWalkerVM with optional opts map.
-   Accepts {:env map, :primitives map}."
+   Accepts {:env map, :primitives map, :bridge handlers}."
   ([] (create-vm {}))
   ([opts]
    (let [env (or (:env opts) {})
-         base (vm/empty-state (select-keys opts [:primitives]))]
+         base (vm/empty-state (select-keys opts [:primitives]))
+         bridge-state (host-ffi/bridge-from-opts opts)]
      (map->ASTWalkerVM (merge base
-                              {:control nil,
+                              {:bridge bridge-state,
+                               :control nil,
                                :environment env,
                                :continuation nil,
                                :value nil,

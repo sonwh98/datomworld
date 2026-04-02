@@ -1,50 +1,19 @@
 (ns yang.python-test
   (:require
     [clojure.test :refer :all]
-    [dao.stream :as ds]
-    [dao.stream.call :as dao.stream.call]
     [yang.clojure :as clj]
     [yang.python :as py]
     [yin.vm :as vm]
-    [yin.vm.ast-walker :as ast-walker]
-    [yin.vm.engine :as engine]))
-
-
-(defn- bridge-step
-  [vm handlers cursor]
-  (let [call-in (get (vm/store vm) vm/call-in-stream-key)
-        {:keys [ok] :as next-result} (ds/next call-in cursor)
-        cursor' (:cursor next-result)]
-    (if ok
-      (let [{call-id :dao.stream/call-id, call-op :dao.stream/call-op, call-args :dao.stream/call-args} ok
-            result (apply (get handlers call-op) (or call-args []))
-            call-out (get (vm/store vm) vm/call-out-stream-key)
-            put-result (ds/put! call-out (dao.stream.call/call-response call-id result))
-            woke (:woke put-result)
-            entries (engine/make-woken-run-queue-entries vm woke)
-            vm' (update vm :run-queue (fnil into []) entries)]
-        [vm' cursor'])
-      [vm cursor])))
-
-
-(defn- run-with-bridge
-  [vm handlers]
-  (loop [v (vm/run vm)
-         cursor {:position 0}]
-    (if (or (vm/halted? v) (not (:blocked v)))
-      v
-      (let [[v' cursor'] (bridge-step v handlers cursor)]
-        (recur (vm/run v') cursor')))))
+    [yin.vm.ast-walker :as ast-walker]))
 
 
 (defn compile-and-run
   ([ast] (compile-and-run ast {} {}))
   ([ast env] (compile-and-run ast env {}))
   ([ast env vm-opts]
-   (let [handlers (:bridge-dispatcher vm-opts)
-         vm (ast-walker/create-vm (merge {:env env} (dissoc vm-opts :bridge-dispatcher)))
+   (let [vm (ast-walker/create-vm (merge {:env env} vm-opts))
          vm-loaded (vm/load-program vm ast)]
-     (vm/value (run-with-bridge vm-loaded handlers)))))
+     (vm/value (vm/run vm-loaded)))))
 
 
 (deftest test-tokenize
@@ -198,12 +167,12 @@
       (is (= 20 (compile-and-run (py/compile "10 if False else 20")))))
     (testing "If with comparison"
       (is (= 100 (compile-and-run (py/compile "100 if 3 < 5 else 200")))))
-    (testing "FFI call via bridge dispatcher"
+    (testing "FFI call via VM bridge"
       (is (= 42
              (compile-and-run
                (py/compile "ffi.call(\"op/echo\", 42)")
                {}
-               {:bridge-dispatcher {:op/echo identity}}))))))
+               {:bridge {:op/echo identity}}))))))
 
 
 (deftest test-python-to-clojure-equivalence

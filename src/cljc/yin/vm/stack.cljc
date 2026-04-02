@@ -12,10 +12,11 @@
    3. Numeric bytecode VM (step, run via protocols)"
   (:require
     [dao.stream :as ds]
-    [dao.stream.call :as dao.stream.call]
+    [dao.stream.apply :as dao.stream.apply]
     [yin.module :as module]
     [yin.vm :as vm]
     [yin.vm.engine :as engine]
+    [yin.vm.host-ffi :as host-ffi]
     [yin.vm.macro :as macro]
     [yin.vm.semantic :as semantic])
   #?(:cljs
@@ -908,7 +909,7 @@
 
                 ;; Emit request to call-in stream
                 call-in (get-in parked [:store vm/call-in-stream-key])
-                request (dao.stream.call/call-request parked-id op-name args)
+                request (dao.stream.apply/request parked-id op-name args)
                 _ (ds/put! call-in request)]
             (assoc parked
                    :value :yin/blocked
@@ -947,7 +948,7 @@
                                 (fn [base entry]
                                   (let [val (:value entry)
                                         val' (if (= :ffi-call-resumer (:type entry))
-                                               (:dao.stream/call-value val)
+                                               (:dao.stream.apply/value val)
                                                val)]
                                     (-> (restore-frame base entry val')
                                         maybe-recompile-at-boundary)))))
@@ -1449,7 +1450,7 @@
                   root-id (apply max (map first datoms))]
               (stack-vm-load-program vm {:node root-id, :datoms datoms}))
             vm)]
-    (stack-vm-run v)))
+    (host-ffi/maybe-run v stack-vm-run)))
 
 
 (extend-type StackVM
@@ -1473,10 +1474,11 @@
 
 (defn create-vm
   "Create a new StackVM with optional opts map.
-   Accepts {:env map, :primitives map, :macro-registry map}."
+   Accepts {:env map, :primitives map, :macro-registry map, :bridge handlers}."
   ([] (create-vm {}))
   ([opts]
-   (let [env (or (:env opts) {})]
+   (let [env (or (:env opts) {})
+         bridge-state (host-ffi/bridge-from-opts opts)]
      (map->StackVM (merge (vm/empty-state (select-keys opts [:primitives]))
                           {:pc 0,
                            :bytecode [],
@@ -1496,4 +1498,6 @@
                            :program-index nil,
                            :halted false,
                            :value nil,
-                           :blocked false})))))
+                           :blocked false}
+                          (when bridge-state
+                            {:bridge bridge-state}))))))

@@ -13,10 +13,11 @@
    See ast-datoms->asm docstring for the full instruction set."
   (:require
     [dao.stream :as ds]
-    [dao.stream.call :as dao.stream.call]
+    [dao.stream.apply :as dao.stream.apply]
     [yin.module :as module]
     [yin.vm :as vm]
     [yin.vm.engine :as engine]
+    [yin.vm.host-ffi :as host-ffi]
     [yin.vm.macro :as macro]
     [yin.vm.semantic :as semantic])
   #?(:cljs
@@ -913,7 +914,7 @@
 
               ;; Emit request to call-in stream
               call-in (get-in parked [:store vm/call-in-stream-key])
-              request (dao.stream.call/call-request parked-id op args)
+              request (dao.stream.apply/request parked-id op args)
               _ (ds/put! call-in request)]
           (assoc parked
                  :value :yin/blocked
@@ -1054,7 +1055,7 @@
                                 (fn [base entry]
                                   (let [val (:value entry)
                                         val' (if (= :ffi-call-resumer (:type entry))
-                                               (:dao.stream/call-value val)
+                                               (:dao.stream.apply/value val)
                                                val)]
                                     (-> (restore-frame base entry val')
                                         maybe-recompile-at-boundary)))))
@@ -1499,7 +1500,7 @@
                   root-id (apply max (map first datoms))]
               (reg-vm-load-program vm {:node root-id, :datoms datoms}))
             vm)]
-    (reg-vm-run v)))
+    (host-ffi/maybe-run v reg-vm-run)))
 
 
 (extend-type RegisterVM
@@ -1525,10 +1526,11 @@
 
 (defn create-vm
   "Create a new RegisterVM with optional opts map.
-   Accepts {:env map, :primitives map, :macro-registry map}."
+   Accepts {:env map, :primitives map, :macro-registry map, :bridge handlers}."
   ([] (create-vm {}))
   ([opts]
-   (let [env (or (:env opts) {})]
+   (let [env (or (:env opts) {})
+         bridge-state (host-ffi/bridge-from-opts opts)]
      (map->RegisterVM (merge (vm/empty-state (select-keys opts [:primitives]))
                              {:regs [],
                               :k nil,
@@ -1548,4 +1550,6 @@
                               :program-index nil,
                               :halted false,
                               :value nil,
-                              :blocked false})))))
+                              :blocked false}
+                             (when bridge-state
+                               {:bridge bridge-state}))))))

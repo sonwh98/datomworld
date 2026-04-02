@@ -7,45 +7,13 @@
     ["codemirror" :refer [basicSetup]]
     [cljs.reader :as reader]
     [clojure.string :as str]
-    [dao.stream :as ds]
-    [dao.stream.call :as dao.stream.call]
     [reagent.core :as r]
     [yang.clojure :as yang]
     [yin.vm :as vm]
-    [yin.vm.engine :as engine]
     [yin.vm.register :as register]))
 
 
 (declare app-state plot-state)
-
-
-(defn- bridge-step
-  [vm handlers cursor]
-  (let [call-in (get (vm/store vm) vm/call-in-stream-key)
-        {:keys [ok cursor']} (ds/next call-in cursor)]
-    (if ok
-      (let [{call-id :dao.stream/call-id, call-op :dao.stream/call-op, call-args :dao.stream/call-args} ok
-            result (apply (get handlers call-op) (or call-args []))
-            call-out (get (vm/store vm) vm/call-out-stream-key)
-            put-result (ds/put! call-out (dao.stream.call/call-response call-id result))
-            woke (:woke put-result)
-            entries (engine/make-woken-run-queue-entries vm woke)
-            vm' (update vm :run-queue (fnil into []) entries)]
-        [vm' cursor'])
-      [vm cursor])))
-
-
-(def ^:private bridge-cycles-per-frame 24)
-
-
-(defonce run-raf-id (atom nil))
-
-
-(defn- cancel-run-loop!
-  []
-  (when-let [raf-id @run-raf-id]
-    (js/cancelAnimationFrame raf-id)
-    (reset! run-raf-id nil)))
 
 
 (defn- make-plot-handler
@@ -70,71 +38,6 @@
                    (update :call-count + call-count))))
       (vreset! points* [])
       (vreset! call-count* 0))))
-
-
-(defn- run-cycle
-  [vm handlers cursor]
-  (let [ran (vm/run vm)]
-    (cond
-      (vm/halted? ran)
-      {:status :halted
-       :vm ran
-       :cursor cursor}
-
-      (not (:blocked ran))
-      (throw (ex-info "Register VM yielded without halting or blocking"
-                      {:value (vm/value ran)}))
-
-      :else
-      (let [[bridged cursor'] (bridge-step ran handlers cursor)]
-        {:status :bridged
-         :vm bridged
-         :cursor cursor'}))))
-
-
-(defn- run-with-bridge!
-  [vm handlers]
-  (let [points* (volatile! [])
-        call-count* (volatile! 0)
-        handlers' (update handlers :plot/point
-                          (fn [_] (make-plot-handler points* call-count*)))]
-    (letfn [(finish!
-              [final-vm]
-              (flush-plot-batch! points* call-count*)
-              (cancel-run-loop!)
-              (swap! app-state assoc
-                     :running? false
-                     :error nil
-                     :result (vm/value final-vm)))
-
-            (fail!
-              [e]
-              (flush-plot-batch! points* call-count*)
-              (cancel-run-loop!)
-              (swap! app-state assoc
-                     :running? false
-                     :error (str "Runtime error: " (.-message e))))
-
-            (step-frame!
-              [state cursor]
-              (try
-                (loop [v state
-                       c cursor
-                       cycles 0]
-                  (if (>= cycles bridge-cycles-per-frame)
-                    (do
-                      (flush-plot-batch! points* call-count*)
-                      (reset! run-raf-id
-                              (js/requestAnimationFrame
-                                (fn []
-                                  (step-frame! v c)))))
-                    (let [{:keys [status vm cursor]} (run-cycle v handlers' c)]
-                      (if (= :halted status)
-                        (finish! vm)
-                        (recur vm cursor (inc cycles))))))
-                (catch :default e
-                  (fail! e))))]
-      (step-frame! vm {:position 0}))))
 
 
 ;; =============================================================================
@@ -320,7 +223,6 @@
   "Compile the source editor contents to register VM bytecode."
   []
   (try
-    (cancel-run-loop!)
     (let [source (:source @app-state)
           forms (reader/read-string (str "[" source "]"))
           ast (yang/compile-program forms)
@@ -356,14 +258,20 @@
     (let [{:keys [program]} @app-state]
       (when-not program
         (throw (ex-info "Nothing compiled. Click Compile first." {})))
-      (cancel-run-loop!)
       (clear-plot!)
-      (let [handlers {:plot/point plot-point}
+      (let [points* (volatile! [])
+            call-count* (volatile! 0)
+            bridge-handlers {:plot/point (make-plot-handler points* call-count*)}
             vm-instance (register/create-vm
-                          {:primitives (merge vm/primitives math-primitives)})
-            vm-loaded (vm/load-program vm-instance program)]
-        (swap! app-state assoc :running? true :result nil :error nil)
-        (run-with-bridge! vm-loaded handlers)))
+                          {:primitives (merge vm/primitives math-primitives)
+                           :bridge bridge-handlers})
+            vm-loaded (vm/load-program vm-instance program)
+            result-vm (vm/run vm-loaded)]
+        (flush-plot-batch! points* call-count*)
+        (swap! app-state assoc
+               :running? false
+               :result (vm/value result-vm)
+               :error nil)))
     (catch :default e
       (swap! app-state assoc
              :running? false

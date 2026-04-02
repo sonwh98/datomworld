@@ -2,10 +2,11 @@
   (:require
     [dao.db :as db]
     [dao.stream :as ds]
-    [dao.stream.call :as dao.stream.call]
+    [dao.stream.apply :as dao.stream.apply]
     [yin.module :as module]
     [yin.vm :as vm]
     [yin.vm.engine :as engine]
+    [yin.vm.host-ffi :as host-ffi]
     [yin.vm.macro :as macro]))
 
 
@@ -159,6 +160,7 @@
 
 (defrecord SemanticVM
   [blocked    ; true if blocked
+   bridge     ; explicit host-side FFI bridge state
    control    ; current control state {:type :node/:value, ...}
    datoms     ; AST datoms
    env        ; lexical environment
@@ -191,6 +193,7 @@
   [^SemanticVM vm control env stack halted? val]
   (->SemanticVM
     (:blocked vm)
+    (:bridge vm)
     control
     (:datoms vm)
     env
@@ -236,7 +239,7 @@
         call-in (get-in parked [:store vm/call-in-stream-key])
 
         ;; 5. Build and emit request
-        request (dao.stream.call/call-request parked-id op args)
+        request (dao.stream.apply/request parked-id op args)
         _ (ds/put! call-in request)]
 
     ;; 6. Return blocked state
@@ -384,7 +387,7 @@
                                            :evaluated new-evaluated
                                            :next-idx (inc next-idx)))))))
           :ffi-call
-          (let [result-value (:dao.stream/call-value val)]
+          (let [result-value (:dao.stream.apply/value val)]
             (assoc vm
                    :control {:type :value, :val result-value}
                    :stack new-stack))
@@ -1144,6 +1147,35 @@
             :else result))))))
 
 
+(defn- semantic-vm-run
+  "Run a loaded SemanticVM until halt or block."
+  [^SemanticVM v]
+  (if (or (:blocked v) (:halted v) (seq (:run-queue v)))
+    (engine/run-loop v
+                     engine/active-continuation?
+                     semantic-vm-step
+                     resume-from-run-queue)
+    ;; Run hot loop, restarting when runtime macro expansion updates the index
+    (loop [v v]
+      (let [result (semantic-run-active-continuation v
+                                                     (:control v)
+                                                     (:env v)
+                                                     (:stack v))]
+        (cond
+          ;; Blocked: hand off to scheduler (FFI, stream wait-set, run-queue)
+          (:blocked result)
+          (engine/run-loop result
+                           engine/active-continuation?
+                           semantic-vm-step
+                           resume-from-run-queue)
+          ;; Not halted and still has pending control: runtime macro expanded new nodes,
+          ;; restart hot loop with the updated index
+          (and (not (:halted result)) (some? (:control result)))
+          (recur result)
+          ;; Halted or no pending control
+          :else result)))))
+
+
 (defn- semantic-vm-eval
   "Evaluate an AST. Owns the step loop with scheduler.
    When ast is non-nil, converts to datoms and loads. When nil, resumes."
@@ -1156,30 +1188,7 @@
               (semantic-vm-load-program (assoc vm :node-id-counter next-node-id)
                                         {:node root-id, :datoms datoms}))
             vm)]
-    (if (or (:blocked v) (:halted v) (seq (:run-queue v)))
-      (engine/run-loop v
-                       engine/active-continuation?
-                       semantic-vm-step
-                       resume-from-run-queue)
-      ;; Run hot loop, restarting when runtime macro expansion updates the index
-      (loop [v v]
-        (let [result (semantic-run-active-continuation v
-                                                       (:control v)
-                                                       (:env v)
-                                                       (:stack v))]
-          (cond
-            ;; Blocked: hand off to scheduler (FFI, stream wait-set, run-queue)
-            (:blocked result)
-            (engine/run-loop result
-                             engine/active-continuation?
-                             semantic-vm-step
-                             resume-from-run-queue)
-            ;; Not halted and still has pending control: runtime macro expanded new nodes,
-            ;; restart hot loop with the updated index
-            (and (not (:halted result)) (some? (:control result)))
-            (recur result)
-            ;; Halted or no pending control
-            :else result))))))
+    (host-ffi/maybe-run v semantic-vm-run)))
 
 
 (extend-type SemanticVM
@@ -1203,12 +1212,14 @@
 
 (defn create-vm
   "Create a new SemanticVM with optional opts map.
-   Accepts {:env map, :primitives map, :macro-registry map}."
+   Accepts {:env map, :primitives map, :macro-registry map, :bridge handlers}."
   ([] (create-vm {}))
   ([opts]
-   (let [env (or (:env opts) {})]
+   (let [env (or (:env opts) {})
+         bridge-state (host-ffi/bridge-from-opts opts)]
      (map->SemanticVM (merge (vm/empty-state (select-keys opts [:primitives]))
-                             {:control nil,
+                             {:bridge bridge-state,
+                              :control nil,
                               :env env,
                               :stack [],
                               :datoms [],

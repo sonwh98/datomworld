@@ -3,7 +3,7 @@
     [clojure.test :refer [deftest is testing]]
     [dao.db.datascript :as ds-db]
     [dao.stream :as ds]
-    [dao.stream.call :as dao.stream.call]
+    [dao.stream.apply :as dao.stream.apply]
     [yin.vm :as vm]
     [yin.vm.ast-walker :as ast-walker]
     [yin.vm.engine :as engine]))
@@ -19,11 +19,13 @@
         {:keys [ok] :as next-result} (ds/next call-in cursor)
         cursor' (:cursor next-result)]
     (if ok
-      (let [{call-id :dao.stream/call-id, call-op :dao.stream/call-op, call-args :dao.stream/call-args} ok
-            result (apply (get handlers call-op) (or call-args []))
+      (let [{request-id :dao.stream.apply/id
+             request-op :dao.stream.apply/op
+             request-args :dao.stream.apply/args} ok
+            result (apply (get handlers request-op) (or request-args []))
             call-out (get (vm/store vm) vm/call-out-stream-key)
             ;; ds/put! on RingBufferStream returns woken entries
-            put-result (ds/put! call-out (dao.stream.call/call-response call-id result))
+            put-result (ds/put! call-out (dao.stream.apply/response request-id result))
             woke (:woke put-result)
             ;; Use engine helper to transform woken entries into run-queue entries
             entries (engine/make-woken-run-queue-entries vm woke)
