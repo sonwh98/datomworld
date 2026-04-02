@@ -184,7 +184,7 @@
 ;; =============================================================================
 
 (def default-source
-  "(defn f [x] (* x x))
+  "(defn f [x] (* x (sin x)))
 (defn plot-loop [x-min x-max]
   (if (> x-min x-max)
     nil
