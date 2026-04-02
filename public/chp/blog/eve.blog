@@ -1,0 +1,42 @@
+#:blog{:title "Zero-Copy Persistence: Integrating Eve into DaoDB and Yin.vm"
+       :date #inst "2026-04-02T12:00:00.000-00:00"
+       :abstract [:p "Exploring how the SeniorCareMarket/eve library brings zero-serialization shared-memory to datom.world, enabling lock-free transactors and true in-browser concurrency for agents."]
+       :content [:section.blog-article
+                 [:div.section-inner
+                  [:article
+                   :$blog-title
+                   :$blog-date
+                   
+                   [:h2 "The Serialization Bottleneck"]
+                   [:p "In the datom.world architecture, everything is a stream of immutable 5-tuple datoms. While this provides a robust foundation for explicit causality and interpretation, moving these datoms between processes (or between Web Workers in the browser) historically incurred serialization overhead. The " [:a {:href "https://github.com/SeniorCareMarket/eve"} "SeniorCareMarket/eve"] " library introduces a paradigm shift: shared-memory persistent data structures for Clojure and ClojureScript."]
+
+                   [:h2 "Beyond Heap-Bound Immutability"]
+                   [:p "Clojure and ClojureScript already provide world-class immutable persistent data structures. However, these structures are bound to the heap of a single process. To share a standard Clojure map between two JVMs, or between a main thread and a Web Worker, it must be serialized (e.g., to EDN or Transit), transmitted, and deserialized. This breaks the zero-copy illusion and introduces latency."]
+                   [:p "Eve's data structures are also immutable and persistent, but they live in memory-mapped files (mmap) or SharedArrayBuffers. This allows multiple distinct processes to map the exact same memory region. They traverse the same immutable tree without serialization, deserialization, or copying. It is true cross-process structural sharing."]
+
+                   [:h2 "The Mechanics of Shared Persistence"]
+                   [:p "Eve achieves this by treating memory as a raw binary slab with a uniform layout across all runtimes. Its internal architecture relies on four key pillars:"]
+                   [:ul
+                    [:li [:strong "The Shared Slab: "] "Data structures like HAMTs (Hash Array Mapped Tries) are laid out in a binary format identical across JVM, Node.js, and the browser. Sparse files on disk allow these structures to grow to exabyte scale lazily."]
+                    [:li [:strong "The Atomic Root Pointer: "] "A single 32-bit root pointer at a fixed offset in shared memory governs the entire state. Updates follow the standard path-copying pattern, but new nodes are allocated directly in the shared slab."]
+                    [:li [:strong "Cross-Runtime Abstraction: "] "Eve uses platform-native primitives for memory access: Project Panama (FFM) on the JVM, a C++ native addon for Node.js, and SharedArrayBuffer with the Atomics API in the browser. This ensures maximum performance on every target."]
+                    [:li [:strong "Epoch-based GC: "] "To prevent use-after-free bugs in a persistent shared-memory environment, Eve uses a cooperative epoch-based garbage collector. Nodes are only reclaimed once all active readers across all processes have moved to a later epoch."]
+                   ]
+                   
+                   [:h2 "DaoDB: Exabyte-Scale Local Storage"]
+                   [:p "DaoDB relies on a strict separation of Storage, Transactor, and Query Engine. Integrating Eve into the Storage layer (IDaoStorage) transforms the in-memory database into a highly durable, crash-resilient store backed by memory-mapped (mmap) files."]
+                   [:ul
+                    [:li [:strong "Zero-Serialization Queries: "] "Multiple processes on the same machine can query the exact same EAVT/AEVT indexes directly from shared memory without RPC hops."]
+                    [:li [:strong "Lock-Free Transactor: "] "Eve's use of a lock-free Compare-and-Swap (CAS) on the root pointer aligns perfectly with the DaoDB transactor model, allowing atomic, monotonic transaction ID updates without a dedicated transactor bottleneck."]
+                   ]
+                   
+                   [:h2 "Yin.vm: True Concurrent Agents"]
+                   [:p "Yin.vm stores the Universal AST as datoms and models execution as continuations (agents). Eve drastically improves the performance characteristics of this model:"]
+                   [:ul
+                    [:li [:strong "Zero-Copy AST: "] "Different projections (stack, register, or native compilers) can read the exact same Universal AST datoms directly from shared memory."]
+                    [:li [:strong "Web Worker Continuations: "] "By leveraging SharedArrayBuffer in the browser, Eve allows Web Workers to share execution state and datom streams without the heavy cost of postMessage serialization. Agents can migrate across threads instantly."]
+                   ]
+                   
+                   [:h2 "Conclusion"]
+                   [:p "The physics metaphor of datom.world treats the datom stream as a unitary wave function. Eve provides the perfect medium for this wave function to propagate: a persistent, shared, zero-copy substrate that works seamlessly across the JVM, Node.js, and the browser."]
+                  ]]]}
