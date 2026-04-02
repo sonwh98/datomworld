@@ -25,7 +25,8 @@ Do not assume graphs: graphs must be constructed explicitly from tuples.
 
 Datoms are 5-tuples: (e a v t m).
 Datoms are immutable facts, not objects.
-Datoms are the canonical serialization format (no parsing step).
+Datoms are the canonical format for persistent facts: DaoDB, AST, schema, provenance.
+Streams carry whatever values the consumer needs (datoms for persistent layers, entities or scalars for ephemeral layers).
 
 Intuition (physics metaphor):
   The datom stream is the unitary wave function: it contains the complete state of the universe.

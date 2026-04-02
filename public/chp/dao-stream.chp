@@ -25,11 +25,12 @@
          [:p.emphasis [:strong "Everything is a stream."]]
          [:p
           "Applications don't \"call services\" or \"query databases.\" "
-          "They open streams at paths, read datoms, write datoms, close streams. "
+          "They open streams at paths, read values, write values, close streams. "
+          "Datom streams carry persistent facts [e a v t m]; other streams carry appropriate payloads for their layer. "
           "Every resource in Datom.World—whether file-like or flow-like—is accessible as a stream in a hierarchical namespace."]
          [:div.principle-box
           [:p "Every resource is a stream at a path: " [:code "[:entity :attribute]"]]
-          [:p "Every operation flows datoms: " [:code "[e a v t m]"]]
+          [:p "Every operation flows values; persistent facts are datoms: " [:code "[e a v t m]"]]
           [:p "Every interaction is open, read, write, close."]]
          [:p
           "Through the DaoStream, software returns to first principles—the Unix philosophy perfected. "
@@ -50,7 +51,7 @@
     \"Open a stream at the given path in the datom namespace.
      Path examples: [:user :alice :messages], [:sensors :temperature]\")
   (read [this params]
-    \"Read datoms from the stream. Returns [e a v t m] tuples.\")
+    \"Read values from the stream. Datom streams return [e a v t m] tuples; other streams return appropriate payloads.\")
   (write [this datoms params]
     \"Write datoms to the stream. Append-only semantics.\")
   (close [this]
@@ -62,12 +63,12 @@
            [:p "Opening establishes the stream—whether to a static file, a live feed, or a remote resource. The path is the only required parameter."]]
           [:article.feature-card
            [:h3 [:code "read"]]
-           [:p "Read datoms from the stream. Returns a lazy sequence of " [:code "[e a v t m]"] " tuples."]
+           [:p "Read values from the stream. Datom streams return lazy sequences of " [:code "[e a v t m]"] " tuples; other streams return values appropriate to their layer."]
            [:p "Streams are pull-based and asynchronous. Whether reading a finite file or an infinite flow, the interface is identical."]]
           [:article.feature-card
            [:h3 [:code "write"]]
-           [:p "Write datoms to the stream. All writes are appends—datoms are immutable once written."]
-           [:p "Streams are append-only logs. Apps like " [:a {:href "/dao-db.chp"} "DaoDB"] " interpret these streams as queryable databases."]]
+           [:p "Write values to the stream. For datom streams, all writes are appends—datoms are immutable once written."]
+           [:p "Streams are append-only logs. Apps like " [:a {:href "/dao-db.chp"} "DaoDB"] " interpret datom streams as queryable databases."]]
           [:article.feature-card
            [:h3 [:code "close"]]
            [:p "Close the stream and release resources. Ensures clean shutdown and proper cleanup."]]]

@@ -234,10 +234,10 @@
 
           [:p
            "The foundational axiom: "
-           [:strong "everything is a stream of datoms"]
-           ". A datom is an immutable fact represented as "
+           [:strong "everything is a stream"]
+           ". Persistent facts are datoms: immutable facts represented as "
            [:code "[e a v t m]"]
-           " (entity, attribute, value, time, metadata)."]
+           " (entity, attribute, value, time, metadata). Streams carry datoms for persistent layers and appropriate values for ephemeral layers."]
 
           [:p
            "Instead of overwriting a database row (destroying history), we append a datom. "
@@ -308,8 +308,8 @@
            "The "
            [:strong "Universal Abstract Syntax Tree (AST) is the canonical representation of code"]
            ". But unlike traditional ASTs stored as tree structures scattered across the heap, "
-           [:strong "the AST itself is expressed as datoms"]
-           ". Code and data are literally the same thing: streams of datoms."]
+           [:strong "the AST itself is expressed as datoms in DaoDB"]
+           ". Code and data are streams. In the knowledge base, these streams carry datoms."]
 
           [:p
            "This means the entire system (from database schema to frontend rendering to program execution) is expressed "

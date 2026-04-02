@@ -21,9 +21,9 @@
 
                    [:p "However, a file is ultimately an unstructured stream of bytes. To derive meaning from it, the consumer must know the format specification: how to parse " [:code "/dev/mouse"] " versus " [:code "/proc/123/status"] ". Each resource type requires its own parser."]
 
-                   [:p [:strong "The Datom.world Evolution: \"Everything is a stream of datoms.\""]]
+                   [:p [:strong "The Datom.world Evolution: \"Everything is a stream.\""]]
 
-                   [:p "Datom.world replaces the unstructured byte stream with a structured, semantic stream of Datoms. A datom is an immutable fact represented as a tuple: " [:code "[Entity, Attribute, Value, Transaction, Meta]"] "."]
+                   [:p "Datom.world extends this principle: everything is a stream. For persistent facts, the stream carries Datoms—immutable facts represented as tuples: " [:code "[Entity, Attribute, Value, Transaction, Meta]"] ". Other streams carry values appropriate to their layer."]
 
                    [:ul
                     [:li [:strong "Plan 9"] ": You read bytes from " [:code "/dev/temp-sensor"] " and must parse the ASCII string \"25.5C\"."]

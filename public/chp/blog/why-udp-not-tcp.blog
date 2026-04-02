@@ -205,10 +205,11 @@
            [:strong
             "TCP gives you one interpretation of a stream. DRDS gives you all possible interpretations selectable by the interpreter."]]
           [:h2 "The Packet Format"]
-          [:p "A DRDS packet is simple:"]
+          [:p "A DRDS packet carrying datoms is simple:"]
           [:pre
            [:code
             "[transport-header, encoded-datom[e a v t m]]"]]
+          [:p "This is the wire format for persistent datom streams; other streams define their own payload encoding."]
           [:p "The transport header is minimal:"]
           [:ul.bulleted
            [:li "Stream/path ID"]
@@ -234,10 +235,11 @@
            "A WireGuard packet is just keys, counters, encrypted blobs, and IDs. What the peer "
            [:em "does"]
            " with the payload is entirely external to the packet format."]
-          [:p "A Datom.world packet mirrors this philosophy:"]
+          [:p "A Datom.world packet carrying datoms mirrors this philosophy:"]
           [:pre
            [:code
             "[stream-id | ephemeral-key-id | local-seq | encrypted-datom[e a v t m]]"]]
+          [:p "For datom streams only; ephemeral streams carry their own payload formats."]
           [:p
            "Both systems treat the packet as an inert object, not a semantic instruction."]
           [:h3 "The Shared Philosophy"]
