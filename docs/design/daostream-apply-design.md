@@ -443,10 +443,14 @@ Representing failures as values keeps causality explicit and works across proces
 
 ---
 
-## Deferred
+## Implemented
 
-- Expand `src/cljc/dao/stream/apply.cljc` from constructors into the full standalone public API described above.
-- Add protocol-level helper functions for request and response stream I/O.
-- Add standalone dispatch helpers so a callee can serve requests by reading only `dao.stream.apply`.
+The following protocol-surface items are now implemented:
+- `src/cljc/dao/stream/apply.cljc` exposes the standalone public API described above.
+- Request and response stream I/O helpers are available at the protocol layer.
+- Standalone dispatch helpers let a callee serve requests by reading only `dao.stream.apply`.
+
+## Still Deferred
+
 - Add optional metadata fields such as timeout or tracing without making them mandatory.
 - Implement push-based wakeup for remote transports where appropriate, but keep that as a transport or runtime concern, not a protocol concern.
