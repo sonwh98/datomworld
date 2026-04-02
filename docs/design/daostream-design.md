@@ -2,6 +2,8 @@
 
 ## Overview
 
+DaoStream is a **standalone streaming abstraction** for building message queues, event logs, request-response systems, and distributed data transport. It is runtime-agnostic and VM-independent.
+
 DaoStream has two explicit parts:
 
 1. A **stream descriptor**, which is a first-class value.
@@ -10,26 +12,28 @@ DaoStream has two explicit parts:
 
 The descriptor is canonical. It is serializable, can be stored, can be sent on
 other streams, and does not depend on any one runtime backend. The `open!`
-multimethod is operational. It realizes the descriptor as an in-memory transport,
-a WebSocket transport, or another transport that preserves the same stream
+multimethod is operational. It realizes the descriptor as an in-memory ringbuffer,
+a WebSocket, Kafka, a file, or any other transport that preserves the same stream
 semantics.
 
-Because the descriptor is a value, a stream can be sent on a stream. Any Yin VM
-host that receives the descriptor can realize it through its local `open!`
-implementation.
+Because the descriptor is a value, a stream can be sent on a stream. Any host,
+agent, or runtime that receives the descriptor can realize it through its local
+`open!` implementation.
 
-DaoStream can transport arbitrary bytes or other values. The most common
-Datom.world use case is transport of datoms. Most things in Datom.world are
+### Use Cases
+
+**Standalone (no VM required):**
+- Message queues and job systems
+- Event logs and event sourcing
+- Request-response RPC patterns
+- Log streaming and aggregation (like Kafka topics)
+- Publish-subscribe systems
+
+**Datom.world specific (optional integration):**
+The most common Datom.world use case is transport of datoms. Most things in Datom.world are
 streams of datoms, and DaoStream is the transport substrate that makes the
-principle "Everything is a stream" operational.
-
-The implication of that principle is that interaction in Datom.world is
-stream-mediated. Interaction with DaoDB is via streams. FFI is also built on
-DaoStream rather than treated as a separate imperative escape hatch.
-
-This applies even to meta-runtime services. JIT and GC can be driven by datoms
-emitted on streams. Any observer that monitors the relevant streams can
-compile, collect, or otherwise optimize in response to those datoms.
+principle "Everything is a stream" operational. DaoDB consumes streams, FFI is built on
+DaoStream, and meta-runtime services like JIT and GC can be driven by datoms emitted on streams.
 
 ## Core Model
 
@@ -112,14 +116,14 @@ All transports implement three orthogonal protocols:
   - `(seek [this cursor pos])` → position-based seeking (target, not yet implemented).
 
 - **Writer Protocol** (`IDaoStreamWriter`):
-  - `(put! [this val])` → `:ok` or `:full`; throws if closed.
-    Append-only writes. Returns `:full` if transport is capacity-bounded and full.
+  - `(put! [this val])` → `{:result :ok, :woke [...]}` or `{:result :full}`; throws if closed.
+    Append-only writes. Returns `{:result :ok, :woke [...]}` on success (`:woke` contains any woken reader-waiters). Returns `{:result :full}` if transport is capacity-bounded and full.
 
 - **Bounding Protocol** (`IDaoStreamBound`):
-  - `(close! [this])` → marks stream closed; existing data remains readable.
+  - `(close! [this])` → `{:woke [...]}` with any woken reader-waiters and writer-waiters; marks stream closed; existing data remains readable.
   - `(closed? [this])` → returns boolean closed status.
 
-This split makes the canonical model explicit: reading, writing, and lifecycle are orthogonal concerns. A transport may implement all three (as RingBufferStream and WebSocketStream do), or implement only the protocols relevant to its role.
+This split makes the canonical model explicit: reading, writing, and lifecycle are orthogonal concerns. A transport may implement all three (as RingBufferStream does), or implement only the protocols relevant to its role.
 
 ### Non-Protocol Utilities
 
@@ -219,8 +223,8 @@ another policy, that is transport-specific behavior.
 ## Channel Mobility
 
 Streams can be sent on streams because a stream exists as a descriptor value.
-That descriptor can travel unchanged and be realized on any Yin VM host that
-implements the corresponding `open!` method.
+That descriptor can travel unchanged and be realized on any host or runtime
+that implements the corresponding `open!` method.
 
 If stream A carries the descriptor for stream B, the receiver can read that
 descriptor from A, then hand it to `open!` to construct or attach
@@ -231,9 +235,87 @@ No special ontology is required here:
 - stream descriptor is data
 - streams carry data
 - therefore streams can carry stream descriptors
-- a Yin VM host can realize a received stream descriptor locally through `open!`
+- any host or runtime can realize a received stream descriptor locally through `open!`
 
 This is the channel-mobility property.
+
+## Standalone Usage Examples
+
+DaoStream works as a pure message bus or event log without any VM, continuation, or scheduler.
+
+### Simple Message Queue
+
+```clojure
+;; Create a queue
+(def queue (dao.stream/open! {:transport {:type :ringbuffer :capacity 1000}}))
+
+;; Producer: append messages
+(dao.stream/put! queue {:id 1 :msg "hello"})
+(dao.stream/put! queue {:id 2 :msg "world"})
+
+;; Consumer: read from position 0 onwards
+(let [pos {:position 0}]
+  (loop [cursor pos, messages []]
+    (let [result (dao.stream/next queue cursor)]
+      (cond
+        (map? result) (recur (:cursor result) (conj messages (:ok result)))
+        (= result :blocked) (println "Waiting for more messages...")
+        (= result :end) messages))))
+;; → [{:id 1 :msg "hello"} {:id 2 :msg "world"}]
+```
+
+### Event Log / Event Sourcing
+
+```clojure
+;; Immutable event log with multiple readers
+(def events (dao.stream/open! {:transport {:type :ringbuffer}}))
+
+;; Append events
+(dao.stream/put! events {:type :user-created :id 42 :name "Alice"})
+(dao.stream/put! events {:type :user-updated :id 42 :email "alice@example.com"})
+
+;; Reader 1: replays all events to build current state
+(def reader-1 {:position 0})
+
+;; Reader 2: joins late, starts from position 1
+(def reader-2 {:position 1})
+
+;; Both advance independently without consuming
+(dao.stream/next events reader-1)  ;; reads position 0
+(dao.stream/next events reader-2)  ;; reads position 1
+```
+
+### Request-Response (No Continuations)
+
+```clojure
+;; Separate streams for request and response
+(def request-stream (dao.stream/open! {:transport {:type :ringbuffer}}))
+(def response-stream (dao.stream/open! {:transport {:type :ringbuffer}}))
+
+;; Client: emit request
+(dao.stream/put! request-stream
+  {:id "req-1" :op :multiply :args [6 7]})
+
+;; Handler: reads requests, writes responses (runs in different thread/process)
+(defn handler []
+  (loop [cursor {:position 0}]
+    (let [result (dao.stream/next request-stream cursor)]
+      (when (map? result)
+        (let [{:keys [id op args]} (:ok result)
+              res (apply {:multiply *} (assoc {} :* (fn [a b] (* a b))) args)]
+          (dao.stream/put! response-stream
+            {:id id :value res})
+          (recur (:cursor result)))))))
+
+;; Client: wait for response
+(loop [cursor {:position 0}]
+  (let [result (dao.stream/next response-stream cursor)]
+    (if (map? result)
+      (:ok result)  ;; → {:id "req-1" :value 42}
+      (Thread/sleep 10))))  ;; poll if not ready
+```
+
+**Key point:** No continuation parking, no scheduler, no VM. Just streams with cursors and plain polling loops.
 
 ## Trust and Shibi
 
@@ -251,28 +333,6 @@ Design constraints:
 - descriptor-carried Shibi tokens may be embedded or referenced
 - validation, confinement, and revocation are concerns of the realization layer
 - transport mechanics do not define trust semantics
-
-## VM Integration
-
-The VM interacts with streams through effect descriptors and `open!` realizations.
-Stream blocking and resumption are not core stream semantics. They are runtime
-behavior in the transport and scheduler.
-
-This includes interaction with DaoDB, FFI, host I/O, and meta-runtime services
-such as JIT and GC. In Datom.world, these interactions are modeled through
-DaoStream transports rather than through direct host-language function calls.
-See `docs/design/ffi-design.md` for the FFI-specific protocol built on top of
-DaoStream.
-
-Current operational model:
-
-- `next` on an open stream with no value available parks the current
-  continuation
-- `put` may resume readers that were waiting for future positions
-- `close` resumes blocked readers with end-of-stream
-
-This is already one form of stream and continuation unification at the
-`open!` layer. It does not change the core descriptor model.
 
 ## RingBufferStream Implementation
 
@@ -303,9 +363,10 @@ Absolute indexing (`head`, `tail`) enables:
 Walks the stream with a cursor starting at position 0. Terminates when `next` returns
 `:blocked`, `:end`, or `:daostream/gap`. Lazy realization allows tailing open streams.
 
-## Stream and Continuation Unification
+## Stream and Suspended Demand
 
-Open-stream runtime behavior is unified with continuations through transport-local waiter registration.
+Open-stream runtime behavior can be unified with suspended work through
+transport-local waiter registration.
 
 The useful formulation is not "a stream is only a continuation". The better
 formulation is:
@@ -313,42 +374,98 @@ formulation is:
 - a bounded stream is stable data
 - an open stream transport is stable data plus suspended demand
 
-### Reader and Writer Parking (Implemented)
+A stream itself does not know what "suspended demand" means. It only knows:
+- `next` → `:blocked` (data not yet available)
+- `put!` → `:full` (no room to append)
+- `close!` → all readers/writers are done
 
-Blocked continuations can now live in the transport itself as an optimization, bypassing the VM scheduler's polling. Transports that do not implement `IDaoStreamWaitable` still rely on the scheduler's `check-wait-set` fallback.
+A **runtime** can interpret these signals and choose how to represent suspended work:
+- Continuations (Yin VM)
+- Promises (JavaScript)
+- Callbacks (event-driven)
+- Thread parking (OS threads)
+- Actor mailboxes (actor systems)
+
+DaoStream places no constraints on this choice. The `IDaoStreamWaitable` protocol
+is one optional optimization for runtimes that want transport-level waiter registration,
+but it is not required. Runtimes can always fall back to polling.
+
+## Optional: Runtime Integration Patterns
+
+**This section applies only to runtimes that model suspended work explicitly (e.g., continuation-based VMs).
+Standalone message queues and event logs do not use this.**
+
+### Reader and Writer Parking (IDaoStreamWaitable)
+
+A runtime that models blocked work explicitly can store wake entries in the
+transport itself as an optimization, bypassing scheduler polling. Transports
+that do not implement `IDaoStreamWaitable` still rely on the runtime's polling
+fallback.
 
 For waitable transports:
 
 - **Reader parking** (`next` → `:blocked`):
   - Reader registers at transport via `IDaoStreamWaitable.register-reader-waiter!` indexed by cursor position.
   - When `put!` appends at position `p`, transport checks `(get reader-waiters p)` and returns woken readers in `:woke`.
-  - Engine immediately adds woken readers to run-queue (no polling).
+  - The runtime immediately schedules the woken readers (no polling).
 
 - **Writer parking** (`put!` → `:full`):
   - Writer registers at transport via `IDaoStreamWaitable.register-writer-waiter!` when capacity is exceeded.
   - When `drain-one!` frees space, transport atomically writes the waiting writer's datom and returns the woken writer in `:woke`.
   - If a reader is simultaneously waiting at the new position, both wake together.
-  - Engine immediately adds woken writers to run-queue (no polling).
+  - The runtime immediately schedules the woken writers (no polling).
 
 - **Close semantics**:
   - `close!` collects all registered readers and writers, returns them in `:woke` with `:value nil`.
   - Readers get end-of-stream signal; writers get close signal.
 
-### FFI Pattern (Analogous)
+### Continuation Parking (Yin VM Example)
 
-The FFI implementation follows the same unification pattern: park continuation, emit request on a stream,
-then resume the parked continuation when the request is observed and handled.
+In Yin VM specifically:
 
-A parked continuation is turned into a stream-level request carrying a resumption address
-(`:parked-id`), and a stream observer resumes that continuation later. This is
-not merely analogous to stream behavior. It is the same causal pattern.
+- `next` on an open stream with no value available parks the current continuation
+- `put!` may wake readers that were waiting for future positions
+- `close!` wakes all blocked readers with end-of-stream
+
+In Yin VM's model, open streams are viewed as continuations:
+- A bounded stream is stable data
+- An open stream is stable data plus suspended demand (via continuation mechanics)
+
+The VM uses `IDaoStreamWaitable.register-reader-waiter!` to let the transport store wake entries,
+bypassing scheduler polling. If a transport does not implement `IDaoStreamWaitable` (e.g.,
+networked transports), the VM falls back to polling via `check-wait-set`.
+
+See `docs/design/ffi-design.md` for how Yin VM uses DaoStream for FFI (function calls across stream boundaries).
+
+### `dao.stream.apply` Pattern (Cross-Stream RPC)
+
+`dao.stream.apply` follows the same pattern: suspended work emits a request on a stream, then later resumes when a response is observed.
+
+**Full specification:** see `docs/design/daostream-apply-design.md` for the complete protocol definition and standalone usage examples.
+
+In a runtime that uses continuations:
+- park continuation (await)
+- emit request on a stream
+- observe matching response later
+- resume the parked continuation
+
+In another runtime, suspended work might be represented as:
+- Promises (JavaScript)
+- Callbacks (Node.js)
+- Actor mailboxes (Akka)
+- Thread parking (Java)
+
+DaoStream does not prescribe which one.
 
 ### Correctness Property
 
 This unification should not collapse the descriptor into continuation state. The
 descriptor remains the serializable identity of the stream. Waiter state may
-live either in a waitable transport or in the VM scheduler fallback, but in
+live either in a waitable transport or in a runtime scheduler fallback, but in
 both cases it is ephemeral runtime state and excluded from serialization.
+
+**Key point:** This is one optional integration pattern. DaoStream itself makes no assumptions
+about how runtimes represent suspended work.
 
 ## Relation to DaoDB
 
@@ -362,6 +479,120 @@ in Datom.world are streams of datoms.
 An open stream is still a stream. A bounded stream is a stable value that DaoDB
 can consume to build indexes or answer queries. Stream semantics do not depend
 on those indexes.
+
+## Transport Examples
+
+DaoStream's `open!` multi-method is transport-agnostic. New transports are added by registering a `defmethod` for a new `:type`.
+
+### RingBufferStream (Implemented)
+
+In-process, bounded queue with absolute indexing.
+
+```clojure
+{:transport {:type :ringbuffer
+             :capacity 10000}}
+
+;; Use case: low-latency message queue, event log within a single process
+```
+
+**Implementation notes:**
+- Map-backed: `{:buffer {0 val1 1 val2} :head 0 :tail 2}`
+- Cursor advancement: `:position` counter (immutable)
+- Memory: reclaimed via `dissoc` in `drain-one!`
+- Gap detection: `pos < head` → `:daostream/gap`
+
+### WebSocketStream (Target)
+
+Networked, bidirectional transport.
+
+```clojure
+{:transport {:type :websocket
+             :mode :connect
+             :url "ws://broker.example.com/stream"
+             :capacity nil}}
+
+;; Use case: distributed message queue, cross-process RPC (dao.stream.apply)
+```
+
+**Design notes:**
+- Sends/receives serialized values over WebSocket
+- No local buffering (transport is remote)
+- Cursor semantics: each `next` call sends a query to remote
+- Polling or callback-based wake mechanism (not yet `IDaoStreamWaitable`)
+
+### Kafka Transport (Example)
+
+Distributed event log transport.
+
+```clojure
+{:transport {:type :kafka
+             :broker "localhost:9092"
+             :topic "my-events"
+             :consumer-group "my-app"
+             :capacity nil}}
+
+;; Use case: durable event sourcing, fan-out to multiple consumers
+```
+
+**Design notes:**
+- Cursor maps to Kafka offset: `{:position <offset>}`
+- `next` calls `consumer.poll(timeout)`
+- `put!` calls `producer.send(key, value, partition)`
+- Gaps: Kafka offset lag → gap detection
+- Multiple cursors: multiple independent consumer instances
+
+### File Transport (Example)
+
+Append-only file with cursor as byte offset.
+
+```clojure
+{:transport {:type :file
+             :path "/data/events.log"
+             :format :edn}}
+
+;; Use case: durable audit log, cheap persistence
+```
+
+**Design notes:**
+- Descriptor is serializable; realization opens the file
+- Cursor: byte offset into file
+- `put!`: append and fsync
+- `next`: seek + read
+- Retention: size-based rotation (e.g., max 1GB per file)
+
+### In-Process Pub-Sub (Example)
+
+Single-writer, multiple-reader pattern.
+
+```clojure
+{:transport {:type :pubsub
+             :channels ["user.created" "user.updated"]}}
+
+;; Use case: within-process event dispatch
+```
+
+**Design notes:**
+- Each cursor is a separate reader
+- All readers see the same append position
+- No persistence; snapshots are empty
+- Wake mechanism: immediate callback or waiter registration
+
+### Key Pattern: New Transports
+
+Adding a new transport is orthogonal to DaoStream core:
+
+```clojure
+(defmethod open! :my-transport [descriptor]
+  (let [{:keys [host port]} (:transport descriptor)]
+    ;; Realize the descriptor into a concrete transport object
+    ;; Implement IDaoStreamReader, IDaoStreamWriter, IDaoStreamBound
+    (->MyTransport host port)))
+```
+
+DaoStream makes no assumptions about the transport's internals. The only contract is:
+- `next` returns `{:ok val :cursor cursor'}`, `:blocked`, `:end`, or `:daostream/gap`
+- `put!` returns `{:result :ok :woke [...]}` or `{:result :full}`
+- `close!` returns `{:woke [...]}`
 
 ## Current Implementation Status
 
@@ -380,8 +611,8 @@ on those indexes.
   - Extends `IDaoStreamReader`, `IDaoStreamWriter`, `IDaoStreamBound`.
 - Cursor-based `next` method returns `{:ok val :cursor cursor'}`, `:blocked`, `:end`, or `:daostream/gap`.
 - `IDaoStreamWaitable` protocol for transport-local waiter registration:
-  - `register-reader-waiter!` stores reader continuations indexed by cursor position.
-  - `register-writer-waiter!` stores writer continuations; woken when space becomes available.
+  - `register-reader-waiter!` stores reader wake entries indexed by cursor position.
+  - `register-writer-waiter!` stores writer wake entries; woken when space becomes available.
   - `RingBufferStream` implements both: `:reader-waiters {}` (position → entry) and `:writer-waiters []` (queue).
 - Utility functions (not protocol methods):
   - `->seq` lazy sequence walks with cursor; terminates at `:blocked`, `:end`, or gap.
@@ -389,12 +620,12 @@ on those indexes.
     When a writer is woken, its datom is atomically written to the stream. If a reader is waiting at the new position, both wake together.
   - `count-available` returns count of appended but unconsumed values (transport-specific metadata).
 - Descriptor shape (current): `{:transport {:type :ringbuffer :mode :create :capacity nil-or-int}}`.
-- `WebSocketStream` and link transport updated to use new protocol boundaries.
 - `check-wait-set` remains the universal polling fallback for non-waitable streams,
-  handling `:next`, `:put`, and `:take`. Waitable transports bypass it for normal
-  reader and writer parking.
+  handling `:next`, `:put`, and `:take` in current runtimes. Waitable transports
+  bypass it for normal reader and writer parking.
 
 **What still needs work:**
+- `WebSocketStream` and cross-process transports: `open!` method for `:websocket` transport type (target, not yet implemented).
 - Full descriptor schema expansion:
   - `:stream/id` for canonical identity.
   - `:transport :mode` (`:create` vs `:attach`).

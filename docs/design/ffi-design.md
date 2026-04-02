@@ -1,5 +1,9 @@
 # dao.stream.apply Bridge Design: Datom Streams as the Universal Application Interface
 
+**Note:** This document describes Yin VM's integration with the `dao.stream.apply` protocol.
+For the protocol specification itself, see `docs/design/daostream-apply-design.md`.
+For the DaoStream transport abstraction, see `docs/design/daostream-design.md`.
+
 ## Context
 
 Foreign Function Interface (FFI) and cross-process Remote Procedure Calls (RPC) are unified in Yin.VM via the `dao.stream.apply` protocol. Traditional FFI crosses the host/VM boundary via imperative function calls, which introduces marshaling tax and tight coupling. Yin.VM replaces this with datom streams. The VM emits request datoms to a `call-in` stream; a bridge dispatcher reads them, invokes host functions, and writes responses to a `call-out` stream.

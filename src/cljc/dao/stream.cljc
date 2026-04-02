@@ -15,8 +15,9 @@
     (close! [stream]) → {:woke [...]}
     (closed? [stream]) → boolean
 
-  IDaoStreamWaitable (optional — transport-local reader waking):
+  IDaoStreamWaitable (optional — transport-local reader and writer waking):
     (register-reader-waiter! [stream position entry])
+    (register-writer-waiter! [stream entry])
 
   Descriptor (serializable):
     {:transport {:type :ringbuffer :capacity nil-or-int}}

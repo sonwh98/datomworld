@@ -1,33 +1,54 @@
-# dao.stream.apply Design: Clojure `apply` over DaoStream
+# dao.stream.apply Design: Stream-Native Apply Protocol
 
 ## Overview
 
-dao.stream.apply is an implementation of Clojure `apply` across streams.
-It reifies function application as explicit DaoStream data: an operation plus evaluated
-arguments on a request stream, followed by the resulting value on a response stream.
-Unlike Clojure `apply`, which is synchronous and returns immediately in the current call
-stack, dao.stream.apply is asynchronous: the application is emitted as stream traffic and
-the caller resumes only when a response arrives.
-The protocol is transport-independent and built on top of DaoStream.
-It unifies:
-- In-process VM ↔ host bridge calls
-- Cross-process VM ↔ remote service calls (via WebSocket or any DaoStream transport)
-- Concurrent multi-caller scenarios with response routing via opaque call IDs
+`dao.stream.apply` is a standalone asynchronous request/response protocol built on top of DaoStream.
+Its only dependency should be `dao.stream`.
 
-The protocol treats the continuation as a stream reader-waiter. When a caller parks and sends
-a request, it becomes indistinguishable from any other blocked stream operation. The callee
-writes a response to a response stream, waking the caller via the existing DaoStream waiter
-mechanism. No special engine idle handlers. No privilege. Same transport layer regardless of
-deployment topology.
+**Related documents:**
+- `docs/design/daostream-design.md` — the stream abstraction and transport model that underpins this protocol
+- `docs/design/ffi-design.md` — how Yin VM uses this protocol to implement FFI
+
+The protocol reifies function application as explicit stream traffic:
+- a caller emits a request with an opaque call id, an operation keyword, and evaluated arguments
+- a callee reads the request, computes a result, and emits a response with the same id
+- the caller observes that response later on the response stream and continues however its own runtime chooses
+
+This is broader than Yin VM FFI. The Yin VM is one consumer of the protocol, not its owner.
+`dao.stream.apply` must be usable on its own:
+- between a plain caller and callee in one process
+- across linked processes or nodes
+- as a host bridge substrate for Yin VM FFI
+- as a testable transport-independent request/response layer
+
+The protocol is async by construction: emitting a request and receiving its response are
+distinct stream events, separated in time and not coupled to one synchronous host stack.
+
+The protocol defines values and stream interactions. It does not define scheduling,
+continuation layout, waiter entries, or VM engine behavior.
+
+---
 
 ## Core Philosophy
 
-Everything is a stream. Function application is stream I/O. Continuations are readers. Responses are values.
-`apply` does not disappear into a host callback. It is represented directly as stream traffic.
-This is why dao.stream.apply is async even though Clojure `apply` is sync: the operation
-crosses a stream boundary and completion is represented by a later response.
-The protocol is minimal: five datom attributes, two stream descriptors, zero new VM opcodes,
-zero new scheduler logic. Transport is DaoStream. Scheduling is free.
+Everything is a stream. Apply across a boundary is asynchronous stream I/O.
+
+`dao.stream.apply` exists to make application explicit:
+- no hidden callback boundary
+- no implicit host call stack crossing
+- no transport-specific interface at the semantic layer
+
+The protocol is deliberately small:
+- one endpoint descriptor
+- one request shape
+- one response shape
+- opaque ids for routing
+
+Scheduling is a consumer concern. A caller may block, poll, park a continuation,
+or hand the response to another stream processor. The protocol does not privilege
+any one runtime strategy.
+
+Errors are values. The protocol has no exception semantics.
 
 ---
 
@@ -35,720 +56,397 @@ zero new scheduler logic. Transport is DaoStream. Scheduling is free.
 
 ### Endpoint Descriptor
 
-A dao.stream.apply endpoint is a pair of stream descriptors:
+A `dao.stream.apply` endpoint is a pair of stream descriptors:
 
 ```clojure
-;; Immutable, serializable, first-class value
-{:dao.stream.apply/request  <stream-descriptor>    ;; callee reads requests here
- :dao.stream.apply/response <stream-descriptor>}   ;; caller reads responses here
+{:dao.stream.apply/request  <stream-descriptor>
+ :dao.stream.apply/response <stream-descriptor>}
 ```
 
-Both descriptors conform to the DaoStream descriptor schema:
+The request descriptor names the stream the callee reads from.
+The response descriptor names the stream the caller reads from.
+
+Both descriptors are plain data. They can be stored, transmitted, and opened
+wherever the corresponding DaoStream transports are available.
+
+Example endpoint descriptor:
+
 ```clojure
-{:transport {:type :ringbuffer        ;; or :websocket, :socket, etc.
-             :mode :create            ;; or :attach (attach not yet impl.)
-             :capacity nil-or-int}}   ;; nil for unbounded
+{:dao.stream.apply/request
+ {:transport {:type :ringbuffer
+              :mode :create
+              :capacity nil}}
+ :dao.stream.apply/response
+ {:transport {:type :ringbuffer
+              :mode :create
+              :capacity nil}}}
 ```
 
-Example endpoint (in-process, unbounded):
+Example remote endpoint descriptor:
+
 ```clojure
-{:dao.stream.apply/request  {:transport {:type :ringbuffer :mode :create :capacity nil}}
- :dao.stream.apply/response {:transport {:type :ringbuffer :mode :create :capacity nil}}}
+{:dao.stream.apply/request
+ {:transport {:type :websocket
+              :mode :connect
+              :url "ws://host:port/in"}}
+ :dao.stream.apply/response
+ {:transport {:type :websocket
+              :mode :connect
+              :url "ws://host:port/out"}}}
 ```
 
-Example endpoint (cross-process, over WebSocket):
+### Request Value
+
+A caller emits a request on the request stream:
+
 ```clojure
-{:dao.stream.apply/request  {:transport {:type :websocket :mode :connect :url "ws://host:port/in"}}
- :dao.stream.apply/response {:transport {:type :websocket :mode :connect :url "ws://host:port/out"}}}
+{:dao.stream.apply/id   <opaque-id>
+ :dao.stream.apply/op   <keyword>
+ :dao.stream.apply/args <vector>}
 ```
 
-**Key property (Channel Mobility)**: The endpoint descriptor is a plain value. It can be
-sent through a stream, persisted, or passed to any process. Any host with `open!`
-implementations for the transport types can materialize it locally. The transport
-is the detail; the endpoint is the contract.
-
-### Request Datom
-
-A caller emits a request on the `call-in` stream:
+Example:
 
 ```clojure
-{:dao.stream.apply/id   <keyword>    ;; opaque return address; usually a parked continuation ID
- :dao.stream.apply/op   keyword      ;; operation name; opaque to the protocol
- :dao.stream.apply/args vector}      ;; evaluated argument values [val1 val2 ...]
-```
-
-Example request from a VM `:dao.stream.apply/call`:
-```clojure
-{:dao.stream.apply/id   :parked-0
+{:dao.stream.apply/id   :call-7
  :dao.stream.apply/op   :op/add
  :dao.stream.apply/args [10 20]}
 ```
 
-The `:dao.stream.apply/id` is the routing address for the response. The protocol does not
-prescribe its format; the caller chooses it. A Yin VM uses the parked continuation's
-generated keyword (`:parked-N`). A stateless HTTP gateway might use a UUID.
+The protocol does not prescribe the id format. The caller chooses it.
+It may be a keyword, UUID, integer, or any other routing token agreed on by the caller.
 
-### Response Datom
+### Response Value
 
-A callee emits a response on the `call-out` stream:
+A callee emits a response on the response stream:
 
 ```clojure
-{:dao.stream.apply/id    <keyword>   ;; must match the request's :dao.stream.apply/id
- :dao.stream.apply/value <any>}      ;; the result value
+{:dao.stream.apply/id    <opaque-id>
+ :dao.stream.apply/value <any>}
 ```
 
-Example response:
+Example:
+
 ```clojure
-{:dao.stream.apply/id    :parked-0
+{:dao.stream.apply/id    :call-7
  :dao.stream.apply/value 30}
 ```
 
-The `:dao.stream.apply/value` can be any Clojure value (or transit-serializable value for
-cross-process). Errors are represented as values (e.g., `{:error "..." :code ...}`) —
-the protocol has no exception semantics.
+The response id must match the request id.
+The protocol treats the id as opaque routing data.
+
+### Handler Contract
+
+The protocol does not require a specific handler representation, but the natural
+callee-side model is a map from operation keyword to function:
+
+```clojure
+{:op/add +
+ :op/echo identity}
+```
+
+Given a request, the callee:
+1. reads `:dao.stream.apply/op`
+2. looks up a handler
+3. applies the handler to `:dao.stream.apply/args`
+4. emits `{:dao.stream.apply/id id :dao.stream.apply/value result}`
+
+That contract is protocol-level. It does not depend on any VM.
 
 ---
 
-## Scheduling Mechanism
+## Standalone Usage
 
-dao.stream.apply unifies with stream reading. A parked continuation IS a reader-waiter on the
-response stream.
+### Plain Caller/Callee Flow
 
-### Call Sequence (Synchronous In-Process Example)
+Standalone `dao.stream.apply` usage requires only `dao.stream` and `dao.stream.apply`.
 
-```
-Caller (Yin VM executing :dao.stream.apply/call)
-  1. Evaluate operands → [val1 val2]
-  2. Call engine/park-continuation → {:type :parked-continuation :id :parked-0 ...}
-  3. Register as reader-waiter on call-out stream at current cursor position
-     (waiter entry contains the parked continuation's stack, env)
-  4. Call put! on call-in stream: {:dao.stream.apply/id :parked-0 :dao.stream.apply/op :op/add
-                                    :dao.stream.apply/args [10 20]}
-  5. Set :blocked true, return control to run-loop
-  6. run-loop continues with next runnable continuation (no spin, no poll)
+```clojure
+(require '[dao.stream :as ds]
+         '[dao.stream.apply :as dao-apply])
 
-Idle Loop (engine)
-  When run-queue and wait-set exhausted:
-    → check-wait-set may be called (see "Fallback Polling" below)
-    → no special check-call-out
+(let [request-stream  (ds/open! {:transport {:type :ringbuffer :capacity nil}})
+      response-stream (ds/open! {:transport {:type :ringbuffer :capacity nil}})
+      handlers        {:op/add +}
 
-Callee (Host Bridge, running in a thread or event loop)
-  1. Call next on call-in stream at cursor {:position 0}
-  2. Read request: {:dao.stream.apply/id :parked-0 :dao.stream.apply/op :op/add :dao.stream.apply/args [10 20]}
-  3. Dispatch: (get handlers :op/add) → the + function
-  4. Call (apply + [10 20]) → 30
-  5. Call put! on call-out stream: {:dao.stream.apply/id :parked-0 :dao.stream.apply/value 30}
-  6. Transport (RingBufferStream) checks: is there a reader-waiter at this position?
-     Yes: returns {:result :ok :woke [{:entry waiter-entry :value response :position 0}]}
+      _ (ds/put! request-stream
+                 (dao-apply/request :call-1 :op/add [10 20]))
 
-Transport (IDaoStreamWaitable)
-  put! returns woke items → engine processes via handle-effect → make-woken-run-queue-entries
-  Woke entry:
-    {:entry {:cursor-ref {:type :cursor-ref :id ::call-out-cursor}
-             :stack [...] :env {...}}
-     :value {:dao.stream.apply/id :parked-0 :dao.stream.apply/value 30}
-     :position 0}
+      {:keys [ok]} (ds/next request-stream {:position 0})
+      {:dao.stream.apply/keys [id op args]} ok
+      result (apply (get handlers op) args)
+      _ (ds/put! response-stream
+                 (dao-apply/response id result))
 
-Resume Path (engine/make-woken-run-queue-entries)
-  1. Detect :cursor-ref in entry → this is a reader-waiter
-  2. Stamp :value with the response map
-  3. Compute store-update: advance cursor from {:position 0} to {:position 1}
-  4. Build run-queue entry:
-     {:cursor-ref {...}
-      :stack [...]
-      :env {...}
-      :value {:dao.stream.apply/id :parked-0 :dao.stream.apply/value 30}
-      :store-updates {::call-out-cursor {:position 1}}}
-
-resume-from-run-queue (existing path)
-  1. Pop run-queue entry
-  2. Merge store-updates into :store
-  3. Restore :stack and :env from entry
-  4. Set :control {:type :value :val response-map}
-  5. Set :blocked false, :halted false
-  6. Continue run-loop
-
-VM resumes
-  The :control `:value` node evaluates to the response-map. The :dao.stream.apply/call AST node
-  extracts `:dao.stream.apply/value` from it and returns that as the final result.
+      {:keys [ok]} (ds/next response-stream {:position 0})]
+  ok)
 ```
 
-### Fallback Polling (Non-Waitable Transports)
+Result:
 
-For transports that do not implement `IDaoStreamWaitable` (e.g., `WebSocketStream`
-across a network), the caller falls back to the universal `check-wait-set` scheduler.
-
-```
-Same setup, but call-out is WebSocketStream (not IDaoStreamWaitable):
-
-Caller parks, calls put! on call-in → no local waiter registration (WebSocket
-  has no local reader-waiters). Continuation falls through to wait-set.
-
-Idle Loop (engine)
-  check-wait-set executes:
-    Sees wait-set entry with :reason :next on ::call-out-cursor
-    Calls (ds/next call-out cursor) → :blocked (network delayed)
-    Keeps entry in wait-set, retries next idle iteration
-
-Callee writes to call-out via WebSocket link
-
-Network Link
-  Receives message, appends to local :remote-stream RingBufferStream
-
-Next check-wait-set iteration
-  Calls (ds/next call-out cursor) → {:ok response-map :cursor cursor'}
-  Moves entry to run-queue with :value response-map
-  resume-from-run-queue restores continuation
+```clojure
+{:dao.stream.apply/id :call-1
+ :dao.stream.apply/value 30}
 ```
 
-The code path is unchanged. `check-wait-set` already handles `:reason :next` on
-any stream; it does not care whether the stream is waitable or not.
+The key point is that no VM is involved. The protocol is complete enough to model
+request/response application by itself.
+
+### Transport Independence
+
+The same request and response shapes work over any DaoStream transport:
+- in-memory ring buffers
+- linked streams
+- websocket-backed streams
+- future transports that satisfy the DaoStream interfaces
+
+Transport changes only how the streams are opened and delivered.
+It does not change the `dao.stream.apply` data model.
 
 ---
 
-## VM Integration
+## Public API Direction for `src/cljc/dao/stream/apply.cljc`
 
-### Store Streams
+`src/cljc/dao/stream/apply.cljc` should be the public operational surface for this protocol.
+A reader should be able to understand how to use `dao.stream.apply` without reading
+Yin VM namespaces.
 
-When a Yin VM is created, `empty-state` initializes two dao.stream.apply streams in the store:
+### Responsibilities
+
+This namespace should own:
+- endpoint construction and endpoint accessors
+- request and response construction
+- request and response predicates or validation helpers
+- request and response accessors
+- stream helpers for emitting requests and responses
+- stream helpers for reading requests and responses
+- optional callee-side helpers for dispatching a request through a handler map
+
+### Non-Responsibilities
+
+This namespace should not own:
+- VM state
+- continuation parking
+- waiter entry layout
+- scheduler or wait-set policy
+- run-queue synthesis
+- AST node evaluation
+- bytecode opcode handling
+- host bridge state tied to a specific VM runtime
+
+### Dependency Boundary
+
+`dao.stream.apply` should depend only on `dao.stream`.
+
+It should not depend on:
+- `yin.vm`
+- `yin.vm.engine`
+- `yin.vm.host-ffi`
+- any semantic, stack, register, or AST-walker interpreter namespace
+
+### Public API Shape
+
+The namespace should read like a self-contained protocol module. In addition to the
+existing constructors, its public surface should grow toward helpers in this family:
+
+```clojure
+make-endpoint
+endpoint-request
+endpoint-response
+
+request
+request?
+request-id
+request-op
+request-args
+
+response
+response?
+response-id
+response-value
+
+put-request!
+put-response!
+next-request
+next-response
+
+dispatch-request
+serve-once!
+```
+
+The exact function set can evolve, but the principle is fixed:
+`dao.stream.apply` should expose the protocol in a form usable without VM knowledge.
+
+---
+
+## Yin VM Integration
+
+### Role of the VM
+
+The Yin VM uses `dao.stream.apply` to implement FFI.
+That is an integration choice made by the VM.
+It does not redefine the protocol.
+
+In Yin:
+- `:dao.stream.apply/call` is the AST and opcode-level projection of the protocol
+- the VM evaluates operand expressions
+- the VM chooses a call id
+- the VM emits a request using the protocol
+- the VM resumes when it receives a response according to its own runtime rules
+
+### VM-Specific State
+
+The Yin VM may keep request and response streams in its store:
 
 ```clojure
 {:store
- {:yin/call-in        <RingBufferStream>      ;; callee reads requests
-  :yin/call-in-cursor {:position 0}           ;; read head for call-in
-  :yin/call-out       <RingBufferStream>      ;; caller reads responses
-  :yin/call-out-cursor {:position 0}}}        ;; read head for call-out
+ {:yin/call-in         <stream>
+  :yin/call-in-cursor  {:position 0}
+  :yin/call-out        <stream>
+  :yin/call-out-cursor {:position 0}}}
 ```
 
-These are **always** in-process ringbuffer streams. The VM does not directly connect to
-remote services; the bridge code does. The VM's view is: two local streams that somehow
-get populated and drained.
+Those keys are integration details of the VM.
+They are not part of the `dao.stream.apply` protocol itself.
 
-A deployed system may replace these with descriptors pointing to WebSocket transports
-before VM creation:
+### VM Scheduling and Waiting
 
-```clojure
-(-> (vm/create-vm {:call-in  {:transport {:type :websocket :url "..."}}
-                   :call-out {:transport {:type :websocket :url "..."}}})
-    (vm/load-program program)
-    (vm/run))
-```
+When the Yin VM uses `dao.stream.apply`, it may:
+- park a continuation
+- register a waiter on the response stream
+- poll through its wait-set
+- synthesize run-queue entries
 
-But the VM code does not change. It always sees `open!` applied to the descriptors,
-returning a stream object, which it reads/writes identically.
+Those behaviors belong to the VM implementation.
+They must not migrate into `dao.stream.apply`, because they depend on VM-specific
+continuation and scheduler structures.
 
-### AST Node: `:dao.stream.apply/call`
+### Why Keep `:dao.stream.apply/call`
 
-The `:dao.stream.apply/call` AST node is unchanged:
+The protocol namespace is `dao.stream.apply`.
+The Yin VM's concrete AST and opcode tag is `:dao.stream.apply/call`.
 
-```clojure
-{:type     :dao.stream.apply/call
- :op       keyword         ;; e.g. :op/add (becomes :dao.stream.apply/op)
- :operands [node1 node2]}  ;; expressions; evaluated before call
-```
+That distinction matters:
+- `dao.stream.apply` names the protocol family
+- `:dao.stream.apply/call` names one VM operation that consumes the protocol
 
-Datom representation (from `ast->datoms`):
-```clojure
-[e :yin/type     :dao.stream.apply/call    t m]
-[e :yin/op       :op/add      t m]
-[e :yin/operands [e1 e2]      t m]
-```
-
-No new attributes. The `:yin/op` already exists.
-
-### Opcode: `:dao.stream.apply/call` (21)
-
-The bytecode opcode is unchanged. Stack and register VMs emit and execute `[:dao.stream.apply/call op argc]`.
-No semantic change.
-
-### Execution: `park-and-call` in AST Walkers
-
-Replace the old `park-and-enqueue-ffi` (which wrote to a stream and returned immediately)
-with `park-and-call` (which registers a waiter, writes a request, and parks).
-
-**Old (current) behavior**:
-```
-:dao.stream.apply/call → park → write to ::call-in → return blocked
-           (no waiter registration; polling happens at idle via check-call-out)
-```
-
-**New behavior**:
-```
-:dao.stream.apply/call → park → register reader-waiter on ::call-out at next position
-         → write request to ::call-in → return blocked
-         (waiter wakes when response arrives, via IDaoStreamWaitable or check-wait-set)
-```
-
-Pseudocode for `park-and-call`:
-
-```clojure
-(defn- park-and-call
-  "Park continuation and enqueue call to request stream with response waiter."
-  [vm op args stack env]
-  (let [;; 1. Park the continuation
-        parked       (engine/park-continuation vm {:stack stack :env env})
-        parked-id    (get-in parked [:value :id])  ;; :parked-N
-
-        ;; 2. Get response stream from store
-        call-out     (get-in parked [:store ::vm/call-out])
-        cursor-data  (get-in parked [:store ::vm/call-out-cursor])
-        cursor-pos   (:position cursor-data)
-
-        ;; 3. Register as reader-waiter on response stream
-        ;;    The waiter entry contains stack & env for resumption
-        waiter-entry {:cursor-ref {:type :cursor-ref :id ::vm/call-out-cursor}
-                      :reason :next
-                      :stream-id ::vm/call-out
-                      :stack stack
-                      :env env}
-        _            (when (satisfies? ds/IDaoStreamWaitable call-out)
-                       (ds/register-reader-waiter! call-out cursor-pos waiter-entry))
-        ;;    (If not waitable, waiter-entry goes to wait-set instead — handled by handle-effect)
-
-        ;; 4. Get request stream from store
-        call-in      (get-in parked [:store ::vm/call-in])
-
-        ;; 5. Build and emit request
-        request      (dao.stream.apply/request parked-id op args)
-        _            (ds/put! call-in request)]
-
-    ;; 6. Return blocked state
-    (assoc parked
-           :control nil
-           :value   :yin/blocked
-           :blocked true
-           :halted  false)))
-```
-
-This is called from the same place as the old `park-and-enqueue-ffi`, triggered by
-`:dao.stream.apply/call` evaluation in each AST walker (semantic, stack, register).
-
-**Important**: If the transport does NOT implement `IDaoStreamWaitable`, the waiter
-registration is skipped, and `handle-effect` for the `:stream/next` effect adds the
-entry to the scheduler's wait-set (fallback path). This is automatic; no special logic needed.
-
-### Response Extraction
-
-When a continuation resumes with the response map, the `:dao.stream.apply/call` evaluation extracts
-`:dao.stream.apply/value` and returns it as the application result.
-
-In `handle-return-value` (semantic.cljc), after the response is resumed:
-
-```clojure
-;; response-map is: {:dao.stream.apply/id :parked-0 :dao.stream.apply/value result}
-:dao.stream.apply/call
-(let [result-value (:dao.stream.apply/value (get-in vm [:control :val]))]
-  (assoc vm :control {:type :value :val result-value}))
-```
-
-This is the final result of the `:dao.stream.apply/call` expression. If the response map has
-additional fields (e.g., error info), they are present in the full response value
-and the VM code can inspect them if needed.
-
----
-
-## New File: `src/cljc/dao/stream/apply.cljc`
-
-This file defines the dao.stream.apply protocol at the stream level, independent of any VM.
-
-### API
-
-```clojure
-(defn make-endpoint
-  "Create an endpoint descriptor from two stream descriptors.
-
-  Args:
-    request-descriptor  - stream descriptor where callee reads requests
-    response-descriptor - stream descriptor where caller reads responses
-
-  Returns:
-    {:dao.stream.apply/request <request-desc>
-     :dao.stream.apply/response <response-desc>}
-
-  Example:
-    (make-endpoint {:transport {:type :ringbuffer :capacity nil}}
-                   {:transport {:type :ringbuffer :capacity nil}})"
-  [request-descriptor response-descriptor]
-  {:dao.stream.apply/request request-descriptor
-   :dao.stream.apply/response response-descriptor})
-
-(defn request
-  "Create a request datom.
-
-  Args:
-    id   - keyword or other opaque ID; must be present in response
-    op   - keyword naming the operation
-    args - vector of argument values
-
-  Returns:
-    {:dao.stream.apply/id <id>
-     :dao.stream.apply/op <op>
-     :dao.stream.apply/args <args>}"
-  [id op args]
-  {:dao.stream.apply/id id
-   :dao.stream.apply/op op
-   :dao.stream.apply/args args})
-
-(defn response
-  "Create a response datom.
-
-  Args:
-    id    - keyword; must match request's :dao.stream.apply/id for routing
-    value - any value (result, error, etc.)
-
-  Returns:
-    {:dao.stream.apply/id <id> :dao.stream.apply/value <value>}"
-  [id value]
-  {:dao.stream.apply/id id :dao.stream.apply/value value})
-```
-
-**No scheduling or transport logic in this file.** Transport is DaoStream (caller's
-responsibility). Scheduling is the caller's responsibility.
-
----
-
-## Implementation Details
-
-### Changes to `src/cljc/yin/vm.cljc`
-
-#### 1. Rename stream keys
-
-```clojure
-;; OLD (still in code)
-(def call-out-stream-key  :yin/call-out)
-(def call-out-cursor-key  :yin/call-out-cursor)
-
-;; NEW
-(def call-in-stream-key  :yin/call-in)
-(def call-in-cursor-key  :yin/call-in-cursor)
-(def call-out-stream-key :yin/call-out)
-(def call-out-cursor-key :yin/call-out-cursor)
-```
-
-Keep old keys as aliases for compatibility during transition, or remove if breaking.
-
-#### 2. Update `empty-state`
-
-```clojure
-(defn empty-state [opts]
-  (let [call-in  (or (:call-in opts)
-                     (ds/open! {:transport {:type :ringbuffer :capacity nil}}))
-        call-out (or (:call-out opts)
-                     (ds/open! {:transport {:type :ringbuffer :capacity nil}}))]
-    {:store
-     {call-in-stream-key  call-in
-      call-in-cursor-key  {:position 0}
-      call-out-stream-key call-out
-      call-out-cursor-key {:position 0}}
-     ;; ... other fields
-     }))
-```
-
-The `:call-in` and `:call-out` options allow overriding the default streams
-(e.g., to inject WebSocket descriptors or mock streams for testing).
-
-#### 3. Remove `:bridge-dispatcher`
-
-The `:bridge-dispatcher` map moves from VM state to host bridge code.
-It is no longer part of `empty-state`. Any tests or code that passed
-`:bridge-dispatcher {:op/echo identity}` to `create-vm` must be updated.
-
-### Changes to `src/cljc/yin/vm/engine.cljc`
-
-#### 1. Remove `check-call-out`
-
-Delete the entire `check-call-out` function (currently around line 193).
-It is no longer called from `run-loop`.
-
-#### 2. Remove `enqueue-ffi-request`
-
-Delete the `enqueue-ffi-request` function (currently around line 176).
-Its work is now done by the `park-and-call` functions in semantic/stack/register.
-
-#### 3. Update `run-loop`
-
-Remove the call to `check-call-out` from the idle branch:
-
-```clojure
-;; OLD
-(let [v' (-> v check-wait-set check-call-out)]
-  ...)
-
-;; NEW
-(let [v' (check-wait-set v)]
-  ...)
-```
-
-That's it. `check-wait-set` already handles all stream blocking scenarios,
-including reader-waiters on `call-out`.
-
-### Changes to `src/cljc/yin/vm/semantic.cljc`
-
-Replace `park-and-enqueue-ffi` with `park-and-call`:
-
-```clojure
-(defn- park-and-call
-  "Park and register as reader-waiter on call-out response stream."
-  [vm op args stack env]
-  (let [parked       (engine/park-continuation vm {:stack stack :env env})
-        parked-id    (get-in parked [:value :id])
-        call-out     (get-in parked [:store vm/call-out-stream-key])
-        cursor-data  (get-in parked [:store vm/call-out-cursor-key])
-        cursor-pos   (:position cursor-data)
-        waiter-entry {:cursor-ref {:type :cursor-ref :id vm/call-out-cursor-key}
-                      :reason :next
-                      :stream-id vm/call-out-stream-key
-                      :stack stack
-                      :env env}
-        _            (when (satisfies? ds/IDaoStreamWaitable call-out)
-                       (ds/register-reader-waiter! call-out cursor-pos waiter-entry))
-        call-in      (get-in parked [:store vm/call-in-stream-key])
-        request      (dao.stream.apply/request parked-id op args)
-        _            (ds/put! call-in request)]
-    (assoc parked
-           :control nil
-           :value   :yin/blocked
-           :blocked true
-           :halted  false)))
-```
-
-Update the `:dao.stream.apply/call` case in `handle-node-eval`:
-
-```clojure
-:dao.stream.apply/call
-(let [operands (or (aget node-arr ATTR_OPERANDS) [])]
-  (if (empty? operands)
-    (park-and-call vm op [] stack env)
-    ;; push frame to evaluate operands, then call park-and-call
-    {:type :dao.stream.apply/args-eval ...}))
-```
-
-Add requires:
-```clojure
-[dao.stream.apply :as dao.stream.apply]
-```
-
-### Changes to `src/cljc/yin/vm/stack.cljc` and `src/cljc/yin/vm/register.cljc`
-
-Same `park-and-call` replacement in the appropriate execution paths.
-Both have their own AST walkers and need the update in their execution logic.
-
-### Changes to Test Files
-
-Tests that passed `:bridge-dispatcher` to `create-vm` must be rewritten to use
-a bridge helper function that reads from `call-in` and writes to `call-out`:
-
-```clojure
-;; OLD
-(vm/eval (ast-walker/create-vm {:bridge-dispatcher {:op/echo identity}})
-         ast)
-
-;; NEW
-(let [vm (ast-walker/create-vm)]
-  (loop [v (vm/load-program vm ast) (vm/run)]
-    (if (vm/halted? v)
-      v
-      (bridge-step v {:op/echo identity} {:position 0}))))
-
-(defn bridge-step [vm handlers cursor]
-  (let [call-in (get (vm/store vm) ::vm/call-in)
-        {:keys [ok cursor']} (ds/next call-in cursor)]
-    (when ok
-      (let [{:dao.stream.apply/keys [id op args]} ok
-            result (apply (get handlers op) args)
-            call-out (get (vm/store vm) ::vm/call-out)]
-        (ds/put! call-out (dao.stream.apply/response id result))
-        [vm cursor'])))
-```
-
----
-
-## Data Structures Reference
-
-### Endpoint Descriptor
-```clojure
-{:dao.stream.apply/request  {:transport {:type :ringbuffer
-                                  :mode :create
-                                  :capacity nil}}
- :dao.stream.apply/response {:transport {:type :ringbuffer
-                                  :mode :create
-                                  :capacity nil}}}
-```
-
-### Request Map
-```clojure
-{:dao.stream.apply/id   :parked-0
- :dao.stream.apply/op   :op/add
- :dao.stream.apply/args [10 20]}
-```
-
-### Response Map
-```clojure
-{:dao.stream.apply/id    :parked-0
- :dao.stream.apply/value 30}
-```
-
-### Waiter Entry (registered on call-out stream)
-```clojure
-{:cursor-ref   {:type :cursor-ref :id :yin/call-out-cursor}
- :reason       :next
- :stream-id    :yin/call-out
- :stack        [...]
- :env          {...}}
-```
-
-### Woke Item (returned by put! on call-out)
-```clojure
-{:entry    <waiter-entry>
- :value    {:dao.stream.apply/id :parked-0 :dao.stream.apply/value 30}
- :position 0}
-```
+The tag should stay `:dao.stream.apply/call`, not collapse to `:dao.stream.apply`.
 
 ---
 
 ## Transport Examples
 
-### In-Process (RingBufferStream)
+### In-Process RingBuffer
 
-Default. VM and bridge share ringbuffer streams in memory.
-
-```clojure
-(let [call-in  (ds/open! {:transport {:type :ringbuffer :capacity nil}})
-      call-out (ds/open! {:transport {:type :ringbuffer :capacity nil}})
-      vm       (ast-walker/create-vm)
-      _        (vm/load-program vm program)
-      vm-task  (future (vm/run vm))
-
-      bridge   (future
-                 (loop [c {:position 0}]
-                   (let [call-in (get (vm/store vm) ::vm/call-in)
-                         {:keys [ok cursor']} (ds/next call-in c)]
-                     (when ok
-                       (let [{:dao.stream.apply/keys [id op args]} ok
-                             result (apply (get handlers op) args)
-                             call-out (get (vm/store vm) ::vm/call-out)]
-                         (ds/put! call-out (dao.stream.apply/response id result))))                     (recur (or cursor' c)))))]
-
-  @vm-task))
-```
-
-Wake mechanism: `IDaoStreamWaitable` (push).
-
-### Cross-Process (WebSocketStream)
-
-VM connects to remote bridge via WebSocket.
+Caller and callee share in-memory streams:
 
 ```clojure
-;; Server (host bridge)
-(require '[dao.stream.ws :as ws])
-
-(defn start-bridge-server [port]
-  (ws/listen! port
-    (fn [call-in]
-      ;; Each client connection gets a paired call-out stream
-      (let [call-out (ws/listen! (inc port))]
-        (bridge-handler call-in call-out handlers)))))
-
-;; Client (VM)
-(let [call-in  {:transport {:type :websocket :url "ws://localhost:8000/in"}}
-      call-out {:transport {:type :websocket :url "ws://localhost:8000/out"}}
-      vm       (ast-walker/create-vm {:call-in call-in :call-out call-out})]
-  (vm/load-program vm program)
-  (vm/run vm))
+(let [request-stream  (ds/open! {:transport {:type :ringbuffer :capacity nil}})
+      response-stream (ds/open! {:transport {:type :ringbuffer :capacity nil}})
+      handlers        {:op/echo identity}]
+  ...)
 ```
 
-Wake mechanism: `check-wait-set` polling (fallback, since `WebSocketStream` is not
-`IDaoStreamWaitable`). Future: implement `IDaoStreamWaitable` on `WebSocketStream`
-for push-based wakeup.
+This is the simplest standalone setup and the natural default for tests.
+
+### Cross-Process WebSocket
+
+Caller and callee can also communicate over remote streams:
+
+```clojure
+{:dao.stream.apply/request
+ {:transport {:type :websocket
+              :mode :connect
+              :url "ws://localhost:8000/in"}}
+ :dao.stream.apply/response
+ {:transport {:type :websocket
+              :mode :connect
+              :url "ws://localhost:8000/out"}}}
+```
+
+The request and response values are unchanged. Only stream realization changes.
 
 ---
 
 ## Error Handling
 
-The protocol has no exception semantics. Errors are values.
+Errors are values carried in `:dao.stream.apply/value`.
+
+Example:
 
 ```clojure
-;; Handler that fails
-(let [result (try
-               (apply handler args)
-               (catch Exception e
-                 {:error (str e) :type :exception}))]
-  (ds/put! call-out (dao.stream.apply/response id result)))
-
-;; VM receives error as a value
-{:error "..." :type :exception}
+{:dao.stream.apply/id :call-9
+ :dao.stream.apply/value
+ {:error "division by zero"
+  :code :math/divide-by-zero}}
 ```
 
-The VM can inspect the response and decide how to handle it.
+The protocol does not define exception behavior, retries, or timeouts.
+Consumers may layer those policies on top.
 
 ---
 
 ## Verification
 
-### Protocol Level (`test/dao/stream/call_test.cljc`)
+### Protocol-Level Verification
 
-1. `request` produces the correct datom shape.
-2. `response` produces the correct datom shape.
-3. `make-endpoint` bundles descriptors correctly.
-4. Endpoint descriptor round-trips through a stream (channel mobility).
+Protocol-level tests should focus on standalone behavior:
+1. `make-endpoint` returns the expected descriptor pair.
+2. `request` and `response` produce the expected map shapes.
+3. Request and response accessors round-trip the expected fields.
+4. A standalone caller/callee exchange succeeds over in-memory DaoStreams.
+5. Response routing works by opaque id.
+6. Missing-handler behavior is explicit at the callee layer.
 
-### VM Level (`test/yin/vm/dao_stream_apply_call_test.cljc`)
+### Yin Integration Verification
 
-1. `:dao.stream.apply/call` parks the VM and emits a request on `call-in`.
-2. `call-out` is empty until the bridge writes.
-3. VM resumes with the correct response value after bridge responds.
-4. Operands are evaluated and passed as args vector.
-5. Handler return value becomes the call result.
-6. VM remains blocked if bridge does not respond.
-7. Bridge throws if handler is missing.
-8. Two concurrent VMs with shared streams route responses by `:dao.stream.apply/id` correctly.
-9. No `check-call-out` symbol in `engine.cljc`.
-10. No `:bridge-dispatcher` in `vm/empty-state`.
-
-### Integration
-
-1. Stack and register VMs follow the same pattern as semantic VM.
-2. Macro expansion, if applicable, works with dao.stream.apply (existing macro system).
-3. Bytecode encoding/decoding of `:dao.stream.apply/call` opcode is unchanged.
+Yin VM tests should prove that the VM consumes the protocol correctly:
+1. `:dao.stream.apply/call` emits the expected request shape.
+2. The VM resumes with `:dao.stream.apply/value` from the matching response.
+3. Stack, register, semantic, and AST-walker paths preserve the same protocol behavior.
+4. Waitable and non-waitable transports remain VM scheduling concerns, not protocol changes.
 
 ---
 
 ## Design Rationale
 
-### Why Streams?
+### Why Standalone First
 
-Streams are the universal abstraction. By making function application stream-based, dao.stream.apply:
-- Inherits bidirectionality (can go either direction over a link).
-- Inherits transport abstraction (ringbuffer, websocket, socket, file, etc.).
-- Inherits concurrency semantics (multiple concurrent calls, out-of-order responses).
-- Inherits observability (streams can be monitored, recorded, replayed).
+If `dao.stream.apply` is useful only through the VM, then it is not really a protocol.
+Making it standalone keeps the abstraction honest:
+- the protocol can be tested without the VM
+- non-VM callers and callees can use it directly
+- the VM becomes a consumer, not a special case
+- the dependency boundary stays clean
 
-### Why No Special Idle Handler?
+### Why Only Depend on `dao.stream`
 
-`check-call-out` is a special case that breaks the stream abstraction. By treating
-calls as stream reads, they use the same `check-wait-set` fallback that any other
-blocked operation uses. The engine learns nothing new. The scheduler learns nothing new.
+The protocol layer should know only about streams.
+Bringing in VM namespaces would collapse interpretation and execution into one layer
+and make a general request/response abstraction depend on one specific runtime.
 
-### Why Reader-Waiters?
+### Why Opaque Call IDs
 
-A parked continuation waiting for a response IS a reader waiting for data. Using
-`IDaoStreamWaitable` for local transports gives push-based wakeup (no polling). The
-fallback to `check-wait-set` handles network latency and non-waitable transports
-without special code.
+Ids are routing tokens, not semantic identities.
+Different consumers can choose different id schemes:
+- Yin parked continuation ids
+- UUIDs
+- sequence numbers
+- transport-specific correlation ids
 
-### Why Opaque Call IDs?
+The protocol should not privilege one choice.
 
-The protocol does not dictate how call IDs are chosen. A VM uses its parked-continuation
-keywords. An HTTP gateway might use UUIDs. A function-based RPC might use sequential
-integers. The response stream does not care; it just includes the ID so callers can
-route responses to the right continuation.
+### Why Errors Are Values
+
+A stream protocol should transport facts, not implicit control transfers.
+Representing failures as values keeps causality explicit and works across process boundaries.
 
 ---
 
 ## Deferred
 
-- Implement `IDaoStreamWaitable` on `WebSocketStream` for push-based cross-process wakeup.
-- Add `:dao.stream.apply/call-timeout` to request datoms (callee can enforce SLAs).
-- Add `:dao.stream.apply/call-metadata` for tracing, audit, or capability tokens.
-- Typed call-in/call-out streams (fixed-size datom layout for SIMD dispatch).
-- Automatic bridge code generation from schema (Clojure spec, or dedicated DSL).
+- Expand `src/cljc/dao/stream/apply.cljc` from constructors into the full standalone public API described above.
+- Add protocol-level helper functions for request and response stream I/O.
+- Add standalone dispatch helpers so a callee can serve requests by reading only `dao.stream.apply`.
+- Add optional metadata fields such as timeout or tracing without making them mandatory.
+- Implement push-based wakeup for remote transports where appropriate, but keep that as a transport or runtime concern, not a protocol concern.
