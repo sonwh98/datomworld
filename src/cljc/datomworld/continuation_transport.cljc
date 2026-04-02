@@ -6,7 +6,8 @@
      :cursors {:register-vm {:position n} :stack-vm {:position n}}
      :pending-continuations {position continuation}}"
   (:require
-    [dao.stream :as ds]))
+    [dao.stream :as ds]
+    [dao.stream.ringbuffer]))
 
 
 (defn init-state
