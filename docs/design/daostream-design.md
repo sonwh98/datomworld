@@ -639,6 +639,14 @@ DaoStream makes no assumptions about the transport's internals. The only contrac
 The design target is descriptor-first, transport-agnostic via `open!` multi-method, cursor-based, gap-aware, and
 with orthogonal protocol boundaries that enable precise capability expression.
 
+## Using DaoStream for Coordination
+
+DaoStream can be the foundation for higher-level coordination systems:
+
+- **DaoSpace** — see `docs/design/dao-space-design.md` for stigmergic agent coordination via Datalog queries over shared datom streams
+- **Message Brokers** — DaoStream is the append-only log foundation; coordination logic layers on top
+- **Event Sourcing** — stream of immutable events queryable at any historical point
+
 ## Deferred
 
 - Additional transport schemas beyond the initial descriptor contract (`:stream/id`, `:transport :mode`, `:retention`, `:backpressure`, `:shibi`).
