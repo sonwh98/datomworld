@@ -50,7 +50,7 @@
 
 
 (defn plot-point
-  "ClojureScript function called from Yin VM via FFI.
+  "ClojureScript function called from Yin VM via dao.stream.apply.
    Adds [x y] to the point buffer for SVG rendering."
   [x y]
   (when (and (number? x) (number? y)
@@ -189,7 +189,7 @@
   (if (> x-min x-max)
     nil
     (do
-      (ffi/call :plot/point x-min (f x-min))
+      (dao.stream.apply/call :plot/point x-min (f x-min))
       (plot-loop (+ x-min 0.05) x-max))))
 (plot-loop -10 10)")
 
@@ -247,12 +247,12 @@
 
 
 ;; =============================================================================
-;; Execute: run bytecode in register VM with FFI bridge -> plot-point
+;; Execute: run bytecode in register VM with dao.stream.apply bridge -> plot-point
 ;; =============================================================================
 
 (defn execute!
   "Run the compiled program in the register VM.
-   FFI :plot/point calls are dispatched to the ClojureScript plot-point function."
+   dao.stream.apply :plot/point calls are dispatched to the ClojureScript plot-point function."
   []
   (try
     (let [{:keys [program]} @app-state]
@@ -360,7 +360,7 @@
      [:p {:style {:color "#8b949e" :margin-top "0" :margin-bottom "20px"
                   :font-size "14px"}}
       "Yin source code compiled to register VM bytecode. "
-      "FFI :plot/point bridges to a ClojureScript function that renders SVG."]
+      "dao.stream.apply :plot/point bridges to a ClojureScript function that renders SVG."]
 
      ;; Source editor (CodeMirror)
      [:div {:style {:max-width "900px" :height "220px" :margin-bottom "12px"}}
@@ -409,7 +409,7 @@
      ;; Stats
      (when (pos? call-count)
        [:div {:style {:font-size "13px" :color "#8b949e" :margin-bottom "12px"}}
-        (str (count points) " points plotted, " call-count " FFI calls")])
+        (str (count points) " points plotted, " call-count " dao.stream.apply calls")])
 
      ;; Error
      (when error

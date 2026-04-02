@@ -217,7 +217,7 @@
   "Park the current semantic continuation stack and emit a DaoCall request."
   [vm op args stack env]
   (let [;; 1. Park the continuation with a response-processing frame
-        response-stack (conj stack {:type :ffi-call})
+        response-stack (conj stack {:type :dao.stream.apply/call})
         parked (engine/park-continuation vm {:stack response-stack, :env env})
         parked-id (get-in parked [:value :id])
 
@@ -250,6 +250,20 @@
            :halted false)))
 
 
+;; Frame Type Naming Convention:
+;;
+;;   Generic control-flow frames: :keyword (e.g., :if, :app-op, :app-args, :restore-env)
+;;   These represent interpreter state during evaluation of ordinary Yin expressions.
+;;
+;;   dao.stream.apply frames: :dao.stream.apply/keyword (e.g., :dao.stream.apply/args-eval)
+;;   These represent state during argument evaluation and response handling for
+;;   asynchronous function calls across streams. The namespace prefix groups
+;;   all frames related to the dao.stream.apply protocol.
+;;
+;;   The -eval suffix indicates a frame used to evaluate and collect arguments.
+;;   Other frames in this family include :dao.stream.apply/call (the call itself)
+;;   and :dao.stream.apply/resumer (response handling after a call completes).
+;;
 (defn- handle-return-value
   [vm]
   (let [{:keys [control stack]} vm
@@ -373,7 +387,7 @@
                                     (assoc frame
                                            :evaluated new-evaluated
                                            :next-idx (inc next-idx)))))))
-          :ffi-args
+          :dao.stream.apply/args-eval
           (let [{op :op, evaluated :evaluated, operands :operands, next-idx :next-idx, env-call :env} frame
                 new-evaluated (conj evaluated val)]
             (if (= next-idx (count operands))
@@ -386,7 +400,7 @@
                                     (assoc frame
                                            :evaluated new-evaluated
                                            :next-idx (inc next-idx)))))))
-          :ffi-call
+          :dao.stream.apply/call
           (let [result-value (:dao.stream.apply/value val)]
             (assoc vm
                    :control {:type :value, :val result-value}
@@ -511,19 +525,19 @@
                                             :operands (aget node-arr ATTR_OPERANDS),
                                             :env env,
                                             :tail? (aget node-arr ATTR_TAIL)}))
-          :ffi/call (let [operands (or (aget node-arr ATTR_OPERANDS) [])
-                          op (aget node-arr ATTR_OP)]
-                      (if (empty? operands)
-                        (park-and-call vm op [] stack env)
-                        (assoc vm
-                               :control {:type :node, :id (first operands)}
-                               :stack (conj stack
-                                            {:type :ffi-args,
-                                             :op op,
-                                             :evaluated [],
-                                             :operands operands,
-                                             :next-idx 1,
-                                             :env env}))))
+          :dao.stream.apply/call (let [operands (or (aget node-arr ATTR_OPERANDS) [])
+                                       op (aget node-arr ATTR_OP)]
+                                   (if (empty? operands)
+                                     (park-and-call vm op [] stack env)
+                                     (assoc vm
+                                            :control {:type :node, :id (first operands)}
+                                            :stack (conj stack
+                                                         {:type :dao.stream.apply/args-eval,
+                                                          :op op,
+                                                          :evaluated [],
+                                                          :operands operands,
+                                                          :next-idx 1,
+                                                          :env env}))))
           ;; VM primitives
           :vm/gensym (let [prefix (or (aget node-arr ATTR_PREFIX) "id")
                            [id s'] (engine/gensym vm prefix)]

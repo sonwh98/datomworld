@@ -137,20 +137,20 @@
       (is (seq (:compiled-by-version result))))))
 
 
-(deftest ffi-call-asm-shape-test
-  (testing ":ffi/call compiles to register :ffi-call instruction"
-    (let [ast {:type :ffi/call,
+(deftest dao-call-asm-shape-test
+  (testing ":dao.stream.apply/call compiles to register :dao.stream.apply/call instruction"
+    (let [ast {:type :dao.stream.apply/call,
                :op :op/echo,
                :operands [{:type :literal, :value 42}]}
           {:keys [asm]} (register/ast-datoms->asm (vm/ast->datoms ast))
-          ffi-instr (some #(when (= :ffi-call (first %)) %) asm)]
+          ffi-instr (some #(when (= :dao.stream.apply/call (first %)) %) asm)]
       (is (= :op/echo (nth ffi-instr 2)))
       (is (= 1 (count (nth ffi-instr 3)))))))
 
 
-(deftest ffi-call-eval-test
-  (testing "Register VM executes ffi/call via DaoCall streams"
-    (let [ast {:type :ffi/call,
+(deftest dao-call-eval-test
+  (testing "Register VM executes dao.stream.apply/call via dao.stream.apply streams"
+    (let [ast {:type :dao.stream.apply/call,
                :op :op/echo,
                :operands [{:type :literal, :value 42}]}
           vm (register/create-vm)
@@ -162,13 +162,13 @@
         (is (= 42 (vm/value result)))))))
 
 
-(deftest repeated-ffi-call-program-test
-  (testing "Register VM halts after many sequential ffi/call cycles via create-vm bridge"
+(deftest repeated-dao-call-program-test
+  (testing "Register VM halts after many sequential dao.stream.apply/call cycles via create-vm bridge"
     (let [source "(defn plot-loop [i]
   (if (> i 199)
     nil
     (do
-      (ffi/call :plot/point i (* i i))
+      (dao.stream.apply/call :plot/point i (* i i))
       (plot-loop (+ i 1))))
 )
 (plot-loop 0)"

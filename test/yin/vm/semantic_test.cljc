@@ -98,9 +98,9 @@
       (is (= 30 (vm/value result))))))
 
 
-(deftest eval-ffi-call-test
-  (testing "Semantic VM executes ffi/call via DaoCall streams"
-    (let [ast {:type :ffi/call,
+(deftest eval-dao-call-test
+  (testing "Semantic VM executes dao.stream.apply/call via dao.stream.apply streams"
+    (let [ast {:type :dao.stream.apply/call,
                :op :op/echo,
                :operands [{:type :literal, :value 42}]}
           vm (semantic/create-vm)

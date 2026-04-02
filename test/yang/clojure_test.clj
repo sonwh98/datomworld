@@ -80,10 +80,10 @@
         (is (= :application (get-in ast [:operands 0 :type])))))))
 
 
-(deftest test-compile-ffi-call
-  (testing "Compiling ffi/call special form"
-    (let [ast (yang/compile '(ffi/call :op/echo 1 2))]
-      (is (= :ffi/call (:type ast)))
+(deftest test-compile-dao-stream-apply-call
+  (testing "Compiling dao.stream.apply/call special form"
+    (let [ast (yang/compile '(dao.stream.apply/call :op/echo 1 2))]
+      (is (= :dao.stream.apply/call (:type ast)))
       (is (= :op/echo (:op ast)))
       (is (= [{:type :literal, :value 1}
               {:type :literal, :value 2}]
@@ -168,11 +168,11 @@
       (is (= 3 (compile-and-run '(let [x 1] (let [y 2] (+ x y)))))))
     (testing "FFI call"
       (is (= 42
-             (compile-and-run '(ffi/call :op/echo 42)
+             (compile-and-run '(dao.stream.apply/call :op/echo 42)
                               {}
                               {:bridge {:op/echo identity}})))
       (is (nil?
-            (compile-and-run '(ffi/call :clj/println "FFI hello world")
+            (compile-and-run '(dao.stream.apply/call :clj/println "FFI hello world")
                              {}
                              {:bridge {:clj/println println}}))))
 

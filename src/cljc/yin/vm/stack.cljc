@@ -90,7 +90,7 @@
      [:stream-cursor]    - pop stream-ref, push cursor-ref
      [:stream-next]      - pop cursor-ref, push next value (may block)
      [:stream-close]     - pop stream-ref, close it, push nil
-     [:ffi-call op argc] - park, enqueue FFI request, resume with result
+     [:dao.stream.apply/call op argc] - park, enqueue dao.stream.apply request, resume with result
      [:park]             - park current continuation
      [:resume]           - pop val and parked-id, resume parked cont
      [:current-cont]     - push reified continuation
@@ -128,11 +128,11 @@
                (compile-node op-node)
                (doseq [arg-node operand-nodes] (compile-node arg-node))
                (emit! [(if tail? :tailcall :call) (count operand-nodes)]))
-             :ffi/call
+             :dao.stream.apply/call
              (let [operand-nodes (or (get-attr e :yin/operands) [])
                    op (get-attr e :yin/op)]
                (doseq [arg-node operand-nodes] (compile-node arg-node))
-               (emit! [:ffi-call op (count operand-nodes)]))
+               (emit! [:dao.stream.apply/call op (count operand-nodes)]))
              :if (let [test-node (get-attr e :yin/test)
                        cons-node (get-attr e :yin/consequent)
                        alt-node (get-attr e :yin/alternate)
@@ -216,7 +216,7 @@
                        :stream-cursor 1
                        :stream-next 1
                        :stream-close 1
-                       :ffi-call 3
+                       :dao.stream.apply/call 3
                        :park 1
                        :resume 1
                        :current-cont 1
@@ -306,11 +306,11 @@
                              (swap! emit-offset + 1))
             :stream-close (do (emit-byte! (vm/opcode-table :stream-close))
                               (swap! emit-offset + 1))
-            :ffi-call (let [idx (add-constant arg1)]
-                        (emit-byte! (vm/opcode-table :ffi-call))
-                        (emit-byte! idx)
-                        (emit-byte! arg2)
-                        (swap! emit-offset + 3))
+            :dao.stream.apply/call (let [idx (add-constant arg1)]
+                                     (emit-byte! (vm/opcode-table :dao.stream.apply/call))
+                                     (emit-byte! idx)
+                                     (emit-byte! arg2)
+                                     (swap! emit-offset + 3))
             :park (do (emit-byte! (vm/opcode-table :park))
                       (swap! emit-offset + 1))
             :resume (do (emit-byte! (vm/opcode-table :resume))
@@ -882,7 +882,7 @@
             (assoc state
                    :pc (+ pc 1)
                    :stack (conj stack-rest value)))
-          :ffi-call
+          :dao.stream.apply/call
           (let [op-idx (nth bytecode (inc pc))
                 argc (nth bytecode (+ pc 2))
                 op-name (nth pool op-idx)
@@ -899,7 +899,7 @@
                 cursor-data (get-in parked [:store vm/call-out-cursor-key])
                 cursor-pos (:position cursor-data)
                 waiter-entry (assoc park-snapshot
-                                    :type :ffi-call-resumer
+                                    :type :dao.stream.apply/resumer
                                     :cursor-ref {:type :cursor-ref
                                                  :id vm/call-out-cursor-key}
                                     :reason :next
@@ -947,7 +947,7 @@
   (engine/resume-from-run-queue state
                                 (fn [base entry]
                                   (let [val (:value entry)
-                                        val' (if (= :ffi-call-resumer (:type entry))
+                                        val' (if (= :dao.stream.apply/resumer (:type entry))
                                                (:dao.stream.apply/value val)
                                                val)]
                                     (-> (restore-frame base entry val')

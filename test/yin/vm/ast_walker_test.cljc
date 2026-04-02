@@ -298,9 +298,9 @@
       (is (= 1 (get (vm/store result) :effect/calls))))))
 
 
-(deftest eval-ffi-call-test
-  (testing "ffi/call dispatches through bridge dispatcher and resumes with result"
-    (let [ast {:type :ffi/call,
+(deftest eval-dao-call-test
+  (testing "dao.stream.apply/call dispatches through bridge dispatcher and resumes with result"
+    (let [ast {:type :dao.stream.apply/call,
                :op :op/echo,
                :operands [{:type :literal, :value 42}]}
           vm (ast-walker/create-vm)
@@ -312,9 +312,9 @@
         (is (= 42 (vm/value result)))))))
 
 
-(deftest eval-ffi-call-missing-handler-test
-  (testing "ffi/call without registered handler in bridge throws"
-    (let [ast {:type :ffi/call,
+(deftest eval-dao-call-missing-handler-test
+  (testing "dao.stream.apply/call without registered handler in bridge throws"
+    (let [ast {:type :dao.stream.apply/call,
                :op :op/missing,
                :operands [{:type :literal, :value 1}]}
           vm (ast-walker/create-vm)
@@ -409,9 +409,9 @@
         ":yin/operands should contain tempid references (negative integers)"))))
 
 
-(deftest ast->datoms-ffi-call-shape-test
-  (testing ":ffi/call emits :yin/type, :yin/op, and :yin/operands"
-    (let [datoms (vec (vm/ast->datoms {:type :ffi/call,
+(deftest ast->datoms-dao-call-shape-test
+  (testing ":dao.stream.apply/call emits :yin/type, :yin/op, and :yin/operands"
+    (let [datoms (vec (vm/ast->datoms {:type :dao.stream.apply/call,
                                        :op :op/echo,
                                        :operands [{:type :literal, :value 1}
                                                   {:type :literal, :value 2}]}))
@@ -421,7 +421,7 @@
           op-datom (first (filter #(= :yin/op (second %)) root-datoms))
           operands-datom (first (filter #(= :yin/operands (second %))
                                         root-datoms))]
-      (is (= :ffi/call (nth type-datom 2)))
+      (is (= :dao.stream.apply/call (nth type-datom 2)))
       (is (= :op/echo (nth op-datom 2)))
       (is (vector? (nth operands-datom 2)))
       (is (= 2 (count (nth operands-datom 2))))

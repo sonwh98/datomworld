@@ -130,33 +130,23 @@
 
 
 (def call-in-stream-key
-  "Store key for the shared FFI inbound request stream (caller writes, callee reads)."
+  "Store key for the shared dao.stream.apply inbound request stream (caller writes, callee reads)."
   :yin/call-in)
 
 
 (def call-in-cursor-key
-  "Store key for the shared FFI inbound stream cursor."
+  "Store key for the shared dao.stream.apply inbound stream cursor."
   :yin/call-in-cursor)
 
 
 (def call-out-stream-key
-  "Store key for the shared FFI outbound response stream (callee writes, caller reads)."
+  "Store key for the shared dao.stream.apply outbound response stream (callee writes, caller reads)."
   :yin/call-out)
 
 
 (def call-out-cursor-key
-  "Store key for the shared FFI outbound stream cursor."
+  "Store key for the shared dao.stream.apply outbound stream cursor."
   :yin/call-out-cursor)
-
-
-(def ffi-out-stream-key
-  "Store key for the shared FFI outbound request stream (deprecated alias for call-in)."
-  call-in-stream-key)
-
-
-(def ffi-out-cursor-key
-  "Store key for the shared FFI outbound stream cursor (deprecated alias for call-in-cursor)."
-  call-in-cursor-key)
 
 
 ;; =============================================================================
@@ -185,7 +175,7 @@
    :resume 18,
    :current-cont 19,
    :tailcall 20,
-   :ffi-call 21})
+   :dao.stream.apply/call 21})
 
 
 #?(:clj
@@ -218,7 +208,7 @@
                     :resume 18,
                     :current-cont 19,
                     :tailcall 20,
-                    :ffi-call 21}
+                    :dao.stream.apply/call 21}
            resolved (mapcat (fn [[kw body]] [(get opcodes kw) body]) pairs)]
        `(case (int ~op-expr) ~@resolved ~@(when default [default])))))
 
@@ -243,7 +233,7 @@
    :yin/type {},        ; keyword (:literal, :variable, :lambda, :yin/macro-expand, ...)
    :yin/value {},       ; polymorphic (number, string, boolean, keyword, ...)
    :yin/name {},        ; symbol
-   :yin/op {},          ; keyword (FFI operation key)
+   :yin/op {},          ; keyword (dao.stream.apply operation key)
    :yin/params {},      ; vector of symbols
    :yin/key {},         ; symbol
    :yin/prefix {},      ; string
@@ -340,10 +330,10 @@
                                                            (:operands node))]
                                      (emit! e :yin/operator op-id)
                                      (emit! e :yin/operands operand-ids)))
-                  :ffi/call (do (emit! e :yin/type :ffi/call)
-                                (emit! e :yin/op (:op node))
-                                (let [operand-ids (mapv convert (:operands node))]
-                                  (emit! e :yin/operands operand-ids)))
+                  :dao.stream.apply/call (do (emit! e :yin/type :dao.stream.apply/call)
+                                             (emit! e :yin/op (:op node))
+                                             (let [operand-ids (mapv convert (:operands node))]
+                                               (emit! e :yin/operands operand-ids)))
                   :if (do (emit! e :yin/type :if)
                           (let [test-id (convert (:test node))
                                 cons-id (convert (:consequent node))
@@ -431,7 +421,7 @@
 
 (defn empty-state
   "Return an initial immutable VM state map.
-   Contains: DaoCall stream wiring in :store, :parked {}, :id-counter 0,
+   Contains: dao.stream.apply stream wiring in :store, :parked {}, :id-counter 0,
    :primitives map, :run-queue [], :wait-set []."
   ([] (empty-state {}))
   ([opts]

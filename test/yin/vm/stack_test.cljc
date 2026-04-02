@@ -134,19 +134,19 @@
       (is (seq (:compiled-by-version result))))))
 
 
-(deftest ffi-call-asm-shape-test
-  (testing ":ffi/call compiles to [:ffi-call op argc] in stack asm"
-    (let [ast {:type :ffi/call,
+(deftest dao-call-asm-shape-test
+  (testing ":dao.stream.apply/call compiles to [:dao.stream.apply/call op argc] in stack asm"
+    (let [ast {:type :dao.stream.apply/call,
                :op :op/echo,
                :operands [{:type :literal, :value 42}]}
           asm (stack/ast-datoms->asm (vm/ast->datoms ast))
-          ffi-instr (some #(when (= :ffi-call (first %)) %) asm)]
-      (is (= [:ffi-call :op/echo 1] ffi-instr)))))
+          ffi-instr (some #(when (= :dao.stream.apply/call (first %)) %) asm)]
+      (is (= [:dao.stream.apply/call :op/echo 1] ffi-instr)))))
 
 
-(deftest ffi-call-eval-test
-  (testing "Stack VM executes ffi/call via DaoCall streams"
-    (let [ast {:type :ffi/call,
+(deftest dao-call-eval-test
+  (testing "Stack VM executes dao.stream.apply/call via dao.stream.apply streams"
+    (let [ast {:type :dao.stream.apply/call,
                :op :op/echo,
                :operands [{:type :literal, :value 42}]}
           vm (stack/create-vm)

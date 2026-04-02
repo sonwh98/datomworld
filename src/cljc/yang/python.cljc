@@ -375,23 +375,23 @@
 
 
 (defn- compile-ffi-call
-  "Compile a Python ffi.call form to the Universal AST :ffi/call node.
+  "Compile a Python ffi.call or dao.stream.apply.call form to the Universal AST :dao.stream.apply/call node.
 
-   Python: ffi.call(\"op/echo\", 1, 2)
-   AST:    {:type :ffi/call, :op :op/echo, :operands [...]}"
+   Python: ffi.call(\"op/echo\", 1, 2) or dao.stream.apply.call(\"op/echo\", 1, 2)
+   AST:    {:type :dao.stream.apply/call, :op :op/echo, :operands [...]}"
   [args tail?]
-  (let [[op-node & ffi-args] args]
+  (let [[op-node & operands] args]
     (when-not op-node
-      (throw (ex-info "ffi.call requires op as first argument"
+      (throw (ex-info "ffi.call/dao.stream.apply.call requires op as first argument"
                       {:args args})))
     (let [op-value (when (= :literal (:py-type op-node))
                      (:value op-node))]
       (when-not (and (string? op-value) (not (str/blank? op-value)))
-        (throw (ex-info "ffi.call op must be a non-empty string literal"
+        (throw (ex-info "ffi.call/dao.stream.apply.call op must be a non-empty string literal"
                         {:op op-node})))
-      (cond-> {:type :ffi/call,
+      (cond-> {:type :dao.stream.apply/call,
                :op (keyword op-value),
-               :operands (mapv #(compile-stmt % false) ffi-args)}
+               :operands (mapv #(compile-stmt % false) operands)}
         tail? (assoc :tail? true)))))
 
 
@@ -410,7 +410,8 @@
                                 (compile-stmt (:right node) false)]}
               tail? (assoc :tail? true))
      :call (if (and (= :variable (:py-type (:function node)))
-                    (= 'ffi.call (:name (:function node))))
+                    (or (= 'ffi.call (:name (:function node)))
+                        (= 'dao.stream.apply.call (:name (:function node)))))
              (compile-ffi-call (:args node) tail?)
              (cond-> {:type :application,
                       :operator (compile-stmt (:function node) false),

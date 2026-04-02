@@ -274,7 +274,7 @@
 
 
 (deftest daocall-dispatch-and-wake-test
-  (testing "DaoCall response wakes caller and advances cursor"
+  (testing "dao.stream.apply response wakes caller and advances cursor"
     (let [call-out (ds/open! {:transport {:type :ringbuffer, :capacity nil}})
           state {:store {vm/call-out-stream-key call-out,
                          vm/call-out-cursor-key {:stream-id vm/call-out-stream-key,
@@ -287,7 +287,7 @@
                  :wait-set [],
                  :blocked true,
                  :halted false}
-          ;; 1. Register reader-waiter on call-out (happens during ffi-call)
+          ;; 1. Register reader-waiter on call-out (happens during dao-call)
           waiter-entry {:cursor-ref {:type :cursor-ref, :id vm/call-out-cursor-key}
                         :reason :next
                         :stream-id vm/call-out-stream-key

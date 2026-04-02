@@ -137,7 +137,7 @@
   [form]
   (and (seq? form)
        (symbol? (first form))
-       (contains? #{'fn 'if 'let 'quote 'do 'def 'ffi/call 'defmacro} (first form))))
+       (contains? #{'fn 'if 'let 'quote 'do 'def 'dao.stream.apply/call 'defmacro} (first form))))
 
 
 (defn compile-literal
@@ -196,19 +196,19 @@
        tail? (assoc :tail? true)))))
 
 
-(defn compile-ffi-call
-  "Compile an FFI call form to Universal AST.
+(defn compile-dao-stream-apply-call
+  "Compile a dao.stream.apply call form to Universal AST.
 
-  Clojure: (ffi/call :op/name arg1 arg2)
-  AST: {:type :ffi/call
+  Clojure: (dao.stream.apply/call :op/name arg1 arg2)
+  AST: {:type :dao.stream.apply/call
         :op :op/name
         :operands [<compiled-arg1> <compiled-arg2>]}"
-  ([op operands env tail?] (compile-ffi-call op operands env tail? initial-macro-env))
+  ([op operands env tail?] (compile-dao-stream-apply-call op operands env tail? initial-macro-env))
   ([op operands env tail? macro-env]
    (when-not (keyword? op)
-     (throw (ex-info "ffi/call op must be a keyword" {:op op})))
+     (throw (ex-info "dao.stream.apply/call op must be a keyword" {:op op})))
    (let [compiled-operands (mapv #(compile-form % false env macro-env) operands)]
-     (cond-> {:type :ffi/call,
+     (cond-> {:type :dao.stream.apply/call,
               :op op,
               :operands compiled-operands}
        tail? (assoc :tail? true)))))
@@ -316,10 +316,10 @@
      (seq? form)
      (let [[operator & operands] form]
        (cond
-         ;; FFI call: (ffi/call :op/name arg1 arg2)
-         (= operator 'ffi/call)
+         ;; dao.stream.apply call: (dao.stream.apply/call :op/name arg1 arg2)
+         (= operator 'dao.stream.apply/call)
          (let [[op & args] operands]
-           (compile-ffi-call op args env tail? macro-env))
+           (compile-dao-stream-apply-call op args env tail? macro-env))
          ;; Macro call: operator is a known macro name — emit :yin/macro-expand.
          ;; User macros embed the compiled lambda AST directly as the operator so that
          ;; the expander uses the EID without a name lookup (avoids synthetic names in

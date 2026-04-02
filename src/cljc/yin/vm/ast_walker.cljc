@@ -103,7 +103,7 @@
   "Park continuation and register as reader-waiter on call-out response stream."
   [state op args continuation env]
   (let [;; 1. Park the continuation with a response-processing frame
-        response-cont {:type :eval-ffi-call
+        response-cont {:type :dao.stream.apply/eval-call
                        :parent continuation
                        :environment env}
         parked (engine/park-continuation state
@@ -219,7 +219,7 @@
                 saved-env (or (:environment continuation) environment)
                 branch (if test-value (:consequent frame) (:alternate frame))]
             (cesk-return state branch saved-env (:parent continuation) test-value))
-          :eval-ffi-operand
+          :dao.stream.apply/eval-operand
           (let [frame (:frame continuation)
                 operand-value (:value state)
                 evaluated (conj (or (:evaluated frame) []) operand-value)
@@ -239,7 +239,7 @@
                              saved-env
                              (assoc continuation :frame updated-frame)
                              nil))))
-          :eval-ffi-call
+          :dao.stream.apply/eval-call
           (let [result-value (:dao.stream.apply/value (:value state))]
             (cesk-return state nil environment (:parent continuation) result-value))
           ;; Stream continuation: evaluate target for put
@@ -350,7 +350,7 @@
                       :environment environment,
                       :type :eval-test}
                      (:value state))
-        :ffi/call
+        :dao.stream.apply/call
         (let [operands (or (:operands node) [])
               op (:op node)]
           (if (empty? operands)
@@ -363,7 +363,7 @@
                                   :evaluated []},
                           :parent continuation,
                           :environment environment,
-                          :type :eval-ffi-operand}
+                          :type :dao.stream.apply/eval-operand}
                          (:value state))))
         ;; ============================================================
         ;; VM Primitives for Store Operations

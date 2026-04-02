@@ -1,5 +1,5 @@
 (ns yin.vm.host-ffi
-  "Explicit host-side FFI bridge state for Yin VMs.
+  "Explicit host-side dao.stream.apply bridge state for Yin VMs.
 
    The bridge is data carried by the VM itself:
      {:handlers {:op/name (fn [& args] ...)}
@@ -44,10 +44,9 @@
 (defn bridge-from-opts
   "Read bridge configuration from create-vm opts.
 
-   :bridge is the canonical key.
-   :bridge-dispatcher is accepted as a compatibility alias while callers migrate."
+   :bridge is the canonical key."
   [opts]
-  (normalize (or (:bridge opts) (:bridge-dispatcher opts))))
+  (normalize (:bridge opts)))
 
 
 (defn attach
@@ -68,7 +67,7 @@
   [handlers call-op call-args]
   (let [handler (get handlers call-op)]
     (when-not handler
-      (throw (ex-info "No bridge handler for FFI op"
+      (throw (ex-info "No bridge handler for dao.stream.apply op"
                       {:op call-op
                        :available (vec (keys handlers))})))
     (apply handler (or call-args []))))
@@ -79,11 +78,11 @@
   (let [parked (get-in vm [:parked call-id])
         cursor-data (get-in vm [:store vm/call-out-cursor-key])]
     (when-not parked
-      (throw (ex-info "Cannot synthesize FFI resume entry"
+      (throw (ex-info "Cannot synthesize dao.stream.apply resume entry"
                       {:call-id call-id
                        :parked-ids (vec (keys (:parked vm)))})))
     (assoc parked
-           :type :ffi-call-resumer
+           :type :dao.stream.apply/resumer
            :value response
            :store-updates
            {vm/call-out-cursor-key
@@ -91,7 +90,7 @@
 
 
 (defn bridge-step
-  "Handle one pending FFI request from the VM's call-in stream.
+  "Handle one pending dao.stream.apply request from the VM's call-in stream.
 
    Returns:
    - {:handled? true  :vm vm' ...} when a request was dispatched and resume work
@@ -101,7 +100,8 @@
   [vm]
   (let [handlers (get-in vm [:bridge :handlers])
         cursor (or (get-in vm [:bridge :cursor]) {:position 0})
-        call-in (get (vm/store vm) vm/call-in-stream-key)
+        store-data (vm/store vm)
+        call-in (get store-data vm/call-in-stream-key)
         next-result (ds/next call-in cursor)
         ok (:ok next-result)
         cursor' (:cursor next-result)]
@@ -110,7 +110,7 @@
              request-op :dao.stream.apply/op
              request-args :dao.stream.apply/args} ok
             result (dispatch-call handlers request-op request-args)
-            call-out (get (vm/store vm) vm/call-out-stream-key)
+            call-out (get store-data vm/call-out-stream-key)
             response (dao.stream.apply/response request-id result)
             put-result (ds/put! call-out response)
             woke (:woke put-result)

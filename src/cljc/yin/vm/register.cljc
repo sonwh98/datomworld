@@ -84,7 +84,7 @@
      [:stream-cursor rd rs]           - rd := cursor for stream rs
      [:stream-next rd rs]             - rd := next value from cursor rs
      [:stream-close rd rs]            - close stream rs, rd := nil
-     [:ffi-call rd op args]           - park, enqueue FFI request, resume into rd
+     [:dao.stream.apply/call rd op args]           - park, enqueue dao.stream.apply request, resume into rd
 
    Uses simple linear register allocation.
 
@@ -157,12 +157,12 @@
                      rd (alloc-reg!)]
                  (emit! [(if tail? :tailcall :call) rd fn-reg arg-regs])
                  rd)
-               :ffi/call
+               :dao.stream.apply/call
                (let [operand-refs (or (get-attr e :yin/operands) [])
                      arg-regs (mapv #(compile-node % false) operand-refs)
                      op (get-attr e :yin/op)
                      rd (alloc-reg!)]
-                 (emit! [:ffi-call rd op arg-regs])
+                 (emit! [:dao.stream.apply/call rd op arg-regs])
                  rd)
                :if (let [test-ref (get-attr e :yin/test)
                          cons-ref (get-attr e :yin/consequent)
@@ -302,12 +302,12 @@
           :tailcall (let [[rd rf arg-regs] args]
                       (emit! (vm/opcode-table :tailcall) rd rf (count arg-regs))
                       (doseq [ar arg-regs] (emit! ar)))
-          :ffi-call (let [[rd op arg-regs] args]
-                      (emit! (vm/opcode-table :ffi-call)
-                             rd
-                             (intern! op)
-                             (count arg-regs))
-                      (doseq [ar arg-regs] (emit! ar)))
+          :dao.stream.apply/call (let [[rd op arg-regs] args]
+                                   (emit! (vm/opcode-table :dao.stream.apply/call)
+                                          rd
+                                          (intern! op)
+                                          (count arg-regs))
+                                   (doseq [ar arg-regs] (emit! ar)))
           :return (let [[rs] args] (emit! (vm/opcode-table :return) rs))
           :branch (let [[rt then-addr else-addr] args]
                     (emit! (vm/opcode-table :branch) rt)
@@ -888,7 +888,7 @@
                          :pc body-addr))
                 :else (throw (ex-info "Cannot call non-function"
                                       {:fn fn-val}))))
-        :ffi-call
+        :dao.stream.apply/call
         (let [rd (nth bytecode (inc pc))
               op (nth pool (nth bytecode (+ pc 2)))
               argc (nth bytecode (+ pc 3))
@@ -904,7 +904,7 @@
               cursor-data (get-in parked [:store vm/call-out-cursor-key])
               cursor-pos (:position cursor-data)
               waiter-entry (assoc park-snapshot
-                                  :type :ffi-call-resumer
+                                  :type :dao.stream.apply/resumer
                                   :cursor-ref {:type :cursor-ref
                                                :id vm/call-out-cursor-key}
                                   :reason :next
@@ -1054,7 +1054,7 @@
   (engine/resume-from-run-queue state
                                 (fn [base entry]
                                   (let [val (:value entry)
-                                        val' (if (= :ffi-call-resumer (:type entry))
+                                        val' (if (= :dao.stream.apply/resumer (:type entry))
                                                (:dao.stream.apply/value val)
                                                val)]
                                     (-> (restore-frame base entry val')

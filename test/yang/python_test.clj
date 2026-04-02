@@ -22,9 +22,9 @@
     (is (= [[:string "hello"] [:newline nil]] (py/tokenize "\"hello\"")))
     (is (= [[:identifier "x"] [:operator "+"] [:number "1"] [:newline nil]]
            (py/tokenize "x + 1")))
-    (is (= [[:identifier "ffi.call"] [:lparen "("] [:string "op/echo"] [:comma ","]
+    (is (= [[:identifier "dao.stream.apply.call"] [:lparen "("] [:string "op/echo"] [:comma ","]
             [:number "42"] [:rparen ")"] [:newline nil]]
-           (py/tokenize "ffi.call(\"op/echo\", 42)")))
+           (py/tokenize "dao.stream.apply.call(\"op/echo\", 42)")))
     (is (= [[:keyword "lambda"] [:identifier "x"] [:colon ":"] [:identifier "x"]
             [:operator "*"] [:number "2"] [:newline nil]]
            (py/tokenize "lambda x: x * 2")))))
@@ -116,17 +116,17 @@
         (is (= :application (get-in ast [:operands 0 :type])))))))
 
 
-(deftest test-compile-ffi-call
-  (testing "Compiling Python ffi.call forms"
-    (let [ast (py/compile "ffi.call(\"op/echo\", 1, 2)")]
-      (is (= :ffi/call (:type ast)))
+(deftest test-compile-dao-stream-apply-call
+  (testing "Compiling Python dao.stream.apply.call forms"
+    (let [ast (py/compile "dao.stream.apply.call(\"op/echo\", 1, 2)")]
+      (is (= :dao.stream.apply/call (:type ast)))
       (is (= :op/echo (:op ast)))
       (is (= [{:type :literal, :value 1}
               {:type :literal, :value 2}]
              (:operands ast))))
-    (testing "ffi.call requires string op literal"
+    (testing "dao.stream.apply.call requires string op literal"
       (is (thrown? Exception
-            (py/compile "ffi.call(42)"))))))
+            (py/compile "dao.stream.apply.call(42)"))))))
 
 
 (deftest test-compile-if-expr
@@ -170,7 +170,7 @@
     (testing "FFI call via VM bridge"
       (is (= 42
              (compile-and-run
-               (py/compile "ffi.call(\"op/echo\", 42)")
+               (py/compile "dao.stream.apply.call(\"op/echo\", 42)")
                {}
                {:bridge {:op/echo identity}}))))))
 

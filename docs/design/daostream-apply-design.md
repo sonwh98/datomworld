@@ -1,12 +1,12 @@
-# DaoStreamApply Design: Clojure `apply` over DaoStream
+# dao.stream.apply Design: Clojure `apply` over DaoStream
 
 ## Overview
 
-DaoStreamApply is an implementation of Clojure `apply` across streams.
+dao.stream.apply is an implementation of Clojure `apply` across streams.
 It reifies function application as explicit DaoStream data: an operation plus evaluated
 arguments on a request stream, followed by the resulting value on a response stream.
 Unlike Clojure `apply`, which is synchronous and returns immediately in the current call
-stack, DaoStreamApply is asynchronous: the application is emitted as stream traffic and
+stack, dao.stream.apply is asynchronous: the application is emitted as stream traffic and
 the caller resumes only when a response arrives.
 The protocol is transport-independent and built on top of DaoStream.
 It unifies:
@@ -24,7 +24,7 @@ deployment topology.
 
 Everything is a stream. Function application is stream I/O. Continuations are readers. Responses are values.
 `apply` does not disappear into a host callback. It is represented directly as stream traffic.
-This is why DaoStreamApply is async even though Clojure `apply` is sync: the operation
+This is why dao.stream.apply is async even though Clojure `apply` is sync: the operation
 crosses a stream boundary and completion is represented by a later response.
 The protocol is minimal: five datom attributes, two stream descriptors, zero new VM opcodes,
 zero new scheduler logic. Transport is DaoStream. Scheduling is free.
@@ -35,7 +35,7 @@ zero new scheduler logic. Transport is DaoStream. Scheduling is free.
 
 ### Endpoint Descriptor
 
-A DaoStreamApply endpoint is a pair of stream descriptors:
+A dao.stream.apply endpoint is a pair of stream descriptors:
 
 ```clojure
 ;; Immutable, serializable, first-class value
@@ -77,7 +77,7 @@ A caller emits a request on the `call-in` stream:
  :dao.stream.apply/args vector}      ;; evaluated argument values [val1 val2 ...]
 ```
 
-Example request from a VM `:ffi/call`:
+Example request from a VM `:dao.stream.apply/call`:
 ```clojure
 {:dao.stream.apply/id   :parked-0
  :dao.stream.apply/op   :op/add
@@ -111,13 +111,13 @@ the protocol has no exception semantics.
 
 ## Scheduling Mechanism
 
-DaoStreamApply unifies with stream reading. A parked continuation IS a reader-waiter on the
+dao.stream.apply unifies with stream reading. A parked continuation IS a reader-waiter on the
 response stream.
 
 ### Call Sequence (Synchronous In-Process Example)
 
 ```
-Caller (Yin VM executing :ffi/call)
+Caller (Yin VM executing :dao.stream.apply/call)
   1. Evaluate operands → [val1 val2]
   2. Call engine/park-continuation → {:type :parked-continuation :id :parked-0 ...}
   3. Advance ::call-out-cursor from position 0 to 1
@@ -131,7 +131,7 @@ Caller (Yin VM executing :ffi/call)
 Idle Loop (engine)
   When run-queue and wait-set exhausted:
     → check-wait-set may be called (see "Fallback Polling" below)
-    → no special check-ffi-out
+    → no special check-call-out
 
 Callee (Host Bridge, running in a thread or event loop)
   1. Call next on call-in stream at cursor {:position 0}
@@ -170,7 +170,7 @@ resume-from-run-queue (existing path)
   6. Continue run-loop
 
 VM resumes
-  The :control `:value` node evaluates to the response-map. The :ffi/call AST node
+  The :control `:value` node evaluates to the response-map. The :dao.stream.apply/call AST node
   extracts `:dao.stream.apply/value` from it and returns that as the final result.
 ```
 
@@ -211,7 +211,7 @@ any stream; it does not care whether the stream is waitable or not.
 
 ### Store Streams
 
-When a Yin VM is created, `empty-state` initializes two DaoStreamApply streams in the store:
+When a Yin VM is created, `empty-state` initializes two dao.stream.apply streams in the store:
 
 ```clojure
 {:store
@@ -238,28 +238,28 @@ before VM creation:
 But the VM code does not change. It always sees `open!` applied to the descriptors,
 returning a stream object, which it reads/writes identically.
 
-### AST Node: `:ffi/call`
+### AST Node: `:dao.stream.apply/call`
 
-The `:ffi/call` AST node is unchanged:
+The `:dao.stream.apply/call` AST node is unchanged:
 
 ```clojure
-{:type     :ffi/call
+{:type     :dao.stream.apply/call
  :op       keyword         ;; e.g. :op/add (becomes :dao.stream.apply/op)
  :operands [node1 node2]}  ;; expressions; evaluated before call
 ```
 
 Datom representation (from `ast->datoms`):
 ```clojure
-[e :yin/type     :ffi/call    t m]
+[e :yin/type     :dao.stream.apply/call    t m]
 [e :yin/op       :op/add      t m]
 [e :yin/operands [e1 e2]      t m]
 ```
 
 No new attributes. The `:yin/op` already exists.
 
-### Opcode: `:ffi-call` (21)
+### Opcode: `:dao.stream.apply/call` (21)
 
-The bytecode opcode is unchanged. Stack and register VMs emit and execute `[:ffi-call op argc]`.
+The bytecode opcode is unchanged. Stack and register VMs emit and execute `[:dao.stream.apply/call op argc]`.
 No semantic change.
 
 ### Execution: `park-and-call` in AST Walkers
@@ -269,13 +269,13 @@ with `park-and-call` (which registers a waiter, writes a request, and parks).
 
 **Old (current) behavior**:
 ```
-:ffi/call → park → write to ::ffi-out → return blocked
-           (no waiter registration; polling happens at idle via check-ffi-out)
+:dao.stream.apply/call → park → write to ::call-out → return blocked
+           (no waiter registration; polling happens at idle via check-call-out)
 ```
 
 **New behavior**:
 ```
-:ffi/call → park → register reader-waiter on ::call-out at next position
+:dao.stream.apply/call → park → register reader-waiter on ::call-out at next position
          → write request to ::call-in → return blocked
          (waiter wakes when response arrives, via IDaoStreamWaitable or check-wait-set)
 ```
@@ -322,7 +322,7 @@ Pseudocode for `park-and-call`:
 ```
 
 This is called from the same place as the old `park-and-enqueue-ffi`, triggered by
-`:ffi/call` evaluation in each AST walker (semantic, stack, register).
+`:dao.stream.apply/call` evaluation in each AST walker (semantic, stack, register).
 
 **Important**: If the transport does NOT implement `IDaoStreamWaitable`, the waiter
 registration is skipped, and `handle-effect` for the `:stream/next` effect adds the
@@ -330,19 +330,19 @@ entry to the scheduler's wait-set (fallback path). This is automatic; no special
 
 ### Response Extraction
 
-When a continuation resumes with the response map, the `:ffi/call` evaluation extracts
+When a continuation resumes with the response map, the `:dao.stream.apply/call` evaluation extracts
 `:dao.stream.apply/value` and returns it as the application result.
 
 In `handle-return-value` (semantic.cljc), after the response is resumed:
 
 ```clojure
 ;; response-map is: {:dao.stream.apply/id :parked-0 :dao.stream.apply/value result}
-:ffi/call
+:dao.stream.apply/call
 (let [result-value (:dao.stream.apply/value (get-in vm [:control :val]))]
   (assoc vm :control {:type :value :val result-value}))
 ```
 
-This is the final result of the `:ffi/call` expression. If the response map has
+This is the final result of the `:dao.stream.apply/call` expression. If the response map has
 additional fields (e.g., error info), they are present in the full response value
 and the VM code can inspect them if needed.
 
@@ -350,7 +350,7 @@ and the VM code can inspect them if needed.
 
 ## New File: `src/cljc/dao/stream/apply.cljc`
 
-This file defines the DaoStreamApply protocol at the stream level, independent of any VM.
+This file defines the dao.stream.apply protocol at the stream level, independent of any VM.
 
 ### API
 
@@ -416,8 +416,8 @@ responsibility). Scheduling is the caller's responsibility.
 
 ```clojure
 ;; OLD (still in code)
-(def ffi-out-stream-key  :yin/ffi-out)
-(def ffi-out-cursor-key  :yin/ffi-out-cursor)
+(def call-out-stream-key  :yin/call-out)
+(def call-out-cursor-key  :yin/call-out-cursor)
 
 ;; NEW
 (def call-in-stream-key  :yin/call-in)
@@ -456,9 +456,9 @@ It is no longer part of `empty-state`. Any tests or code that passed
 
 ### Changes to `src/cljc/yin/vm/engine.cljc`
 
-#### 1. Remove `check-ffi-out`
+#### 1. Remove `check-call-out`
 
-Delete the entire `check-ffi-out` function (currently around line 193).
+Delete the entire `check-call-out` function (currently around line 193).
 It is no longer called from `run-loop`.
 
 #### 2. Remove `enqueue-ffi-request`
@@ -468,11 +468,11 @@ Its work is now done by the `park-and-call` functions in semantic/stack/register
 
 #### 3. Update `run-loop`
 
-Remove the call to `check-ffi-out` from the idle branch:
+Remove the call to `check-call-out` from the idle branch:
 
 ```clojure
 ;; OLD
-(let [v' (-> v check-wait-set check-ffi-out)]
+(let [v' (-> v check-wait-set check-call-out)]
   ...)
 
 ;; NEW
@@ -513,15 +513,15 @@ Replace `park-and-enqueue-ffi` with `park-and-call`:
            :halted  false)))
 ```
 
-Update the `:ffi/call` case in `handle-node-eval`:
+Update the `:dao.stream.apply/call` case in `handle-node-eval`:
 
 ```clojure
-:ffi/call
+:dao.stream.apply/call
 (let [operands (or (aget node-arr ATTR_OPERANDS) [])]
   (if (empty? operands)
     (park-and-call vm op [] stack env)
     ;; push frame to evaluate operands, then call park-and-call
-    {:type :ffi-args ...}))
+    {:type :dao.stream.apply/args-eval ...}))
 ```
 
 Add requires:
@@ -555,10 +555,10 @@ a bridge helper function that reads from `call-in` and writes to `call-out`:
   (let [call-in (get (vm/store vm) ::vm/call-in)
         {:keys [ok cursor']} (ds/next call-in cursor)]
     (when ok
-      (let [{:dao/keys [call-id call-op call-args]} ok
-            result (apply (get handlers call-op) call-args)
+      (let [{:dao.stream.apply/keys [id op args]} ok
+            result (apply (get handlers op) args)
             call-out (get (vm/store vm) ::vm/call-out)]
-        (ds/put! call-out (dao.stream.apply/response call-id result))
+        (ds/put! call-out (dao.stream.apply/response id result))
         [vm cursor'])))
 ```
 
@@ -625,11 +625,10 @@ Default. VM and bridge share ringbuffer streams in memory.
                    (let [call-in (get (vm/store vm) ::vm/call-in)
                          {:keys [ok cursor']} (ds/next call-in c)]
                      (when ok
-                       (let [{:dao/keys [call-id call-op call-args]} ok
-                             result (apply (get handlers call-op) call-args)
+                       (let [{:dao.stream.apply/keys [id op args]} ok
+                             result (apply (get handlers op) args)
                              call-out (get (vm/store vm) ::vm/call-out)]
-                         (ds/put! call-out (dao.stream.apply/response call-id result))))
-                     (recur (or cursor' c)))))]
+                         (ds/put! call-out (dao.stream.apply/response id result))))                     (recur (or cursor' c)))))]
 
   @vm-task))
 ```
@@ -675,7 +674,7 @@ The protocol has no exception semantics. Errors are values.
                (apply handler args)
                (catch Exception e
                  {:error (str e) :type :exception}))]
-  (ds/put! call-out (dao.stream.apply/response call-id result)))
+  (ds/put! call-out (dao.stream.apply/response id result)))
 
 ;; VM receives error as a value
 {:error "..." :type :exception}
@@ -694,9 +693,9 @@ The VM can inspect the response and decide how to handle it.
 3. `make-endpoint` bundles descriptors correctly.
 4. Endpoint descriptor round-trips through a stream (channel mobility).
 
-### VM Level (`test/yin/vm/ffi_daocall_test.cljc`)
+### VM Level (`test/yin/vm/dao_stream_apply_call_test.cljc`)
 
-1. `:ffi/call` parks the VM and emits a request on `call-in`.
+1. `:dao.stream.apply/call` parks the VM and emits a request on `call-in`.
 2. `call-out` is empty until the bridge writes.
 3. VM resumes with the correct response value after bridge responds.
 4. Operands are evaluated and passed as args vector.
@@ -704,14 +703,14 @@ The VM can inspect the response and decide how to handle it.
 6. VM remains blocked if bridge does not respond.
 7. Bridge throws if handler is missing.
 8. Two concurrent VMs with shared streams route responses by `:dao.stream.apply/id` correctly.
-9. No `check-ffi-out` symbol in `engine.cljc`.
+9. No `check-call-out` symbol in `engine.cljc`.
 10. No `:bridge-dispatcher` in `vm/empty-state`.
 
 ### Integration
 
 1. Stack and register VMs follow the same pattern as semantic VM.
-2. Macro expansion, if applicable, works with DaoStreamApply (existing macro system).
-3. Bytecode encoding/decoding of `:ffi-call` opcode is unchanged.
+2. Macro expansion, if applicable, works with dao.stream.apply (existing macro system).
+3. Bytecode encoding/decoding of `:dao.stream.apply/call` opcode is unchanged.
 
 ---
 
@@ -719,7 +718,7 @@ The VM can inspect the response and decide how to handle it.
 
 ### Why Streams?
 
-Streams are the universal abstraction. By making function application stream-based, DaoStreamApply:
+Streams are the universal abstraction. By making function application stream-based, dao.stream.apply:
 - Inherits bidirectionality (can go either direction over a link).
 - Inherits transport abstraction (ringbuffer, websocket, socket, file, etc.).
 - Inherits concurrency semantics (multiple concurrent calls, out-of-order responses).
@@ -727,7 +726,7 @@ Streams are the universal abstraction. By making function application stream-bas
 
 ### Why No Special Idle Handler?
 
-`check-ffi-out` is a special case that breaks the stream abstraction. By treating
+`check-call-out` is a special case that breaks the stream abstraction. By treating
 calls as stream reads, they use the same `check-wait-set` fallback that any other
 blocked operation uses. The engine learns nothing new. The scheduler learns nothing new.
 
@@ -750,7 +749,7 @@ route responses to the right continuation.
 ## Deferred
 
 - Implement `IDaoStreamWaitable` on `WebSocketStream` for push-based cross-process wakeup.
-- Add `:dao/call-timeout` to request datoms (callee can enforce SLAs).
-- Add `:dao/call-metadata` for tracing, audit, or capability tokens.
+- Add `:dao.stream.apply/call-timeout` to request datoms (callee can enforce SLAs).
+- Add `:dao.stream.apply/call-metadata` for tracing, audit, or capability tokens.
 - Typed call-in/call-out streams (fixed-size datom layout for SIMD dispatch).
 - Automatic bridge code generation from schema (Clojure spec, or dedicated DSL).
