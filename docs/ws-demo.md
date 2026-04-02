@@ -25,7 +25,7 @@ This demo shows **CLJS running in Node.js calling CLJ functions** via WebSocket,
 ## Transport
 
 - **Protocol**: `dao.stream.apply` (asynchronous request/response)
-- **Transport**: WebSocket (via `dao.stream.ws`)
+- **Transport**: WebSocket (via `dao.stream.transport.ws`)
 - **Serialization**: Transit EDN
 - **Client Runtime**: Node.js
 - **Server Runtime**: Clojure
@@ -178,4 +178,4 @@ No protocol changes needed. The request/response shapes are invariant across ope
 - `docs/design/ffi-design.md` — Yin VM FFI (which also uses this protocol)
 - `src/cljc/dao/stream.cljc` — Stream protocols
 - `src/cljc/dao/stream/apply.cljc` — Request/response helpers
-- `src/cljc/dao/stream/ws.cljc` — WebSocket transport
+- `src/cljc/dao/stream/transport/ws.cljc` — WebSocket transport

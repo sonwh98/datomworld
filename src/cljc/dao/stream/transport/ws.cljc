@@ -1,4 +1,4 @@
-(ns dao.stream.ws
+(ns dao.stream.transport.ws
   "WebSocket-backed stream using three orthogonal protocols.
 
    Three entry points:

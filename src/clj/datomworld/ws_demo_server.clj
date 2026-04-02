@@ -4,8 +4,8 @@
     [clojure.string]
     [dao.stream :as ds]
     [dao.stream.apply :as dao-apply]
-    [dao.stream.ringbuffer]
-    [dao.stream.ws]))
+    [dao.stream.transport.ringbuffer]
+    [dao.stream.transport.ws]))
 
 
 (defn start-server!

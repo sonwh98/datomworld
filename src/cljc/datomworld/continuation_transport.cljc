@@ -7,7 +7,7 @@
      :pending-continuations {position continuation}}"
   (:require
     [dao.stream :as ds]
-    [dao.stream.ringbuffer]))
+    [dao.stream.transport.ringbuffer]))
 
 
 (defn init-state

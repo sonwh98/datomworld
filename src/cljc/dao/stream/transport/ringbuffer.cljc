@@ -1,4 +1,4 @@
-(ns dao.stream.ringbuffer
+(ns dao.stream.transport.ringbuffer
   "Reference implementation of DaoStream using a memory-backed ring buffer.
    
    state-atom holds: {:buffer {} :head 0 :tail 0 :closed false :reader-waiters {} :writer-waiters []}

@@ -3,7 +3,7 @@
     [clojure.test :refer [deftest is testing]]
     [dao.stream :as ds]
     [dao.stream.apply :as dao-apply]
-    [dao.stream.ringbuffer]))
+    [dao.stream.transport.ringbuffer]))
 
 
 (defn- make-stream
