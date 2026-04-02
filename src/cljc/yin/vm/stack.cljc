@@ -18,10 +18,7 @@
     [yin.vm.engine :as engine]
     [yin.vm.host-ffi :as host-ffi]
     [yin.vm.macro :as macro]
-    [yin.vm.semantic :as semantic])
-  #?(:cljs
-     (:require-macros
-       [yin.vm :refer [opcase]])))
+    [yin.vm.semantic :as semantic]))
 
 
 ;; =============================================================================
@@ -659,7 +656,7 @@
 
 (defn- apply-op
   [state argc tail?]
-  (let [{:keys [pc bytecode stack env call-stack pool _store id-counter]} state
+  (let [{:keys [pc _bytecode stack _env call-stack pool _store _id-counter]} state
         n (count stack)
         args (subvec stack (- n argc) n)
         fn-val (nth stack (- n argc 1))
@@ -730,7 +727,7 @@
                 (maybe-recompile-at-boundary state)
                 state)
         {:keys [pc bytecode stack env call-stack pool store primitives
-                id-counter]}
+                _id-counter]}
         state]
     (if (>= pc (count bytecode))
       ;; End of bytes: return top of stack or pop frame

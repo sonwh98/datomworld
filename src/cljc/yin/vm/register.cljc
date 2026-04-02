@@ -19,10 +19,7 @@
     [yin.vm.engine :as engine]
     [yin.vm.host-ffi :as host-ffi]
     [yin.vm.macro :as macro]
-    [yin.vm.semantic :as semantic])
-  #?(:cljs
-     (:require-macros
-       [yin.vm :refer [opcase]])))
+    [yin.vm.semantic :as semantic]))
 
 
 ;; =============================================================================

@@ -140,32 +140,32 @@
                                    :operator {:type :variable, :name '+},
                                    :operands [{:type :variable, :name 'x}
                                               {:type :vm/park}]}},
-                 :operands [{:type :literal, :value 10}]}]
-        (let [results (run-all-vms ast)]
-          (doseq [[vm-type reified] results]
-            (is (= :parked-continuation (:type reified))
-                (str vm-type " should park inside function")))
-          ;; Resume each with 5
-          (let [resume-with-5
-                (fn [vm-type]
-                  (let [vm (case vm-type
-                             :ast-walker (ast-walker/create-vm)
-                             :stack (stack/create-vm)
-                             :semantic (semantic/create-vm {:env
-                                                            vm/primitives})
-                             :register (register/create-vm {:env
-                                                            vm/primitives}))
-                        vm-parked (vm/eval vm ast)
-                        reified (vm/value vm-parked)
-                        vm-resumed (vm/eval vm-parked
-                                            {:type :vm/resume,
-                                             :parked-id (:id reified),
-                                             :val {:type :literal, :value 5}})]
-                    (vm/value vm-resumed)))]
-            (is (= 15 (resume-with-5 :ast-walker)))
-            (is (= 15 (resume-with-5 :stack)))
-            (is (= 15 (resume-with-5 :semantic)))
-            (is (= 15 (resume-with-5 :register)))))))))
+                 :operands [{:type :literal, :value 10}]}
+            results (run-all-vms ast)]
+        (doseq [[vm-type reified] results]
+          (is (= :parked-continuation (:type reified))
+              (str vm-type " should park inside function")))
+        ;; Resume each with 5
+        (let [resume-with-5
+              (fn [vm-type]
+                (let [vm (case vm-type
+                           :ast-walker (ast-walker/create-vm)
+                           :stack (stack/create-vm)
+                           :semantic (semantic/create-vm {:env
+                                                          vm/primitives})
+                           :register (register/create-vm {:env
+                                                          vm/primitives}))
+                      vm-parked (vm/eval vm ast)
+                      reified (vm/value vm-parked)
+                      vm-resumed (vm/eval vm-parked
+                                          {:type :vm/resume,
+                                           :parked-id (:id reified),
+                                           :val {:type :literal, :value 5}})]
+                  (vm/value vm-resumed)))]
+          (is (= 15 (resume-with-5 :ast-walker)))
+          (is (= 15 (resume-with-5 :stack)))
+          (is (= 15 (resume-with-5 :semantic)))
+          (is (= 15 (resume-with-5 :register))))))))
 
 
 (defn- k-depth

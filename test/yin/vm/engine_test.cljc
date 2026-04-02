@@ -3,6 +3,7 @@
     [clojure.test :refer [deftest is testing]]
     [dao.stream :as ds]
     [dao.stream.apply :as dao.stream.apply]
+    [dao.stream.ringbuffer]
     [yin.stream :as stream]
     [yin.vm :as vm]
     [yin.vm.engine :as engine]))
@@ -250,8 +251,8 @@
                             :continuation {:id :writer}})}})
           stream-after-next (get-in next-result [:state :store stream-id])
           stream-after-put (get-in put-result [:state :store stream-id])
-          reader-waiter-count-after-next (count (:reader-waiters @(.-state-atom stream-after-next)))
-          writer-waiter-count-after-put (count (:writer-waiters @(.-state-atom stream-after-put)))
+          reader-waiter-count-after-next (count (:reader-waiters @(.-state-atom ^dao.stream.ringbuffer.RingBufferStream stream-after-next)))
+          writer-waiter-count-after-put (count (:writer-waiters @(.-state-atom ^dao.stream.ringbuffer.RingBufferStream stream-after-put)))
           take-result (engine/handle-effect (:state put-result)
                                             {:effect :stream/take, :stream stream-ref}
                                             {})

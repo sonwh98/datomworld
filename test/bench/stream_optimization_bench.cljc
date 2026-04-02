@@ -1,6 +1,5 @@
 (ns bench.stream-optimization-bench
   (:require
-    [clojure.test :refer [deftest is testing]]
     [dao.stream :as ds]
     [yin.stream :as stream]
     [yin.vm.engine :as engine]))
@@ -79,7 +78,7 @@
                               result (stream/handle-put s {:effect :stream/put :stream stream-ref :val val})
                               woken (:woke result)
                               ;; 2. Process woken entries (if any)
-                              woken-entries (#'engine/make-run-queue-entries (:state result) woken)
+                              woken-entries (#'engine/make-woken-run-queue-entries (:state result) woken)
                               ;; 3. Update store (advances cursor positions)
                               s' (:state result)
                               store-updates (mapcat (fn [e] (vec (:store-updates e))) woken-entries)
@@ -164,7 +163,7 @@
 ;; =============================================================================
 
 (defn -main
-  [& args]
+  [& _args]
   (let [n 500       ; 500 concurrent reader-writer pairs
         m 2000      ; 2,000 datom transfers
         capacity 10]

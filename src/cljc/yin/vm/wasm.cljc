@@ -28,8 +28,7 @@
      cannot be encoded in WASM's typed stack machine without branching that
      reintroduces the mixed-type promotion problem."
   (:require
-    [yin.vm :as vm]
-    [yin.vm.engine :as engine]))
+    [yin.vm :as vm]))
 
 
 ;; =============================================================================

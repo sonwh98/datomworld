@@ -1,7 +1,8 @@
 (ns dao.stream-test
   (:require
     [clojure.test :refer [deftest is testing]]
-    [dao.stream :as ds]))
+    [dao.stream :as ds]
+    [dao.stream.ringbuffer]))
 
 
 ;; =============================================================================
@@ -235,7 +236,7 @@
       (ds/put! s :a)
       (ds/put! s :b)
       (ds/drain-one! s)
-      (let [state @(.-state-atom s)]
+      (let [state @(.-state-atom ^dao.stream.ringbuffer.RingBufferStream s)]
         (is (not (contains? (:buffer state) 0)) "Entry at index 0 should be removed after take!")
         (is (contains? (:buffer state) 1) "Entry at index 1 should still be present")))))
 
@@ -262,7 +263,7 @@
       (ds/put! s :a)
       (ds/drain-one! s)
       (ds/put! s :b)
-      (let [state @(.-state-atom s)]
+      (let [state @(.-state-atom ^dao.stream.ringbuffer.RingBufferStream s)]
         (is (= 1 (:head state)) "head should be 1 after one take!")
         (is (= 2 (:tail state)) "tail should be 2 after two puts!"))
       (is (= :b (:ok (ds/drain-one! s)))))))

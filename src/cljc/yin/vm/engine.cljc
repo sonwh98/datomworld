@@ -3,8 +3,7 @@
   (:require
     [dao.stream :as ds]
     [yin.module :as module]
-    [yin.stream :as stream]
-    [yin.vm :as vm]))
+    [yin.stream :as stream]))
 
 
 (defn resolve-var

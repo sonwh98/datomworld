@@ -10,8 +10,7 @@
    - Runtime: semantic VM expands :yin/macro-expand nodes inline
    - Guard limits: max depth 100, max datoms 10,000"
   (:require
-    [yin.vm :as vm]
-    [yin.vm.engine :as engine]))
+    [yin.vm :as vm]))
 
 
 ;; =============================================================================

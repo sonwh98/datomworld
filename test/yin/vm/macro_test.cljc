@@ -4,7 +4,6 @@
   (:require
     [clojure.test :refer [deftest is testing]]
     [yin.vm :as vm]
-    [yin.vm.engine :as engine]
     [yin.vm.macro :as macro]
     [yin.vm.register :as register]
     [yin.vm.semantic :as semantic]
@@ -599,7 +598,7 @@
 
 (deftest yang-compile-program-defmacro-test
   (testing "compile-program with defmacro emits :yin/macro-expand call site"
-    (let [compile-program (requiring-resolve 'yang.clojure/compile-program)
+    (let [compile-program (#?(:clj clojure.core/requiring-resolve :cljs identity) 'yang.clojure/compile-program)
           ast (compile-program '[(defmacro identity-mac
                                    [x]
                                    x)
@@ -688,7 +687,7 @@
 
 (deftest yang-macro-ordering-test
   (testing "macro name not visible to forms before its defmacro"
-    (let [compile-program (requiring-resolve 'yang.clojure/compile-program)
+    (let [compile-program (#?(:clj clojure.core/requiring-resolve :cljs identity) 'yang.clojure/compile-program)
           ;; (identity-mac 1) appears BEFORE (defmacro identity-mac ...)
           ;; so it should compile as a regular :application, not :yin/macro-expand
           ast (compile-program '[(identity-mac 1)
