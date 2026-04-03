@@ -41,6 +41,11 @@ When a namespace is listed as `namespace-name (in:X, out:Y)`:
   - Low `out` is better (fewer dependencies = less coupling)
   - High `out` combined with high `in` is problematic: many things depend on it, but it has many dependencies itself
 
+**Architectural vs. Accidental Coupling:**
+A high `out` count is not automatically a failure. Distinguish between:
+- **Architectural Coupling**: High `out` to *highly stable foundational modules* (e.g., `dao.stream`, `yin.vm`). If the dependencies are bedrock primitives that change rarely, the coupling is stable and necessary for a layered architecture (e.g., the VMs).
+- **Accidental Coupling**: High `out` to *volatile leaf modules* or *unrelated feature sets*. This is a red flag indicating a lack of cohesion and is the primary target for refactoring.
+
 **Red flags:**
 - High `in` + high `out` = many things depend on it, but it's also tightly coupled to many other things. These are candidates for refactoring.
 - High `out` for a leaf module = too many dependencies, extract shared concerns
@@ -53,6 +58,7 @@ When a namespace is listed as `namespace-name (in:X, out:Y)`:
 
 **Visual interpretation (in dep-graph.svg):**
 - **Layered graph** (good): Clean separation between modules, minimal cross-connections, clear flow from low-level primitives to high-level features. Layers are visually distinct.
+- **Structural Clustering**: When namespaces have the same outgoing dependencies (like the various VM implementations), they are visually at the same level in the dependency graph. This is another form of clustering: clustering namespaces that share the same dependency graph, indicating a horizontal architectural layer.
 - **Spaghetti graph** (bad): Dense tangles, circular loops, everything connected to everything. Visual chaos reflects architectural decay.
 
 The graph doesn't lie. Use it to identify where extraction and decoupling are needed.
@@ -120,6 +126,7 @@ Count the public functions (see "Bounded Complexity" for the 2-5 entry point tar
 - Rarely called from outside (low external coupling)
 - Appear together in tests
 - Work with the same data structures
+- Share the exact same set of external dependencies (structural clustering)
 
 **Extract when**: The structure has already emerged in your code. You're just formalizing what exists, not designing from scratch.
 
