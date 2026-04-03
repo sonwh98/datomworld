@@ -46,9 +46,14 @@ If 0 results or only matches in the same file → mark the function private (def
 See @.claude/rules/malleability.md for full guidance.
 
 ## Collaborating with Claude Code
-When asking Claude Code to work on code:
+
+**Development process:**
+- Write tests before implementing features (TDD)
+- See CLAUDE.md "TESTING" section for the three-phase approach
+
+**When asking Claude Code to work on code:**
 1. Reference the relevant rule: malleability for refactoring, vocabulary for naming, architecture for structural changes
-2. Check CLAUDE.md for non-negotiable invariants
+2. Check CLAUDE.md for non-negotiable invariants and testing guidelines
 3. Use vocabulary.md when proposing new namespace names
 4. Use malleability.md when discussing extraction, clustering, or interface design
 5. Run `./bin/deps-graph.sh` and share output for coupling analysis

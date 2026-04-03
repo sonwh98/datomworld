@@ -100,16 +100,6 @@ grep -r "yin.vm/load-program" src/
 **Measure:**
 Count the public functions (see "Bounded Complexity" for the 2-5 entry point target). If the count is high, either more functions should be private, or the namespace is doing too many things and needs to be split.
 
-## Selection Pressure: Tests and Cognitive Load
-
-Code survives if it:
-1. **Passes tests**: Contracts are verified. Test boundaries, not internals. Internal refactors should stay free as long as boundary behavior holds.
-2. **Bounds cognitive load**: Developers can understand and modify it without learning the entire system.
-
-Both select for malleability. Success metric: **how cheaply can you change without breaking promises?**
-
-Keep REPL `(comment ...)` blocks while accurate; delete when they lie. Automate only what must remain true.
-
 ## Workflow: Start Messy, Let Structure Emerge
 
 1. Write everything in one namespace. Don't organize prematurely.
@@ -134,9 +124,3 @@ Keep REPL `(comment ...)` blocks while accurate; delete when they lie. Automate 
 **Extract when**: The structure has already emerged in your code. You're just formalizing what exists, not designing from scratch.
 
 **Naming**: Use problem domain names (`validation`, `auth`, `indexing`), not solution domain (`utils`, `helpers`). See @.claude/rules/vocabulary.md for vocabulary from biology, economics, physics, philosophy.
-
-## Further Reading
-
-- Kent Beck: "Software Design is an Exercise in Human Relationships" (InfoQ) — how to explain cohesion
-- Rich Hickey: "Simple Made Easy" — on simplicity and complexity
-- Quanta Magazine: "A New Thermodynamics Theory of the Origin of Life" — how systems maintain low entropy while increasing environmental entropy

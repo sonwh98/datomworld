@@ -83,6 +83,19 @@ Prefer declarative pipelines over imperative logic.
 Avoid cleverness.
 Name things after what they do to streams.
 
+# TESTING
+
+Write tests before implementing features (TDD).
+
+Tests define the contract and expected behavior. Implementation follows from the tests, not the other way around.
+
+When implementing a feature or fix:
+1. Write the test first (red phase) — define what should happen
+2. Implement the minimum code to pass the test (green phase)
+3. Refactor if needed (refactor phase)
+
+This ensures code is testable by design and implementation matches actual requirements.
+
 # WORKFLOW
 
 Do not commit changes until explicitly asked by the user.
