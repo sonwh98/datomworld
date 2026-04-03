@@ -425,11 +425,14 @@
             " , time-travel via streams means architectural evolution isn't hidden in git history, it's a Datalog query"]]
           [:p
            "This inverts the typical problem. In traditional code, you fight entropy accumulation. "
-           "In datom.world, "
+           "Datom.World doesn't try to stop entropy; it " [:em "flows"] " with it. "
+           "In this model, "
            [:strong "entropy accumulation is the feature"]
-           ", the stream "
+           ": the stream "
            [:em "wants"]
-           " to grow, and that growth is harnessed rather than resisted."]
+           " to grow, and that growth is harnessed to create structure and a "
+           [:strong "local decrease of entropy"]
+           " within each module."]
           [:p
            "Streams achieve "
            [:strong "ultimate loose coupling"]

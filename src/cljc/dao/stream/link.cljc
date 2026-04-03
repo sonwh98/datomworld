@@ -61,8 +61,7 @@
 (defn make-link-state
   [local-stream]
   {:local-stream local-stream,
-   :remote-stream (ds/->LazySeqStream nil
-                                      (atom {:log [], :head 0, :closed false})),
+   :remote-stream (ds/open! {:transport {:type :ringbuffer, :capacity nil}}),
    :local-pos 0,
    :remote-pos 0,
    :status :connecting})

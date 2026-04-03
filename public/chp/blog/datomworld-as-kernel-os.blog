@@ -25,7 +25,7 @@
             "The system consists entirely of append-only datom streams."]]
           [:ul.bulleted
            [:li "A stream is the only system call"]
-           [:li "A datom is the only packet of information"]
+           [:li "A datom is the packet for persistent facts; streams carry values appropriate to their layer"]
            [:li "An interpreter is the only way meaning is extracted"]]
           [:p
            "There is no global state. There is no privileged namespace. There is only:"]

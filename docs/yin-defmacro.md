@@ -172,7 +172,7 @@ This makes the execution model explicit: user-defined macros do not need a host-
 Add `defmacro` to `special-form?`:
 
 ```clojure
-(contains? #{'fn 'if 'let 'quote 'do 'def 'ffi/call 'defmacro} (first form))
+(contains? #{'fn 'if 'let 'quote 'do 'def 'dao.stream.apply/call 'defmacro} (first form))
 ```
 
 Add `compile-defmacro`:

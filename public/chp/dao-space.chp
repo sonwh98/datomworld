@@ -1,0 +1,79 @@
+(let [template (load-file "public/chp/template.chp")]
+  (clojure.walk/postwalk-replace
+    {:template/title "Datom.World — DaoSpace"
+     :template/content
+     (list
+       [:section#dao-space.section-dark
+        [:div.section-inner
+         [:span.status-pill "The Coordinator"]
+         [:h1 "DaoSpace"]
+         [:p.section-lead
+          "DaoSpace is datom.world's implementation of a " [:strong "tuple space"] ": a shared store of datoms that agents can collectively query and modify to coordinate work. "
+          "Built on top of " [:a {:href "/dao-stream.chp"} "DaoStream"] " and " [:a {:href "/dao-db.chp"} "DaoDB"] ", it enables declarative, stigmergic coordination without explicit message passing."]
+         [:p
+          "Unlike traditional messaging (sender → receiver), DaoSpace agents coordinate by " [:strong "leaving traces in the environment"] ". "
+          "An agent reads shared facts, modifies them based on local logic, and implicitly coordinates through the effects of those modifications. "
+          "This is stigmergy: coordination through the environment, as seen in ant colonies and social insects."]
+         [:div.feature-grid
+          [:article.feature-card
+           [:h3 "Declarative coordination"]
+           [:p "Agents describe what they need via Datalog, not who has it. The environment handles matching."]]
+          [:article.feature-card
+           [:h3 "Implicit messaging"]
+           [:p "Agents don't need to know about each other. They interact through the shared datom stream."]]
+          [:article.feature-card
+           [:h3 "Persistent history"]
+           [:p "The entire coordination log is available for replay, debugging, and audit trails."]]]]]
+       [:section.section-light
+        [:div.section-inner
+         [:h2 "Stigmergy: Coordination via Traces"]
+         [:p
+          "The core concept of DaoSpace is " [:strong "Tuple Space = DaoStream of Datoms + DaoDB Query Engine"] ". "
+          "Agents see a shared log of facts that they can query using Datalog. "
+          "When an agent needs to coordinate, it appends a new datom to the stream. "
+          "Other agents observe this change through their own stream cursors and react accordingly."]
+         [:p
+          "This architecture provides several fundamental advantages over traditional coordination models:"]
+         [:ul.bulleted
+          [:li [:strong "Full Queryability"] " — Datalog unlocks complex pattern matching across the entire coordination state."]
+          [:li [:strong "Network Agnostic"] " — Works in-process, across linked nodes, or over any DaoStream transport."]
+          [:li [:strong "Time Travel"] " — Query the coordination state at any historical point via " [:code "as-of-time"] "."]
+          [:li [:strong "Fault Tolerance"] " — If an agent crashes, its traces remain in the stream for others to audit or recover."]]
+         [:p
+          "DaoSpace is inspired by the " [:strong "Linda"] " coordination language and " [:strong "JavaSpace"] ", but modernized for the datom-stream paradigm. "
+          "By replacing positional tuples with named datoms and wildcard matching with Datalog, DaoSpace removes the fragility and opacity that limited earlier tuple space implementations."]]]
+       [:section.section-dark
+        [:div.section-inner
+         [:h2 "Coordination Patterns"]
+         [:p
+          "DaoSpace supports a wide range of stigmergic patterns, from simple work queues to complex collaborative filtering."]
+         [:div.feature-grid
+          [:article.feature-card
+           [:h3 "Distributed Work Queues"]
+           [:p "Workers query for 'todo' tasks, claim them by asserting an 'in-progress' status, and emit results. No central broker required."]]
+          [:article.feature-card
+           [:h3 "Agent Swarm Coordination"]
+           [:p "Agents leave 'pheromone' traces (datoms with strength and decay) that others follow to discover paths or consensus."]]
+          [:article.feature-card
+           [:h3 "Watchdogs & Exception Handling"]
+           [:p "Monitoring agents query for anomalies (e.g., tasks stuck in-progress too long) and reassign work by asserting new facts."]]
+          [:article.feature-card
+           [:h3 "Collaborative Filtering"]
+           [:p "Agents build models from shared observations and emit insights that others can join and refine in real-time."]]]]]
+       [:section.section-light
+        [:div.section-inner
+         [:h2 "Beyond Linda: A Modern Approach"]
+         [:p
+          "Traditional tuple spaces like Linda used destructive reads (" [:code "take"] ") that caused deadlocks and lost history. "
+          "DaoSpace is " [:strong "immutable and non-destructive"] ". Cursors allow multiple agents to observe the same facts independently, and history is preserved forever."]
+         [:p
+          "Where Linda matches on positional wildcards, DaoSpace uses " [:strong "Datalog"] ". "
+          "This allows agents to express complex coordination logic involving joins, aggregations, and temporal constraints directly in their queries. "
+          "Coordination becomes a database query problem, not a distributed systems protocol problem."]
+         [:p.next
+          "Learn how "
+          [:a {:href "/dao-stream.chp"} "DaoStream"]
+          " carries these facts, or see "
+          [:a {:href "/dao-db.chp"} "DaoDB"]
+          " to understand the query engine behind DaoSpace."]]])}
+    template))

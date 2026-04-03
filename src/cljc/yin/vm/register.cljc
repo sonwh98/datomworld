@@ -12,9 +12,12 @@
    The compilation pipeline is: AST datoms -> ast-datoms->asm (symbolic IR) -> assemble (numeric).
    See ast-datoms->asm docstring for the full instruction set."
   (:require
+    [dao.stream :as ds]
+    [dao.stream.apply :as dao.stream.apply]
     [yin.module :as module]
     [yin.vm :as vm]
     [yin.vm.engine :as engine]
+    [yin.vm.host-ffi :as host-ffi]
     [yin.vm.macro :as macro]
     [yin.vm.semantic :as semantic])
   #?(:cljs
@@ -81,7 +84,7 @@
      [:stream-cursor rd rs]           - rd := cursor for stream rs
      [:stream-next rd rs]             - rd := next value from cursor rs
      [:stream-close rd rs]            - close stream rs, rd := nil
-     [:ffi-call rd op args]           - park, enqueue FFI request, resume into rd
+     [:dao.stream.apply/call rd op args]           - park, enqueue dao.stream.apply request, resume into rd
 
    Uses simple linear register allocation.
 
@@ -154,12 +157,12 @@
                      rd (alloc-reg!)]
                  (emit! [(if tail? :tailcall :call) rd fn-reg arg-regs])
                  rd)
-               :ffi/call
+               :dao.stream.apply/call
                (let [operand-refs (or (get-attr e :yin/operands) [])
                      arg-regs (mapv #(compile-node % false) operand-refs)
                      op (get-attr e :yin/op)
                      rd (alloc-reg!)]
-                 (emit! [:ffi-call rd op arg-regs])
+                 (emit! [:dao.stream.apply/call rd op arg-regs])
                  rd)
                :if (let [test-ref (get-attr e :yin/test)
                          cons-ref (get-attr e :yin/consequent)
@@ -299,12 +302,12 @@
           :tailcall (let [[rd rf arg-regs] args]
                       (emit! (vm/opcode-table :tailcall) rd rf (count arg-regs))
                       (doseq [ar arg-regs] (emit! ar)))
-          :ffi-call (let [[rd op arg-regs] args]
-                      (emit! (vm/opcode-table :ffi-call)
-                             rd
-                             (intern! op)
-                             (count arg-regs))
-                      (doseq [ar arg-regs] (emit! ar)))
+          :dao.stream.apply/call (let [[rd op arg-regs] args]
+                                   (emit! (vm/opcode-table :dao.stream.apply/call)
+                                          rd
+                                          (intern! op)
+                                          (count arg-regs))
+                                   (doseq [ar arg-regs] (emit! ar)))
           :return (let [[rs] args] (emit! (vm/opcode-table :return) rs))
           :branch (let [[rt then-addr else-addr] args]
                     (emit! (vm/opcode-table :branch) rt)
@@ -885,19 +888,35 @@
                          :pc body-addr))
                 :else (throw (ex-info "Cannot call non-function"
                                       {:fn fn-val}))))
-        :ffi-call
+        :dao.stream.apply/call
         (let [rd (nth bytecode (inc pc))
               op (nth pool (nth bytecode (+ pc 2)))
               argc (nth bytecode (+ pc 3))
               arg-base (+ pc 4)
               args (collect-call-args regs bytecode arg-base argc)
               next-pc (+ arg-base argc)
-              parked (engine/park-continuation state
-                                               (snap-frame state rd next-pc))
+              park-snapshot (snap-frame state rd next-pc)
+              parked (engine/park-continuation state park-snapshot)
               parked-id (get-in parked [:value :id])
-              request {:op op, :args args, :parked-id parked-id}
-              enqueued (engine/enqueue-ffi-request parked request)]
-          (assoc enqueued
+
+              ;; Register reader-waiter on call-out response stream
+              call-out (get-in parked [:store vm/call-out-stream-key])
+              cursor-data (get-in parked [:store vm/call-out-cursor-key])
+              cursor-pos (:position cursor-data)
+              waiter-entry (assoc park-snapshot
+                                  :type :dao.stream.apply/resumer
+                                  :cursor-ref {:type :cursor-ref
+                                               :id vm/call-out-cursor-key}
+                                  :reason :next
+                                  :stream-id vm/call-out-stream-key)
+              _ (when (satisfies? ds/IDaoStreamWaitable call-out)
+                  (ds/register-reader-waiter! call-out cursor-pos waiter-entry))
+
+              ;; Emit request to call-in stream
+              call-in (get-in parked [:store vm/call-in-stream-key])
+              request (dao.stream.apply/request parked-id op args)
+              _ (ds/put! call-in request)]
+          (assoc parked
                  :value :yin/blocked
                  :blocked true
                  :halted false))
@@ -1034,8 +1053,12 @@
   [state]
   (engine/resume-from-run-queue state
                                 (fn [base entry]
-                                  (-> (restore-frame base entry (:value entry))
-                                      maybe-recompile-at-boundary))))
+                                  (let [val (:value entry)
+                                        val' (if (= :dao.stream.apply/resumer (:type entry))
+                                               (:dao.stream.apply/value val)
+                                               val)]
+                                    (-> (restore-frame base entry val')
+                                        maybe-recompile-at-boundary)))))
 
 
 (defn- reg-vm-run-scheduler
@@ -1477,7 +1500,7 @@
                   root-id (apply max (map first datoms))]
               (reg-vm-load-program vm {:node root-id, :datoms datoms}))
             vm)]
-    (reg-vm-run v)))
+    (host-ffi/maybe-run v reg-vm-run)))
 
 
 (extend-type RegisterVM
@@ -1503,13 +1526,12 @@
 
 (defn create-vm
   "Create a new RegisterVM with optional opts map.
-   Accepts {:env map, :primitives map, :bridge-dispatcher map, :macro-registry map}."
+   Accepts {:env map, :primitives map, :macro-registry map, :bridge handlers}."
   ([] (create-vm {}))
   ([opts]
-   (let [env (or (:env opts) {})]
-     (map->RegisterVM (merge (vm/empty-state (select-keys opts
-                                                          [:primitives
-                                                           :bridge-dispatcher]))
+   (let [env (or (:env opts) {})
+         bridge-state (host-ffi/bridge-from-opts opts)]
+     (map->RegisterVM (merge (vm/empty-state (select-keys opts [:primitives]))
                              {:regs [],
                               :k nil,
                               :env env,
@@ -1528,4 +1550,6 @@
                               :program-index nil,
                               :halted false,
                               :value nil,
-                              :blocked false})))))
+                              :blocked false}
+                             (when bridge-state
+                               {:bridge bridge-state}))))))

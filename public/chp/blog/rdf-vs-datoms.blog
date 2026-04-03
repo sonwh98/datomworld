@@ -78,7 +78,7 @@
 
                    [:p "More critically, " [:strong "the serialization format is not the data model"] ". A triple is a conceptual structure. RDF/XML, JSON-LD, and Turtle are different " [:em "representations"] " of that structure. You negotiate which format to use, then parse it into an internal representation (often... integers for performance, as we'll see)."]
 
-                   [:p "Datoms take the opposite approach: " [:strong "the serialization format is the data model"] ". A datom is a five-element vector. That's not a representation of a datom, that " [:em "is"] " a datom. There's no parsing step where you transform from one structure to another. The vector literal " [:code "[42 :person/name \"Alice\" 1001 nil]"] " is what gets indexed, what gets queried, what gets sent over the wire as raw EDN or encoded with Transit. The format is the data."]
+                   [:p "Datoms take the opposite approach: " [:strong "datoms are the canonical format for persistent facts"] ". A datom is a five-element vector [e a v t m]. That's not a representation of a datom, that " [:em "is"] " a datom. There's no parsing step where you transform from one structure to another. The vector literal " [:code "[42 :person/name \"Alice\" 1001 nil]"] " is what gets indexed, what gets queried, what gets persisted in DaoDB as raw EDN or encoded with Transit. Ephemeral streams may carry other value types; the datom format is the invariant for stored facts."]
 
                    [:h3 "2. The Consensus Bottleneck"]
                    [:p "The semantic web vision required " [:strong "universal agreement"] " on ontologies before applications could interoperate. While you could technically build an application with your own private ontology, doing so removed the main benefit: automatic data integration across systems. But agreement is expensive."]
@@ -157,7 +157,7 @@
                    [:p "Entity IDs are internal. Identity is semantic. Correlation is explicit."]
 
                    [:h2 "Interpreters Materialize Datoms"]
-                   [:p "The datom " [:code "[e a v t m]"] " is canonical. What you do with it depends on the interpreter."]
+                   [:p "The datom " [:code "[e a v t m]"] " is canonical for persistent facts. What you do with it depends on the interpreter. Streams carry datoms for persistent layers and appropriate values for ephemeral layers."]
 
                    [:p [:strong "DaoDB"] " is one interpreter. It materializes datoms into covered indexes (EAVT, AEVT, AVET, VAET) for efficient querying. But DaoDB is not the only way to interpret a datom stream."]
 

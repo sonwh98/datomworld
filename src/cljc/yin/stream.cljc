@@ -13,7 +13,7 @@
   Reads go through cursors, not directly from streams.
   Cursors advance independently: multiple readers, same stream.
 
-  Internally backed by dao.stream (IStream protocol, LazySeqStream impl).
+  Streams are realized via dao.stream/open! multimethod.
   The VM handles parking, resumption, and scheduling."
   (:require
     [dao.stream :as ds]
@@ -77,8 +77,10 @@
    Returns [stream-ref updated-state]."
   [state effect id]
   (let [capacity (:capacity effect)
-        stream (ds/->LazySeqStream capacity
-                                   (atom {:log [], :head 0, :closed false}))
+        descriptor {:transport {:type :ringbuffer
+                                :mode :create
+                                :capacity capacity}}
+        stream (ds/open! descriptor)
         new-store (assoc (:store state) id stream)
         stream-ref {:type :stream-ref, :id id}]
     [stream-ref (assoc state :store new-store)]))
@@ -87,7 +89,7 @@
 (defn handle-put
   "Handle :stream/put effect. Appends value to stream.
    Returns result map:
-   {:value v, :state s}                    on success
+   {:value v, :state s, :woke [...]}       on success
    {:park true, :stream-id id, :state s}   if at capacity"
   [state effect]
   (let [stream-ref (:stream effect)
@@ -97,9 +99,11 @@
     (when (nil? stream)
       (throw (ex-info "Invalid stream reference" {:ref stream-ref})))
     (let [result (ds/put! stream val)]
-      (if (= :ok result)
-        {:value val, :state state}
-        {:park true, :stream-id stream-id, :state state}))))
+      (if (= :full (:result result))
+        {:park true, :stream-id stream-id, :state state}
+        {:value val,
+         :state state,
+         :woke (:woke result)}))))
 
 
 (defn handle-cursor
@@ -151,17 +155,22 @@
 (defn handle-take
   "Handle :stream/take effect. Destructively consumes next value.
    Returns result map:
-   {:value val, :state s}                value available, head advanced
+   {:value val, :state s, :woke [...]}  value available, head advanced, woken writers
    {:park true, :stream-id id, :state s} empty (open stream, no data)
-   {:value nil, :state s}                end of closed stream"
+   {:value nil, :state s}                end of closed stream
+
+   NOTE: This uses ds/drain-one! (utility function) not a protocol method,
+   since destructive consumption is not part of the canonical model."
   [state effect]
   (let [stream-ref (:stream effect)
         stream-id (:id stream-ref)
         stream (get (:store state) stream-id)]
     (when (nil? stream)
       (throw (ex-info "Invalid stream reference" {:ref stream-ref})))
-    (let [result (ds/take! stream)]
-      (cond (map? result) {:value (:ok result), :state state}
+    (let [result (ds/drain-one! stream)]
+      (cond (map? result) {:value (:ok result),
+                           :state state,
+                           :woke (:woke result)}
             (= :empty result) {:park true, :stream-id stream-id, :state state}
             (= :end result) {:value nil, :state state}))))
 
@@ -169,22 +178,14 @@
 (defn handle-close
   "Handle :stream/close effect. Closes the stream.
    Returns {:state s', :resume-parked [parked-entries...]}
-   where parked-entries are wait-set entries to resume with nil."
+   where parked-entries are wait-set entries woken by the transport."
   [state effect]
   (let [stream-ref (:stream effect)
         stream-id (:id stream-ref)
-        stream (get (:store state) stream-id)]
-    (ds/close! stream)
-    ;; Find parked :next and :take continuations waiting on this stream.
-    ;; Both resume with nil (end-of-stream). :put waiters are not woken.
-    (let [wait-set (or (:wait-set state) [])
-          {to-resume true, to-keep false}
-          (group-by (fn [entry]
-                      (and (= stream-id (:stream-id entry))
-                           (#{:next :take} (:reason entry))))
-                    wait-set)]
-      {:state (assoc state :wait-set (vec (or to-keep []))),
-       :resume-parked (or to-resume [])})))
+        stream (get (:store state) stream-id)
+        {:keys [woke]} (ds/close! stream)]
+    {:state state,
+     :resume-parked woke}))
 
 
 ;; ============================================================

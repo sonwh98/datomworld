@@ -1,14 +1,37 @@
 (ns yin.vm.stack-test
   (:require
     [clojure.test :refer [deftest is testing]]
-    [dao.stream]
+    [dao.stream :as ds]
+    [dao.stream.apply :as dao.stream.apply]
     [yin.vm :as vm]
+    [yin.vm.engine :as engine]
     [yin.vm.stack :as stack]))
 
 
 ;; =============================================================================
 ;; Stack VM tests (full pipeline through numeric bytecode via protocols)
 ;; =============================================================================
+
+(defn- bridge-step
+  [vm handlers cursor]
+  (let [call-in (get (vm/store vm) vm/call-in-stream-key)
+        {:keys [ok] :as next-result} (ds/next call-in cursor)
+        cursor' (:cursor next-result)]
+    (if ok
+      (let [{request-id :dao.stream.apply/id
+             request-op :dao.stream.apply/op
+             request-args :dao.stream.apply/args} ok
+            result (apply (get handlers request-op) (or request-args []))
+            call-out (get (vm/store vm) vm/call-out-stream-key)
+            ;; ds/put! on RingBufferStream returns woken entries
+            put-result (ds/put! call-out (dao.stream.apply/response request-id result))
+            woke (:woke put-result)
+            ;; Use engine helper to transform woken entries into run-queue entries
+            entries (engine/make-woken-run-queue-entries vm woke)
+            vm' (update vm :run-queue (fnil into []) entries)]
+        [vm' cursor'])
+      [vm cursor])))
+
 
 (defn compile-and-run
   "Compile AST to datoms and run to completion."
@@ -51,8 +74,10 @@
 (deftest cesk-state-test
   (testing "Initial state"
     (let [vm (stack/create-vm)]
-      (is (contains? (vm/store vm) vm/ffi-out-stream-key))
-      (is (contains? (vm/store vm) vm/ffi-out-cursor-key))
+      (is (contains? (vm/store vm) vm/call-in-stream-key))
+      (is (contains? (vm/store vm) vm/call-in-cursor-key))
+      (is (contains? (vm/store vm) vm/call-out-stream-key))
+      (is (contains? (vm/store vm) vm/call-out-cursor-key))
       (is (empty? (vm/continuation vm)))))
   (testing "After load-program, control has bytecode"
     (let [vm (load-ast {:type :literal, :value 42})
@@ -63,8 +88,8 @@
     (let [vm (-> (load-ast {:type :literal, :value 42})
                  (vm/run))]
       (is (empty? (vm/continuation vm)))
-      (is (contains? (vm/store vm) vm/ffi-out-stream-key))
-      (is (contains? (vm/store vm) vm/ffi-out-cursor-key))
+      (is (contains? (vm/store vm) vm/call-in-stream-key))
+      (is (contains? (vm/store vm) vm/call-out-stream-key))
       (is (= 42 (vm/value vm)))))
   (testing "Environment stores lexical bindings only"
     (let [vm (stack/create-vm {:env {'x 1}})]
@@ -109,26 +134,28 @@
       (is (seq (:compiled-by-version result))))))
 
 
-(deftest ffi-call-asm-shape-test
-  (testing ":ffi/call compiles to [:ffi-call op argc] in stack asm"
-    (let [ast {:type :ffi/call,
+(deftest dao-call-asm-shape-test
+  (testing ":dao.stream.apply/call compiles to [:dao.stream.apply/call op argc] in stack asm"
+    (let [ast {:type :dao.stream.apply/call,
                :op :op/echo,
                :operands [{:type :literal, :value 42}]}
           asm (stack/ast-datoms->asm (vm/ast->datoms ast))
-          ffi-instr (some #(when (= :ffi-call (first %)) %) asm)]
-      (is (= [:ffi-call :op/echo 1] ffi-instr)))))
+          ffi-instr (some #(when (= :dao.stream.apply/call (first %)) %) asm)]
+      (is (= [:dao.stream.apply/call :op/echo 1] ffi-instr)))))
 
 
-(deftest ffi-call-eval-test
-  (testing "Stack VM executes ffi/call via bridge dispatcher"
-    (let [ast {:type :ffi/call,
+(deftest dao-call-eval-test
+  (testing "Stack VM executes dao.stream.apply/call via dao.stream.apply streams"
+    (let [ast {:type :dao.stream.apply/call,
                :op :op/echo,
                :operands [{:type :literal, :value 42}]}
-          result (vm/eval (stack/create-vm
-                            {:bridge-dispatcher {:op/echo identity}})
-                          ast)]
-      (is (vm/halted? result))
-      (is (= 42 (vm/value result))))))
+          vm (stack/create-vm)
+          result-parked (vm/eval vm ast)]
+      (is (vm/blocked? result-parked))
+      (let [[vm' _cursor'] (bridge-step result-parked {:op/echo identity} {:position 0})
+            result (vm/eval vm' nil)]
+        (is (vm/halted? result))
+        (is (= 42 (vm/value result)))))))
 
 
 (deftest literal-test
@@ -350,7 +377,7 @@
           stream (get (vm/store vm) stream-id)]
       (is (some? stream))
       (is
-        (= 1024 (:capacity stream))
+        (= 1024 (.-capacity stream))
         "Default buffer is 1024 when not specified (via datom compilation)"))))
 
 
@@ -367,7 +394,7 @@
                                      :val {:type :literal, :value 42}}))
           stream (get (vm/store vm-after-put) stream-id)]
       (is (= 42 (vm/value vm-after-put)))
-      (is (= 1 (dao.stream/length stream)))))
+      (is (= 1 (count stream)))))
   (testing "stream/put multiple values"
     (let [vm-with-stream (-> (make-stream-vm)
                              (vm/eval {:type :stream/make, :buffer 10}))
@@ -381,7 +408,7 @@
                             (vm/eval (put-ast 1))
                             (vm/eval (put-ast 2)))
           stream (get (vm/store vm-after-puts) stream-id)]
-      (is (= 2 (dao.stream/length stream))))))
+      (is (= 2 (count stream))))))
 
 
 (deftest stream-cursor-next-test

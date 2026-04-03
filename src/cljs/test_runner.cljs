@@ -2,6 +2,7 @@
   (:require
     [cljs.test :refer-macros [run-tests]]
     [dao.stream-test]
+    [dao.stream.transport.file-test]
     [datomworld.continuation-transport-test]
     [yin.content-test]
     [yin.transport-test]
@@ -17,6 +18,7 @@
   []
   (run-tests 'datomworld.continuation-transport-test
              'dao.stream-test
+             'dao.stream.transport.file-test
              'yin.content-test
              'yin.transport-test
              'yin.vm.ast-walker-test

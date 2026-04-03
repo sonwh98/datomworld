@@ -24,4 +24,8 @@
 
           :bench {:target :node-script
                   :main dao.stream-bench/-main
-                  :output-to "target/bench.js"}}}
+                  :output-to "target/bench.js"}
+
+          :ws-client-demo {:target :node-script
+                           :main datomworld.ws-client-demo/-main
+                           :output-to "target/ws-client-demo.js"}}}

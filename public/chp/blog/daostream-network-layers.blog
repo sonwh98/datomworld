@@ -161,7 +161,7 @@
               "├─────────────────────────────────────────┤\n"
               "│ Datom: [e a v t m]                      │\n"
               "└─────────────────────────────────────────┘"]]]
-           [:p "No IP. No UDP. No Ethernet. Just datom frames on the wire."]
+           [:p "No IP. No UDP. No Ethernet. Just datom frames on the wire for the DaoDB/AST transport layer."]
 
            [:h3 "Why Layer 2 is Architecturally Beautiful"]
 

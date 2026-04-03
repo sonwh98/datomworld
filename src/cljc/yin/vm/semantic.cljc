@@ -1,9 +1,12 @@
 (ns yin.vm.semantic
   (:require
     [dao.db :as db]
+    [dao.stream :as ds]
+    [dao.stream.apply :as dao.stream.apply]
     [yin.module :as module]
     [yin.vm :as vm]
     [yin.vm.engine :as engine]
+    [yin.vm.host-ffi :as host-ffi]
     [yin.vm.macro :as macro]))
 
 
@@ -157,6 +160,7 @@
 
 (defrecord SemanticVM
   [blocked    ; true if blocked
+   bridge     ; explicit host-side FFI bridge state
    control    ; current control state {:type :node/:value, ...}
    datoms     ; AST datoms
    env        ; lexical environment
@@ -166,7 +170,6 @@
    node-id-counter ; unique negative ID counter for AST nodes
    parked     ; parked continuations
    primitives ; primitive operations
-   bridge-dispatcher ; FFI op keyword -> native fn
    run-queue  ; vector of runnable continuations
    stack      ; continuation stack
    store      ; heap memory
@@ -190,6 +193,7 @@
   [^SemanticVM vm control env stack halted? val]
   (->SemanticVM
     (:blocked vm)
+    (:bridge vm)
     control
     (:datoms vm)
     env
@@ -199,7 +203,6 @@
     (:node-id-counter vm)
     (:parked vm)
     (:primitives vm)
-    (:bridge-dispatcher vm)
     (:run-queue vm)
     stack
     (:store vm)
@@ -210,20 +213,57 @@
     (:macro-registry vm)))
 
 
-(defn- park-and-enqueue-ffi
-  "Park the current semantic continuation stack and emit an FFI request."
+(defn- park-and-call
+  "Park the current semantic continuation stack and emit a DaoCall request."
   [vm op args stack env]
-  (let [parked (engine/park-continuation vm {:stack stack, :env env})
+  (let [;; 1. Park the continuation with a response-processing frame
+        response-stack (conj stack {:type :dao.stream.apply/call})
+        parked (engine/park-continuation vm {:stack response-stack, :env env})
         parked-id (get-in parked [:value :id])
-        request {:op op, :args args, :parked-id parked-id}
-        enqueued (engine/enqueue-ffi-request parked request)]
-    (assoc enqueued
+
+        ;; 2. Get response stream from store
+        call-out (get-in parked [:store vm/call-out-stream-key])
+        cursor-data (get-in parked [:store vm/call-out-cursor-key])
+        cursor-pos (:position cursor-data)
+
+        ;; 3. Register as reader-waiter on response stream
+        waiter-entry {:cursor-ref {:type :cursor-ref, :id vm/call-out-cursor-key}
+                      :reason :next
+                      :stream-id vm/call-out-stream-key
+                      :stack response-stack
+                      :env env}
+        _ (when (satisfies? ds/IDaoStreamWaitable call-out)
+            (ds/register-reader-waiter! call-out cursor-pos waiter-entry))
+
+        ;; 4. Get request stream from store
+        call-in (get-in parked [:store vm/call-in-stream-key])
+
+        ;; 5. Build and emit request
+        request (dao.stream.apply/request parked-id op args)
+        _ (ds/put! call-in request)]
+
+    ;; 6. Return blocked state
+    (assoc parked
            :control nil
            :value :yin/blocked
            :blocked true
            :halted false)))
 
 
+;; Frame Type Naming Convention:
+;;
+;;   Generic control-flow frames: :keyword (e.g., :if, :app-op, :app-args, :restore-env)
+;;   These represent interpreter state during evaluation of ordinary Yin expressions.
+;;
+;;   dao.stream.apply frames: :dao.stream.apply/keyword (e.g., :dao.stream.apply/args-eval)
+;;   These represent state during argument evaluation and response handling for
+;;   asynchronous function calls across streams. The namespace prefix groups
+;;   all frames related to the dao.stream.apply protocol.
+;;
+;;   The -eval suffix indicates a frame used to evaluate and collect arguments.
+;;   Other frames in this family include :dao.stream.apply/call (the call itself)
+;;   and :dao.stream.apply/resumer (response handling after a call completes).
+;;
 (defn- handle-return-value
   [vm]
   (let [{:keys [control stack]} vm
@@ -347,11 +387,11 @@
                                     (assoc frame
                                            :evaluated new-evaluated
                                            :next-idx (inc next-idx)))))))
-          :ffi-args
+          :dao.stream.apply/args-eval
           (let [{op :op, evaluated :evaluated, operands :operands, next-idx :next-idx, env-call :env} frame
                 new-evaluated (conj evaluated val)]
             (if (= next-idx (count operands))
-              (park-and-enqueue-ffi vm op new-evaluated new-stack env-call)
+              (park-and-call vm op new-evaluated new-stack env-call)
               (let [next-arg (nth operands next-idx)]
                 (assoc vm
                        :control {:type :node, :id next-arg}
@@ -360,6 +400,11 @@
                                     (assoc frame
                                            :evaluated new-evaluated
                                            :next-idx (inc next-idx)))))))
+          :dao.stream.apply/call
+          (let [result-value (:dao.stream.apply/value val)]
+            (assoc vm
+                   :control {:type :value, :val result-value}
+                   :stack new-stack))
           :restore-env (assoc vm
                               :control control ; Pass value up
                               :env (:env frame) ; Restore caller env
@@ -480,19 +525,19 @@
                                             :operands (aget node-arr ATTR_OPERANDS),
                                             :env env,
                                             :tail? (aget node-arr ATTR_TAIL)}))
-          :ffi/call (let [operands (or (aget node-arr ATTR_OPERANDS) [])
-                          op (aget node-arr ATTR_OP)]
-                      (if (empty? operands)
-                        (park-and-enqueue-ffi vm op [] stack env)
-                        (assoc vm
-                               :control {:type :node, :id (first operands)}
-                               :stack (conj stack
-                                            {:type :ffi-args,
-                                             :op op,
-                                             :evaluated [],
-                                             :operands operands,
-                                             :next-idx 1,
-                                             :env env}))))
+          :dao.stream.apply/call (let [operands (or (aget node-arr ATTR_OPERANDS) [])
+                                       op (aget node-arr ATTR_OP)]
+                                   (if (empty? operands)
+                                     (park-and-call vm op [] stack env)
+                                     (assoc vm
+                                            :control {:type :node, :id (first operands)}
+                                            :stack (conj stack
+                                                         {:type :dao.stream.apply/args-eval,
+                                                          :op op,
+                                                          :evaluated [],
+                                                          :operands operands,
+                                                          :next-idx 1,
+                                                          :env env}))))
           ;; VM primitives
           :vm/gensym (let [prefix (or (aget node-arr ATTR_PREFIX) "id")
                            [id s'] (engine/gensym vm prefix)]
@@ -1091,9 +1136,7 @@
               result (semantic-return vm control env (materialize-stack sp) false nil)]
           (cond
             (:blocked result)
-            (let [v' (-> result
-                         engine/check-wait-set
-                         engine/check-ffi-out)]
+            (let [v' (engine/check-wait-set result)]
               (if-let [resumed (resume-from-run-queue v')]
                 (let [resumed-control (:control resumed)
                       resumed-tag (:type resumed-control)
@@ -1118,6 +1161,35 @@
             :else result))))))
 
 
+(defn- semantic-vm-run
+  "Run a loaded SemanticVM until halt or block."
+  [^SemanticVM v]
+  (if (or (:blocked v) (:halted v) (seq (:run-queue v)))
+    (engine/run-loop v
+                     engine/active-continuation?
+                     semantic-vm-step
+                     resume-from-run-queue)
+    ;; Run hot loop, restarting when runtime macro expansion updates the index
+    (loop [v v]
+      (let [result (semantic-run-active-continuation v
+                                                     (:control v)
+                                                     (:env v)
+                                                     (:stack v))]
+        (cond
+          ;; Blocked: hand off to scheduler (FFI, stream wait-set, run-queue)
+          (:blocked result)
+          (engine/run-loop result
+                           engine/active-continuation?
+                           semantic-vm-step
+                           resume-from-run-queue)
+          ;; Not halted and still has pending control: runtime macro expanded new nodes,
+          ;; restart hot loop with the updated index
+          (and (not (:halted result)) (some? (:control result)))
+          (recur result)
+          ;; Halted or no pending control
+          :else result)))))
+
+
 (defn- semantic-vm-eval
   "Evaluate an AST. Owns the step loop with scheduler.
    When ast is non-nil, converts to datoms and loads. When nil, resumes."
@@ -1130,30 +1202,7 @@
               (semantic-vm-load-program (assoc vm :node-id-counter next-node-id)
                                         {:node root-id, :datoms datoms}))
             vm)]
-    (if (or (:blocked v) (:halted v) (seq (:run-queue v)))
-      (engine/run-loop v
-                       engine/active-continuation?
-                       semantic-vm-step
-                       resume-from-run-queue)
-      ;; Run hot loop, restarting when runtime macro expansion updates the index
-      (loop [v v]
-        (let [result (semantic-run-active-continuation v
-                                                       (:control v)
-                                                       (:env v)
-                                                       (:stack v))]
-          (cond
-            ;; Blocked: hand off to scheduler (FFI, stream wait-set, run-queue)
-            (:blocked result)
-            (engine/run-loop result
-                             engine/active-continuation?
-                             semantic-vm-step
-                             resume-from-run-queue)
-            ;; Not halted and still has pending control: runtime macro expanded new nodes,
-            ;; restart hot loop with the updated index
-            (and (not (:halted result)) (some? (:control result)))
-            (recur result)
-            ;; Halted or no pending control
-            :else result))))))
+    (host-ffi/maybe-run v semantic-vm-run)))
 
 
 (extend-type SemanticVM
@@ -1177,14 +1226,14 @@
 
 (defn create-vm
   "Create a new SemanticVM with optional opts map.
-   Accepts {:env map, :primitives map, :bridge-dispatcher map, :macro-registry map}."
+   Accepts {:env map, :primitives map, :macro-registry map, :bridge handlers}."
   ([] (create-vm {}))
   ([opts]
-   (let [env (or (:env opts) {})]
-     (map->SemanticVM (merge (vm/empty-state (select-keys opts
-                                                          [:primitives
-                                                           :bridge-dispatcher]))
-                             {:control nil,
+   (let [env (or (:env opts) {})
+         bridge-state (host-ffi/bridge-from-opts opts)]
+     (map->SemanticVM (merge (vm/empty-state (select-keys opts [:primitives]))
+                             {:bridge bridge-state,
+                              :control nil,
                               :env env,
                               :stack [],
                               :datoms [],

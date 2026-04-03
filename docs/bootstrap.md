@@ -15,7 +15,7 @@ Implement the Yin CESK machine natively in each target host language.
 2. **CLJD (ClojureDart):** Native `.cljd` or optimized `.cljc` bridge for Flutter/Mobile.
 3. **Jank:** C++ native implementation via Jank's LLVM integration.
 4. **WASM:** A minimal, high-performance host for the browser and edge.
-5. **Bidirectional FFI:** First-class, stream-based interoperability (`ffi-in` and `ffi-out`) for zero-cost communication between the host and VM across all platforms.
+5. **Bidirectional dao.stream.apply:** First-class, stream-based interoperability (`call-in` and `call-out`) for zero-cost communication between the host and VM across all platforms.
 
 **Goal:** Each host provides a native `(step vm)` function that operates on the Universal AST datoms.
 

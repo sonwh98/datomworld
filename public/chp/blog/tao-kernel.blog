@@ -18,7 +18,7 @@
 
                    [:h3 "The DaoStream (The Raw Stream)"]
 
-                   [:p "In microkernels, processes communicate via message passing. The DaoStream serves this role in the Tao Kernel. The main difference: the message is always a datom " [:code "[e a v t m]"] "."]
+                   [:p "In microkernels, processes communicate via message passing. The DaoStream serves this role in the Tao Kernel. Persistent facts are always datoms " [:code "[e a v t m]"] "; ephemeral streams may carry other values."]
 
                    [:ul
                     [:li "This is the uninterpreted event stream. It is objective and immutable."]

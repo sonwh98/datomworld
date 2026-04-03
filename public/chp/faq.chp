@@ -258,7 +258,7 @@
            [:summary "What is the long-term vision?"]
            [:div
             [:p
-             "To reify computation as data so code, runtime, and transformation merge into one universal fabric—continuations flowing through datom streams."]]]]]]
+             "To reify computation as data so code, runtime, and transformation merge into one universal fabric—continuations flowing through streams."]]]]]]
        [:section.section-light
         [:div.section-inner
          [:h2 "Still curious?"]

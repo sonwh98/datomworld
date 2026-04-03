@@ -1,15 +1,26 @@
 (ns dao.stream
   "DaoStream: bidirectional channel with cursors.
 
-  Two distinct things:
+  Three orthogonal protocol boundaries:
+
+  IDaoStreamReader (canonical read model):
+    Non-destructive, cursor-based reading. Multiple cursors advance independently.
+    (next [stream cursor]) → {:ok val :cursor cursor'} | :blocked | :end | :daostream/gap
+
+  IDaoStreamWriter (canonical write model):
+    Append-only writes.
+    (put! [stream val]) → {:result :ok, :woke [...]} | {:result :full} (throws if closed)
+
+  IDaoStreamBound (lifecycle):
+    (close! [stream]) → {:woke [...]}
+    (closed? [stream]) → boolean
+
+  IDaoStreamWaitable (optional — transport-local reader and writer waking):
+    (register-reader-waiter! [stream position entry])
+    (register-writer-waiter! [stream entry])
 
   Descriptor (serializable):
-    {:capacity nil    ;; nil = unbounded, int = bounded
-     :closed   false} ;; snapshot of closed status at serialization time
-
-  IStream (operational, not serializable):
-    Protocol with stateful implementations. LazySeqStream is the reference
-    implementation backed by an atom.
+    {:transport {:type :ringbuffer :capacity nil-or-int}}
 
   Cursor (plain map, constructed inline by caller):
     {:position n}"
@@ -17,104 +28,106 @@
 
 
 ;; =============================================================================
-;; IStream Protocol
+;; Stream Protocols (Orthogonal Boundaries)
 ;; =============================================================================
 
-(defprotocol IStream
-
-  (put! [this val])
-  ;; Mutates: appends val. Returns :ok or :full. Throws if closed.
-  (take! [this])
-  ;; Mutates: consumes next value. Returns {:ok val}, :empty (open), or
-  ;; :end (closed).
-  (next [this cursor])
-  ;; Reads at cursor position. Returns {:ok val :cursor cursor'}, :blocked,
-  ;; :end, or :daostream/gap.
-  (length [this])
-  ;; Reads: count of available (untaken) values.
-  (close! [this])
-  ;; Mutates: marks stream closed.
-  (closed? [this]))
-
-
-;; Reads: boolean.
-
-
-;; =============================================================================
-;; LazySeqStream — reference implementation
-;; =============================================================================
-;;
-;; state-atom holds: {:log [] :head 0 :closed false}
-;;   :log    — vector of all appended values
-;;   :head   — absolute index of next take! position
-;;   :closed — boolean
-
-(defrecord LazySeqStream
-  [capacity state-atom]
-
-  IStream
-
-  (put!
-    [_this val]
-    (let [state @state-atom]
-      (when (:closed state)
-        (throw (ex-info "Cannot put to closed stream" {})))
-      (let [log (:log state)
-            head (:head state)
-            available (- (count log) head)]
-        (if (and capacity (>= available capacity))
-          :full
-          (do (swap! state-atom update :log conj val) :ok)))))
-
-
-  (take!
-    [_this]
-    (let [state @state-atom
-          head (:head state)
-          log (:log state)
-          len (count log)]
-      (if (< head len)
-        (let [val (get log head)]
-          (swap! state-atom update :head inc)
-          {:ok val})
-        (if (:closed state) :end :empty))))
-
+(defprotocol IDaoStreamReader
+  "Non-destructive, cursor-based reading. Multiple cursors on the same stream
+   advance independently without consuming values."
 
   (next
-    [_this cursor]
-    (let [pos (:position cursor)
-          state @state-atom
-          head (:head state)
-          log (:log state)
-          len (count log)]
-      (cond (< pos head) :daostream/gap
-            (< pos len) {:ok (get log pos),
-                         :cursor (update cursor :position inc)}
-            (:closed state) :end
-            :else :blocked)))
+    [this cursor]
+    "Returns {:ok val :cursor cursor'} if value exists at cursor position.
+     Returns :blocked if stream is open and position is at end.
+     Returns :end if stream is closed and position is at or past end.
+     Returns :daostream/gap if cursor position has been evicted by transport."))
 
 
-  (length
-    [_this]
-    (let [state @state-atom] (- (count (:log state)) (:head state))))
+(defprotocol IDaoStreamWriter
+  "Append-only writes. No destructive consumption."
+
+  (put!
+    [this val]
+    "Appends val. Returns :ok if successful, :full if transport is capacity-bounded
+     and full. Throws ex-info if stream is closed."))
 
 
-  (close! [_this] (swap! state-atom assoc :closed true) nil)
+(defprotocol IDaoStreamBound
+  "Lifecycle: closing streams and checking closed status."
+
+  (close!
+    [this]
+    "Marks stream closed. Does not erase existing data. Returns {:woke [...]}
+     with any reader-waiters that were resolved.")
+
+  (closed?
+    [this]
+    "Returns boolean. True if stream has been closed."))
 
 
-  (closed? [_this] (:closed @state-atom)))
+(defprotocol IDaoStreamWaitable
+  "Optional protocol: transport-local waiter registration.
+   Enables readers and writers to register at the transport instead of the VM scheduler."
+
+  (register-reader-waiter!
+    [this position entry]
+    "Register a reader waiter for a specific cursor position.
+     Called when ds/next returns :blocked to avoid polling.")
+
+  (register-writer-waiter!
+    [this entry]
+    "Register a writer waiter. Called when ds/put! returns :full to avoid polling.
+     The entry contains the datom to write; drain-one! will write it and wake the waiter."))
+
+
+(defprotocol IDaoStreamDrainable
+  "Optional protocol for destructive consumption."
+
+  (-drain-one!
+    [this]
+    "Destructively consume one value from stream.
+     Returns {:ok val, :woke [...]} if a value exists (including any woken writers),
+     :empty if stream is open and no values available, or :end if stream is closed and drained."))
+
+
+(defmulti open!
+  "Realize a descriptor into an operational IStream transport."
+  (fn [descriptor] (get-in descriptor [:transport :type])))
 
 
 ;; =============================================================================
-;; Utilities
+;; Utilities (Non-Protocol)
 ;; =============================================================================
+
+(defn drain-one!
+  "Destructively consume one value from stream.
+   Returns {:ok val, :woke [...]} if a value exists (including any woken writers),
+   :empty if stream is open and no values available, or :end if stream is closed and drained.
+
+   NOT part of the canonical model. Use (next stream cursor) with cursor-based
+   reading for reliable, non-destructive traversal. drain-one! is provided for
+   legacy compatibility and specific use cases requiring destructive consumption.
+
+   When a writer-waiter is woken, its datom is atomically written to the stream
+   and included in the :woke return value."
+  [stream]
+  (if (satisfies? IDaoStreamDrainable stream)
+    (-drain-one! stream)
+    (throw (ex-info "drain-one! not supported for this stream transport" {:stream stream}))))
+
 
 (defn ->seq
-  "Convert an `IStream` into a lazy Clojure sequence of values that have been
-   appended but not yet consumed.  A cursor walks the stream until `next` hits
-   `:blocked`, `:end`, or a gap, at which point the lazy sequence terminates.
-   The `ctx` argument is ignored here but retained so callers can keep the same
-   calling shape they use for other stream helpers."
+  "Convert a stream into a lazy Clojure sequence of values using cursor-based
+   reading via the IDaoStreamReader protocol. A cursor walks the stream until
+   (next stream cursor) hits :blocked, :end, or a gap, at which point the lazy
+   sequence terminates.
+
+   The returned sequence is a snapshot at call time. For open streams, the
+   sequence does not grow as new values are appended; create a new sequence
+   or use cursors directly to observe new appends.
+
+   The `ctx` argument is ignored but retained for compatibility with other
+   stream helpers."
   [_ stream]
   (when stream
     (letfn [(walk

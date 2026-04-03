@@ -45,7 +45,7 @@
           [next-state message] (ct/consume-continuation-for state :register-vm)]
       (is (nil? message))
       (is (= 1 (get-in next-state [:cursors :register-vm :position])))
-      (is (= 1 (ds/length (:continuation-stream next-state)))
+      (is (= 1 (count (:continuation-stream next-state)))
           "no deliver datom should be appended when recipient does not match")
       (is (= pending (get-in next-state [:pending-continuations 0]))))))
 

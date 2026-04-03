@@ -1,14 +1,40 @@
 (ns yin.vm.register-test
   (:require
+    #?(:clj [clojure.edn :as reader]
+       :cljs [cljs.reader :as reader])
     [clojure.test :refer [deftest is testing]]
-    [dao.stream]
+    [dao.stream :as ds]
+    [dao.stream.apply :as dao.stream.apply]
+    [yang.clojure :as yang]
     [yin.vm :as vm]
+    [yin.vm.engine :as engine]
     [yin.vm.register :as register]))
 
 
 ;; =============================================================================
 ;; Bytecode VM tests (full pipeline through numeric bytecode)
 ;; =============================================================================
+
+(defn- bridge-step
+  [vm handlers cursor]
+  (let [call-in (get (vm/store vm) vm/call-in-stream-key)
+        {:keys [ok] :as next-result} (ds/next call-in cursor)
+        cursor' (:cursor next-result)]
+    (if ok
+      (let [{request-id :dao.stream.apply/id
+             request-op :dao.stream.apply/op
+             request-args :dao.stream.apply/args} ok
+            result (apply (get handlers request-op) (or request-args []))
+            call-out (get (vm/store vm) vm/call-out-stream-key)
+            ;; ds/put! on RingBufferStream returns woken entries
+            put-result (ds/put! call-out (dao.stream.apply/response request-id result))
+            woke (:woke put-result)
+            ;; Use engine helper to transform woken entries into run-queue entries
+            entries (engine/make-woken-run-queue-entries vm woke)
+            vm' (update vm :run-queue (fnil into []) entries)]
+        [vm' cursor'])
+      [vm cursor])))
+
 
 (defn compile-and-run-bc
   "Compile AST to datoms and run to completion."
@@ -51,8 +77,10 @@
 (deftest cesk-state-test
   (testing "Initial state"
     (let [vm (register/create-vm)]
-      (is (contains? (vm/store vm) vm/ffi-out-stream-key))
-      (is (contains? (vm/store vm) vm/ffi-out-cursor-key))
+      (is (contains? (vm/store vm) vm/call-in-stream-key))
+      (is (contains? (vm/store vm) vm/call-in-cursor-key))
+      (is (contains? (vm/store vm) vm/call-out-stream-key))
+      (is (contains? (vm/store vm) vm/call-out-cursor-key))
       (is (nil? (vm/continuation vm)))))
   (testing "After load-program, control has bytecode"
     (let [vm (load-ast {:type :literal, :value 42})
@@ -63,8 +91,8 @@
     (let [vm (-> (load-ast {:type :literal, :value 42})
                  (vm/run))]
       (is (nil? (vm/continuation vm)))
-      (is (contains? (vm/store vm) vm/ffi-out-stream-key))
-      (is (contains? (vm/store vm) vm/ffi-out-cursor-key))
+      (is (contains? (vm/store vm) vm/call-in-stream-key))
+      (is (contains? (vm/store vm) vm/call-out-stream-key))
       (is (= 42 (vm/value vm)))))
   (testing "Environment stores lexical bindings only"
     (let [vm (register/create-vm {:env {'x 1}})]
@@ -109,27 +137,56 @@
       (is (seq (:compiled-by-version result))))))
 
 
-(deftest ffi-call-asm-shape-test
-  (testing ":ffi/call compiles to register :ffi-call instruction"
-    (let [ast {:type :ffi/call,
+(deftest dao-call-asm-shape-test
+  (testing ":dao.stream.apply/call compiles to register :dao.stream.apply/call instruction"
+    (let [ast {:type :dao.stream.apply/call,
                :op :op/echo,
                :operands [{:type :literal, :value 42}]}
           {:keys [asm]} (register/ast-datoms->asm (vm/ast->datoms ast))
-          ffi-instr (some #(when (= :ffi-call (first %)) %) asm)]
+          ffi-instr (some #(when (= :dao.stream.apply/call (first %)) %) asm)]
       (is (= :op/echo (nth ffi-instr 2)))
       (is (= 1 (count (nth ffi-instr 3)))))))
 
 
-(deftest ffi-call-eval-test
-  (testing "Register VM executes ffi/call via bridge dispatcher"
-    (let [ast {:type :ffi/call,
+(deftest dao-call-eval-test
+  (testing "Register VM executes dao.stream.apply/call via dao.stream.apply streams"
+    (let [ast {:type :dao.stream.apply/call,
                :op :op/echo,
                :operands [{:type :literal, :value 42}]}
-          result (vm/eval (register/create-vm
-                            {:bridge-dispatcher {:op/echo identity}})
-                          ast)]
+          vm (register/create-vm)
+          result-parked (vm/eval vm ast)]
+      (is (vm/blocked? result-parked))
+      (let [[vm' _cursor'] (bridge-step result-parked {:op/echo identity} {:position 0})
+            result (vm/eval vm' nil)]
+        (is (vm/halted? result))
+        (is (= 42 (vm/value result)))))))
+
+
+(deftest repeated-dao-call-program-test
+  (testing "Register VM halts after many sequential dao.stream.apply/call cycles via create-vm bridge"
+    (let [source "(defn plot-loop [i]
+  (if (> i 199)
+    nil
+    (do
+      (dao.stream.apply/call :plot/point i (* i i))
+      (plot-loop (+ i 1))))
+)
+(plot-loop 0)"
+          forms (reader/read-string (str "[" source "]"))
+          ast (yang/compile-program forms)
+          program (ast->program ast)
+          calls (atom [])
+          handlers {:plot/point (fn [x y]
+                                  (swap! calls conj [x y])
+                                  nil)}
+          result (-> (register/create-vm {:bridge handlers})
+                     (vm/load-program program)
+                     (vm/run))]
       (is (vm/halted? result))
-      (is (= 42 (vm/value result))))))
+      (is (nil? (vm/value result)))
+      (is (= 200 (count @calls)))
+      (is (= [0 0] (first @calls)))
+      (is (= [199 39601] (last @calls))))))
 
 
 (deftest bytecode-basic-test
@@ -484,7 +541,7 @@
           stream (get (vm/store vm) stream-id)]
       (is (some? stream))
       (is
-        (= 1024 (:capacity stream))
+        (= 1024 (.-capacity stream))
         "Default buffer is 1024 when not specified (via datom compilation)"))))
 
 
@@ -501,7 +558,7 @@
                                      :val {:type :literal, :value 42}}))
           stream (get (vm/store vm-after-put) stream-id)]
       (is (= 42 (vm/value vm-after-put)))
-      (is (= 1 (dao.stream/length stream)))))
+      (is (= 1 (count stream)))))
   (testing "stream/put multiple values"
     (let [vm-with-stream (-> (make-stream-vm)
                              (vm/eval {:type :stream/make, :buffer 10}))
@@ -515,7 +572,7 @@
                             (vm/eval (put-ast 1))
                             (vm/eval (put-ast 2)))
           stream (get (vm/store vm-after-puts) stream-id)]
-      (is (= 2 (dao.stream/length stream))))))
+      (is (= 2 (count stream))))))
 
 
 (deftest stream-cursor-next-test

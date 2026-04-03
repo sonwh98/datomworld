@@ -43,7 +43,7 @@
           [:p
            "The stream remains the invariant. Datoms arrive in transaction order as "
            [:code "[e a v t m]"]
-           ". That is the canonical serialization format, the common causal history, the thing every DaoDB in the family must be able to observe and replay."]
+           ". That is the canonical serialization format for DaoDB, the common causal history, the thing every DaoDB in the family must be able to observe and replay."]
 
           [:p
            "But a stream alone is not yet a database. A raw stream is only sequence. It records what was appended and in what order. "

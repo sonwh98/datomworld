@@ -1,18 +1,18 @@
-(ns dao.stream.ws
-  "WebSocket-backed IStream.
+(ns dao.stream.transport.ws
+  "WebSocket-backed stream using three orthogonal protocols.
 
    Three entry points:
      CLJ listen!   — start an http-kit WebSocket server, return WebSocketStream
      CLJ connect!  — connect via Java 11 built-in WebSocket client
      CLJS connect! — connect via browser WebSocket
 
-   Both sides get back a WebSocketStream that satisfies dao.stream/IStream:
-     put!    — send a datom to the remote peer
-     take!   — destructive read from remote-stream
-     next    — non-destructive read from remote-stream at cursor
-     length  — count of received (unread) datoms
-     close!  — send close message and shut down
-     closed? — true if link status is :closed"
+   Both sides get back a WebSocketStream satisfying:
+     IDaoStreamWriter — put! sends a datom to the remote peer
+     IDaoStreamReader — next reads non-destructively from remote-stream at cursor
+     IDaoStreamBound  — close! and closed? manage lifecycle
+
+   Utilities (non-protocol):
+     drain-one!      — destructive read from remote-stream (legacy support)"
   (:require
     [dao.stream :as ds]
     [dao.stream.link :as link]
@@ -27,7 +27,7 @@
 (defrecord WebSocketStream
   [link-state-atom send-fn-atom]
 
-  ds/IStream
+  ds/IDaoStreamWriter
 
   (put!
     [_ val]
@@ -35,17 +35,15 @@
           [state' msg] (link/local-put state val)]
       (reset! link-state-atom state')
       (when-let [send-fn @send-fn-atom] (send-fn (transit/encode msg)))
-      :ok))
+      {:result :ok, :woke []}))
 
 
-  (take! [_] (ds/take! (:remote-stream @link-state-atom)))
-
+  ds/IDaoStreamReader
 
   (next [_ c] (ds/next (:remote-stream @link-state-atom) c))
 
 
-  (length [_] (ds/length (:remote-stream @link-state-atom)))
-
+  ds/IDaoStreamBound
 
   (close!
     [_]
@@ -53,7 +51,7 @@
       (send-fn (transit/encode (link/close-msg))))
     (let [state (:remote-stream @link-state-atom)] (ds/close! state))
     (swap! link-state-atom assoc :status :closed)
-    nil)
+    {:woke []})
 
 
   (closed? [_] (= :closed (:status @link-state-atom))))
@@ -103,9 +101,7 @@
       Accepts one connection; further connections are rejected."
      ([port] (listen! port nil))
      ([port opts]
-      (let [local (ds/->LazySeqStream (:capacity opts)
-                                      (atom
-                                        {:log [], :head 0, :closed false}))
+      (let [local (ds/open! {:transport {:type :ringbuffer, :capacity (:capacity opts)}})
             stream (make-ws-stream local)
             stop! (http-server/run-server
                     (fn [req]
@@ -130,9 +126,7 @@
           "Connect to a WebSocket server at url. Returns WebSocketStream."
           ([url] (connect! url nil))
           ([url opts]
-           (let [local (ds/->LazySeqStream (:capacity opts)
-                                           (atom
-                                             {:log [], :head 0, :closed false}))
+           (let [local (ds/open! {:transport {:type :ringbuffer, :capacity (:capacity opts)}})
                  stream (make-ws-stream local)
                  client (java.net.http.HttpClient/newHttpClient)
                  ws-ref (atom nil)
@@ -175,12 +169,35 @@
            "Connect to a WebSocket server at url. Returns WebSocketStream."
            ([url] (connect! url nil))
            ([url opts]
-            (let [local (ds/->LazySeqStream
-                          (:capacity opts)
-                          (atom {:log [], :head 0, :closed false}))
+            (let [local (ds/open! {:transport {:type :ringbuffer, :capacity (:capacity opts)}})
                   stream (make-ws-stream local)
                   ws (js/WebSocket. url)]
               (set! (.-onopen ws) #(on-open! stream (fn [msg] (.send ws msg))))
               (set! (.-onmessage ws) #(on-message! stream (.-data %)))
               (set! (.-onclose ws) #(on-close! stream))
               stream))))
+
+
+;; =============================================================================
+;; Descriptor-based open! integration
+;; =============================================================================
+
+#?(:clj
+   (defmethod ds/open! :websocket
+     [descriptor]
+     (let [{:keys [mode url port capacity]} (:transport descriptor)]
+       (case mode
+         :listen  (listen! port {:capacity capacity})
+         :connect (connect! url {:capacity capacity})
+         (throw (ex-info "websocket transport mode must be :listen or :connect"
+                         {:descriptor descriptor, :mode mode}))))))
+
+
+#?(:cljs
+   (defmethod ds/open! :websocket
+     [descriptor]
+     (let [{:keys [mode url capacity]} (:transport descriptor)]
+       (case mode
+         :connect (connect! url {:capacity capacity})
+         (throw (ex-info "websocket mode :listen not supported in CLJS (use :connect)"
+                         {:descriptor descriptor, :mode mode}))))))

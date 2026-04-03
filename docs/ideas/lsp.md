@@ -139,4 +139,4 @@ Yin.vm combines the queryability of CodeQL with the execution portability of Gra
 ---
 
 *Last updated: 2026‑02‑18*  
-*Related: [vm‑todo.md](./vm-todo.md) (VM performance improvements), [stream‑design.md](./stream-design.md) (stream architecture)*
+*Related: [vm‑todo.md](./vm-todo.md) (VM performance improvements), [daostream‑design.md](../design/daostream-design.md) (stream architecture)*

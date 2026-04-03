@@ -129,14 +129,24 @@
    'yin/def (fn [k v] {:effect :vm/store-put, :key k, :val v})})
 
 
-(def ffi-out-stream-key
-  "Store key for the shared FFI outbound request stream."
-  :yin/ffi-out)
+(def call-in-stream-key
+  "Store key for the shared dao.stream.apply inbound request stream (caller writes, callee reads)."
+  :yin/call-in)
 
 
-(def ffi-out-cursor-key
-  "Store key for the shared FFI outbound stream cursor."
-  :yin/ffi-out-cursor)
+(def call-in-cursor-key
+  "Store key for the shared dao.stream.apply inbound stream cursor."
+  :yin/call-in-cursor)
+
+
+(def call-out-stream-key
+  "Store key for the shared dao.stream.apply outbound response stream (callee writes, caller reads)."
+  :yin/call-out)
+
+
+(def call-out-cursor-key
+  "Store key for the shared dao.stream.apply outbound stream cursor."
+  :yin/call-out-cursor)
 
 
 ;; =============================================================================
@@ -165,7 +175,7 @@
    :resume 18,
    :current-cont 19,
    :tailcall 20,
-   :ffi-call 21})
+   :dao.stream.apply/call 21})
 
 
 #?(:clj
@@ -198,7 +208,7 @@
                     :resume 18,
                     :current-cont 19,
                     :tailcall 20,
-                    :ffi-call 21}
+                    :dao.stream.apply/call 21}
            resolved (mapcat (fn [[kw body]] [(get opcodes kw) body]) pairs)]
        `(case (int ~op-expr) ~@resolved ~@(when default [default])))))
 
@@ -223,7 +233,7 @@
    :yin/type {},        ; keyword (:literal, :variable, :lambda, :yin/macro-expand, ...)
    :yin/value {},       ; polymorphic (number, string, boolean, keyword, ...)
    :yin/name {},        ; symbol
-   :yin/op {},          ; keyword (FFI operation key)
+   :yin/op {},          ; keyword (dao.stream.apply operation key)
    :yin/params {},      ; vector of symbols
    :yin/key {},         ; symbol
    :yin/prefix {},      ; string
@@ -320,10 +330,10 @@
                                                            (:operands node))]
                                      (emit! e :yin/operator op-id)
                                      (emit! e :yin/operands operand-ids)))
-                  :ffi/call (do (emit! e :yin/type :ffi/call)
-                                (emit! e :yin/op (:op node))
-                                (let [operand-ids (mapv convert (:operands node))]
-                                  (emit! e :yin/operands operand-ids)))
+                  :dao.stream.apply/call (do (emit! e :yin/type :dao.stream.apply/call)
+                                             (emit! e :yin/op (:op node))
+                                             (let [operand-ids (mapv convert (:operands node))]
+                                               (emit! e :yin/operands operand-ids)))
                   :if (do (emit! e :yin/type :if)
                           (let [test-id (convert (:test node))
                                 cons-id (convert (:consequent node))
@@ -411,17 +421,25 @@
 
 (defn empty-state
   "Return an initial immutable VM state map.
-   Contains: FFI stream wiring in :store, :parked {}, :id-counter 0,
-   :primitives map, :bridge-dispatcher map, :run-queue [], :wait-set []."
+   Contains: dao.stream.apply stream wiring in :store, :parked {}, :id-counter 0,
+   :primitives map, :run-queue [], :wait-set []."
   ([] (empty-state {}))
   ([opts]
-   {:store
-    (let [ffi-stream (ds/->LazySeqStream nil (atom {:log [], :head 0, :closed false}))]
-      {ffi-out-stream-key ffi-stream,
-       ffi-out-cursor-key {:stream-id ffi-out-stream-key, :position 0}}),
-    :parked {},
-    :id-counter 0,
-    :run-queue [],
-    :wait-set [],
-    :bridge-dispatcher (or (:bridge-dispatcher opts) {}),
-    :primitives (or (:primitives opts) primitives)}))
+   (let [call-in (or (:call-in opts)
+                     (ds/open! {:transport {:type :ringbuffer
+                                            :mode :create
+                                            :capacity nil}}))
+         call-out (or (:call-out opts)
+                      (ds/open! {:transport {:type :ringbuffer
+                                             :mode :create
+                                             :capacity nil}}))]
+     {:store
+      {call-in-stream-key  call-in
+       call-in-cursor-key  {:stream-id call-in-stream-key, :position 0}
+       call-out-stream-key call-out
+       call-out-cursor-key {:stream-id call-out-stream-key, :position 0}},
+      :parked {},
+      :id-counter 0,
+      :run-queue [],
+      :wait-set [],
+      :primitives (or (:primitives opts) primitives)})))

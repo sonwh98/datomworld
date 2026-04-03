@@ -1,8 +1,11 @@
 (ns yin.vm.ast-walker
   (:require
+    [dao.stream :as ds]
+    [dao.stream.apply :as dao.stream.apply]
     [yin.module :as module]
     [yin.vm :as vm]
-    [yin.vm.engine :as engine]))
+    [yin.vm.engine :as engine]
+    [yin.vm.host-ffi :as host-ffi]))
 
 
 ;; =============================================================================
@@ -30,6 +33,7 @@
 
 (defrecord ASTWalkerVM
   [blocked      ; boolean, true if blocked
+   bridge       ; explicit host-side FFI bridge state
    halted       ; boolean, true when active continuation has completed
    continuation ; reified continuation or nil
    control      ; current AST node or nil
@@ -37,7 +41,6 @@
    id-counter   ; integer counter for unique IDs
    parked       ; parked continuations map
    primitives   ; primitive operations map
-   bridge-dispatcher ; FFI op keyword -> native fn
    run-queue    ; vector of runnable continuations
    store        ; heap memory map
    value        ; last computed value
@@ -54,6 +57,7 @@
   (let [blocked (:blocked vm)]
     (->ASTWalkerVM
       blocked
+      (:bridge vm)
       (and (not blocked) (nil? control) (nil? cont))
       cont
       control
@@ -61,7 +65,6 @@
       (:id-counter vm)
       (:parked vm)
       (:primitives vm)
-      (:bridge-dispatcher vm)
       (:run-queue vm)
       (:store vm)
       val
@@ -96,16 +99,41 @@
     (cesk-return state nil env continuation result)))
 
 
-(defn- park-and-enqueue-ffi
-  "Park the current continuation and emit an FFI request to :yin/ffi-out."
+(defn- park-and-call
+  "Park continuation and register as reader-waiter on call-out response stream."
   [state op args continuation env]
-  (let [parked (engine/park-continuation state
-                                         {:continuation continuation,
+  (let [;; 1. Park the continuation with a response-processing frame
+        response-cont {:type :dao.stream.apply/eval-call
+                       :parent continuation
+                       :environment env}
+        parked (engine/park-continuation state
+                                         {:continuation response-cont,
                                           :environment env})
         parked-id (get-in parked [:value :id])
-        request {:op op, :args args, :parked-id parked-id}
-        enqueued (engine/enqueue-ffi-request parked request)]
-    (assoc enqueued
+
+        ;; 2. Get response stream from store
+        call-out (get-in parked [:store vm/call-out-stream-key])
+        cursor-data (get-in parked [:store vm/call-out-cursor-key])
+        cursor-pos (:position cursor-data)
+
+        ;; 3. Register as reader-waiter on response stream
+        waiter-entry {:continuation response-cont
+                      :environment env
+                      :cursor-ref {:type :cursor-ref, :id vm/call-out-cursor-key}
+                      :reason :next
+                      :stream-id vm/call-out-stream-key}
+        _ (when (satisfies? ds/IDaoStreamWaitable call-out)
+            (ds/register-reader-waiter! call-out cursor-pos waiter-entry))
+
+        ;; 4. Get request stream from store
+        call-in (get-in parked [:store vm/call-in-stream-key])
+
+        ;; 5. Build and emit request
+        request (dao.stream.apply/request parked-id op args)
+        _ (ds/put! call-in request)]
+
+    ;; 6. Return blocked state
+    (assoc parked
            :control nil
            :continuation nil
            :value :yin/blocked
@@ -191,18 +219,18 @@
                 saved-env (or (:environment continuation) environment)
                 branch (if test-value (:consequent frame) (:alternate frame))]
             (cesk-return state branch saved-env (:parent continuation) test-value))
-          :eval-ffi-operand
+          :dao.stream.apply/eval-operand
           (let [frame (:frame continuation)
                 operand-value (:value state)
                 evaluated (conj (or (:evaluated frame) []) operand-value)
                 operands (:operands frame)
                 saved-env (or (:environment continuation) environment)]
             (if (= (count evaluated) (count operands))
-              (park-and-enqueue-ffi state
-                                    (:op frame)
-                                    evaluated
-                                    (:parent continuation)
-                                    saved-env)
+              (park-and-call state
+                             (:op frame)
+                             evaluated
+                             (:parent continuation)
+                             saved-env)
               (let [next-idx (count evaluated)
                     next-node (nth operands next-idx)
                     updated-frame (assoc frame :evaluated evaluated)]
@@ -211,6 +239,9 @@
                              saved-env
                              (assoc continuation :frame updated-frame)
                              nil))))
+          :dao.stream.apply/eval-call
+          (let [result-value (:dao.stream.apply/value (:value state))]
+            (cesk-return state nil environment (:parent continuation) result-value))
           ;; Stream continuation: evaluate target for put
           :eval-stream-put-target
           (let [frame (:frame continuation)
@@ -319,11 +350,11 @@
                       :environment environment,
                       :type :eval-test}
                      (:value state))
-        :ffi/call
+        :dao.stream.apply/call
         (let [operands (or (:operands node) [])
               op (:op node)]
           (if (empty? operands)
-            (park-and-enqueue-ffi state op [] continuation environment)
+            (park-and-call state op [] continuation environment)
             (cesk-return state
                          (first operands)
                          environment
@@ -332,7 +363,7 @@
                                   :evaluated []},
                           :parent continuation,
                           :environment environment,
-                          :type :eval-ffi-operand}
+                          :type :dao.stream.apply/eval-operand}
                          (:value state))))
         ;; ============================================================
         ;; VM Primitives for Store Operations
@@ -579,9 +610,7 @@
         (let [result (cesk-return vm control env cont val)]
           (cond
             (:blocked result)
-            (let [v' (-> result
-                         engine/check-wait-set
-                         engine/check-ffi-out)]
+            (let [v' (engine/check-wait-set result)]
               (if-let [resumed (resume-from-run-queue v')]
                 (recur (:control resumed) (:environment resumed)
                        (:continuation resumed) (:value resumed) resumed)
@@ -661,12 +690,15 @@
    When ast is non-nil, loads it first. When nil, resumes from current state."
   [^ASTWalkerVM vm ast]
   (let [v (if ast (vm-load-program vm ast) vm)
-        result (ast-walker-run v)]
-    ;; Fast path may yield a blocked state immediately after parking.
-    ;; Re-enter scheduler once so idle handlers (wait-set/FFI) can run.
-    (if (:blocked result)
-      (ast-walker-run-scheduler result)
-      result)))
+        run-loaded
+        (fn [state]
+          (let [result (ast-walker-run state)]
+            ;; Fast path may yield a blocked state immediately after parking.
+            ;; Re-enter scheduler once so idle handlers (wait-set/FFI) can run.
+            (if (:blocked result)
+              (ast-walker-run-scheduler result)
+              result)))]
+    (host-ffi/maybe-run v run-loaded)))
 
 
 (extend-type ASTWalkerVM
@@ -690,15 +722,15 @@
 
 (defn create-vm
   "Create a new ASTWalkerVM with optional opts map.
-   Accepts {:env map, :primitives map, :bridge-dispatcher map}."
+   Accepts {:env map, :primitives map, :bridge handlers}."
   ([] (create-vm {}))
   ([opts]
    (let [env (or (:env opts) {})
-         base (vm/empty-state (select-keys opts
-                                           [:primitives
-                                            :bridge-dispatcher]))]
+         base (vm/empty-state (select-keys opts [:primitives]))
+         bridge-state (host-ffi/bridge-from-opts opts)]
      (map->ASTWalkerVM (merge base
-                              {:control nil,
+                              {:bridge bridge-state,
+                               :control nil,
                                :environment env,
                                :continuation nil,
                                :value nil,

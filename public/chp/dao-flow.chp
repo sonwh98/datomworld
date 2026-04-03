@@ -9,7 +9,7 @@
          [:h1 "DaoFlow"]
          [:p.section-lead
           "DaoFlow rethinks how we approach graphics and computation. "
-          "Instead of treating rendering, physics, UI, and dataflow as separate domains, DaoFlow unifies them under a single model: everything is a stream of datoms."]
+          "Instead of treating rendering, physics, UI, and dataflow as separate domains, DaoFlow unifies them under a single model: everything is a stream."]
          [:p
           "A stream is a continuous flow of datoms—tuples that represent state, transformation, or intent. "
           "Every pixel, vertex, shader parameter, and event is just another datom in motion. "

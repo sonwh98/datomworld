@@ -174,8 +174,8 @@
             "the entire causal history of how that state came to be."]
            [:li
             [:strong "Deterministic measurement:"]
-            " Any \"measurement\" (query) of the system state is a pure function of the stream. "
-            "Given the same stream, you always get the same result."]
+            " Any \"measurement\" (query) of the system state is a pure function of the stream and its interpreter. "
+            "Given the same stream and interpreter, you always get the same result (local interpretation/materialized views)."]
            [:li
             [:strong "No hidden state:"]
             " There is no information about the system that exists outside the stream. No cached values, "
@@ -234,10 +234,10 @@
 
           [:p
            "The foundational axiom: "
-           [:strong "everything is a stream of datoms"]
-           ". A datom is an immutable fact represented as "
+           [:strong "everything is a stream"]
+           ". Persistent facts are datoms: immutable facts represented as "
            [:code "[e a v t m]"]
-           " (entity, attribute, value, time, metadata)."]
+           " (entity, attribute, value, time, metadata). Streams carry datoms for persistent layers and appropriate values for ephemeral layers."]
 
           [:p
            "Instead of overwriting a database row (destroying history), we append a datom. "
@@ -308,8 +308,8 @@
            "The "
            [:strong "Universal Abstract Syntax Tree (AST) is the canonical representation of code"]
            ". But unlike traditional ASTs stored as tree structures scattered across the heap, "
-           [:strong "the AST itself is expressed as datoms"]
-           ". Code and data are literally the same thing: streams of datoms."]
+           [:strong "the AST itself is expressed as datoms in DaoDB"]
+           ". Code and data are streams. In the knowledge base, these streams carry datoms."]
 
           [:p
            "This means the entire system (from database schema to frontend rendering to program execution) is expressed "
@@ -448,7 +448,7 @@
            [:li
             [:strong "Semantic focus:"]
             " When generating Python, an LLM must simultaneously handle indentation, syntax rules, library APIs, idioms, and edge cases. "
-            "When generating AST datoms, it focuses purely on semantic relationships expressed through entity-attribute-value triples."]]
+            "When generating AST datoms, it focuses purely on semantic relationships expressed through 5-element tuples [e a v t m]."]]
 
           [:p
            "The requirements vs. reality gap doesn't disappear, but it "
@@ -517,9 +517,10 @@
           [:p "The question is not whether entropy increases, but " [:strong "where"] " it increases."]
 
           [:p
-           "Just as biological systems maintain internal order while increasing entropy in their environment, "
-           [:a {:href "/blog/code-entropy-evolution.blog"} "good code distributes complexity outward"]
-           " (more modules, more nodes) while keeping each module internally coherent. "
+           "Just as biological systems maintain order through a "
+           [:a {:href "/blog/code-entropy-evolution.blog"} "local decrease of entropy"]
+           " while pushing disorder to their environment, good code distributes complexity outward "
+           "(more modules, more nodes) while keeping each module internally coherent. "
            "System-level entropy increases (more parts, more distribution), but module-level entropy stays low (each piece remains organized)."]
 
           [:p
@@ -559,7 +560,11 @@
 
           [:p
            "But slowing entropy is not the same as stopping it. "
-           "And Polylith cannot stop it because it cannot be " [:em "enforced"] "."]
+           "Datom.World doesn't try to stop entropy; it " [:em "flows"] " with it. "
+           "By using the immutable growth of the stream to create structure, it achieves a "
+           [:a {:href "/blog/code-entropy-evolution.blog"} "local decrease of entropy"]
+           ", mirroring how biological cells maintain internal order by pushing complexity to their environment. "
+           "Polylith, by contrast, fails because its constraints are social and policy-based rather than physics-based. It can't be " [:em "enforced"] " at the execution layer."]
 
           [:h3 "What Polylith gets right"]
 
@@ -853,7 +858,7 @@
            [:li "make dependencies explicit"]
            [:li "prevent uncontrolled coupling"]]
 
-          [:p "It works — temporarily."]
+          [:p "It works temporarily."]
 
           [:p
            "But it cannot survive long-term pressure, because it lives above the layer "

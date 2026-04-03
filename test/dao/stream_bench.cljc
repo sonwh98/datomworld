@@ -23,12 +23,11 @@
   [stream a v]
   (let [e (:next-e stream)
         t (:next-t stream)
-        datom [e a v t 0]
-        result (ds/put nil (:log stream) datom)]
+        datom [e a v t 0]]
+    (ds/put! (:log stream) datom)
     (assoc stream
            :next-e (inc e)
-           :next-t (inc t)
-           :log (:ok result))))
+           :next-t (inc t))))
 
 
 (defn bench
@@ -43,7 +42,7 @@
   []
   (let [n 10000
         adhoc-stream {:datoms [], :next-e 7000, :next-t 1}
-        ds-stream {:log (ds/make), :next-e 7000, :next-t 1}]
+        ds-stream {:log (ds/open! {:transport {:type :ringbuffer, :capacity nil}}), :next-e 7000, :next-t 1}]
     (bench "adhoc-append"
            #(loop [s adhoc-stream
                    i 0]

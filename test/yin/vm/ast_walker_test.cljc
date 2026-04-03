@@ -2,14 +2,37 @@
   (:require
     [clojure.test :refer [deftest is testing]]
     [dao.db.datascript :as ds-db]
-    [dao.stream]
+    [dao.stream :as ds]
+    [dao.stream.apply :as dao.stream.apply]
     [yin.vm :as vm]
-    [yin.vm.ast-walker :as ast-walker]))
+    [yin.vm.ast-walker :as ast-walker]
+    [yin.vm.engine :as engine]))
 
 
 ;; =============================================================================
 ;; AST Walker VM tests (direct AST interpretation via protocols)
 ;; =============================================================================
+
+(defn- bridge-step
+  [vm handlers cursor]
+  (let [call-in (get (vm/store vm) vm/call-in-stream-key)
+        {:keys [ok] :as next-result} (ds/next call-in cursor)
+        cursor' (:cursor next-result)]
+    (if ok
+      (let [{request-id :dao.stream.apply/id
+             request-op :dao.stream.apply/op
+             request-args :dao.stream.apply/args} ok
+            result (apply (get handlers request-op) (or request-args []))
+            call-out (get (vm/store vm) vm/call-out-stream-key)
+            ;; ds/put! on RingBufferStream returns woken entries
+            put-result (ds/put! call-out (dao.stream.apply/response request-id result))
+            woke (:woke put-result)
+            ;; Use engine helper to transform woken entries into run-queue entries
+            entries (engine/make-woken-run-queue-entries vm woke)
+            vm' (update vm :run-queue (fnil into []) entries)]
+        [vm' cursor'])
+      [vm cursor])))
+
 
 (defn compile-and-run
   [ast]
@@ -22,8 +45,10 @@
 (deftest cesk-state-test
   (testing "Initial state"
     (let [vm (ast-walker/create-vm)]
-      (is (contains? (vm/store vm) vm/ffi-out-stream-key))
-      (is (contains? (vm/store vm) vm/ffi-out-cursor-key))
+      (is (contains? (vm/store vm) vm/call-in-stream-key))
+      (is (contains? (vm/store vm) vm/call-in-cursor-key))
+      (is (contains? (vm/store vm) vm/call-out-stream-key))
+      (is (contains? (vm/store vm) vm/call-out-cursor-key))
       (is (nil? (vm/control vm)))
       (is (nil? (vm/continuation vm)))))
   (testing "After load-program, control is non-nil"
@@ -35,8 +60,8 @@
                  (vm/load-program {:type :literal, :value 42})
                  (vm/run))]
       (is (nil? (vm/continuation vm)))
-      (is (contains? (vm/store vm) vm/ffi-out-stream-key))
-      (is (contains? (vm/store vm) vm/ffi-out-cursor-key))
+      (is (contains? (vm/store vm) vm/call-in-stream-key))
+      (is (contains? (vm/store vm) vm/call-out-stream-key))
       (is (= 42 (vm/value vm)))))
   (testing "Environment is empty by default (primitives resolved separately)"
     (is (= {} (vm/environment (ast-walker/create-vm))))))
@@ -273,28 +298,33 @@
       (is (= 1 (get (vm/store result) :effect/calls))))))
 
 
-(deftest eval-ffi-call-test
-  (testing "ffi/call dispatches through bridge dispatcher and resumes with result"
-    (let [ast {:type :ffi/call,
+(deftest eval-dao-call-test
+  (testing "dao.stream.apply/call dispatches through bridge dispatcher and resumes with result"
+    (let [ast {:type :dao.stream.apply/call,
                :op :op/echo,
                :operands [{:type :literal, :value 42}]}
-          result (vm/eval (ast-walker/create-vm
-                            {:bridge-dispatcher {:op/echo identity}})
-                          ast)]
-      (is (vm/halted? result))
-      (is (= 42 (vm/value result))))))
+          vm (ast-walker/create-vm)
+          result-parked (vm/eval vm ast)]
+      (is (vm/blocked? result-parked))
+      (let [[vm' _cursor'] (bridge-step result-parked {:op/echo identity} {:position 0})
+            result (vm/eval vm' nil)]
+        (is (vm/halted? result))
+        (is (= 42 (vm/value result)))))))
 
 
-(deftest eval-ffi-call-missing-handler-test
-  (testing "ffi/call without registered handler throws ex-info with :op"
-    (let [ast {:type :ffi/call,
+(deftest eval-dao-call-missing-handler-test
+  (testing "dao.stream.apply/call without registered handler in bridge throws"
+    (let [ast {:type :dao.stream.apply/call,
                :op :op/missing,
-               :operands [{:type :literal, :value 1}]}]
+               :operands [{:type :literal, :value 1}]}
+          vm (ast-walker/create-vm)
+          result-parked (vm/eval vm ast)]
+      (is (vm/blocked? result-parked))
       (try
-        (vm/eval (ast-walker/create-vm) ast)
+        (bridge-step result-parked {} {:position 0})
         (is false "Expected missing handler exception")
-        (catch #?(:clj Exception :cljs :default :cljd Exception) e
-          (is (= :op/missing (:op (ex-data e)))))))))
+        (catch #?(:clj Exception :cljs :default :cljd Exception) _e
+          (is true))))))
 
 
 (deftest eval-blocked-effect-preserves-current-env-test
@@ -315,12 +345,13 @@
                                  :operator {:type :variable, :name 'block-next},
                                  :operands [{:type :variable, :name 'x}]}}
                :operands [{:type :literal, :value cursor-ref}]}
-          result (vm/eval vm-with-primitive ast)
-          waiter (first (:wait-set result))]
+          result (vm/eval vm-with-primitive ast)]
+      ;; NOTE: With transport-local readers, the waiter is registered directly
+      ;; on the transport (RingBufferStream), not in wait-set. So we check that
+      ;; the VM is blocked and the environment is preserved in the VM state.
       (is (vm/blocked? result))
       (is (= :yin/blocked (vm/value result)))
-      (is (= cursor-ref (get (vm/environment result) 'x)))
-      (is (= cursor-ref (get (:environment waiter) 'x))))))
+      (is (= cursor-ref (get (vm/environment result) 'x))))))
 
 
 ;; =============================================================================
@@ -378,9 +409,9 @@
         ":yin/operands should contain tempid references (negative integers)"))))
 
 
-(deftest ast->datoms-ffi-call-shape-test
-  (testing ":ffi/call emits :yin/type, :yin/op, and :yin/operands"
-    (let [datoms (vec (vm/ast->datoms {:type :ffi/call,
+(deftest ast->datoms-dao-call-shape-test
+  (testing ":dao.stream.apply/call emits :yin/type, :yin/op, and :yin/operands"
+    (let [datoms (vec (vm/ast->datoms {:type :dao.stream.apply/call,
                                        :op :op/echo,
                                        :operands [{:type :literal, :value 1}
                                                   {:type :literal, :value 2}]}))
@@ -390,7 +421,7 @@
           op-datom (first (filter #(= :yin/op (second %)) root-datoms))
           operands-datom (first (filter #(= :yin/operands (second %))
                                         root-datoms))]
-      (is (= :ffi/call (nth type-datom 2)))
+      (is (= :dao.stream.apply/call (nth type-datom 2)))
       (is (= :op/echo (nth op-datom 2)))
       (is (vector? (nth operands-datom 2)))
       (is (= 2 (count (nth operands-datom 2))))
@@ -495,7 +526,7 @@
           stream-id (:id (vm/value vm))
           stream (get (vm/store vm) stream-id)]
       (is (some? stream))
-      (is (= 1024 (:capacity stream))))))
+      (is (= 1024 (.-capacity stream))))))
 
 
 (deftest stream-put-test
@@ -513,7 +544,7 @@
                            (vm/run))
           stream (get (vm/store vm-after-put) stream-id)]
       (is (= 42 (vm/value vm-after-put)))
-      (is (= 1 (dao.stream/length stream)))))
+      (is (= 1 (count stream)))))
   (testing "stream/put multiple values"
     (let [vm-with-stream (-> (ast-walker/create-vm)
                              (vm/load-program {:type :stream/make, :buffer 10})
@@ -530,7 +561,7 @@
                             (vm/load-program (put-ast 2))
                             (vm/run))
           stream (get (vm/store vm-after-puts) stream-id)]
-      (is (= 2 (dao.stream/length stream))))))
+      (is (= 2 (count stream))))))
 
 
 (deftest stream-cursor-next-test

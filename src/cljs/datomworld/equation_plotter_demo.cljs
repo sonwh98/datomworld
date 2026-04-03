@@ -13,6 +13,33 @@
     [yin.vm.register :as register]))
 
 
+(declare app-state plot-state)
+
+
+(defn- make-plot-handler
+  [points* call-count*]
+  (fn [x y]
+    (when (and (number? x) (number? y)
+               (js/isFinite x) (js/isFinite y))
+      (vswap! points* conj [x y]))
+    (vswap! call-count* inc)
+    nil))
+
+
+(defn- flush-plot-batch!
+  [points* call-count*]
+  (let [points @points*
+        call-count @call-count*]
+    (when (or (seq points) (pos? call-count))
+      (swap! plot-state
+             (fn [state]
+               (-> state
+                   (update :points into points)
+                   (update :call-count + call-count))))
+      (vreset! points* [])
+      (vreset! call-count* 0))))
+
+
 ;; =============================================================================
 ;; plot-point: ClojureScript function that plots [x y] on an SVG cartesian grid
 ;; =============================================================================
@@ -23,7 +50,7 @@
 
 
 (defn plot-point
-  "ClojureScript function called from Yin VM via FFI.
+  "ClojureScript function called from Yin VM via dao.stream.apply.
    Adds [x y] to the point buffer for SVG rendering."
   [x y]
   (when (and (number? x) (number? y)
@@ -157,12 +184,12 @@
 ;; =============================================================================
 
 (def default-source
-  "(defn f [x] (* x x))
+  "(defn f [x] (* x (sin x)))
 (defn plot-loop [x-min x-max]
   (if (> x-min x-max)
     nil
     (do
-      (ffi/call :plot/point x-min (f x-min))
+      (dao.stream.apply/call :plot/point x-min (f x-min))
       (plot-loop (+ x-min 0.05) x-max))))
 (plot-loop -10 10)")
 
@@ -174,12 +201,23 @@
            :pool nil
            :reg-count nil
            :ast nil
+           :program nil
+           :running? false
+           :result nil
            :error nil}))
 
 
 ;; =============================================================================
 ;; Compile: source -> register VM bytecode
 ;; =============================================================================
+
+(defn- ast->program
+  [ast]
+  (let [datoms (vec (vm/ast->datoms ast))
+        root-id (apply max (map first datoms))]
+    {:node root-id
+     :datoms datoms}))
+
 
 (defn compile!
   "Compile the source editor contents to register VM bytecode."
@@ -188,42 +226,55 @@
     (let [source (:source @app-state)
           forms (reader/read-string (str "[" source "]"))
           ast (yang/compile-program forms)
-          datoms (vm/ast->datoms ast)
+          {:keys [datoms] :as program} (ast->program ast)
           {:keys [asm reg-count]} (register/ast-datoms->asm datoms)
           result (register/assemble asm)]
       (swap! app-state assoc
              :ast ast
+             :program program
              :asm asm
              :bytecode (:bytecode result)
              :pool (:pool result)
              :reg-count reg-count
+             :running? false
+             :result nil
              :error nil))
     (catch :default e
       (swap! app-state assoc
              :error (str "Compile error: " (.-message e))
-             :asm nil :bytecode nil :pool nil :reg-count nil :ast nil))))
+             :asm nil :bytecode nil :pool nil :reg-count nil
+             :ast nil :program nil :running? false :result nil))))
 
 
 ;; =============================================================================
-;; Execute: run bytecode in register VM with FFI bridge -> plot-point
+;; Execute: run bytecode in register VM with dao.stream.apply bridge -> plot-point
 ;; =============================================================================
 
 (defn execute!
   "Run the compiled program in the register VM.
-   FFI :plot/point calls are dispatched to the ClojureScript plot-point function."
+   dao.stream.apply :plot/point calls are dispatched to the ClojureScript plot-point function."
   []
   (try
-    (let [{:keys [ast]} @app-state]
-      (when-not ast
+    (let [{:keys [program]} @app-state]
+      (when-not program
         (throw (ex-info "Nothing compiled. Click Compile first." {})))
       (clear-plot!)
-      (let [vm-instance (register/create-vm
+      (let [points* (volatile! [])
+            call-count* (volatile! 0)
+            bridge-handlers {:plot/point (make-plot-handler points* call-count*)}
+            vm-instance (register/create-vm
                           {:primitives (merge vm/primitives math-primitives)
-                           :bridge-dispatcher {:plot/point plot-point}})
-            result (vm/eval vm-instance ast)]
-        (swap! app-state assoc :error nil)))
+                           :bridge bridge-handlers})
+            vm-loaded (vm/load-program vm-instance program)
+            result-vm (vm/run vm-loaded)]
+        (flush-plot-batch! points* call-count*)
+        (swap! app-state assoc
+               :running? false
+               :result (vm/value result-vm)
+               :error nil)))
     (catch :default e
       (swap! app-state assoc
+             :running? false
              :error (str "Runtime error: " (.-message e))))))
 
 
@@ -296,7 +347,7 @@
 
 (defn main-view
   []
-  (let [{:keys [source asm error]} @app-state
+  (let [{:keys [source asm error running?]} @app-state
         {:keys [points call-count]} @plot-state]
     [:div {:style {:min-height "100vh"
                    :background "#060817"
@@ -309,7 +360,7 @@
      [:p {:style {:color "#8b949e" :margin-top "0" :margin-bottom "20px"
                   :font-size "14px"}}
       "Yin source code compiled to register VM bytecode. "
-      "FFI :plot/point bridges to a ClojureScript function that renders SVG."]
+      "dao.stream.apply :plot/point bridges to a ClojureScript function that renders SVG."]
 
      ;; Source editor (CodeMirror)
      [:div {:style {:max-width "900px" :height "220px" :margin-bottom "12px"}}
@@ -321,15 +372,16 @@
      [:div {:style {:display "flex" :gap "8px" :align-items "center"
                     :margin-bottom "16px"}}
       [:button {:on-click compile!
+                :disabled running?
                 :style (merge btn-style {:background "#238636"})}
        "Compile"]
       [:button {:on-click execute!
-                :disabled (nil? (:ast @app-state))
+                :disabled (or running? (nil? (:program @app-state)))
                 :style (merge btn-style
-                              (if (:ast @app-state)
+                              (if (and (:program @app-state) (not running?))
                                 {:background "#1f6feb"}
                                 {:background "#333" :cursor "not-allowed"}))}
-       "Execute"]]
+       (if running? "Running..." "Execute")]]
 
      ;; Register assembly (shown after compile)
      (when asm
@@ -357,7 +409,7 @@
      ;; Stats
      (when (pos? call-count)
        [:div {:style {:font-size "13px" :color "#8b949e" :margin-bottom "12px"}}
-        (str (count points) " points plotted, " call-count " FFI calls")])
+        (str (count points) " points plotted, " call-count " dao.stream.apply calls")])
 
      ;; Error
      (when error

@@ -11,9 +11,12 @@
    2. Assembly to numeric bytecode encoding (assemble)
    3. Numeric bytecode VM (step, run via protocols)"
   (:require
+    [dao.stream :as ds]
+    [dao.stream.apply :as dao.stream.apply]
     [yin.module :as module]
     [yin.vm :as vm]
     [yin.vm.engine :as engine]
+    [yin.vm.host-ffi :as host-ffi]
     [yin.vm.macro :as macro]
     [yin.vm.semantic :as semantic])
   #?(:cljs
@@ -87,7 +90,7 @@
      [:stream-cursor]    - pop stream-ref, push cursor-ref
      [:stream-next]      - pop cursor-ref, push next value (may block)
      [:stream-close]     - pop stream-ref, close it, push nil
-     [:ffi-call op argc] - park, enqueue FFI request, resume with result
+     [:dao.stream.apply/call op argc] - park, enqueue dao.stream.apply request, resume with result
      [:park]             - park current continuation
      [:resume]           - pop val and parked-id, resume parked cont
      [:current-cont]     - push reified continuation
@@ -125,11 +128,11 @@
                (compile-node op-node)
                (doseq [arg-node operand-nodes] (compile-node arg-node))
                (emit! [(if tail? :tailcall :call) (count operand-nodes)]))
-             :ffi/call
+             :dao.stream.apply/call
              (let [operand-nodes (or (get-attr e :yin/operands) [])
                    op (get-attr e :yin/op)]
                (doseq [arg-node operand-nodes] (compile-node arg-node))
-               (emit! [:ffi-call op (count operand-nodes)]))
+               (emit! [:dao.stream.apply/call op (count operand-nodes)]))
              :if (let [test-node (get-attr e :yin/test)
                        cons-node (get-attr e :yin/consequent)
                        alt-node (get-attr e :yin/alternate)
@@ -213,7 +216,7 @@
                        :stream-cursor 1
                        :stream-next 1
                        :stream-close 1
-                       :ffi-call 3
+                       :dao.stream.apply/call 3
                        :park 1
                        :resume 1
                        :current-cont 1
@@ -303,11 +306,11 @@
                              (swap! emit-offset + 1))
             :stream-close (do (emit-byte! (vm/opcode-table :stream-close))
                               (swap! emit-offset + 1))
-            :ffi-call (let [idx (add-constant arg1)]
-                        (emit-byte! (vm/opcode-table :ffi-call))
-                        (emit-byte! idx)
-                        (emit-byte! arg2)
-                        (swap! emit-offset + 3))
+            :dao.stream.apply/call (let [idx (add-constant arg1)]
+                                     (emit-byte! (vm/opcode-table :dao.stream.apply/call))
+                                     (emit-byte! idx)
+                                     (emit-byte! arg2)
+                                     (swap! emit-offset + 3))
             :park (do (emit-byte! (vm/opcode-table :park))
                       (swap! emit-offset + 1))
             :resume (do (emit-byte! (vm/opcode-table :resume))
@@ -656,7 +659,7 @@
 
 (defn- apply-op
   [state argc tail?]
-  (let [{:keys [pc bytecode stack env call-stack pool _store id-counter]} state
+  (let [{:keys [pc _bytecode stack _env call-stack pool _store _id-counter]} state
         n (count stack)
         args (subvec stack (- n argc) n)
         fn-val (nth stack (- n argc 1))
@@ -727,7 +730,7 @@
                 (maybe-recompile-at-boundary state)
                 state)
         {:keys [pc bytecode stack env call-stack pool store primitives
-                id-counter]}
+                _id-counter]}
         state]
     (if (>= pc (count bytecode))
       ;; End of bytes: return top of stack or pop frame
@@ -879,21 +882,36 @@
             (assoc state
                    :pc (+ pc 1)
                    :stack (conj stack-rest value)))
-          :ffi-call
+          :dao.stream.apply/call
           (let [op-idx (nth bytecode (inc pc))
                 argc (nth bytecode (+ pc 2))
                 op-name (nth pool op-idx)
                 n (count stack)
                 args (subvec stack (- n argc) n)
                 stack-rest (subvec stack 0 (- n argc))
-                parked (engine/park-continuation state
-                                                 (snap-frame state
-                                                             stack-rest
-                                                             (+ pc 3)))
+                next-pc (+ pc 3)
+                park-snapshot (snap-frame state stack-rest next-pc)
+                parked (engine/park-continuation state park-snapshot)
                 parked-id (get-in parked [:value :id])
-                request {:op op-name, :args args, :parked-id parked-id}
-                enqueued (engine/enqueue-ffi-request parked request)]
-            (assoc enqueued
+
+                ;; Register reader-waiter on call-out response stream
+                call-out (get-in parked [:store vm/call-out-stream-key])
+                cursor-data (get-in parked [:store vm/call-out-cursor-key])
+                cursor-pos (:position cursor-data)
+                waiter-entry (assoc park-snapshot
+                                    :type :dao.stream.apply/resumer
+                                    :cursor-ref {:type :cursor-ref
+                                                 :id vm/call-out-cursor-key}
+                                    :reason :next
+                                    :stream-id vm/call-out-stream-key)
+                _ (when (satisfies? ds/IDaoStreamWaitable call-out)
+                    (ds/register-reader-waiter! call-out cursor-pos waiter-entry))
+
+                ;; Emit request to call-in stream
+                call-in (get-in parked [:store vm/call-in-stream-key])
+                request (dao.stream.apply/request parked-id op-name args)
+                _ (ds/put! call-in request)]
+            (assoc parked
                    :value :yin/blocked
                    :blocked true
                    :halted false))
@@ -928,8 +946,12 @@
   [state]
   (engine/resume-from-run-queue state
                                 (fn [base entry]
-                                  (-> (restore-frame base entry (:value entry))
-                                      maybe-recompile-at-boundary))))
+                                  (let [val (:value entry)
+                                        val' (if (= :dao.stream.apply/resumer (:type entry))
+                                               (:dao.stream.apply/value val)
+                                               val)]
+                                    (-> (restore-frame base entry val')
+                                        maybe-recompile-at-boundary)))))
 
 
 (defn- stack-vm-run-scheduler
@@ -1428,7 +1450,7 @@
                   root-id (apply max (map first datoms))]
               (stack-vm-load-program vm {:node root-id, :datoms datoms}))
             vm)]
-    (stack-vm-run v)))
+    (host-ffi/maybe-run v stack-vm-run)))
 
 
 (extend-type StackVM
@@ -1452,13 +1474,12 @@
 
 (defn create-vm
   "Create a new StackVM with optional opts map.
-   Accepts {:env map, :primitives map, :bridge-dispatcher map, :macro-registry map}."
+   Accepts {:env map, :primitives map, :macro-registry map, :bridge handlers}."
   ([] (create-vm {}))
   ([opts]
-   (let [env (or (:env opts) {})]
-     (map->StackVM (merge (vm/empty-state (select-keys opts
-                                                       [:primitives
-                                                        :bridge-dispatcher]))
+   (let [env (or (:env opts) {})
+         bridge-state (host-ffi/bridge-from-opts opts)]
+     (map->StackVM (merge (vm/empty-state (select-keys opts [:primitives]))
                           {:pc 0,
                            :bytecode [],
                            :stack [],
@@ -1477,4 +1498,6 @@
                            :program-index nil,
                            :halted false,
                            :value nil,
-                           :blocked false})))))
+                           :blocked false}
+                          (when bridge-state
+                            {:bridge bridge-state}))))))

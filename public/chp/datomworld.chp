@@ -45,7 +45,7 @@
          [:div.concept-grid
           [:article.concept-card
            [:h3 "1. Everything is a Stream"]
-           [:p "The foundational axiom: " [:strong "everything is a stream of datoms"] ". A datom is an immutable fact represented as " [:code "[e a v t m]"] " (entity, attribute, value, transaction ID, metadata). Transaction IDs are monotonic within each stream; cross-stream causality is determined via metadata. Code, data, state changes, execution traces—all are append-only logs of datoms."]
+           [:p "The foundational axiom: " [:strong "everything is a stream"] ". Streams transport whatever values each layer requires. Persistent facts are datoms: immutable facts represented as " [:code "[e a v t m]"] " (entity, attribute, value, transaction ID, metadata). Transaction IDs are monotonic within each stream; cross-stream causality is determined via metadata. Code, data, state changes, execution traces—all are append-only logs of datoms in the knowledge base."]
            [:p "Benefits: total auditability (nothing deleted, perfect history), time travel (query any past state), and a unified data model. Everything—messages, files, databases, APIs—collapses into a single primitive: the stream."]
            [:p.learn-more "Learn more: " [:a {:href "/blog/datoms-as-streams.blog"} "Streaming Datoms with Transducers"] ", " [:a {:href "/blog/ast-higher-dimensional-datom-streams.blog"} "AST as Higher Dimensional Datom Streams"] ", and " [:a {:href "/blog/code-entropy-evolution.blog"} "Code Entropy and Evolution"] " (why distributing complexity to boundaries creates resilient systems)."]]
           [:article.concept-card
@@ -101,6 +101,9 @@
           "LocalStorage becomes "
           [:a {:href "/dao-db.chp"} "DaoDB"]
           ", an app that materializes queryable indexes from those streams. "
+          "The shared coordination space becomes "
+          [:a {:href "/dao-space.chp"} "DaoSpace"]
+          ", a tuple space implementation that enables stigmergic coordination between agents via Datalog queries over shared streams. "
           "And instead of the DOM, "
           [:a {:href "/dao-flow.chp"} "DaoFlow"]
           " interprets streams as renderable interfaces, treating the UI as an emergent view of living data."]

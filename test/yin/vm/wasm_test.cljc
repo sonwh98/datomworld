@@ -33,7 +33,8 @@
       (is (not (vm/halted? vm)))
       (is (nil? (vm/value vm)))
       (is (not (vm/blocked? vm)))
-      (is (contains? (vm/store vm) vm/ffi-out-stream-key)))))
+      (is (contains? (vm/store vm) vm/call-in-stream-key))
+      (is (contains? (vm/store vm) vm/call-out-stream-key)))))
 
 
 ;; =============================================================================

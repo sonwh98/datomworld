@@ -305,7 +305,10 @@
              "Any architectural constraint that is not enforced by the execution model will decay over time."]]]
 
           [:p
-           "Polylith slows internal entropy through discipline. Streams redirect entropy to the topology through physics."]
+           "Polylith attempts to stop entropy through discipline. Datom.World " [:em "flows"] " with it, redirecting complexity to the topology through physics. "
+           "By using the immutable growth of the stream to create structure, it achieves a "
+           [:a {:href "/blog/code-entropy-evolution.blog"} "local decrease of entropy"]
+           ", mirroring how biological cells maintain internal order by pushing disorder to their environment."]
 
           [:p "One requires vigilance. The other requires nothing."]
 

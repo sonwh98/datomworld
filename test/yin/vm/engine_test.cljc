@@ -2,6 +2,8 @@
   (:require
     [clojure.test :refer [deftest is testing]]
     [dao.stream :as ds]
+    [dao.stream.apply :as dao.stream.apply]
+    [dao.stream.transport.ringbuffer]
     [yin.stream :as stream]
     [yin.vm :as vm]
     [yin.vm.engine :as engine]))
@@ -42,167 +44,242 @@
       (is (empty? (:run-queue result))))))
 
 
-(deftest check-wait-set-stream-next-test
-  (testing
-    "check-wait-set wakes up a :next parked continuation when data becomes available"
-    (let [state {:store {}, :id-counter 0}
-          ;; 1. Make stream
-          [id s'] (engine/gensym state "stream")
-          [stream-ref state]
-          (stream/handle-make s' {:capacity 10} (constantly id))
-          stream-id (:id stream-ref)
-          ;; 2. Make cursor
-          [id s'] (engine/gensym state "cursor")
-          [cursor-ref state]
-          (stream/handle-cursor s' {:stream stream-ref} (constantly id))
-          ;; 3. Park a continuation for :next
-          parked-entry {:reason :next,
-                        :cursor-ref cursor-ref,
-                        :stream-id stream-id,
-                        :continuation {:type :some-cont}}
-          state (assoc state
-                       :wait-set [parked-entry]
-                       :run-queue [])
-          ;; 4. check-wait-set should NOT wake it yet (stream is empty)
+;; =============================================================================
+;; Fallback Scheduler Tests (Non-waitable streams)
+;; =============================================================================
+
+(defrecord NonWaitableStream
+  [state-atom]
+
+  ds/IDaoStreamReader
+
+  (next
+    [_this cursor]
+    (let [s @state-atom
+          pos (:position cursor)]
+      (if (contains? (:buffer s) pos)
+        {:ok (get (:buffer s) pos), :cursor {:position (inc pos)}}
+        :blocked)))
+
+
+  ds/IDaoStreamWriter
+
+  (put!
+    [_this val]
+    (let [s @state-atom
+          tail (:tail s)]
+      (swap! state-atom (fn [s] (-> s (assoc-in [:buffer tail] val) (update :tail inc))))
+      {:result :ok}))
+
+
+  ds/IDaoStreamBound
+
+  (close! [_this] (swap! state-atom assoc :closed true) {:woke []})
+
+
+  (closed? [_this] (:closed @state-atom)))
+
+
+(deftest check-wait-set-fallback-test
+  (testing "check-wait-set still polls non-waitable streams in the scheduler"
+    (let [state-atom (atom {:buffer {}, :tail 0, :closed false})
+          stream (->NonWaitableStream state-atom)
+          state {:store {:s1 stream, :c1 {:stream-id :s1, :position 0}}, :id-counter 0}
+          ;; 1. Park reader (not waitable, so it goes to wait-set)
+          reader-entry {:reason :next, :cursor-ref {:type :cursor-ref, :id :c1}}
+          state (assoc state :wait-set [reader-entry])
+          ;; 2. check-wait-set should NOT wake it (stream empty)
           state-still-blocked (#'yin.vm.engine/check-wait-set state)
           _ (is (= 1 (count (:wait-set state-still-blocked))))
-          _ (is (empty? (:run-queue state-still-blocked)))
-          ;; 5. Put data into stream
-          state-with-data (stream/handle-put state-still-blocked
-                                             {:stream stream-ref, :val 42})
-          ;; 6. check-wait-set should now wake it
-          state-runnable (#'yin.vm.engine/check-wait-set
-                          (:state state-with-data))]
+          ;; 3. Put data manually
+          _ (ds/put! stream 42)
+          ;; 4. check-wait-set should now wake it
+          state-runnable (#'yin.vm.engine/check-wait-set state-still-blocked)]
       (is (empty? (:wait-set state-runnable)))
       (is (= 1 (count (:run-queue state-runnable))))
       (is (= 42 (:value (first (:run-queue state-runnable))))))))
 
 
-(deftest check-wait-set-stream-put-test
-  (testing
-    "check-wait-set wakes up a :put parked continuation when capacity becomes available"
-    (let [state {:store {}, :id-counter 0}
-          ;; 1. Make stream with capacity 1
-          [id s'] (engine/gensym state "stream")
-          [stream-ref state]
-          (stream/handle-make s' {:capacity 1} (constantly id))
-          stream-id (:id stream-ref)
-          ;; 2. Fill the stream
-          state (:state (stream/handle-put state {:stream stream-ref, :val 1}))
-          ;; 3. Park a continuation for :put
-          parked-entry {:reason :put,
-                        :stream-id stream-id,
-                        :datom 2,
-                        :continuation {:type :some-cont}}
-          state (assoc state
-                       :wait-set [parked-entry]
-                       :run-queue [])
-          ;; 4. check-wait-set should NOT wake it yet (stream is full)
-          state-still-blocked (#'yin.vm.engine/check-wait-set state)
-          _ (is (= 1 (count (:wait-set state-still-blocked))))
-          _ (is (empty? (:run-queue state-still-blocked)))
-          ;; 5. Manually increase capacity in the store to simulate space
-          ;; becoming available
-          state-with-capacity
-          (update-in state-still-blocked [:store stream-id] assoc :capacity 2)
-          ;; 6. check-wait-set should now wake it
-          state-runnable (#'yin.vm.engine/check-wait-set state-with-capacity)]
+(deftest check-wait-set-put-fallback-test
+  (testing "check-wait-set still polls :put on non-waitable streams"
+    (let [state-atom (atom {:buffer {}, :tail 0, :closed false})
+          stream (->NonWaitableStream state-atom)
+          state {:store {:s1 stream}, :id-counter 0}
+          ;; Park writer
+          writer-entry {:reason :put, :stream-id :s1, :datom :val}
+          state (assoc state :wait-set [writer-entry])
+          ;; In this simple mock put! always succeeds, so first poll should wake it
+          state-runnable (#'yin.vm.engine/check-wait-set state)]
       (is (empty? (:wait-set state-runnable)))
       (is (= 1 (count (:run-queue state-runnable))))
-      (is (= 2 (:value (first (:run-queue state-runnable))))))))
+      (is (= :val (get-in @state-atom [:buffer 0])) "Datom should be written"))))
 
 
-(deftest check-wait-set-closed-stream-put-waiter-test
+(deftest check-wait-set-resumes-closed-put-fallback-test
+  (testing "check-wait-set resumes closed non-waitable :put waiters with nil"
+    (let [state-atom (atom {:buffer {}, :tail 0, :closed false})
+          stream (->NonWaitableStream state-atom)
+          state {:store {:s1 stream}, :id-counter 0}
+          writer-entry {:reason :put, :stream-id :s1, :datom :val}
+          state (assoc state :wait-set [writer-entry])
+          _ (ds/close! stream)
+          checked (#'yin.vm.engine/check-wait-set state)]
+      (is (empty? (:wait-set checked)))
+      (is (= 1 (count (:run-queue checked))))
+      (is (nil? (:value (first (:run-queue checked)))))
+      (is (true? (ds/closed? stream)))
+      (is (empty? (:buffer @state-atom)))
+      (is (= 0 (:tail @state-atom))))))
+
+
+(defrecord NonWaitableRingBufferStream
+  [state-atom]
+
+  ds/IDaoStreamReader
+
+  (next
+    [_this cursor]
+    (let [s @state-atom
+          head (:head s)
+          pos (:position cursor)]
+      (cond (>= pos (:tail s)) :blocked
+            (< pos head) :daostream/gap
+            :else {:ok (get-in s [:buffer pos]), :cursor {:position (inc pos)}})))
+
+
+  ds/IDaoStreamWriter
+
+  (put!
+    [_this val]
+    (let [s @state-atom
+          capacity 1] ; fixed capacity for test
+      (if (>= (- (:tail s) (:head s)) capacity)
+        {:result :full}
+        (do (swap! state-atom (fn [s] (-> s (assoc-in [:buffer (:tail s)] val) (update :tail inc))))
+            {:result :ok}))))
+
+
+  ds/IDaoStreamBound
+
+  (close! [_this] (swap! state-atom assoc :closed true) {:woke []})
+
+
+  (closed? [_this] (:closed @state-atom)))
+
+
+(deftest check-wait-set-put-fallback-after-capacity-freed-test
+  (testing "check-wait-set still polls :put on non-waitable streams after capacity is freed"
+    (let [state-atom (atom {:buffer {0 :a}, :tail 1, :head 0, :closed false})
+          stream (->NonWaitableRingBufferStream state-atom)
+          state {:store {:s1 stream}, :id-counter 0}
+          ;; 1. Park writer on :put because it's full (capacity 1)
+          writer-entry {:reason :put, :stream-id :s1, :datom :b}
+          state (assoc state :wait-set [writer-entry])
+          ;; 2. check-wait-set should NOT wake it
+          state-blocked (#'yin.vm.engine/check-wait-set state)
+          _ (is (= 1 (count (:wait-set state-blocked))))
+          ;; 3. Manually drain (advance head)
+          _ (swap! state-atom (fn [s] (-> s (update :buffer dissoc 0) (update :head inc))))
+          ;; 4. check-wait-set should now wake it via polling
+          state-runnable (#'yin.vm.engine/check-wait-set state-blocked)]
+      (is (empty? (:wait-set state-runnable)))
+      (is (= 1 (count (:run-queue state-runnable))))
+      (is (= :b (get-in @state-atom [:buffer 1])) "Writer should have written :b"))))
+
+
+(deftest close-enqueues-flattened-transport-writer-entry-test
   (testing
-    "check-wait-set should not throw when a stream is closed with parked :put entries"
-    (let [state {:store {}, :id-counter 0}
-          ;; 1. Make stream with capacity 1 and fill it.
+    "stream close should enqueue the parked writer entry itself, not a nested {:entry ...} wrapper"
+    (let [state {:store {}, :id-counter 0, :run-queue []}
           [id s'] (engine/gensym state "stream")
-          [stream-ref state]
-          (stream/handle-make s' {:capacity 1} (constantly id))
-          stream-id (:id stream-ref)
+          [stream-ref state] (stream/handle-make s' {:capacity 1} id)
           state (:state (stream/handle-put state {:stream stream-ref, :val 1}))
-          ;; 2. Park a :put continuation.
-          parked-entry {:reason :put,
-                        :stream-id stream-id,
-                        :datom 2,
-                        :continuation {:type :some-cont}}
-          state (assoc state
-                       :wait-set [parked-entry]
-                       :run-queue [])
-          ;; 3. Close stream. :put waiters are intentionally left in
-          ;; wait-set.
-          close-result (stream/handle-close state {:stream stream-ref})
-          closed-state (:state close-result)
-          ;; 4. Scheduler re-check should drop the :put waiter silently.
-          checked (#'yin.vm.engine/check-wait-set closed-state)
-          ;; 5. Second check should be idempotent (nothing left to
-          ;; process).
-          checked-again (#'yin.vm.engine/check-wait-set checked)
-          stream-after (get-in checked-again [:store stream-id])]
-      (is (empty? (:wait-set checked))
-          "Closed-stream :put waiter should be dropped, not retained")
-      (is (empty? (:run-queue checked))
-          "Closed-stream :put waiter should not be resumed")
-      (is (= checked checked-again)
-          "Scheduler should be stable after dropping closed-stream :put waiter")
-      (is (ds/closed? stream-after) "Closed-stream state must be preserved")
-      (is (= 1 (ds/length stream-after))
-          "Dropped :put waiter must not append into closed stream"))))
+          put-effect {:effect :stream/put, :stream stream-ref, :val 2}
+          put-result (engine/handle-effect
+                       state
+                       put-effect
+                       {:park-entry-fns
+                        {:stream/put
+                         (fn [_s _e r]
+                           {:reason :put,
+                            :stream-id (:stream-id r),
+                            :datom 2,
+                            :continuation {:id :writer-1}})}})
+          blocked-state (:state put-result)
+          close-result (engine/handle-effect blocked-state
+                                             {:effect :stream/close, :stream stream-ref}
+                                             {})
+          run-entry (first (get-in close-result [:state :run-queue]))]
+      (is (:blocked? put-result))
+      (is (= 1 (count (get-in close-result [:state :run-queue]))))
+      (is (= {:id :writer-1} (:continuation run-entry))
+          "Queued writer should keep its original continuation fields at top level")
+      (is (false? (contains? run-entry :entry))
+          "Run-queue entry should be flattened before resumption")
+      (is (nil? (:value run-entry))))))
 
 
-(deftest check-wait-set-mixed-status-test
+(deftest take-enqueues-reader-cursor-advance-when-waking-reader-and-writer-test
   (testing
-    "check-wait-set handles multiple entries, waking some and keeping others"
-    (let [state {:store {}, :id-counter 0}
-          ;; 1. Make two streams
-          [id s'] (engine/gensym state "stream")
-          [s1 state] (stream/handle-make s' {:capacity 1} (constantly id))
-          [id s'] (engine/gensym state "stream")
-          [s2 state] (stream/handle-make s' {:capacity 1} (constantly id))
-          ;; 2. Fill s1, s2 is empty
-          state (:state (stream/handle-put state {:stream s1, :val 1}))
-          ;; 3. Park entries:
-          ;;    e1: :next on s1 (runnable)
-          ;;    e2: :next on s2 (blocked)
-          ;;    e3: :put on s1 (blocked)
-          [id s'] (engine/gensym state "cursor")
-          [c1 state] (stream/handle-cursor s' {:stream s1} (constantly id))
-          [id s'] (engine/gensym state "cursor")
-          [c2 state] (stream/handle-cursor s' {:stream s2} (constantly id))
-          e1 {:reason :next,
-              :cursor-ref c1,
-              :stream-id (:id s1),
-              :continuation {:id :e1}}
-          e2 {:reason :next,
-              :cursor-ref c2,
-              :stream-id (:id s2),
-              :continuation {:id :e2}}
-          e3 {:reason :put,
-              :stream-id (:id s1),
-              :datom 2,
-              :continuation {:id :e3}}
-          state (assoc state
-                       :wait-set [e1 e2 e3]
-                       :run-queue [])
-          ;; 4. Run scheduler
-          result (#'yin.vm.engine/check-wait-set state)]
-      (is (= 1 (count (:run-queue result))) "Only e1 should be runnable")
-      (is (= :e1 (:id (:continuation (first (:run-queue result))))))
-      (is (= 2 (count (:wait-set result)))
-          "e2 and e3 should remain in wait-set")
-      (is (= #{:e2 :e3}
-             (set (map (comp :id :continuation) (:wait-set result))))))))
+    "stream take should preserve cursor advance metadata when it wakes a parked reader and writer together"
+    (let [state {:store {}, :id-counter 0, :run-queue []}
+          [stream-id s'] (engine/gensym state "stream")
+          [stream-ref state] (stream/handle-make s' {:capacity 1} stream-id)
+          state (:state (stream/handle-put state {:stream stream-ref, :val :a}))
+          [cursor-id s''] (engine/gensym state "cursor")
+          [cursor-ref state] (stream/handle-cursor s'' {:stream stream-ref} cursor-id)
+          state (:state (stream/handle-next state {:cursor cursor-ref}))
+          next-result (engine/handle-effect
+                        state
+                        {:effect :stream/next, :cursor cursor-ref}
+                        {:park-entry-fns
+                         {:stream/next
+                          (fn [_s _e r]
+                            {:reason :next,
+                             :cursor-ref (:cursor-ref r),
+                             :stream-id (:stream-id r),
+                             :continuation {:id :reader}})}})
+          put-result (engine/handle-effect
+                       (:state next-result)
+                       {:effect :stream/put, :stream stream-ref, :val :b}
+                       {:park-entry-fns
+                        {:stream/put
+                         (fn [_s _e r]
+                           {:reason :put,
+                            :stream-id (:stream-id r),
+                            :datom :b,
+                            :continuation {:id :writer}})}})
+          stream-after-next (get-in next-result [:state :store stream-id])
+          stream-after-put (get-in put-result [:state :store stream-id])
+          reader-waiter-count-after-next (count (:reader-waiters @(.-state-atom ^dao.stream.transport.ringbuffer.RingBufferStream stream-after-next)))
+          writer-waiter-count-after-put (count (:writer-waiters @(.-state-atom ^dao.stream.transport.ringbuffer.RingBufferStream stream-after-put)))
+          take-result (engine/handle-effect (:state put-result)
+                                            {:effect :stream/take, :stream stream-ref}
+                                            {})
+          run-queue (get-in take-result [:state :run-queue])
+          reader-entry (some #(when (= {:id :reader} (:continuation %)) %) run-queue)
+          writer-entry (some #(when (= {:id :writer} (:continuation %)) %) run-queue)]
+      (is (:blocked? next-result))
+      (is (:blocked? put-result))
+      (is (empty? (or (get-in next-result [:state :wait-set]) [])))
+      (is (empty? (or (get-in put-result [:state :wait-set]) [])))
+      (is (= 1 reader-waiter-count-after-next))
+      (is (= 1 writer-waiter-count-after-put))
+      (is (= :a (:value take-result)))
+      (is (= 2 (count run-queue)))
+      (is (= :b (:value writer-entry)))
+      (is (= :b (:value reader-entry)))
+      (is (= {cursor-id {:stream-id stream-id, :position 2}}
+             (:store-updates reader-entry))
+          "Reader wake from take! must advance the parked cursor past the appended datom"))))
 
 
-(deftest check-ffi-out-dispatch-and-enqueue-test
-  (testing "check-ffi-out dispatches one request and enqueues resumed continuation"
-    (let [ffi-out (ds/->LazySeqStream nil (atom {:log [], :head 0, :closed false}))
-          _ (ds/put! ffi-out {:op :op/echo, :args [42], :parked-id :parked-0})
-          state {:store {vm/ffi-out-stream-key ffi-out,
-                         vm/ffi-out-cursor-key {:stream-id vm/ffi-out-stream-key,
-                                                :position 0}},
-                 :bridge-dispatcher {:op/echo identity},
+(deftest daocall-dispatch-and-wake-test
+  (testing "dao.stream.apply response wakes caller and advances cursor"
+    (let [call-out (ds/open! {:transport {:type :ringbuffer, :capacity nil}})
+          state {:store {vm/call-out-stream-key call-out,
+                         vm/call-out-cursor-key {:stream-id vm/call-out-stream-key,
+                                                 :position 0}},
                  :parked {:parked-0 {:id :parked-0,
                                      :type :parked-continuation,
                                      :continuation {:id :cont-0},
@@ -211,9 +288,25 @@
                  :wait-set [],
                  :blocked true,
                  :halted false}
-          next-state (engine/check-ffi-out state)
-          cursor-data (get-in next-state [:store vm/ffi-out-cursor-key])]
-      (is (= 1 (:position cursor-data)))
-      (is (nil? (get-in next-state [:parked :parked-0])))
+          ;; 1. Register reader-waiter on call-out (happens during dao-call)
+          waiter-entry {:cursor-ref {:type :cursor-ref, :id vm/call-out-cursor-key}
+                        :reason :next
+                        :stream-id vm/call-out-stream-key
+                        :continuation {:id :cont-0}}
+          _ (ds/register-reader-waiter! call-out 0 waiter-entry)
+
+          ;; 2. Bridge puts response to call-out
+          response (dao.stream.apply/response :parked-0 42)
+          put-result (ds/put! call-out response)
+          woke (:woke put-result)
+          _ (is (= 1 (count woke)))
+
+          ;; 3. Use engine to process woken entries
+          entries (engine/make-woken-run-queue-entries state woke)
+          next-state (update state :run-queue into entries)
+          run-entry (first (:run-queue next-state))]
+
       (is (= 1 (count (:run-queue next-state))))
-      (is (= 42 (:value (first (:run-queue next-state))))))))
+      (is (= response (:value run-entry)))
+      (is (= {vm/call-out-cursor-key {:stream-id vm/call-out-stream-key, :position 1}}
+             (:store-updates run-entry))))))

@@ -254,6 +254,14 @@ DataScript-backed `DaoDbDataScript`. Both extend `IDaoDb`.
 `create` still returns `DaoDbDataScript` for backward compatibility.
 
 
+## Using DaoDB for Higher-Level Systems
+
+DaoDB provides the foundation for systems that need queryable, immutable state:
+
+- **DaoSpace** — see `docs/design/dao-space-design.md` for stigmergic agent coordination via Datalog queries over a shared datom stream
+- **AST Storage** — the Yin VM's Universal AST is stored as datoms in DaoDB, queryable for capability policies and static analysis
+- **Event Sourcing** — domain events as datoms, queryable at any historical point
+
 ---
 
 ## What This Design Does Not Cover

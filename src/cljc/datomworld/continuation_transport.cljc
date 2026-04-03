@@ -2,11 +2,12 @@
   "Pure transport stream helpers shared across hosts.
 
   Transport state:
-    {:continuation-stream <LazySeqStream>
+    {:continuation-stream <RingBufferStream>
      :cursors {:register-vm {:position n} :stack-vm {:position n}}
      :pending-continuations {position continuation}}"
   (:require
-    [dao.stream :as ds]))
+    [dao.stream :as ds]
+    [dao.stream.transport.ringbuffer]))
 
 
 (defn init-state
@@ -14,7 +15,7 @@
    identifying the consuming VMs (e.g. [:register-vm :stack-vm])."
   [vm-keys]
   {:continuation-stream
-   (ds/->LazySeqStream nil (atom {:log [], :head 0, :closed false})),
+   (ds/open! {:transport {:type :ringbuffer, :capacity nil}}),
    :cursors (into {} (map (fn [k] [k {:position 0}])) vm-keys),
    :pending-continuations {}})
 
@@ -23,7 +24,7 @@
   "Append one datom-like event record to transport.
    Returns [transport' datom]."
   [transport a v]
-  (let [len (ds/length transport)
+  (let [len (count transport)
         e (+ 7000 len)
         t (+ 1 len)
         datom [e a v t 0]
@@ -35,7 +36,7 @@
   "Append a continuation summary to transport and store the full continuation
    payload off-stream in :pending-continuations."
   [state summary continuation]
-  (let [pos (ds/length (:continuation-stream state))
+  (let [pos (count (:continuation-stream state))
         [transport* _] (append-datom (:continuation-stream state)
                                      :stream/continuation
                                      summary)]

@@ -387,19 +387,19 @@
     (let [db (in-m/empty-db)
           {:keys [db]} (in-m/run-tx db [[:db/add 1025 :name "Alice" 42]
                                         [:db/add 1026 :name "Bob"   99]
-                                        [:db/add 1027 :name "Carol" 42]])]
-      (let [results (in-m/native-datoms db :meat [42])]
-        (is (= 2 (count results)))
-        (is (every? #(= 42 (:m %)) results)))))
+                                        [:db/add 1027 :name "Carol" 42]])
+          results (in-m/native-datoms db :meat [42])]
+      (is (= 2 (count results)))
+      (is (every? #(= 42 (:m %)) results))))
 
   (testing "seek-me — filter MEAT by m and e"
     (let [db (in-m/empty-db)
           {:keys [db]} (in-m/run-tx db [[:db/add 1025 :name "Alice" 42]
                                         [:db/add 1025 :age  30     42]
-                                        [:db/add 1026 :name "Bob"   42]])]
-      (let [results (in-m/native-datoms db :meat [42 1025])]
-        (is (= 2 (count results)))
-        (is (every? #(and (= 42 (:m %)) (= 1025 (:e %))) results)))))
+                                        [:db/add 1026 :name "Bob"   42]])
+          results (in-m/native-datoms db :meat [42 1025])]
+      (is (= 2 (count results)))
+      (is (every? #(and (= 42 (:m %)) (= 1025 (:e %))) results))))
 
   (testing "as-of filters MEAT by t"
     (let [db (in-m/empty-db)
