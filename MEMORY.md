@@ -2,13 +2,13 @@
 
 ## Core Philosophy
 - [CLAUDE.md](./CLAUDE.md) — Development rules, core philosophy, build & test commands
-- [@.claude/rules/datom-spec.md](./.claude/rules/datom-spec.md) — Datom 5-tuples, entity IDs, content addressing, namespaces
-- [@.claude/rules/architecture.md](./.claude/rules/architecture.md) — Streams, agents, Yin.VM CESK machine, compilation pipeline, runtime macros
+- [docs/agents/datom-spec.md](./docs/agents/datom-spec.md) — Datom 5-tuples, entity IDs, content addressing, namespaces
+- [docs/agents/architecture.md](./docs/agents/architecture.md) — Streams, agents, Yin.VM CESK machine, compilation pipeline, runtime macros
 
 ## Design and Development
-- [@.claude/rules/malleability.md](./.claude/rules/malleability.md) — Code evolution through bounded complexity, clustering, loose coupling, testing strategy
-- [@.claude/rules/vocabulary.md](./.claude/rules/vocabulary.md) — Domain vocabulary from biology, economics, physics, philosophy for naming and stigmergic emergence
-- [@.claude/rules/advanced-concepts.md](./.claude/rules/advanced-concepts.md) — Parallel transport across DaoDB nodes, capability tokens, entanglement
+- [docs/agents/malleability.md](./docs/agents/malleability.md) — Code evolution through bounded complexity, clustering, loose coupling, testing strategy
+- [docs/agents/vocabulary.md](./docs/agents/vocabulary.md) — Domain vocabulary from biology, economics, physics, philosophy for naming and stigmergic emergence
+- [docs/agents/advanced-concepts.md](./docs/agents/advanced-concepts.md) — Parallel transport across DaoDB nodes, capability tokens, entanglement
 
 ## Project State
 - [Macro system](./docs/macros.md) — Spec for compile-time and runtime macros
@@ -43,7 +43,7 @@ grep -r "namespace-name/function-name" src/
 
 If 0 results or only matches in the same file → mark the function private (defn-) or delete it.
 
-See @.claude/rules/malleability.md for full guidance.
+See docs/agents/malleability.md for full guidance.
 
 ## Collaborating with Claude Code
 

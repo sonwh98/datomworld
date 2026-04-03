@@ -27,7 +27,7 @@ Datoms are 5-tuples: (e a v t m). Immutable facts, not objects.
 Canonical format for persistent facts: DaoDB, AST, schema, provenance.
 Streams carry whatever values the consumer needs.
 
-See @.claude/rules/datom-spec.md for full specification.
+See docs/agents/datom-spec.md for full specification.
 
 # STREAMS
 
@@ -40,7 +40,7 @@ Functions can take anything and return anything.
 Agents are functions, closures, or continuations in Yin.VM that communicate with the outside
 world through DaoStream. Agent behavior is specified entirely through stream effects.
 
-Architecture overview and advanced topics: @.claude/rules/architecture.md
+Architecture overview and advanced topics: docs/agents/architecture.md
 
 # BUILD & TEST
 
@@ -77,8 +77,8 @@ Domain Vocabulary:
 - Use problem domain names (validation, auth, indexing), not solution domain (utils, helpers).
 - Draw vocabulary from biology, economics, physics, and philosophy for stigmergic emergence.
 
-See @.claude/rules/malleability.md for complete design guidance.
-See @.claude/rules/vocabulary.md for domain vocabulary reference.
+See docs/agents/malleability.md for complete design guidance.
+See docs/agents/vocabulary.md for domain vocabulary reference.
 
 # CODE STYLE
 
@@ -119,7 +119,7 @@ If a problem appears complex:
   Let structure emerge from constraints.
 
 For advanced topics (parallel transport, capability tokens, entanglement):
-See @.claude/rules/advanced-concepts.md
+See docs/agents/advanced-concepts.md
 
 # FILE FORMATS
 

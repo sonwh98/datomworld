@@ -123,4 +123,4 @@ Count the public functions (see "Bounded Complexity" for the 2-5 entry point tar
 
 **Extract when**: The structure has already emerged in your code. You're just formalizing what exists, not designing from scratch.
 
-**Naming**: Use problem domain names (`validation`, `auth`, `indexing`), not solution domain (`utils`, `helpers`). See @.claude/rules/vocabulary.md for vocabulary from biology, economics, physics, philosophy.
+**Naming**: Use problem domain names (`validation`, `auth`, `indexing`), not solution domain (`utils`, `helpers`). See docs/agents/vocabulary.md for vocabulary from biology, economics, physics, philosophy.
