@@ -27,7 +27,7 @@ Datoms are 5-tuples: (e a v t m). Immutable facts, not objects.
 Canonical format for persistent facts: DaoDB, AST, schema, provenance.
 Streams carry whatever values the consumer needs.
 
-Full specification: @.claude/rules/datom-spec.md
+See @.claude/rules/datom-spec.md for full specification.
 
 # STREAMS
 
@@ -73,7 +73,12 @@ Testing Strategy:
 - Preserve exploration knowledge in (comment ...) blocks; delete when it lies.
 - Tests are selection pressure: code that breaks contracts doesn't survive.
 
-Full design philosophy: @.claude/rules/malleability.md
+Domain Vocabulary:
+- Use problem domain names (validation, auth, indexing), not solution domain (utils, helpers).
+- Draw vocabulary from biology, economics, physics, and philosophy for stigmergic emergence.
+
+See @.claude/rules/malleability.md for complete design guidance.
+See @.claude/rules/vocabulary.md for domain vocabulary reference.
 
 # CODE STYLE
 
@@ -112,6 +117,9 @@ If a problem appears complex:
   Restrict degrees of freedom.
   Make causality explicit.
   Let structure emerge from constraints.
+
+For advanced topics (parallel transport, capability tokens, entanglement):
+See @.claude/rules/advanced-concepts.md
 
 # FILE FORMATS
 
