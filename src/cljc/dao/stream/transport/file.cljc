@@ -3,7 +3,8 @@
    
    Supports append-only writes and cursor-based reading.
    Uses RandomAccessFile for clj to enable efficient offset-based seeking.
-   Uses Node.js fs for cljs.
+   Uses Node.js fs for cljs when running in Node.js.
+   Uses localStorage for cljs when running in the browser (to satisfy synchronous protocols).
    Serialization is line-delimited Transit JSON."
   (:require
     #?(:clj [clojure.java.io :as io])
@@ -100,7 +101,6 @@
                  newline-idx (.indexOf s "\n")]
              (if (== newline-idx -1)
                ;; Incomplete line or very long line (simpler: assume transit lines < 4096 for now)
-               ;; A more robust impl would loop and grow buffer.
                :blocked
                (let [line (.substring s 0 newline-idx)
                      val (transit/decode line)]
@@ -123,6 +123,49 @@
      (closed? [_this] @closed?-atom)))
 
 
+#?(:cljs
+   (defrecord BrowserFileStream
+     [path data-atom closed?-atom]
+
+     ds/IDaoStreamWriter
+
+     (put!
+       [_this val]
+       (if @closed?-atom
+         (throw (ex-info "Cannot put to closed stream" {:path path}))
+         (do
+           (swap! data-atom conj val)
+           ;; Persist to localStorage
+           (js/localStorage.setItem path (transit/encode @data-atom))
+           {:result :ok, :woke []})))
+
+
+     ds/IDaoStreamReader
+
+     (next
+       [_this cursor]
+       (let [pos (or (:position cursor) 0)
+             data @data-atom
+             len (count data)]
+         (cond
+           (< pos len)
+           {:ok (nth data pos)
+            :cursor {:position (inc pos)}}
+           @closed?-atom :end
+           :else :blocked)))
+
+
+     ds/IDaoStreamBound
+
+     (close!
+       [_this]
+       (reset! closed?-atom true)
+       {:woke []})
+
+
+     (closed? [_this] @closed?-atom)))
+
+
 (defn make-file-stream
   [path]
   #?(:clj
@@ -132,15 +175,20 @@
          (.createNewFile file))
        (->FileStream path (atom (RandomAccessFile. file "rw")) (atom false)))
      :cljs
-     (do
-       (when-not (fs/existsSync path)
-         ;; Ensure directory exists
-         (let [dir (path/dirname path)]
-           (when-not (fs/existsSync dir)
-             (fs/mkdirSync dir #js {:recursive true})))
-         (fs/writeFileSync path ""))
-       (let [fd (fs/openSync path "r+")]
-         (->NodeFileStream path (atom fd) (atom false))))))
+     (if (and (exists? js/window) (not (exists? js/process)))
+       ;; Browser environment: use localStorage
+       (let [existing (js/localStorage.getItem path)
+             data (if existing (transit/decode existing) [])]
+         (->BrowserFileStream path (atom data) (atom false)))
+       ;; Node.js environment: use fs
+       (do
+         (when-not (fs/existsSync path)
+           (let [dir (path/dirname path)]
+             (when-not (fs/existsSync dir)
+               (fs/mkdirSync dir #js {:recursive true})))
+           (fs/writeFileSync path ""))
+         (let [fd (fs/openSync path "r+")]
+           (->NodeFileStream path (atom fd) (atom false)))))))
 
 
 (defmethod ds/open! :file [descriptor]
