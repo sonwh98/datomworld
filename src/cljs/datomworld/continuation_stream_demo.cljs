@@ -12,6 +12,7 @@
     [datomworld.continuation-transport :as ct]
     [reagent.core :as r]
     [yang.clojure :as yang]
+    [yin.demo.utils :as demo.utils]
     [yin.vm :as vm]
     [yin.vm.register :as register]
     [yin.vm.stack :as stack]))
@@ -28,10 +29,7 @@
 (sum-to 100)")
 
 
-(defn pretty-print
-  [data]
-  (binding [pprint/*print-right-margin* 72]
-    (with-out-str (pprint/pprint data))))
+(def ^:private pretty-print demo.utils/pretty-print)
 
 
 (defn stream-last-vec

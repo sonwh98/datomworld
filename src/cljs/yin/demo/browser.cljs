@@ -20,6 +20,7 @@
     [yang.clojure :as yang]
     [yang.php :as php-comp]
     [yang.python :as py]
+    [yin.demo.utils :as demo.utils]
     [yin.vm :as vm]
     [yin.vm.ast-walker :as walker]
     [yin.vm.register :as register]
@@ -27,13 +28,10 @@
     [yin.vm.stack :as stack]))
 
 
-(defn pretty-print
-  [data]
-  (binding [pprint/*print-right-margin* 60]
-    (with-out-str (pprint/pprint data))))
+(def ^:private pretty-print demo.utils/pretty-print)
 
 
-(defn add-yin-ids
+(defn- add-yin-ids
   "Recursively add unique :yin/id to every AST node."
   [ast]
   (let [id (atom 0)]
@@ -42,7 +40,7 @@
       ast)))
 
 
-(defn ast->text-with-map
+(defn- ast->text-with-map
   "Generate pretty-printed text for AST and a source map of node IDs to ranges."
   [ast]
   (let [source-map (atom {})
@@ -407,7 +405,7 @@
   (swap! app-state assoc :vm-pane-ratios default-vm-pane-ratios))
 
 
-(defn relayout-ui!
+(defn- relayout-ui!
   ([] (relayout-ui! {}))
   ([{:keys [force? style mark-touched?],
      :or {force? false, mark-touched? false}}]
