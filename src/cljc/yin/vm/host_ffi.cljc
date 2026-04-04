@@ -12,7 +12,8 @@
     [dao.stream :as ds]
     [dao.stream.apply :as dao.stream.apply]
     [yin.vm :as vm]
-    [yin.vm.engine :as engine]))
+    [yin.vm.engine :as engine]
+    [yin.vm.telemetry :as telemetry]))
 
 
 (defn normalize
@@ -119,7 +120,10 @@
                       [(synthesize-resume-entry vm request-id response)])
             vm' (-> vm
                     (assoc-in [:bridge :cursor] cursor')
-                    (update :run-queue (fnil into []) entries))]
+                    (update :run-queue (fnil into []) entries)
+                    (telemetry/emit-snapshot :bridge
+                                             {:bridge-op request-op
+                                              :arg-shape (mapv telemetry/type-tag request-args)}))]
         {:handled? true
          :vm vm'
          :request ok

@@ -26,7 +26,8 @@
     [yin.vm.engine :as engine]
     [yin.vm.host-ffi :as host-ffi]
     [yin.vm.macro :as macro]
-    [yin.vm.semantic :as semantic])
+    [yin.vm.semantic :as semantic]
+    [yin.vm.telemetry :as telemetry])
   #?(:cljs
      (:require-macros
        [yin.vm :refer [opcase]])))
@@ -66,6 +67,10 @@
    store      ; heap memory (S in CESK)
    value      ; final result value
    wait-set   ; vector of parked continuations waiting on streams
+   telemetry    ; optional telemetry config
+   telemetry-step ; telemetry snapshot counter
+   telemetry-t  ; telemetry transaction counter
+   vm-model     ; telemetry model keyword
    ])
 
 
@@ -922,7 +927,7 @@
                 call-in (get-in parked [:store vm/call-in-stream-key])
                 request (dao.stream.apply/request parked-id op-name args)
                 _ (ds/put! call-in request)]
-            (assoc parked
+            (assoc (telemetry/emit-snapshot parked :bridge {:bridge-op op-name})
                    :value :yin/blocked
                    :blocked true
                    :halted false))
@@ -970,7 +975,10 @@
   [vm-state]
   (engine/run-loop vm-state
                    engine/active-continuation?
-                   stack-step
+                   (if (telemetry/enabled? vm-state)
+                     (fn [state]
+                       (telemetry/emit-snapshot (stack-step state) :step))
+                     stack-step)
                    resume-from-run-queue))
 
 
@@ -1384,7 +1392,8 @@
 (defn- stack-vm-run
   [vm]
   ;; Boundary recompilation requires scheduler checkpoints when dirty.
-  (if (or (:compile-dirty? vm)
+  (if (or (telemetry/enabled? vm)
+          (:compile-dirty? vm)
           (:blocked vm)
           (:halted vm)
           (seq (:run-queue vm))
@@ -1465,7 +1474,7 @@
 
 (extend-type StackVM
   vm/IVMStep
-  (step [vm] (stack-step vm))
+  (step [vm] (telemetry/emit-snapshot (stack-step vm) :step))
   (halted? [vm] (stack-vm-halted? vm))
   (blocked? [vm] (stack-vm-blocked? vm))
   (value [vm] (stack-vm-value vm))
@@ -1490,30 +1499,35 @@
 
 (defn create-vm
   "Create a new StackVM with optional opts map.
-   Accepts {:env map, :primitives map, :macro-registry map, :bridge handlers}."
+   Accepts {:env map, :primitives map, :macro-registry map, :bridge handlers, :telemetry config}."
   ([] (create-vm {}))
   ([opts]
    (let [env (or (:env opts) {})
-         bridge-state (host-ffi/bridge-from-opts opts)]
-     (map->StackVM (merge (vm/empty-state (select-keys opts [:primitives]))
-                          {:control 0,
-                           :bytecode [],
-                           :stack [],
-                           :env env,
-                           :k nil,
-                           :pool [],
-                           :compiled-by-version {},
-                           :compiled-cache-limit (or (:compiled-cache-limit opts)
-                                                     default-compiled-cache-limit),
-                           :active-compiled-version nil,
-                           :compile-dirty? false,
-                           :macro-registry (or (:macro-registry opts) {}),
-                           :program-root-eid nil,
-                           :program-datoms [],
-                           :program-version 0,
-                           :program-index nil,
-                           :halted false,
-                           :value nil,
-                           :blocked false}
-                          (when bridge-state
-                            {:bridge bridge-state}))))))
+         bridge-state (host-ffi/bridge-from-opts opts)
+         base (vm/empty-state {:primitives (:primitives opts)
+                               :telemetry (:telemetry opts)
+                               :vm-model :stack})]
+     (-> (map->StackVM (merge base
+                              {:control 0,
+                               :bytecode [],
+                               :stack [],
+                               :env env,
+                               :k nil,
+                               :pool [],
+                               :compiled-by-version {},
+                               :compiled-cache-limit (or (:compiled-cache-limit opts)
+                                                         default-compiled-cache-limit),
+                               :active-compiled-version nil,
+                               :compile-dirty? false,
+                               :macro-registry (or (:macro-registry opts) {}),
+                               :program-root-eid nil,
+                               :program-datoms [],
+                               :program-version 0,
+                               :program-index nil,
+                               :halted false,
+                               :value nil,
+                               :blocked false}
+                              (when bridge-state
+                                {:bridge bridge-state})))
+         (telemetry/install :stack)
+         (telemetry/emit-snapshot :init)))))

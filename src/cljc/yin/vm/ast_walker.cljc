@@ -5,7 +5,8 @@
     [yin.module :as module]
     [yin.vm :as vm]
     [yin.vm.engine :as engine]
-    [yin.vm.host-ffi :as host-ffi]))
+    [yin.vm.host-ffi :as host-ffi]
+    [yin.vm.telemetry :as telemetry]))
 
 
 ;; =============================================================================
@@ -45,6 +46,10 @@
    store        ; heap memory map
    value        ; last computed value
    wait-set     ; vector of parked continuations
+   telemetry    ; optional telemetry config
+   telemetry-step ; telemetry snapshot counter
+   telemetry-t  ; telemetry transaction counter
+   vm-model     ; telemetry model keyword
    ;; waiting on streams
    ])
 
@@ -68,7 +73,11 @@
       (:run-queue vm)
       (:store vm)
       val
-      (:wait-set vm))))
+      (:wait-set vm)
+      (:telemetry vm)
+      (:telemetry-step vm)
+      (:telemetry-t vm)
+      (:vm-model vm))))
 
 
 (defn- handle-primitive-result
@@ -133,7 +142,7 @@
         _ (ds/put! call-in request)]
 
     ;; 6. Return blocked state
-    (assoc parked
+    (assoc (telemetry/emit-snapshot parked :bridge {:bridge-op op})
            :control nil
            :k nil
            :value :yin/blocked
@@ -669,14 +678,18 @@
   (engine/run-loop
     vm
     engine/active-continuation?
-    vm-step
+    (if (telemetry/enabled? vm)
+      (fn [state]
+        (telemetry/emit-snapshot (vm-step state) :step))
+      vm-step)
     resume-from-run-queue))
 
 
 (defn- ast-walker-run
   "Dispatcher: chooses fast path (hot loop) or slow path (scheduler)."
   [vm]
-  (if (or (:blocked vm)
+  (if (or (telemetry/enabled? vm)
+          (:blocked vm)
           (:halted vm)
           (seq (:run-queue vm))
           (seq (:wait-set vm)))
@@ -703,7 +716,7 @@
 
 (extend-type ASTWalkerVM
   vm/IVMStep
-  (step [vm] (vm-step vm))
+  (step [vm] (telemetry/emit-snapshot (vm-step vm) :step))
   (halted? [vm] (vm-halted? vm))
   (blocked? [vm] (vm-blocked? vm))
   (value [vm] (vm-value vm))
@@ -728,17 +741,21 @@
 
 (defn create-vm
   "Create a new ASTWalkerVM with optional opts map.
-   Accepts {:env map, :primitives map, :bridge handlers}."
+   Accepts {:env map, :primitives map, :bridge handlers, :telemetry config}."
   ([] (create-vm {}))
   ([opts]
    (let [env (or (:env opts) {})
-         base (vm/empty-state (select-keys opts [:primitives]))
+         base (vm/empty-state {:primitives (:primitives opts)
+                               :telemetry (:telemetry opts)
+                               :vm-model :ast-walker})
          bridge-state (host-ffi/bridge-from-opts opts)]
-     (map->ASTWalkerVM (merge base
-                              {:bridge bridge-state,
-                               :control nil,
-                               :env env,
-                               :k nil,
-                               :value nil,
-                               :halted true,
-                               :blocked false})))))
+     (-> (map->ASTWalkerVM (merge base
+                                  {:bridge bridge-state,
+                                   :control nil,
+                                   :env env,
+                                   :k nil,
+                                   :value nil,
+                                   :halted true,
+                                   :blocked false}))
+         (telemetry/install :ast-walker)
+         (telemetry/emit-snapshot :init)))))

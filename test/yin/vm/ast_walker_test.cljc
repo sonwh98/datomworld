@@ -4,6 +4,7 @@
     [dao.db.datascript :as ds-db]
     [dao.stream :as ds]
     [dao.stream.apply :as dao.stream.apply]
+    [dao.stream.transport.ringbuffer]
     [yin.vm :as vm]
     [yin.vm.ast-walker :as ast-walker]
     [yin.vm.engine :as engine]))

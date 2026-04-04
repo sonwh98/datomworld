@@ -44,6 +44,116 @@
       (is (empty? (:run-queue result))))))
 
 
+(defn- make-stream
+  []
+  (ds/open! {:transport {:type :ringbuffer, :capacity nil}}))
+
+
+(defn- stream-values
+  [stream]
+  (vec (ds/->seq nil stream)))
+
+
+(defn- fact?
+  [datoms attr value]
+  (boolean (some #(and (= attr (nth % 1))
+                       (= value (nth % 2)))
+                 datoms)))
+
+
+(deftest handle-effect-emits-telemetry-snapshot-test
+  (testing "handle-effect emits :effect snapshots when telemetry is enabled"
+    (let [telemetry-stream (make-stream)
+          state {:blocked false
+                 :halted false
+                 :parked {}
+                 :run-queue []
+                 :wait-set []
+                 :store {}
+                 :telemetry {:stream telemetry-stream
+                             :vm-id :engine/effect}
+                 :telemetry-step 0
+                 :telemetry-t 0
+                 :vm-model :engine/test}
+          result (engine/handle-effect state
+                                       {:effect :vm/store-put
+                                        :key :answer
+                                        :val 42}
+                                       {})
+          datoms (stream-values telemetry-stream)]
+      (is (= 42 (get-in result [:state :store :answer])))
+      (is (fact? datoms :vm/phase :effect))
+      (is (fact? datoms :vm/effect-type :vm/store-put))
+      (is (fact? datoms :vm/value 42)))))
+
+
+(deftest park-and-resume-emit-telemetry-snapshots-test
+  (testing "park-continuation and resume-continuation emit phase-tagged telemetry"
+    (let [telemetry-stream (make-stream)
+          state {:blocked false
+                 :halted false
+                 :parked {}
+                 :run-queue []
+                 :wait-set []
+                 :store {}
+                 :telemetry {:stream telemetry-stream
+                             :vm-id :engine/park}
+                 :telemetry-step 0
+                 :telemetry-t 0
+                 :vm-model :engine/test}
+          parked-state (engine/park-continuation state {:continuation {:id :k}})
+          parked-id (-> parked-state :value :id)
+          resumed-state (engine/resume-continuation
+                          parked-state
+                          parked-id
+                          :resumed
+                          (fn [base _parked resume-val]
+                            (assoc base
+                                   :value resume-val
+                                   :halted true
+                                   :blocked false)))
+          datoms (stream-values telemetry-stream)]
+      (is (= :resumed (:value resumed-state)))
+      (is (fact? datoms :vm/phase :park))
+      (is (fact? datoms :vm/phase :resume))
+      (is (fact? datoms :vm/parked-id parked-id)))))
+
+
+(deftest run-loop-emits-terminal-telemetry-test
+  (testing "run-loop emits :blocked terminal snapshots"
+    (let [telemetry-stream (make-stream)
+          state {:blocked true
+                 :halted false
+                 :parked {}
+                 :run-queue []
+                 :wait-set []
+                 :store {}
+                 :telemetry {:stream telemetry-stream
+                             :vm-id :engine/blocked}
+                 :telemetry-step 0
+                 :telemetry-t 0
+                 :vm-model :engine/test}
+          _ (engine/run-loop state (fn [_] false) identity (fn [_] nil))
+          datoms (stream-values telemetry-stream)]
+      (is (fact? datoms :vm/phase :blocked))))
+  (testing "run-loop emits :halt terminal snapshots"
+    (let [telemetry-stream (make-stream)
+          state {:blocked false
+                 :halted true
+                 :parked {}
+                 :run-queue []
+                 :wait-set []
+                 :store {}
+                 :telemetry {:stream telemetry-stream
+                             :vm-id :engine/halt}
+                 :telemetry-step 0
+                 :telemetry-t 0
+                 :vm-model :engine/test}
+          _ (engine/run-loop state (fn [_] false) identity (fn [_] nil))
+          datoms (stream-values telemetry-stream)]
+      (is (fact? datoms :vm/phase :halt)))))
+
+
 ;; =============================================================================
 ;; Fallback Scheduler Tests (Non-waitable streams)
 ;; =============================================================================

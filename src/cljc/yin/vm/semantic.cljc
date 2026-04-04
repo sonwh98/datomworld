@@ -7,18 +7,17 @@
     [yin.vm :as vm]
     [yin.vm.engine :as engine]
     [yin.vm.host-ffi :as host-ffi]
-    [yin.vm.macro :as macro]))
+    [yin.vm.macro :as macro]
+    [yin.vm.telemetry :as telemetry]))
 
 
 ;; =============================================================================
 ;; Semantic VM
 ;; =============================================================================
 ;;
-;; Interprets datom 5-tuples [e a v t m] (from vm/ast->datoms) by graph
-;; traversal. Looks up node attributes via entity ID scanning the datom set.
-;;
-;; Proves the same computation can be recovered purely from the datom stream
-;; without reconstructing the original AST maps.
+;; Executes Yin datoms by traversing the entity graph.
+;; Standard record layout for CESK model.
+;; Optimized with array-backed node indexing and a mutable hot-loop.
 ;; =============================================================================
 
 
@@ -130,32 +129,8 @@
     arr))
 
 
-(defn find-by-type
-  "Find all nodes of a given type. db must satisfy IDaoDb."
-  [db node-type]
-  (db/find-eids-by-av db :yin/type node-type))
-
-
-(defn find-applications
-  "Find all function applications in the db."
-  [db]
-  (find-by-type db :application))
-
-
-(defn find-lambdas
-  "Find all lambda definitions in the db."
-  [db]
-  (find-by-type db :lambda))
-
-
-(defn find-variables
-  "Find all variable references in the db."
-  [db]
-  (find-by-type db :variable))
-
-
 ;; =============================================================================
-;; VM Records
+;; SemanticVM Record
 ;; =============================================================================
 
 (defrecord SemanticVM
@@ -178,6 +153,10 @@
    index-arr  ; array-backed node index for hot loop
    index-base-id ; base id for index-arr offset calculation
    macro-registry ; {macro-lambda-eid -> (fn [ctx] {:datoms [...] :root-eid eid})}
+   telemetry    ; optional telemetry config
+   telemetry-step ; telemetry snapshot counter
+   telemetry-t  ; telemetry transaction counter
+   vm-model     ; telemetry model keyword
    ])
 
 
@@ -210,7 +189,11 @@
     (:wait-set vm)
     (:index-arr vm)
     (:index-base-id vm)
-    (:macro-registry vm)))
+    (:macro-registry vm)
+    (:telemetry vm)
+    (:telemetry-step vm)
+    (:telemetry-t vm)
+    (:vm-model vm)))
 
 
 (defn- park-and-call
@@ -243,27 +226,13 @@
         _ (ds/put! call-in request)]
 
     ;; 6. Return blocked state
-    (assoc parked
+    (assoc (telemetry/emit-snapshot parked :bridge {:bridge-op op})
            :control nil
            :value :yin/blocked
            :blocked true
            :halted false)))
 
 
-;; Frame Type Naming Convention:
-;;
-;;   Generic control-flow frames: :keyword (e.g., :if, :app-op, :app-args, :restore-env)
-;;   These represent interpreter state during evaluation of ordinary Yin expressions.
-;;
-;;   dao.stream.apply frames: :dao.stream.apply/keyword (e.g., :dao.stream.apply/args-eval)
-;;   These represent state during argument evaluation and response handling for
-;;   asynchronous function calls across streams. The namespace prefix groups
-;;   all frames related to the dao.stream.apply protocol.
-;;
-;;   The -eval suffix indicates a frame used to evaluate and collect arguments.
-;;   Other frames in this family include :dao.stream.apply/call (the call itself)
-;;   and :dao.stream.apply/resumer (response handling after a call completes).
-;;
 (defn- handle-return-value
   [vm]
   (let [{:keys [control k]} vm
@@ -1172,10 +1141,16 @@
 (defn- semantic-vm-run
   "Run a loaded SemanticVM until halt or block."
   [^SemanticVM v]
-  (if (or (:blocked v) (:halted v) (seq (:run-queue v)))
+  (if (or (telemetry/enabled? v)
+          (:blocked v)
+          (:halted v)
+          (seq (:run-queue v)))
     (engine/run-loop v
                      engine/active-continuation?
-                     semantic-vm-step
+                     (if (telemetry/enabled? v)
+                       (fn [state]
+                         (telemetry/emit-snapshot (semantic-vm-step state) :step))
+                       semantic-vm-step)
                      resume-from-run-queue)
     ;; Run hot loop, restarting when runtime macro expansion updates the index
     (loop [v v]
@@ -1215,7 +1190,7 @@
 
 (extend-type SemanticVM
   vm/IVMStep
-  (step [vm] (semantic-vm-step vm))
+  (step [vm] (telemetry/emit-snapshot (semantic-vm-step vm) :step))
   (halted? [vm] (semantic-vm-halted? vm))
   (blocked? [vm] (semantic-vm-blocked? vm))
   (value [vm] (semantic-vm-value vm))
@@ -1240,25 +1215,30 @@
 
 (defn create-vm
   "Create a new SemanticVM with optional opts map.
-   Accepts {:env map, :primitives map, :macro-registry map, :bridge handlers}."
+   Accepts {:env map, :primitives map, :macro-registry map, :bridge handlers, :telemetry config}."
   ([] (create-vm {}))
   ([opts]
    (let [env (or (:env opts) {})
+         base (vm/empty-state {:primitives (:primitives opts)
+                               :telemetry (:telemetry opts)
+                               :vm-model :semantic})
          bridge-state (host-ffi/bridge-from-opts opts)]
-     (map->SemanticVM (merge (vm/empty-state (select-keys opts [:primitives]))
-                             {:bridge bridge-state,
-                              :control nil,
-                              :env env,
-                              :k nil,
-                              :datoms [],
-                              :index {},
-                              :index-arr (make-semantic-object-array 0),
-                              :index-base-id 0,
-                              :halted false,
-                              :value nil,
-                              :blocked false,
-                              :node-id-counter -1024,
-                              :macro-registry (or (:macro-registry opts) {})})))))
+     (-> (map->SemanticVM (merge base
+                                 {:bridge bridge-state,
+                                  :control nil,
+                                  :env env,
+                                  :k nil,
+                                  :datoms [],
+                                  :index {},
+                                  :index-arr (make-semantic-object-array 0),
+                                  :index-base-id 0,
+                                  :halted false,
+                                  :value nil,
+                                  :blocked false,
+                                  :node-id-counter -1024,
+                                  :macro-registry (or (:macro-registry opts) {})}))
+         (telemetry/install :semantic)
+         (telemetry/emit-snapshot :init)))))
 
 
 (defn- bind-variadic-params
@@ -1387,3 +1367,31 @@
         (emit! [[lit-eid :yin/type :literal 0 0]
                 [lit-eid :yin/value raw-val  0 0]])
         {:datoms (vec @extra-datoms) :root-eid lit-eid}))))
+
+
+;; =============================================================================
+;; Query utilities
+;; =============================================================================
+
+(defn find-by-type
+  "Find all entity IDs with the given :yin/type value."
+  [dao-db t]
+  (db/find-eids-by-av dao-db :yin/type t))
+
+
+(defn find-lambdas
+  "Find all lambda entities."
+  [dao-db]
+  (find-by-type dao-db :lambda))
+
+
+(defn find-applications
+  "Find all application entities."
+  [dao-db]
+  (find-by-type dao-db :application))
+
+
+(defn find-variables
+  "Find all variable entities."
+  [dao-db]
+  (find-by-type dao-db :variable))

@@ -25,7 +25,8 @@
     [yin.vm.engine :as engine]
     [yin.vm.host-ffi :as host-ffi]
     [yin.vm.macro :as macro]
-    [yin.vm.semantic :as semantic])
+    [yin.vm.semantic :as semantic]
+    [yin.vm.telemetry :as telemetry])
   #?(:cljs
      (:require-macros
        [yin.vm :refer [opcase]])))
@@ -37,6 +38,7 @@
 
 (defrecord RegisterVM
   [blocked    ; true if blocked
+   bridge     ; explicit host-side FFI bridge state
    bytecode   ; numeric bytecode vector
    compiled-by-version ; {program-version -> compiled artifact}
    compiled-cache-limit ; max retained compiled artifacts
@@ -60,6 +62,10 @@
    store      ; heap memory (S in CESK)
    value      ; final result value
    wait-set   ; vector of parked continuations waiting on streams
+   telemetry    ; optional telemetry config
+   telemetry-step ; telemetry snapshot counter
+   telemetry-t  ; telemetry transaction counter
+   vm-model     ; telemetry model keyword
    ])
 
 
@@ -922,7 +928,7 @@
               call-in (get-in parked [:store vm/call-in-stream-key])
               request (dao.stream.apply/request parked-id op args)
               _ (ds/put! call-in request)]
-          (assoc parked
+          (assoc (telemetry/emit-snapshot parked :bridge {:bridge-op op})
                  :value :yin/blocked
                  :blocked true
                  :halted false))
@@ -1034,12 +1040,12 @@
                                       (fn [new-state parked rv]
                                         (restore-frame new-state parked rv))))
         :current-cont
-        (let [rd (nth bytecode (inc control))
-              cont (assoc (snap-frame state rd (+ control 2))
-                          :type :reified-continuation)]
-          (assoc state
-                 :regs (assoc regs rd cont)
-                 :control (+ control 2)))
+        (let [rd (nth bytecode (inc control))]
+          (let [cont (assoc (snap-frame state rd (+ control 2))
+                            :type :reified-continuation)]
+            (assoc state
+                   :regs (assoc regs rd cont)
+                   :control (+ control 2))))
         (throw (ex-info "Unknown bytecode opcode" {:op op, :control control}))))))
 
 
@@ -1066,7 +1072,10 @@
   [vm-state]
   (engine/run-loop vm-state
                    engine/active-continuation?
-                   reg-vm-step
+                   (if (telemetry/enabled? vm-state)
+                     (fn [state]
+                       (telemetry/emit-snapshot (reg-vm-step state) :step))
+                     reg-vm-step)
                    resume-from-run-queue))
 
 
@@ -1310,7 +1319,7 @@
                            clo-bytecode
                            clo-pool
                            id-counter))
-                  :else (throw (ex-info "Cannot call non-function"
+                  :else (throw (ex-info "Cannot apply non-function"
                                         {:fn fn-val}))))
           :return
           (let [rs (nth bytecode (inc control))
@@ -1409,7 +1418,8 @@
 (defn- reg-vm-run
   [vm]
   ;; Boundary recompilation requires scheduler checkpoints when dirty.
-  (if (or (:compile-dirty? vm)
+  (if (or (telemetry/enabled? vm)
+          (:compile-dirty? vm)
           (:blocked vm)
           (:halted vm)
           (seq (:run-queue vm))
@@ -1505,7 +1515,7 @@
 
 (extend-type RegisterVM
   vm/IVMStep
-  (step [vm] (reg-vm-step vm))
+  (step [vm] (telemetry/emit-snapshot (reg-vm-step vm) :step))
   (halted? [vm] (reg-vm-halted? vm))
   (blocked? [vm] (reg-vm-blocked? vm))
   (value [vm] (reg-vm-value vm))
@@ -1532,30 +1542,35 @@
 
 (defn create-vm
   "Create a new RegisterVM with optional opts map.
-   Accepts {:env map, :primitives map, :macro-registry map, :bridge handlers}."
+   Accepts {:env map, :primitives map, :macro-registry map, :bridge handlers, :telemetry config}."
   ([] (create-vm {}))
   ([opts]
    (let [env (or (:env opts) {})
-         bridge-state (host-ffi/bridge-from-opts opts)]
-     (map->RegisterVM (merge (vm/empty-state (select-keys opts [:primitives]))
-                             {:regs [],
-                              :k nil,
-                              :env env,
-                              :control 0,
-                              :bytecode nil,
-                              :pool nil,
-                              :compiled-by-version {},
-                              :compiled-cache-limit (or (:compiled-cache-limit opts)
-                                                        default-compiled-cache-limit),
-                              :active-compiled-version nil,
-                              :compile-dirty? false,
-                              :macro-registry (or (:macro-registry opts) {}),
-                              :program-root-eid nil,
-                              :program-datoms [],
-                              :program-version 0,
-                              :program-index nil,
-                              :halted false,
-                              :value nil,
-                              :blocked false}
-                             (when bridge-state
-                               {:bridge bridge-state}))))))
+         bridge-state (host-ffi/bridge-from-opts opts)
+         base (vm/empty-state {:primitives (:primitives opts)
+                               :telemetry (:telemetry opts)
+                               :vm-model :register})]
+     (-> (map->RegisterVM (merge base
+                                 {:regs [],
+                                  :k nil,
+                                  :env env,
+                                  :control 0,
+                                  :bytecode nil,
+                                  :pool nil,
+                                  :compiled-by-version {},
+                                  :compiled-cache-limit (or (:compiled-cache-limit opts)
+                                                            default-compiled-cache-limit),
+                                  :active-compiled-version nil,
+                                  :compile-dirty? false,
+                                  :macro-registry (or (:macro-registry opts) {}),
+                                  :program-root-eid nil,
+                                  :program-datoms [],
+                                  :program-version 0,
+                                  :program-index nil,
+                                  :halted false,
+                                  :value nil,
+                                  :blocked false}
+                                 (when bridge-state
+                                   {:bridge bridge-state})))
+         (telemetry/install :register)
+         (telemetry/emit-snapshot :init)))))
