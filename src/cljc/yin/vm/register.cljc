@@ -8,6 +8,12 @@
    - Continuation :k is always first-class and explicit
    - No implicit call stack - continuation IS the stack
 
+   Mapping to CESK:
+   - Control (C):     :control (integer program counter into :bytecode)
+   - Environment (E): :env (lexical bindings)
+   - Store (S):       :store (shared heap memory)
+   - Kontinuation (K): :k (linked list of frames, which save regs/control/env)
+
    Executes numeric bytecode produced by assemble.
    The compilation pipeline is: AST datoms -> ast-datoms->asm (symbolic IR) -> assemble (numeric).
    See ast-datoms->asm docstring for the full instruction set."
@@ -19,7 +25,8 @@
     [yin.vm.engine :as engine]
     [yin.vm.host-ffi :as host-ffi]
     [yin.vm.macro :as macro]
-    [yin.vm.semantic :as semantic])
+    [yin.vm.semantic :as semantic]
+    [yin.vm.telemetry :as telemetry])
   #?(:cljs
      (:require-macros
        [yin.vm :refer [opcase]])))
@@ -31,29 +38,34 @@
 
 (defrecord RegisterVM
   [blocked    ; true if blocked
+   bridge     ; explicit host-side FFI bridge state
    bytecode   ; numeric bytecode vector
    compiled-by-version ; {program-version -> compiled artifact}
    compiled-cache-limit ; max retained compiled artifacts
    active-compiled-version ; compiled program version for new control transfers
    compile-dirty? ; canonical datom stream changed since last compile
-   env        ; lexical environment
+   env        ; lexical environment (E in CESK)
    halted     ; true if execution completed
    id-counter ; unique ID counter
-   k          ; continuation (call frame stack)
+   k          ; continuation (K in CESK)
    macro-registry ; {macro-lambda-eid -> (fn [ctx] {:datoms [...] :root-eid eid})}
    parked     ; parked continuations
-   pc         ; program counter
+   control    ; program counter (C in CESK)
    pool       ; constant pool
    program-datoms ; canonical bounded datom stream snapshot
    program-index ; derived datom index for compilation
    program-root-eid ; root entity id of canonical program
    program-version ; monotonic program version for append/recompile lifecycle
    primitives ; primitive operations
-   regs       ; virtual registers vector
+   regs       ; virtual registers vector (part of K in CESK)
    run-queue  ; vector of runnable continuations
-   store      ; heap memory
+   store      ; heap memory (S in CESK)
    value      ; final result value
    wait-set   ; vector of parked continuations waiting on streams
+   telemetry    ; optional telemetry config
+   telemetry-step ; telemetry snapshot counter
+   telemetry-t  ; telemetry transaction counter
+   vm-model     ; telemetry model keyword
    ])
 
 
@@ -374,7 +386,7 @@
       (let [acc (cond-> acc
                   (some? (:compiled-version f))
                   (conj (:compiled-version f)))]
-        (if-let [parent (:k f)]
+        (if-let [parent (:next f)]
           (recur parent acc)
           acc))
       acc)))
@@ -500,7 +512,7 @@
   (assoc vm
          :regs (vec (repeat (:reg-count artifact 0) nil))
          :k nil
-         :pc 0
+         :control 0
          :bytecode (:bytecode artifact)
          :pool (:pool artifact)
          :halted false
@@ -655,10 +667,10 @@
 
 (defn- snap-frame
   "Snapshot current VM frame for parking or reification."
-  [{:keys [regs k env bytecode pool active-compiled-version]} rd next-pc]
-  {:pc next-pc,
+  [{:keys [regs k env bytecode pool active-compiled-version]} rd next-control]
+  {:control next-control,
    :regs regs,
-   :k k,
+   :next k,
    :env env,
    :bytecode bytecode,
    :pool pool,
@@ -668,13 +680,13 @@
 
 (defn- native-park-entry
   "Build wait-set entry for native stream effects."
-  [state effect stream-result rd next-pc]
+  [state effect stream-result rd next-control]
   (case (:effect effect)
-    :stream/put (merge (snap-frame state rd next-pc)
+    :stream/put (merge (snap-frame state rd next-control)
                        {:reason :put,
                         :stream-id (:stream-id stream-result),
                         :datom (:val effect)})
-    :stream/next (merge (snap-frame state rd next-pc)
+    :stream/next (merge (snap-frame state rd next-control)
                         {:reason :next,
                          :cursor-ref (:cursor-ref stream-result),
                          :stream-id (:stream-id stream-result)})
@@ -685,9 +697,9 @@
   "Restore VM state from a snapshot, optionally pushing a result into rd."
   ([state frame]
    (assoc state
-          :pc (:pc frame)
+          :control (:control frame)
           :regs (:regs frame)
-          :k (:k frame)
+          :k (:next frame)
           :env (:env frame)
           :bytecode (or (:bytecode frame) (:bytecode state))
           :pool (or (:pool frame) (:pool state))
@@ -696,9 +708,9 @@
   ([state frame value]
    (let [rd (:result-reg frame)]
      (assoc state
-            :pc (:pc frame)
+            :control (:control frame)
             :regs (if rd (assoc (:regs frame) rd value) (:regs frame))
-            :k (:k frame)
+            :k (:next frame)
             :env (:env frame)
             :bytecode (or (:bytecode frame) (:bytecode state))
             :pool (or (:pool frame) (:pool state))
@@ -708,17 +720,17 @@
 
 (defn- handle-native-result
   "Handle result of calling a native fn. Routes effects through handle-effect."
-  [{:keys [regs], :as state} result rd next-pc]
+  [{:keys [regs], :as state} result rd next-control]
   (if (module/effect? result)
     (let [effect-opts (case (:effect result)
                         :stream/put {:park-entry-fns
                                      {:stream/put
                                       (fn [s e r]
-                                        (native-park-entry s e r rd next-pc))}}
+                                        (native-park-entry s e r rd next-control))}}
                         :stream/next {:park-entry-fns
                                       {:stream/next
                                        (fn [s e r]
-                                         (native-park-entry s e r rd next-pc))}}
+                                         (native-park-entry s e r rd next-control))}}
                         {})
           {:keys [state value blocked?]}
           (engine/handle-effect state result effect-opts)]
@@ -726,10 +738,10 @@
         state
         (assoc state
                :regs (assoc regs rd value)
-               :pc next-pc)))
+               :control next-control)))
     (assoc state
            :regs (assoc regs rd result)
-           :pc next-pc)))
+           :control next-control)))
 
 
 ;; =============================================================================
@@ -742,42 +754,42 @@
 (defn- reg-vm-step
   "Execute one bytecode instruction. Returns updated state."
   [state]
-  (let [op0 (nth (:bytecode state) (:pc state) nil)
+  (let [op0 (nth (:bytecode state) (:control state) nil)
         state (if (and (:compile-dirty? state)
                        (or (= op0 (vm/opcode-table :call))
                            (= op0 (vm/opcode-table :tailcall))))
                 (maybe-recompile-at-boundary state)
                 state)
-        {:keys [bytecode pool pc regs env store k primitives]} state
-        op (nth bytecode pc nil)]
+        {:keys [bytecode pool control regs env store k primitives]} state
+        op (nth bytecode control nil)]
     (if (nil? op)
-      (throw (ex-info "Bytecode ended without return instruction" {:pc pc}))
+      (throw (ex-info "Bytecode ended without return instruction" {:control control}))
       (vm/opcase
         op
         :literal
-        (let [rd (nth bytecode (inc pc))
-              v (nth pool (nth bytecode (+ pc 2)))]
+        (let [rd (nth bytecode (inc control))
+              v (nth pool (nth bytecode (+ control 2)))]
           (assoc state
                  :regs (assoc regs rd v)
-                 :pc (+ pc 3)))
+                 :control (+ control 3)))
         :load-var
-        (let [rd (nth bytecode (inc pc))
-              name (nth pool (nth bytecode (+ pc 2)))
+        (let [rd (nth bytecode (inc control))
+              name (nth pool (nth bytecode (+ control 2)))
               v (engine/resolve-var env store primitives name)]
           (assoc state
                  :regs (assoc regs rd v)
-                 :pc (+ pc 3)))
+                 :control (+ control 3)))
         :move
-        (let [rd (nth bytecode (inc pc))
-              rs (nth bytecode (+ pc 2))]
+        (let [rd (nth bytecode (inc control))
+              rs (nth bytecode (+ control 2))]
           (assoc state
                  :regs (assoc regs rd (get-reg regs rs))
-                 :pc (+ pc 3)))
+                 :control (+ control 3)))
         :lambda
-        (let [rd (nth bytecode (inc pc))
-              params (nth pool (nth bytecode (+ pc 2)))
-              reg-count (nth bytecode (+ pc 3))
-              body-addr (nth bytecode (+ pc 4))
+        (let [rd (nth bytecode (inc control))
+              params (nth pool (nth bytecode (+ control 2)))
+              reg-count (nth bytecode (+ control 3))
+              body-addr (nth bytecode (+ control 4))
               closure {:type :closure,
                        :params params,
                        :body-addr body-addr,
@@ -790,17 +802,17 @@
                        :compiled-version (:active-compiled-version state)}]
           (assoc state
                  :regs (assoc regs rd closure)
-                 :pc (+ pc 5)))
+                 :control (+ control 5)))
         :call
-        (let [rd (nth bytecode (inc pc))
-              rf (nth bytecode (+ pc 2))
-              argc (nth bytecode (+ pc 3))
-              arg-base (+ pc 4)
+        (let [rd (nth bytecode (inc control))
+              rf (nth bytecode (+ control 2))
+              argc (nth bytecode (+ control 3))
+              arg-base (+ control 4)
               fn-val (get-reg regs rf)
-              next-pc (+ arg-base argc)]
+              next-control (+ arg-base argc)]
           (cond (fn? fn-val)
                 (let [result (invoke-native fn-val regs bytecode arg-base argc)]
-                  (handle-native-result state result rd next-pc))
+                  (handle-native-result state result rd next-control))
                 (= :closure (:type fn-val))
                 (let [{clo-params :params,
                        body-addr :body-addr,
@@ -813,13 +825,13 @@
                                     (vec (repeat (:reg-count fn-val) nil)))
                       new-frame {:type :call-frame,
                                  :result-reg rd,
-                                 :pc next-pc,
+                                 :control next-control,
                                  :regs regs,
                                  :env env,
                                  :bytecode bytecode,
                                  :pool pool,
                                  :compiled-version (:active-compiled-version state),
-                                 :k k}
+                                 :next k}
                       new-env (bind-closure-env
                                 clo-env
                                 clo-params
@@ -835,16 +847,16 @@
                          :pool clo-pool
                          :active-compiled-version (or clo-version
                                                       (:active-compiled-version state))
-                         :pc body-addr))
+                         :control body-addr))
                 :else (throw (ex-info "Cannot call non-function"
                                       {:fn fn-val}))))
         :tailcall
-        (let [rd (nth bytecode (inc pc))
-              rf (nth bytecode (+ pc 2))
-              argc (nth bytecode (+ pc 3))
-              arg-base (+ pc 4)
+        (let [rd (nth bytecode (inc control))
+              rf (nth bytecode (+ control 2))
+              argc (nth bytecode (+ control 3))
+              arg-base (+ control 4)
               fn-val (get-reg regs rf)
-              next-pc (+ arg-base argc)]
+              next-control (+ arg-base argc)]
           (cond (fn? fn-val)
                 (let [result (invoke-native fn-val regs bytecode arg-base argc)]
                   (if (module/effect? result)
@@ -853,12 +865,12 @@
                                            :store (assoc store
                                                          (:key result) (:val result))
                                            :regs (assoc regs rd (:val result))
-                                           :pc next-pc)
+                                           :control next-control)
                       (throw (ex-info "Unhandled effect in tailcall"
                                       {:effect result})))
                     (assoc state
                            :regs (assoc regs rd result)
-                           :pc next-pc)))
+                           :control next-control)))
                 (= :closure (:type fn-val))
                 (let [{clo-params :params,
                        body-addr :body-addr,
@@ -885,17 +897,17 @@
                          :pool clo-pool
                          :active-compiled-version (or clo-version
                                                       (:active-compiled-version state))
-                         :pc body-addr))
+                         :control body-addr))
                 :else (throw (ex-info "Cannot call non-function"
                                       {:fn fn-val}))))
         :dao.stream.apply/call
-        (let [rd (nth bytecode (inc pc))
-              op (nth pool (nth bytecode (+ pc 2)))
-              argc (nth bytecode (+ pc 3))
-              arg-base (+ pc 4)
+        (let [rd (nth bytecode (inc control))
+              op (nth pool (nth bytecode (+ control 2)))
+              argc (nth bytecode (+ control 3))
+              arg-base (+ control 4)
               args (collect-call-args regs bytecode arg-base argc)
-              next-pc (+ arg-base argc)
-              park-snapshot (snap-frame state rd next-pc)
+              next-control (+ arg-base argc)
+              park-snapshot (snap-frame state rd next-control)
               parked (engine/park-continuation state park-snapshot)
               parked-id (get-in parked [:value :id])
 
@@ -916,12 +928,12 @@
               call-in (get-in parked [:store vm/call-in-stream-key])
               request (dao.stream.apply/request parked-id op args)
               _ (ds/put! call-in request)]
-          (assoc parked
+          (assoc (telemetry/emit-snapshot parked :bridge {:bridge-op op})
                  :value :yin/blocked
                  :blocked true
                  :halted false))
         :return
-        (let [rs (nth bytecode (inc pc))
+        (let [rs (nth bytecode (inc control))
               result (get-reg regs rs)]
           (if (nil? k)
             (assoc state
@@ -929,45 +941,45 @@
                    :value result)
             (restore-frame state k result)))
         :branch
-        (let [rt (nth bytecode (inc pc))
-              then-addr (nth bytecode (+ pc 2))
-              else-addr (nth bytecode (+ pc 3))
+        (let [rt (nth bytecode (inc control))
+              then-addr (nth bytecode (+ control 2))
+              else-addr (nth bytecode (+ control 3))
               test-val (get-reg regs rt)]
-          (assoc state :pc (if test-val then-addr else-addr)))
+          (assoc state :control (if test-val then-addr else-addr)))
         :jump
-        (let [addr (nth bytecode (inc pc))] (assoc state :pc addr))
+        (let [addr (nth bytecode (inc control))] (assoc state :control addr))
         :gensym
-        (let [rd (nth bytecode (inc pc))
-              prefix (nth pool (nth bytecode (+ pc 2)))
+        (let [rd (nth bytecode (inc control))
+              prefix (nth pool (nth bytecode (+ control 2)))
               [id s'] (engine/gensym state prefix)]
           (assoc s'
                  :regs (assoc regs rd id)
-                 :pc (+ pc 3)))
+                 :control (+ control 3)))
         :store-get
-        (let [rd (nth bytecode (inc pc))
-              key (nth pool (nth bytecode (+ pc 2)))
+        (let [rd (nth bytecode (inc control))
+              key (nth pool (nth bytecode (+ control 2)))
               val (get store key)]
           (assoc state
                  :regs (assoc regs rd val)
-                 :pc (+ pc 3)))
+                 :control (+ control 3)))
         :store-put
-        (let [rs (nth bytecode (inc pc))
-              key (nth pool (nth bytecode (+ pc 2)))
+        (let [rs (nth bytecode (inc control))
+              key (nth pool (nth bytecode (+ control 2)))
               val (get-reg regs rs)]
           (assoc state
                  :store (assoc store key val)
-                 :pc (+ pc 3)))
+                 :control (+ control 3)))
         :stream-make
-        (let [rd (nth bytecode (inc pc))
-              buf (nth pool (nth bytecode (+ pc 2)))
+        (let [rd (nth bytecode (inc control))
+              buf (nth pool (nth bytecode (+ control 2)))
               effect {:effect :stream/make, :capacity buf}
               {:keys [state value]} (engine/handle-effect state effect {})]
           (assoc state
                  :regs (assoc regs rd value)
-                 :pc (+ pc 3)))
+                 :control (+ control 3)))
         :stream-put
-        (let [rs (nth bytecode (inc pc))
-              rt (nth bytecode (+ pc 2))
+        (let [rs (nth bytecode (inc control))
+              rt (nth bytecode (+ control 2))
               val (get-reg regs rs)
               stream-ref (get-reg regs rt)
               effect {:effect :stream/put, :stream stream-ref, :val val}
@@ -976,24 +988,21 @@
                 state
                 effect
                 {:park-entry-fns {:stream/put
-                                  (fn [_s _e r]
-                                    (merge (snap-frame state rs (+ pc 3))
-                                           {:reason :put,
-                                            :stream-id (:stream-id r),
-                                            :datom val}))}})]
-          (if blocked? state (assoc state :pc (+ pc 3))))
+                                  (fn [s e r]
+                                    (native-park-entry s e r rs (+ control 3)))}})]
+          (if blocked? state (assoc state :control (+ control 3))))
         :stream-cursor
-        (let [rd (nth bytecode (inc pc))
-              rs (nth bytecode (+ pc 2))
+        (let [rd (nth bytecode (inc control))
+              rs (nth bytecode (+ control 2))
               stream-ref (get-reg regs rs)
               effect {:effect :stream/cursor, :stream stream-ref}
               {:keys [state value]} (engine/handle-effect state effect {})]
           (assoc state
                  :regs (assoc regs rd value)
-                 :pc (+ pc 3)))
+                 :control (+ control 3)))
         :stream-next
-        (let [rd (nth bytecode (inc pc))
-              rs (nth bytecode (+ pc 2))
+        (let [rd (nth bytecode (inc control))
+              rs (nth bytecode (+ control 2))
               cursor-ref (get-reg regs rs)
               effect {:effect :stream/next, :cursor cursor-ref}
               {:keys [state value blocked?]}
@@ -1001,31 +1010,28 @@
                 state
                 effect
                 {:park-entry-fns {:stream/next
-                                  (fn [_s _e r]
-                                    (merge (snap-frame state rd (+ pc 3))
-                                           {:reason :next,
-                                            :cursor-ref (:cursor-ref r),
-                                            :stream-id (:stream-id r)}))}})]
+                                  (fn [s e r]
+                                    (native-park-entry s e r rd (+ control 3)))}})]
           (if blocked?
             state
             (assoc state
                    :regs (assoc regs rd value)
-                   :pc (+ pc 3))))
+                   :control (+ control 3))))
         :stream-close
-        (let [rd (nth bytecode (inc pc))
-              rs (nth bytecode (+ pc 2))
+        (let [rd (nth bytecode (inc control))
+              rs (nth bytecode (+ control 2))
               stream-ref (get-reg regs rs)
               effect {:effect :stream/close, :stream stream-ref}
               {:keys [state value]} (engine/handle-effect state effect {})]
           (assoc state
                  :regs (assoc regs rd value)
-                 :pc (+ pc 3)))
+                 :control (+ control 3)))
         :park
-        (let [rd (nth bytecode (inc pc))]
-          (engine/park-continuation state (snap-frame state rd (+ pc 2))))
+        (let [rd (nth bytecode (inc control))]
+          (engine/park-continuation state (snap-frame state rd (+ control 2))))
         :resume
-        (let [rs (nth bytecode (inc pc))
-              rt (nth bytecode (+ pc 2))
+        (let [rs (nth bytecode (inc control))
+              rt (nth bytecode (+ control 2))
               parked-id (get-reg regs rs)
               resume-val (get-reg regs rt)]
           (engine/resume-continuation state
@@ -1034,13 +1040,13 @@
                                       (fn [new-state parked rv]
                                         (restore-frame new-state parked rv))))
         :current-cont
-        (let [rd (nth bytecode (inc pc))
-              cont (assoc (snap-frame state rd (+ pc 2))
-                          :type :reified-continuation)]
-          (assoc state
-                 :regs (assoc regs rd cont)
-                 :pc (+ pc 2)))
-        (throw (ex-info "Unknown bytecode opcode" {:op op, :pc pc}))))))
+        (let [rd (nth bytecode (inc control))]
+          (let [cont (assoc (snap-frame state rd (+ control 2))
+                            :type :reified-continuation)]
+            (assoc state
+                   :regs (assoc regs rd cont)
+                   :control (+ control 2))))
+        (throw (ex-info "Unknown bytecode opcode" {:op op, :control control}))))))
 
 
 ;; =============================================================================
@@ -1066,7 +1072,10 @@
   [vm-state]
   (engine/run-loop vm-state
                    engine/active-continuation?
-                   reg-vm-step
+                   (if (telemetry/enabled? vm-state)
+                     (fn [state]
+                       (telemetry/emit-snapshot (reg-vm-step state) :step))
+                     reg-vm-step)
                    resume-from-run-queue))
 
 
@@ -1075,9 +1084,9 @@
 
 (defn- materialize-fast-state
   "Materialize loop locals back into a RegisterVM value."
-  [vm pc regs env store k bytecode pool id-counter]
+  [vm control regs env store k bytecode pool id-counter]
   (assoc vm
-         :pc pc
+         :control control
          :regs (regs->vector regs)
          :env env
          :store store
@@ -1091,8 +1100,8 @@
 
 (defn- fast-call-frame
   "Compact call-frame representation for the fast loop."
-  [result-reg next-pc regs env bytecode pool parent-k]
-  [:fast-call result-reg next-pc regs env bytecode pool parent-k])
+  [result-reg next-control regs env bytecode pool parent-k]
+  [:fast-call result-reg next-control regs env bytecode pool parent-k])
 
 
 (defn- fast-call-frame?
@@ -1106,12 +1115,12 @@
   (if (fast-call-frame? frame)
     {:type :call-frame,
      :result-reg (nth frame 1),
-     :pc (nth frame 2),
+     :control (nth frame 2),
      :regs (regs->vector (nth frame 3)),
      :env (nth frame 4),
      :bytecode (nth frame 5),
      :pool (nth frame 6),
-     :k (fast-frame->map (nth frame 7))}
+     :next (fast-frame->map (nth frame 7))}
     frame))
 
 
@@ -1119,7 +1128,7 @@
   "Fast register VM run loop that keeps hot execution state in locals.
    Falls back to the generic scheduler loop when stream/control effects appear."
   [vm]
-  (loop [pc (:pc vm)
+  (loop [control (:control vm)
          regs (regs->array (:regs vm))
          env (:env vm)
          store (:store vm)
@@ -1127,11 +1136,11 @@
          bytecode (:bytecode vm)
          pool (:pool vm)
          id-counter (:id-counter vm)]
-    (let [op (nth bytecode pc nil)
+    (let [op (nth bytecode control nil)
           fallback #(reg-vm-run-scheduler
                       (materialize-fast-state
                         vm
-                        pc
+                        control
                         regs
                         env
                         store
@@ -1140,30 +1149,30 @@
                         pool
                         id-counter))]
       (if (nil? op)
-        (throw (ex-info "Bytecode ended without return instruction" {:pc pc}))
+        (throw (ex-info "Bytecode ended without return instruction" {:control control}))
         (vm/opcase
           op
           :literal
-          (let [rd (nth bytecode (inc pc))
-                v (nth pool (nth bytecode (+ pc 2)))]
+          (let [rd (nth bytecode (inc control))
+                v (nth pool (nth bytecode (+ control 2)))]
             (reg-array-set! regs rd v)
-            (recur (+ pc 3) regs env store k bytecode pool id-counter))
+            (recur (+ control 3) regs env store k bytecode pool id-counter))
           :load-var
-          (let [rd (nth bytecode (inc pc))
-                name (nth pool (nth bytecode (+ pc 2)))
+          (let [rd (nth bytecode (inc control))
+                name (nth pool (nth bytecode (+ control 2)))
                 v (engine/resolve-var env store (:primitives vm) name)]
             (reg-array-set! regs rd v)
-            (recur (+ pc 3) regs env store k bytecode pool id-counter))
+            (recur (+ control 3) regs env store k bytecode pool id-counter))
           :move
-          (let [rd (nth bytecode (inc pc))
-                rs (nth bytecode (+ pc 2))]
+          (let [rd (nth bytecode (inc control))
+                rs (nth bytecode (+ control 2))]
             (reg-array-set! regs rd (get-reg regs rs))
-            (recur (+ pc 3) regs env store k bytecode pool id-counter))
+            (recur (+ control 3) regs env store k bytecode pool id-counter))
           :lambda
-          (let [rd (nth bytecode (inc pc))
-                params (nth pool (nth bytecode (+ pc 2)))
-                reg-count (nth bytecode (+ pc 3))
-                body-addr (nth bytecode (+ pc 4))
+          (let [rd (nth bytecode (inc control))
+                params (nth pool (nth bytecode (+ control 2)))
+                reg-count (nth bytecode (+ control 3))
+                body-addr (nth bytecode (+ control 4))
                 closure {:type :closure,
                          :params params,
                          :body-addr body-addr,
@@ -1172,22 +1181,23 @@
                          :empty-regs-arr (make-empty-regs-array reg-count),
                          :env env,
                          :bytecode bytecode,
-                         :pool pool}]
+                         :pool pool,
+                         :compiled-version (:active-compiled-version vm)}]
             (reg-array-set! regs rd closure)
-            (recur (+ pc 5) regs env store k bytecode pool id-counter))
+            (recur (+ control 5) regs env store k bytecode pool id-counter))
           :call
-          (let [rd (nth bytecode (inc pc))
-                rf (nth bytecode (+ pc 2))
-                argc (nth bytecode (+ pc 3))
-                arg-base (+ pc 4)
+          (let [rd (nth bytecode (inc control))
+                rf (nth bytecode (+ control 2))
+                argc (nth bytecode (+ control 3))
+                arg-base (+ control 4)
                 fn-val (get-reg regs rf)
-                next-pc (+ arg-base argc)]
+                next-control (+ arg-base argc)]
             (cond (fn? fn-val)
                   (let [result (invoke-native fn-val regs bytecode arg-base argc)]
                     (if (module/effect? result)
                       (-> (materialize-fast-state
                             vm
-                            pc
+                            control
                             regs
                             env
                             store
@@ -1195,11 +1205,11 @@
                             bytecode
                             pool
                             id-counter)
-                          (handle-native-result result rd next-pc)
+                          (handle-native-result result rd next-control)
                           reg-vm-run-scheduler)
                       (do
                         (reg-array-set! regs rd result)
-                        (recur next-pc
+                        (recur next-control
                                regs
                                env
                                store
@@ -1223,7 +1233,7 @@
                                           (:reg-count fn-val))))
                         new-frame (fast-call-frame
                                     rd
-                                    next-pc
+                                    next-control
                                     regs
                                     env
                                     bytecode
@@ -1247,12 +1257,12 @@
                   :else (throw (ex-info "Cannot call non-function"
                                         {:fn fn-val}))))
           :tailcall
-          (let [rd (nth bytecode (inc pc))
-                rf (nth bytecode (+ pc 2))
-                argc (nth bytecode (+ pc 3))
-                arg-base (+ pc 4)
+          (let [rd (nth bytecode (inc control))
+                rf (nth bytecode (+ control 2))
+                argc (nth bytecode (+ control 3))
+                arg-base (+ control 4)
                 fn-val (get-reg regs rf)
-                next-pc (+ arg-base argc)]
+                next-control (+ arg-base argc)]
             (cond (fn? fn-val)
                   (let [result (invoke-native fn-val regs bytecode arg-base argc)]
                     (if (module/effect? result)
@@ -1260,7 +1270,7 @@
                         :vm/store-put
                         (do
                           (reg-array-set! regs rd (:val result))
-                          (recur next-pc
+                          (recur next-control
                                  regs
                                  env
                                  (assoc store (:key result) (:val result))
@@ -1272,7 +1282,7 @@
                                         {:effect result})))
                       (do
                         (reg-array-set! regs rd result)
-                        (recur next-pc
+                        (recur next-control
                                regs
                                env
                                store
@@ -1309,15 +1319,15 @@
                            clo-bytecode
                            clo-pool
                            id-counter))
-                  :else (throw (ex-info "Cannot call non-function"
+                  :else (throw (ex-info "Cannot apply non-function"
                                         {:fn fn-val}))))
           :return
-          (let [rs (nth bytecode (inc pc))
+          (let [rs (nth bytecode (inc control))
                 result (get-reg regs rs)]
             (cond
               (nil? k)
               (assoc vm
-                     :pc pc
+                     :control control
                      :regs (regs->vector regs)
                      :env env
                      :store store
@@ -1330,7 +1340,7 @@
                      :blocked false)
               (fast-call-frame? k)
               (let [rd (nth k 1)
-                    frame-pc (nth k 2)
+                    frame-control (nth k 2)
                     frame-regs (nth k 3)
                     frame-env (nth k 4)
                     frame-bytecode (nth k 5)
@@ -1338,7 +1348,7 @@
                     parent-k (nth k 7)]
                 (when (some? rd)
                   (reg-array-set! frame-regs rd result))
-                (recur frame-pc
+                (recur frame-control
                        frame-regs
                        frame-env
                        store
@@ -1353,18 +1363,18 @@
                     pool' (or (:pool k) pool)]
                 (when (some? rd)
                   (reg-array-set! frame-regs rd result))
-                (recur (:pc k)
+                (recur (:control k)
                        frame-regs
                        (:env k)
                        store
-                       (:k k)
+                       (:next k)
                        bytecode'
                        pool'
                        id-counter))))
           :branch
-          (let [rt (nth bytecode (inc pc))
-                then-addr (nth bytecode (+ pc 2))
-                else-addr (nth bytecode (+ pc 3))
+          (let [rt (nth bytecode (inc control))
+                then-addr (nth bytecode (+ control 2))
+                else-addr (nth bytecode (+ control 3))
                 test-val (get-reg regs rt)]
             (recur (if test-val then-addr else-addr)
                    regs
@@ -1375,25 +1385,25 @@
                    pool
                    id-counter))
           :jump
-          (let [addr (nth bytecode (inc pc))]
+          (let [addr (nth bytecode (inc control))]
             (recur addr regs env store k bytecode pool id-counter))
           :gensym
-          (let [rd (nth bytecode (inc pc))
-                prefix (nth pool (nth bytecode (+ pc 2)))
+          (let [rd (nth bytecode (inc control))
+                prefix (nth pool (nth bytecode (+ control 2)))
                 id (keyword (str prefix "-" id-counter))]
             (reg-array-set! regs rd id)
-            (recur (+ pc 3) regs env store k bytecode pool (inc id-counter)))
+            (recur (+ control 3) regs env store k bytecode pool (inc id-counter)))
           :store-get
-          (let [rd (nth bytecode (inc pc))
-                key (nth pool (nth bytecode (+ pc 2)))
+          (let [rd (nth bytecode (inc control))
+                key (nth pool (nth bytecode (+ control 2)))
                 val (get store key)]
             (reg-array-set! regs rd val)
-            (recur (+ pc 3) regs env store k bytecode pool id-counter))
+            (recur (+ control 3) regs env store k bytecode pool id-counter))
           :store-put
-          (let [rs (nth bytecode (inc pc))
-                key (nth pool (nth bytecode (+ pc 2)))
+          (let [rs (nth bytecode (inc control))
+                key (nth pool (nth bytecode (+ control 2)))
                 val (get-reg regs rs)]
-            (recur (+ pc 3)
+            (recur (+ control 3)
                    regs
                    env
                    (assoc store key val)
@@ -1401,15 +1411,15 @@
                    bytecode
                    pool
                    id-counter))
-          ;; Stream/control opcodes use scheduler/effect machinery. Defer to
-          ;; the generic run-loop from the current local state.
+          ;; Stream/continuation opcodes must use scheduler for effects
           (fallback))))))
 
 
 (defn- reg-vm-run
   [vm]
   ;; Boundary recompilation requires scheduler checkpoints when dirty.
-  (if (or (:compile-dirty? vm)
+  (if (or (telemetry/enabled? vm)
+          (:compile-dirty? vm)
           (:blocked vm)
           (:halted vm)
           (seq (:run-queue vm))
@@ -1450,7 +1460,7 @@
     (assoc vm
            :regs (vec (repeat (count (:regs vm)) nil))
            :k nil
-           :pc 0
+           :control 0
            :halted false
            :value nil
            :blocked false)))
@@ -1505,7 +1515,7 @@
 
 (extend-type RegisterVM
   vm/IVMStep
-  (step [vm] (reg-vm-step vm))
+  (step [vm] (telemetry/emit-snapshot (reg-vm-step vm) :step))
   (halted? [vm] (reg-vm-halted? vm))
   (blocked? [vm] (reg-vm-blocked? vm))
   (value [vm] (reg-vm-value vm))
@@ -1518,38 +1528,49 @@
   vm/IVMEval
   (eval [vm ast] (reg-vm-eval vm ast))
   vm/IVMState
-  (control [vm] {:pc (:pc vm), :bytecode (:bytecode vm), :regs (:regs vm)})
+  (control [vm] {:control (:control vm), :bytecode (:bytecode vm), :regs (:regs vm)})
   (environment [vm] (:env vm))
   (store [vm] (:store vm))
-  (continuation [vm] (:k vm)))
+  (continuation [vm]
+    (when-let [k-head (:k vm)]
+      (loop [k k-head
+             acc []]
+        (if (nil? k)
+          acc
+          (recur (:next k) (conj acc k)))))))
 
 
 (defn create-vm
   "Create a new RegisterVM with optional opts map.
-   Accepts {:env map, :primitives map, :macro-registry map, :bridge handlers}."
+   Accepts {:env map, :primitives map, :macro-registry map, :bridge handlers, :telemetry config}."
   ([] (create-vm {}))
   ([opts]
    (let [env (or (:env opts) {})
-         bridge-state (host-ffi/bridge-from-opts opts)]
-     (map->RegisterVM (merge (vm/empty-state (select-keys opts [:primitives]))
-                             {:regs [],
-                              :k nil,
-                              :env env,
-                              :pc 0,
-                              :bytecode nil,
-                              :pool nil,
-                              :compiled-by-version {},
-                              :compiled-cache-limit (or (:compiled-cache-limit opts)
-                                                        default-compiled-cache-limit),
-                              :active-compiled-version nil,
-                              :compile-dirty? false,
-                              :macro-registry (or (:macro-registry opts) {}),
-                              :program-root-eid nil,
-                              :program-datoms [],
-                              :program-version 0,
-                              :program-index nil,
-                              :halted false,
-                              :value nil,
-                              :blocked false}
-                             (when bridge-state
-                               {:bridge bridge-state}))))))
+         bridge-state (host-ffi/bridge-from-opts opts)
+         base (vm/empty-state {:primitives (:primitives opts)
+                               :telemetry (:telemetry opts)
+                               :vm-model :register})]
+     (-> (map->RegisterVM (merge base
+                                 {:regs [],
+                                  :k nil,
+                                  :env env,
+                                  :control 0,
+                                  :bytecode nil,
+                                  :pool nil,
+                                  :compiled-by-version {},
+                                  :compiled-cache-limit (or (:compiled-cache-limit opts)
+                                                            default-compiled-cache-limit),
+                                  :active-compiled-version nil,
+                                  :compile-dirty? false,
+                                  :macro-registry (or (:macro-registry opts) {}),
+                                  :program-root-eid nil,
+                                  :program-datoms [],
+                                  :program-version 0,
+                                  :program-index nil,
+                                  :halted false,
+                                  :value nil,
+                                  :blocked false}
+                                 (when bridge-state
+                                   {:bridge bridge-state})))
+         (telemetry/install :register)
+         (telemetry/emit-snapshot :init)))))

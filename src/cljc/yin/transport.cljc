@@ -134,6 +134,25 @@
 (declare replace-frame-refs restore-frame-refs)
 
 
+(defn- k->vector
+  "Project a linked-list continuation into a top-first vector of frames."
+  [k]
+  (loop [curr k
+         acc []]
+    (if (nil? curr)
+      acc
+      (recur (:next curr) (conj acc (dissoc curr :next))))))
+
+
+(defn- vector->k
+  "Restore a linked-list continuation from a top-first vector of frames."
+  [frames]
+  (reduce (fn [next-k frame]
+            (assoc frame :next next-k))
+          nil
+          (reverse frames)))
+
+
 (defn- replace-closure-refs
   "Walk a value, replacing closure :body-node entity refs with content hashes."
   [val hash-cache]
@@ -150,8 +169,10 @@
                                   %))))
         (and (map? val) (= :reified-continuation (:type val)))
         (-> val
-            (update :stack
-                    #(mapv (fn [f] (replace-frame-refs f hash-cache)) %))
+            (update :k
+                    (fn [k]
+                      (let [v (if (vector? k) k (k->vector k))]
+                        (mapv #(replace-frame-refs % hash-cache) v))))
             (update :env
                     #(reduce-kv (fn [m k v]
                                   (assoc m
@@ -181,11 +202,11 @@
                   (update :env rewrite-env))
       :app-args (-> frame
                     (update :fn #(replace-closure-refs % hash-cache))
-                    (update :pending resolve-eids)
+                    (update :operands resolve-eids)
                     (update :env rewrite-env))
       :if (-> frame
-              (update :cons resolve-eid)
-              (update :alt resolve-eid)
+              (update :consequent resolve-eid)
+              (update :alternate resolve-eid)
               (update :env rewrite-env))
       :restore-env (update frame :env rewrite-env)
       ;; Stream frames: :stream-put-target has :val-node (AST ref)
@@ -203,12 +224,13 @@
 
 (defn export-continuation
   "Export a parked continuation with AST refs replaced by content hashes.
-   parked-cont: {:type :parked-continuation, :id id, :stack [...], :env {...}}
+   parked-cont: {:type :parked-continuation, :id id, :k [...], :env {...}}
    hash-cache: {eid -> \"sha256:...\"} from compute-content-hashes."
   [parked-cont hash-cache]
-  (let [{:keys [stack env]} parked-cont]
+  (let [{:keys [k env]} parked-cont
+        k-vec (if (vector? k) k (k->vector k))]
     {:type :exported-continuation,
-     :stack (mapv #(replace-frame-refs % hash-cache) stack),
+     :k (mapv #(replace-frame-refs % hash-cache) k-vec),
      :env (reduce-kv (fn [m k v]
                        (assoc m k (replace-closure-refs v hash-cache)))
                      {}
@@ -234,8 +256,10 @@
         (and (map? val) (= :reified-continuation (:type val)))
         (->
           val
-          (update :stack
-                  #(mapv (fn [f] (restore-frame-refs f hash->eid datoms)) %))
+          (update :k
+                  (fn [k-val]
+                    (let [v (mapv (fn [f] (restore-frame-refs f hash->eid datoms)) k-val)]
+                      (vector->k v))))
           (update :env
                   #(reduce-kv
                      (fn [m k v]
@@ -265,11 +289,11 @@
                   (update :env rewrite-env))
       :app-args (-> frame
                     (update :fn #(restore-closure-refs % hash->eid datoms))
-                    (update :pending resolve-hashes)
+                    (update :operands resolve-hashes)
                     (update :env rewrite-env))
       :if (-> frame
-              (update :cons resolve-hash)
-              (update :alt resolve-hash)
+              (update :consequent resolve-hash)
+              (update :alternate resolve-hash)
               (update :env rewrite-env))
       :restore-env (update frame :env rewrite-env)
       ;; Stream frames
@@ -289,9 +313,10 @@
    hash->eid: {hash -> eid} from import-ast
    datoms: local datom set for closures."
   [exported hash->eid datoms]
-  (let [{:keys [stack env]} exported]
+  (let [{:keys [k env]} exported
+        k-linked (vector->k (mapv #(restore-frame-refs % hash->eid datoms) k))]
     {:type :parked-continuation,
-     :stack (mapv #(restore-frame-refs % hash->eid datoms) stack),
+     :k k-linked,
      :env (reduce-kv (fn [m k v]
                        (assoc m k (restore-closure-refs v hash->eid datoms)))
                      {}

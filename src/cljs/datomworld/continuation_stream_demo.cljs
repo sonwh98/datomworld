@@ -112,7 +112,7 @@
 
 
 (defonce app-state
-  (let [{:keys [continuation-stream cursors pending-continuations]}
+  (let [{:keys [k-stream cursors pending-ks]}
         (ct/init-state [:register-vm :stack-vm])]
     (r/atom
       {:source-code source-example,
@@ -137,51 +137,52 @@
        :running false,
        :completed? false,
        :result nil,
-       :continuation-stream continuation-stream,
+       :k-stream k-stream,
        :cursors cursors,
-       :pending-continuations pending-continuations,
+       :pending-ks pending-ks,
        :error nil})))
 
 
 (defonce run-raf-id (atom nil))
 
 
-(def register-continuation-keys
-  [:regs :k :env :pc :bytecode :pool :halted :value :store :parked :id-counter
+(def register-k-keys
+  [:regs :k :env :control :bytecode :pool :halted :value :store :parked
+   :id-counter
    :blocked :run-queue :wait-set])
 
 
-(def stack-continuation-keys
-  [:pc :bytecode :stack :env :call-stack :pool :halted :value :store :parked
+(def stack-k-keys
+  [:control :bytecode :stack :env :k :pool :halted :value :store :parked
    :id-counter :blocked :run-queue :wait-set])
 
 
-(defn continuation-depth
-  [k]
-  (loop [frame k depth 0] (if frame (recur (:parent frame) (inc depth)) depth)))
-
-
-(defn continuation-frames
+(defn k-depth
   [k]
   (loop [frame k
-         frames []
-         n 0]
-    (if (or (nil? frame) (>= n 12))
-      frames
-      (recur (:parent frame)
-             (conj frames
-                   {:type (:type frame),
-                    :return-pc (:return-pc frame),
-                    :return-reg (:return-reg frame)})
-             (inc n)))))
+         depth 0]
+    (if frame
+      (recur (:next frame) (inc depth))
+      depth)))
 
 
-(defn stack-continuation-frames
-  [call-stack]
-  (->> (or call-stack [])
-       (take-last 12)
+(defn k-frames
+  [frames]
+  (->> (or frames [])
+       (take 12)
        (mapv (fn [frame]
-               {:pc (:pc frame), :stack-size (count (:stack frame))}))))
+               {:type (:type frame),
+                :control (:control frame),
+                :result-reg (:result-reg frame)}))))
+
+
+(defn stack-k-frames
+  [frames]
+  (->> (or frames [])
+       (take 12)
+       (mapv (fn [frame]
+               {:control (:control frame),
+                :stack-size (count (:stack frame))}))))
 
 
 (defn stack-vm?
@@ -191,31 +192,29 @@
 
 (defn vm-control-counter
   [_vm-key vm-state]
-  (when vm-state (:pc vm-state)))
+  (when vm-state (:control vm-state)))
 
 
-(defn vm-continuation-depth
+(defn vm-k-depth
   [vm-key vm-state]
   (when vm-state
-    (if (stack-vm? vm-key)
-      (count (or (:call-stack vm-state) []))
-      (continuation-depth (:k vm-state)))))
+    (count (or (vm/continuation vm-state) []))))
 
 
-(defn vm-state->continuation
+(defn vm-state->k
   [vm-key vm-state]
   (let [keys* (if (stack-vm? vm-key)
-                stack-continuation-keys
-                register-continuation-keys)]
+                stack-k-keys
+                register-k-keys)]
     (select-keys vm-state keys*)))
 
 
-(defn continuation->vm-state
-  [vm-key continuation]
+(defn k->vm-state
+  [vm-key k]
   (let [base (if (stack-vm? vm-key)
                (stack/create-vm)
                (register/create-vm))
-        resumed (reduce-kv (fn [acc k v] (assoc acc k v)) base continuation)]
+        resumed (reduce-kv (fn [acc k* v] (assoc acc k* v)) base k)]
     (assoc resumed :primitives vm/primitives)))
 
 
@@ -245,17 +244,16 @@
     (when (:ast-datoms state) (create-loaded-register-vm (:ast-datoms state)))))
 
 
-(defn enqueue-continuation
+(defn enqueue-k
   [state from to from-vm-state]
   (let [recipient-vm-state (or (get state to) (create-initial-vm state to))
-        continuation (vm-state->continuation to recipient-vm-state)
-        summary {:kind :continuation,
+        k (vm-state->k to recipient-vm-state)
+        summary {:kind :k,
                  :from from,
                  :to to,
                  :control (vm-control-counter from from-vm-state),
-                 :continuation-depth (vm-continuation-depth from
-                                                            from-vm-state)}]
-    (ct/enqueue-continuation state summary continuation)))
+                 :k-depth (vm-k-depth from from-vm-state)}]
+    (ct/enqueue-k state summary k)))
 
 
 (defn activate-owner-from-stream
@@ -263,10 +261,10 @@
   (let [owner (:owner state)]
     (if (get state owner)
       [state false]
-      (let [[state* message] (ct/consume-continuation-for state owner)]
+      (let [[state* message] (ct/consume-k-for state owner)]
         (if message
           [(assoc state*
-                  owner (continuation->vm-state owner (:continuation message))) true]
+                  owner (k->vm-state owner (:k message))) true]
           [state* false])))))
 
 
@@ -281,7 +279,7 @@
 (defn invalidate-compiled-state!
   []
   (stop-run-loop!)
-  (let [{:keys [continuation-stream cursors pending-continuations]}
+  (let [{:keys [k-stream cursors pending-ks]}
         (ct/init-state [:register-vm :stack-vm])]
     (swap! app-state assoc
            :ast nil
@@ -301,9 +299,9 @@
            :steps 0
            :handoffs 0
            :steps-since-handoff 0
-           :continuation-stream continuation-stream
+           :k-stream k-stream
            :cursors cursors
-           :pending-continuations pending-continuations
+           :pending-ks pending-ks
            :completed? false
            :result nil
            :error nil)))
@@ -322,7 +320,7 @@
   (let [{:keys [ast-datoms]} @app-state]
     (when ast-datoms
       (stop-run-loop!)
-      (let [{:keys [continuation-stream cursors pending-continuations]}
+      (let [{:keys [k-stream cursors pending-ks]}
             (ct/init-state [:register-vm :stack-vm])
             initial-vm (create-loaded-register-vm ast-datoms)]
         (swap! app-state assoc
@@ -332,9 +330,9 @@
                :steps 0
                :handoffs 0
                :steps-since-handoff 0
-               :continuation-stream continuation-stream
+               :k-stream k-stream
                :cursors cursors
-               :pending-continuations pending-continuations
+               :pending-ks pending-ks
                :completed? false
                :result nil
                :error nil)))))
@@ -355,7 +353,7 @@
              stack-pool :pool,
              stack-source-map :source-map}
             (stack/assemble stack-asm)
-            {:keys [continuation-stream cursors pending-continuations]}
+            {:keys [k-stream cursors pending-ks]}
             (ct/init-state [:register-vm :stack-vm])
             initial-vm (create-loaded-register-vm ast-datoms)]
         (swap! app-state assoc
@@ -376,9 +374,9 @@
                :steps 0
                :handoffs 0
                :steps-since-handoff 0
-               :continuation-stream continuation-stream
+               :k-stream k-stream
                :cursors cursors
-               :pending-continuations pending-continuations
+               :pending-ks pending-ks
                :running false
                :completed? false
                :result nil
@@ -395,7 +393,7 @@
   [state from stepped-vm]
   (let [to (other-vm from)]
     (-> state
-        (enqueue-continuation from to stepped-vm)
+        (enqueue-k from to stepped-vm)
         (assoc :owner to)
         (assoc to nil)
         (update :handoffs inc)
@@ -481,31 +479,31 @@
   (when vm-state
     (let [control (vm-control-counter vm-key vm-state)
           instr-idx (get source-map control)
-          instr (when (number? instr-idx) (get asm instr-idx))]
+          instr (when (number? instr-idx) (get asm instr-idx))
+          continuation (vm/continuation vm-state)]
       (if (stack-vm? vm-key)
-        {:control {:pc (:pc vm-state),
+        {:control {:control control,
                    :instruction-index instr-idx,
                    :instruction instr,
                    :halted (:halted vm-state),
                    :blocked (:blocked vm-state)},
          :environment (:env vm-state),
          :store (:store vm-state),
-         :continuation {:depth (count (or (:call-stack vm-state) [])),
-                        :frames (stack-continuation-frames (:call-stack
-                                                             vm-state))},
+         :continuation {:depth (count (or continuation [])),
+                        :frames (stack-k-frames continuation)},
          :stack (:stack vm-state),
          :run-queue-count (count (or (:run-queue vm-state) [])),
          :wait-set-count (count (or (:wait-set vm-state) [])),
          :value (:value vm-state)}
-        {:control {:pc (:pc vm-state),
+        {:control {:control control,
                    :instruction-index instr-idx,
                    :instruction instr,
                    :halted (:halted vm-state),
                    :blocked (:blocked vm-state)},
          :environment (:env vm-state),
          :store (:store vm-state),
-         :continuation {:depth (continuation-depth (:k vm-state)),
-                        :frames (continuation-frames (:k vm-state))},
+         :continuation {:depth (count (or continuation [])),
+                        :frames (k-frames continuation)},
          :registers (:regs vm-state),
          :run-queue-count (count (or (:run-queue vm-state) [])),
          :wait-set-count (count (or (:wait-set vm-state) [])),
@@ -689,7 +687,7 @@
      (fn []
        (let [{:keys [source-code register-asm register-bytecode register-pool
                      register-reg-count stack-asm stack-bytecode stack-pool
-                     continuation-stream cursors steps handoffs owner
+                     k-stream cursors steps handoffs owner
                      completed? result error]}
              @app-state
              register-vm (:register-vm @app-state)
@@ -709,10 +707,8 @@
                                                     (range (count stack-asm))
                                                     stack-asm)}})
                "Compile source to generate register and stack bytecode.")
-             queue-view (pretty-print
-                          (ct/in-flight-summary continuation-stream cursors))
-             stream-view (pretty-print (stream-last-vec continuation-stream
-                                                        200))
+             queue-view (pretty-print (ct/in-flight-summary k-stream cursors))
+             stream-view (pretty-print (stream-last-vec k-stream 200))
              run-summary
              {:owner owner,
               :steps steps,
@@ -722,7 +718,7 @@
               :stack-vm-control (vm-control-counter :stack-vm stack-vm),
               :register-cursor (get-in cursors [:register-vm :position]),
               :stack-cursor (get-in cursors [:stack-vm :position]),
-              :stream-length (count continuation-stream),
+              :stream-length (count k-stream),
               :completed? completed?,
               :result result}]
          [:div

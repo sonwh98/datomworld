@@ -145,7 +145,7 @@
 (deftest continuation-transport-test
   (testing "Park mid-computation, export, import, resume on fresh VM"
     (let [;; ((fn [x] (+ x 1)) (vm/park))
-          ;; Parks mid-application: stack captures the pending lambda call
+          ;; Parks mid-application: k captures the pending lambda call
           ast {:type :application,
                :operator {:type :lambda,
                           :params ['x],
@@ -179,7 +179,7 @@
                                     {:node (:root-eid ast-imported),
                                      :datoms (:datoms ast-imported)})
             resumed (assoc loaded
-                           :stack (:stack imported-cont)
+                           :k (:k imported-cont)
                            :env (:env imported-cont)
                            :control {:type :value, :val 42}
                            :halted false)

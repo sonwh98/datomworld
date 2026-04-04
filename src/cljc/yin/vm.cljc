@@ -3,7 +3,8 @@
    This namespace acts as the shared kernel/substrate for all execution engines (stack, register, walker)."
   (:refer-clojure :exclude [eval])
   (:require
-    [dao.stream :as ds]))
+    [dao.stream :as ds]
+    [dao.stream.transport.ringbuffer]))
 
 
 ;; =============================================================================
@@ -422,7 +423,7 @@
 (defn empty-state
   "Return an initial immutable VM state map.
    Contains: dao.stream.apply stream wiring in :store, :parked {}, :id-counter 0,
-   :primitives map, :run-queue [], :wait-set []."
+   :primitives map, :run-queue [], :wait-set [], and shared telemetry counters."
   ([] (empty-state {}))
   ([opts]
    (let [call-in (or (:call-in opts)
@@ -442,4 +443,8 @@
       :id-counter 0,
       :run-queue [],
       :wait-set [],
-      :primitives (or (:primitives opts) primitives)})))
+      :primitives (or (:primitives opts) primitives),
+      :telemetry (:telemetry opts),
+      :telemetry-step 0,
+      :telemetry-t 0,
+      :vm-model (:vm-model opts)})))

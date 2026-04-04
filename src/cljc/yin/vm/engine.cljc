@@ -3,7 +3,8 @@
   (:require
     [dao.stream :as ds]
     [yin.module :as module]
-    [yin.stream :as stream]))
+    [yin.stream :as stream]
+    [yin.vm.telemetry :as telemetry]))
 
 
 (defn resolve-var
@@ -183,11 +184,13 @@
           (:blocked v) (let [v' (check-wait-set v)]
                          (if-let [resumed (resume-fn v')]
                            (recur resumed)
-                           v'))
+                           (telemetry/emit-snapshot v' :blocked)))
           (seq (or (:run-queue v) [])) (if-let [resumed (resume-fn v)]
                                          (recur resumed)
                                          v)
-          :else v)))
+          :else (if (:halted v)
+                  (telemetry/emit-snapshot v :halt)
+                  v))))
 
 
 (defn- resume-entries-with-nil
@@ -217,13 +220,15 @@
 (defn park-continuation
   "Add a parked continuation entry and halt the VM."
   [state cont-fields]
-  (let [park-id (keyword (str "parked-" (:id-counter state)))
+  (let [id-counter (or (:id-counter state) 0)
+        park-id (keyword (str "parked-" id-counter))
         parked (merge {:type :parked-continuation, :id park-id} cont-fields)]
     (-> state
         (update :parked assoc park-id parked)
         (assoc :value parked
                :halted true
-               :id-counter (inc (:id-counter state))))))
+               :id-counter (inc id-counter))
+        (telemetry/emit-snapshot :park {:parked-id park-id}))))
 
 
 (defn resume-continuation
@@ -231,7 +236,8 @@
   [state parked-id resume-val restore-fn]
   (if-let [parked (get-in state [:parked parked-id])]
     (let [new-state (update state :parked dissoc parked-id)]
-      (restore-fn new-state parked resume-val))
+      (-> (restore-fn new-state parked resume-val)
+          (telemetry/emit-snapshot :resume {:parked-id parked-id})))
     (throw (ex-info "Cannot resume: parked continuation not found"
                     {:parked-id parked-id}))))
 
@@ -269,73 +275,80 @@
   "Dispatch an effect and return {:state updated-state :value v :blocked? bool}.
    park-entry-fns maps :stream/put/:stream/next etc to functions that build wait entries."
   [state effect {:keys [park-entry-fns]}]
-  (let [park-entry (get park-entry-fns (:effect effect))]
-    (case (:effect effect)
-      :vm/store-put {:state (assoc state
-                                   :store (assoc (:store state)
-                                                 (:key effect) (:val effect))),
-                     :value (:val effect),
-                     :blocked? false}
-      :stream/make (let [[id s'] (gensym state "stream")
-                         [stream-ref new-state]
-                         (stream/handle-make s' effect id)]
-                     {:state new-state, :value stream-ref, :blocked? false})
-      :stream/cursor (let [[id s'] (gensym state "cursor")
-                           [cursor-ref new-state]
-                           (stream/handle-cursor s' effect id)]
-                       {:state new-state, :value cursor-ref, :blocked? false})
-      :stream/put (let [result (stream/handle-put state effect)]
-                    (if (:park result)
-                      (let [built-entry (when park-entry (park-entry state effect result))
-                            stream-id   (:stream-id result)
-                            stream      (get (:store state) stream-id)]
-                        (if (and built-entry (satisfies? ds/IDaoStreamWaitable stream))
-                          (do (ds/register-writer-waiter! stream built-entry)
-                              {:state (assoc (:state result) :blocked true :halted false
-                                             :value :yin/blocked)
-                               :value :yin/blocked
-                               :blocked? true})
-                          (handle-stream-block result built-entry)))
-                      (let [woken (:woke result)
-                            base {:state (:state result), :value (:value result), :blocked? false}]
-                        (if (seq woken)
-                          (let [entries (make-woken-run-queue-entries (:state result) woken)]
-                            (update base :state update :run-queue into entries))
-                          base))))
-      :stream/next (let [result (stream/handle-next state effect)]
-                     (if (:park result)
-                       (let [built-entry (when park-entry (park-entry state effect result))
-                             stream-id   (:stream-id result)
-                             stream      (get (:store state) stream-id)
-                             cursor-id   (:id (:cursor-ref result))
-                             position    (:position (get (:store state) cursor-id))]
-                         (if (and built-entry (satisfies? ds/IDaoStreamWaitable stream))
-                           (do (ds/register-reader-waiter! stream position built-entry)
-                               {:state (assoc (:state result) :blocked true :halted false
-                                              :value :yin/blocked)
-                                :value :yin/blocked
-                                :blocked? true})
-                           (handle-stream-block result built-entry)))
-                       {:state (:state result), :value (:value result), :blocked? false}))
-      :stream/take (let [result (stream/handle-take state effect)]
-                     (if (:park result)
-                       (handle-stream-block result
-                                            (when park-entry
-                                              (park-entry state effect result)))
-                       (let [woken (:woke result)
-                             base {:state (:state result), :value (:value result), :blocked? false}]
-                         (if (seq woken)
-                           (let [entries (make-woken-run-queue-entries (:state result) woken)]
-                             (update base :state update :run-queue into entries))
-                           base))))
-      :stream/close (let [close-result (stream/handle-close state effect)
-                          new-state (:state close-result)
-                          to-resume (:resume-parked close-result)
-                          run-queue (or (:run-queue new-state) [])
-                          new-run-queue (into run-queue
-                                              (resume-entries-with-nil
-                                                to-resume))]
-                      {:state (assoc new-state :run-queue new-run-queue),
-                       :value nil,
-                       :blocked? false})
-      (throw (ex-info "Unknown effect" {:effect effect})))))
+  (let [park-entry (get park-entry-fns (:effect effect))
+        result
+        (case (:effect effect)
+          :vm/store-put {:state (assoc state
+                                       :store (assoc (:store state)
+                                                     (:key effect) (:val effect))),
+                         :value (:val effect),
+                         :blocked? false}
+          :stream/make (let [[id s'] (gensym state "stream")
+                             [stream-ref new-state]
+                             (stream/handle-make s' effect id)]
+                         {:state new-state, :value stream-ref, :blocked? false})
+          :stream/cursor (let [[id s'] (gensym state "cursor")
+                               [cursor-ref new-state]
+                               (stream/handle-cursor s' effect id)]
+                           {:state new-state, :value cursor-ref, :blocked? false})
+          :stream/put (let [result (stream/handle-put state effect)]
+                        (if (:park result)
+                          (let [built-entry (when park-entry (park-entry state effect result))
+                                stream-id   (:stream-id result)
+                                stream      (get (:store state) stream-id)]
+                            (if (and built-entry (satisfies? ds/IDaoStreamWaitable stream))
+                              (do (ds/register-writer-waiter! stream built-entry)
+                                  {:state (assoc (:state result) :blocked true :halted false
+                                                 :value :yin/blocked)
+                                   :value :yin/blocked
+                                   :blocked? true})
+                              (handle-stream-block result built-entry)))
+                          (let [woken (:woke result)
+                                base {:state (:state result), :value (:value result), :blocked? false}]
+                            (if (seq woken)
+                              (let [entries (make-woken-run-queue-entries (:state result) woken)]
+                                (update base :state update :run-queue into entries))
+                              base))))
+          :stream/next (let [result (stream/handle-next state effect)]
+                         (if (:park result)
+                           (let [built-entry (when park-entry (park-entry state effect result))
+                                 stream-id   (:stream-id result)
+                                 stream      (get (:store state) stream-id)
+                                 cursor-id   (:id (:cursor-ref result))
+                                 position    (:position (get (:store state) cursor-id))]
+                             (if (and built-entry (satisfies? ds/IDaoStreamWaitable stream))
+                               (do (ds/register-reader-waiter! stream position built-entry)
+                                   {:state (assoc (:state result) :blocked true :halted false
+                                                  :value :yin/blocked)
+                                    :value :yin/blocked
+                                    :blocked? true})
+                               (handle-stream-block result built-entry)))
+                           {:state (:state result), :value (:value result), :blocked? false}))
+          :stream/take (let [result (stream/handle-take state effect)]
+                         (if (:park result)
+                           (handle-stream-block result
+                                                (when park-entry
+                                                  (park-entry state effect result)))
+                           (let [woken (:woke result)
+                                 base {:state (:state result), :value (:value result), :blocked? false}]
+                             (if (seq woken)
+                               (let [entries (make-woken-run-queue-entries (:state result) woken)]
+                                 (update base :state update :run-queue into entries))
+                               base))))
+          :stream/close (let [close-result (stream/handle-close state effect)
+                              new-state (:state close-result)
+                              to-resume (:resume-parked close-result)
+                              run-queue (or (:run-queue new-state) [])
+                              new-run-queue (into run-queue
+                                                  (resume-entries-with-nil
+                                                    to-resume))]
+                          {:state (assoc new-state :run-queue new-run-queue),
+                           :value nil,
+                           :blocked? false})
+          (throw (ex-info "Unknown effect" {:effect effect})))]
+    (update result
+            :state
+            (fn [result-state]
+              (telemetry/emit-snapshot (assoc result-state :value (:value result))
+                                       :effect
+                                       {:effect-type (:effect effect)})))))

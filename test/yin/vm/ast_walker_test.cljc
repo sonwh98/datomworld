@@ -4,6 +4,7 @@
     [dao.db.datascript :as ds-db]
     [dao.stream :as ds]
     [dao.stream.apply :as dao.stream.apply]
+    [dao.stream.transport.ringbuffer]
     [yin.vm :as vm]
     [yin.vm.ast-walker :as ast-walker]
     [yin.vm.engine :as engine]))
@@ -335,7 +336,7 @@
                             :source {:type :literal, :value stream-ref}})
           cursor-ref (vm/value vm1)
           block-next (fn [cursor] {:effect :stream/next, :cursor cursor})
-          vm-with-primitive (assoc vm1 :environment
+          vm-with-primitive (assoc vm1 :env
                                    (assoc (vm/environment vm1)
                                           'block-next block-next))
           ast {:type :application,

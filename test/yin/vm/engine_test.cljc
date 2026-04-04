@@ -44,6 +44,116 @@
       (is (empty? (:run-queue result))))))
 
 
+(defn- make-stream
+  []
+  (ds/open! {:transport {:type :ringbuffer, :capacity nil}}))
+
+
+(defn- stream-values
+  [stream]
+  (vec (ds/->seq nil stream)))
+
+
+(defn- fact?
+  [datoms attr value]
+  (boolean (some #(and (= attr (nth % 1))
+                       (= value (nth % 2)))
+                 datoms)))
+
+
+(deftest handle-effect-emits-telemetry-snapshot-test
+  (testing "handle-effect emits :effect snapshots when telemetry is enabled"
+    (let [telemetry-stream (make-stream)
+          state {:blocked false
+                 :halted false
+                 :parked {}
+                 :run-queue []
+                 :wait-set []
+                 :store {}
+                 :telemetry {:stream telemetry-stream
+                             :vm-id :engine/effect}
+                 :telemetry-step 0
+                 :telemetry-t 0
+                 :vm-model :engine/test}
+          result (engine/handle-effect state
+                                       {:effect :vm/store-put
+                                        :key :answer
+                                        :val 42}
+                                       {})
+          datoms (stream-values telemetry-stream)]
+      (is (= 42 (get-in result [:state :store :answer])))
+      (is (fact? datoms :vm/phase :effect))
+      (is (fact? datoms :vm/effect-type :vm/store-put))
+      (is (fact? datoms :vm/value 42)))))
+
+
+(deftest park-and-resume-emit-telemetry-snapshots-test
+  (testing "park-continuation and resume-continuation emit phase-tagged telemetry"
+    (let [telemetry-stream (make-stream)
+          state {:blocked false
+                 :halted false
+                 :parked {}
+                 :run-queue []
+                 :wait-set []
+                 :store {}
+                 :telemetry {:stream telemetry-stream
+                             :vm-id :engine/park}
+                 :telemetry-step 0
+                 :telemetry-t 0
+                 :vm-model :engine/test}
+          parked-state (engine/park-continuation state {:continuation {:id :k}})
+          parked-id (-> parked-state :value :id)
+          resumed-state (engine/resume-continuation
+                          parked-state
+                          parked-id
+                          :resumed
+                          (fn [base _parked resume-val]
+                            (assoc base
+                                   :value resume-val
+                                   :halted true
+                                   :blocked false)))
+          datoms (stream-values telemetry-stream)]
+      (is (= :resumed (:value resumed-state)))
+      (is (fact? datoms :vm/phase :park))
+      (is (fact? datoms :vm/phase :resume))
+      (is (fact? datoms :vm/parked-id parked-id)))))
+
+
+(deftest run-loop-emits-terminal-telemetry-test
+  (testing "run-loop emits :blocked terminal snapshots"
+    (let [telemetry-stream (make-stream)
+          state {:blocked true
+                 :halted false
+                 :parked {}
+                 :run-queue []
+                 :wait-set []
+                 :store {}
+                 :telemetry {:stream telemetry-stream
+                             :vm-id :engine/blocked}
+                 :telemetry-step 0
+                 :telemetry-t 0
+                 :vm-model :engine/test}
+          _ (engine/run-loop state (fn [_] false) identity (fn [_] nil))
+          datoms (stream-values telemetry-stream)]
+      (is (fact? datoms :vm/phase :blocked))))
+  (testing "run-loop emits :halt terminal snapshots"
+    (let [telemetry-stream (make-stream)
+          state {:blocked false
+                 :halted true
+                 :parked {}
+                 :run-queue []
+                 :wait-set []
+                 :store {}
+                 :telemetry {:stream telemetry-stream
+                             :vm-id :engine/halt}
+                 :telemetry-step 0
+                 :telemetry-t 0
+                 :vm-model :engine/test}
+          _ (engine/run-loop state (fn [_] false) identity (fn [_] nil))
+          datoms (stream-values telemetry-stream)]
+      (is (fact? datoms :vm/phase :halt)))))
+
+
 ;; =============================================================================
 ;; Fallback Scheduler Tests (Non-waitable streams)
 ;; =============================================================================
@@ -204,7 +314,7 @@
                            {:reason :put,
                             :stream-id (:stream-id r),
                             :datom 2,
-                            :continuation {:id :writer-1}})}})
+                            :k {:id :writer-1}})}})
           blocked-state (:state put-result)
           close-result (engine/handle-effect blocked-state
                                              {:effect :stream/close, :stream stream-ref}
@@ -212,7 +322,7 @@
           run-entry (first (get-in close-result [:state :run-queue]))]
       (is (:blocked? put-result))
       (is (= 1 (count (get-in close-result [:state :run-queue]))))
-      (is (= {:id :writer-1} (:continuation run-entry))
+      (is (= {:id :writer-1} (:k run-entry))
           "Queued writer should keep its original continuation fields at top level")
       (is (false? (contains? run-entry :entry))
           "Run-queue entry should be flattened before resumption")
@@ -238,7 +348,7 @@
                             {:reason :next,
                              :cursor-ref (:cursor-ref r),
                              :stream-id (:stream-id r),
-                             :continuation {:id :reader}})}})
+                             :k {:id :reader}})}})
           put-result (engine/handle-effect
                        (:state next-result)
                        {:effect :stream/put, :stream stream-ref, :val :b}
@@ -248,7 +358,7 @@
                            {:reason :put,
                             :stream-id (:stream-id r),
                             :datom :b,
-                            :continuation {:id :writer}})}})
+                            :k {:id :writer}})}})
           stream-after-next (get-in next-result [:state :store stream-id])
           stream-after-put (get-in put-result [:state :store stream-id])
           reader-waiter-count-after-next (count (:reader-waiters @(.-state-atom ^dao.stream.transport.ringbuffer.RingBufferStream stream-after-next)))
@@ -257,8 +367,8 @@
                                             {:effect :stream/take, :stream stream-ref}
                                             {})
           run-queue (get-in take-result [:state :run-queue])
-          reader-entry (some #(when (= {:id :reader} (:continuation %)) %) run-queue)
-          writer-entry (some #(when (= {:id :writer} (:continuation %)) %) run-queue)]
+          reader-entry (some #(when (= {:id :reader} (:k %)) %) run-queue)
+          writer-entry (some #(when (= {:id :writer} (:k %)) %) run-queue)]
       (is (:blocked? next-result))
       (is (:blocked? put-result))
       (is (empty? (or (get-in next-result [:state :wait-set]) [])))
@@ -282,8 +392,8 @@
                                                  :position 0}},
                  :parked {:parked-0 {:id :parked-0,
                                      :type :parked-continuation,
-                                     :continuation {:id :cont-0},
-                                     :environment {}}},
+                                     :k {:id :cont-0},
+                                     :env {}}},
                  :run-queue [],
                  :wait-set [],
                  :blocked true,
@@ -292,7 +402,7 @@
           waiter-entry {:cursor-ref {:type :cursor-ref, :id vm/call-out-cursor-key}
                         :reason :next
                         :stream-id vm/call-out-stream-key
-                        :continuation {:id :cont-0}}
+                        :k {:id :cont-0}}
           _ (ds/register-reader-waiter! call-out 0 waiter-entry)
 
           ;; 2. Bridge puts response to call-out

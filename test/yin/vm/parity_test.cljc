@@ -171,10 +171,10 @@
 (defn- k-depth
   [vm-type k]
   (case vm-type
-    :ast-walker (loop [k k d 0] (if (nil? k) d (recur (:parent k) (inc d))))
+    :ast-walker (loop [k k d 0] (if (nil? k) d (recur (:next k) (inc d))))
     :semantic (count k)
     :stack (count k)
-    :register (loop [k k d 0] (if (nil? k) d (recur (:parent k) (inc d))))))
+    :register (loop [k k d 0] (if (nil? k) d (recur (:next k) (inc d))))))
 
 
 (deftest tco-depth-parity-test

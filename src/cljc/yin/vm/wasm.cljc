@@ -21,14 +21,15 @@
    Backend contract (differs from dynamic VMs):
    - Comparison and logical ops return Clojure boolean (true/false), not raw i32.
    - All numeric literals are f64; boolean literals are Clojure true/false.
-   - Mixed-type if branches (one f64, one i32) are promoted to f64 via
+  - Mixed-type if branches (one f64, one i32) are promoted to f64 via
      f64.convert_i32_s. The selected branch value is correct; its type may
      differ from what a dynamic VM would return (e.g., true becomes 1.0).
    - and/or are NOT supported: Clojure and/or return operand values, which
      cannot be encoded in WASM's typed stack machine without branching that
      reintroduces the mixed-type promotion problem."
   (:require
-    [yin.vm :as vm]))
+    [yin.vm :as vm]
+    [yin.vm.telemetry :as telemetry]))
 
 
 ;; =============================================================================
@@ -504,14 +505,18 @@
              result    (if (= main-type :i32)
                          (not (zero? raw))
                          raw)]
-         (assoc vm :halted true :value result))
+         (-> vm
+             (assoc :halted false :value nil)
+             (telemetry/emit-snapshot :step)
+             (assoc :halted true :value result)
+             (telemetry/emit-snapshot :halt)))
        :clj
        (throw (ex-info "wasm: JVM execution not supported" {})))))
 
 
 (extend-type WasmVM
   vm/IVMStep
-  (step     [vm]  vm)
+  (step     [vm]  (telemetry/emit-snapshot vm :step))
   (halted?  [vm]  (boolean (:halted vm)))
   (blocked? [_vm] false)
   (value    [vm]  (:value vm))
@@ -539,12 +544,16 @@
 
 (defn create-vm
   "Create a new WasmVM with optional opts map.
-   Accepts {:env map, :primitives map}."
+   Accepts {:env map, :primitives map, :telemetry config}."
   ([] (create-vm {}))
   ([opts]
-   (map->WasmVM (merge (vm/empty-state (select-keys opts [:primitives]))
-                       {:halted  false
-                        :value   nil
-                        :control nil
-                        :env     (or (:env opts) {})
-                        :k       nil}))))
+   (-> (map->WasmVM (merge (vm/empty-state {:primitives (:primitives opts)
+                                            :telemetry (:telemetry opts)
+                                            :vm-model :wasm})
+                           {:halted  false
+                            :value   nil
+                            :control nil
+                            :env     (or (:env opts) {})
+                            :k       nil}))
+       (telemetry/install :wasm)
+       (telemetry/emit-snapshot :init))))
