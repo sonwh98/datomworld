@@ -462,7 +462,7 @@
   [vm]
   (let [{:keys [control env k datoms index store primitives]} vm
         node-id (:id control)
-        node-arr ^objects (get index node-id)]
+        #?(:clj ^objects node-arr :default node-arr) (get index node-id)]
     (if (nil? node-arr)
       (throw (ex-info "Unknown node id in semantic slow path" {:node-id node-id}))
       (let [node-type (aget node-arr ATTR_TYPE)]
@@ -1046,7 +1046,8 @@
         ;; --- 2. Handle Node Evaluation ---
         :node
         (let [node-id ctrl-data
-              idx (unchecked-subtract-int (int node-id) index-base-id)
+              idx #?(:clj (unchecked-subtract-int (int node-id) index-base-id)
+                     :default (- (int node-id) index-base-id))
               arr-len (semantic-object-array-length index-arr)
               node-arr (if (and (<= 0 idx) (< idx arr-len))
                          (semantic-object-array-get index-arr idx)
@@ -1056,7 +1057,7 @@
                             {:node-id node-id,
                              :index-base-id index-base-id,
                              :index-arr-length arr-len}))
-            (let [node-arr ^objects node-arr
+            (let [#?(:clj ^objects node-arr :default node-arr) node-arr
                   node-type (aget node-arr ATTR_TYPE)]
               (case node-type
                 :literal (recur :value (aget node-arr ATTR_VALUE) env sp vm)

@@ -2,9 +2,10 @@
   "WebSocket-backed stream using three orthogonal protocols.
 
    Three entry points:
-     CLJ listen!   — start an http-kit WebSocket server, return WebSocketStream
-     CLJ connect!  — connect via Java 11 built-in WebSocket client
-     CLJS connect! — connect via browser WebSocket
+     CLJ listen!    — start an http-kit WebSocket server, return WebSocketStream
+     CLJS listen!   — start a 'ws' Node.js WebSocket server, return WebSocketStream
+     CLJD listen!   — start a 'dart:io' WebSocket server, return WebSocketStream
+     CLJ/CLJS connect! — connect to a WebSocket server
 
    Both sides get back a WebSocketStream satisfying:
      IDaoStreamWriter — put! sends a datom to the remote peer
@@ -14,6 +15,8 @@
    Utilities (non-protocol):
      drain-one!      — destructive read from remote-stream (legacy support)"
   (:require
+    #?(:cljd ["dart:async" :as async])
+    #?(:cljd ["dart:io" :as io])
     [dao.stream :as ds]
     [dao.stream.link :as link]
     [dao.stream.transit :as transit]
@@ -194,10 +197,68 @@
 
 
 #?(:cljs
+   (defn listen!
+     "Start a WebSocket server on port (Node.js only). Returns WebSocketStream.
+      Accepts one connection; further connections are rejected."
+     ([port] (listen! port nil))
+     ([port opts]
+      (let [WebSocket (js/require "ws")
+            wss (new (.-Server WebSocket) #js {:port port})
+            local (ds/open! {:transport {:type :ringbuffer, :capacity (:capacity opts)}})
+            stream (make-ws-stream local)]
+        (.on ^js wss "connection"
+             (fn [ws]
+               (on-open! stream (fn [msg] (.send ^js ws msg)))
+               (.on ^js ws "message" (fn [raw] (on-message! stream raw)))
+               (.on ^js ws "close" (fn [] (on-close! stream)))))
+        (swap! (:link-state-atom stream) assoc :stop-fn #(.close ^js wss))
+        stream))))
+
+
+#?(:cljs
    (defmethod ds/open! :websocket
      [descriptor]
-     (let [{:keys [mode url capacity]} (:transport descriptor)]
+     (let [{:keys [mode url port capacity]} (:transport descriptor)]
        (case mode
+         :listen  (listen! port {:capacity capacity})
          :connect (connect! url {:capacity capacity})
-         (throw (ex-info "websocket mode :listen not supported in CLJS (use :connect)"
+         (throw (ex-info "websocket transport mode must be :listen or :connect"
+                         {:descriptor descriptor, :mode mode}))))))
+
+
+#?(:cljd
+   (defn listen!
+     "Start a WebSocket server on port. Returns WebSocketStream.
+      Accepts one connection; further connections are rejected."
+     ([port] (listen! port nil))
+     ([port opts]
+      (let [local (ds/open! {:transport {:type :ringbuffer, :capacity (:capacity opts)}})
+            stream (make-ws-stream local)]
+        (-> (io/HttpServer.bind "0.0.0.0" port)
+            (.then (fn [server]
+                     (let [server ^io/HttpServer server]
+                       (swap! (:link-state-atom stream) assoc :stop-fn #(.close server))
+                       (.listen server
+                                (fn [request]
+                                  (let [request ^io/HttpRequest request]
+                                    (when (io/WebSocketTransformer.isUpgradeRequest request)
+                                      (-> (io/WebSocketTransformer.upgrade request)
+                                          (.then (fn [ws]
+                                                   (let [ws ^io/WebSocket ws]
+                                                     (on-open! stream (fn [msg] (.add ws msg)))
+                                                     (.listen ws
+                                                              (fn [raw] (on-message! stream raw))
+                                                              :onDone (fn [] (on-close! stream)))))))))))))))
+        stream))))
+
+
+#?(:cljd
+   (defmethod ds/open! :websocket
+     [descriptor]
+     (let [{:keys [mode url port capacity]} (:transport descriptor)]
+       (case mode
+         :listen  (listen! port {:capacity capacity})
+         :connect (throw (ex-info "websocket mode :connect not supported in CLJD"
+                                  {:descriptor descriptor}))
+         (throw (ex-info "websocket transport mode must be :listen or :connect"
                          {:descriptor descriptor, :mode mode}))))))

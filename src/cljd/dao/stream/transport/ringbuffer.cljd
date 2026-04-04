@@ -1,0 +1,87 @@
+(ns dao.stream.transport.ringbuffer
+  "ClojureDart ring-buffer transport for DaoStream."
+  (:require
+    [dao.stream :as ds]
+    [dao.stream.transport.ringbuffer.state :as state]))
+
+
+(deftype RingBufferStream
+  [capacity state-atom]
+
+  cljd.core/ICounted
+
+  (-count
+    [_]
+    (state/count-state @state-atom))
+
+
+  ds/IDaoStreamWriter
+
+  (put!
+    [_this val]
+    (let [result (swap! state-atom state/put-state capacity val)]
+      (state/put-outcome result val)))
+
+
+  ds/IDaoStreamReader
+
+  (next
+    [_this cursor]
+    (state/next-outcome @state-atom cursor))
+
+
+  ds/IDaoStreamBound
+
+  (close!
+    [_this]
+    (let [result @state-atom]
+      (swap! state-atom state/close-state)
+      (state/close-outcome result)))
+
+
+  (closed? [_this] (state/closed-state? @state-atom))
+
+
+  ds/IDaoStreamWaitable
+
+  (register-reader-waiter!
+    [_this position entry]
+    (swap! state-atom state/register-reader-waiter-state position entry))
+
+
+  (register-writer-waiter!
+    [_this entry]
+    (swap! state-atom state/register-writer-waiter-state entry))
+
+
+  ds/IDaoStreamDrainable
+
+  (-drain-one!
+    [_this]
+    (let [result (swap! state-atom state/drain-one-state)]
+      (state/drain-one-outcome result))))
+
+
+(defn make-ring-buffer-stream
+  [capacity]
+  (->RingBufferStream
+    capacity
+    (atom (state/initial-state))))
+
+(deftype RingBufferOpenMethod
+  []
+  :type-only true
+  cljd.core/IFn
+  (-invoke
+    [_ table]
+    (assoc! table
+            :ringbuffer
+            (fn [descriptor]
+              (let [capacity (get-in descriptor [:transport :capacity])]
+                (make-ring-buffer-stream capacity))))))
+
+
+(contribute* :multi-method
+             dao.stream/open!
+             dao.stream.transport.ringbuffer/RingBufferOpenMethod
+             dao.stream.transport.ringbuffer/RingBufferOpenMethod)

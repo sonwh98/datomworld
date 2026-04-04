@@ -1,6 +1,7 @@
 (ns test-runner
   (:require
     [cljs.test :refer-macros [run-tests]]
+    [dao.repl-test]
     [dao.stream-test]
     [dao.stream.transport.file-test]
     [datomworld.continuation-transport-test]
@@ -17,6 +18,7 @@
 (defn -main
   []
   (run-tests 'datomworld.continuation-transport-test
+             'dao.repl-test
              'dao.stream-test
              'dao.stream.transport.file-test
              'yin.content-test

@@ -103,8 +103,11 @@ This ensures code is testable by design and implementation matches actual requir
 
 # WORKFLOW
 
-Do not commit changes until explicitly asked by the user.
-When asked to commit, only commit staged changes.
+Do not stage or commit changes until explicitly asked by the user.
+When asked to stage or commit, follow these rules:
+  - Stage only files that were explicitly modified or created for the requested work.
+  - When committing, only commit staged changes; never commit unstaged changes.
+  - Create clear, descriptive commit messages explaining the "why" behind the changes.
 Do not invent abstractions that hide streams.
 Do not suggest mainstream frameworks unless explicitly asked.
 Do not optimize prematurely.
