@@ -4,7 +4,7 @@
   (:refer-clojure :exclude [eval])
   (:require
     [dao.stream :as ds]
-    [dao.stream.transport.ringbuffer]))
+    [dao.stream.transport.ringbuffer :as ringbuffer]))
 
 
 ;; =============================================================================
@@ -426,14 +426,13 @@
    :primitives map, :run-queue [], :wait-set [], and shared telemetry counters."
   ([] (empty-state {}))
   ([opts]
-   (let [call-in (or (:call-in opts)
-                     (ds/open! {:transport {:type :ringbuffer
-                                            :mode :create
-                                            :capacity nil}}))
-         call-out (or (:call-out opts)
-                      (ds/open! {:transport {:type :ringbuffer
-                                             :mode :create
-                                             :capacity nil}}))]
+   (let [open-ringbuffer (fn []
+                           #?(:cljd (ringbuffer/make-ring-buffer-stream nil)
+                              :default (ds/open! {:transport {:type :ringbuffer
+                                                              :mode :create
+                                                              :capacity nil}})))
+         call-in (or (:call-in opts) (open-ringbuffer))
+         call-out (or (:call-out opts) (open-ringbuffer))]
      {:store
       {call-in-stream-key  call-in
        call-in-cursor-key  {:stream-id call-in-stream-key, :position 0}
