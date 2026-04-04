@@ -418,7 +418,7 @@ Flags:
 ### Node.js
 
 ```bash
-npx shadow-cljs run dao.repl-main/-main [FLAGS]
+npx shadow-cljs run dao.repl-main.node/-main [FLAGS]
 
 (Same flags as JVM)
 ```
@@ -427,7 +427,7 @@ npx shadow-cljs run dao.repl-main/-main [FLAGS]
 
 ```bash
 clj -M:cljd compile      # Compile to Dart
-dart run bin/dao-repl-main.dart [FLAGS]
+dart run bin/dao_repl_main.dart [FLAGS]
 
 (Same flags as JVM)
 ```

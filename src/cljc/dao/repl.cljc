@@ -1,12 +1,17 @@
 (ns dao.repl
   (:require
+    #?(:cljd ["dart:async" :as async])
+    #?(:cljd ["dart:core" :as core])
     #?(:clj [clojure.edn :as edn]
        :cljs [cljs.reader :as edn]
        :cljd [clojure.edn :as edn])
     [clojure.string :as str]
     [dao.stream :as ds]
     [dao.stream.apply :as dao-apply]
+    ;; The following transport namespaces are required for their side-effects
+    ;; (registering transport types) during REPL initialization.
     #?(:cljd [dao.stream.transport.ringbuffer :as ringbuffer])
+    #?(:clj [dao.stream.transport.ws])
     #?(:cljs [dao.stream.transport.ws :as ws])
     [yang.clojure :as yang.clojure]
     [yang.php :as yang.php]
@@ -87,7 +92,7 @@
       (update :telemetry-t #(or % 0))))
 
 
-(defn make-vm
+(defn- make-vm
   ([vm-type] (make-vm vm-type nil))
   ([vm-type telemetry-stream]
    (when-not (contains? vm-constructors vm-type)
@@ -197,14 +202,14 @@
         :response-stream stream})))
 
 
-(defn attach-remote-endpoint
+(defn- attach-remote-endpoint
   [state endpoint]
   (assoc state
          :remote-endpoint endpoint
          :remote-response-cursor {:position 0}))
 
 
-(defn detach-remote-endpoint
+(defn- detach-remote-endpoint
   [state]
   (when-let [{:keys [request-stream response-stream]} (:remote-endpoint state)]
     (when request-stream
@@ -290,7 +295,7 @@
     (yang.clojure/compile-program forms)))
 
 
-(defn compile-source
+(defn- compile-source
   [lang input-str]
   (case lang
     :clojure (compile-clojure-forms (read-clojure-forms input-str))
@@ -336,35 +341,57 @@
        (pr-str (vec (vm/ast->datoms ast)))))
 
 
+(defn- deliver-result
+  [val]
+  #?(:clj (let [p (promise)] (deliver p val) p)
+     :cljs (js/Promise.resolve val)
+     :cljd (async/Future.value val)))
+
+
 (defn- wait-for-response
   [state request-id]
-  (let [{:keys [response-stream]} (:remote-endpoint state)]
-    (loop [cursor (:remote-response-cursor state)
-           attempts 0]
-      (when (> attempts 500)
-        (throw (ex-info "Remote Dao REPL request timed out"
-                        {:request-id request-id})))
-      (let [result (dao-apply/next-response response-stream cursor)]
-        (cond
-          (map? result)
-          (let [response (:ok result)
-                next-cursor (:cursor result)]
-            (if (= request-id (dao-apply/response-id response))
-              [(assoc state :remote-response-cursor next-cursor) response]
-              (recur next-cursor (inc attempts))))
+  (let [{:keys [response-stream]} (:remote-endpoint state)
+        #?@(:cljs [p-resolve (atom nil)
+                   p (js/Promise. (fn [resolve _] (reset! p-resolve resolve)))]
+            :cljd [completer (async/Completer.)])]
+    (letfn [(poll
+              [cursor attempts]
+              (if (> attempts 500)
+                (let [err (ex-info "Remote Dao REPL request timed out"
+                                   {:request-id request-id})]
+                  #?(:clj (throw err)
+                     :cljs (@p-resolve [state (format-error err)])
+                     :cljd (.complete completer [state (format-error err)])))
+                (let [result (dao-apply/next-response response-stream cursor)]
+                  (cond
+                    (map? result)
+                    (let [response (:ok result)
+                          next-cursor (:cursor result)]
+                      (if (= request-id (dao-apply/response-id response))
+                        (let [res [(assoc state :remote-response-cursor next-cursor)
+                                   response]]
+                          #?(:clj res
+                             :cljs (@p-resolve res)
+                             :cljd (.complete completer res)))
+                        (poll next-cursor (inc attempts))))
 
-          (= result :blocked)
-          #?(:clj (do (Thread/sleep 10)
-                      (recur cursor (inc attempts)))
-             :cljs (throw (ex-info "Remote Dao REPL waiting is not supported on this platform"
-                                   {:request-id request-id}))
-             :cljd (throw (ex-info "Remote Dao REPL waiting is not supported on this platform"
-                                   {:request-id request-id})))
+                    (= result :blocked)
+                    #?(:clj (do (Thread/sleep 10)
+                                (poll cursor (inc attempts)))
+                       :cljs (js/setTimeout #(poll cursor (inc attempts)) 10)
+                       :cljd (-> (async/Future.delayed (core/Duration .milliseconds 10))
+                                 (.then (fn [_] (poll cursor (inc attempts))))))
 
-          :else
-          (throw (ex-info "Remote Dao REPL stream closed before a response arrived"
-                          {:request-id request-id
-                           :result result})))))))
+                    :else
+                    (let [err (ex-info "Remote Dao REPL stream closed before a response arrived"
+                                       {:request-id request-id
+                                        :result result})]
+                      #?(:clj (throw err)
+                         :cljs (@p-resolve [state (format-error err)])
+                         :cljd (.complete completer [state (format-error err)])))))))]
+      #?(:clj (poll (:remote-response-cursor state) 0)
+         :cljs (do (poll (:remote-response-cursor state) 0) p)
+         :cljd (do (poll (:remote-response-cursor state) 0) (.future completer))))))
 
 
 (defn- eval-remote-input
@@ -375,15 +402,22 @@
                                   request-id
                                   :op/eval
                                   [input-str])
-        [state' response] (wait-for-response (update state :request-id inc)
-                                             request-id)]
-    [state' (str (dao-apply/response-value response))]))
+        p-or-res (wait-for-response (update state :request-id inc)
+                                    request-id)]
+    #?(:clj (let [[state' response] p-or-res]
+              [state' (str (dao-apply/response-value response))])
+       :cljs (.then p-or-res
+                    (fn [[state' response]]
+                      [state' (str (dao-apply/response-value response))]))
+       :cljd (.then p-or-res
+                    (fn [[state' response]]
+                      [state' (str (dao-apply/response-value response))])))))
 
 
 (declare eval-input)
 
 
-(defn handle-command
+(defn- handle-command
   [state form]
   (let [[command & args] form]
     (case command
@@ -402,8 +436,7 @@
       (let [lang (first args)]
         (when-not (contains? lang-labels lang)
           (throw (ex-info "Unknown Dao REPL language"
-                          {:lang lang
-                           :supported (vec (keys lang-labels))})))
+                          {:lang lang})))
         [(assoc state :lang lang)
          (str "Switched to " (get lang-labels lang))])
 
@@ -477,7 +510,7 @@
         (and (:forms parsed)
              (= 1 (count (:forms parsed)))
              (local-only-command-form? (first (:forms parsed))))
-        (handle-command state (first (:forms parsed)))
+        (deliver-result (handle-command state (first (:forms parsed))))
 
         (:remote-endpoint state)
         (eval-remote-input state input-str)
@@ -485,60 +518,63 @@
         (and (:forms parsed)
              (= 1 (count (:forms parsed)))
              (shell-command-form? (first (:forms parsed))))
-        (handle-command state (first (:forms parsed)))
+        (deliver-result (handle-command state (first (:forms parsed))))
 
         (and (:forms parsed)
              (= 1 (count (:forms parsed)))
              (datom-stream? (first (:forms parsed))))
-        (eval-datoms state (first (:forms parsed)))
+        (deliver-result (eval-datoms state (first (:forms parsed))))
 
         (and (:forms parsed)
              (= 1 (count (:forms parsed)))
              (ast-map? (first (:forms parsed))))
-        (eval-ast state (first (:forms parsed)))
+        (deliver-result (eval-ast state (first (:forms parsed))))
 
         (:forms parsed)
-        (if (= :clojure (:lang state))
-          (eval-clojure-forms state (:forms parsed))
-          (eval-source state input-str))
+        (deliver-result (if (= :clojure (:lang state))
+                          (eval-clojure-forms state (:forms parsed))
+                          (eval-source state input-str)))
 
         (= :clojure (:lang state))
-        [state (format-error (:error parsed))]
+        (deliver-result [state (format-error (:error parsed))])
 
         :else
-        (eval-source state input-str))
+        (deliver-result (eval-source state input-str)))
       (catch #?(:clj Exception :cljs js/Error :cljd Object) error
-        [state (format-error error)]))))
+        (deliver-result [state (format-error error)])))))
 
 
 (defn handle-request
   [state request]
   (let [request-id (dao-apply/request-id request)
         op (dao-apply/request-op request)
-        args (dao-apply/request-args request)]
-    (case op
-      :op/eval
-      (let [[state' result] (eval-input state (first args))]
-        [state' (dao-apply/response request-id result)])
+        args (dao-apply/request-args request)
+        res-p (case op
+                :op/eval
+                (eval-input state (first args))
 
-      :op/vm
-      (let [[state' result] (handle-command state (list* 'vm args))]
-        [state' (dao-apply/response request-id result)])
+                :op/vm
+                (deliver-result (handle-command state (list* 'vm args)))
 
-      :op/lang
-      (let [[state' result] (handle-command state (list* 'lang args))]
-        [state' (dao-apply/response request-id result)])
+                :op/lang
+                (deliver-result (handle-command state (list* 'lang args)))
 
-      :op/reset
-      (let [[state' result] (handle-command state '(reset))]
-        [state' (dao-apply/response request-id result)])
+                :op/reset
+                (deliver-result (handle-command state '(reset)))
 
-      :op/help
-      [state (dao-apply/response request-id help-text)]
+                :op/help
+                (deliver-result [state help-text])
 
-      [state
-       (dao-apply/response request-id
-                           (str "Error: Unsupported Dao REPL request op " op))])))
+                (deliver-result
+                  [state
+                   (str "Error: Unsupported Dao REPL request op " op)]))]
+    #?(:clj (deliver-result
+              (let [[state' result] @res-p]
+                [state' (dao-apply/response request-id result)]))
+       :cljs (.then res-p (fn [[state' result]]
+                            [state' (dao-apply/response request-id result)]))
+       :cljd (.then res-p (fn [[state' result]]
+                            [state' (dao-apply/response request-id result)])))))
 
 
 (defn serve-once!
@@ -548,14 +584,30 @@
    (let [read-result (dao-apply/next-request request-stream cursor)]
      (if (map? read-result)
        (let [request (:ok read-result)
-             [state' response] (handle-request @state-atom request)
-             put-result (dao-apply/put-response! response-stream response)]
-         (reset! state-atom state')
-         {:request request
-          :response response
-          :cursor (:cursor read-result)
-          :put-result put-result})
-       read-result))))
+             res-p (handle-request @state-atom request)]
+         #?(:clj (deliver-result
+                   (let [[state' response] @res-p
+                         put-result (dao-apply/put-response! response-stream response)]
+                     (reset! state-atom state')
+                     {:request request
+                      :response response
+                      :cursor (:cursor read-result)
+                      :put-result put-result}))
+            :cljs (.then res-p (fn [[state' response]]
+                                 (let [put-result (dao-apply/put-response! response-stream response)]
+                                   (reset! state-atom state')
+                                   {:request request
+                                    :response response
+                                    :cursor (:cursor read-result)
+                                    :put-result put-result})))
+            :cljd (.then res-p (fn [[state' response]]
+                                 (let [put-result (dao-apply/put-response! response-stream response)]
+                                   (reset! state-atom state')
+                                   {:request request
+                                    :response response
+                                    :cursor (:cursor read-result)
+                                    :put-result put-result})))))
+       (deliver-result read-result)))))
 
 
 #?(:clj
@@ -564,7 +616,6 @@
       (serve! state-atom port {}))
      ([state-atom port {:keys [sleep-ms]
                         :or {sleep-ms 10}}]
-      (require '[dao.stream.transport.ws])
       (let [stream (ds/open! {:transport {:type :websocket
                                           :mode :listen
                                           :port port}})
@@ -572,10 +623,10 @@
             worker (future
                      (loop [cursor {:position 0}]
                        (if @running?
-                         (let [result (serve-once! state-atom
-                                                   stream
-                                                   stream
-                                                   cursor)]
+                         (let [result @(serve-once! state-atom
+                                                    stream
+                                                    stream
+                                                    cursor)]
                            (case result
                              :blocked (do (Thread/sleep sleep-ms)
                                           (recur cursor))
@@ -595,12 +646,55 @@
 
    :cljs
    (defn serve!
-     [& _args]
-     (throw (ex-info "Dao REPL server mode is not supported on this platform"
-                     {})))
+     ([state-atom port]
+      (serve! state-atom port {}))
+     ([state-atom port {:keys [sleep-ms]
+                        :or {sleep-ms 10}}]
+      (let [stream (ds/open! {:transport {:type :websocket
+                                          :mode :listen
+                                          :port port}})
+            running? (atom true)
+            worker (fn loop-fn
+                     [cursor]
+                     (when @running?
+                       (.then (serve-once! state-atom stream stream cursor)
+                              (fn [result]
+                                (case result
+                                  :blocked (js/setTimeout #(loop-fn cursor) sleep-ms)
+                                  :end nil
+                                  :daostream/gap (loop-fn {:position 0})
+                                  (loop-fn (:cursor result)))))))]
+        (worker {:position 0})
+        {:port port
+         :stream stream
+         :stop! (fn []
+                  (ds/close! stream)
+                  (reset! running? false))})))
 
    :cljd
    (defn serve!
-     [& _args]
-     (throw (ex-info "Dao REPL server mode is not supported on this platform"
-                     {}))))
+     ([state-atom port]
+      (serve! state-atom port {}))
+     ([state-atom port {:keys [sleep-ms]
+                        :or {sleep-ms 10}}]
+      (let [stream (ds/open! {:transport {:type :websocket
+                                          :mode :listen
+                                          :port port}})
+            running? (atom true)
+            worker (fn loop-fn
+                     [cursor]
+                     (when @running?
+                       (.then (serve-once! state-atom stream stream cursor)
+                              (fn [result]
+                                (case result
+                                  :blocked (-> (async/Future.delayed (core/Duration .milliseconds sleep-ms))
+                                               (.then (fn [_] (loop-fn cursor))))
+                                  :end nil
+                                  :daostream/gap (loop-fn {:position 0})
+                                  (loop-fn (:cursor result)))))))]
+        (worker {:position 0})
+        {:port port
+         :stream stream
+         :stop! (fn []
+                  (ds/close! stream)
+                  (reset! running? false))}))))
