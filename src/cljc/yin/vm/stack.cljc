@@ -6,6 +6,12 @@
    - Call frames are managed via first-class continuations (:k)
    - The AST as :yin/ datoms (from vm/ast->datoms) is the canonical source.
 
+   Mapping to CESK:
+   - Control (C):     :control (integer program counter into :bytecode)
+   - Environment (E): :env (lexical bindings)
+   - Store (S):       :store (shared heap memory)
+   - Kontinuation (K): :k (linked list of frames, which save control/env/operand-stack)
+
    This namespace provides:
    1. Stack assembly: project :yin/ datoms to symbolic stack instructions
    2. Assembly to numeric bytecode encoding (assemble)
@@ -14,7 +20,9 @@
     [dao.stream :as ds]
     [dao.stream.apply :as dao.stream.apply]
     [yin.module :as module]
-    [yin.vm :as vm]
+    #?(:clj [yin.vm :as vm :refer [opcase]]
+       :cljs [yin.vm :as vm]
+       :cljd [yin.vm :as vm])
     [yin.vm.engine :as engine]
     [yin.vm.host-ffi :as host-ffi]
     [yin.vm.macro :as macro]
@@ -36,17 +44,17 @@
 (defrecord StackVM
   [blocked    ; true if blocked
    bytecode   ; bytecode vector
-   call-stack ; call frames for function returns
+   k          ; continuation (call frame stack)
    compiled-by-version ; {program-version -> compiled artifact}
    compiled-cache-limit ; max retained compiled artifacts
    active-compiled-version ; compiled program version for new control transfers
    compile-dirty? ; canonical datom stream changed since last compile
-   env        ; lexical environment
+   env        ; lexical environment (E in CESK)
    halted     ; true if execution completed
    id-counter ; unique ID counter
    macro-registry ; {macro-lambda-eid -> (fn [ctx] {:datoms [...] :root-eid eid})}
    parked     ; parked continuations
-   pc         ; program counter
+   control    ; program counter (C in CESK)
    pool       ; constant pool
    program-datoms ; canonical bounded datom stream snapshot
    program-index ; derived datom index for compilation
@@ -55,7 +63,7 @@
    primitives ; primitive operations
    run-queue  ; vector of runnable continuations
    stack      ; operand stack
-   store      ; heap memory
+   store      ; heap memory (S in CESK)
    value      ; final result value
    wait-set   ; vector of parked continuations waiting on streams
    ])
@@ -150,7 +158,8 @@
              :vm/store-get (emit! [:store-get (get-attr e :yin/key)])
              :vm/store-put (let [val (get-attr e :yin/value)]
                              (emit! [:push val])
-                             (emit! [:store-put (get-attr e :yin/key)]))
+                             (emit! [:store-put (get-attr e :yin/key)])
+                             val)
              ;; Stream operations
              :stream/make (emit! [:stream-make
                                   (or (get-attr e :yin/buffer) 1024)])
@@ -236,7 +245,9 @@
           ;; Re-calculate current offset during emission for relative jumps
           emit-offset (atom 0)]
       (doseq [[idx instr] (map-indexed vector instructions)]
-        (let [[op arg1 arg2] instr
+        (let [op (first instr)
+              arg1 (second instr)
+              arg2 (nth instr 2 nil)
               start-offset @emit-offset]
           ;; Record source map
           (when (not= :label op) (swap! source-map assoc start-offset idx))
@@ -348,7 +359,7 @@
     (let [self (cond-> #{}
                  (some? (:compiled-version frame))
                  (conj (:compiled-version frame)))]
-      (into self (collect-frame-versions (:call-stack frame))))
+      (into self (frame-versions (:next frame))))
     #{}))
 
 
@@ -367,7 +378,7 @@
     (-> #{}
         (cond-> (some? (:active-compiled-version vm))
           (conj (:active-compiled-version vm)))
-        (into (collect-frame-versions (:call-stack vm)))
+        (into (frame-versions (:k vm)))
         (into (collect-frame-versions parked-frames))
         (into (collect-frame-versions run-entries))
         (into (collect-frame-versions wait-entries))
@@ -468,11 +479,11 @@
 (defn- activate-compiled-artifact
   [vm artifact]
   (assoc vm
-         :pc 0
+         :control 0
          :bytecode (:bytecode artifact)
          :pool (:pool artifact)
          :stack []
-         :call-stack []
+         :k nil
          :halted false
          :value nil
          :blocked false))
@@ -605,19 +616,19 @@
 
 (defn- snap-frame
   "Snapshot current VM frame for parking or reification."
-  [{:keys [bytecode env call-stack pool active-compiled-version]} stack pc]
-  {:pc pc,
+  [{:keys [bytecode env k pool active-compiled-version]} stack control]
+  {:control control,
    :bytecode bytecode,
    :stack stack,
    :env env,
-   :call-stack call-stack,
+   :next k,
    :pool pool,
    :compiled-version active-compiled-version})
 
 
 (defn- handle-native-result
   "Handle result of calling a native fn. Routes effects through handle-effect."
-  [state result stack-rest next-pc park-entry-fns]
+  [state result stack-rest next-control park-entry-fns]
   (if (module/effect? result)
     (let [{:keys [state value blocked?]} (engine/handle-effect
                                            state
@@ -627,31 +638,31 @@
         state
         (assoc state
                :stack (conj stack-rest value)
-               :pc next-pc)))
+               :control next-control)))
     (assoc state
            :stack (conj stack-rest result)
-           :pc next-pc)))
+           :control next-control)))
 
 
 (defn- restore-frame
   "Restore VM state from a snapshot, optionally pushing a return value."
   ([state frame]
    (assoc state
-          :pc (:pc frame)
+          :control (:control frame)
           :bytecode (:bytecode frame)
           :stack (:stack frame)
           :env (:env frame)
-          :call-stack (:call-stack frame)
+          :k (:next frame)
           :pool (or (:pool frame) (:pool state))
           :active-compiled-version (or (:compiled-version frame)
                                        (:active-compiled-version state))))
   ([state frame value]
    (assoc state
-          :pc (:pc frame)
+          :control (:control frame)
           :bytecode (:bytecode frame)
           :stack (conj (:stack frame) value)
           :env (:env frame)
-          :call-stack (:call-stack frame)
+          :k (:next frame)
           :pool (or (:pool frame) (:pool state))
           :active-compiled-version (or (:compiled-version frame)
                                        (:active-compiled-version state)))))
@@ -659,26 +670,26 @@
 
 (defn- apply-op
   [state argc tail?]
-  (let [{:keys [pc _bytecode stack _env call-stack pool _store _id-counter]} state
+  (let [{:keys [control _bytecode stack _env k pool _store _id-counter]} state
         n (count stack)
         args (subvec stack (- n argc) n)
         fn-val (nth stack (- n argc 1))
         stack-rest (subvec stack 0 (- n argc 1))
-        next-pc (+ pc 2)]
+        next-control (+ control 2)]
     (cond (fn? fn-val)
           (let [res (apply fn-val args)]
             (handle-native-result
               state
               res
               stack-rest
-              next-pc
+              next-control
               {:stream/put (fn [_s _e r]
-                             (merge (snap-frame state stack-rest next-pc)
+                             (merge (snap-frame state stack-rest next-control)
                                     {:reason :put,
                                      :stream-id (:stream-id r),
                                      :datom (:val res)})),
                :stream/next (fn [_s _e r]
-                              (merge (snap-frame state stack-rest next-pc)
+                              (merge (snap-frame state stack-rest next-control)
                                      {:reason :next,
                                       :cursor-ref (:cursor-ref r),
                                       :stream-id (:stream-id r)}))}))
@@ -692,30 +703,30 @@
                  clo-version :compiled-version}
                 fn-val
                 target-bytecode (or clo-bytecode clo-body)
-                target-pc (or clo-body-start 0)
+                target-control (or clo-body-start 0)
                 new-env (merge clo-env (zipmap clo-params args))
-                frame (snap-frame state stack-rest next-pc)]
+                frame (snap-frame state stack-rest next-control)]
             (if tail?
               ;; TCO: reuse current frame by
               ;; jumping directly to callee body.
               (assoc state
-                     :pc target-pc
+                     :control target-control
                      :bytecode target-bytecode
                      :stack []
                      :env new-env
                      :pool (or clo-pool pool)
                      :active-compiled-version (or clo-version
                                                   (:active-compiled-version state))
-                     :call-stack call-stack)
+                     :k k)
               (assoc state
-                     :pc target-pc
+                     :control target-control
                      :bytecode target-bytecode
                      :stack []
                      :env new-env
                      :pool (or clo-pool pool)
                      :active-compiled-version (or clo-version
                                                   (:active-compiled-version state))
-                     :call-stack (conj call-stack frame))))
+                     :k frame)))
           :else (throw (ex-info "Cannot apply non-function" {:fn fn-val})))))
 
 
@@ -723,44 +734,44 @@
   "Execute one stack VM instruction. Returns updated state.
    When execution completes, :halted is true and :value contains the result."
   [state]
-  (let [op0 (nth (:bytecode state) (:pc state) nil)
+  (let [op0 (nth (:bytecode state) (:control state) nil)
         state (if (and (:compile-dirty? state)
                        (or (= op0 (vm/opcode-table :call))
                            (= op0 (vm/opcode-table :tailcall))))
                 (maybe-recompile-at-boundary state)
                 state)
-        {:keys [pc bytecode stack env call-stack pool store primitives
+        {:keys [control bytecode stack env k pool store primitives
                 _id-counter]}
         state]
-    (if (>= pc (count bytecode))
+    (if (>= control (count bytecode))
       ;; End of bytes: return top of stack or pop frame
       (let [result (peek stack)]
-        (if (empty? call-stack)
+        (if (nil? k)
           (assoc state
                  :halted true
                  :value result)
-          (restore-frame state (peek call-stack) result)))
-      (let [op (nth bytecode pc)]
+          (restore-frame state k result)))
+      (let [op (nth bytecode control)]
         (vm/opcase
           op
           :literal
-          (let [val-idx (nth bytecode (inc pc))
+          (let [val-idx (nth bytecode (inc control))
                 val (nth pool val-idx)]
             (assoc state
-                   :pc (+ pc 2)
+                   :control (+ control 2)
                    :stack (conj stack val)))
           :load-var
-          (let [sym-idx (nth bytecode (inc pc))
+          (let [sym-idx (nth bytecode (inc control))
                 sym (nth pool sym-idx)
                 val (engine/resolve-var env store primitives sym)]
             (assoc state
-                   :pc (+ pc 2)
+                   :control (+ control 2)
                    :stack (conj stack val)))
           :lambda
-          (let [params-idx (nth bytecode (inc pc))
+          (let [params-idx (nth bytecode (inc control))
                 params (nth pool params-idx)
-                body-len (fetch-short-unsigned bytecode (+ pc 2))
-                body-start (+ pc 4)
+                body-len (fetch-short-unsigned bytecode (+ control 2))
+                body-start (+ control 4)
                 body-end (+ body-start body-len)
                 closure {:type :closure,
                          :params params,
@@ -771,58 +782,58 @@
                          :pool pool,
                          :compiled-version (:active-compiled-version state)}]
             (assoc state
-                   :pc (+ pc 4 body-len)
+                   :control (+ control 4 body-len)
                    :stack (conj stack closure)))
           :call
-          (let [argc (nth bytecode (inc pc))] (apply-op state argc false))
+          (let [argc (nth bytecode (inc control))] (apply-op state argc false))
           :tailcall
-          (let [argc (nth bytecode (inc pc))] (apply-op state argc true))
+          (let [argc (nth bytecode (inc control))] (apply-op state argc true))
           :branch
-          (let [offset (fetch-short-signed bytecode (inc pc))
+          (let [offset (fetch-short-signed bytecode (inc control))
                 condition (peek stack)
                 new-stack (pop stack)]
             (assoc state
-                   :pc (if condition (+ pc 3 offset) (+ pc 3))
+                   :control (if condition (+ control 3 offset) (+ control 3))
                    :stack new-stack))
           :jump
-          (let [offset (fetch-short-signed bytecode (inc pc))]
-            (assoc state :pc (+ pc 3 offset)))
+          (let [offset (fetch-short-signed bytecode (inc control))]
+            (assoc state :control (+ control 3 offset)))
           :return
           (let [result (peek stack)]
-            (if (empty? call-stack)
+            (if (nil? k)
               (assoc state
                      :halted true
                      :value result)
-              (restore-frame state (peek call-stack) result)))
+              (restore-frame state k result)))
           :gensym
-          (let [prefix-idx (nth bytecode (inc pc))
+          (let [prefix-idx (nth bytecode (inc control))
                 prefix (nth pool prefix-idx)
                 [id s'] (engine/gensym state prefix)]
             (assoc s'
-                   :pc (+ pc 2)
+                   :control (+ control 2)
                    :stack (conj stack id)))
           :store-get
-          (let [key-idx (nth bytecode (inc pc))
+          (let [key-idx (nth bytecode (inc control))
                 key (nth pool key-idx)
                 val (get store key)]
             (assoc state
-                   :pc (+ pc 2)
+                   :control (+ control 2)
                    :stack (conj stack val)))
           :store-put
-          (let [key-idx (nth bytecode (inc pc))
+          (let [key-idx (nth bytecode (inc control))
                 key (nth pool key-idx)
                 val (peek stack)
                 new-store (assoc store key val)]
             (assoc state
-                   :pc (+ pc 2)
+                   :control (+ control 2)
                    :store new-store))
           :stream-make
-          (let [buf-idx (nth bytecode (inc pc))
+          (let [buf-idx (nth bytecode (inc control))
                 buf (nth pool buf-idx)
                 effect {:effect :stream/make, :capacity buf}
                 {:keys [state value]} (engine/handle-effect state effect {})]
             (assoc state
-                   :pc (+ pc 2)
+                   :control (+ control 2)
                    :stack (conj stack value)))
           :stream-put ; OP_STREAM_PUT - pop stream-ref, pop val
           (let [stream-ref (peek stack)
@@ -837,14 +848,14 @@
                   {:park-entry-fns
                    {:stream/put
                     (fn [_s _e r]
-                      (merge (snap-frame state (conj stack-rest val) (+ pc 1))
+                      (merge (snap-frame state (conj stack-rest val) (+ control 1))
                              {:reason :put,
                               :stream-id (:stream-id r),
                               :datom val}))}})]
             (if blocked?
               state
               (assoc state
-                     :pc (+ pc 1)
+                     :control (+ control 1)
                      :stack (conj stack-rest value))))
           :stream-cursor ; OP_STREAM_CURSOR - pop stream-ref
           (let [stream-ref (peek stack)
@@ -852,7 +863,7 @@
                 effect {:effect :stream/cursor, :stream stream-ref}
                 {:keys [state value]} (engine/handle-effect state effect {})]
             (assoc state
-                   :pc (+ pc 1)
+                   :control (+ control 1)
                    :stack (conj stack-rest value)))
           :stream-next ; OP_STREAM_NEXT - pop cursor-ref
           (let [cursor-ref (peek stack)
@@ -865,14 +876,14 @@
                   {:park-entry-fns
                    {:stream/next
                     (fn [_s _e r]
-                      (merge (snap-frame state stack-rest (+ pc 1))
+                      (merge (snap-frame state stack-rest (+ control 1))
                              {:reason :next,
                               :cursor-ref (:cursor-ref r),
                               :stream-id (:stream-id r)}))}})]
             (if blocked?
               state
               (assoc state
-                     :pc (+ pc 1)
+                     :control (+ control 1)
                      :stack (conj stack-rest value))))
           :stream-close ; OP_STREAM_CLOSE - pop stream-ref
           (let [stream-ref (peek stack)
@@ -880,17 +891,17 @@
                 effect {:effect :stream/close, :stream stream-ref}
                 {:keys [state value]} (engine/handle-effect state effect {})]
             (assoc state
-                   :pc (+ pc 1)
+                   :control (+ control 1)
                    :stack (conj stack-rest value)))
           :dao.stream.apply/call
-          (let [op-idx (nth bytecode (inc pc))
-                argc (nth bytecode (+ pc 2))
+          (let [op-idx (nth bytecode (inc control))
+                argc (nth bytecode (+ control 2))
                 op-name (nth pool op-idx)
                 n (count stack)
                 args (subvec stack (- n argc) n)
                 stack-rest (subvec stack 0 (- n argc))
-                next-pc (+ pc 3)
-                park-snapshot (snap-frame state stack-rest next-pc)
+                next-control (+ control 3)
+                park-snapshot (snap-frame state stack-rest next-control)
                 parked (engine/park-continuation state park-snapshot)
                 parked-id (get-in parked [:value :id])
 
@@ -916,7 +927,7 @@
                    :blocked true
                    :halted false))
           :park
-          (engine/park-continuation state (snap-frame state stack pc))
+          (engine/park-continuation state (snap-frame state stack control))
           :resume ; OP_RESUME - pop val, pop parked-id
           (let [resume-val (peek stack)
                 stack1 (pop stack)
@@ -926,14 +937,14 @@
                                         resume-val
                                         (fn [new-state parked rv]
                                           (let [resumed (restore-frame new-state parked rv)]
-                                            (assoc resumed :pc (inc (:pc parked)))))))
+                                            (assoc resumed :control (inc (:control parked)))))))
           :current-cont
-          (let [cont (assoc (snap-frame state stack pc)
+          (let [cont (assoc (snap-frame state stack control)
                             :type :reified-continuation)]
             (assoc state
-                   :pc (+ pc 1)
+                   :control (+ control 1)
                    :stack (conj stack cont)))
-          (throw (ex-info "Unknown Opcode" {:op op, :pc pc})))))))
+          (throw (ex-info "Unknown Opcode" {:op op, :control control})))))))
 
 
 ;; =============================================================================
@@ -965,14 +976,14 @@
 
 (defn- materialize-fast-state
   "Materialize fast-loop locals back into a StackVM value."
-  [vm pc bytecode pool stack-arr sp env call-stack store id-counter]
+  [vm control bytecode pool stack-arr sp env k store id-counter]
   (assoc vm
-         :pc pc
+         :control control
          :bytecode bytecode
          :pool pool
          :stack (stack-array->vector stack-arr sp)
          :env env
-         :call-stack call-stack
+         :k k
          :store store
          :id-counter id-counter
          :halted false
@@ -980,14 +991,14 @@
 
 
 (defn- halt-fast-state
-  [vm pc bytecode pool stack-arr sp env call-stack store id-counter result]
+  [vm control bytecode pool stack-arr sp env k store id-counter result]
   (assoc vm
-         :pc pc
+         :control control
          :bytecode bytecode
          :pool pool
          :stack (stack-array->vector stack-arr sp)
          :env env
-         :call-stack call-stack
+         :k k
          :store store
          :id-counter id-counter
          :halted true
@@ -1001,91 +1012,91 @@
   [vm]
   (let [[stack-arr0 sp0] (stack-vector->array+sp (:stack vm))
         primitives (:primitives vm)]
-    (loop [pc (:pc vm)
+    (loop [control (:control vm)
            bytecode (:bytecode vm)
            pool (:pool vm)
            stack-arr stack-arr0
            sp sp0
            env (:env vm)
-           call-stack (:call-stack vm)
+           k (:k vm)
            store (:store vm)
            id-counter (:id-counter vm)]
       (let [fallback #(stack-vm-run-scheduler
                         (materialize-fast-state
                           vm
-                          pc
+                          control
                           bytecode
                           pool
                           stack-arr
                           sp
                           env
-                          call-stack
+                          k
                           store
                           id-counter))]
-        (if (>= pc (count bytecode))
+        (if (>= control (count bytecode))
           (let [result (when-not (neg? sp) (stack-array-get stack-arr sp))]
-            (if (empty? call-stack)
+            (if (nil? k)
               (halt-fast-state vm
-                               pc
+                               control
                                bytecode
                                pool
                                stack-arr
                                sp
                                env
-                               call-stack
+                               k
                                store
                                id-counter
                                result)
-              (let [frame (peek call-stack)
+              (let [frame k
                     [restored-arr restored-sp0] (stack-vector->array+sp
                                                   (:stack frame))
                     [restored-arr restored-sp] (stack-push restored-arr
                                                            restored-sp0
                                                            result)]
-                (recur (:pc frame)
+                (recur (:control frame)
                        (:bytecode frame)
                        (or (:pool frame) pool)
                        restored-arr
                        restored-sp
                        (:env frame)
-                       (:call-stack frame)
+                       (:next frame)
                        store
                        id-counter))))
-          (let [op (nth bytecode pc)]
+          (let [op (nth bytecode control)]
             (vm/opcase
               op
               :literal
-              (let [val-idx (nth bytecode (inc pc))
+              (let [val-idx (nth bytecode (inc control))
                     val (nth pool val-idx)
                     [next-arr next-sp] (stack-push stack-arr sp val)]
-                (recur (+ pc 2)
+                (recur (+ control 2)
                        bytecode
                        pool
                        next-arr
                        next-sp
                        env
-                       call-stack
+                       k
                        store
                        id-counter))
               :load-var
-              (let [sym-idx (nth bytecode (inc pc))
+              (let [sym-idx (nth bytecode (inc control))
                     sym (nth pool sym-idx)
                     val (engine/resolve-var env store primitives sym)
                     [next-arr next-sp] (stack-push stack-arr sp val)]
-                (recur (+ pc 2)
+                (recur (+ control 2)
                        bytecode
                        pool
                        next-arr
                        next-sp
                        env
-                       call-stack
+                       k
                        store
                        id-counter))
               :lambda
-              (let [params-idx (nth bytecode (inc pc))
+              (let [params-idx (nth bytecode (inc control))
                     params (nth pool params-idx)
-                    body-len (fetch-short-unsigned bytecode (+ pc 2))
-                    body-start (+ pc 4)
+                    body-len (fetch-short-unsigned bytecode (+ control 2))
+                    body-start (+ control 4)
                     body-end (+ body-start body-len)
                     closure {:type :closure,
                              :params params,
@@ -1095,34 +1106,34 @@
                              :env env,
                              :pool pool}
                     [next-arr next-sp] (stack-push stack-arr sp closure)]
-                (recur (+ pc 4 body-len)
+                (recur (+ control 4 body-len)
                        bytecode
                        pool
                        next-arr
                        next-sp
                        env
-                       call-stack
+                       k
                        store
                        id-counter))
               :call
-              (let [argc (nth bytecode (inc pc))
+              (let [argc (nth bytecode (inc control))
                     fn-pos (- sp argc)
                     fn-val (stack-array-get stack-arr fn-pos)
                     stack-rest-sp (dec fn-pos)
-                    next-pc (+ pc 2)]
+                    next-control (+ control 2)]
                 (cond
                   (fn? fn-val)
                   (let [result (invoke-native-fast fn-val stack-arr fn-pos argc)]
                     (if (module/effect? result)
                       (let [state' (materialize-fast-state
                                      vm
-                                     pc
+                                     control
                                      bytecode
                                      pool
                                      stack-arr
                                      sp
                                      env
-                                     call-stack
+                                     k
                                      store
                                      id-counter)
                             stack-rest (stack-array->vector stack-arr
@@ -1131,18 +1142,18 @@
                               state'
                               result
                               stack-rest
-                              next-pc
+                              next-control
                               {:stream/put
                                (fn [_s _e r]
                                  (merge
-                                   (snap-frame state' stack-rest next-pc)
+                                   (snap-frame state' stack-rest next-control)
                                    {:reason :put,
                                     :stream-id (:stream-id r),
                                     :datom (:val result)})),
                                :stream/next
                                (fn [_s _e r]
                                  (merge
-                                   (snap-frame state' stack-rest next-pc)
+                                   (snap-frame state' stack-rest next-control)
                                    {:reason :next,
                                     :cursor-ref (:cursor-ref r),
                                     :stream-id (:stream-id r)}))})
@@ -1150,13 +1161,13 @@
                       (let [arr1 stack-arr
                             sp1 stack-rest-sp
                             [next-arr next-sp] (stack-push arr1 sp1 result)]
-                        (recur next-pc
+                        (recur next-control
                                bytecode
                                pool
                                next-arr
                                next-sp
                                env
-                               call-stack
+                               k
                                store
                                id-counter))))
                   (= :closure (:type fn-val))
@@ -1168,7 +1179,7 @@
                          clo-pool :pool}
                         fn-val
                         target-bytecode (or clo-bytecode clo-body)
-                        target-pc (or clo-body-start 0)
+                        target-control (or clo-body-start 0)
                         new-env (merge clo-env
                                        (zipmap clo-params
                                                (stack-args->vector
@@ -1177,42 +1188,41 @@
                                                  argc)))
                         frame (snap-frame {:bytecode bytecode,
                                            :env env,
-                                           :call-stack call-stack,
+                                           :k k,
                                            :pool pool}
                                           (stack-array->vector stack-arr
                                                                stack-rest-sp)
-                                          next-pc)
-                        next-call-stack (conj call-stack frame)]
-                    (recur target-pc
+                                          next-control)]
+                    (recur target-control
                            target-bytecode
                            (or clo-pool pool)
                            stack-arr
                            -1
                            new-env
-                           next-call-stack
+                           frame
                            store
                            id-counter))
                   :else
                   (throw (ex-info "Cannot apply non-function" {:fn fn-val}))))
               :tailcall
-              (let [argc (nth bytecode (inc pc))
+              (let [argc (nth bytecode (inc control))
                     fn-pos (- sp argc)
                     fn-val (stack-array-get stack-arr fn-pos)
                     stack-rest-sp (dec fn-pos)
-                    next-pc (+ pc 2)]
+                    next-control (+ control 2)]
                 (cond
                   (fn? fn-val)
                   (let [result (invoke-native-fast fn-val stack-arr fn-pos argc)]
                     (if (module/effect? result)
                       (let [state' (materialize-fast-state
                                      vm
-                                     pc
+                                     control
                                      bytecode
                                      pool
                                      stack-arr
                                      sp
                                      env
-                                     call-stack
+                                     k
                                      store
                                      id-counter)
                             stack-rest (stack-array->vector stack-arr
@@ -1221,18 +1231,18 @@
                               state'
                               result
                               stack-rest
-                              next-pc
+                              next-control
                               {:stream/put
                                (fn [_s _e r]
                                  (merge
-                                   (snap-frame state' stack-rest next-pc)
+                                   (snap-frame state' stack-rest next-control)
                                    {:reason :put,
                                     :stream-id (:stream-id r),
                                     :datom (:val result)})),
                                :stream/next
                                (fn [_s _e r]
                                  (merge
-                                   (snap-frame state' stack-rest next-pc)
+                                   (snap-frame state' stack-rest next-control)
                                    {:reason :next,
                                     :cursor-ref (:cursor-ref r),
                                     :stream-id (:stream-id r)}))})
@@ -1240,13 +1250,13 @@
                       (let [arr1 stack-arr
                             sp1 stack-rest-sp
                             [next-arr next-sp] (stack-push arr1 sp1 result)]
-                        (recur next-pc
+                        (recur next-control
                                bytecode
                                pool
                                next-arr
                                next-sp
                                env
-                               call-stack
+                               k
                                store
                                id-counter))))
                   (= :closure (:type fn-val))
@@ -1258,114 +1268,114 @@
                          clo-pool :pool}
                         fn-val
                         target-bytecode (or clo-bytecode clo-body)
-                        target-pc (or clo-body-start 0)
+                        target-control (or clo-body-start 0)
                         new-env (merge clo-env
                                        (zipmap clo-params
                                                (stack-args->vector
                                                  stack-arr
                                                  fn-pos
                                                  argc)))]
-                    (recur target-pc
+                    (recur target-control
                            target-bytecode
                            (or clo-pool pool)
                            stack-arr
                            -1
                            new-env
-                           call-stack
+                           k
                            store
                            id-counter))
                   :else
                   (throw (ex-info "Cannot apply non-function" {:fn fn-val}))))
               :branch
-              (let [offset (fetch-short-signed bytecode (inc pc))
+              (let [offset (fetch-short-signed bytecode (inc control))
                     condition (stack-array-get stack-arr sp)]
-                (recur (if condition (+ pc 3 offset) (+ pc 3))
+                (recur (if condition (+ control 3 offset) (+ control 3))
                        bytecode
                        pool
                        stack-arr
                        (dec sp)
                        env
-                       call-stack
+                       k
                        store
                        id-counter))
               :jump
-              (let [offset (fetch-short-signed bytecode (inc pc))]
-                (recur (+ pc 3 offset)
+              (let [offset (fetch-short-signed bytecode (inc control))]
+                (recur (+ control 3 offset)
                        bytecode
                        pool
                        stack-arr
                        sp
                        env
-                       call-stack
+                       k
                        store
                        id-counter))
               :return
               (let [result (when-not (neg? sp) (stack-array-get stack-arr sp))]
-                (if (empty? call-stack)
+                (if (nil? k)
                   (halt-fast-state vm
-                                   pc
+                                   control
                                    bytecode
                                    pool
                                    stack-arr
                                    sp
                                    env
-                                   call-stack
+                                   k
                                    store
                                    id-counter
                                    result)
-                  (let [frame (peek call-stack)
+                  (let [frame k
                         [restored-arr restored-sp0]
                         (stack-vector->array+sp (:stack frame))
                         [restored-arr restored-sp]
                         (stack-push restored-arr restored-sp0 result)]
-                    (recur (:pc frame)
+                    (recur (:control frame)
                            (:bytecode frame)
                            (or (:pool frame) pool)
                            restored-arr
                            restored-sp
                            (:env frame)
-                           (:call-stack frame)
+                           (:next frame)
                            store
                            id-counter))))
               :gensym
-              (let [prefix-idx (nth bytecode (inc pc))
+              (let [prefix-idx (nth bytecode (inc control))
                     prefix (nth pool prefix-idx)
                     id (keyword (str prefix "-" id-counter))
                     [next-arr next-sp] (stack-push stack-arr sp id)]
-                (recur (+ pc 2)
+                (recur (+ control 2)
                        bytecode
                        pool
                        next-arr
                        next-sp
                        env
-                       call-stack
+                       k
                        store
                        (inc id-counter)))
               :store-get
-              (let [key-idx (nth bytecode (inc pc))
+              (let [key-idx (nth bytecode (inc control))
                     key (nth pool key-idx)
                     val (get store key)
                     [next-arr next-sp] (stack-push stack-arr sp val)]
-                (recur (+ pc 2)
+                (recur (+ control 2)
                        bytecode
                        pool
                        next-arr
                        next-sp
                        env
-                       call-stack
+                       k
                        store
                        id-counter))
               :store-put
-              (let [key-idx (nth bytecode (inc pc))
+              (let [key-idx (nth bytecode (inc control))
                     key (nth pool key-idx)
                     val (when-not (neg? sp) (stack-array-get stack-arr sp))]
-                (recur (+ pc 2)
+                (recur (+ control 2)
                        bytecode
                        pool
                        stack-arr
                        sp
                        env
-                       call-stack
+                       k
                        (assoc store key val)
                        id-counter))
               (fallback))))))))
@@ -1466,10 +1476,16 @@
   vm/IVMEval
   (eval [vm ast] (stack-vm-eval vm ast))
   vm/IVMState
-  (control [vm] {:pc (:pc vm), :bytecode (:bytecode vm)})
+  (control [vm] {:control (:control vm), :bytecode (:bytecode vm)})
   (environment [vm] (:env vm))
   (store [vm] (:store vm))
-  (continuation [vm] (:call-stack vm)))
+  (continuation [vm]
+    (when-let [k-head (:k vm)]
+      (loop [k k-head
+             acc []]
+        (if (nil? k)
+          acc
+          (recur (:next k) (conj acc k)))))))
 
 
 (defn create-vm
@@ -1480,11 +1496,11 @@
    (let [env (or (:env opts) {})
          bridge-state (host-ffi/bridge-from-opts opts)]
      (map->StackVM (merge (vm/empty-state (select-keys opts [:primitives]))
-                          {:pc 0,
+                          {:control 0,
                            :bytecode [],
                            :stack [],
                            :env env,
-                           :call-stack [],
+                           :k nil,
                            :pool [],
                            :compiled-by-version {},
                            :compiled-cache-limit (or (:compiled-cache-limit opts)

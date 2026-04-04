@@ -75,7 +75,7 @@
   (let [counts (atom {})]
     (loop [v program]
       (if (and (not (vm/halted? v)) (not (vm/blocked? v)))
-        (let [pc (:pc v)
+        (let [pc (:control v)
               bc (:bytecode v)
               op (get bc pc)
               op-name (get opcode->name op op)]

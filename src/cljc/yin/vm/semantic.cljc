@@ -171,7 +171,7 @@
    parked     ; parked continuations
    primitives ; primitive operations
    run-queue  ; vector of runnable continuations
-   stack      ; continuation stack
+   k          ; linked-list of continuation frames
    store      ; heap memory
    value      ; final result value
    wait-set   ; vector of parked continuations waiting on streams
@@ -190,7 +190,7 @@
 
 (defn- semantic-return
   "Materialize SemanticVM state from CES fields."
-  [^SemanticVM vm control env stack halted? val]
+  [^SemanticVM vm control env k halted? val]
   (->SemanticVM
     (:blocked vm)
     (:bridge vm)
@@ -204,7 +204,7 @@
     (:parked vm)
     (:primitives vm)
     (:run-queue vm)
-    stack
+    k
     (:store vm)
     val
     (:wait-set vm)
@@ -215,10 +215,10 @@
 
 (defn- park-and-call
   "Park the current semantic continuation stack and emit a DaoCall request."
-  [vm op args stack env]
+  [vm op args k env]
   (let [;; 1. Park the continuation with a response-processing frame
-        response-stack (conj stack {:type :dao.stream.apply/call})
-        parked (engine/park-continuation vm {:stack response-stack, :env env})
+        response-k {:type :dao.stream.apply/call, :next k}
+        parked (engine/park-continuation vm {:k response-k, :env env})
         parked-id (get-in parked [:value :id])
 
         ;; 2. Get response stream from store
@@ -230,7 +230,7 @@
         waiter-entry {:cursor-ref {:type :cursor-ref, :id vm/call-out-cursor-key}
                       :reason :next
                       :stream-id vm/call-out-stream-key
-                      :stack response-stack
+                      :k response-k
                       :env env}
         _ (when (satisfies? ds/IDaoStreamWaitable call-out)
             (ds/register-reader-waiter! call-out cursor-pos waiter-entry))
@@ -266,20 +266,20 @@
 ;;
 (defn- handle-return-value
   [vm]
-  (let [{:keys [control stack]} vm
+  (let [{:keys [control k]} vm
         val (:val control)]
-    (if (empty? stack)
+    (if (nil? k)
       (assoc vm
              :halted true
              :value val)
-      (let [frame (peek stack)
-            new-stack (pop stack)]
+      (let [frame k
+            new-k (:next k)]
         (case (:type frame)
           :if (let [{consequent :consequent, alternate :alternate, env-restore :env} frame]
                 (assoc vm
                        :control {:type :node, :id (if val consequent alternate)}
                        :env env-restore
-                       :stack new-stack))
+                       :k new-k))
           :app-op
           (let [{operands :operands, env-call :env, tail? :tail?} frame
                 fn-val val]
@@ -293,11 +293,11 @@
                       (assoc state
                              :control {:type :value, :val value}
                              :env env-call
-                             :stack new-stack))
+                             :k new-k))
                     (assoc vm
                            :control {:type :value, :val result}
                            :env env-call
-                           :stack new-stack)))
+                           :k new-k)))
                 (if (= :closure (:type fn-val))
                   (let [{body-node :body-node, env-clo :env} fn-val]
                     (if tail?
@@ -305,27 +305,27 @@
                       (assoc vm
                              :control {:type :node, :id body-node}
                              :env env-clo
-                             :stack new-stack)
+                             :k new-k)
                       (assoc vm
                              :control {:type :node, :id body-node}
                              :env env-clo ; Switch to closure env
-                             :stack (conj new-stack
-                                          {:type :restore-env,
-                                           :env env-call}))))
+                             :k {:type :restore-env,
+                                 :env env-call,
+                                 :next new-k})))
                   (throw (ex-info "Cannot apply non-function" {:fn fn-val}))))
               ;; Prepare to eval args
               (let [first-arg (first operands)]
                 (assoc vm
                        :control {:type :node, :id first-arg}
                        :env env-call
-                       :stack (conj new-stack
-                                    {:type :app-args,
-                                     :fn fn-val,
-                                     :evaluated [],
-                                     :operands operands,
-                                     :next-idx 1,
-                                     :env env-call,
-                                     :tail? tail?})))))
+                       :k {:type :app-args,
+                           :fn fn-val,
+                           :evaluated [],
+                           :operands operands,
+                           :next-idx 1,
+                           :env env-call,
+                           :tail? tail?,
+                           :next new-k}))))
           :app-args
           (let [{fn-val :fn, evaluated :evaluated, operands :operands, next-idx :next-idx, env-call :env, tail? :tail?} frame
                 new-evaluated (conj evaluated val)]
@@ -340,13 +340,13 @@
                             result
                             {:park-entry-fns
                              {:stream/put (fn [_s e r]
-                                            {:stack new-stack,
+                                            {:k new-k,
                                              :env env-call,
                                              :reason :put,
                                              :stream-id (:stream-id r),
                                              :datom (:val e)}),
                               :stream/next (fn [_s _e r]
-                                             {:stack new-stack,
+                                             {:k new-k,
                                               :env env-call,
                                               :reason :next,
                                               :cursor-ref (:cursor-ref r),
@@ -357,11 +357,11 @@
                         (assoc state
                                :control {:type :value, :val value}
                                :env env-call
-                               :stack new-stack)))
+                               :k new-k)))
                     (assoc vm
                            :control {:type :value, :val result}
                            :env env-call
-                           :stack new-stack)))
+                           :k new-k)))
                 (if (= :closure (:type fn-val))
                   (let [{params :params, body-node :body-node, env-clo :env} fn-val
                         new-env (merge env-clo (zipmap params new-evaluated))]
@@ -370,54 +370,52 @@
                       (assoc vm
                              :control {:type :node, :id body-node}
                              :env new-env
-                             :stack new-stack)
+                             :k new-k)
                       (assoc vm
                              :control {:type :node, :id body-node}
                              :env new-env ; Closure env + args
-                             :stack (conj new-stack
-                                          {:type :restore-env,
-                                           :env env-call}))))
+                             :k {:type :restore-env,
+                                 :env env-call,
+                                 :next new-k})))
                   (throw (ex-info "Cannot apply non-function" {:fn fn-val}))))
               ;; More args to eval
               (let [next-arg (nth operands next-idx)]
                 (assoc vm
                        :control {:type :node, :id next-arg}
                        :env env-call
-                       :stack (conj new-stack
-                                    (assoc frame
-                                           :evaluated new-evaluated
-                                           :next-idx (inc next-idx)))))))
+                       :k (assoc frame
+                                 :evaluated new-evaluated
+                                 :next-idx (inc next-idx))))))
           :dao.stream.apply/args-eval
           (let [{op :op, evaluated :evaluated, operands :operands, next-idx :next-idx, env-call :env} frame
                 new-evaluated (conj evaluated val)]
             (if (= next-idx (count operands))
-              (park-and-call vm op new-evaluated new-stack env-call)
+              (park-and-call vm op new-evaluated new-k env-call)
               (let [next-arg (nth operands next-idx)]
                 (assoc vm
                        :control {:type :node, :id next-arg}
                        :env env-call
-                       :stack (conj new-stack
-                                    (assoc frame
-                                           :evaluated new-evaluated
-                                           :next-idx (inc next-idx)))))))
+                       :k (assoc frame
+                                 :evaluated new-evaluated
+                                 :next-idx (inc next-idx))))))
           :dao.stream.apply/call
           (let [result-value (:dao.stream.apply/value val)]
             (assoc vm
                    :control {:type :value, :val result-value}
-                   :stack new-stack))
+                   :k new-k))
           :restore-env (assoc vm
                               :control control ; Pass value up
                               :env (:env frame) ; Restore caller env
-                              :stack new-stack)
+                              :k new-k)
           ;; Stream continuation frames
           :stream-put-target (let [stream-ref val
                                    val-node (:val-node frame)]
                                (assoc vm
                                       :control {:type :node, :id val-node}
-                                      :stack (conj new-stack
-                                                   {:type :stream-put-val,
-                                                    :stream-ref stream-ref,
-                                                    :env (:env frame)})))
+                                      :k {:type :stream-put-val,
+                                          :stream-ref stream-ref,
+                                          :env (:env frame),
+                                          :next new-k}))
           :stream-put-val
           (let [put-val val
                 stream-ref (:stream-ref frame)
@@ -428,7 +426,7 @@
                                       {:park-entry-fns
                                        {:stream/put
                                         (fn [_s _e r]
-                                          {:stack new-stack,
+                                          {:k new-k,
                                            :env (:env frame),
                                            :reason :put,
                                            :stream-id (:stream-id r),
@@ -438,7 +436,7 @@
               (assoc state
                      :control {:type :value, :val value}
                      :env (:env frame)
-                     :stack new-stack)))
+                     :k new-k)))
           :stream-cursor-source
           (let [stream-ref val
                 effect {:effect :stream/cursor, :stream stream-ref}
@@ -446,7 +444,7 @@
             (assoc state
                    :control {:type :value, :val value}
                    :env (:env frame)
-                   :stack new-stack))
+                   :k new-k))
           :stream-next-cursor
           (let [cursor-ref val
                 effect {:effect :stream/next, :cursor cursor-ref}
@@ -456,7 +454,7 @@
                   effect
                   {:park-entry-fns {:stream/next
                                     (fn [_s _e r]
-                                      {:stack new-stack,
+                                      {:k new-k,
                                        :env (:env frame),
                                        :reason :next,
                                        :cursor-ref (:cursor-ref r),
@@ -466,7 +464,7 @@
               (assoc state
                      :control {:type :value, :val value}
                      :env (:env frame)
-                     :stack new-stack)))
+                     :k new-k)))
           :stream-close-source
           (let [stream-ref val
                 effect {:effect :stream/close, :stream stream-ref}
@@ -474,7 +472,7 @@
             (assoc state
                    :control {:type :value, :val value}
                    :env (:env frame)
-                   :stack new-stack))
+                   :k new-k))
           :resume-val
           (let [resume-val val
                 parked-id (:parked-id frame)]
@@ -483,7 +481,7 @@
                                         resume-val
                                         (fn [new-state parked rv]
                                           (assoc new-state
-                                                 :stack (:stack parked)
+                                                 :k (:k parked)
                                                  :env (:env parked)
                                                  :control {:type :value,
                                                            :val rv}))))
@@ -493,7 +491,7 @@
 
 (defn handle-node-eval
   [vm]
-  (let [{:keys [control env stack datoms index store primitives]} vm
+  (let [{:keys [control env k datoms index store primitives]} vm
         node-id (:id control)
         node-arr ^objects (get index node-id)]
     (if (nil? node-arr)
@@ -513,31 +511,31 @@
                                          :env env}})
           :if (assoc vm
                      :control {:type :node, :id (aget node-arr ATTR_TEST)}
-                     :stack (conj stack
-                                  {:type :if,
-                                   :consequent (aget node-arr ATTR_CONSEQUENT),
-                                   :alternate (aget node-arr ATTR_ALTERNATE),
-                                   :env env}))
+                     :k {:type :if,
+                         :consequent (aget node-arr ATTR_CONSEQUENT),
+                         :alternate (aget node-arr ATTR_ALTERNATE),
+                         :env env,
+                         :next k})
           :application (assoc vm
                               :control {:type :node, :id (aget node-arr ATTR_OPERATOR)}
-                              :stack (conj stack
-                                           {:type :app-op,
-                                            :operands (aget node-arr ATTR_OPERANDS),
-                                            :env env,
-                                            :tail? (aget node-arr ATTR_TAIL)}))
+                              :k {:type :app-op,
+                                  :operands (aget node-arr ATTR_OPERANDS),
+                                  :env env,
+                                  :tail? (aget node-arr ATTR_TAIL),
+                                  :next k})
           :dao.stream.apply/call (let [operands (or (aget node-arr ATTR_OPERANDS) [])
                                        op (aget node-arr ATTR_OP)]
                                    (if (empty? operands)
-                                     (park-and-call vm op [] stack env)
+                                     (park-and-call vm op [] k env)
                                      (assoc vm
                                             :control {:type :node, :id (first operands)}
-                                            :stack (conj stack
-                                                         {:type :dao.stream.apply/args-eval,
-                                                          :op op,
-                                                          :evaluated [],
-                                                          :operands operands,
-                                                          :next-idx 1,
-                                                          :env env}))))
+                                            :k {:type :dao.stream.apply/args-eval,
+                                                :op op,
+                                                :evaluated [],
+                                                :operands operands,
+                                                :next-idx 1,
+                                                :env env,
+                                                :next k})))
           ;; VM primitives
           :vm/gensym (let [prefix (or (aget node-arr ATTR_PREFIX) "id")
                            [id s'] (engine/gensym vm prefix)]
@@ -559,43 +557,46 @@
           :stream/put (let [target-node (aget node-arr ATTR_TARGET)]
                         (assoc vm
                                :control {:type :node, :id target-node}
-                               :stack (conj stack
-                                            {:type :stream-put-target,
-                                             :val-node (aget node-arr ATTR_VAL_NODE),
-                                             :env env})))
+                               :k {:type :stream-put-target,
+                                   :val-node (aget node-arr ATTR_VAL_NODE),
+                                   :env env,
+                                   :next k}))
           :stream/cursor (let [source-node (aget node-arr ATTR_SOURCE)]
                            (assoc vm
                                   :control {:type :node, :id source-node}
-                                  :stack (conj stack
-                                               {:type :stream-cursor-source, :env env})))
+                                  :k {:type :stream-cursor-source,
+                                      :env env,
+                                      :next k}))
           :stream/next (let [source-node (aget node-arr ATTR_SOURCE)]
                          (assoc vm
                                 :control {:type :node, :id source-node}
-                                :stack (conj stack
-                                             {:type :stream-next-cursor, :env env})))
+                                :k {:type :stream-next-cursor,
+                                    :env env,
+                                    :next k}))
           :stream/close (let [source-node (aget node-arr ATTR_SOURCE)]
                           (assoc vm
                                  :control {:type :node, :id source-node}
-                                 :stack (conj stack
-                                              {:type :stream-close-source, :env env})))
+                                 :k {:type :stream-close-source,
+                                     :env env,
+                                     :next k}))
           ;; Continuation primitives
-          :vm/park (-> (engine/park-continuation vm {:stack stack, :env env})
+          :vm/park (-> (engine/park-continuation vm {:k k, :env env})
                        (assoc :control nil))
           :vm/resume (let [parked-id (aget node-arr ATTR_PARKED_ID)
                            val-node (aget node-arr ATTR_VAL_NODE)]
                        (assoc vm
                               :control {:type :node, :id val-node}
-                              :stack (conj stack
-                                           {:type :resume-val,
-                                            :parked-id parked-id,
-                                            :env env})))
+                              :k {:type :resume-val,
+                                  :parked-id parked-id,
+                                  :env env,
+                                  :next k}))
           :vm/current-continuation
           (assoc vm
                  :control {:type :value,
-                           :val {:type :reified-continuation, :stack stack, :env env}})
+                           :val {:type :reified-continuation, :k k, :env env}})
           ;; Runtime macro expansion: expand :yin/macro-expand node inline
           :yin/macro-expand
-          (semantic-expand-macro-call vm node-id node-arr env stack)
+          (semantic-expand-macro-call vm node-id node-arr env k)
           (throw (ex-info "Unknown node type" {:node-type (aget node-arr ATTR_TYPE)})))))))
 
 
@@ -703,7 +704,7 @@
   (engine/resume-from-run-queue state
                                 (fn [base entry]
                                   (assoc base
-                                         :stack (:stack entry)
+                                         :k (:k entry)
                                          :env (:env entry)
                                          :control {:type :value,
                                                    :val (:value entry)}))))
@@ -749,7 +750,7 @@
         [index-base-id index-arr] (build-semantic-node-index-array merged-index cardinality)]
     (assoc vm
            :control {:type :node, :id node}
-           :stack []
+           :k nil
            :datoms (into (:datoms vm) datoms)
            :index merged-index
            :index-arr index-arr
@@ -803,7 +804,7 @@
   "Expand a :yin/macro-expand node at runtime.
    Returns updated VM with expansion appended to datom index and control
    pointing to the expansion root."
-  [^SemanticVM vm node-id node-arr env stack]
+  [^SemanticVM vm node-id node-arr env k]
   (let [macro-registry (:macro-registry vm)
         op-eid (aget node-arr ATTR_OPERATOR)
         arg-eids (or (aget node-arr ATTR_OPERANDS) [])
@@ -848,20 +849,20 @@
     (assoc updated-vm
            :control {:type :node, :id exp-root}
            :env env
-           :stack stack)))
+           :k k)))
 
 
 (defn- semantic-run-active-continuation
   "Hot loop that keeps CES state in JVM locals.
-   Uses a flat Object array for the stack to avoid vector allocations."
-  [^SemanticVM vm-init control-init env-init stack-init]
+   Uses a flat Object array for the k to avoid vector allocations."
+  [^SemanticVM vm-init control-init env-init k-init]
   (let [index (:index vm-init)
         index-arr (:index-arr vm-init)
         index-base-id (int (:index-base-id vm-init))
         primitives (:primitives vm-init)
         datoms (:datoms vm-init)
 
-        ;; Flat stack array with grow support
+        ;; Flat k array with grow support
         v-s-arr (volatile! (make-semantic-object-array 256))
         v-s-limit (volatile! 256)
 
@@ -885,37 +886,44 @@
                   (semantic-object-array-set! @v-s-arr next-sp val)
                   next-sp))
 
-        copy-stack! (fn [ext-stack]
-                      (let [n (count ext-stack)]
-                        (ensure-capacity! (dec n))
-                        (loop [i 0]
-                          (when (< i n)
-                            (semantic-object-array-set! @v-s-arr i (nth ext-stack i))
-                            (recur (inc i))))
-                        (dec n)))
+        copy-k! (fn [ext-k]
+                  (loop [k ext-k
+                         frames []]
+                    (if (nil? k)
+                      (let [n (count frames)]
+                        (if (zero? n)
+                          -1
+                          (do
+                            (ensure-capacity! (dec n))
+                            (loop [i 0]
+                              (when (< i n)
+                                (semantic-object-array-set! @v-s-arr i (nth frames (- n i 1)))
+                                (recur (inc i))))
+                            (dec n))))
+                      (recur (:next k) (conj frames k)))))
 
-        materialize-stack (fn [sp]
-                            (let [n (inc sp)]
-                              (loop [i 0
-                                     acc (transient [])]
-                                (if (< i n)
-                                  (recur (inc i) (conj! acc (fast-semantic-frame->map (semantic-object-array-get @v-s-arr i))))
-                                  (persistent! acc)))))]
+        materialize-k (fn [sp]
+                        (loop [i 0
+                               k nil]
+                          (if (<= i sp)
+                            (let [frame (fast-semantic-frame->map (semantic-object-array-get @v-s-arr i))]
+                              (recur (inc i) (assoc frame :next k)))
+                            k)))]
 
-    ;; Pre-fill stack-arr if resuming from non-empty stack
+    ;; Pre-fill k-arr if resuming from non-empty k
     (loop [ctrl-tag (:type control-init)
            ctrl-data (if (= :value (:type control-init))
                        (:val control-init)
                        (:id control-init))
            env env-init
-           sp (int (if (empty? stack-init) -1 (copy-stack! stack-init))) ; stack pointer
+           sp (int (if (nil? k-init) -1 (copy-k! k-init))) ; k pointer
            vm vm-init]
       (case ctrl-tag
         ;; --- 1. Handle Return Value ---
         :value
         (let [val ctrl-data]
           (if (< sp 0)
-            (semantic-return vm {:type :value, :val val} env [] true val)
+            (semantic-return vm {:type :value, :val val} env nil true val)
             (let [frame (semantic-object-array-get @v-s-arr sp)
                   new-sp (dec sp)]
               (if (vector? frame)
@@ -950,7 +958,7 @@
                             (let [state (semantic-return vm
                                                          {:type :value, :val val}
                                                          env
-                                                         (materialize-stack sp)
+                                                         (materialize-k sp)
                                                          false
                                                          val)
                                   {:keys [state value blocked?]} (engine/handle-effect state result {})]
@@ -991,23 +999,23 @@
                             (let [state (semantic-return vm
                                                          {:type :value, :val val}
                                                          env
-                                                         (materialize-stack sp)
+                                                         (materialize-k sp)
                                                          false
                                                          val)
-                                  park-stack (materialize-stack new-sp)
+                                  park-k (materialize-k new-sp)
                                   {:keys [state value blocked?]}
                                   (engine/handle-effect
                                     state
                                     result
                                     {:park-entry-fns
                                      {:stream/put (fn [_s e r]
-                                                    {:stack park-stack,
+                                                    {:k park-k,
                                                      :env env-call,
                                                      :reason :put,
                                                      :stream-id (:stream-id r),
                                                      :datom (:val e)}),
                                       :stream/next (fn [_s _e r]
-                                                     {:stack park-stack,
+                                                     {:k park-k,
                                                       :env env-call,
                                                       :reason :next,
                                                       :cursor-ref (:cursor-ref r),
@@ -1032,7 +1040,7 @@
                   (let [state (semantic-return vm
                                                {:type :value, :val val}
                                                env
-                                               (materialize-stack sp)
+                                               (materialize-k sp)
                                                false
                                                val)
                         next (handle-return-value state)]
@@ -1043,15 +1051,15 @@
                             next-data (if (= :value next-tag)
                                         (:val next-control)
                                         (:id next-control))
-                            next-stack (:stack next)
-                            next-sp (copy-stack! next-stack)]
+                            next-k (:k next)
+                            next-sp (copy-k! next-k)]
                         (recur next-tag next-data (:env next) next-sp next)))))
 
                 ;; Map-based frame fallback
                 (let [state (semantic-return vm
                                              {:type :value, :val val}
                                              env
-                                             (materialize-stack sp)
+                                             (materialize-k sp)
                                              false
                                              val)
                       next (handle-return-value state)]
@@ -1062,8 +1070,8 @@
                           next-data (if (= :value next-tag)
                                       (:val next-control)
                                       (:id next-control))
-                          next-stack (:stack next)
-                          next-sp (copy-stack! next-stack)]
+                          next-k (:k next)
+                          next-sp (copy-k! next-k)]
                       (recur next-tag next-data (:env next) next-sp next))))))))
 
         ;; --- 2. Handle Node Evaluation ---
@@ -1109,7 +1117,7 @@
                 (let [state (semantic-return vm
                                              {:type :node, :id node-id}
                                              env
-                                             (materialize-stack sp)
+                                             (materialize-k sp)
                                              false
                                              nil)
                       next (handle-node-eval state)]
@@ -1124,8 +1132,8 @@
                           next-data (if (= :value next-tag)
                                       (:val next-control)
                                       (:id next-control))
-                          next-stack (:stack next)
-                          next-sp (copy-stack! next-stack)]
+                          next-k (:k next)
+                          next-sp (copy-k! next-k)]
                       (recur next-tag next-data (:env next) next-sp next))))))))
 
         ;; --- 3. Exit: Halted, Blocked, or Scheduler ---
@@ -1133,7 +1141,7 @@
                         :value {:type :value, :val ctrl-data}
                         :node {:type :node, :id ctrl-data}
                         nil)
-              result (semantic-return vm control env (materialize-stack sp) false nil)]
+              result (semantic-return vm control env (materialize-k sp) false nil)]
           (cond
             (:blocked result)
             (let [v' (engine/check-wait-set result)]
@@ -1143,8 +1151,8 @@
                       resumed-data (if (= :value resumed-tag)
                                      (:val resumed-control)
                                      (:id resumed-control))
-                      resumed-stack (:stack resumed)
-                      resumed-sp (copy-stack! resumed-stack)]
+                      resumed-k (:k resumed)
+                      resumed-sp (copy-k! resumed-k)]
                   (recur resumed-tag resumed-data (:env resumed) resumed-sp resumed))
                 v'))
             (seq (or (:run-queue result) []))
@@ -1154,8 +1162,8 @@
                     resumed-data (if (= :value resumed-tag)
                                    (:val resumed-control)
                                    (:id resumed-control))
-                    resumed-stack (:stack resumed)
-                    resumed-sp (copy-stack! resumed-stack)]
+                    resumed-k (:k resumed)
+                    resumed-sp (copy-k! resumed-k)]
                 (recur resumed-tag resumed-data (:env resumed) resumed-sp resumed))
               result)
             :else result))))))
@@ -1174,7 +1182,7 @@
       (let [result (semantic-run-active-continuation v
                                                      (:control v)
                                                      (:env v)
-                                                     (:stack v))]
+                                                     (:k v))]
         (cond
           ;; Blocked: hand off to scheduler (FFI, stream wait-set, run-queue)
           (:blocked result)
@@ -1221,7 +1229,13 @@
   (control [vm] (:control vm))
   (environment [vm] (:env vm))
   (store [vm] (:store vm))
-  (continuation [vm] (:stack vm)))
+  (continuation [vm]
+    (when-let [k-head (:k vm)]
+      (loop [k k-head
+             acc []]
+        (if (nil? k)
+          acc
+          (recur (:next k) (conj acc k)))))))
 
 
 (defn create-vm
@@ -1235,7 +1249,7 @@
                              {:bridge bridge-state,
                               :control nil,
                               :env env,
-                              :stack [],
+                              :k nil,
                               :datoms [],
                               :index {},
                               :index-arr (make-semantic-object-array 0),
@@ -1347,7 +1361,7 @@
                         :env env
                         :halted false
                         :blocked false
-                        :stack [])
+                        :k nil)
         result-vm (vm/run vm-ready)
         raw-val   (vm/value result-vm)
         extra     (vec @extra-datoms)]

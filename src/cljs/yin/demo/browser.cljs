@@ -1456,17 +1456,17 @@
 (defn- active-reg-idx
   []
   (let [reg-state (get-in @app-state [:vm-states :register :state])
-        reg-pc (:pc reg-state)
+        reg-control (:control reg-state)
         reg-map (last (:register-source-map @app-state))]
-    (get reg-map reg-pc)))
+    (get reg-map reg-control)))
 
 
 (defn- active-stack-idx
   []
   (let [stack-state (get-in @app-state [:vm-states :stack :state])
-        stack-pc (:pc stack-state)
+        stack-control (:control stack-state)
         stack-map (last (:stack-source-map @app-state))]
-    (get stack-map stack-pc)))
+    (get stack-map stack-control)))
 
 
 (defn main-view
@@ -1645,9 +1645,9 @@
                           (str "Control: "
                                (or (get-in state [:control :type])
                                    (pr-str (:control state))))
-                          (:continuation state)
+                          (seq (vm/continuation state))
                           (str "Cont: "
-                               (or (get-in state [:continuation :type])
+                               (or (:type (first (vm/continuation state)))
                                    "pending"))
                           :else "Returning...")),
                   :summary-fn (fn [state]
@@ -1657,11 +1657,9 @@
                   :expanded-fn
                   (fn [state]
                     {:control (:control state),
-                     :env-keys (vec (keys (:environment state))),
+                     :env-keys (vec (keys (:env state))),
                      :continuation-depth
-                     (loop [c (:continuation state)
-                            depth 0]
-                       (if c (recur (:parent c) (inc depth)) depth)),
+                     (count (or (vm/continuation state) [])),
                      :value (:value state)})}]]]
               [vm-result-editor walker-value walker-halted?]])]
           [draggable-card :semantic "Semantic VM"
@@ -1708,7 +1706,8 @@
                 :expanded-fn (fn [state]
                                {:control (:control state),
                                 :env-keys (vec (keys (:env state))),
-                                :stack-depth (count (:stack state)),
+                                :continuation-depth
+                                (count (or (vm/continuation state) [])),
                                 :value (:value state)})}]]]
             [vm-result-editor (:value asm-vm-state)
              (boolean (and asm-vm-state (:halted asm-vm-state)))]]]
@@ -1732,18 +1731,21 @@
                {:vm-key :register,
                 :status-fn
                 (fn [state]
-                  (if (:halted state) "HALTED" (str "pc: " (:pc state)))),
+                  (if (:halted state)
+                    "HALTED"
+                    (str "control: " (:control state)))),
                 :summary-fn (fn [state]
                               (let [regs (:regs state)
                                     active (filter (fn [[_i v]] (some? v))
                                                    (map-indexed vector regs))]
-                                {:pc (:pc state),
+                                {:control (:control state),
                                  :active-regs (into {} (take 4 active))})),
                 :expanded-fn (fn [state]
-                               {:pc (:pc state),
+                               {:control (:control state),
                                 :regs (:regs state),
                                 :env-keys (vec (keys (:env state))),
-                                :continuation? (boolean (:k state)),
+                                :continuation-depth
+                                (count (or (vm/continuation state) [])),
                                 :value (:value state)})}]]]
             [vm-result-editor (:value reg-state)
              (boolean (and reg-state (:halted reg-state)))]]]
@@ -1767,16 +1769,19 @@
                {:vm-key :stack,
                 :status-fn
                 (fn [state]
-                  (if (:halted state) "HALTED" (str "pc: " (:pc state)))),
+                  (if (:halted state)
+                    "HALTED"
+                    (str "control: " (:control state)))),
                 :summary-fn (fn [state]
-                              {:pc (:pc state),
+                              {:control (:control state),
                                :stack-tail (vec (take-last 3 (:stack state))),
                                :stack-size (count (:stack state))}),
                 :expanded-fn (fn [state]
-                               {:pc (:pc state),
+                               {:control (:control state),
                                 :stack (:stack state),
                                 :env-keys (vec (keys (:env state))),
-                                :call-stack-depth (count (:call-stack state)),
+                                :continuation-depth
+                                (count (or (vm/continuation state) [])),
                                 :value (:value state)})}]]]
             [vm-result-editor (:value stack-state)
              (boolean (and stack-state (:halted stack-state)))]]]

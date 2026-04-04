@@ -16,13 +16,13 @@
 ;; Traverses the in-memory tree via direct map field access
 ;; (:operator, :operands, :body).
 ;;
-;; Continuations are a linked list with :parent pointers:
-;;   {:type :eval-operand, :frame ..., :parent cont}
+;; Continuations are a linked list with :next pointers:
+;;   {:type :eval-operand, :frame ..., :next k}
 ;; Control is the AST node itself, or nil when awaiting continuation.
 ;;
 ;; Scheduler: run-queue + wait-set for cooperative multitasking.
-;;   run-queue:  [{:continuation k, :environment env, :value v}]
-;;   wait-set:   [{:continuation k, :environment env, :reason :next/:put,
+;;   run-queue:  [{:k k, :env env, :value v}]
+;;   wait-set:   [{:k k, :env env, :reason :next/:put,
 ;;                  :cursor-ref ref, :stream-id id}]
 ;; =============================================================================
 
@@ -35,9 +35,9 @@
   [blocked      ; boolean, true if blocked
    bridge       ; explicit host-side FFI bridge state
    halted       ; boolean, true when active continuation has completed
-   continuation ; reified continuation or nil
+   k            ; reified continuation or nil
    control      ; current AST node or nil
-   environment  ; persistent lexical scope map
+   env          ; persistent lexical scope map
    id-counter   ; integer counter for unique IDs
    parked       ; parked continuations map
    primitives   ; primitive operations map
@@ -53,13 +53,13 @@
   "Create a new ASTWalkerVM with updated CESK fields in a single allocation.
    Preserves blocked, store, and scheduler fields from vm.
    Derives :halted from the new CESK state."
-  [^ASTWalkerVM vm control env cont val]
+  [^ASTWalkerVM vm control env k val]
   (let [blocked (:blocked vm)]
     (->ASTWalkerVM
       blocked
       (:bridge vm)
-      (and (not blocked) (nil? control) (nil? cont))
-      cont
+      (and (not blocked) (nil? control) (nil? k))
+      k
       control
       env
       (:id-counter vm)
@@ -74,7 +74,7 @@
 (defn- handle-primitive-result
   "Shared logic for handling the result of a primitive function application.
    Handles effect dispatch and blocking via engine/handle-effect."
-  [state result continuation env]
+  [state result k env]
   (if (module/effect? result)
     (let [{:keys [state value blocked?]}
           (engine/handle-effect
@@ -82,33 +82,33 @@
             result
             {:park-entry-fns
              {:stream/put (fn [_s _e r]
-                            {:continuation continuation,
-                             :environment env,
+                            {:k k,
+                             :env env,
                              :reason :put,
                              :stream-id (:stream-id r),
                              :datom (:val result)}),
               :stream/next (fn [_s _e r]
-                             {:continuation continuation,
-                              :environment env,
+                             {:k k,
+                              :env env,
                               :reason :next,
                               :cursor-ref (:cursor-ref r),
                               :stream-id (:stream-id r)})}})]
       (if blocked?
-        (assoc state :control nil :continuation nil :halted false)
-        (cesk-return state nil env continuation value)))
-    (cesk-return state nil env continuation result)))
+        (assoc state :control nil :k nil :halted false)
+        (cesk-return state nil env k value)))
+    (cesk-return state nil env k result)))
 
 
 (defn- park-and-call
   "Park continuation and register as reader-waiter on call-out response stream."
-  [state op args continuation env]
+  [state op args k env]
   (let [;; 1. Park the continuation with a response-processing frame
         response-cont {:type :dao.stream.apply/eval-call
-                       :parent continuation
-                       :environment env}
+                       :next k
+                       :env env}
         parked (engine/park-continuation state
-                                         {:continuation response-cont,
-                                          :environment env})
+                                         {:k response-cont,
+                                          :env env})
         parked-id (get-in parked [:value :id])
 
         ;; 2. Get response stream from store
@@ -117,8 +117,8 @@
         cursor-pos (:position cursor-data)
 
         ;; 3. Register as reader-waiter on response stream
-        waiter-entry {:continuation response-cont
-                      :environment env
+        waiter-entry {:k response-cont
+                      :env env
                       :cursor-ref {:type :cursor-ref, :id vm/call-out-cursor-key}
                       :reason :next
                       :stream-id vm/call-out-stream-key}
@@ -135,7 +135,7 @@
     ;; 6. Return blocked state
     (assoc parked
            :control nil
-           :continuation nil
+           :k nil
            :value :yin/blocked
            :blocked true
            :halted false)))
@@ -144,18 +144,18 @@
 (defn- apply-function
   "Shared logic for applying a function (primitive or closure) to arguments.
    env is the active environment at the call site."
-  [state fn-value evaluated-operands continuation env]
+  [state fn-value evaluated-operands k env]
   (cond
     ;; Primitive function
     (fn? fn-value)
-    (handle-primitive-result state (apply fn-value evaluated-operands) continuation env)
+    (handle-primitive-result state (apply fn-value evaluated-operands) k env)
 
     ;; User-defined closure
     (= :closure (:type fn-value))
-    (let [{:keys [params body], closure-env :environment} fn-value
+    (let [{:keys [params body], closure-env :env} fn-value
           extended-env (merge closure-env
                               (zipmap params evaluated-operands))]
-      (cesk-return state body extended-env continuation (:value state)))
+      (cesk-return state body extended-env k (:value state)))
     :else (throw (ex-info "Cannot apply non-function" {:fn fn-value}))))
 
 
@@ -163,26 +163,26 @@
   "Steps the CESK machine to evaluate an AST node.
 
   State is a map containing:
-    :control, :environment, :store, :continuation, :value
+    :control, :env, :store, :k, :value
     :db, :parked, :id-counter, :primitives
 
   Returns updated state after one step of evaluation.
   Each return path produces exactly one ASTWalkerVM allocation via cesk-return."
   [state ast]
-  (let [{:keys [control environment continuation store primitives]} state
+  (let [{:keys [control env k store primitives]} state
         {:keys [type], :as node} (or ast control)]
     ;; If control is nil but we have a continuation, handle it
-    (if (and (nil? node) continuation)
-      (let [cont-type (:type continuation)]
+    (if (and (nil? node) k)
+      (let [cont-type (:type k)]
         (case cont-type
           :eval-operator
-          (let [frame (:frame continuation)
+          (let [frame (:frame k)
                 fn-value (:value state)
                 operands (:operands frame)
-                saved-env (or (:environment continuation) environment)]
+                saved-env (or (:env k) env)]
             (if (empty? operands)
               ;; Arity-0 call: apply immediately
-              (apply-function state fn-value [] (:parent continuation) saved-env)
+              (apply-function state fn-value [] (:next k) saved-env)
               ;; Has operands: evaluate first one
               (let [updated-frame (assoc frame
                                          :operator-evaluated? true
@@ -190,20 +190,20 @@
                 (cesk-return state
                              (first operands)
                              saved-env
-                             (assoc continuation
+                             (assoc k
                                     :type :eval-operand
                                     :frame updated-frame)
                              nil))))
           :eval-operand
-          (let [frame (:frame continuation)
+          (let [frame (:frame k)
                 operand-value (:value state)
                 evaluated (conj (or (:evaluated frame) []) operand-value)
                 operands (:operands frame)
-                saved-env (or (:environment continuation) environment)]
+                saved-env (or (:env k) env)]
             (if (= (count evaluated) (count operands))
               ;; All evaluated: apply immediately
               (apply-function state (:fn frame) evaluated
-                              (:parent continuation) saved-env)
+                              (:next k) saved-env)
               ;; More operands: evaluate next
               (let [next-idx (count evaluated)
                     next-node (nth operands next-idx)
@@ -211,25 +211,25 @@
                 (cesk-return state
                              next-node
                              saved-env
-                             (assoc continuation :frame updated-frame)
+                             (assoc k :frame updated-frame)
                              nil))))
           :eval-test
-          (let [frame (:frame continuation)
+          (let [frame (:frame k)
                 test-value (:value state)
-                saved-env (or (:environment continuation) environment)
+                saved-env (or (:env k) env)
                 branch (if test-value (:consequent frame) (:alternate frame))]
-            (cesk-return state branch saved-env (:parent continuation) test-value))
+            (cesk-return state branch saved-env (:next k) test-value))
           :dao.stream.apply/eval-operand
-          (let [frame (:frame continuation)
+          (let [frame (:frame k)
                 operand-value (:value state)
                 evaluated (conj (or (:evaluated frame) []) operand-value)
                 operands (:operands frame)
-                saved-env (or (:environment continuation) environment)]
+                saved-env (or (:env k) env)]
             (if (= (count evaluated) (count operands))
               (park-and-call state
                              (:op frame)
                              evaluated
-                             (:parent continuation)
+                             (:next k)
                              saved-env)
               (let [next-idx (count evaluated)
                     next-node (nth operands next-idx)
@@ -237,27 +237,27 @@
                 (cesk-return state
                              next-node
                              saved-env
-                             (assoc continuation :frame updated-frame)
+                             (assoc k :frame updated-frame)
                              nil))))
           :dao.stream.apply/eval-call
           (let [result-value (:dao.stream.apply/value (:value state))]
-            (cesk-return state nil environment (:parent continuation) result-value))
+            (cesk-return state nil env (:next k) result-value))
           ;; Stream continuation: evaluate target for put
           :eval-stream-put-target
-          (let [frame (:frame continuation)
+          (let [frame (:frame k)
                 stream-ref (:value state)
                 val-node (:val frame)]
             (cesk-return state
                          val-node
-                         environment
-                         (assoc continuation
+                         env
+                         (assoc k
                                 :type :eval-stream-put-val
                                 :stream-ref stream-ref)
                          stream-ref))
           ;; Stream continuation: evaluate value for put, then do the put
           :eval-stream-put-val
           (let [val (:value state)
-                stream-ref (:stream-ref continuation)
+                stream-ref (:stream-ref k)
                 effect {:effect :stream/put, :stream stream-ref, :val val}
                 {:keys [state value blocked?]}
                 (engine/handle-effect
@@ -265,20 +265,20 @@
                   effect
                   {:park-entry-fns
                    {:stream/put (fn [_s _e r]
-                                  {:continuation (:parent continuation),
-                                   :environment environment,
+                                  {:k (:next k),
+                                   :env env,
                                    :reason :put,
                                    :stream-id (:stream-id r),
                                    :datom val})}})]
             (if blocked?
-              (assoc state :control nil :continuation nil :halted false)
-              (cesk-return state nil environment (:parent continuation) value)))
+              (assoc state :control nil :k nil :halted false)
+              (cesk-return state nil env (:next k) value)))
           ;; Stream continuation: evaluate source for cursor creation
           :eval-stream-cursor-source
           (let [stream-ref (:value state)
                 effect {:effect :stream/cursor, :stream stream-ref}
                 {:keys [state value]} (engine/handle-effect state effect {})]
-            (cesk-return state nil environment (:parent continuation) value))
+            (cesk-return state nil env (:next k) value))
           ;; Stream continuation: evaluate cursor-ref for next!
           :eval-stream-next-cursor
           (let [cursor-ref (:value state)
@@ -289,18 +289,18 @@
                   effect
                   {:park-entry-fns
                    {:stream/next (fn [_s _e r]
-                                   {:continuation (:parent continuation),
-                                    :environment environment,
+                                   {:k (:next k),
+                                    :env env,
                                     :reason :next,
                                     :cursor-ref (:cursor-ref r),
                                     :stream-id (:stream-id r)})}})]
             (if blocked?
-              (assoc state :control nil :continuation nil :halted false)
-              (cesk-return state nil environment (:parent continuation) value)))
+              (assoc state :control nil :k nil :halted false)
+              (cesk-return state nil env (:next k) value)))
           ;; Resume: val has been evaluated, now do the resume
           :eval-resume-val
           (let [resume-val (:value state)
-                parked-id (:parked-id continuation)]
+                parked-id (:parked-id k)]
             (engine/resume-continuation
               state
               parked-id
@@ -308,61 +308,61 @@
               (fn [new-state parked rv]
                 (cesk-return new-state
                              nil
-                             (:environment parked)
-                             (:continuation parked)
+                             (:env parked)
+                             (:k parked)
                              rv))))
           ;; Default for unknown continuation
           (throw (ex-info "Unknown continuation type"
                           {:continuation-type cont-type,
-                           :continuation continuation}))))
+                           :continuation k}))))
       ;; Otherwise handle the node type
       (case type
         ;; Literals evaluate to themselves
-        :literal (cesk-return state nil environment continuation (:value node))
+        :literal (cesk-return state nil env k (:value node))
         ;; Variable lookup
         :variable
-        (let [value (engine/resolve-var environment store primitives (:name node))]
-          (cesk-return state nil environment continuation value))
+        (let [value (engine/resolve-var env store primitives (:name node))]
+          (cesk-return state nil env k value))
         ;; Lambda creates a closure
         :lambda (let [{:keys [params body]} node]
-                  (cesk-return state nil environment continuation
+                  (cesk-return state nil env k
                                {:type :closure,
                                 :params params,
                                 :body body,
-                                :environment environment}))
+                                :env env}))
         ;; Function application
         :application
         (cesk-return state
                      (:operator node)
-                     environment
+                     env
                      {:frame node,
-                      :parent continuation,
-                      :environment environment,
+                      :next k,
+                      :env env,
                       :type :eval-operator}
                      (:value state))
         ;; Conditional
         :if
         (cesk-return state
                      (:test node)
-                     environment
+                     env
                      {:frame node,
-                      :parent continuation,
-                      :environment environment,
+                      :next k,
+                      :env env,
                       :type :eval-test}
                      (:value state))
         :dao.stream.apply/call
         (let [operands (or (:operands node) [])
               op (:op node)]
           (if (empty? operands)
-            (park-and-call state op [] continuation environment)
+            (park-and-call state op [] k env)
             (cesk-return state
                          (first operands)
-                         environment
+                         env
                          {:frame {:op op,
                                   :operands operands,
                                   :evaluated []},
-                          :parent continuation,
-                          :environment environment,
+                          :next k,
+                          :env env,
                           :type :dao.stream.apply/eval-operand}
                          (:value state))))
         ;; ============================================================
@@ -374,10 +374,10 @@
                      (assoc s'
                             :value id
                             :control nil
-                            :halted (nil? continuation)))
+                            :halted (nil? k)))
         ;; Read from store
         :vm/store-get
-        (cesk-return state nil environment continuation (get store (:key node)))
+        (cesk-return state nil env k (get store (:key node)))
         ;; Write to store
         :vm/store-put (let [key (:key node)
                             value (:val node)
@@ -387,7 +387,7 @@
                                :value value
                                :control nil
                                :halted (and (not (:blocked state))
-                                            (nil? continuation))))
+                                            (nil? k))))
         ;; Update store (apply function to current value)
         :vm/store-update (let [key (:key node)
                                f (:fn node)
@@ -400,31 +400,31 @@
                                   :value new-value
                                   :control nil
                                   :halted (and (not (:blocked state))
-                                               (nil? continuation))))
+                                               (nil? k))))
         ;; ============================================================
         ;; VM Primitives for Continuation Control
         ;; ============================================================
         ;; Get current continuation as a value
         :vm/current-continuation
-        (cesk-return state nil environment continuation
+        (cesk-return state nil env k
                      {:type :reified-continuation,
-                      :continuation continuation,
-                      :environment environment})
+                      :k k,
+                      :env env})
         ;; Park (suspend) - saves current continuation and halts
         :vm/park (-> (engine/park-continuation state
-                                               {:continuation continuation,
-                                                :environment environment})
+                                               {:k k,
+                                                :env env})
                      (assoc :control nil
-                            :continuation nil))
+                            :k nil))
         ;; Resume a parked continuation with a value
         :vm/resume
         (cesk-return state
                      (:val node)
-                     environment
+                     env
                      {:type :eval-resume-val,
                       :parked-id (:parked-id node),
-                      :parent continuation,
-                      :environment environment}
+                      :next k,
+                      :env env}
                      (:value state))
         ;; ============================================================
         ;; Stream Operations (AST node forms)
@@ -433,32 +433,32 @@
                            effect {:effect :stream/make, :capacity capacity}
                            {:keys [state value]}
                            (engine/handle-effect state effect {})]
-                       (cesk-return state nil environment continuation value))
+                       (cesk-return state nil env k value))
         :stream/put
         (cesk-return state
                      (:target node)
-                     environment
+                     env
                      {:frame node,
-                      :parent continuation,
-                      :environment environment,
+                      :next k,
+                      :env env,
                       :type :eval-stream-put-target}
                      (:value state))
         :stream/cursor
         (cesk-return state
                      (:source node)
-                     environment
+                     env
                      {:frame node,
-                      :parent continuation,
-                      :environment environment,
+                      :next k,
+                      :env env,
                       :type :eval-stream-cursor-source}
                      (:value state))
         :stream/next
         (cesk-return state
                      (:source node)
-                     environment
+                     env
                      {:frame node,
-                      :parent continuation,
-                      :environment environment,
+                      :next k,
+                      :env env,
                       :type :eval-stream-next-cursor}
                      (:value state))
         ;; Unknown node type
@@ -477,149 +477,149 @@
                                 (fn [base entry]
                                   (cesk-return base
                                                nil
-                                               (:environment entry)
-                                               (:continuation entry)
+                                               (:env entry)
+                                               (:k entry)
                                                (:value entry)))))
 
 
 (defn- ast-walker-run-active-continuation
   "Hot loop that keeps CESK state in JVM locals instead of an immutable record.
    Inlines common transitions to reduce allocation overhead."
-  [^ASTWalkerVM vm-init control-init env-init cont-init val-init]
+  [^ASTWalkerVM vm-init control-init env-init k-init val-init]
   (loop [control control-init
          env env-init
-         cont cont-init
+         k k-init
          val val-init
          vm vm-init]
     (let [node control
           type (:type node)]
       (cond
         ;; --- 1. Handle Continuation (node is nil) ---
-        (and (nil? node) cont)
-        (let [cont-type (:type cont)]
+        (and (nil? node) k)
+        (let [cont-type (:type k)]
           (case cont-type
             :eval-operator
-            (let [frame (:frame cont)
+            (let [frame (:frame k)
                   fn-value val
                   operands (:operands frame)
-                  saved-env (or (:environment cont) env)]
+                  saved-env (or (:env k) env)]
               (if (empty? operands)
                 ;; Arity-0 call
                 (cond
                   (= :closure (:type fn-value))
-                  (let [{:keys [params body], closure-env :environment} fn-value
+                  (let [{:keys [params body], closure-env :env} fn-value
                         extended-env (merge closure-env (zipmap params []))]
-                    (recur body extended-env (:parent cont) val vm))
+                    (recur body extended-env (:next k) val vm))
 
                   (fn? fn-value)
                   (let [result (apply fn-value [])]
                     (if (module/effect? result)
-                      (let [state (cesk-return vm control env cont val)
+                      (let [state (cesk-return vm control env k val)
                             res (handle-primitive-result state
                                                          result
-                                                         (:parent cont)
+                                                         (:next k)
                                                          saved-env)]
-                        (if (or (:blocked res) (and (nil? (:control res)) (nil? (:continuation res))))
+                        (if (or (:blocked res) (and (nil? (:control res)) (nil? (:k res))))
                           res
-                          (recur (:control res) (:environment res) (:continuation res) (:value res) res)))
-                      (recur nil saved-env (:parent cont) result vm)))
+                          (recur (:control res) (:env res) (:k res) (:value res) res)))
+                      (recur nil saved-env (:next k) result vm)))
 
                   :else (throw (ex-info "Cannot apply non-function" {:fn fn-value})))
                 ;; Has operands
                 (let [updated-frame (assoc frame :operator-evaluated? true :fn fn-value)]
-                  (recur (first operands) saved-env (assoc cont :type :eval-operand :frame updated-frame) nil vm))))
+                  (recur (first operands) saved-env (assoc k :type :eval-operand :frame updated-frame) nil vm))))
 
             :eval-operand
-            (let [frame (:frame cont)
+            (let [frame (:frame k)
                   operand-value val
                   evaluated (conj (or (:evaluated frame) []) operand-value)
                   operands (:operands frame)
-                  saved-env (or (:environment cont) env)]
+                  saved-env (or (:env k) env)]
               (if (= (count evaluated) (count operands))
                 ;; All evaluated
                 (let [fn-value (:fn frame)]
                   (cond
                     (= :closure (:type fn-value))
-                    (let [{:keys [params body], closure-env :environment} fn-value
+                    (let [{:keys [params body], closure-env :env} fn-value
                           extended-env (merge closure-env (zipmap params evaluated))]
-                      (recur body extended-env (:parent cont) val vm))
+                      (recur body extended-env (:next k) val vm))
 
                     (fn? fn-value)
                     (let [result (apply fn-value evaluated)]
                       (if (module/effect? result)
-                        (let [state (cesk-return vm control env cont val)
+                        (let [state (cesk-return vm control env k val)
                               res (handle-primitive-result state
                                                            result
-                                                           (:parent cont)
+                                                           (:next k)
                                                            saved-env)]
-                          (if (or (:blocked res) (and (nil? (:control res)) (nil? (:continuation res))))
+                          (if (or (:blocked res) (and (nil? (:control res)) (nil? (:k res))))
                             res
-                            (recur (:control res) (:environment res) (:continuation res) (:value res) res)))
-                        (recur nil saved-env (:parent cont) result vm)))
+                            (recur (:control res) (:env res) (:k res) (:value res) res)))
+                        (recur nil saved-env (:next k) result vm)))
 
                     :else (throw (ex-info "Cannot apply non-function" {:fn fn-value}))))
                 ;; More operands
                 (let [next-idx (count evaluated)
                       next-node (nth operands next-idx)
                       updated-frame (assoc frame :evaluated evaluated)]
-                  (recur next-node saved-env (assoc cont :frame updated-frame) nil vm))))
+                  (recur next-node saved-env (assoc k :frame updated-frame) nil vm))))
 
             :eval-test
-            (let [frame (:frame cont)
+            (let [frame (:frame k)
                   test-value val
-                  saved-env (or (:environment cont) env)
+                  saved-env (or (:env k) env)
                   branch (if test-value (:consequent frame) (:alternate frame))]
-              (recur branch saved-env (:parent cont) test-value vm))
+              (recur branch saved-env (:next k) test-value vm))
 
             ;; Fallback for complex/uncommon continuations
-            (let [state (cesk-return vm control env cont val)
+            (let [state (cesk-return vm control env k val)
                   next (cesk-transition state nil)]
-              (if (or (:blocked next) (and (nil? (:control next)) (nil? (:continuation next))))
+              (if (or (:blocked next) (and (nil? (:control next)) (nil? (:k next))))
                 next
-                (recur (:control next) (:environment next) (:continuation next) (:value next) next)))))
+                (recur (:control next) (:env next) (:k next) (:value next) next)))))
 
         ;; --- 2. Handle Node Type ---
         node
         (case type
-          :literal (recur nil env cont (:value node) vm)
+          :literal (recur nil env k (:value node) vm)
           :variable
           (let [v (engine/resolve-var env (:store vm) (:primitives vm) (:name node))]
-            (recur nil env cont v vm))
+            (recur nil env k v vm))
           :lambda
-          (recur nil env cont
-                 {:type :closure, :params (:params node), :body (:body node), :environment env}
+          (recur nil env k
+                 {:type :closure, :params (:params node), :body (:body node), :env env}
                  vm)
           :application
           (recur (:operator node) env
-                 {:frame node, :parent cont, :environment env, :type :eval-operator}
+                 {:frame node, :next k, :env env, :type :eval-operator}
                  val vm)
           :if
           (recur (:test node) env
-                 {:frame node, :parent cont, :environment env, :type :eval-test}
+                 {:frame node, :next k, :env env, :type :eval-test}
                  val vm)
 
           ;; Fallback for complex/uncommon nodes
-          (let [state (cesk-return vm node env cont val)
+          (let [state (cesk-return vm node env k val)
                 next (cesk-transition state nil)]
-            (if (or (:blocked next) (and (nil? (:control next)) (nil? (:continuation next))))
+            (if (or (:blocked next) (and (nil? (:control next)) (nil? (:k next))))
               next
-              (recur (:control next) (:environment next) (:continuation next) (:value next) next))))
+              (recur (:control next) (:env next) (:k next) (:value next) next))))
 
         ;; --- 3. Exit: Halted, Blocked, or Scheduler ---
         :else
-        (let [result (cesk-return vm control env cont val)]
+        (let [result (cesk-return vm control env k val)]
           (cond
             (:blocked result)
             (let [v' (engine/check-wait-set result)]
               (if-let [resumed (resume-from-run-queue v')]
-                (recur (:control resumed) (:environment resumed)
-                       (:continuation resumed) (:value resumed) resumed)
+                (recur (:control resumed) (:env resumed)
+                       (:k resumed) (:value resumed) resumed)
                 v'))
 
             (seq (or (:run-queue result) []))
             (if-let [resumed (resume-from-run-queue result)]
-              (recur (:control resumed) (:environment resumed)
-                     (:continuation resumed) (:value resumed) resumed)
+              (recur (:control resumed) (:env resumed)
+                     (:k resumed) (:value resumed) resumed)
               result)
 
             :else result))))))
@@ -682,7 +682,7 @@
           (seq (:wait-set vm)))
     (ast-walker-run-scheduler vm)
     (ast-walker-run-active-continuation
-      vm (:control vm) (:environment vm) (:continuation vm) (:value vm))))
+      vm (:control vm) (:env vm) (:k vm) (:value vm))))
 
 
 (defn- vm-eval
@@ -715,9 +715,15 @@
   (eval [vm ast] (vm-eval vm ast))
   vm/IVMState
   (control [vm] (:control vm))
-  (environment [vm] (:environment vm))
+  (environment [vm] (:env vm))
   (store [vm] (:store vm))
-  (continuation [vm] (:continuation vm)))
+  (continuation [vm]
+    (when-let [k-head (:k vm)]
+      (loop [k k-head
+             acc []]
+        (if (nil? k)
+          acc
+          (recur (:next k) (conj acc k)))))))
 
 
 (defn create-vm
@@ -731,8 +737,8 @@
      (map->ASTWalkerVM (merge base
                               {:bridge bridge-state,
                                :control nil,
-                               :environment env,
-                               :continuation nil,
+                               :env env,
+                               :k nil,
                                :value nil,
                                :halted true,
                                :blocked false})))))

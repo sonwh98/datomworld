@@ -71,6 +71,15 @@
       :else (recur (vm/step v) (inc ticks)))))
 
 
+(defn- linked-depth
+  [frame]
+  (loop [k frame
+         depth 0]
+    (if (map? k)
+      (recur (:next k) (inc depth))
+      depth)))
+
+
 (deftest cesk-state-test
   (testing "Initial state"
     (let [vm (stack/create-vm)]
@@ -78,15 +87,18 @@
       (is (contains? (vm/store vm) vm/call-in-cursor-key))
       (is (contains? (vm/store vm) vm/call-out-stream-key))
       (is (contains? (vm/store vm) vm/call-out-cursor-key))
+      (is (nil? (:call-stack vm)))
       (is (empty? (vm/continuation vm)))))
   (testing "After load-program, control has bytecode"
     (let [vm (load-ast {:type :literal, :value 42})
           ctrl (vm/control vm)]
-      (is (= 0 (:pc ctrl)))
+      (is (= 0 (:control ctrl)))
+      (is (nil? (:call-stack vm)))
       (is (seq (:bytecode ctrl)))))
   (testing "After run, continuation is empty and store is empty"
     (let [vm (-> (load-ast {:type :literal, :value 42})
                  (vm/run))]
+      (is (nil? (:call-stack vm)))
       (is (empty? (vm/continuation vm)))
       (is (contains? (vm/store vm) vm/call-in-stream-key))
       (is (contains? (vm/store vm) vm/call-out-stream-key))
@@ -225,6 +237,63 @@
                            :operands [{:type :literal, :value 2}
                                       {:type :literal, :value 3}]}]}]
       (is (= 6 (compile-and-run ast))))))
+
+
+(deftest continuation-linked-list-projection-test
+  (testing "Active non-tail calls use linked frames internally and a vector externally"
+    (let [self-fn
+          {:type :lambda,
+           :params ['self 'n],
+           :body {:type :if,
+                  :test {:type :application,
+                         :operator {:type :variable, :name '<},
+                         :operands [{:type :variable, :name 'n}
+                                    {:type :literal, :value 2}]},
+                  :consequent {:type :variable, :name 'n},
+                  :alternate
+                  {:type :application,
+                   :operator {:type :variable, :name '+},
+                   :operands
+                   [{:type :application,
+                     :operator {:type :variable, :name 'self},
+                     :operands [{:type :variable, :name 'self}
+                                {:type :application,
+                                 :operator {:type :variable, :name '-},
+                                 :operands [{:type :variable, :name 'n}
+                                            {:type :literal, :value 1}]}]}
+                    {:type :application,
+                     :operator {:type :variable, :name 'self},
+                     :operands [{:type :variable, :name 'self}
+                                {:type :application,
+                                 :operator {:type :variable, :name '-},
+                                 :operands [{:type :variable, :name 'n}
+                                            {:type :literal, :value 2}]}]}]}}}
+          ast {:type :application,
+               :operator self-fn,
+               :operands [self-fn {:type :literal, :value 6}]}
+          vm-loaded (load-ast ast)]
+      (loop [v vm-loaded
+             ticks 0]
+        (cond
+          (> ticks 400)
+          (is false "Expected to observe a linked continuation before halt")
+
+          (>= (linked-depth (:k v)) 2)
+          (let [head (:k v)
+                projected (vm/continuation v)]
+            (is (map? head))
+            (is (contains? head :next))
+            (is (not (contains? head :call-stack)))
+            (is (vector? projected))
+            (is (= (linked-depth head) (count projected)))
+            (is (= head (first projected)))
+            (is (= (:next head) (second projected))))
+
+          (vm/halted? v)
+          (is false "Program halted before a nested continuation frame was observed")
+
+          :else
+          (recur (vm/step v) (inc ticks)))))))
 
 
 (deftest multi-param-lambda-test

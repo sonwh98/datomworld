@@ -316,7 +316,7 @@
       ;; Try to put another but it's full
       (is (= :full (:result (ds/put! s :value2))))
       ;; Register a writer-waiter with a datom
-      (ds/register-writer-waiter! s {:reason :put, :datom :value2, :continuation {:type :test}})
+      (ds/register-writer-waiter! s {:reason :put, :datom :value2, :k {:type :test}})
       ;; Drain frees space
       (let [drain-result (ds/drain-one! s)]
         ;; Consumed value should be value1
@@ -325,7 +325,7 @@
         (is (= 1 (count (:woke drain-result))))
         (let [woken-entry (first (:woke drain-result))]
           (is (= :value2 (:value woken-entry)))
-          (is (= {:type :test} (:continuation (:entry woken-entry))))))
+          (is (= {:type :test} (:k (:entry woken-entry))))))
       ;; Verify value2 is now in the stream
       (is (= :value2 (:ok (ds/drain-one! s)))))))
 
@@ -345,7 +345,7 @@
       ;; Register a reader-waiter
       (ds/register-reader-waiter! s 0 {:reason :next, :cursor-ref {:type :cursor-ref, :id :c1}})
       ;; Register a writer-waiter
-      (ds/register-writer-waiter! s {:reason :put, :datom :val, :continuation {:type :write}})
+      (ds/register-writer-waiter! s {:reason :put, :datom :val, :k {:type :write}})
       ;; Close the stream
       (let [close-result (ds/close! s)]
         ;; Should have 2 woken entries (1 reader, 1 writer)
@@ -359,7 +359,7 @@
   (testing "close! resolves parked writers without letting drain-one! append them later"
     (let [s (ds/open! {:transport {:type :ringbuffer, :capacity 1}})]
       (is (= :ok (:result (ds/put! s :value1))))
-      (ds/register-writer-waiter! s {:reason :put, :datom :value2, :continuation {:type :write}})
+      (ds/register-writer-waiter! s {:reason :put, :datom :value2, :k {:type :write}})
       (let [close-result (ds/close! s)
             woken (first (:woke close-result))]
         (is (= 1 (count (:woke close-result))))

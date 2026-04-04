@@ -335,7 +335,7 @@
                             :source {:type :literal, :value stream-ref}})
           cursor-ref (vm/value vm1)
           block-next (fn [cursor] {:effect :stream/next, :cursor cursor})
-          vm-with-primitive (assoc vm1 :environment
+          vm-with-primitive (assoc vm1 :env
                                    (assoc (vm/environment vm1)
                                           'block-next block-next))
           ast {:type :application,

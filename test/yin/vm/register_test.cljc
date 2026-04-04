@@ -85,7 +85,7 @@
   (testing "After load-program, control has bytecode"
     (let [vm (load-ast {:type :literal, :value 42})
           ctrl (vm/control vm)]
-      (is (= 0 (:pc ctrl)))
+      (is (= 0 (:control ctrl)))
       (is (seq (:bytecode ctrl)))))
   (testing "After run, continuation is nil and store is empty"
     (let [vm (-> (load-ast {:type :literal, :value 42})
@@ -474,11 +474,11 @@
           inside-closure (first (filter #(some? (vm/continuation %)) states))]
       (is (some? inside-closure)
           "Should have a state with non-nil continuation")
-      (is (= :call-frame (:type (vm/continuation inside-closure)))
+      (is (= :call-frame (:type (first (vm/continuation inside-closure))))
           "Continuation should be a :call-frame")
-      (is (vector? (:regs (vm/continuation inside-closure)))
+      (is (vector? (:regs (first (vm/continuation inside-closure))))
           "Continuation should save caller registers")
-      (is (integer? (:pc (vm/continuation inside-closure)))
+      (is (integer? (:control (first (vm/continuation inside-closure))))
           "Continuation should have a return PC"))))
 
 
@@ -755,7 +755,7 @@
           reified (vm/value vm2)]
       (is (= :reified-continuation (:type reified)))
       (is (vector? (:regs reified)))
-      (is (integer? (:pc reified))))))
+      (is (integer? (:control reified))))))
 
 
 ;; =============================================================================

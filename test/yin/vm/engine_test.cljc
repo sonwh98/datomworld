@@ -204,7 +204,7 @@
                            {:reason :put,
                             :stream-id (:stream-id r),
                             :datom 2,
-                            :continuation {:id :writer-1}})}})
+                            :k {:id :writer-1}})}})
           blocked-state (:state put-result)
           close-result (engine/handle-effect blocked-state
                                              {:effect :stream/close, :stream stream-ref}
@@ -212,7 +212,7 @@
           run-entry (first (get-in close-result [:state :run-queue]))]
       (is (:blocked? put-result))
       (is (= 1 (count (get-in close-result [:state :run-queue]))))
-      (is (= {:id :writer-1} (:continuation run-entry))
+      (is (= {:id :writer-1} (:k run-entry))
           "Queued writer should keep its original continuation fields at top level")
       (is (false? (contains? run-entry :entry))
           "Run-queue entry should be flattened before resumption")
@@ -238,7 +238,7 @@
                             {:reason :next,
                              :cursor-ref (:cursor-ref r),
                              :stream-id (:stream-id r),
-                             :continuation {:id :reader}})}})
+                             :k {:id :reader}})}})
           put-result (engine/handle-effect
                        (:state next-result)
                        {:effect :stream/put, :stream stream-ref, :val :b}
@@ -248,7 +248,7 @@
                            {:reason :put,
                             :stream-id (:stream-id r),
                             :datom :b,
-                            :continuation {:id :writer}})}})
+                            :k {:id :writer}})}})
           stream-after-next (get-in next-result [:state :store stream-id])
           stream-after-put (get-in put-result [:state :store stream-id])
           reader-waiter-count-after-next (count (:reader-waiters @(.-state-atom ^dao.stream.transport.ringbuffer.RingBufferStream stream-after-next)))
@@ -257,8 +257,8 @@
                                             {:effect :stream/take, :stream stream-ref}
                                             {})
           run-queue (get-in take-result [:state :run-queue])
-          reader-entry (some #(when (= {:id :reader} (:continuation %)) %) run-queue)
-          writer-entry (some #(when (= {:id :writer} (:continuation %)) %) run-queue)]
+          reader-entry (some #(when (= {:id :reader} (:k %)) %) run-queue)
+          writer-entry (some #(when (= {:id :writer} (:k %)) %) run-queue)]
       (is (:blocked? next-result))
       (is (:blocked? put-result))
       (is (empty? (or (get-in next-result [:state :wait-set]) [])))
@@ -282,8 +282,8 @@
                                                  :position 0}},
                  :parked {:parked-0 {:id :parked-0,
                                      :type :parked-continuation,
-                                     :continuation {:id :cont-0},
-                                     :environment {}}},
+                                     :k {:id :cont-0},
+                                     :env {}}},
                  :run-queue [],
                  :wait-set [],
                  :blocked true,
@@ -292,7 +292,7 @@
           waiter-entry {:cursor-ref {:type :cursor-ref, :id vm/call-out-cursor-key}
                         :reason :next
                         :stream-id vm/call-out-stream-key
-                        :continuation {:id :cont-0}}
+                        :k {:id :cont-0}}
           _ (ds/register-reader-waiter! call-out 0 waiter-entry)
 
           ;; 2. Bridge puts response to call-out

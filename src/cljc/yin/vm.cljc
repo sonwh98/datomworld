@@ -3,7 +3,8 @@
    This namespace acts as the shared kernel/substrate for all execution engines (stack, register, walker)."
   (:refer-clojure :exclude [eval])
   (:require
-    [dao.stream :as ds]))
+    [dao.stream :as ds]
+    [dao.stream.transport.ringbuffer]))
 
 
 ;; =============================================================================
