@@ -14,7 +14,12 @@
     (val pair)
     (if-let [pair (find store name)]
       (val pair)
-      (or (get primitives name) (module/resolve-symbol name)))))
+      (if-let [pair (find primitives name)]
+        (val pair)
+        (if-let [resolved (module/resolve-symbol name)]
+          resolved
+          (throw (ex-info (str "Unable to resolve symbol: " name " in this context")
+                          {:symbol name})))))))
 
 
 (defn- gen-id

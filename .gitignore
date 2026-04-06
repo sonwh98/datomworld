@@ -22,6 +22,7 @@ public/js/
 node_modules/
 .clj-kondo/
 .lsp/
+.codex
 *~
 
 # ClojureDart

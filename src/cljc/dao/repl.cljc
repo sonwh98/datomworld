@@ -5,6 +5,8 @@
     #?(:clj [clojure.edn :as edn]
        :cljs [cljs.reader :as edn]
        :cljd [clojure.edn :as edn])
+    #?(:clj [clojure.pprint :as pprint]
+       :cljs [cljs.pprint :as pprint])
     [clojure.string :as str]
     [dao.stream :as ds]
     [dao.stream.apply :as dao-apply]
@@ -24,7 +26,7 @@
 
 
 (def ^:private command-heads
-  #{'vm 'lang 'compile 'reset 'connect 'disconnect 'telemetry 'help 'quit})
+  #{'vm 'lang 'compile 'reset 'connect 'disconnect 'telemetry 'repl-state 'help 'quit})
 
 
 (def ^:private local-only-command-heads
@@ -62,6 +64,7 @@
        "  (connect \"daostream:ws://host:port\")\n"
        "  (disconnect)\n"
        "  (telemetry)\n"
+       "  (repl-state)\n"
        "  (help)\n"
        "  (quit)")
      :default
@@ -72,8 +75,96 @@
        "  (compile expr)\n"
        "  (reset)\n"
        "  (telemetry)\n"
+       "  (repl-state)\n"
        "  (help)\n"
        "  (quit)")))
+
+
+(defn- format-value
+  [value]
+  #?(:cljd
+     (letfn [(spaces [n] (str/join "" (repeat n " ")))
+             (format-coll
+               [open close values indent]
+               (if (empty? values)
+                 (str open close)
+                 (let [child-indent (inc indent)
+                       line-prefix (spaces child-indent)]
+                   (str open
+                        "\n"
+                        (str/join "\n"
+                                  (map #(str line-prefix
+                                             (format* % child-indent))
+                                       values))
+                        "\n"
+                        (spaces indent)
+                        close))))
+             (format-map
+               [values indent]
+               (if (empty? values)
+                 "{}"
+                 (let [child-indent (inc indent)
+                       line-prefix (spaces child-indent)]
+                   (str "{"
+                        "\n"
+                        (str/join "\n"
+                                  (map (fn [[k v]]
+                                         (str line-prefix
+                                              (pr-str k)
+                                              " "
+                                              (format* v child-indent)))
+                                       values))
+                        "\n"
+                        (spaces indent)
+                        "}"))))
+             (format*
+               [value indent]
+               (cond
+                 (map? value) (format-map value indent)
+                 (vector? value) (format-coll "[" "]" value indent)
+                 (set? value) (format-coll "#{" "}" value indent)
+                 (seq? value) (format-coll "(" ")" value indent)
+                 :else (pr-str value)))]
+       (format* value 0))
+     :default
+     (-> (binding [pprint/*print-right-margin* 72]
+           (with-out-str (pprint/pprint value)))
+         (str/replace #"\n$" ""))))
+
+
+(defn- print-arg
+  [value]
+  (if (string? value) value (format-value value)))
+
+
+(defn- print-text
+  [args]
+  (str/join " " (map print-arg args)))
+
+
+(defn- prn-text
+  [args]
+  (str (str/join " " (map format-value args)) "\n"))
+
+
+(defn- emit-output!
+  [output-stream op text]
+  (when output-stream
+    (ds/put! output-stream {:type :repl/output
+                            :op op
+                            :text text}))
+  nil)
+
+
+(defn- make-repl-primitives
+  [output-stream]
+  (merge vm/primitives
+         {'print (fn [& args]
+                   (emit-output! output-stream :print (print-text args)))
+          'println (fn [& args]
+                     (emit-output! output-stream :println (str (print-text args) "\n")))
+          'prn (fn [& args]
+                 (emit-output! output-stream :prn (prn-text args)))}))
 
 
 (defn- telemetry-config
@@ -93,37 +184,44 @@
 
 
 (defn- make-vm
-  ([vm-type] (make-vm vm-type nil))
-  ([vm-type telemetry-stream]
+  ([vm-type] (make-vm vm-type nil nil))
+  ([vm-type telemetry-stream] (make-vm vm-type telemetry-stream nil))
+  ([vm-type telemetry-stream output-stream]
    (when-not (contains? vm-constructors vm-type)
      (throw (ex-info "Unknown Dao REPL VM type"
                      {:vm-type vm-type
                       :supported (vec (keys vm-constructors))})))
    (let [constructor (get vm-constructors vm-type)]
-     (cond-> (constructor)
+     (cond-> (constructor {:primitives (make-repl-primitives output-stream)})
        telemetry-stream (install-telemetry vm-type telemetry-stream)))))
+
+
+(declare make-local-stream)
 
 
 (defn create-state
   ([] (create-state {}))
-  ([{:keys [lang telemetry-stream vm-type]
-     :or {lang :clojure
+  ([{:keys [exposed-ports exposed-streams lang output-cursor output-stream telemetry-stream vm-type]
+     :or {exposed-ports {}
+          exposed-streams {}
+          lang :clojure
+          output-cursor {:position 0}
           vm-type :semantic}}]
-   {:lang lang
-    :remote-endpoint nil
-    :remote-response-cursor {:position 0}
-    :request-id 0
-    :running? true
-    :telemetry-cursor {:position 0}
-    :telemetry-mode (when telemetry-stream :stderr)
-    :telemetry-stream telemetry-stream
-    :vm (make-vm vm-type telemetry-stream)
-    :vm-type vm-type}))
-
-
-(defn- format-value
-  [value]
-  (pr-str value))
+   (let [output-stream (or output-stream (make-local-stream))]
+     {:lang lang
+      :exposed-ports exposed-ports
+      :exposed-streams exposed-streams
+      :output-cursor output-cursor
+      :output-stream output-stream
+      :remote-endpoint nil
+      :remote-response-cursor {:position 0}
+      :request-id 0
+      :running? true
+      :telemetry-cursor {:position 0}
+      :telemetry-mode (when telemetry-stream :stderr)
+      :telemetry-stream telemetry-stream
+      :vm (make-vm vm-type telemetry-stream output-stream)
+      :vm-type vm-type})))
 
 
 (defn- format-error
@@ -131,6 +229,83 @@
   (str "Error: " #?(:clj (ex-message error)
                     :cljs (or (ex-message error) (.-message error))
                     :cljd (ex-message error))))
+
+
+(defn- stream-status
+  [stream]
+  (try
+    (if (ds/closed? stream) :closed :open)
+    (catch #?(:clj Exception :cljs js/Error :cljd Object) _
+      :unknown)))
+
+
+(defn- stream-summary
+  [stream]
+  {:present? (some? stream)
+   :status (if stream (stream-status stream) :absent)})
+
+
+(defn- telemetry-mode-summary
+  [telemetry-mode]
+  (if (map? telemetry-mode)
+    (cond-> {:type (:type telemetry-mode)}
+      (:url telemetry-mode) (assoc :url (:url telemetry-mode)))
+    telemetry-mode))
+
+
+(defn- exposed-streams-summary
+  [streams]
+  (->> streams
+       (sort-by (comp str key))
+       (map (fn [[stream-name stream]]
+              [stream-name (stream-summary stream)]))
+       (into {})))
+
+
+(defn- exposed-ports-summary
+  [ports]
+  (->> ports
+       (sort-by (comp str key))
+       (mapv (fn [[port-name {:keys [transport port stream url]}]]
+               (cond-> {:name port-name}
+                 transport (assoc :transport transport)
+                 (some? port) (assoc :port port)
+                 stream (assoc :stream stream)
+                 url (assoc :url url))))))
+
+
+(defn repl-state
+  "Return a serializable summary of shell state, streams, and exposed ports."
+  [state]
+  (let [remote-endpoint (:remote-endpoint state)]
+    {:lang (:lang state)
+     :vm {:type (:vm-type state)
+          :halted? (try
+                     (vm/halted? (:vm state))
+                     (catch #?(:clj Exception :cljs js/Error :cljd Object) _
+                       :unknown))
+          :blocked? (try
+                      (vm/blocked? (:vm state))
+                      (catch #?(:clj Exception :cljs js/Error :cljd Object) _
+                        :unknown))}
+     :running? (:running? state)
+     :output {:cursor (:output-cursor state)
+              :stream (stream-summary (:output-stream state))}
+     :telemetry {:enabled? (some? (:telemetry-stream state))
+                 :mode (telemetry-mode-summary (:telemetry-mode state))
+                 :cursor (:telemetry-cursor state)
+                 :stream (stream-summary (:telemetry-stream state))}
+     :remote {:connected? (some? remote-endpoint)
+              :request-id (:request-id state)
+              :response-cursor (:remote-response-cursor state)
+              :streams {:request (stream-summary (:request-stream remote-endpoint))
+                        :response (stream-summary (:response-stream remote-endpoint))}}
+     :streams {:output (stream-summary (:output-stream state))
+               :telemetry (stream-summary (:telemetry-stream state))
+               :remote/request (stream-summary (:request-stream remote-endpoint))
+               :remote/response (stream-summary (:response-stream remote-endpoint))}
+     :exposed-streams (exposed-streams-summary (:exposed-streams state))
+     :ports (exposed-ports-summary (:exposed-ports state))}))
 
 
 (defn- shell-command-form?
@@ -255,12 +430,32 @@
         telemetry-mode (:telemetry-mode state')]
     (doseq [datom datoms]
       (case (if (map? telemetry-mode) (:type telemetry-mode) telemetry-mode)
-        :stderr #?(:clj (binding [*out* *err*] (println (pr-str datom)))
-                   :cljs (*print-err-fn* (pr-str datom))
-                   :cljd (binding [*out* *err*] (println (pr-str datom))))
+        :stderr #?(:clj (binding [*out* *err*] (println (format-value datom)))
+                   :cljs (*print-err-fn* (format-value datom))
+                   :cljd (binding [*out* *err*] (println (format-value datom))))
         :stream (ds/put! (:stream telemetry-mode) datom)
         nil))
     state'))
+
+
+(defn- collect-output
+  [state]
+  (if-not (:output-stream state)
+    [state ""]
+    (loop [cursor (:output-cursor state)
+           chunks []]
+      (let [result (ds/next (:output-stream state) cursor)]
+        (if (map? result)
+          (let [event (:ok result)
+                text (if (map? event) (:text event) (str event))]
+            (recur (:cursor result) (conj chunks text)))
+          [(assoc state :output-cursor cursor) (apply str chunks)])))))
+
+
+(defn- format-eval-result
+  [state value]
+  (let [[state' output-text] (collect-output state)]
+    [state' (str output-text (format-value value))]))
 
 
 (defn- eval-datoms
@@ -273,19 +468,19 @@
                 (vm/load-program {:node root-id
                                   :datoms datoms})
                 (vm/run))]
-    [(-> state
-         (assoc :vm vm')
-         flush-telemetry)
-     (format-value (vm/value vm'))]))
+    (format-eval-result (-> state
+                            (assoc :vm vm')
+                            flush-telemetry)
+                        (vm/value vm'))))
 
 
 (defn- eval-ast
   [state ast]
   (let [vm' (vm/eval (:vm state) ast)]
-    [(-> state
-         (assoc :vm vm')
-         flush-telemetry)
-     (format-value (vm/value vm'))]))
+    (format-eval-result (-> state
+                            (assoc :vm vm')
+                            flush-telemetry)
+                        (vm/value vm'))))
 
 
 (defn- compile-clojure-forms
@@ -336,9 +531,9 @@
 (defn- render-compile-output
   [ast]
   (str "AST:\n"
-       (pr-str ast)
+       (format-value ast)
        "\n\nDatoms:\n"
-       (pr-str (vec (vm/ast->datoms ast)))))
+       (format-value (vec (vm/ast->datoms ast)))))
 
 
 (defn- deliver-result
@@ -429,7 +624,9 @@
                            :supported (vec (keys vm-constructors))})))
         [(assoc state
                 :vm-type vm-type
-                :vm (make-vm vm-type (:telemetry-stream state)))
+                :vm (make-vm vm-type
+                             (:telemetry-stream state)
+                             (:output-stream state)))
          (str "Switched to " (get vm-labels vm-type) " (store cleared)")])
 
       lang
@@ -445,7 +642,9 @@
         [state (render-compile-output ast)])
 
       reset
-      [(assoc state :vm (make-vm (:vm-type state) (:telemetry-stream state)))
+      [(assoc state :vm (make-vm (:vm-type state)
+                                 (:telemetry-stream state)
+                                 (:output-stream state)))
        (str (get vm-labels (:vm-type state)) " reset")]
 
       connect
@@ -470,12 +669,14 @@
           arg
           (let [telemetry-stream (or (:telemetry-stream state)
                                      (make-local-stream))
+                telemetry-url (normalize-daostream-url arg)
                 sink-stream (open-telemetry-sink arg)]
             [(set-telemetry-stream state
                                    telemetry-stream
                                    {:type :stream
-                                    :stream sink-stream})
-             (str "Telemetry routed to " (normalize-daostream-url arg))])
+                                    :stream sink-stream
+                                    :url telemetry-url})
+             (str "Telemetry routed to " telemetry-url)])
 
           (:telemetry-stream state)
           (do
@@ -490,6 +691,9 @@
 
       help
       [state help-text]
+
+      repl-state
+      [state (format-value (repl-state state))]
 
       quit
       [(assoc state :running? false) "Bye"]
@@ -541,7 +745,8 @@
         :else
         (deliver-result (eval-source state input-str)))
       (catch #?(:clj Exception :cljs js/Error :cljd Object) error
-        (deliver-result [state (format-error error)])))))
+        (let [[state' output-text] (collect-output state)]
+          (deliver-result [state' (str output-text (format-error error))]))))))
 
 
 (defn handle-request
@@ -610,6 +815,22 @@
        (deliver-result read-result)))))
 
 
+(defn- expose-repl-server
+  [state port stream]
+  (-> state
+      (assoc-in [:exposed-streams :repl/server] stream)
+      (assoc-in [:exposed-ports :repl] {:transport :websocket
+                                        :port port
+                                        :stream :repl/server})))
+
+
+(defn- unexpose-repl-server
+  [state]
+  (-> state
+      (update :exposed-streams #(dissoc (or % {}) :repl/server))
+      (update :exposed-ports #(dissoc (or % {}) :repl))))
+
+
 #?(:clj
    (defn serve!
      ([state-atom port]
@@ -620,6 +841,7 @@
                                           :mode :listen
                                           :port port}})
             running? (atom true)
+            _ (swap! state-atom expose-repl-server port stream)
             worker (future
                      (loop [cursor {:position 0}]
                        (if @running?
@@ -640,6 +862,7 @@
          :stop! (fn []
                   (ds/close! stream)
                   (reset! running? false)
+                  (swap! state-atom unexpose-repl-server)
                   (try
                     (deref worker 100 nil)
                     (catch Exception _)))})))
@@ -654,6 +877,7 @@
                                           :mode :listen
                                           :port port}})
             running? (atom true)
+            _ (swap! state-atom expose-repl-server port stream)
             worker (fn loop-fn
                      [cursor]
                      (when @running?
@@ -669,6 +893,7 @@
          :stream stream
          :stop! (fn []
                   (ds/close! stream)
+                  (swap! state-atom unexpose-repl-server)
                   (reset! running? false))})))
 
    :cljd
@@ -681,6 +906,7 @@
                                           :mode :listen
                                           :port port}})
             running? (atom true)
+            _ (swap! state-atom expose-repl-server port stream)
             worker (fn loop-fn
                      [cursor]
                      (when @running?
@@ -697,4 +923,5 @@
          :stream stream
          :stop! (fn []
                   (ds/close! stream)
+                  (swap! state-atom unexpose-repl-server)
                   (reset! running? false))}))))

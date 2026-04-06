@@ -1,6 +1,9 @@
 (ns dao.repl-test
   (:require
     #?(:cljs [cljs.test :refer-macros [async]])
+    #?(:clj [clojure.edn :as edn]
+       :cljs [cljs.reader :as edn]
+       :cljd [clojure.edn :as edn])
     [clojure.string :as str]
     [clojure.test :refer [deftest is testing]]
     [dao.repl :as repl]
@@ -64,6 +67,26 @@
             (-> (repl/eval-input (repl/create-state) "{:type :literal :value 7}")
                 (.then (fn [[_state result]]
                          (is (= "7" result))
+                         (done))))))
+
+  #?(:clj
+     (testing "Undefined symbols report an error instead of evaluating to nil"
+       (let [[state-1 missing-result] @(repl/eval-input (repl/create-state)
+                                                        "missing-symbol")
+             [_state-2 nil-result] @(repl/eval-input state-1 "nil")]
+         (is (str/includes? missing-result
+                            "Unable to resolve symbol: missing-symbol in this context"))
+         (is (= "nil" nil-result))))
+     :cljs
+     (async done
+            (-> (repl/eval-input (repl/create-state) "missing-symbol")
+                (.then (fn [[state-1 missing-result]]
+                         (is (str/includes?
+                               missing-result
+                               "Unable to resolve symbol: missing-symbol in this context"))
+                         (repl/eval-input state-1 "nil")))
+                (.then (fn [[_state-2 nil-result]]
+                         (is (= "nil" nil-result))
                          (done))))))
 
   #?(:clj
@@ -135,6 +158,33 @@
                          (done))))))
 
   #?(:clj
+     (testing "collection values are pretty-printed"
+       (let [[_state result] @(repl/eval-input
+                                (repl/create-state)
+                                "{:type :literal
+                                  :value {:alpha-long-keyword 1
+                                          :beta-long-keyword 2
+                                          :gamma-long-keyword 3
+                                          :delta-long-keyword 4
+                                          :epsilon-long-keyword 5}}")]
+         (is (str/includes? result "\n"))
+         (is (str/includes? result ":beta-long-keyword"))))
+     :cljs
+     (async done
+            (-> (repl/eval-input
+                  (repl/create-state)
+                  "{:type :literal
+                    :value {:alpha-long-keyword 1
+                            :beta-long-keyword 2
+                            :gamma-long-keyword 3
+                            :delta-long-keyword 4
+                            :epsilon-long-keyword 5}}")
+                (.then (fn [[_state result]]
+                         (is (str/includes? result "\n"))
+                         (is (str/includes? result ":beta-long-keyword"))
+                         (done))))))
+
+  #?(:clj
      (testing "quit marks the shell as no longer running"
        (let [[state result] @(repl/eval-input (repl/create-state) "(quit)")]
          (is (false? (:running? state)))
@@ -168,12 +218,104 @@
                   (.then (fn [[state-1 _msg]]
                            (let [state-1 (assoc state-1 :telemetry-mode {:type :stream :stream sink})]
                              (repl/eval-input state-1 "(+ 1 2)"))))
-                  (.then (fn [[state-2 result]]
+                  (.then (fn [[_state-2 result]]
                            (let [datoms (vec (ds/->seq nil sink))]
                              (is (= "3" result))
                              (is (fact? datoms :vm/phase :step))
                              (is (fact? datoms :vm/phase :halt))
                              (done)))))))))
+
+
+(deftest print-primitives-test
+  #?(:clj
+     (testing "print, println, and prn emit through REPL output"
+       (let [[state-1 print-result] @(repl/eval-input (repl/create-state)
+                                                      "(print \"hello\")")
+             [state-2 println-result] @(repl/eval-input state-1
+                                                        "(println \"world\")")
+             [_state-3 prn-result] @(repl/eval-input
+                                      state-2
+                                      "(prn {:alpha-long-keyword 1
+                                             :beta-long-keyword 2
+                                             :gamma-long-keyword 3})")]
+         (is (= "hellonil" print-result))
+         (is (= "world\nnil" println-result))
+         (is (str/includes? prn-result ":beta-long-keyword"))
+         (is (str/ends-with? prn-result "\nnil"))))
+     :cljs
+     (async done
+            (-> (repl/eval-input (repl/create-state) "(print \"hello\")")
+                (.then (fn [[state-1 print-result]]
+                         (is (= "hellonil" print-result))
+                         (repl/eval-input state-1 "(println \"world\")")))
+                (.then (fn [[state-2 println-result]]
+                         (is (= "world\nnil" println-result))
+                         (repl/eval-input
+                           state-2
+                           "(prn {:alpha-long-keyword 1
+                                  :beta-long-keyword 2
+                                  :gamma-long-keyword 3})")))
+                (.then (fn [[_state-3 prn-result]]
+                         (is (str/includes? prn-result ":beta-long-keyword"))
+                         (is (str/ends-with? prn-result "\nnil"))
+                         (done)))))))
+
+
+(deftest repl-state-command-test
+  #?(:clj
+     (testing "repl-state returns serializable shell state with stream and port exposure"
+       (let [[state-1 _msg] @(repl/eval-input (repl/create-state) "(telemetry)")
+             state-1 (-> state-1
+                         (assoc-in [:exposed-streams :repl/server] (:telemetry-stream state-1))
+                         (assoc-in [:exposed-ports :repl] {:transport :websocket
+                                                           :port 7777
+                                                           :stream :repl/server}))
+             [state-2 result] @(repl/eval-input state-1 "(repl-state)")
+             summary (edn/read-string result)]
+         (is (= state-1 state-2))
+         (is (= :clojure (:lang summary)))
+         (is (= :semantic (get-in summary [:vm :type])))
+         (is (= {:position 0} (get-in summary [:telemetry :cursor])))
+         (is (true? (get-in summary [:telemetry :enabled?])))
+         (is (= :stderr (get-in summary [:telemetry :mode])))
+         (is (true? (get-in summary [:streams :telemetry :present?])))
+         (is (= :open (get-in summary [:streams :telemetry :status])))
+         (is (= [{:name :repl
+                  :transport :websocket
+                  :port 7777
+                  :stream :repl/server}]
+                (:ports summary)))
+         (is (= {:present? true
+                 :status :open}
+                (get-in summary [:exposed-streams :repl/server])))))
+     :cljs
+     (async done
+            (-> (repl/eval-input (repl/create-state) "(telemetry)")
+                (.then (fn [[state-1 _msg]]
+                         (let [state-1 (-> state-1
+                                           (assoc-in [:exposed-streams :repl/server] (:telemetry-stream state-1))
+                                           (assoc-in [:exposed-ports :repl] {:transport :websocket
+                                                                             :port 7777
+                                                                             :stream :repl/server}))]
+                           (repl/eval-input state-1 "(repl-state)"))))
+                (.then (fn [[_state-2 result]]
+                         (let [summary (edn/read-string result)]
+                           (is (= :clojure (:lang summary)))
+                           (is (= :semantic (get-in summary [:vm :type])))
+                           (is (= {:position 0} (get-in summary [:telemetry :cursor])))
+                           (is (true? (get-in summary [:telemetry :enabled?])))
+                           (is (= :stderr (get-in summary [:telemetry :mode])))
+                           (is (true? (get-in summary [:streams :telemetry :present?])))
+                           (is (= :open (get-in summary [:streams :telemetry :status])))
+                           (is (= [{:name :repl
+                                    :transport :websocket
+                                    :port 7777
+                                    :stream :repl/server}]
+                                  (:ports summary)))
+                           (is (= {:present? true
+                                   :status :open}
+                                  (get-in summary [:exposed-streams :repl/server])))
+                           (done))))))))
 
 
 (deftest request-handling-test
