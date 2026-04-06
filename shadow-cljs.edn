@@ -11,12 +11,12 @@
 
  :builds {:datomworld {:target :browser
                        :devtools {:use-document-protocol true}
-                       :modules {:main {:init-fn yin.demo.browser/init}}}
+                       :modules {:main {:init-fn datomworld.demo/init}}}
 
           :local {:target :browser
                   :devtools {:use-document-protocol true}
-                  :closure-defines {yin.demo.browser/WEBSOCKET_PORT 8090}
-                  :modules {:main {:init-fn yin.demo.browser/init}}}
+                  :closure-defines {datomworld.demo/WEBSOCKET_PORT 8090}
+                  :modules {:main {:init-fn datomworld.demo/init}}}
 
           :test {:target :node-script
                  :main test-runner/-main
@@ -32,4 +32,19 @@
 
           :ws-client-demo {:target :node-script
                            :main datomworld.ws-client-demo/-main
-                           :output-to "target/ws-client-demo.js"}}}
+                           :output-to "target/ws-client-demo.js"}
+
+          :telemetry-server
+          {:target     :node-script
+           :main       yin.vm.telemetry-server.node/-main
+           :output-to  "target/telemetry-server.js"}
+
+          :telemetry-viewer
+          {:target   :browser
+           :devtools {:use-document-protocol true}
+           :output-dir "public/js/telemetry-viewer"
+           :asset-path "/js/telemetry-viewer"
+           :closure-defines
+           {yin.vm.telemetry-viewer/REPL_PORT 8090
+            yin.vm.telemetry-viewer/TEL_PORT  8091}
+           :modules  {:main {:init-fn yin.vm.telemetry-viewer/init}}}}}

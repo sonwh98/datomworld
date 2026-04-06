@@ -212,7 +212,7 @@
       (println "   - Define minimal public interfaces between clusters")
       (println))
 
-    (println "\nFor detailed guidance, see .claude/rules/malleability.md")))
+    (println "\nFor detailed guidance, see docs/agents/malleability.md")))
 
 
 (analyze-deps)

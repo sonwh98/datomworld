@@ -33,7 +33,7 @@
            :nREPL {:extra-deps {nrepl/nrepl {:mvn/version "1.0.0"}
                                 cider/cider-nrepl {:mvn/version "0.58.0"}}
                    :main-opts ["-m" "nrepl.cmdline" "--middleware" "[cider.nrepl/cider-middleware]"]}
-           :cljs {:extra-paths ["test"]
+           :cljs {:extra-paths ["test" "src/dev"]
                   :extra-deps {thheller/shadow-cljs {:mvn/version "3.3.5"}
                                reagent/reagent {:mvn/version "2.0.1"}
                                com.cognitect/transit-cljs {:mvn/version "0.8.280"}}}
@@ -56,6 +56,7 @@
                  :exec-fn tasks/fix-all}
            :kondo {:extra-deps {clj-kondo/clj-kondo {:mvn/version "2026.01.19"}}
                    :main-opts ["-m" "clj-kondo.main"]}
+           :telemetry-server {:main-opts ["-m" "yin.vm.telemetry-server.jvm"]}
            :dep-graph {:extra-paths ["src/dev"]
                        :extra-deps {org.clojure/tools.namespace {:mvn/version "1.5.0"}}
                        :main-opts ["-m" "dep-graph"]}}}

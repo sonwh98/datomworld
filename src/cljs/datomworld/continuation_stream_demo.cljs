@@ -737,9 +737,7 @@
                     :gap "12px",
                     :flex-wrap "wrap"}}
            [:h1 {:style {:margin 0, :font-size "1.4rem", :color "#f1f5ff"}}
-            "Register VM + Stack VM Continuation Stream"]
-           [:div {:style {:font-size "12px", :color "#8b949e"}}
-            "Use the hamburger menu to switch demos."]] [controls-panel]
+            "Register VM + Stack VM Continuation Stream"]] [controls-panel]
           [:div
            {:style {:display "grid",
                     :grid-template-columns "repeat(2, minmax(0, 1fr))",
