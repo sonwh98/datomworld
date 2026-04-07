@@ -1,4 +1,4 @@
-(ns datomworld.equation-plotter-demo
+(ns datomworld.demo.equation-plotter
   (:require
     ["@codemirror/state" :refer [EditorState]]
     ["@codemirror/theme-one-dark" :refer [oneDark]]
