@@ -4,8 +4,9 @@
    pipeline, schema bootstrap, and embedded Datalog query engine.
    Datomic-compatible query API."
   (:require
-    [dao.db :refer [IDaoDb]]
-    [datomworld :as dw]))
+    [dao.db :as dao-db :refer [IDaoStorage IDaoTransactor IDaoQueryEngine IDaoDB]]
+    #?@(:clj [[me.tonsky.persistent-sorted-set :as psset]]
+        :cljs [[me.tonsky.persistent-sorted-set :as psset]])))
 
 
 ;; Sentinel for unbound query variables (must precede seek helpers)
@@ -16,30 +17,167 @@
 ;; Comparators
 ;; =============================================================================
 
-(defn- make-comparator
-  [positions]
-  (fn [d1 d2]
-    (loop [[p & ps] positions]
-      (if (nil? p) 0
-          (let [c (dw/compare-vals (get d1 p) (get d2 p))]
-            (if (zero? c) (recur ps) c))))))
+(defn- datom-e
+  [d]
+  #?(:clj  (.-e ^dao.db.Datom d)
+     :cljs (.-e ^js d)
+     :cljd (:e d)))
 
 
-(def ^:private eavt-cmp (make-comparator [:e :a :v :t :m]))
-(def ^:private aevt-cmp (make-comparator [:a :e :v :t :m]))
-(def ^:private avet-cmp (make-comparator [:a :v :e :t :m]))
-(def ^:private vaet-cmp (make-comparator [:v :a :e :t :m]))
-(def ^:private meat-cmp (make-comparator [:m :e :a :t]))
+(defn- datom-a
+  [d]
+  #?(:clj  (.-a ^dao.db.Datom d)
+     :cljs (.-a ^js d)
+     :cljd (:a d)))
+
+
+(defn- datom-v
+  [d]
+  #?(:clj  (.-v ^dao.db.Datom d)
+     :cljs (.-v ^js d)
+     :cljd (:v d)))
+
+
+(defn- datom-t
+  [d]
+  #?(:clj  (.-t ^dao.db.Datom d)
+     :cljs (.-t ^js d)
+     :cljd (:t d)))
+
+
+(defn- datom-m
+  [d]
+  #?(:clj  (.-m ^dao.db.Datom d)
+     :cljs (.-m ^js d)
+     :cljd (:m d)))
+
+
+(defn- cmp-long-field
+  [a b]
+  (cond
+    (nil? a) (if (nil? b) 0 -1)
+    (nil? b) 1
+    :else #?(:clj  (Long/compare (long a) (long b))
+             :cljs (compare a b)
+             :cljd (compare a b))))
+
+
+(defn- cmp-keyword-field
+  [a b]
+  (cond
+    (nil? a) (if (nil? b) 0 -1)
+    (nil? b) 1
+    :else (compare a b)))
+
+
+(defn- eavt-cmp
+  [d1 d2]
+  (let [c (cmp-long-field (datom-e d1) (datom-e d2))]
+    (if (zero? c)
+      (let [c (cmp-keyword-field (datom-a d1) (datom-a d2))]
+        (if (zero? c)
+          (let [c (dao-db/compare-vals (datom-v d1) (datom-v d2))]
+            (if (zero? c)
+              (let [c (cmp-long-field (datom-t d1) (datom-t d2))]
+                (if (zero? c)
+                  (cmp-long-field (datom-m d1) (datom-m d2))
+                  c))
+              c))
+          c))
+      c)))
+
+
+(defn- aevt-cmp
+  [d1 d2]
+  (let [c (cmp-keyword-field (datom-a d1) (datom-a d2))]
+    (if (zero? c)
+      (let [c (cmp-long-field (datom-e d1) (datom-e d2))]
+        (if (zero? c)
+          (let [c (dao-db/compare-vals (datom-v d1) (datom-v d2))]
+            (if (zero? c)
+              (let [c (cmp-long-field (datom-t d1) (datom-t d2))]
+                (if (zero? c)
+                  (cmp-long-field (datom-m d1) (datom-m d2))
+                  c))
+              c))
+          c))
+      c)))
+
+
+(defn- avet-cmp
+  [d1 d2]
+  (let [c (cmp-keyword-field (datom-a d1) (datom-a d2))]
+    (if (zero? c)
+      (let [c (dao-db/compare-vals (datom-v d1) (datom-v d2))]
+        (if (zero? c)
+          (let [c (cmp-long-field (datom-e d1) (datom-e d2))]
+            (if (zero? c)
+              (let [c (cmp-long-field (datom-t d1) (datom-t d2))]
+                (if (zero? c)
+                  (cmp-long-field (datom-m d1) (datom-m d2))
+                  c))
+              c))
+          c))
+      c)))
+
+
+(defn- vaet-cmp
+  [d1 d2]
+  (let [c (dao-db/compare-vals (datom-v d1) (datom-v d2))]
+    (if (zero? c)
+      (let [c (cmp-keyword-field (datom-a d1) (datom-a d2))]
+        (if (zero? c)
+          (let [c (cmp-long-field (datom-e d1) (datom-e d2))]
+            (if (zero? c)
+              (let [c (cmp-long-field (datom-t d1) (datom-t d2))]
+                (if (zero? c)
+                  (cmp-long-field (datom-m d1) (datom-m d2))
+                  c))
+              c))
+          c))
+      c)))
+
+
+(defn- meat-cmp
+  [d1 d2]
+  (let [c (cmp-long-field (datom-m d1) (datom-m d2))]
+    (if (zero? c)
+      (let [c (cmp-long-field (datom-e d1) (datom-e d2))]
+        (if (zero? c)
+          (let [c (cmp-keyword-field (datom-a d1) (datom-a d2))]
+            (if (zero? c)
+              (let [c (dao-db/compare-vals (datom-v d1) (datom-v d2))]
+                (if (zero? c)
+                  (cmp-long-field (datom-t d1) (datom-t d2))
+                  c))
+              c))
+          c))
+      c)))
+
+
+(defn- sorted-index-by
+  [cmp]
+  #?(:clj  (psset/sorted-set-by cmp)
+     :cljs (psset/sorted-set-by cmp)
+     :cljd (sorted-set-by cmp)))
 
 
 ;; =============================================================================
-;; Seek helpers (range queries via subseq + nil-field sentinels)
+;; Seek helpers (range queries via nil-field sentinels)
 ;; =============================================================================
+
+(defn- subseq-from
+  "Find all entries in a persistent-sorted-set >= sentinel using the comparator.
+   Returns a lazy sequence of entries from the first match onward."
+  [sorted-set cmp sentinel]
+  (let [s (seq sorted-set)]
+    (drop-while #(neg? (cmp % sentinel)) s)))
+
 
 (defn- seek-e
   [eavt e]
   (take-while #(= e (:e %))
-              (subseq eavt >= (dw/->Datom e nil nil nil nil))))
+              (subseq-from eavt eavt-cmp (dao-db/->datom e nil nil nil nil))))
 
 
 (defn- seek-ea
@@ -47,54 +185,54 @@
   (if (= a FREE)
     (seek-e eavt e)
     (take-while #(and (= e (:e %)) (= a (:a %)))
-                (subseq eavt >= (dw/->Datom e a nil nil nil)))))
+                (subseq-from eavt eavt-cmp (dao-db/->datom e a nil nil nil)))))
 
 
 (defn- seek-av
   [avet a v]
   (take-while #(and (= a (:a %)) (= v (:v %)))
-              (subseq avet >= (dw/->Datom nil a v nil nil))))
+              (subseq-from avet avet-cmp (dao-db/->datom nil a v nil nil))))
 
 
 (defn- seek-a
   [aevt a]
   (take-while #(= a (:a %))
-              (subseq aevt >= (dw/->Datom nil a nil nil nil))))
+              (subseq-from aevt aevt-cmp (dao-db/->datom nil a nil nil nil))))
 
 
 (defn- seek-aev
   "Seek AEVT by a and e."
   [aevt a e]
   (take-while #(and (= a (:a %)) (= e (:e %)))
-              (subseq aevt >= (dw/->Datom e a nil nil nil))))
+              (subseq-from aevt aevt-cmp (dao-db/->datom e a nil nil nil))))
 
 
 (defn- seek-m
-  "Seek MEAT by m."
+  "Seek MEAVT by m."
   [meat m]
   (take-while #(= m (:m %))
-              (subseq meat >= (dw/->Datom nil nil nil nil m))))
+              (subseq-from meat meat-cmp (dao-db/->datom nil nil nil nil m))))
 
 
 (defn- seek-me
-  "Seek MEAT by m and e."
+  "Seek MEAVT by m and e."
   [meat m e]
   (take-while #(and (= m (:m %)) (= e (:e %)))
-              (subseq meat >= (dw/->Datom e nil nil nil m))))
+              (subseq-from meat meat-cmp (dao-db/->datom e nil nil nil m))))
 
 
 (defn- seek-v
   "Seek VAET by v."
   [vaet v]
   (take-while #(= v (:v %))
-              (subseq vaet >= (dw/->Datom nil nil v nil nil))))
+              (subseq-from vaet vaet-cmp (dao-db/->datom nil nil v nil nil))))
 
 
 (defn- seek-va
   "Seek VAET by v and a."
   [vaet v a]
   (take-while #(and (= v (:v %)) (= a (:a %)))
-              (subseq vaet >= (dw/->Datom nil a v nil nil))))
+              (subseq-from vaet vaet-cmp (dao-db/->datom nil a v nil nil))))
 
 
 ;; =============================================================================
@@ -106,8 +244,8 @@
    aevt           ; sorted-set of Datom by [a e v t m]
    avet           ; sorted-set of Datom by [a v e t m] — indexed + ref attrs
    vaet           ; sorted-set of Datom by [v a e t m] — ref attrs only
-   meat           ; sorted-set of Datom by [m e a t]   — m != 0 only
-   log            ; vector of [t [Datom ...]], one entry per committed tx (temporal index)
+   meat           ; sorted-set of Datom by [m e a v t] — m != 0 only
+   log            ; vector of [t added retracted], one entry per committed tx (temporal index)
    schema         ; {attr-kw {:db/valueType ... :db/cardinality ...}} — cache
    next-t         ; integer, monotonic tx counter
    next-eid       ; integer, next permanent entity ID (starts at 1025)
@@ -118,23 +256,11 @@
    ])
 
 
-;; =============================================================================
-;; Schema
-;; =============================================================================
+(def ^:private schema-defining-attrs
+  #{:db/cardinality :db/valueType :db/index :db/ident :db/unique})
 
-(def ^:private bootstrap-datoms
-  [(dw/->Datom 2  :db/ident :db/ident            0 0)
-   (dw/->Datom 3  :db/ident :db/valueType        0 0)
-   (dw/->Datom 4  :db/ident :db/cardinality      0 0)
-   (dw/->Datom 5  :db/ident :db/unique           0 0)
-   (dw/->Datom 6  :db/ident :db/index            0 0)
-   (dw/->Datom 7  :db/ident :db.cardinality/one  0 0)
-   (dw/->Datom 8  :db/ident :db.cardinality/many 0 0)
-   (dw/->Datom 9  :db/ident :db.type/ref         0 0)
-   (dw/->Datom 10 :db/ident :db.type/string      0 0)
-   (dw/->Datom 11 :db/ident :db.type/long        0 0)
-   (dw/->Datom 12 :db/ident :db.type/boolean     0 0)
-   (dw/->Datom 13 :db/ident :db.type/keyword     0 0)])
+
+(declare as-of since)
 
 
 (defn- build-schema-cache
@@ -169,8 +295,15 @@
 ;; Index helpers
 ;; =============================================================================
 
+(defn- avet-attr?
+  "True when attr is maintained in AVET for [a v] lookup."
+  [db a]
+  (or (contains? (:indexed-attrs db) a)
+      (contains? (:ref-attrs db) a)))
+
+
 (defn- rebuild-secondary-indexes
-  "Rebuild AVET, VAET, and MEAT from EAVT using db's current schema caches.
+  "Rebuild AVET, VAET, and MEAVT from EAVT using db's current schema caches.
    EAVT and AEVT are assumed already correct; only secondary indexes are reset."
   [db]
   (let [{:keys [ref-attrs indexed-attrs eavt]} db
@@ -194,30 +327,35 @@
 (defn- add-datom-to-indexes
   "Conj a Datom into all appropriate indexes of db."
   [db datom]
-  (let [{:keys [ref-attrs indexed-attrs]} db
-        a (:a datom)]
-    (cond-> (-> db
-                (update :eavt conj datom)
-                (update :aevt conj datom))
-      (or (contains? indexed-attrs a)
-          (contains? ref-attrs a))
-      (update :avet conj datom)
-      (contains? ref-attrs a)
-      (update :vaet conj datom)
-      (not (zero? (:m datom)))
-      (update :meat conj datom))))
+  (let [{:keys [ref-attrs indexed-attrs eavt aevt avet vaet meat]} db
+        a (:a datom)
+        ref? (contains? ref-attrs a)
+        avet? (or (contains? indexed-attrs a) ref?)
+        db' (assoc db
+                   :eavt (conj eavt datom)
+                   :aevt (conj aevt datom))
+        db' (if avet? (assoc db' :avet (conj avet datom)) db')
+        db' (if ref? (assoc db' :vaet (conj vaet datom)) db')]
+    (if (zero? (:m datom))
+      db'
+      (assoc db' :meat (conj meat datom)))))
 
 
 (defn- retract-datom-from-indexes
-  "Disj a Datom from all five indexes of db."
+  "Disj a Datom from all possible indexes of db.
+   Retraction is broader than insertion because disj is a no-op when the datom
+   is absent, and broad removal also clears entries that were indexed under an
+   earlier schema classification."
   [db datom]
-  (cond-> (-> db
-              (update :eavt disj datom)
-              (update :aevt disj datom)
-              (update :avet disj datom)
-              (update :vaet disj datom))
-    (not (zero? (:m datom)))
-    (update :meat disj datom)))
+  (let [{:keys [eavt aevt avet vaet meat]} db
+        db' (assoc db
+                   :eavt (disj eavt datom)
+                   :aevt (disj aevt datom)
+                   :avet (disj avet datom)
+                   :vaet (disj vaet datom))]
+    (if (zero? (:m datom))
+      db'
+      (assoc db' :meat (disj meat datom)))))
 
 
 ;; =============================================================================
@@ -253,31 +391,47 @@
   [op next-eid t]
   (if (map? (:m-raw op))
     (let [meta-eid next-eid
-          extra    (mapv (fn [[k v]] (dw/->Datom meta-eid k v t 0)) (:m-raw op))]
+          extra    (mapv (fn [[k v]] (dao-db/->datom meta-eid k v t 0)) (:m-raw op))]
       [(assoc op :m meta-eid) extra (inc next-eid)])
     [(assoc op :m (or (:m-raw op) 0)) [] next-eid]))
 
 
+(defn- tempid?
+  [x]
+  (and (integer? x) (neg? x)))
+
+
 (defn- collect-tempids
-  "Return sorted distinct negative integers used as entity or ref-value IDs."
+  "Return sorted distinct negative integers used as entity, ref-value, or metadata IDs.
+   Metadata datoms are included so metadata-only refs allocate permanent IDs
+   before their values are rewritten."
   [ops ref-attrs extra-datoms]
   (distinct
     (sort
       (concat
-        (mapcat (fn [{:keys [e a v]}]
+        (mapcat (fn [{:keys [e a v m]}]
                   (cond-> []
-                    (and (integer? e) (neg? e))
+                    (tempid? e)
                     (conj e)
                     (and (contains? ref-attrs a)
-                         (integer? v) (neg? v))
-                    (conj v)))
+                         (tempid? v))
+                    (conj v)
+                    (tempid? m)
+                    (conj m)))
                 ops)
-        (keep (fn [d]
-                (let [v (:v d)]
-                  (when (and (contains? ref-attrs (:a d))
-                             (integer? v) (neg? v))
-                    v)))
-              extra-datoms)))))
+        (mapcat (fn [d]
+                  (let [e (:e d)
+                        v (:v d)
+                        m (:m d)]
+                    (cond-> []
+                      (tempid? e)
+                      (conj e)
+                      (and (contains? ref-attrs (:a d))
+                           (tempid? v))
+                      (conj v)
+                      (tempid? m)
+                      (conj m))))
+                extra-datoms)))))
 
 
 (defn- resolve-tempids
@@ -287,15 +441,16 @@
 
 
 (defn- apply-tempid-map
-  "Rewrite negative :e and ref-typed :v in ops using tempid-map."
+  "Rewrite negative :e, metadata :m, and ref-typed :v in ops using tempid-map."
   [ops tempid-map ref-attrs]
   (let [resolve (fn [id]
-                  (if (and (integer? id) (neg? id))
+                  (if (tempid? id)
                     (get tempid-map id id)
                     id))]
     (mapv (fn [op]
             (-> op
                 (update :e resolve)
+                (update :m resolve)
                 (update :v (fn [v]
                              (if (and (contains? ref-attrs (:a op))
                                       (integer? v))
@@ -322,40 +477,34 @@
   "Compute the ref-typed attrs visible during tx preprocessing.
    This respects same-tx :db/valueType adds and retractions in order."
   [db ops same-tx-ident->eid]
-  (let [eid->ident (into {} (map (fn [d] [(:e d) (:v d)])
-                                 (filter #(= :db/ident (:a %)) (seq (:eavt db)))))
-        eid->ident (into eid->ident
-                         (keep (fn [{:keys [op e a v]}]
-                                 (when (and (= op :db/add) (= a :db/ident)) [e v]))
-                               ops))]
-    (reduce (fn [ref-attrs {:keys [op e a v]}]
-              (if (= a :db/valueType)
-                (let [resolved-e (if (keyword? e)
-                                   (lookup-ident-eid db same-tx-ident->eid e)
-                                   e)
-                      attr-kw    (or (when (and (keyword? e) resolved-e) e)
-                                     (get eid->ident resolved-e))]
-                  (if attr-kw
-                    (case op
-                      :db/add (if (= v :db.type/ref)
-                                (conj ref-attrs attr-kw)
-                                (disj ref-attrs attr-kw))
-                      :db/retract (if (= v :db.type/ref)
-                                    (disj ref-attrs attr-kw)
-                                    ref-attrs)
-                      ref-attrs)
-                    ref-attrs))
-                ref-attrs))
-            (:ref-attrs db)
-            ops)))
-
-
-(defn- enforce-cardinality-one
-  "For card-one attrs retract all existing [e a ?v] datoms before adding new one."
-  [db e a]
-  (if (contains? (:card-many db) a)
-    db
-    (reduce retract-datom-from-indexes db (seek-ea (:eavt db) e a))))
+  (if-not (some #(= :db/valueType (:a %)) ops)
+    (:ref-attrs db)
+    (let [eid->ident (into {} (map (fn [d] [(:e d) (:v d)])
+                                   (filter #(= :db/ident (:a %)) (seq (:eavt db)))))
+          eid->ident (into eid->ident
+                           (keep (fn [{:keys [op e a v]}]
+                                   (when (and (= op :db/add) (= a :db/ident)) [e v]))
+                                 ops))]
+      (reduce (fn [ref-attrs {:keys [op e a v]}]
+                (if (= a :db/valueType)
+                  (let [resolved-e (if (keyword? e)
+                                     (lookup-ident-eid db same-tx-ident->eid e)
+                                     e)
+                        attr-kw    (or (when (and (keyword? e) resolved-e) e)
+                                       (get eid->ident resolved-e))]
+                    (if attr-kw
+                      (case op
+                        :db/add (if (= v :db.type/ref)
+                                  (conj ref-attrs attr-kw)
+                                  (disj ref-attrs attr-kw))
+                        :db/retract (if (= v :db.type/ref)
+                                      (disj ref-attrs attr-kw)
+                                      ref-attrs)
+                        ref-attrs)
+                      ref-attrs))
+                  ref-attrs))
+              (:ref-attrs db)
+              ops))))
 
 
 (defn run-tx
@@ -364,6 +513,7 @@
    Also includes :db as an alias for :db-after for backward compatibility."
   [db tx-data]
   (let [t (:next-t db)
+        pre-next-eid (:next-eid db)
         ;; Step 1: parse
         parsed-ops (parse-tx-data tx-data)
         ;; Step 2: resolve keyword entity IDs via :db/ident lookup.
@@ -435,86 +585,124 @@
         ;; Only resolve when the metadata attribute is schema-declared as :db.type/ref.
         ;; Scalar metadata values like {:error/code -1} must not be rewritten.
         extra-datoms (mapv (fn [d]
-                             (if (contains? effective-ref-attrs (:a d))
-                               (let [v  (:v d)
-                                     v' (if (keyword? v)
-                                          (or (lookup-ident-eid db same-tx-ident->eid v)
-                                              (throw (ex-info "Unknown value ident" {:ident v})))
-                                          v)
-                                     v' (if (and (integer? v') (neg? v'))
-                                          (get tempid-map v' v')
-                                          v')]
-                                 (assoc d :v v'))
-                               d))
+                             (let [d (update d :m #(if (tempid? %)
+                                                     (get tempid-map % %)
+                                                     %))]
+                               (if (contains? effective-ref-attrs (:a d))
+                                 (let [v  (:v d)
+                                       v' (if (keyword? v)
+                                            (or (lookup-ident-eid db same-tx-ident->eid v)
+                                                (throw (ex-info "Unknown value ident" {:ident v})))
+                                            v)
+                                       v' (if (tempid? v')
+                                            (get tempid-map v' v')
+                                            v')]
+                                   (assoc d :v v'))
+                                 d)))
                            extra-datoms)
         ;; Build {op datom} pairs
         op-datoms (mapv (fn [{:keys [op e a v m]}]
-                          {:op op :datom (dw/->Datom e a v t m)})
+                          {:op op :datom (dao-db/->datom e a v t m)})
                         ops)
         ;; Step 8: enforce uniqueness constraints.
         ;; Compute effective unique-attrs for this tx: start from the pre-tx set,
         ;; add attrs gaining :db/unique in this tx, remove attrs losing it.
         ;; This makes same-tx schema changes visible to the uniqueness check.
         effective-unique-attrs
-        (let [eid->ident (into {} (map (fn [d] [(:e d) (:v d)])
-                                       (filter #(= :db/ident (:a %)) (seq (:eavt db)))))
-              ;; Include idents being defined in this tx
-              eid->ident (into eid->ident
-                               (keep (fn [{:keys [op datom]}]
-                                       (when (and (= op :db/add) (= :db/ident (:a datom)))
-                                         [(:e datom) (:v datom)]))
-                                     op-datoms))
-              gaining (into #{} (keep (fn [{:keys [op datom]}]
-                                        (when (and (= op :db/add) (= :db/unique (:a datom)))
-                                          (get eid->ident (:e datom))))
-                                      op-datoms))
-              losing  (into #{} (keep (fn [{:keys [op datom]}]
-                                        (when (and (= op :db/retract) (= :db/unique (:a datom)))
-                                          (get eid->ident (:e datom))))
-                                      op-datoms))]
-          (-> (:unique-attrs db) (into gaining) (#(apply disj % losing))))
-        _ (let [tx-av-eids (reduce (fn [m {:keys [op datom]}]
+        (if-not (some (fn [{:keys [datom]}] (= :db/unique (:a datom))) op-datoms)
+          (:unique-attrs db)
+          (let [eid->ident (into {} (map (fn [d] [(:e d) (:v d)])
+                                         (filter #(= :db/ident (:a %)) (seq (:eavt db)))))
+                ;; Include idents being defined in this tx
+                eid->ident (into eid->ident
+                                 (keep (fn [{:keys [op datom]}]
+                                         (when (and (= op :db/add) (= :db/ident (:a datom)))
+                                           [(:e datom) (:v datom)]))
+                                       op-datoms))
+                gaining (into #{} (keep (fn [{:keys [op datom]}]
+                                          (when (and (= op :db/add) (= :db/unique (:a datom)))
+                                            (get eid->ident (:e datom))))
+                                        op-datoms))
+                losing  (into #{} (keep (fn [{:keys [op datom]}]
+                                          (when (and (= op :db/retract) (= :db/unique (:a datom)))
+                                            (get eid->ident (:e datom))))
+                                        op-datoms))]
+            (-> (:unique-attrs db) (into gaining) (#(apply disj % losing)))))
+        _ (let [add-claim (fn [m k e]
+                            (let [existing (get m k)]
+                              (cond
+                                (nil? existing) (assoc m k e)
+                                (set? existing) (update m k conj e)
+                                (= existing e) m
+                                :else (assoc m k #{existing e}))))
+                normalize-eids (fn [x]
+                                 (if (set? x) x #{x}))
+                tx-av-eids (reduce (fn [m {:keys [op datom]}]
                                      (if (and (= op :db/add)
                                               (contains? effective-unique-attrs (:a datom)))
-                                       (update m [(:a datom) (:v datom)]
-                                               (fnil conj #{}) (:e datom))
+                                       (add-claim m [(:a datom) (:v datom)] (:e datom))
                                        m))
-                                   {} op-datoms)]
-            (doseq [[[a v] eids] tx-av-eids]
-              ;; Two distinct entities in the same tx claiming the same unique value
-              (when (> (count eids) 1)
-                (throw (ex-info "Unique constraint violated" {:attr a :val v})))
-              ;; New entity conflicts with pre-existing data not being freed in this tx.
-              ;; A same-tx retract of [e a v] releases that slot; exclude those entities.
-              (let [releasing (into #{}
-                                    (keep (fn [{:keys [op datom]}]
-                                            (when (and (= op :db/retract)
-                                                       (= a (:a datom)) (= v (:v datom)))
-                                              (:e datom)))
-                                          op-datoms))
-                    existing (->> (seek-a (:aevt db) a)
-                                  (filter #(= v (:v %)))
-                                  (map :e)
-                                  (remove eids)
-                                  (remove releasing))]
-                (when (seq existing)
-                  (throw (ex-info "Unique constraint violated"
-                                  {:attr a :val v :existing-eid (first existing)}))))))
+                                   {}
+                                   op-datoms)]
+            (when (seq tx-av-eids)
+              (let [releasing-by-av (reduce (fn [m {:keys [op datom]}]
+                                              (if (and (= op :db/retract)
+                                                       (contains? effective-unique-attrs (:a datom)))
+                                                (update m [(:a datom) (:v datom)]
+                                                        (fnil conj #{}) (:e datom))
+                                                m))
+                                            {}
+                                            op-datoms)
+                    attr-has-existing-data? (fn [a]
+                                              (if (avet-attr? db a)
+                                                (seq (seek-a (:avet db) a))
+                                                (seq (seek-a (:aevt db) a))))
+                    attrs-with-existing-data (into #{} (filter attr-has-existing-data?)
+                                                   effective-unique-attrs)]
+                (doseq [[[a v] eids-or-eid] tx-av-eids]
+                  (let [eids (normalize-eids eids-or-eid)]
+                    ;; Two distinct entities in the same tx claiming the same unique value.
+                    (when (> (count eids) 1)
+                      (throw (ex-info "Unique constraint violated" {:attr a :val v})))
+                    ;; Same-tx retractions release pre-existing unique slots.
+                    (when (contains? attrs-with-existing-data a)
+                      (let [releasing (get releasing-by-av [a v] #{})
+                            existing-datoms (if (avet-attr? db a)
+                                              (seek-av (:avet db) a v)
+                                              (filter #(= v (:v %)) (seek-a (:aevt db) a)))
+                            existing (->> existing-datoms
+                                          (map :e)
+                                          (remove eids)
+                                          (remove releasing))]
+                        (when (seq existing)
+                          (throw (ex-info "Unique constraint violated"
+                                          {:attr a :val v :existing-eid (first existing)}))))))))))
         ;; Steps 9-11: apply ops to db (cardinality + index updates)
         ;; Track added datoms alongside db state.
         ;; Schema-defining attrs: after any op on these, rebuild caches immediately so
         ;; subsequent ops in the same tx see the correct card-many, ref-attrs, etc.
-        schema-defining-attrs #{:db/cardinality :db/valueType :db/index :db/ident :db/unique}
+        tx-schema-touched?
+        (or (some (fn [{:keys [datom]}] (contains? schema-defining-attrs (:a datom))) op-datoms)
+            (some #(contains? schema-defining-attrs (:a %)) extra-datoms))
+
         base-db (assoc db :next-eid new-next-eid :next-t (inc t))
-        [db' added-datoms retracted-datoms]
-        (reduce (fn [[db added-acc retracted-acc] {:keys [op datom]}]
+        [db' added-datoms retracted-datoms _seen-card-one]
+        (reduce (fn [[db added-acc retracted-acc seen-card-one] {:keys [op datom]}]
                   (case op
                     :db/add
-                    (let [implicit (when-not (contains? (:card-many db) (:a datom))
+                    (let [card-one? (not (contains? (:card-many db) (:a datom)))
+                          card-one-key (when card-one? [(:e datom) (:a datom)])
+                          new-entity? (and (integer? (:e datom))
+                                           (>= (:e datom) pre-next-eid))
+                          can-skip-implicit? (and card-one?
+                                                  new-entity?
+                                                  (not (contains? seen-card-one card-one-key)))
+                          implicit (when (and card-one? (not can-skip-implicit?))
                                      (vec (seek-ea (:eavt db) (:e datom) (:a datom))))
-                          db' (-> db
-                                  (enforce-cardinality-one (:e datom) (:a datom))
-                                  (add-datom-to-indexes datom))
+                          db' (if (seq implicit)
+                                (reduce retract-datom-from-indexes db implicit)
+                                db)
+                          db' (add-datom-to-indexes db' datom)
                           ;; If this op touches schema, rebuild caches now so the next
                           ;; op in this tx uses correct card-many/ref-attrs/indexed-attrs.
                           db' (if (contains? schema-defining-attrs (:a datom))
@@ -527,33 +715,39 @@
                                          :unique-attrs unique-attrs
                                          :indexed-attrs indexed-attrs))
                                 db')]
-                      [db' (conj added-acc datom) (into retracted-acc (or implicit []))])
+                      [db'
+                       (conj added-acc datom)
+                       (into retracted-acc (or implicit []))
+                       (cond-> seen-card-one card-one? (conj card-one-key))])
                     :db/retract
                     (let [existing   (seek-ea (:eavt db) (:e datom) (:a datom))
                           to-retract (vec (filter #(= (:v %) (:v datom)) existing))]
                       [(reduce retract-datom-from-indexes db to-retract)
                        added-acc
-                       (into retracted-acc to-retract)])
+                       (into retracted-acc to-retract)
+                       seen-card-one])
                     (throw (ex-info "Unknown tx op" {:op op}))))
-                [base-db [] []]
+                [base-db [] [] #{}]
                 op-datoms)
         ;; Add metadata entities (already Datom records)
         db' (reduce add-datom-to-indexes db' extra-datoms)
         all-tx-datoms (into added-datoms extra-datoms)
         ;; Step 12: rebuild schema cache and secondary indexes.
-        ;; Rebuilding secondary indexes (AVET/VAET/MEAT) from EAVT with the final
+        ;; Rebuilding secondary indexes (AVET/VAET/MEAVT) from EAVT with the final
         ;; schema caches ensures they are consistent even when a same-tx :db/retract
         ;; on a schema-defining attr left a stale entry (e.g. keyword v in VAET).
-        {:keys [schema ref-attrs card-many unique-attrs indexed-attrs]}
-        (build-schema-cache (:eavt db'))
-        db-after (-> db'
-                     (assoc :schema schema
-                            :ref-attrs ref-attrs
-                            :card-many card-many
-                            :unique-attrs unique-attrs
-                            :indexed-attrs indexed-attrs)
-                     rebuild-secondary-indexes
-                     (update :log conj [t (vec all-tx-datoms) (vec retracted-datoms)]))]
+        db-with-log (update db' :log conj [t (vec all-tx-datoms) (vec retracted-datoms)])
+        db-after (if tx-schema-touched?
+                   (let [{:keys [schema ref-attrs card-many unique-attrs indexed-attrs]}
+                         (build-schema-cache (:eavt db-with-log))]
+                     (-> db-with-log
+                         (assoc :schema schema
+                                :ref-attrs ref-attrs
+                                :card-many card-many
+                                :unique-attrs unique-attrs
+                                :indexed-attrs indexed-attrs)
+                         rebuild-secondary-indexes))
+                   db-with-log)]
     {:db       db-after   ; backward compat alias
      :db-after db-after
      :db-before db
@@ -606,7 +800,7 @@
     (not= e FREE)
     (seek-ea (:eavt db) e a)
     (and (not= a FREE) (not= v FREE)
-         (contains? (:indexed-attrs db) a))
+         (avet-attr? db a))
     (seek-av (:avet db) a v)
     (not= a FREE)
     (seek-a (:aevt db) a)
@@ -707,13 +901,63 @@
           datoms)))
 
 
+(defn- estimate-clause-cost
+  "Estimate candidate stream size for a positive datom clause under one binding."
+  [clause binding]
+  (let [[db-sym pattern] (clause-db-and-pattern clause)
+        db (resolve-db binding db-sym)]
+    (if-not db
+      1000000
+      (let [[ce ca cv] (pad-to-5 pattern)
+            e-val (resolve-binding binding ce)
+            a-val (resolve-binding binding ca)
+            v-val (resolve-binding binding cv)]
+        (cond
+          (and (not= e-val FREE) (not= a-val FREE) (not= v-val FREE))
+          1
+
+          (and (not= e-val FREE) (not= a-val FREE))
+          2
+
+          (not= e-val FREE)
+          4
+
+          (and (not= a-val FREE) (not= v-val FREE)
+               (contains? (:ref-attrs db) a-val))
+          8
+
+          (and (not= a-val FREE) (not= v-val FREE)
+               (contains? (:indexed-attrs db) a-val))
+          16
+
+          (not= a-val FREE)
+          64
+
+          :else
+          1024)))))
+
+
+(defn- plan-where
+  "Order positive datom clauses by estimated stream cardinality.
+   Datalog conjunction is order-independent; this only changes interpretation cost."
+  [clauses init-bindings]
+  (if (or (<= (count clauses) 1) (empty? init-bindings))
+    clauses
+    (let [binding (first init-bindings)]
+      (mapv second
+            (sort-by (fn [[idx clause]]
+                       [(estimate-clause-cost clause binding) idx])
+                     (map-indexed vector clauses))))))
+
+
 (defn- eval-where
   "Fold clauses over init-bindings, returning final relation."
   [clauses init-bindings]
-  (reduce (fn [bindings clause]
-            (mapcat #(eval-clause clause %) bindings))
-          init-bindings
-          clauses))
+  (let [planned-clauses (plan-where clauses init-bindings)]
+    (reduce (fn [bindings clause]
+              (mapcat #(eval-clause clause %) bindings))
+            init-bindings
+            planned-clauses)))
 
 
 (defn- normalize-query
@@ -731,18 +975,6 @@
                      (if cur-key (assoc result cur-key cur-vals) result)
                      x [])
               (recur (inc i) result cur-key (conj cur-vals x)))))))))
-
-
-(defn q
-  "Run a Datalog query against an InMemoryDaoDB.
-   Supports full Datomic :in binding forms: scalars, collections, tuples,
-   relations, and multiple named databases."
-  [query & inputs]
-  (let [{:keys [find in where]} (normalize-query query)
-        in-patterns   (or in ['$])
-        init-bindings (build-init-bindings in-patterns inputs)
-        result        (eval-where (or where []) init-bindings)]
-    (into #{} (map (fn [b] (mapv #(get b %) find)) result))))
 
 
 ;; =============================================================================
@@ -846,8 +1078,17 @@
 
 
 (defn native-q
+  "Run a Datalog query against an InMemoryDaoDB.
+   Supports full Datomic :in binding forms: scalars, collections, tuples,
+   relations, and multiple named databases."
   [db query inputs]
-  (apply q query db inputs))
+  (let [{:keys [find in where]} (normalize-query query)
+        in-patterns   (or in ['$])
+        ;; Prepend db to inputs so it becomes the first variadic arg
+        all-inputs    (cons db inputs)
+        init-bindings (build-init-bindings in-patterns all-inputs)
+        result        (eval-where (or where []) init-bindings)]
+    (into #{} (map (fn [b] (mapv #(get b %) find)) result))))
 
 
 (defn native-datoms
@@ -909,11 +1150,11 @@
 
 
 (defn native-find-eids-by-av
-  [db attr val]
-  (if (contains? (:indexed-attrs db) attr)
-    (into #{} (map :e) (seek-av (:avet db) attr val))
-    (->> (seek-a (:aevt db) attr)
-         (filter #(= val (:v %)))
+  [db a v]
+  (if (avet-attr? db a)
+    (into #{} (map :e) (seek-av (:avet db) a v))
+    (->> (seek-a (:aevt db) a)
+         (filter #(= v (:v %)))
          (map :e)
          set)))
 
@@ -956,17 +1197,17 @@
 
 
 (defn empty-db
-  "Create an empty InMemoryDaoDB with bootstrap schema entities (eids 2-13)."
+  "Create an empty InMemoryDaoDB with bootstrap schema entities (eids 1-13)."
   []
-  (let [e-set  (sorted-set-by eavt-cmp)
-        ae-set (sorted-set-by aevt-cmp)
-        av-set (sorted-set-by avet-cmp)
-        va-set (sorted-set-by vaet-cmp)
-        me-set (sorted-set-by meat-cmp)
+  (let [e-set  (sorted-index-by eavt-cmp)
+        ae-set (sorted-index-by aevt-cmp)
+        av-set (sorted-index-by avet-cmp)
+        va-set (sorted-index-by vaet-cmp)
+        me-set (sorted-index-by meat-cmp)
         base   (->InMemoryDaoDB e-set ae-set av-set va-set me-set
-                                [[0 (vec bootstrap-datoms) []]]
+                                [[0 (vec dao-db/bootstrap-datoms) []]]
                                 {} 1 1025 #{} #{} #{} #{})
-        db     (reduce add-datom-to-indexes base bootstrap-datoms)
+        db     (reduce add-datom-to-indexes base dao-db/bootstrap-datoms)
         {:keys [schema ref-attrs card-many unique-attrs indexed-attrs]}
         (build-schema-cache (:eavt db))]
     (assoc db
@@ -988,56 +1229,62 @@
 
 
 ;; =============================================================================
-;; Three-Component Protocols
+;; Four-Component Protocol Wrapper Functions
 ;; =============================================================================
 
-(defprotocol IDaoStorage
-  "Append-only log of datom segments, keyed by transaction range."
-
-  (write-segment!
-    [this segment]
-    "Append a [t added retracted] log entry to storage. Returns updated db.")
-
-  (read-segments
-    [this t-min t-max]
-    "Return a seq of [t added retracted] entries for t-min <= t <= t-max.")
-
-  (latest-t
-    [this]
-    "Return the highest committed transaction ID."))
+(defn latest-t
+  "Get the latest transaction ID from a database."
+  [db]
+  (dao-db/latest-t db))
 
 
-(defprotocol IDaoTransactor
-  "Single writer. Serializes all transactions to preserve monotonic t."
-
-  (transact!
-    [this tx-data]
-    "Apply tx-data. Returns {:db-after db :tempids {...} :tx-data [...]}.")
-
-  (current-db
-    [this]
-    "Return the current db value (the five indexes as an immutable snapshot)."))
+(defn write-segment!
+  "Write a segment to a database."
+  [db segment]
+  (dao-db/write-segment! db segment))
 
 
-(defprotocol IDaoQueryEngine
-  "Read-only query engine over a cached db snapshot."
+(defn read-segments
+  "Read segments from a database."
+  [db t-min t-max]
+  (dao-db/read-segments db t-min t-max))
 
-  (run-q
-    [this query inputs]
-    "Run a Datalog query. inputs is a seq of extra bindings beyond $.")
 
-  (datoms
-    [this index components]
-    "Return datoms for index with optional leading-component filter seq.")
+(defn transact!
+  "Transact on a database."
+  [db tx-data]
+  (dao-db/transact! db tx-data))
 
-  (entity-attrs
-    [this eid]
-    "Return {attr val} map for entity. Card-many attrs are vectors.")
 
-  (find-eids-by-av
-    [this attr val]
-    "Return set of entity IDs where attribute = val."))
+(defn run-q
+  "Run a Datalog query on a database."
+  [db query inputs]
+  (dao-db/run-q db query inputs))
 
+
+(defn datoms
+  "Get datoms from a database index."
+  ([db index]
+   (dao-db/datoms db index))
+  ([db index & components]
+   (apply dao-db/datoms db index components)))
+
+
+(defn entity-attrs
+  "Get entity attributes from a database."
+  [db eid]
+  (dao-db/entity-attrs db eid))
+
+
+(defn find-eids-by-av
+  "Find entity IDs by attribute and value."
+  [db a v]
+  (dao-db/find-eids-by-av db a v))
+
+
+;; =============================================================================
+;; Protocol Implementations
+;; ============================================================================="
 
 (extend-type InMemoryDaoDB
 
@@ -1084,13 +1331,21 @@
 
   IDaoTransactor
   (transact! [this tx-data] (run-tx this tx-data))
-  (current-db [this] this)
+  (with [this tx-data] (native-with this tx-data))
 
   IDaoQueryEngine
   (run-q           [this query inputs] (native-q this query inputs))
-  (datoms          [this index components] (native-datoms this index components))
+  (index-datoms    [this index components] (native-datoms this index components))
+
+  IDaoDB
+  (entity          [this eid] (native-entity this eid))
+  (pull            [this pattern eid] (native-pull this pattern eid))
+  (pull-many       [this pattern eids] (native-pull-many this pattern eids))
+  (basis-t         [this] (native-basis-t this))
+  (as-of           [this t] (as-of this t))
+  (since           [this t] (since this t))
   (entity-attrs    [this eid] (native-entity-attrs this eid))
-  (find-eids-by-av [this attr val] (native-find-eids-by-av this attr val)))
+  (find-eids-by-av [this a v] (native-find-eids-by-av this a v)))
 
 
 ;; =============================================================================
@@ -1101,7 +1356,7 @@
   "Replay a seq of [t added retracted] log entries onto empty indexes.
    Two-phase: phase 1 populates EAVT/AEVT with empty schema caches (so no
    stale ref/indexed decisions are made); phase 2 rebuilds schema caches from
-   the final EAVT then re-populates AVET/VAET/MEAT correctly."
+   the final EAVT then re-populates AVET/VAET/MEAVT correctly."
   [db entries]
   (let [entries  (vec entries)
         ;; Start with empty indexes AND empty schema caches so add-datom-to-indexes
@@ -1118,7 +1373,7 @@
                         :unique-attrs  #{}
                         :indexed-attrs #{})
         ;; Phase 1: replay into EAVT/AEVT only (schema caches are empty so
-        ;; add-datom-to-indexes skips AVET/VAET/MEAT — correct, we fill those later).
+        ;; add-datom-to-indexes skips AVET/VAET/MEAVT — correct, we fill those later).
         replayed (reduce (fn [db [_t added retracted]]
                            (as-> (reduce add-datom-to-indexes db added) d
                                  (reduce retract-datom-from-indexes d retracted)))
@@ -1128,7 +1383,7 @@
         ;; Phase 2: rebuild schema caches from the historical EAVT.
         {:keys [schema ref-attrs card-many unique-attrs indexed-attrs]}
         (build-schema-cache (:eavt replayed))]
-    ;; Phase 3: re-populate AVET/VAET/MEAT by scanning EAVT with correct caches.
+    ;; Phase 3: re-populate AVET/VAET/MEAVT by scanning EAVT with correct caches.
     (-> replayed
         (assoc :next-t        (inc last-t)
                :schema        schema
@@ -1167,21 +1422,3 @@
                :unique-attrs  (:unique-attrs db)
                :indexed-attrs (:indexed-attrs db))
         rebuild-secondary-indexes)))
-
-
-(extend-type InMemoryDaoDB
-  IDaoDb
-  (run-query       [db query inputs]      (native-q db query inputs))
-  (transact        [db tx-data]           (native-transact db tx-data))
-  (with            [db tx-data]           (native-with db tx-data))
-  (index-datoms
-    ([db index]             (native-datoms db index nil))
-    ([db index components]  (native-datoms db index components)))
-  (entity          [db eid]               (native-entity db eid))
-  (pull            [db pattern eid]       (native-pull db pattern eid))
-  (pull-many       [db pattern eids]      (native-pull-many db pattern eids))
-  (basis-t         [db]                   (native-basis-t db))
-  (as-of           [db t]                 (as-of db t))
-  (since           [db t]                 (since db t))
-  (entity-attrs    [db eid]               (native-entity-attrs db eid))
-  (find-eids-by-av [db attr val]          (native-find-eids-by-av db attr val)))

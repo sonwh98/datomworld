@@ -1,4 +1,4 @@
-(ns datomworld.continuation-stream-demo
+(ns datomworld.demo.continuation-stream
   (:require
     ["@codemirror/state" :refer [EditorState]]
     ["@codemirror/theme-one-dark" :refer [oneDark]]

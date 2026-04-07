@@ -1,6 +1,7 @@
 (ns yin.vm.semantic-test
   (:require
     [clojure.test :refer [deftest is testing]]
+    [dao.db :as dao-db]
     [dao.stream :as ds]
     [dao.stream.apply :as dao.stream.apply]
     [dao.stream.transport.ringbuffer]
@@ -75,6 +76,36 @@
   (testing "Environment stores lexical bindings only"
     (let [vm (semantic/create-vm {:env {'x 1}})]
       (is (= 1 (get (vm/environment vm) 'x))))))
+
+
+(deftest dao-backed-ast-test
+  (testing "load-program transacts AST datoms into a queryable DaoDB"
+    (let [ast {:type :application
+               :operator {:type :variable, :name '+}
+               :operands [{:type :literal, :value 1}
+                          {:type :literal, :value 2}]}
+          [root-tempid datoms] (vm/ast->datoms-with-root ast)
+          loaded (-> (semantic/create-vm)
+                     (vm/load-program {:node root-tempid, :datoms datoms}))
+          ast-db (:db loaded)
+          root-eid (:id (vm/control loaded))]
+      (is (satisfies? dao-db/IDaoDB ast-db))
+      (is (= :application (:yin/type (dao-db/entity-attrs ast-db root-eid))))
+      (is (= #{['+]}
+             (dao-db/q '[:find ?name
+                         :where [_ :yin/name ?name]]
+                       ast-db)))
+      (is (= 3 (-> loaded vm/run vm/value)))))
+  (testing "nil literal values remain explicit AST facts after DaoDB load"
+    (let [[root-tempid datoms] (vm/ast->datoms-with-root {:type :literal, :value nil})
+          loaded (-> (semantic/create-vm)
+                     (vm/load-program {:node root-tempid, :datoms datoms}))
+          root-eid (:id (vm/control loaded))
+          attrs (dao-db/entity-attrs (:db loaded) root-eid)
+          result (vm/run loaded)]
+      (is (contains? attrs :yin/value))
+      (is (vm/halted? result))
+      (is (nil? (vm/value result))))))
 
 
 ;; =============================================================================
@@ -505,12 +536,15 @@
                          :operands [{:type :literal, :value 2}
                                     {:type :literal, :value 3}]})
           _ (is (= 5 (vm/value vm-3)))
-          ;; Verify that all datoms are preserved and have unique IDs
+          ;; Verify that user AST nodes are preserved and resolved into DaoDB IDs.
           datoms (:datoms vm-3)
-          ids (map first datoms)
-          unique-ids (set ids)]
-      (is (every? neg-int? ids)
-          "All accumulated datom entity IDs should remain negative tempids")
+          node-ids (->> datoms
+                        (keep (fn [[e a _v _t _m]]
+                                (when (= :yin/type a) e)))
+                        set)]
+      (is (satisfies? dao-db/IDaoDB (:db vm-3)))
+      (is (every? #(and (integer? %) (pos? %)) node-ids)
+          "All accumulated AST node tempids should resolve to permanent DaoDB IDs")
       ;; Total nodes: 1 + 1 + 4 = 6 nodes.
-      (is (= 6 (count unique-ids))
+      (is (= 6 (count node-ids))
           "Should have 6 unique node IDs across 3 loads"))))

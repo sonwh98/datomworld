@@ -1,6 +1,7 @@
 (ns yin.vm.semantic
   (:require
     [dao.db :as db]
+    [dao.db.in-memory :as in-memory]
     [dao.stream :as ds]
     [dao.stream.apply :as dao.stream.apply]
     [yin.module :as module]
@@ -138,6 +139,7 @@
    bridge     ; explicit host-side FFI bridge state
    control    ; current control state {:type :node/:value, ...}
    datoms     ; AST datoms
+   db         ; DaoDB AST store
    env        ; lexical environment
    halted     ; true if execution completed
    id-counter ; unique ID counter
@@ -175,6 +177,7 @@
     (:bridge vm)
     control
     (:datoms vm)
+    (:db vm)
     env
     halted?
     (:id-counter vm)
@@ -625,6 +628,179 @@
         [0 (make-semantic-object-array 0)]))))
 
 
+(defn- create-ast-db
+  []
+  (in-memory/create vm/schema))
+
+
+(defn- ast-datoms->tx-data
+  "Project canonical AST 5-tuples into DaoDB tx-data, preserving nil facts and m."
+  [datoms]
+  (mapcat (fn [[e a v _t m]]
+            (cond
+              (and (contains? cardinality-many-attrs a) (vector? v))
+              (map (fn [ref] [:db/add e a ref m]) v)
+
+              :else
+              [[:db/add e a v m]]))
+          datoms))
+
+
+(defn- dao-datom->tuple
+  [d]
+  [(:e d) (:a d) (:v d) (:t d) (:m d)])
+
+
+(defn- semantic-index-datoms
+  [datoms]
+  (filter (fn [[_e a _v _t _m]] (contains? attr->idx a)) datoms))
+
+
+(defn- ast-dao-datom?
+  [d]
+  (= "yin" (namespace (:a d))))
+
+
+(defn- build-semantic-index-from-datoms
+  [datoms]
+  (let [datom-index (group-by first (semantic-index-datoms datoms))]
+    (into {}
+          (map (fn [[eid _datoms]]
+                 [eid (datom-node-attrs datom-index eid)]))
+          datom-index)))
+
+
+(defn- materialize-ast-datoms
+  [dao-db]
+  (let [active (set (db/datoms dao-db :eavt))
+        entries (db/read-segments dao-db 0 (db/basis-t dao-db))]
+    (second
+      (reduce (fn [[seen acc] [_t added _retracted]]
+                (reduce (fn [[seen acc] d]
+                          (if (or (contains? seen d)
+                                  (not (contains? active d))
+                                  (not (ast-dao-datom? d)))
+                            [seen acc]
+                            [(conj seen d) (conj acc (dao-datom->tuple d))]))
+                        [seen acc]
+                        added))
+              [#{} []]
+              entries))))
+
+
+(defn- refresh-semantic-index-from-db
+  [vm dao-db]
+  (let [datoms (materialize-ast-datoms dao-db)
+        node-map-index (build-semantic-index-from-datoms datoms)
+        cardinality (count node-map-index)
+        [index-base-id index-arr] (build-semantic-node-index-array node-map-index cardinality)]
+    (assoc vm
+           :db dao-db
+           :datoms datoms
+           :index node-map-index
+           :index-arr index-arr
+           :index-base-id index-base-id)))
+
+
+(defn- add-tempid-index-aliases
+  [vm tempids]
+  (if (seq tempids)
+    (update vm :index
+            (fn [index]
+              (reduce-kv (fn [idx tempid eid]
+                           (if-let [node-arr (get idx eid)]
+                             (assoc idx tempid node-arr)
+                             idx))
+                         index
+                         tempids)))
+    vm))
+
+
+(defn- remap-macro-registry
+  [registry tempids]
+  (if (seq tempids)
+    (into {}
+          (map (fn [[eid macro-fn]]
+                 [(get tempids eid eid) macro-fn]))
+          registry)
+    registry))
+
+
+(defn- tempid?
+  [x]
+  (and (integer? x) (neg? x)))
+
+
+(defn- positive-id?
+  [x]
+  (and (integer? x) (pos? x)))
+
+
+(defn- ref-values
+  [ref-attrs attr value]
+  (when (contains? ref-attrs attr)
+    (if (vector? value) value [value])))
+
+
+(defn- ordered-ast-tempids
+  [dao-db datoms]
+  (let [ref-attrs (:ref-attrs dao-db)]
+    (vec
+      (distinct
+        (reduce (fn [ids [e a v _t m]]
+                  (cond-> ids
+                    (tempid? e)
+                    (conj e)
+                    true
+                    (into (filter tempid?) (ref-values ref-attrs a v))
+                    (tempid? m)
+                    (conj m)))
+                []
+                datoms)))))
+
+
+(defn- positive-id-ceiling
+  [dao-db datoms]
+  (let [ref-attrs (:ref-attrs dao-db)]
+    (reduce (fn [ceiling [e a v _t m]]
+              (let [ids (cond-> []
+                          (positive-id? e) (conj e)
+                          true (into (filter positive-id?) (ref-values ref-attrs a v))
+                          (positive-id? m) (conj m))]
+                (reduce (fn [mx id] (max mx (inc id))) ceiling ids)))
+            (:next-eid dao-db)
+            datoms)))
+
+
+(defn- ast-tempid-map
+  [dao-db datoms]
+  (let [tempids (ordered-ast-tempids dao-db datoms)
+        start (positive-id-ceiling dao-db datoms)]
+    (zipmap tempids (range start (+ start (count tempids))))))
+
+
+(defn- resolve-ast-datom
+  [dao-db tempids [e a v t m]]
+  (let [resolve-id (fn [id] (if (tempid? id) (get tempids id id) id))
+        v (if (contains? (:ref-attrs dao-db) a)
+            (if (vector? v)
+              (mapv resolve-id v)
+              (resolve-id v))
+            v)]
+    [(resolve-id e) a v t (resolve-id m)]))
+
+
+(defn- transact-ast-datoms
+  [dao-db datoms]
+  (if (seq datoms)
+    (let [datoms (vec datoms)
+          tempids (ast-tempid-map dao-db datoms)
+          resolved-datoms (mapv #(resolve-ast-datom dao-db tempids %) datoms)
+          tx-result (db/transact dao-db (ast-datoms->tx-data resolved-datoms))]
+      (update tx-result :tempids #(merge tempids (or % {}))))
+    {:db dao-db, :db-after dao-db, :db-before dao-db, :tx-data [], :tempids {}}))
+
+
 (defn- fast-semantic-frame->map
   [frame]
   (if (vector? frame)
@@ -711,22 +887,27 @@
   "Load datoms into the VM.
    Expects {:node root-id :datoms [...]}."
   [^SemanticVM vm {:keys [node datoms]}]
-  (let [datom-index (group-by first datoms)
-        node-map-index (into {} (map (fn [[eid _datoms]] [eid (datom-node-attrs datom-index eid)])
-                                     datom-index))
-        merged-index (merge (:index vm) node-map-index)
-        cardinality (count merged-index)
-        [index-base-id index-arr] (build-semantic-node-index-array merged-index cardinality)]
+  (let [ast-db (or (:db vm) (create-ast-db))
+        {:keys [db-after tempids]} (transact-ast-datoms ast-db datoms)
+        root-id (get tempids node node)
+        vm (-> vm
+               (assoc :macro-registry (remap-macro-registry (:macro-registry vm) tempids))
+               (refresh-semantic-index-from-db db-after)
+               (add-tempid-index-aliases tempids))]
     (assoc vm
-           :control {:type :node, :id node}
+           :control {:type :node, :id root-id}
            :k nil
-           :datoms (into (:datoms vm) datoms)
-           :index merged-index
-           :index-arr index-arr
-           :index-base-id index-base-id
            :halted false
            :value nil
            :blocked false)))
+
+
+(defn- semantic-append-datoms*
+  [^SemanticVM vm new-datoms]
+  (let [ast-db (or (:db vm) (create-ast-db))
+        {:keys [db-after] :as tx-result} (transact-ast-datoms ast-db new-datoms)]
+    (assoc tx-result :vm (-> (refresh-semantic-index-from-db vm db-after)
+                             (add-tempid-index-aliases (:tempids tx-result))))))
 
 
 (defn semantic-append-datoms
@@ -735,35 +916,7 @@
    For existing EIDs, patches individual attributes (preserves existing attrs).
    Used by the macro expander to inject expansion output at runtime."
   [^SemanticVM vm new-datoms]
-  (let [old-index (:index vm)
-        new-datom-index (group-by first new-datoms)
-        updated-index
-        (reduce (fn [idx [eid eid-datoms]]
-                  (if-let [existing-arr (get idx eid)]
-                    ;; Existing node: copy array and patch in new attributes
-                    (let [arr (make-semantic-object-array ATTR_COUNT)]
-                      (dotimes [i ATTR_COUNT]
-                        (semantic-object-array-set! arr i (semantic-object-array-get existing-arr i)))
-                      (doseq [[_e a v _t _m] eid-datoms]
-                        (when-let [ai (get attr->idx a)]
-                          (if (contains? cardinality-many-attrs a)
-                            (let [existing (semantic-object-array-get arr ai)]
-                              (if (vector? v)
-                                (semantic-object-array-set! arr ai (into (or existing []) v))
-                                (semantic-object-array-set! arr ai (conj (or existing []) v))))
-                            (semantic-object-array-set! arr ai v))))
-                      (assoc idx eid arr))
-                    ;; New node: build fresh array from its datoms
-                    (assoc idx eid (datom-node-attrs new-datom-index eid))))
-                old-index
-                new-datom-index)
-        cardinality (count updated-index)
-        [index-base-id index-arr] (build-semantic-node-index-array updated-index cardinality)]
-    (assoc vm
-           :datoms (into (:datoms vm) new-datoms)
-           :index updated-index
-           :index-arr index-arr
-           :index-base-id index-base-id)))
+  (:vm (semantic-append-datoms* vm new-datoms)))
 
 
 (declare invoke-macro-lambda)
@@ -814,7 +967,8 @@
                      event-eid node-id macro-lambda-eid exp-root :runtime)
         marked-exp (macro/mark-with-provenance exp-datoms event-eid)
         all-new (vec (concat evt-datoms marked-exp))
-        updated-vm (semantic-append-datoms vm all-new)]
+        {:keys [tempids] updated-vm :vm} (semantic-append-datoms* vm all-new)
+        exp-root (get tempids exp-root exp-root)]
     (assoc updated-vm
            :control {:type :node, :id exp-root}
            :env env
@@ -1230,6 +1384,7 @@
                                   :env env,
                                   :k nil,
                                   :datoms [],
+                                  :db (create-ast-db),
                                   :index {},
                                   :index-arr (make-semantic-object-array 0),
                                   :index-base-id 0,
@@ -1335,7 +1490,8 @@
                      [def-eid :yin/operands [key-eid value-eid]    0 0]])
              def-eid))}
         vm-base  (create-vm)
-        vm-data  (semantic-append-datoms vm-base datoms)
+        {:keys [tempids] vm-data :vm} (semantic-append-datoms* vm-base datoms)
+        body-eid (get tempids body-eid body-eid)
         vm-ready (assoc vm-data
                         :primitives (merge (:primitives vm-data) macro-prims)
                         :control {:type :node, :id body-eid}

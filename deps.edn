@@ -6,6 +6,7 @@
         org.clojure/data.json {:mvn/version "2.5.0"}
         http-kit/http-kit {:mvn/version "2.8.0"}
         datascript/datascript {:mvn/version "1.7.8"}
+        persistent-sorted-set/persistent-sorted-set {:mvn/version "0.3.0"}
         instaparse/instaparse {:mvn/version "1.5.0"}
         criterium/criterium {:mvn/version "0.4.6"}
         stigmergy/chp {:mvn/version "0.1.0-SNAPSHOT"
@@ -16,9 +17,17 @@
                    :exec-fn clean/clean}
            :bench {:extra-paths ["test"]
                    :main-opts ["-m" "yin.vm.bytecode-bench"]}
+           :bench-dao-db {:extra-paths ["test"]
+                          :main-opts ["-m" "bench.dao-db-bench"]}
            :profile {:extra-paths ["test"]
                      :jvm-opts ["-XX:StartFlightRecording=filename=/tmp/datomworld-bytecode-bench.jfr,settings=profile,dumponexit=true"]
                      :main-opts ["-m" "yin.vm.bytecode-bench"]}
+           :profile-dao-db {:extra-paths ["test"]
+                            :jvm-opts ["-XX:StartFlightRecording=name=dao-db-bench,filename=/tmp/datomworld-dao-db-bench.jfr,settings=profile,dumponexit=true"]
+                            :main-opts ["-m" "bench.dao-db-bench"]}
+           :profile-dao-db-quick {:extra-paths ["test"]
+                                  :jvm-opts ["-XX:StartFlightRecording=name=dao-db-bench-quick,filename=/tmp/datomworld-dao-db-bench-quick.jfr,settings=profile,dumponexit=true"]
+                                  :main-opts ["-m" "bench.dao-db-bench" "--quick"]}
            :profile-fast {:extra-paths ["test"]
                           :jvm-opts ["-XX:StartFlightRecording=filename=/tmp/datomworld-bytecode-bench-fast.jfr,settings=profile,dumponexit=true"]
                           :main-opts ["-m" "yin.vm.bytecode-bench" "--fast-only" "--register-only"]}

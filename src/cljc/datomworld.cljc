@@ -11,39 +11,6 @@
          MessageDigest))))
 
 
-(defrecord Datom
-  [e a v t m])
-
-
-(defn ->datom
-  [e a v t m]
-  (->Datom e a v t m))
-
-
-(defn type-rank
-  "Total ordering for heterogeneous datom values.
-   nil < boolean < integer < float < string < keyword < symbol < other."
-  [x]
-  (cond
-    (nil? x)     0
-    (boolean? x) 1
-    (integer? x) 2
-    #?(:clj  (float? x)
-       :cljs  (and (number? x) (not (integer? x)))
-       :cljd  (dart/is? x double)) 3
-    (string? x)  4
-    (keyword? x) 5
-    (symbol? x)  6
-    :else         7))
-
-
-(defn compare-vals
-  "Compare two datom values across heterogeneous types using type-rank."
-  [a b]
-  (let [ra (type-rank a) rb (type-rank b)]
-    (if (= ra rb) (compare a b) (compare ra rb))))
-
-
 (defn sha256
   [s]
   #?(:clj (let [digest (MessageDigest/getInstance "SHA-256")
