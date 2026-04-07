@@ -72,6 +72,14 @@
       (is (= 1 (count colors)))
       (is (= :blue (:v (first colors))))))
 
+  (testing "cardinality-one: same-tx second :db/add replaces first"
+    (let [db     (in-m/create {:color {:db/cardinality :db.cardinality/one}})
+          {:keys [db]} (in-m/run-tx db [[:db/add 2048 :color :red]
+                                        [:db/add 2048 :color :blue]])
+          colors (filter #(= :color (:a %)) (in-m/native-datoms db :eavt [2048]))]
+      (is (= 1 (count colors)))
+      (is (= :blue (:v (first colors))))))
+
   (testing "cardinality-many: multiple values accumulate"
     (let [db (in-m/create {:tags {:db/cardinality :db.cardinality/many}})
           {:keys [db]} (in-m/run-tx db [[:db/add 1025 :tags "a"]])
@@ -114,6 +122,29 @@
                                         [:db/add 1026 :name "Bob"]])]
       (is (= #{[1025]}
              (dao-db/q '[:find ?e :where [?e :name _] [?e :age _]] db)))))
+
+  (testing "multi-clause join — result is independent of source clause order"
+    (let [db (in-m/create {:status {:db/index true}
+                           :city {:db/valueType :db.type/ref
+                                  :db/index true}})
+          {:keys [db]} (in-m/run-tx db [[:db/add 1025 :status :active]
+                                        [:db/add 1025 :city 2048]
+                                        [:db/add 1026 :status :active]
+                                        [:db/add 1026 :city 2049]
+                                        [:db/add 1027 :status :inactive]
+                                        [:db/add 1027 :city 2048]])]
+      (is (= #{[1025]}
+             (dao-db/q '[:find ?e
+                         :in $ ?status ?city
+                         :where [?e :status ?status]
+                         [?e :city ?city]]
+                       db :active 2048)))
+      (is (= #{[1025]}
+             (dao-db/q '[:find ?e
+                         :in $ ?status ?city
+                         :where [?e :city ?city]
+                         [?e :status ?status]]
+                       db :active 2048)))))
 
   (testing ":in $ ?x — scalar input binding"
     (let [db (in-m/empty-db)

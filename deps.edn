@@ -16,9 +16,17 @@
                    :exec-fn clean/clean}
            :bench {:extra-paths ["test"]
                    :main-opts ["-m" "yin.vm.bytecode-bench"]}
+           :bench-dao-db {:extra-paths ["test"]
+                          :main-opts ["-m" "bench.dao-db-bench"]}
            :profile {:extra-paths ["test"]
                      :jvm-opts ["-XX:StartFlightRecording=filename=/tmp/datomworld-bytecode-bench.jfr,settings=profile,dumponexit=true"]
                      :main-opts ["-m" "yin.vm.bytecode-bench"]}
+           :profile-dao-db {:extra-paths ["test"]
+                            :jvm-opts ["-XX:StartFlightRecording=name=dao-db-bench,filename=/tmp/datomworld-dao-db-bench.jfr,settings=profile,dumponexit=true"]
+                            :main-opts ["-m" "bench.dao-db-bench"]}
+           :profile-dao-db-quick {:extra-paths ["test"]
+                                  :jvm-opts ["-XX:StartFlightRecording=name=dao-db-bench-quick,filename=/tmp/datomworld-dao-db-bench-quick.jfr,settings=profile,dumponexit=true"]
+                                  :main-opts ["-m" "bench.dao-db-bench" "--quick"]}
            :profile-fast {:extra-paths ["test"]
                           :jvm-opts ["-XX:StartFlightRecording=filename=/tmp/datomworld-bytecode-bench-fast.jfr,settings=profile,dumponexit=true"]
                           :main-opts ["-m" "yin.vm.bytecode-bench" "--fast-only" "--register-only"]}
