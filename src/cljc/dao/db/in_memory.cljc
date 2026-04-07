@@ -4,8 +4,7 @@
    pipeline, schema bootstrap, and embedded Datalog query engine.
    Datomic-compatible query API."
   (:require
-    [dao.db :refer [IDaoDb]]
-    [datomworld :as dw]))
+    [dao.db :as dao-db :refer [IDaoStorage IDaoTransactor IDaoQueryEngine IDaoDB]]))
 
 
 ;; Sentinel for unbound query variables (must precede seek helpers)
@@ -21,7 +20,7 @@
   (fn [d1 d2]
     (loop [[p & ps] positions]
       (if (nil? p) 0
-          (let [c (dw/compare-vals (get d1 p) (get d2 p))]
+          (let [c (dao-db/compare-vals (get d1 p) (get d2 p))]
             (if (zero? c) (recur ps) c))))))
 
 
@@ -29,7 +28,7 @@
 (def ^:private aevt-cmp (make-comparator [:a :e :v :t :m]))
 (def ^:private avet-cmp (make-comparator [:a :v :e :t :m]))
 (def ^:private vaet-cmp (make-comparator [:v :a :e :t :m]))
-(def ^:private meat-cmp (make-comparator [:m :e :a :t]))
+(def ^:private meat-cmp (make-comparator [:m :e :a :v :t]))
 
 
 ;; =============================================================================
@@ -39,7 +38,7 @@
 (defn- seek-e
   [eavt e]
   (take-while #(= e (:e %))
-              (subseq eavt >= (dw/->Datom e nil nil nil nil))))
+              (subseq eavt >= (dao-db/->datom e nil nil nil nil))))
 
 
 (defn- seek-ea
@@ -47,54 +46,54 @@
   (if (= a FREE)
     (seek-e eavt e)
     (take-while #(and (= e (:e %)) (= a (:a %)))
-                (subseq eavt >= (dw/->Datom e a nil nil nil)))))
+                (subseq eavt >= (dao-db/->datom e a nil nil nil)))))
 
 
 (defn- seek-av
   [avet a v]
   (take-while #(and (= a (:a %)) (= v (:v %)))
-              (subseq avet >= (dw/->Datom nil a v nil nil))))
+              (subseq avet >= (dao-db/->datom nil a v nil nil))))
 
 
 (defn- seek-a
   [aevt a]
   (take-while #(= a (:a %))
-              (subseq aevt >= (dw/->Datom nil a nil nil nil))))
+              (subseq aevt >= (dao-db/->datom nil a nil nil nil))))
 
 
 (defn- seek-aev
   "Seek AEVT by a and e."
   [aevt a e]
   (take-while #(and (= a (:a %)) (= e (:e %)))
-              (subseq aevt >= (dw/->Datom e a nil nil nil))))
+              (subseq aevt >= (dao-db/->datom e a nil nil nil))))
 
 
 (defn- seek-m
-  "Seek MEAT by m."
+  "Seek MEAVT by m."
   [meat m]
   (take-while #(= m (:m %))
-              (subseq meat >= (dw/->Datom nil nil nil nil m))))
+              (subseq meat >= (dao-db/->datom nil nil nil nil m))))
 
 
 (defn- seek-me
-  "Seek MEAT by m and e."
+  "Seek MEAVT by m and e."
   [meat m e]
   (take-while #(and (= m (:m %)) (= e (:e %)))
-              (subseq meat >= (dw/->Datom e nil nil nil m))))
+              (subseq meat >= (dao-db/->datom e nil nil nil m))))
 
 
 (defn- seek-v
   "Seek VAET by v."
   [vaet v]
   (take-while #(= v (:v %))
-              (subseq vaet >= (dw/->Datom nil nil v nil nil))))
+              (subseq vaet >= (dao-db/->datom nil nil v nil nil))))
 
 
 (defn- seek-va
   "Seek VAET by v and a."
   [vaet v a]
   (take-while #(and (= v (:v %)) (= a (:a %)))
-              (subseq vaet >= (dw/->Datom nil a v nil nil))))
+              (subseq vaet >= (dao-db/->datom nil a v nil nil))))
 
 
 ;; =============================================================================
@@ -106,8 +105,8 @@
    aevt           ; sorted-set of Datom by [a e v t m]
    avet           ; sorted-set of Datom by [a v e t m] — indexed + ref attrs
    vaet           ; sorted-set of Datom by [v a e t m] — ref attrs only
-   meat           ; sorted-set of Datom by [m e a t]   — m != 0 only
-   log            ; vector of [t [Datom ...]], one entry per committed tx (temporal index)
+   meat           ; sorted-set of Datom by [m e a v t] — m != 0 only
+   log            ; vector of [t added retracted], one entry per committed tx (temporal index)
    schema         ; {attr-kw {:db/valueType ... :db/cardinality ...}} — cache
    next-t         ; integer, monotonic tx counter
    next-eid       ; integer, next permanent entity ID (starts at 1025)
@@ -118,23 +117,7 @@
    ])
 
 
-;; =============================================================================
-;; Schema
-;; =============================================================================
-
-(def ^:private bootstrap-datoms
-  [(dw/->Datom 2  :db/ident :db/ident            0 0)
-   (dw/->Datom 3  :db/ident :db/valueType        0 0)
-   (dw/->Datom 4  :db/ident :db/cardinality      0 0)
-   (dw/->Datom 5  :db/ident :db/unique           0 0)
-   (dw/->Datom 6  :db/ident :db/index            0 0)
-   (dw/->Datom 7  :db/ident :db.cardinality/one  0 0)
-   (dw/->Datom 8  :db/ident :db.cardinality/many 0 0)
-   (dw/->Datom 9  :db/ident :db.type/ref         0 0)
-   (dw/->Datom 10 :db/ident :db.type/string      0 0)
-   (dw/->Datom 11 :db/ident :db.type/long        0 0)
-   (dw/->Datom 12 :db/ident :db.type/boolean     0 0)
-   (dw/->Datom 13 :db/ident :db.type/keyword     0 0)])
+(declare as-of since)
 
 
 (defn- build-schema-cache
@@ -169,8 +152,15 @@
 ;; Index helpers
 ;; =============================================================================
 
+(defn- avet-attr?
+  "True when attr is maintained in AVET for [a v] lookup."
+  [db a]
+  (or (contains? (:indexed-attrs db) a)
+      (contains? (:ref-attrs db) a)))
+
+
 (defn- rebuild-secondary-indexes
-  "Rebuild AVET, VAET, and MEAT from EAVT using db's current schema caches.
+  "Rebuild AVET, VAET, and MEAVT from EAVT using db's current schema caches.
    EAVT and AEVT are assumed already correct; only secondary indexes are reset."
   [db]
   (let [{:keys [ref-attrs indexed-attrs eavt]} db
@@ -209,7 +199,10 @@
 
 
 (defn- retract-datom-from-indexes
-  "Disj a Datom from all five indexes of db."
+  "Disj a Datom from all possible indexes of db.
+   Retraction is broader than insertion because disj is a no-op when the datom
+   is absent, and broad removal also clears entries that were indexed under an
+   earlier schema classification."
   [db datom]
   (cond-> (-> db
               (update :eavt disj datom)
@@ -253,13 +246,15 @@
   [op next-eid t]
   (if (map? (:m-raw op))
     (let [meta-eid next-eid
-          extra    (mapv (fn [[k v]] (dw/->Datom meta-eid k v t 0)) (:m-raw op))]
+          extra    (mapv (fn [[k v]] (dao-db/->datom meta-eid k v t 0)) (:m-raw op))]
       [(assoc op :m meta-eid) extra (inc next-eid)])
     [(assoc op :m (or (:m-raw op) 0)) [] next-eid]))
 
 
 (defn- collect-tempids
-  "Return sorted distinct negative integers used as entity or ref-value IDs."
+  "Return sorted distinct negative integers used as entity or ref-value IDs.
+   Metadata datoms are included so metadata-only refs allocate permanent IDs
+   before their values are rewritten."
   [ops ref-attrs extra-datoms]
   (distinct
     (sort
@@ -272,12 +267,16 @@
                          (integer? v) (neg? v))
                     (conj v)))
                 ops)
-        (keep (fn [d]
-                (let [v (:v d)]
-                  (when (and (contains? ref-attrs (:a d))
-                             (integer? v) (neg? v))
-                    v)))
-              extra-datoms)))))
+        (mapcat (fn [d]
+                  (let [e (:e d)
+                        v (:v d)]
+                    (cond-> []
+                      (and (integer? e) (neg? e))
+                      (conj e)
+                      (and (contains? ref-attrs (:a d))
+                           (integer? v) (neg? v))
+                      (conj v))))
+                extra-datoms)))))
 
 
 (defn- resolve-tempids
@@ -449,7 +448,7 @@
                            extra-datoms)
         ;; Build {op datom} pairs
         op-datoms (mapv (fn [{:keys [op e a v m]}]
-                          {:op op :datom (dw/->Datom e a v t m)})
+                          {:op op :datom (dao-db/->datom e a v t m)})
                         ops)
         ;; Step 8: enforce uniqueness constraints.
         ;; Compute effective unique-attrs for this tx: start from the pre-tx set,
@@ -492,8 +491,10 @@
                                                        (= a (:a datom)) (= v (:v datom)))
                                               (:e datom)))
                                           op-datoms))
-                    existing (->> (seek-a (:aevt db) a)
-                                  (filter #(= v (:v %)))
+                    existing-datoms (if (avet-attr? db a)
+                                      (seek-av (:avet db) a v)
+                                      (filter #(= v (:v %)) (seek-a (:aevt db) a)))
+                    existing (->> existing-datoms
                                   (map :e)
                                   (remove eids)
                                   (remove releasing))]
@@ -541,7 +542,7 @@
         db' (reduce add-datom-to-indexes db' extra-datoms)
         all-tx-datoms (into added-datoms extra-datoms)
         ;; Step 12: rebuild schema cache and secondary indexes.
-        ;; Rebuilding secondary indexes (AVET/VAET/MEAT) from EAVT with the final
+        ;; Rebuilding secondary indexes (AVET/VAET/MEAVT) from EAVT with the final
         ;; schema caches ensures they are consistent even when a same-tx :db/retract
         ;; on a schema-defining attr left a stale entry (e.g. keyword v in VAET).
         {:keys [schema ref-attrs card-many unique-attrs indexed-attrs]}
@@ -606,7 +607,7 @@
     (not= e FREE)
     (seek-ea (:eavt db) e a)
     (and (not= a FREE) (not= v FREE)
-         (contains? (:indexed-attrs db) a))
+         (avet-attr? db a))
     (seek-av (:avet db) a v)
     (not= a FREE)
     (seek-a (:aevt db) a)
@@ -733,18 +734,6 @@
               (recur (inc i) result cur-key (conj cur-vals x)))))))))
 
 
-(defn q
-  "Run a Datalog query against an InMemoryDaoDB.
-   Supports full Datomic :in binding forms: scalars, collections, tuples,
-   relations, and multiple named databases."
-  [query & inputs]
-  (let [{:keys [find in where]} (normalize-query query)
-        in-patterns   (or in ['$])
-        init-bindings (build-init-bindings in-patterns inputs)
-        result        (eval-where (or where []) init-bindings)]
-    (into #{} (map (fn [b] (mapv #(get b %) find)) result))))
-
-
 ;; =============================================================================
 ;; Entity and Pull APIs
 ;; =============================================================================
@@ -846,8 +835,17 @@
 
 
 (defn native-q
+  "Run a Datalog query against an InMemoryDaoDB.
+   Supports full Datomic :in binding forms: scalars, collections, tuples,
+   relations, and multiple named databases."
   [db query inputs]
-  (apply q query db inputs))
+  (let [{:keys [find in where]} (normalize-query query)
+        in-patterns   (or in ['$])
+        ;; Prepend db to inputs so it becomes the first variadic arg
+        all-inputs    (cons db inputs)
+        init-bindings (build-init-bindings in-patterns all-inputs)
+        result        (eval-where (or where []) init-bindings)]
+    (into #{} (map (fn [b] (mapv #(get b %) find)) result))))
 
 
 (defn native-datoms
@@ -909,11 +907,11 @@
 
 
 (defn native-find-eids-by-av
-  [db attr val]
-  (if (contains? (:indexed-attrs db) attr)
-    (into #{} (map :e) (seek-av (:avet db) attr val))
-    (->> (seek-a (:aevt db) attr)
-         (filter #(= val (:v %)))
+  [db a v]
+  (if (avet-attr? db a)
+    (into #{} (map :e) (seek-av (:avet db) a v))
+    (->> (seek-a (:aevt db) a)
+         (filter #(= v (:v %)))
          (map :e)
          set)))
 
@@ -956,7 +954,7 @@
 
 
 (defn empty-db
-  "Create an empty InMemoryDaoDB with bootstrap schema entities (eids 2-13)."
+  "Create an empty InMemoryDaoDB with bootstrap schema entities (eids 1-13)."
   []
   (let [e-set  (sorted-set-by eavt-cmp)
         ae-set (sorted-set-by aevt-cmp)
@@ -964,9 +962,9 @@
         va-set (sorted-set-by vaet-cmp)
         me-set (sorted-set-by meat-cmp)
         base   (->InMemoryDaoDB e-set ae-set av-set va-set me-set
-                                [[0 (vec bootstrap-datoms) []]]
+                                [[0 (vec dao-db/bootstrap-datoms) []]]
                                 {} 1 1025 #{} #{} #{} #{})
-        db     (reduce add-datom-to-indexes base bootstrap-datoms)
+        db     (reduce add-datom-to-indexes base dao-db/bootstrap-datoms)
         {:keys [schema ref-attrs card-many unique-attrs indexed-attrs]}
         (build-schema-cache (:eavt db))]
     (assoc db
@@ -988,56 +986,62 @@
 
 
 ;; =============================================================================
-;; Three-Component Protocols
+;; Four-Component Protocol Wrapper Functions
 ;; =============================================================================
 
-(defprotocol IDaoStorage
-  "Append-only log of datom segments, keyed by transaction range."
-
-  (write-segment!
-    [this segment]
-    "Append a [t added retracted] log entry to storage. Returns updated db.")
-
-  (read-segments
-    [this t-min t-max]
-    "Return a seq of [t added retracted] entries for t-min <= t <= t-max.")
-
-  (latest-t
-    [this]
-    "Return the highest committed transaction ID."))
+(defn latest-t
+  "Get the latest transaction ID from a database."
+  [db]
+  (dao-db/latest-t db))
 
 
-(defprotocol IDaoTransactor
-  "Single writer. Serializes all transactions to preserve monotonic t."
-
-  (transact!
-    [this tx-data]
-    "Apply tx-data. Returns {:db-after db :tempids {...} :tx-data [...]}.")
-
-  (current-db
-    [this]
-    "Return the current db value (the five indexes as an immutable snapshot)."))
+(defn write-segment!
+  "Write a segment to a database."
+  [db segment]
+  (dao-db/write-segment! db segment))
 
 
-(defprotocol IDaoQueryEngine
-  "Read-only query engine over a cached db snapshot."
+(defn read-segments
+  "Read segments from a database."
+  [db t-min t-max]
+  (dao-db/read-segments db t-min t-max))
 
-  (run-q
-    [this query inputs]
-    "Run a Datalog query. inputs is a seq of extra bindings beyond $.")
 
-  (datoms
-    [this index components]
-    "Return datoms for index with optional leading-component filter seq.")
+(defn transact!
+  "Transact on a database."
+  [db tx-data]
+  (dao-db/transact! db tx-data))
 
-  (entity-attrs
-    [this eid]
-    "Return {attr val} map for entity. Card-many attrs are vectors.")
 
-  (find-eids-by-av
-    [this attr val]
-    "Return set of entity IDs where attribute = val."))
+(defn run-q
+  "Run a Datalog query on a database."
+  [db query inputs]
+  (dao-db/run-q db query inputs))
 
+
+(defn datoms
+  "Get datoms from a database index."
+  ([db index]
+   (dao-db/datoms db index))
+  ([db index & components]
+   (apply dao-db/datoms db index components)))
+
+
+(defn entity-attrs
+  "Get entity attributes from a database."
+  [db eid]
+  (dao-db/entity-attrs db eid))
+
+
+(defn find-eids-by-av
+  "Find entity IDs by attribute and value."
+  [db a v]
+  (dao-db/find-eids-by-av db a v))
+
+
+;; =============================================================================
+;; Protocol Implementations
+;; ============================================================================="
 
 (extend-type InMemoryDaoDB
 
@@ -1084,13 +1088,21 @@
 
   IDaoTransactor
   (transact! [this tx-data] (run-tx this tx-data))
-  (current-db [this] this)
+  (with [this tx-data] (native-with this tx-data))
 
   IDaoQueryEngine
   (run-q           [this query inputs] (native-q this query inputs))
-  (datoms          [this index components] (native-datoms this index components))
+  (index-datoms    [this index components] (native-datoms this index components))
+
+  IDaoDB
+  (entity          [this eid] (native-entity this eid))
+  (pull            [this pattern eid] (native-pull this pattern eid))
+  (pull-many       [this pattern eids] (native-pull-many this pattern eids))
+  (basis-t         [this] (native-basis-t this))
+  (as-of           [this t] (as-of this t))
+  (since           [this t] (since this t))
   (entity-attrs    [this eid] (native-entity-attrs this eid))
-  (find-eids-by-av [this attr val] (native-find-eids-by-av this attr val)))
+  (find-eids-by-av [this a v] (native-find-eids-by-av this a v)))
 
 
 ;; =============================================================================
@@ -1101,7 +1113,7 @@
   "Replay a seq of [t added retracted] log entries onto empty indexes.
    Two-phase: phase 1 populates EAVT/AEVT with empty schema caches (so no
    stale ref/indexed decisions are made); phase 2 rebuilds schema caches from
-   the final EAVT then re-populates AVET/VAET/MEAT correctly."
+   the final EAVT then re-populates AVET/VAET/MEAVT correctly."
   [db entries]
   (let [entries  (vec entries)
         ;; Start with empty indexes AND empty schema caches so add-datom-to-indexes
@@ -1118,7 +1130,7 @@
                         :unique-attrs  #{}
                         :indexed-attrs #{})
         ;; Phase 1: replay into EAVT/AEVT only (schema caches are empty so
-        ;; add-datom-to-indexes skips AVET/VAET/MEAT — correct, we fill those later).
+        ;; add-datom-to-indexes skips AVET/VAET/MEAVT — correct, we fill those later).
         replayed (reduce (fn [db [_t added retracted]]
                            (as-> (reduce add-datom-to-indexes db added) d
                                  (reduce retract-datom-from-indexes d retracted)))
@@ -1128,7 +1140,7 @@
         ;; Phase 2: rebuild schema caches from the historical EAVT.
         {:keys [schema ref-attrs card-many unique-attrs indexed-attrs]}
         (build-schema-cache (:eavt replayed))]
-    ;; Phase 3: re-populate AVET/VAET/MEAT by scanning EAVT with correct caches.
+    ;; Phase 3: re-populate AVET/VAET/MEAVT by scanning EAVT with correct caches.
     (-> replayed
         (assoc :next-t        (inc last-t)
                :schema        schema
@@ -1167,21 +1179,3 @@
                :unique-attrs  (:unique-attrs db)
                :indexed-attrs (:indexed-attrs db))
         rebuild-secondary-indexes)))
-
-
-(extend-type InMemoryDaoDB
-  IDaoDb
-  (run-query       [db query inputs]      (native-q db query inputs))
-  (transact        [db tx-data]           (native-transact db tx-data))
-  (with            [db tx-data]           (native-with db tx-data))
-  (index-datoms
-    ([db index]             (native-datoms db index nil))
-    ([db index components]  (native-datoms db index components)))
-  (entity          [db eid]               (native-entity db eid))
-  (pull            [db pattern eid]       (native-pull db pattern eid))
-  (pull-many       [db pattern eids]      (native-pull-many db pattern eids))
-  (basis-t         [db]                   (native-basis-t db))
-  (as-of           [db t]                 (as-of db t))
-  (since           [db t]                 (since db t))
-  (entity-attrs    [db eid]               (native-entity-attrs db eid))
-  (find-eids-by-av [db attr val]          (native-find-eids-by-av db attr val)))

@@ -1,7 +1,7 @@
 (ns dao.db.datascript
   "DataScript-backed DaoDB implementation."
   (:require
-    [dao.db :refer [IDaoDb] :as dao]
+    [dao.db :refer [IDaoTransactor IDaoQueryEngine IDaoDB] :as dao]
     [datascript.core :as d]
     #?@(:cljs [[datascript.db :as ds-db]
                [datascript.query :as dq]])))
@@ -66,7 +66,7 @@
      :db-after new-db
      :db-before db
      :tx-data  (:tx-data result)
-     :tempids  {}}))
+     :tempids  (:tempids result)}))
 
 
 (defn datascript-datoms
@@ -123,8 +123,8 @@
 
 
 (defn datascript-find-eids-by-av
-  [db attr val]
-  (->> (d/q '[:find ?e :in $ ?a ?v :where [?e ?a ?v]] (:ds-db db) attr val)
+  [db a v]
+  (->> (d/q '[:find ?e :in $ ?a ?v :where [?e ?a ?v]] (:ds-db db) a v)
        (map first)
        set))
 
@@ -142,13 +142,15 @@
 
 
 (extend-type DaoDbDataScript
-  IDaoDb
-  (run-query       [db query inputs]      (datascript-q db query inputs))
-  (transact        [db tx-data]           (datascript-transact db tx-data))
+  IDaoTransactor
+  (transact!       [db tx-data]           (datascript-transact db tx-data))
   (with            [db tx-data]           (datascript-with db tx-data))
-  (index-datoms
-    ([db index]             (datascript-datoms db index nil))
-    ([db index components]  (datascript-datoms db index components)))
+
+  IDaoQueryEngine
+  (run-q           [db query inputs]      (datascript-q db query inputs))
+  (index-datoms    [db index components]  (datascript-datoms db index components))
+
+  IDaoDB
   (entity          [db eid]               (datascript-entity db eid))
   (pull            [db pattern eid]       (datascript-pull db pattern eid))
   (pull-many       [db pattern eids]      (datascript-pull-many db pattern eids))
@@ -156,4 +158,4 @@
   (as-of           [db t]                 (as-of db t))
   (since           [db t]                 (since db t))
   (entity-attrs    [db eid]               (datascript-entity-attrs db eid))
-  (find-eids-by-av [db attr val]          (datascript-find-eids-by-av db attr val)))
+  (find-eids-by-av [db a v]               (datascript-find-eids-by-av db a v)))

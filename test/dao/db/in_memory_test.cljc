@@ -1,8 +1,8 @@
 (ns dao.db.in-memory-test
   (:require
     [clojure.test :refer [deftest is testing]]
+    [dao.db :as dao-db]
     [dao.db.in-memory :as in-m]
-    [datomworld :as dw]
     [yin.vm :as vm]
     [yin.vm.semantic :as semantic]))
 
@@ -98,14 +98,14 @@
           {:keys [db]} (in-m/run-tx db [[:db/add 1025 :name "Alice"]
                                         [:db/add 1026 :name "Bob"]])]
       (is (= #{[1025] [1026]}
-             (in-m/q '[:find ?e :where [?e :name _]] db)))))
+             (dao-db/q '[:find ?e :where [?e :name _]] db)))))
 
   (testing "two-variable join — attribute and value bound"
     (let [db (in-m/empty-db)
           {:keys [db]} (in-m/run-tx db [[:db/add 1025 :name "Alice"]
                                         [:db/add 1026 :name "Bob"]])]
       (is (= #{["Alice"] ["Bob"]}
-             (in-m/q '[:find ?v :where [_ :name ?v]] db)))))
+             (dao-db/q '[:find ?v :where [_ :name ?v]] db)))))
 
   (testing "multi-clause join — entity with two matching attrs"
     (let [db (in-m/empty-db)
@@ -113,18 +113,18 @@
                                         [:db/add 1025 :age 30]
                                         [:db/add 1026 :name "Bob"]])]
       (is (= #{[1025]}
-             (in-m/q '[:find ?e :where [?e :name _] [?e :age _]] db)))))
+             (dao-db/q '[:find ?e :where [?e :name _] [?e :age _]] db)))))
 
   (testing ":in $ ?x — scalar input binding"
     (let [db (in-m/empty-db)
           {:keys [db]} (in-m/run-tx db [[:db/add 1025 :name "Alice"]
                                         [:db/add 1026 :name "Bob"]])]
       (is (= #{[1025]}
-             (in-m/q '[:find ?e :in $ ?n :where [?e :name ?n]] db "Alice")))))
+             (dao-db/q '[:find ?e :in $ ?n :where [?e :name ?n]] db "Alice")))))
 
   (testing "empty result — no matching datoms"
     (let [db (in-m/empty-db)]
-      (is (= #{} (in-m/q '[:find ?e :where [?e :name "Nobody"]] db))))))
+      (is (= #{} (dao-db/q '[:find ?e :where [?e :name "Nobody"]] db))))))
 
 
 ;; =============================================================================
@@ -133,10 +133,11 @@
 
 (deftest record-test
 
-  (testing "empty-db has bootstrap schema entities (eids 2-13)"
+  (testing "empty-db has bootstrap schema entities (eids 1-13)"
     (let [db (in-m/empty-db)
           ident-datoms (filter #(= :db/ident (:a %)) (in-m/native-datoms db :eavt))]
-      (is (= 12 (count ident-datoms)))
+      (is (= 13 (count ident-datoms)))
+      (is (= :db/derived (:db/ident (in-m/native-entity db 1))))
       (is (some #(= :db/ident (:v %)) ident-datoms))
       (is (some #(= :db.type/ref (:v %)) ident-datoms))))
 
@@ -161,7 +162,7 @@
           attrs (in-m/native-entity-attrs db 1025)]
       (is (= #{"a" "b"} (set (:tags attrs))))))
 
-  (testing "find-eids-by-av scans AEVT when attr not in indexed-attrs"
+  (testing "find-eids-by-av scans AEVT when attr is not indexed or ref-typed"
     (let [db (in-m/empty-db)
           {:keys [db]} (in-m/run-tx db [[:db/add 1025 :name "Alice"]
                                         [:db/add 1026 :name "Bob"]])]
@@ -290,19 +291,19 @@
                                         [:db/add 1026 :name "Bob"]
                                         [:db/add 1027 :name "Carol"]])]
       (is (= #{["Alice"] ["Bob"]}
-             (in-m/q '[:find ?name
-                       :in $ [?name ...]
-                       :where [_ :name ?name]]
-                     db ["Alice" "Bob"])))))
+             (dao-db/q '[:find ?name
+                         :in $ [?name ...]
+                         :where [_ :name ?name]]
+                       db ["Alice" "Bob"])))))
 
   (testing "empty collection binding returns #{}"
     (let [db (in-m/empty-db)
           {:keys [db]} (in-m/run-tx db [[:db/add 1025 :name "Alice"]])]
       (is (= #{}
-             (in-m/q '[:find ?name
-                       :in $ [?name ...]
-                       :where [_ :name ?name]]
-                     db [])))))
+             (dao-db/q '[:find ?name
+                         :in $ [?name ...]
+                         :where [_ :name ?name]]
+                       db [])))))
 
   (testing "tuple binding [?name ?age] — both vars bound"
     (let [db (in-m/empty-db)
@@ -311,11 +312,11 @@
                                         [:db/add 1026 :name "Bob"]
                                         [:db/add 1026 :age 25]])]
       (is (= #{[1025]}
-             (in-m/q '[:find ?e
-                       :in $ [?name ?age]
-                       :where [?e :name ?name]
-                       [?e :age ?age]]
-                     db ["Alice" 30])))))
+             (dao-db/q '[:find ?e
+                         :in $ [?name ?age]
+                         :where [?e :name ?name]
+                         [?e :age ?age]]
+                       db ["Alice" 30])))))
 
   (testing "relation binding [[?name ?age] ...] — multi-row expansion"
     (let [db (in-m/empty-db)
@@ -326,11 +327,11 @@
                                         [:db/add 1027 :name "Carol"]
                                         [:db/add 1027 :age 40]])]
       (is (= #{["Alice" 30] ["Bob" 25]}
-             (in-m/q '[:find ?name ?age
-                       :in $ [[?name ?age] ...]
-                       :where [?e :name ?name]
-                       [?e :age ?age]]
-                     db [["Alice" 30] ["Bob" 25]])))))
+             (dao-db/q '[:find ?name ?age
+                         :in $ [[?name ?age] ...]
+                         :where [?e :name ?name]
+                         [?e :age ?age]]
+                       db [["Alice" 30] ["Bob" 25]])))))
 
   (testing "multi-database cross-join on shared attribute"
     (let [local  (in-m/empty-db)
@@ -342,13 +343,13 @@
                                             [:db/add 2001 :score 99]])
           remote db]
       (is (= #{["admin" 99]}
-             (in-m/q '[:find ?role ?score
-                       :in $local $remote
-                       :where [$local  ?e1 :email ?email]
-                       [$local  ?e1 :role  ?role]
-                       [$remote ?e2 :email ?email]
-                       [$remote ?e2 :score ?score]]
-                     local remote)))))
+             (dao-db/q '[:find ?role ?score
+                         :in $local $remote
+                         :where [$local  ?e1 :email ?email]
+                         [$local  ?e1 :role  ?role]
+                         [$remote ?e2 :email ?email]
+                         [$remote ?e2 :score ?score]]
+                       local remote)))))
 
   (testing "scalar + collection cross-join — both constraints apply"
     (let [db (in-m/empty-db)
@@ -359,31 +360,31 @@
                                         [:db/add 1027 :name "Carol"]
                                         [:db/add 1027 :role "admin"]])]
       (is (= #{["Alice"] ["Carol"]}
-             (in-m/q '[:find ?name
-                       :in $ ?role [?name ...]
-                       :where [?e :name ?name]
-                       [?e :role ?role]]
-                     db "admin" ["Alice" "Carol" "Bob"]))))))
+             (dao-db/q '[:find ?name
+                         :in $ ?role [?name ...]
+                         :where [?e :name ?name]
+                         [?e :role ?role]]
+                       db "admin" ["Alice" "Carol" "Bob"]))))))
 
 
 ;; =============================================================================
-;; MEAT index
+;; MEAVT index (:meat API keyword)
 ;; =============================================================================
 
 (deftest meat-index-test
 
-  (testing "datom with m=0 does NOT appear in MEAT"
+  (testing "datom with m=0 does NOT appear in MEAVT"
     (let [db (in-m/empty-db)
           {:keys [db]} (in-m/run-tx db [[:db/add 1025 :name "Alice"]])]
       (is (empty? (in-m/native-datoms db :meat)))))
 
-  (testing "datom with m!=0 appears in MEAT"
+  (testing "datom with m!=0 appears in MEAVT"
     (let [db (in-m/empty-db)
           {:keys [db]} (in-m/run-tx db [[:db/add 1025 :name "Alice" 42]])]
       (is (= 1 (count (in-m/native-datoms db :meat))))
       (is (= 42 (:m (first (in-m/native-datoms db :meat)))))))
 
-  (testing "seek-m — filter MEAT by m value"
+  (testing "seek-m — filter MEAVT by m value"
     (let [db (in-m/empty-db)
           {:keys [db]} (in-m/run-tx db [[:db/add 1025 :name "Alice" 42]
                                         [:db/add 1026 :name "Bob"   99]
@@ -392,7 +393,7 @@
       (is (= 2 (count results)))
       (is (every? #(= 42 (:m %)) results))))
 
-  (testing "seek-me — filter MEAT by m and e"
+  (testing "seek-me — filter MEAVT by m and e"
     (let [db (in-m/empty-db)
           {:keys [db]} (in-m/run-tx db [[:db/add 1025 :name "Alice" 42]
                                         [:db/add 1025 :age  30     42]
@@ -401,7 +402,14 @@
       (is (= 2 (count results)))
       (is (every? #(and (= 42 (:m %)) (= 1025 (:e %))) results))))
 
-  (testing "as-of filters MEAT by t"
+  (testing "MEAVT preserves distinct values for the same m/e/a/t"
+    (let [db (in-m/create {:tags {:db/cardinality :db.cardinality/many}})
+          {:keys [db]} (in-m/run-tx db [[:db/add 1025 :tags "a" 42]
+                                        [:db/add 1025 :tags "b" 42]])
+          results (in-m/native-datoms db :meat [42 1025])]
+      (is (= #{"a" "b"} (set (map :v results))))))
+
+  (testing "as-of filters MEAVT by t"
     (let [db (in-m/empty-db)
           {:keys [db]} (in-m/run-tx db [[:db/add 1025 :name "v1" 10]])
           {:keys [db]} (in-m/run-tx db [[:db/add 1026 :name "v2" 10]])
@@ -409,7 +417,7 @@
       (is (some #(= 1025 (:e %)) (in-m/native-datoms db-at-1 :meat)))
       (is (not (some #(= 1026 (:e %)) (in-m/native-datoms db-at-1 :meat))))))
 
-  (testing "retract removes datom from MEAT"
+  (testing "retract removes datom from MEAVT"
     (let [db (in-m/empty-db)
           {:keys [db]} (in-m/run-tx db [[:db/add 1025 :name "Alice" 42]])
           {:keys [db]} (in-m/run-tx db [[:db/retract 1025 :name "Alice"]])]
@@ -417,10 +425,10 @@
 
 
 ;; =============================================================================
-;; Three-Component Protocols
+;; Four-Component Protocols
 ;; =============================================================================
 
-(deftest three-protocol-test
+(deftest four-protocol-test
 
   (testing "IDaoStorage/latest-t returns basis-t"
     (let [db (in-m/empty-db)
@@ -487,16 +495,16 @@
   (testing "write-segment! advances next-eid past manual metadata entity ids"
     (let [db0 (in-m/empty-db)
           ;; manually use 5000 as a metadata ID
-          entry [1 [(dw/->Datom 1025 :name "Alice" 1 5000)] []]
+          entry [1 [(dao-db/->datom 1025 :name "Alice" 1 5000)] []]
           imported (in-m/write-segment! db0 entry)]
       (is (>= (:next-eid imported) 5001))))
 
   (testing "write-segment! advances next-eid when ref-attr is defined in same segment"
     (let [db0 (in-m/empty-db)
           ;; Define :friend as ref and use it with EID 5000 in same segment
-          entry [1 [(dw/->Datom 200 :db/ident :friend 1 0)
-                    (dw/->Datom 200 :db/valueType :db.type/ref 1 0)
-                    (dw/->Datom 1025 :friend 5000 1 0)] []]
+          entry [1 [(dao-db/->datom 200 :db/ident :friend 1 0)
+                    (dao-db/->datom 200 :db/valueType :db.type/ref 1 0)
+                    (dao-db/->datom 1025 :friend 5000 1 0)] []]
           imported (in-m/write-segment! db0 entry)]
       (is (>= (:next-eid imported) 5001))))
 
@@ -542,10 +550,6 @@
       ;; each entry is [t added retracted]
       (is (= 3 (count ((:log db) 1))))))
 
-  (testing "IDaoTransactor/current-db returns the db itself"
-    (let [db (in-m/empty-db)]
-      (is (= db (in-m/current-db db)))))
-
   (testing "IDaoTransactor/transact! applies tx-data"
     (let [db (in-m/empty-db)
           {:keys [db-after]} (in-m/transact! db [[:db/add 1025 :name "Alice"]])]
@@ -560,7 +564,7 @@
   (testing "IDaoQueryEngine/datoms returns index contents"
     (let [db (in-m/empty-db)
           {:keys [db]} (in-m/run-tx db [[:db/add 1025 :name "Alice"]])]
-      (is (seq (in-m/datoms db :eavt nil)))))
+      (is (seq (in-m/datoms db :eavt)))))
 
   (testing "IDaoQueryEngine/entity-attrs returns attr map"
     (let [db (in-m/empty-db)
@@ -607,8 +611,8 @@
           meta-attrs (in-m/native-entity-attrs db meta-eid)
           actor-val (:actor meta-attrs)]
       (is (some? actor-val) "Metadata attribute :actor should exist")
-      ;; This is expected to FAIL because -1 is not collected as a tempid
-      ;; if it doesn't appear in the main ops :e or ref-typed :v positions.
+      (is (= (get tempids -1) actor-val)
+          "Metadata-only tempids should be reflected in :tempids and metadata datoms")
       (is (pos? actor-val) (str "The tempid -1 should be resolved to a positive ID, but got: " actor-val)))))
 
 
@@ -768,7 +772,7 @@
 
 
 (deftest stale-secondary-index-bug
-  (testing "Implicit cardinality/one retractions must be removed from AVET/VAET/MEAT"
+  (testing "Implicit cardinality/one retractions must be removed from AVET/VAET/MEAVT"
     (let [db (in-m/create {:ssn    {:db/index true}
                            :friend {:db/valueType :db.type/ref}})
           ;; 1. Assert initial values
@@ -790,11 +794,11 @@
         (is (empty? (in-m/native-datoms db :vaet [1026]))
             "VAET should NOT contain the old reverse-ref from 1026"))
 
-      (testing "MEAT cleanup"
+      (testing "MEAVT cleanup"
         (is (= 1 (count (in-m/native-datoms db :meat)))
-            "MEAT should only have one entry (m=99)")
+            "MEAVT should only have one entry (m=99)")
         (is (empty? (in-m/native-datoms db :meat [42]))
-            "MEAT should NOT contain the old metadata m=42")))))
+            "MEAVT should NOT contain the old metadata m=42")))))
 
 
 (deftest same-tx-keyword-ident-value-resolution-bug
@@ -812,6 +816,44 @@
           "The keyword :bob should resolve through same-tx :db/ident lookup to Bob's permanent EID")
       (is (seq (in-m/native-datoms db :vaet [bob-eid :friend]))
           "VAET should be populated for the resolved ref datom"))))
+
+
+(deftest ref-attr-av-lookup-uses-avet
+  (testing "Ref attr [a v] query and lookup can use AVET without AEVT"
+    (let [db (in-m/create {:friend {:db/valueType :db.type/ref}})
+          {:keys [db]} (in-m/run-tx db [[:db/add 1025 :friend 1026]
+                                        [:db/add 1027 :friend 1028]])
+          ;; This pins the index-selection contract without timing-dependent assertions.
+          db-without-aevt (assoc db :aevt (empty (:aevt db)))]
+      (is (= #{[1025]}
+             (dao-db/q '[:find ?e :where [?e :friend 1026]] db-without-aevt))
+          "Query should satisfy ref attr [a v] lookups from AVET")
+      (is (= #{1025}
+             (in-m/native-find-eids-by-av db-without-aevt :friend 1026))
+          "find-eids-by-av should satisfy ref attr [a v] lookups from AVET"))))
+
+
+(deftest uniqueness-check-uses-avet-when-available
+  (testing "Unique conflict checks use AVET for indexed and ref attrs"
+    (doseq [[label schema tx-data conflict]
+            [["indexed unique attr"
+              {:email {:db/unique :db.unique/value
+                       :db/index true}}
+              [[:db/add 1025 :email "a@b.com"]]
+              [[:db/add 1026 :email "a@b.com"]]]
+             ["ref unique attr"
+              {:owner {:db/valueType :db.type/ref
+                       :db/unique :db.unique/value}}
+              [[:db/add 1025 :owner 2048]]
+              [[:db/add 1026 :owner 2048]]]]]
+      (let [db (in-m/create schema)
+            {:keys [db]} (in-m/run-tx db tx-data)
+            ;; This pins the index-selection contract without timing-dependent assertions.
+            db-without-aevt (assoc db :aevt (empty (:aevt db)))]
+        (is (thrown-with-msg? #?(:clj Exception :cljs js/Error)
+                              #"Unique constraint violated"
+              (in-m/run-tx db-without-aevt conflict))
+            label)))))
 
 
 (deftest same-tx-ref-schema-retraction-bug
@@ -836,9 +878,9 @@
 
 (deftest type-rank-nil-comparison-bug
   (testing "compare-vals with nil"
-    (is (zero? (dw/compare-vals nil nil)) "nil vs nil should be 0")
-    (is (neg? (dw/compare-vals nil "a"))  "nil should be less than string")
-    (is (pos? (dw/compare-vals "a" nil))  "string should be greater than nil")))
+    (is (zero? (dao-db/compare-vals nil nil)) "nil vs nil should be 0")
+    (is (neg? (dao-db/compare-vals nil "a"))  "nil should be less than string")
+    (is (pos? (dao-db/compare-vals "a" nil))  "string should be greater than nil")))
 
 
 (deftest as-of-schema-flip-bug

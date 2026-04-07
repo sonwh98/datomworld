@@ -1,17 +1,16 @@
-# DaoDB: Three-Component Architecture
+# DaoDB: Four-Component Architecture
 
 ## Overview
 
 DaoDB is the native tuple store for datom.world. It stores immutable 5-tuple datoms
-`[e a v t m]`, maintains five sorted-set indexes (EAVT, AEVT, AVET, VAET, MEAT), and provides
+`[e a v t m]`, maintains five sorted-set indexes (EAVTM, AEVTM, AVETM, VAETM, MEAVT), and provides
 a Datalog query engine (`d/q`) over those indexes.
 
-The architecture follows Datomic's logical split: **Storage**, **Transactor**, and
-**Query Engine** are three distinct logical components defined by protocol boundaries.
-"Logical" means the boundary is a protocol interface, not a deployment constraint. The
-same three components can run in one process (in-memory, no serialization overhead) or
-be deployed across separate machines communicating via network. Same protocol, different
-topology.
+The architecture cleanly separates four concerns: **Storage**, **Transactor**, **Query Engine**,
+and **Database-as-a-Value** — each a distinct logical component defined by protocol boundaries.
+"Logical" means the boundary is a protocol interface, not a deployment constraint. All four
+can run in one process (in-memory, no serialization overhead) or be deployed across separate
+machines communicating via network. Same protocols, different topology.
 
 ---
 
@@ -30,24 +29,24 @@ start at `1025`. See `CLAUDE.md` for the full spec.
 
 **Five indexes**, each a sorted set of datoms sorted by a different leading-component order:
 
-| Index | Sort order       | Insertion condition          | Primary use                        |
-|-------|------------------|------------------------------|------------------------------------|
-| EAVT  | e, a, v, t       | always                       | All attributes of an entity        |
-| AEVT  | a, e, v, t       | always                       | All entities with a given attribute|
-| AVET  | a, v, e, t       | indexed or ref attr          | Find entity by attribute + value   |
-| VAET  | v, a, e, t       | ref attr only                | Reverse reference lookup           |
-| MEAT  | m, e, a, t       | m != 0                       | Provenance and derivation queries  |
+| Index | API keyword | Sort order          | Insertion condition          | Primary use                        |
+|-------|-------------|---------------------|------------------------------|------------------------------------|
+| EAVTM | `:eavt`     | e, a, v, t, m       | always                       | All attributes of an entity        |
+| AEVTM | `:aevt`     | a, e, v, t, m       | always                       | All entities with a given attribute|
+| AVETM | `:avet`     | a, v, e, t, m       | indexed or ref attr          | Find entity by attribute + value   |
+| VAETM | `:vaet`     | v, a, e, t, m       | ref attr only                | Reverse reference lookup           |
+| MEAVT | `:meat`     | m, e, a, v, t       | m != 0                       | Provenance and derivation queries  |
 
-EAVT and AEVT are unconditional. AVET, VAET, and MEAT use conditional insertion to
-keep their sizes bounded: AVET only for attributes marked `:db/index true` or typed as
-`:db.type/ref`; VAET only for `:db.type/ref` attributes; MEAT only when `m != 0`
+EAVTM and AEVTM are unconditional. AVETM, VAETM, and MEAVT use conditional insertion to
+keep their sizes bounded: AVETM only for attributes marked `:db/index true` or typed as
+`:db.type/ref`; VAETM only for `:db.type/ref` attributes; MEAVT only when `m != 0`
 (m=0 means "no metadata" — not useful to index).
 
-`v` is excluded from MEAT because provenance queries resolve to `(m, e, a)` — the
-value is retrieved after the fact from EAVT. Including `v` for large blob/string
-datasets would inflate the index for no lookup benefit.
+MEAVT includes `v` so distinct datoms with the same `(m, e, a, t)` do not collide
+inside the sorted set. Provenance queries still use `(m)` and `(m, e)` as prefix
+seeks.
 
-**Seek helpers for MEAT:**
+**Seek helpers for MEAVT:**
 
 ```clojure
 (seek-m  [meat m])     ; all datoms tagged with m=X
@@ -59,17 +58,19 @@ datasets would inflate the index for no lookup benefit.
 The `m` component is first-class in DaoDB. Two hot query patterns depend on it:
 
 - **Exclude derived datoms** (`m=1`, `:db/derived`): every content-hash computation
-  must filter out derived datoms before hashing. Without MEAT this would be a full
+  must filter out derived datoms before hashing. Without MEAVT this would be a full
   scan of all indexes on every hash operation.
 - **Provenance lookup** (`m=event-eid`): given a macro-expansion event or a
   transaction provenance entity, find every datom it caused. Used for audit trails,
   incremental recomputation, and access-control enforcement.
 
-MEAT makes both patterns O(log n) instead of O(n).
+MEAVT makes both patterns O(log n) instead of O(n).
 
 ---
 
-## Three-Component Model
+## Four-Component Model
+
+DaoDB's architecture cleanly separates concerns via four protocol boundaries:
 
 ### Storage (`IDaoStorage`)
 
@@ -77,13 +78,16 @@ Append-only log of datom segments, keyed by transaction range.
 
 ```clojure
 (defprotocol IDaoStorage
-  (write-segment! [this segment])      ; segment = seq of datoms; returns t
-  (read-segments  [this t-min t-max])  ; returns seq of datom seqs
+  (write-segment! [this segment])      ; segment = [t added retracted]; returns updated db
+  (read-segments  [this t-min t-max])  ; returns seq of [t added retracted]
   (latest-t       [this]))             ; highest committed t
 ```
 
-Storage is dumb: no schema awareness, no query capability. The only invariant is that
-segments are immutable once written (append-only log). Pluggable backends:
+Conceptual durable storage is dumb: no schema awareness, no query capability. The only
+invariant is that segments are immutable once written (append-only log). The current
+`InMemoryDaoDB` implementation wraps storage and index cache in one value, so
+`write-segment!` also applies the segment and rebuilds derived caches before returning
+the updated db. Pluggable backends:
 
 - **In-memory sorted-set** — current implementation, used in tests and development
 - **File** — segments written to disk, indexed by t-range
@@ -99,37 +103,54 @@ Single writer. Serializes all transactions to preserve monotonic `t`.
 ```clojure
 (defprotocol IDaoTransactor
   (transact! [this tx-data])   ; returns {:db-after db :tempids {...} :tx-data [...]}
-  (current-db [this]))         ; returns current db value (the four indexes)
+  (with [this tx-data]))       ; apply without committing; same return as transact!
 ```
 
 Responsibilities:
 
 - **Tempid resolution** — assigns permanent entity IDs to negative tempids
-- **Schema enforcement** — validates attribute types and value types
+- **Schema effects** — derives ref, cardinality, unique, and index behavior from schema datoms
 - **Cardinality checks** — enforces `:db.cardinality/one` and `:db.cardinality/many`
-- **Index building** — updates EAVT/AEVT always; AVET/VAET/MEAT conditionally after each transaction
+- **Index building** — updates EAVTM/AEVTM always; AVETM/VAETM/MEAVT conditionally after each transaction
 - **Monotonic `t`** — guarantees every committed transaction has a strictly greater `t`
 
 When distributed: one transactor per DaoDB; peers submit transaction requests via
-channel or RPC. When in-process: a function/record that holds the mutable transaction
-counter and index state.
+channel or RPC. When in-process: an immutable record value carries the transaction
+counter and index state, and each transaction returns the next db value.
 
 ### Query Engine (`IDaoQueryEngine`)
 
-Read-only. Holds a cached snapshot of the database value (the four indexes).
+Executes Datalog queries and provides index access.
 
 ```clojure
 (defprotocol IDaoQueryEngine
-  (q               [this query inputs])
-  (datoms          [this index pattern])
+  (run-q        [this query inputs])
+  (index-datoms [this index components]))
+```
+
+Runs Datalog queries against cached indexes and returns raw index lookups. No high-level
+view operations; that's the responsibility of `IDaoDB`.
+
+### Database as a Value (`IDaoDB`)
+
+Immutable snapshots and views of database state. No write access.
+
+```clojure
+(defprotocol IDaoDB
+  (entity          [this eid])
+  (pull            [this pattern eid])
+  (pull-many       [this pattern eids])
+  (basis-t         [this])
+  (as-of           [this t])
+  (since           [this t])
   (entity-attrs    [this eid])
   (find-eids-by-av [this a v]))
 ```
 
-No write access. A new db value is obtained by calling `(:db-after result)` after a
-transaction. When in-process, queries run against in-memory sorted-set indexes directly.
-When distributed, a peer maintains a local index cache and fetches segments from Storage
-on miss.
+Provides high-level view operations over the query engine. A new db value is obtained by
+calling `(:db-after result)` after a transaction. When in-process, views run against
+in-memory sorted-set indexes directly. When distributed, a peer maintains a local index
+cache and fetches segments from Storage on miss.
 
 ---
 
@@ -143,7 +164,7 @@ The protocol boundary is the same in both topologies. The logical split enables:
 
 ### Single-process (current use case)
 
-All three components share the same memory space. No serialization overhead.
+All four components share the same memory space. No serialization overhead.
 
 ```
 [App]
@@ -152,7 +173,7 @@ All three components share the same memory space. No serialization overhead.
   |                                     ^
   +-- transact -> [Transactor] ---------+
                        |
-                   [Storage (in-memory atom)]
+                  [Storage (in-memory log)]
 ```
 
 ### Split-process (future)
@@ -176,7 +197,7 @@ peer refreshes its local cache on receipt.
 ## In-Process Implementation: `InMemoryDaoDB`
 
 The current implementation in `src/cljc/dao/db/in_memory.cljc` is a single record that
-wraps all three logical components:
+wraps all four logical components:
 
 ```clojure
 (defrecord InMemoryDaoDB
@@ -187,39 +208,52 @@ wraps all three logical components:
 ```
 
 - `eavt/aevt/avet/vaet/meat` — five sorted-set indexes
-- `log` — vector of `[t [Datom ...]]`, one entry per committed transaction (including
+- `log` — vector of `[t added retracted]`, one entry per committed transaction (including
   bootstrap at t=0). This is the temporal index: `as-of`/`since` rebuild the five
   sorted-set indexes from a filtered log slice rather than O(n×5) scan across all sets.
 - `schema` — cached `{attr-kw {:db/valueType ... :db/cardinality ...}}` map
 - `next-t` / `next-eid` — monotonic counters for transaction IDs and entity IDs
 
-This is the current implementation. The conceptual framing (three logical components
-defined by protocols) is the goal. The physical record can remain a single unit for the
-in-process case.
+This is the current in-process implementation. The four logical components are defined by
+protocol boundaries and fully implemented. The physical record unifies all four in one
+data structure for simplicity, but the protocol separation enables distributing them
+across separate processes.
 
-`InMemoryDaoDB` satisfies all three protocols. The same record is both writer and reader
-in the single-process topology. In the split-process topology, the Peer record would
-satisfy only `IDaoQueryEngine`; a separate Transactor process would satisfy
-`IDaoTransactor` and delegate to a `IDaoStorage` backend.
+`InMemoryDaoDB` satisfies all four protocols:
+- `IDaoStorage` — manages the transaction log and indexes
+- `IDaoTransactor` — executes transactions
+- `IDaoQueryEngine` — runs Datalog queries and index lookups
+- `IDaoDB` — provides high-level views (entity, pull, as-of, etc.)
+
+The same record is storage + writer + reader in the single-process topology. In the
+split-process topology:
+- Each **Peer** would satisfy `IDaoQueryEngine` and `IDaoDB` (read-only)
+- A **Transactor** would satisfy `IDaoTransactor` and delegate to a `IDaoStorage` backend
+- A **Storage** backend (file, remote DB) would satisfy `IDaoStorage` only
 
 ### Datomic-Compatible API
 
-The `dao.db` namespace exposes a Datomic-compatible public API:
+The `dao.db` namespace exposes a Datomic-compatible public API. These wrapper functions
+dispatch to the appropriate protocol based on the operation:
 
-| Function | Signature | Notes |
-|----------|-----------|-------|
-| `q` | `(q query & inputs)` | `$` binds to first input |
-| `datoms` | `(datoms db index & components)` | optional leading-component filter |
-| `entity` | `(entity db eid)` | returns map with `:db/id`; card-many = sets |
-| `pull` | `(pull db pattern eid)` | supports `[*]`, keywords, ref maps |
-| `pull-many` | `(pull-many db pattern eids)` | returns vector of maps |
-| `with` | `(with db tx-data)` | returns `{:db-after ... :tempids ...}` |
-| `transact` | `(transact db tx-data)` | same as `with`; also returns `:db-after` |
-| `basis-t` | `(basis-t db)` | last committed transaction ID |
-| `as-of` | `(as-of db t)` | snapshot at or before t |
-| `since` | `(since db t)` | snapshot strictly after t |
+| Function | Protocol | Notes |
+|----------|----------|-------|
+| `q` | `IDaoQueryEngine` | `(q query & inputs)` — `$` binds to first input |
+| `datoms` | `IDaoQueryEngine` | `(datoms db index & components)` — optional filter |
+| `entity` | `IDaoDB` | `(entity db eid)` — returns map with `:db/id`; card-many = sets |
+| `pull` | `IDaoDB` | `(pull db pattern eid)` — supports `[*]`, keywords, ref maps |
+| `pull-many` | `IDaoDB` | `(pull-many db pattern eids)` — returns vector of maps |
+| `with` | `IDaoTransactor` | `(with db tx-data)` — returns `{:db-after ... :db-before ... :tx-data ... :tempids ...}` |
+| `transact` | `IDaoTransactor` | `(transact db tx-data)` — commits and returns `{:db-after ... :db-before ... :tx-data ... :tempids ...}` |
+| `basis-t` | `IDaoDB` | `(basis-t db)` — last committed transaction ID |
+| `as-of` | `IDaoDB` | `(as-of db t)` — snapshot at or before t |
+| `since` | `IDaoDB` | `(since db t)` — snapshot strictly after t |
+| `entity-attrs` | `IDaoDB` | `(entity-attrs db eid)` — raw attribute map |
+| `find-eids-by-av` | `IDaoDB` | `(find-eids-by-av db attr val)` — lookup by attribute+value |
 
-Factory functions: `create-in-memory` (no DataScript dependency); `create` (DataScript-backed, legacy).
+Factory function: each backend namespace exposes `create` for that backend. For example,
+`dao.db.in-memory/create` returns an `InMemoryDaoDB`, while
+`dao.db.datascript/create` returns a DataScript-backed `DaoDbDataScript`.
 
 ---
 
@@ -231,27 +265,33 @@ tx-data (seq of assertions/retractions)
   v
 1. Parse        — normalize [:db/add e a v] and [:db/retract e a v] forms
 2. Tempid       — resolve negative e to permanent IDs; build tempid->eid map
-3. Schema check — validate a is a known attribute; validate v type
+3. Schema effects — derive same-tx ref, cardinality, unique, and index behavior
 4. Cardinality  — for :one attributes, retract existing value before asserting new one
 5. Stamp t      — assign the next monotonic transaction ID
-6. Index update — insert datoms into EAVT and AEVT (always); conditionally into AVET, VAET, and MEAT
+6. Index update — insert datoms into EAVTM and AEVTM (always); conditionally into AVETM, VAETM, and MEAVT
 7. Write segment— append the committed datom batch to Storage
 8. Return       — {:db-after <new db value> :tempids <map> :tx-data <committed datoms>}
 ```
 
 Each step is a pure function from `(state, input)` to `(state, output)`. No hidden
-mutation outside the index atoms.
+mutation outside the returned db value.
 
 ---
 
-## Migration Path
+## Implementation Status
 
-**Phase 1 (done):** `InMemoryDaoDB` implemented in `dao.db.in-memory` alongside the
-DataScript-backed `DaoDbDataScript`. Both extend `IDaoDb`.
+**Phase 1 (done):** `InMemoryDaoDB` implemented in `dao.db.in-memory` with all four
+protocols: `IDaoStorage`, `IDaoTransactor`, `IDaoQueryEngine`, `IDaoDB`.
 
-**Phase 2 (done):** `create-in-memory` added as the canonical constructor for
-`InMemoryDaoDB`. `create-native` is a deprecated alias pointing to `create-in-memory`.
-`create` still returns `DaoDbDataScript` for backward compatibility.
+**Phase 2 (done):** DataScript-backed `DaoDbDataScript` implements `IDaoTransactor`,
+`IDaoQueryEngine`, and `IDaoDB` (storage is delegated to DataScript's internal engine).
+
+**Phase 3 (done):** Backend-specific namespaces expose `create` as the canonical
+constructor. `dao.db.in-memory/create` returns `InMemoryDaoDB`;
+`dao.db.datascript/create` returns `DaoDbDataScript`.
+
+**Phase 4 (planned):** Distributed topology: separate processes for Storage, Transactor,
+and QueryEngine, all communicating via the protocol boundaries.
 
 
 ## Using DaoDB for Higher-Level Systems
