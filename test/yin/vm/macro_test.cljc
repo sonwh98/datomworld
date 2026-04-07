@@ -3,59 +3,12 @@
    Covers the spec from docs/macros.md."
   (:require
     [clojure.test :refer [deftest is testing]]
+    [dao.db :as dao-db]
     [yin.vm :as vm]
     [yin.vm.macro :as macro]
     [yin.vm.register :as register]
     [yin.vm.semantic :as semantic]
     [yin.vm.stack :as stack]))
-
-
-;; =============================================================================
-;; Test helpers
-;; =============================================================================
-
-(defn- datoms-for
-  "Convert an AST map to a {:node root-eid :datoms [...]} program."
-  [ast]
-  (let [datoms (vec (vm/ast->datoms ast))
-        root-id (apply max (map first datoms))]
-    {:node root-id, :datoms datoms}))
-
-
-(defn- run-register
-  "Run an AST through the register VM and return the result value."
-  ([ast] (run-register ast {}))
-  ([ast opts]
-   (let [{:keys [node datoms]} (datoms-for ast)
-         vm (register/create-vm (select-keys opts [:macro-registry]))]
-     (-> vm
-         (vm/load-program {:node node, :datoms datoms})
-         (vm/run)
-         (vm/value)))))
-
-
-(defn- run-stack
-  "Run an AST through the stack VM and return the result value."
-  ([ast] (run-stack ast {}))
-  ([ast opts]
-   (let [{:keys [node datoms]} (datoms-for ast)
-         vm (stack/create-vm (select-keys opts [:macro-registry]))]
-     (-> vm
-         (vm/load-program {:node node, :datoms datoms})
-         (vm/run)
-         (vm/value)))))
-
-
-(defn- run-semantic
-  "Run an AST through the semantic VM and return the result value."
-  ([ast] (run-semantic ast {}))
-  ([ast opts]
-   (let [{:keys [node datoms]} (datoms-for ast)
-         vm (semantic/create-vm (select-keys opts [:macro-registry]))]
-     (-> vm
-         (vm/load-program {:node node, :datoms datoms})
-         (vm/run)
-         (vm/value)))))
 
 
 (defn- make-literal-macro
@@ -82,7 +35,7 @@
   "Create a macro that swaps operands of a binary application.
    Builds (op arg2 arg1) from the input (op arg1 arg2)."
   []
-  (fn [{:keys [arg-eids get-attr fresh-eid]}]
+  (fn [{:keys [arg-eids fresh-eid]}]
     ;; arg-eids = [op-eid arg1-eid arg2-eid]
     (let [[op-eid arg1-eid arg2-eid] arg-eids
           app-eid (fresh-eid)]
@@ -726,5 +679,7 @@
       ;; Original program still evaluates correctly
       (is (= 1 (vm/value (vm/run vm-loaded))))
       ;; After append, new node is accessible in the index
-      (is (contains? (:index vm-appended) -2000)
-          "Appended node is in the index"))))
+      (is (seq (dao-db/q '[:find ?e
+                           :where [?e :yin/value 99]]
+                         (:db vm-appended)))
+          "Appended node is queryable through the DaoDB-backed AST"))))

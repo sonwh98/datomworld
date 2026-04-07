@@ -20,35 +20,35 @@
 (defn- datom-e
   [d]
   #?(:clj  (.-e ^dao.db.Datom d)
-     :cljs (.-e d)
+     :cljs (.-e ^js d)
      :cljd (:e d)))
 
 
 (defn- datom-a
   [d]
   #?(:clj  (.-a ^dao.db.Datom d)
-     :cljs (.-a d)
+     :cljs (.-a ^js d)
      :cljd (:a d)))
 
 
 (defn- datom-v
   [d]
   #?(:clj  (.-v ^dao.db.Datom d)
-     :cljs (.-v d)
+     :cljs (.-v ^js d)
      :cljd (:v d)))
 
 
 (defn- datom-t
   [d]
   #?(:clj  (.-t ^dao.db.Datom d)
-     :cljs (.-t d)
+     :cljs (.-t ^js d)
      :cljd (:t d)))
 
 
 (defn- datom-m
   [d]
   #?(:clj  (.-m ^dao.db.Datom d)
-     :cljs (.-m d)
+     :cljs (.-m ^js d)
      :cljd (:m d)))
 
 
@@ -163,13 +163,21 @@
 
 
 ;; =============================================================================
-;; Seek helpers (range queries via subseq + nil-field sentinels)
+;; Seek helpers (range queries via nil-field sentinels)
 ;; =============================================================================
+
+(defn- subseq-from
+  "Find all entries in a persistent-sorted-set >= sentinel using the comparator.
+   Returns a lazy sequence of entries from the first match onward."
+  [sorted-set cmp sentinel]
+  (let [s (seq sorted-set)]
+    (drop-while #(neg? (cmp % sentinel)) s)))
+
 
 (defn- seek-e
   [eavt e]
   (take-while #(= e (:e %))
-              (subseq eavt >= (dao-db/->datom e nil nil nil nil))))
+              (subseq-from eavt eavt-cmp (dao-db/->datom e nil nil nil nil))))
 
 
 (defn- seek-ea
@@ -177,54 +185,54 @@
   (if (= a FREE)
     (seek-e eavt e)
     (take-while #(and (= e (:e %)) (= a (:a %)))
-                (subseq eavt >= (dao-db/->datom e a nil nil nil)))))
+                (subseq-from eavt eavt-cmp (dao-db/->datom e a nil nil nil)))))
 
 
 (defn- seek-av
   [avet a v]
   (take-while #(and (= a (:a %)) (= v (:v %)))
-              (subseq avet >= (dao-db/->datom nil a v nil nil))))
+              (subseq-from avet avet-cmp (dao-db/->datom nil a v nil nil))))
 
 
 (defn- seek-a
   [aevt a]
   (take-while #(= a (:a %))
-              (subseq aevt >= (dao-db/->datom nil a nil nil nil))))
+              (subseq-from aevt aevt-cmp (dao-db/->datom nil a nil nil nil))))
 
 
 (defn- seek-aev
   "Seek AEVT by a and e."
   [aevt a e]
   (take-while #(and (= a (:a %)) (= e (:e %)))
-              (subseq aevt >= (dao-db/->datom e a nil nil nil))))
+              (subseq-from aevt aevt-cmp (dao-db/->datom e a nil nil nil))))
 
 
 (defn- seek-m
   "Seek MEAVT by m."
   [meat m]
   (take-while #(= m (:m %))
-              (subseq meat >= (dao-db/->datom nil nil nil nil m))))
+              (subseq-from meat meat-cmp (dao-db/->datom nil nil nil nil m))))
 
 
 (defn- seek-me
   "Seek MEAVT by m and e."
   [meat m e]
   (take-while #(and (= m (:m %)) (= e (:e %)))
-              (subseq meat >= (dao-db/->datom e nil nil nil m))))
+              (subseq-from meat meat-cmp (dao-db/->datom e nil nil nil m))))
 
 
 (defn- seek-v
   "Seek VAET by v."
   [vaet v]
   (take-while #(= v (:v %))
-              (subseq vaet >= (dao-db/->datom nil nil v nil nil))))
+              (subseq-from vaet vaet-cmp (dao-db/->datom nil nil v nil nil))))
 
 
 (defn- seek-va
   "Seek VAET by v and a."
   [vaet v a]
   (take-while #(and (= v (:v %)) (= a (:a %)))
-              (subseq vaet >= (dao-db/->datom nil a v nil nil))))
+              (subseq-from vaet vaet-cmp (dao-db/->datom nil a v nil nil))))
 
 
 ;; =============================================================================
@@ -388,31 +396,41 @@
     [(assoc op :m (or (:m-raw op) 0)) [] next-eid]))
 
 
+(defn- tempid?
+  [x]
+  (and (integer? x) (neg? x)))
+
+
 (defn- collect-tempids
-  "Return sorted distinct negative integers used as entity or ref-value IDs.
+  "Return sorted distinct negative integers used as entity, ref-value, or metadata IDs.
    Metadata datoms are included so metadata-only refs allocate permanent IDs
    before their values are rewritten."
   [ops ref-attrs extra-datoms]
   (distinct
     (sort
       (concat
-        (mapcat (fn [{:keys [e a v]}]
+        (mapcat (fn [{:keys [e a v m]}]
                   (cond-> []
-                    (and (integer? e) (neg? e))
+                    (tempid? e)
                     (conj e)
                     (and (contains? ref-attrs a)
-                         (integer? v) (neg? v))
-                    (conj v)))
+                         (tempid? v))
+                    (conj v)
+                    (tempid? m)
+                    (conj m)))
                 ops)
         (mapcat (fn [d]
                   (let [e (:e d)
-                        v (:v d)]
+                        v (:v d)
+                        m (:m d)]
                     (cond-> []
-                      (and (integer? e) (neg? e))
+                      (tempid? e)
                       (conj e)
                       (and (contains? ref-attrs (:a d))
-                           (integer? v) (neg? v))
-                      (conj v))))
+                           (tempid? v))
+                      (conj v)
+                      (tempid? m)
+                      (conj m))))
                 extra-datoms)))))
 
 
@@ -423,15 +441,16 @@
 
 
 (defn- apply-tempid-map
-  "Rewrite negative :e and ref-typed :v in ops using tempid-map."
+  "Rewrite negative :e, metadata :m, and ref-typed :v in ops using tempid-map."
   [ops tempid-map ref-attrs]
   (let [resolve (fn [id]
-                  (if (and (integer? id) (neg? id))
+                  (if (tempid? id)
                     (get tempid-map id id)
                     id))]
     (mapv (fn [op]
             (-> op
                 (update :e resolve)
+                (update :m resolve)
                 (update :v (fn [v]
                              (if (and (contains? ref-attrs (:a op))
                                       (integer? v))
@@ -566,17 +585,20 @@
         ;; Only resolve when the metadata attribute is schema-declared as :db.type/ref.
         ;; Scalar metadata values like {:error/code -1} must not be rewritten.
         extra-datoms (mapv (fn [d]
-                             (if (contains? effective-ref-attrs (:a d))
-                               (let [v  (:v d)
-                                     v' (if (keyword? v)
-                                          (or (lookup-ident-eid db same-tx-ident->eid v)
-                                              (throw (ex-info "Unknown value ident" {:ident v})))
-                                          v)
-                                     v' (if (and (integer? v') (neg? v'))
-                                          (get tempid-map v' v')
-                                          v')]
-                                 (assoc d :v v'))
-                               d))
+                             (let [d (update d :m #(if (tempid? %)
+                                                     (get tempid-map % %)
+                                                     %))]
+                               (if (contains? effective-ref-attrs (:a d))
+                                 (let [v  (:v d)
+                                       v' (if (keyword? v)
+                                            (or (lookup-ident-eid db same-tx-ident->eid v)
+                                                (throw (ex-info "Unknown value ident" {:ident v})))
+                                            v)
+                                       v' (if (tempid? v')
+                                            (get tempid-map v' v')
+                                            v')]
+                                   (assoc d :v v'))
+                                 d)))
                            extra-datoms)
         ;; Build {op datom} pairs
         op-datoms (mapv (fn [{:keys [op e a v m]}]

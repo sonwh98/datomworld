@@ -313,10 +313,16 @@
           all-datoms (mapv (fn [d] [(:e d) (:a d) (:v d) (:t d) (:m d)])
                            (in-m/native-datoms db :eavt))
           ;; Run SemanticVM
-          svm (-> (semantic/create-vm)
-                  (vm/load-program {:node actual-root :datoms all-datoms})
-                  (vm/run))]
+          loaded-svm (-> (semantic/create-vm)
+                         (vm/load-program {:node actual-root :datoms all-datoms}))
+          svm (vm/run loaded-svm)]
       (is (some? actual-root))
+      (is (satisfies? dao-db/IDaoDB (:db loaded-svm))
+          "SemanticVM should retain the loaded AST in a queryable DaoDB")
+      (is (= #{['+]}
+             (dao-db/q '[:find ?name
+                         :where [_ :yin/name ?name]]
+                       (:db loaded-svm))))
       (is (= 3 (vm/value svm))))))
 
 
@@ -703,6 +709,21 @@
       (is (pos? bob-eid) "Bob should have a positive permanent EID")
       (is (= bob-eid (:actor meta-attrs))
           "Metadata keyword ref values should resolve through same-tx :db/ident lookup"))))
+
+
+(deftest metadata-m-tempid-resolution-bug
+  (testing "A negative metadata entity id in m position resolves as a tx tempid"
+    (let [{:keys [db tempids]} (in-m/run-tx (in-m/empty-db)
+                                            [[:db/add 2048 :action "create" -1]])
+          meta-eid (get tempids -1)
+          action-datom (first (filter #(= :action (:a %))
+                                      (in-m/native-datoms db :eavt [2048])))]
+      (is (pos? meta-eid)
+          "The m-position tempid should allocate a permanent metadata entity id")
+      (is (= meta-eid (:m action-datom))
+          "The stored datom should point at the resolved metadata entity id")
+      (is (seq (in-m/native-datoms db :meat [meta-eid]))
+          "MEAT should be seekable by the resolved metadata entity id"))))
 
 
 ;; =============================================================================
