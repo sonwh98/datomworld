@@ -172,6 +172,16 @@
       (is (some #(= :db/ident (:v %)) ident-datoms))
       (is (some #(= :db.type/ref (:v %)) ident-datoms))))
 
+  #?(:clj
+     (testing "phase-1 index backend uses persistent-sorted-set"
+       (let [db (in-m/empty-db)
+             index-class "me.tonsky.persistent_sorted_set.PersistentSortedSet"]
+         (is (= index-class (.getName (class (:eavt db)))))
+         (is (= index-class (.getName (class (:aevt db)))))
+         (is (= index-class (.getName (class (:avet db)))))
+         (is (= index-class (.getName (class (:vaet db)))))
+         (is (= index-class (.getName (class (:meat db))))))))
+
   (testing "create with yin.vm/schema installs ref and card-many attrs"
     (let [db (in-m/create vm/schema)]
       (is (contains? (:ref-attrs db) :yin/operator))

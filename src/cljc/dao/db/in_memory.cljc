@@ -4,7 +4,9 @@
    pipeline, schema bootstrap, and embedded Datalog query engine.
    Datomic-compatible query API."
   (:require
-    [dao.db :as dao-db :refer [IDaoStorage IDaoTransactor IDaoQueryEngine IDaoDB]]))
+    [dao.db :as dao-db :refer [IDaoStorage IDaoTransactor IDaoQueryEngine IDaoDB]]
+    #?@(:clj [[me.tonsky.persistent-sorted-set :as psset]]
+        :cljs [[me.tonsky.persistent-sorted-set :as psset]])))
 
 
 ;; Sentinel for unbound query variables (must precede seek helpers)
@@ -15,20 +17,149 @@
 ;; Comparators
 ;; =============================================================================
 
-(defn- make-comparator
-  [positions]
-  (fn [d1 d2]
-    (loop [[p & ps] positions]
-      (if (nil? p) 0
-          (let [c (dao-db/compare-vals (get d1 p) (get d2 p))]
-            (if (zero? c) (recur ps) c))))))
+(defn- datom-e
+  [d]
+  #?(:clj  (.-e ^dao.db.Datom d)
+     :cljs (.-e d)
+     :cljd (:e d)))
 
 
-(def ^:private eavt-cmp (make-comparator [:e :a :v :t :m]))
-(def ^:private aevt-cmp (make-comparator [:a :e :v :t :m]))
-(def ^:private avet-cmp (make-comparator [:a :v :e :t :m]))
-(def ^:private vaet-cmp (make-comparator [:v :a :e :t :m]))
-(def ^:private meat-cmp (make-comparator [:m :e :a :v :t]))
+(defn- datom-a
+  [d]
+  #?(:clj  (.-a ^dao.db.Datom d)
+     :cljs (.-a d)
+     :cljd (:a d)))
+
+
+(defn- datom-v
+  [d]
+  #?(:clj  (.-v ^dao.db.Datom d)
+     :cljs (.-v d)
+     :cljd (:v d)))
+
+
+(defn- datom-t
+  [d]
+  #?(:clj  (.-t ^dao.db.Datom d)
+     :cljs (.-t d)
+     :cljd (:t d)))
+
+
+(defn- datom-m
+  [d]
+  #?(:clj  (.-m ^dao.db.Datom d)
+     :cljs (.-m d)
+     :cljd (:m d)))
+
+
+(defn- cmp-long-field
+  [a b]
+  (cond
+    (nil? a) (if (nil? b) 0 -1)
+    (nil? b) 1
+    :else #?(:clj  (Long/compare (long a) (long b))
+             :cljs (compare a b)
+             :cljd (compare a b))))
+
+
+(defn- cmp-keyword-field
+  [a b]
+  (cond
+    (nil? a) (if (nil? b) 0 -1)
+    (nil? b) 1
+    :else (compare a b)))
+
+
+(defn- eavt-cmp
+  [d1 d2]
+  (let [c (cmp-long-field (datom-e d1) (datom-e d2))]
+    (if (zero? c)
+      (let [c (cmp-keyword-field (datom-a d1) (datom-a d2))]
+        (if (zero? c)
+          (let [c (dao-db/compare-vals (datom-v d1) (datom-v d2))]
+            (if (zero? c)
+              (let [c (cmp-long-field (datom-t d1) (datom-t d2))]
+                (if (zero? c)
+                  (cmp-long-field (datom-m d1) (datom-m d2))
+                  c))
+              c))
+          c))
+      c)))
+
+
+(defn- aevt-cmp
+  [d1 d2]
+  (let [c (cmp-keyword-field (datom-a d1) (datom-a d2))]
+    (if (zero? c)
+      (let [c (cmp-long-field (datom-e d1) (datom-e d2))]
+        (if (zero? c)
+          (let [c (dao-db/compare-vals (datom-v d1) (datom-v d2))]
+            (if (zero? c)
+              (let [c (cmp-long-field (datom-t d1) (datom-t d2))]
+                (if (zero? c)
+                  (cmp-long-field (datom-m d1) (datom-m d2))
+                  c))
+              c))
+          c))
+      c)))
+
+
+(defn- avet-cmp
+  [d1 d2]
+  (let [c (cmp-keyword-field (datom-a d1) (datom-a d2))]
+    (if (zero? c)
+      (let [c (dao-db/compare-vals (datom-v d1) (datom-v d2))]
+        (if (zero? c)
+          (let [c (cmp-long-field (datom-e d1) (datom-e d2))]
+            (if (zero? c)
+              (let [c (cmp-long-field (datom-t d1) (datom-t d2))]
+                (if (zero? c)
+                  (cmp-long-field (datom-m d1) (datom-m d2))
+                  c))
+              c))
+          c))
+      c)))
+
+
+(defn- vaet-cmp
+  [d1 d2]
+  (let [c (dao-db/compare-vals (datom-v d1) (datom-v d2))]
+    (if (zero? c)
+      (let [c (cmp-keyword-field (datom-a d1) (datom-a d2))]
+        (if (zero? c)
+          (let [c (cmp-long-field (datom-e d1) (datom-e d2))]
+            (if (zero? c)
+              (let [c (cmp-long-field (datom-t d1) (datom-t d2))]
+                (if (zero? c)
+                  (cmp-long-field (datom-m d1) (datom-m d2))
+                  c))
+              c))
+          c))
+      c)))
+
+
+(defn- meat-cmp
+  [d1 d2]
+  (let [c (cmp-long-field (datom-m d1) (datom-m d2))]
+    (if (zero? c)
+      (let [c (cmp-long-field (datom-e d1) (datom-e d2))]
+        (if (zero? c)
+          (let [c (cmp-keyword-field (datom-a d1) (datom-a d2))]
+            (if (zero? c)
+              (let [c (dao-db/compare-vals (datom-v d1) (datom-v d2))]
+                (if (zero? c)
+                  (cmp-long-field (datom-t d1) (datom-t d2))
+                  c))
+              c))
+          c))
+      c)))
+
+
+(defn- sorted-index-by
+  [cmp]
+  #?(:clj  (psset/sorted-set-by cmp)
+     :cljs (psset/sorted-set-by cmp)
+     :cljd (sorted-set-by cmp)))
 
 
 ;; =============================================================================
@@ -1046,11 +1177,11 @@
 (defn empty-db
   "Create an empty InMemoryDaoDB with bootstrap schema entities (eids 1-13)."
   []
-  (let [e-set  (sorted-set-by eavt-cmp)
-        ae-set (sorted-set-by aevt-cmp)
-        av-set (sorted-set-by avet-cmp)
-        va-set (sorted-set-by vaet-cmp)
-        me-set (sorted-set-by meat-cmp)
+  (let [e-set  (sorted-index-by eavt-cmp)
+        ae-set (sorted-index-by aevt-cmp)
+        av-set (sorted-index-by avet-cmp)
+        va-set (sorted-index-by vaet-cmp)
+        me-set (sorted-index-by meat-cmp)
         base   (->InMemoryDaoDB e-set ae-set av-set va-set me-set
                                 [[0 (vec dao-db/bootstrap-datoms) []]]
                                 {} 1 1025 #{} #{} #{} #{})
