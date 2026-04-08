@@ -5,8 +5,6 @@
     #?(:clj [clojure.edn :as edn]
        :cljs [cljs.reader :as edn]
        :cljd [clojure.edn :as edn])
-    #?(:clj [clojure.pprint :as pprint]
-       :cljs [cljs.pprint :as pprint])
     [clojure.string :as str]
     [dao.stream :as ds]
     [dao.stream.apply :as dao-apply]
@@ -82,54 +80,49 @@
 
 (defn- format-value
   [value]
-  #?(:cljd
-     (letfn [(spaces [n] (str/join "" (repeat n " ")))
-             (format-coll
-               [open close values indent]
-               (if (empty? values)
-                 (str open close)
-                 (let [child-indent (inc indent)
-                       line-prefix (spaces child-indent)]
-                   (str open
-                        "\n"
-                        (str/join "\n"
-                                  (map #(str line-prefix
-                                             (format* % child-indent))
-                                       values))
-                        "\n"
-                        (spaces indent)
-                        close))))
-             (format-map
-               [values indent]
-               (if (empty? values)
-                 "{}"
-                 (let [child-indent (inc indent)
-                       line-prefix (spaces child-indent)]
-                   (str "{"
-                        "\n"
-                        (str/join "\n"
-                                  (map (fn [[k v]]
-                                         (str line-prefix
-                                              (pr-str k)
-                                              " "
-                                              (format* v child-indent)))
-                                       values))
-                        "\n"
-                        (spaces indent)
-                        "}"))))
-             (format*
-               [value indent]
-               (cond
-                 (map? value) (format-map value indent)
-                 (vector? value) (format-coll "[" "]" value indent)
-                 (set? value) (format-coll "#{" "}" value indent)
-                 (seq? value) (format-coll "(" ")" value indent)
-                 :else (pr-str value)))]
-       (format* value 0))
-     :default
-     (-> (binding [pprint/*print-right-margin* 72]
-           (with-out-str (pprint/pprint value)))
-         (str/replace #"\n$" ""))))
+  (letfn [(spaces [n] (str/join "" (repeat n " ")))
+          (format-coll
+            [open close values indent]
+            (if (empty? values)
+              (str open close)
+              (let [child-indent (inc indent)
+                    line-prefix (spaces child-indent)]
+                (str open
+                     "\n"
+                     (str/join "\n"
+                               (map #(str line-prefix
+                                          (format* % child-indent))
+                                    values))
+                     "\n"
+                     (spaces indent)
+                     close))))
+          (format-map
+            [values indent]
+            (if (empty? values)
+              "{}"
+              (let [child-indent (inc indent)
+                    line-prefix (spaces child-indent)]
+                (str "{"
+                     "\n"
+                     (str/join "\n"
+                               (map (fn [[k v]]
+                                      (str line-prefix
+                                           (pr-str k)
+                                           " "
+                                           (format* v child-indent)))
+                                    values))
+                     "\n"
+                     (spaces indent)
+                     "}"))))
+          (format*
+            [value indent]
+            (cond
+              (map? value) (format-map value indent)
+              (vector? value) (format-coll "[" "]" value indent)
+              (set? value) (format-coll "#{" "}" value indent)
+              (seq? value) (format-coll "(" ")" value indent)
+              :else (pr-str value)))]
+    (format* value 0)))
 
 
 (defn- print-arg
@@ -574,8 +567,10 @@
                     #?(:clj (do (Thread/sleep 10)
                                 (poll cursor (inc attempts)))
                        :cljs (js/setTimeout #(poll cursor (inc attempts)) 10)
-                       :cljd (-> (async/Future.delayed (core/Duration .milliseconds 10))
-                                 (.then (fn [_] (poll cursor (inc attempts))))))
+                       :cljd (do
+                               (.then (async/Future.delayed (core/Duration .milliseconds 10))
+                                      (fn [_] (poll cursor (inc attempts))))
+                               nil))
 
                     :else
                     (let [err (ex-info "Remote Dao REPL stream closed before a response arrived"
@@ -913,8 +908,10 @@
                        (.then (serve-once! state-atom stream stream cursor)
                               (fn [result]
                                 (case result
-                                  :blocked (-> (async/Future.delayed (core/Duration .milliseconds sleep-ms))
-                                               (.then (fn [_] (loop-fn cursor))))
+                                  :blocked (do
+                                             (.then (async/Future.delayed (core/Duration .milliseconds sleep-ms))
+                                                    (fn [_] (loop-fn cursor)))
+                                             nil)
                                   :end nil
                                   :daostream/gap (loop-fn {:position 0})
                                   (loop-fn (:cursor result)))))))]

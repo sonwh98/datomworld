@@ -5,9 +5,9 @@
   (:require
     [dao.db :as dao-db]
     [dao.stream :as ds]
-    #?@(:clj [[dao.stream.transport.ringbuffer]]
-        :cljs [[dao.stream.transport.ringbuffer]]
-        :cljd [[dao.stream.transport.ringbuffer :as ringbuffer]])))
+    #?(:clj [dao.stream.transport.ringbuffer])
+    #?(:cljs [dao.stream.transport.ringbuffer])
+    #?(:cljd [dao.stream.transport.ringbuffer :as ringbuffer])))
 
 
 ;; =============================================================================

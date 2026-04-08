@@ -1,0 +1,23 @@
+(ns dao.stream.udp
+  "UDP transport is not supported on ClojureDart."
+  (:require
+    [dao.stream :as ds]))
+
+
+(deftype UdpOpenMethod
+  []
+  :type-only true
+  cljd.core/IFn
+  (-invoke
+    [_ table]
+    (assoc! table
+            :udp
+            (fn [descriptor]
+              (throw (ex-info "UDP transport is not supported on CLJD"
+                              {:descriptor descriptor}))))))
+
+
+(contribute* :multi-method
+             dao.stream/open!
+             dao.stream.udp/UdpOpenMethod
+             dao.stream.udp/UdpOpenMethod)

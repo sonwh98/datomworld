@@ -3,8 +3,7 @@
             [clojure.edn :as edn]
             [yang.clojure :as yang]
             [yin.vm :as vm]
-            [yin.vm.ast-walker :as ast-walker])
-  (:import [dart:core double]))
+            [yin.vm.ast-walker :as ast-walker]))
 
 (def default-clojure "(+ 30 20)")
 

@@ -4,6 +4,7 @@
   (:require
     [clojure.test :refer [deftest is testing]]
     [dao.db :as dao-db]
+    [yang.clojure :as yang]
     [yin.vm :as vm]
     [yin.vm.macro :as macro]
     [yin.vm.register :as register]
@@ -251,7 +252,7 @@
                        [-1025 :yin/operator macro-eid 0 0]
                        [-1025 :yin/operands [] 0 0]]
           registry {macro-eid looping-macro}]
-      (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
+      (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo :cljd Object)
                             #"depth guard exceeded"
             (macro/expand-all call-datoms -1025 registry
                               {:max-depth 5}))))))
@@ -551,11 +552,10 @@
 
 (deftest yang-compile-program-defmacro-test
   (testing "compile-program with defmacro emits :yin/macro-expand call site"
-    (let [compile-program (#?(:clj clojure.core/requiring-resolve :cljs identity) 'yang.clojure/compile-program)
-          ast (compile-program '[(defmacro identity-mac
-                                   [x]
-                                   x)
-                                 (identity-mac 99)])
+    (let [ast (yang/compile-program '[(defmacro identity-mac
+                                        [x]
+                                        x)
+                                      (identity-mac 99)])
           datoms (vm/ast->datoms ast)
           {:keys [get-attr by-entity]} (vm/index-datoms datoms)
           ;; Find any :yin/macro-expand node
@@ -640,13 +640,12 @@
 
 (deftest yang-macro-ordering-test
   (testing "macro name not visible to forms before its defmacro"
-    (let [compile-program (#?(:clj clojure.core/requiring-resolve :cljs identity) 'yang.clojure/compile-program)
-          ;; (identity-mac 1) appears BEFORE (defmacro identity-mac ...)
+    (let [;; (identity-mac 1) appears BEFORE (defmacro identity-mac ...)
           ;; so it should compile as a regular :application, not :yin/macro-expand
-          ast (compile-program '[(identity-mac 1)
-                                 (defmacro identity-mac
-                                   [x]
-                                   x)])
+          ast (yang/compile-program '[(identity-mac 1)
+                                      (defmacro identity-mac
+                                        [x]
+                                        x)])
           datoms (vm/ast->datoms ast)
           {:keys [get-attr by-entity]} (vm/index-datoms datoms)
           ;; Find any :yin/macro-expand node whose operator is identity-mac

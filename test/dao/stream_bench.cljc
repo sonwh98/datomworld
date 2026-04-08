@@ -30,11 +30,18 @@
            :next-t (inc t))))
 
 
+(defn- now-ms
+  []
+  #?(:clj  (System/currentTimeMillis)
+     :cljs (.now js/Date)
+     :cljd (/ (.-microsecondsSinceEpoch (DateTime/now)) 1000.0)))
+
+
 (defn bench
   [label f n]
-  (let [start (.now js/Date)]
+  (let [start (now-ms)]
     (dotimes [_ n] (f))
-    (let [elapsed (- (.now js/Date) start)]
+    (let [elapsed (- (now-ms) start)]
       (println (str label ": " elapsed "ms for " n " iterations")))))
 
 

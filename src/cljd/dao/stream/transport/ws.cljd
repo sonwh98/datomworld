@@ -1,0 +1,141 @@
+(ns dao.stream.transport.ws
+  "WebSocket-backed stream for ClojureDart using dart:io."
+  (:require
+    ["dart:io" :as io]
+    [dao.stream :as ds]
+    [dao.stream.link :as link]
+    [dao.stream.transit :as transit]
+    [dao.stream.transport.ringbuffer]))
+
+
+(defrecord WebSocketStream
+  [link-state-atom send-fn-atom]
+
+  ds/IDaoStreamWriter
+
+  (put!
+    [_ val]
+    (let [state @link-state-atom
+          [state' msg] (link/local-put state val)]
+      (reset! link-state-atom state')
+      (when-let [send-fn @send-fn-atom]
+        (send-fn (transit/encode msg)))
+      {:result :ok, :woke []}))
+
+
+  ds/IDaoStreamReader
+
+  (next [_ c] (ds/next (:remote-stream @link-state-atom) c))
+
+
+  ds/IDaoStreamBound
+
+  (close!
+    [_]
+    (when-let [send-fn @send-fn-atom]
+      (send-fn (transit/encode (link/close-msg))))
+    (let [state (:remote-stream @link-state-atom)]
+      (ds/close! state))
+    (swap! link-state-atom assoc :status :closed)
+    {:woke []})
+
+
+  (closed? [_] (= :closed (:status @link-state-atom))))
+
+
+(defn- make-ws-stream
+  [local]
+  (->WebSocketStream (atom (link/make-link-state local)) (atom nil)))
+
+
+(defn- on-open!
+  [ws-stream send-fn]
+  (reset! (:send-fn-atom ws-stream) send-fn)
+  (let [msg (link/connect-msg @(:link-state-atom ws-stream))]
+    (send-fn (transit/encode msg))))
+
+
+(defn- on-message!
+  [ws-stream raw]
+  (let [msg (transit/decode raw)
+        state @(:link-state-atom ws-stream)
+        [state' resp] (link/dispatch state msg)]
+    (reset! (:link-state-atom ws-stream) state')
+    (when resp
+      (when-let [send-fn @(:send-fn-atom ws-stream)]
+        (send-fn (transit/encode resp))))))
+
+
+(defn- on-close!
+  [ws-stream]
+  (let [remote (:remote-stream @(:link-state-atom ws-stream))]
+    (when-not (ds/closed? remote)
+      (ds/close! remote)))
+  (swap! (:link-state-atom ws-stream) assoc :status :closed))
+
+
+(defn- attach-websocket!
+  [stream ws]
+  (let [ws ^io/WebSocket ws]
+    (on-open! stream (fn [msg] (.add ws msg)))
+    (.listen ws
+             (fn [raw] (on-message! stream raw))
+             :onDone (fn [] (on-close! stream)))))
+
+
+(defn- maybe-upgrade-request!
+  [stream request]
+  (let [request ^io/HttpRequest request]
+    (when (io/WebSocketTransformer.isUpgradeRequest request)
+      (.then (io/WebSocketTransformer.upgrade request)
+             (fn [ws]
+               (attach-websocket! stream ws))))))
+
+
+(defn listen!
+  "Start a WebSocket server on port. Returns WebSocketStream.
+   Accepts one connection; further connections are rejected."
+  ([port] (listen! port nil))
+  ([port opts]
+   (let [local (ds/open! {:transport {:type :ringbuffer, :capacity (:capacity opts)}})
+         stream (make-ws-stream local)
+         on-server
+         (fn [server]
+           (let [server ^io/HttpServer server]
+             (swap! (:link-state-atom stream)
+                    assoc
+                    :stop-fn
+                    (fn []
+                      (.close server)))
+             (.listen server
+                      (fn [request]
+                        (maybe-upgrade-request! stream request)))))]
+     (.then (io/HttpServer.bind "0.0.0.0" port)
+            on-server)
+     stream)))
+
+
+(deftype WebSocketOpenMethod
+  []
+  :type-only true
+  cljd.core/IFn
+  (-invoke
+    [_ table]
+    (assoc! table
+            :websocket
+            (fn [descriptor]
+              (let [{:keys [mode url port capacity]} (:transport descriptor)]
+                (case mode
+                  :listen  (listen! port {:capacity capacity})
+                  :connect (throw (ex-info "websocket mode :connect not supported in CLJD"
+                                           {:descriptor descriptor
+                                            :url url}))
+                  (throw (ex-info "websocket transport mode must be :listen or :connect"
+                                  {:descriptor descriptor
+                                   :mode mode}))))))))
+
+
+(contribute* :multi-method
+             dao.stream/open!
+             dao.stream.transport.ws/WebSocketOpenMethod
+             dao.stream.transport.ws/WebSocketOpenMethod)

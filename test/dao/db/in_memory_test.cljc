@@ -734,7 +734,7 @@
   (testing ":db/unique :db.unique/value enforcement"
     (let [db (in-m/create {:email {:db/unique :db.unique/value}})
           {:keys [db]} (in-m/run-tx db [[:db/add 1025 :email "a@b.com"]])]
-      (is (thrown-with-msg? #?(:clj Exception :cljs js/Error)
+      (is (thrown-with-msg? #?(:clj Exception :cljs js/Error :cljd Object)
                             #"Unique constraint violated"
             (in-m/run-tx db [[:db/add 1026 :email "a@b.com"]]))
           "Should throw when asserting a duplicate value for a unique attribute"))))
@@ -747,7 +747,7 @@
                    [:db/add -1 :db/unique :db.unique/value]
                    [:db/add 1025 :email "a@b.com"]
                    [:db/add 1026 :email "a@b.com"]]]
-      (is (thrown-with-msg? #?(:clj Exception :cljs js/Error)
+      (is (thrown-with-msg? #?(:clj Exception :cljs js/Error :cljd Object)
                             #"Unique constraint violated"
             (in-m/run-tx db tx-data))
           "Same-tx schema installation should affect uniqueness checks immediately")))
@@ -758,7 +758,7 @@
           outcome (try
                     {:result (in-m/run-tx db [[:db/retract :email :db/unique :db.unique/value]
                                               [:db/add 1026 :email "a@b.com"]])}
-                    (catch #?(:clj Exception :cljs js/Error) e
+                    (catch #?(:clj Exception :cljs js/Error :cljd Object) e
                       {:error e}))]
       (is (map? (:result outcome))
           "Same-tx uniqueness retraction should allow the duplicate assertion"))))
@@ -771,7 +771,7 @@
           outcome (try
                     {:result (in-m/run-tx db [[:db/retract 1025 :email "a@b.com"]
                                               [:db/add 1026 :email "a@b.com"]])}
-                    (catch #?(:clj Exception :cljs js/Error) e
+                    (catch #?(:clj Exception :cljs js/Error :cljd Object) e
                       {:error e}))]
       (is (map? (:result outcome))
           "Unique values should be transferable within one tx when the old assertion is retracted")
@@ -912,7 +912,7 @@
             {:keys [db]} (in-m/run-tx db tx-data)
             ;; This pins the index-selection contract without timing-dependent assertions.
             db-without-aevt (assoc db :aevt (empty (:aevt db)))]
-        (is (thrown-with-msg? #?(:clj Exception :cljs js/Error)
+        (is (thrown-with-msg? #?(:clj Exception :cljs js/Error :cljd Object)
                               #"Unique constraint violated"
               (in-m/run-tx db-without-aevt conflict))
             label)))))

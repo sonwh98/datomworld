@@ -1,0 +1,27 @@
+(ns dao.db.datascript
+  "DataScript-backed DaoDB is not available on ClojureDart.")
+
+
+(defn- unsupported!
+  [op payload]
+  (throw (ex-info "DataScript backend is not supported on CLJD"
+                  {:op op
+                   :payload payload
+                   :platform :cljd})))
+
+
+(defn create
+  "Create a DataScript-backed DaoDb.
+
+   Unsupported on CLJD."
+  [schema]
+  (unsupported! :create {:schema schema}))
+
+
+(defn from-tx-data
+  "Create a DataScript-backed DaoDb from schema + tx-data.
+
+   Unsupported on CLJD."
+  [schema tx-data]
+  (unsupported! :from-tx-data {:schema schema
+                               :tx-data tx-data}))

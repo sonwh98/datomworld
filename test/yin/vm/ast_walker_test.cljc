@@ -1,7 +1,7 @@
 (ns yin.vm.ast-walker-test
   (:require
     [clojure.test :refer [deftest is testing]]
-    [dao.db.datascript :as ds-db]
+    [dao.db.in-memory :as in-m]
     [dao.stream :as ds]
     [dao.stream.apply :as dao.stream.apply]
     [dao.stream.transport.ringbuffer]
@@ -324,7 +324,7 @@
       (try
         (bridge-step result-parked {} {:position 0})
         (is false "Expected missing handler exception")
-        (catch #?(:clj Exception :cljs :default :cljd Exception) _e
+        (catch #?(:clj Exception :cljs js/Error :cljd Object) _e
           (is true))))))
 
 
@@ -443,7 +443,7 @@
     "Transacting nil literals succeeds by omitting nil :db/add assertions"
     (let [datoms (vec (vm/ast->datoms {:type :literal, :value nil}))
           tx-data (vec (vm/datoms->tx-data datoms))
-          {:keys [db]} (ds-db/from-tx-data vm/schema tx-data)]
+          {:keys [db]} (in-m/run-tx (in-m/create vm/schema) tx-data)]
       (is (some #(= :yin/type (nth % 2)) tx-data)
           "Type assertion should still be projected to tx-data")
       (is (not-any? #(and (= :yin/value (nth % 2)) (nil? (nth % 3))) tx-data)

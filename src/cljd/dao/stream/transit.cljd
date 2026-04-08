@@ -1,0 +1,17 @@
+(ns dao.stream.transit
+  "EDN text serialization for stream link messages on ClojureDart.
+
+   CLJD does not have cognitect.transit available, so the wire format falls
+   back to EDN strings for test and local transport use."
+  (:require
+    [clojure.edn :as edn]))
+
+
+(defn encode
+  [msg]
+  (pr-str msg))
+
+
+(defn decode
+  [s]
+  (edn/read-string s))

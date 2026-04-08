@@ -1,7 +1,5 @@
 (ns yin.vm.register-test
   (:require
-    #?(:clj [clojure.edn :as reader]
-       :cljs [cljs.reader :as reader])
     [clojure.test :refer [deftest is testing]]
     [dao.stream :as ds]
     [dao.stream.apply :as dao.stream.apply]
@@ -165,15 +163,14 @@
 
 (deftest repeated-dao-call-program-test
   (testing "Register VM halts after many sequential dao.stream.apply/call cycles via create-vm bridge"
-    (let [source "(defn plot-loop [i]
-  (if (> i 199)
-    nil
-    (do
-      (dao.stream.apply/call :plot/point i (* i i))
-      (plot-loop (+ i 1))))
-)
-(plot-loop 0)"
-          forms (reader/read-string (str "[" source "]"))
+    (let [forms '[(defn plot-loop
+                    [i]
+                    (if (> i 199)
+                      nil
+                      (do
+                        (dao.stream.apply/call :plot/point i (* i i))
+                        (plot-loop (+ i 1)))))
+                  (plot-loop 0)]
           ast (yang/compile-program forms)
           program (ast->program ast)
           calls (atom [])

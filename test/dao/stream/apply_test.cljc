@@ -33,9 +33,9 @@
       (is (= :call-7 (dao-apply/response-id response)))
       (is (= nil (dao-apply/response-value response)))))
   (testing "request constructor enforces protocol shape"
-    (is (thrown? #?(:clj Exception :cljs js/Error)
+    (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
           (dao-apply/request :call-7 "op/add" [10 20])))
-    (is (thrown? #?(:clj Exception :cljs js/Error)
+    (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
           (dao-apply/request :call-7 :op/add '(10 20))))))
 
 
@@ -57,12 +57,12 @@
   (testing "next-request rejects non-request payloads"
     (let [request-stream (make-stream)]
       (ds/put! request-stream {:not "a request"})
-      (is (thrown? #?(:clj Exception :cljs js/Error)
+      (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
             (dao-apply/next-request request-stream {:position 0})))))
   (testing "next-response rejects non-response payloads"
     (let [response-stream (make-stream)]
       (ds/put! response-stream {:not "a response"})
-      (is (thrown? #?(:clj Exception :cljs js/Error)
+      (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
             (dao-apply/next-response response-stream {:position 0}))))))
 
 
@@ -74,7 +74,7 @@
       (is (= 30 (dao-apply/response-value response)))))
   (testing "missing handler is an explicit callee error"
     (let [request (dao-apply/request :call-missing :op/missing [])]
-      (is (thrown-with-msg? #?(:clj Exception :cljs js/Error)
+      (is (thrown-with-msg? #?(:clj Exception :cljs js/Error :cljd Object)
                             #"No dao.stream.apply handler for op"
             (dao-apply/dispatch-request {} request))))))
 

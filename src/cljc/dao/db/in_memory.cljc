@@ -5,8 +5,7 @@
    Datomic-compatible query API."
   (:require
     [dao.db :as dao-db :refer [IDaoStorage IDaoTransactor IDaoQueryEngine IDaoDB]]
-    #?@(:clj [[me.tonsky.persistent-sorted-set :as psset]]
-        :cljs [[me.tonsky.persistent-sorted-set :as psset]])))
+    #?(:cljs [me.tonsky.persistent-sorted-set :as psset])))
 
 
 ;; Sentinel for unbound query variables (must precede seek helpers)
@@ -157,7 +156,7 @@
 
 (defn- sorted-index-by
   [cmp]
-  #?(:clj  (psset/sorted-set-by cmp)
+  #?(:clj  ((requiring-resolve 'me.tonsky.persistent-sorted-set/sorted-set-by) cmp)
      :cljs (psset/sorted-set-by cmp)
      :cljd (sorted-set-by cmp)))
 

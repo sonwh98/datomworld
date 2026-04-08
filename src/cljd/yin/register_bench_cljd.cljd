@@ -1,8 +1,7 @@
 (ns yin.register-bench-cljd
   (:require
     [yin.vm :as vm]
-    [yin.vm.register :as register])
-  (:import [dart:core DateTime]))
+    [yin.vm.register :as register]))
 
 
 (def ^:private benchmark-config
