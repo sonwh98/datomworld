@@ -80,49 +80,10 @@
 
 (defn- format-value
   [value]
-  (letfn [(spaces [n] (str/join "" (repeat n " ")))
-          (format-coll
-            [open close values indent]
-            (if (empty? values)
-              (str open close)
-              (let [child-indent (inc indent)
-                    line-prefix (spaces child-indent)]
-                (str open
-                     "\n"
-                     (str/join "\n"
-                               (map #(str line-prefix
-                                          (format* % child-indent))
-                                    values))
-                     "\n"
-                     (spaces indent)
-                     close))))
-          (format-map
-            [values indent]
-            (if (empty? values)
-              "{}"
-              (let [child-indent (inc indent)
-                    line-prefix (spaces child-indent)]
-                (str "{"
-                     "\n"
-                     (str/join "\n"
-                               (map (fn [[k v]]
-                                      (str line-prefix
-                                           (pr-str k)
-                                           " "
-                                           (format* v child-indent)))
-                                    values))
-                     "\n"
-                     (spaces indent)
-                     "}"))))
-          (format*
-            [value indent]
-            (cond
-              (map? value) (format-map value indent)
-              (vector? value) (format-coll "[" "]" value indent)
-              (set? value) (format-coll "#{" "}" value indent)
-              (seq? value) (format-coll "(" ")" value indent)
-              :else (pr-str value)))]
-    (format* value 0)))
+  #?(:clj (let [pprint (requiring-resolve 'clojure.pprint/pprint)]
+            (str/trimr (with-out-str (pprint value))))
+     :cljs (pr-str value)
+     :cljd (pr-str value)))
 
 
 (defn- print-arg

@@ -1,6 +1,6 @@
 (ns dao.repl-main.cljd
   (:require
-    ["dart:io" :as io]
+    ["dart:io" :as io :refer [stdout]]
     ["dart:async" :as async]
     [clojure.string :as str]
     [dao.repl :as repl]
@@ -9,20 +9,19 @@
 
 (defn- write-out!
   [message]
-  (println message))
+  (print message))
 
 
 (defn- write-err!
   [message]
-  (.writeStringSync io/stderr (str message "\n")))
+  (binding [*out* *err*]
+    (println message)))
 
 
 (defn- print-prompt!
   []
-  (binding [*print-readably* false]
-    (print "dao> ")
-    (.flush io/stdout))
-  nil)
+  (.write stdout "dao> ")
+  (.flush stdout))
 
 
 (defn- configure-state
@@ -47,20 +46,24 @@
 
 (defn- run-cli!
   [state-atom]
-  (letfn [(loop-fn []
-            (when (:running? @state-atom)
-              (print-prompt!)
-              (let [line (.readLineSync io/stdin)]
-                (if (and line (not (str/blank? line)))
-                  (-> (repl/eval-input @state-atom line)
-                      (.then (fn [[state result]]
-                               (reset! state-atom state)
-                               (when (some? result)
-                                 (write-out! result))
-                               (loop-fn))))
-                  (when (:running? @state-atom)
-                    (loop-fn))))))]
-    (loop-fn)))
+  (letfn [(prompt-and-read []
+            (-> (print-prompt!)
+                (.then (fn [_]
+                         (let [line (.readLineSync io/stdin)]
+                           (if (and line (not (str/blank? line)))
+                             (-> (repl/eval-input @state-atom line)
+                                 (.then (fn [[state result]]
+                                          (reset! state-atom state)
+                                          (when (some? result)
+                                            (write-out! result)
+                                            (println))
+                                          (prompt-and-read))))
+                             (when (:running? @state-atom)
+                               (prompt-and-read))))))
+                (.catchError (fn [_]
+                               (when (:running? @state-atom)
+                                 (prompt-and-read))))))]
+    (prompt-and-read)))
 
 
 (defn run-main
