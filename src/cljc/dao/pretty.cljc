@@ -1,6 +1,8 @@
 (ns dao.pretty
   (:require
-    [clojure.string :as str]))
+    #?@(:cljd [[clojure.string :as str]]
+        :clj [[clojure.pprint :as pprint]]
+        :cljs [[cljs.pprint :as pprint]])))
 
 
 #?(:clj
@@ -8,18 +10,17 @@
      "Pretty-print a value to a string using clojure.pprint"
      ([value] (pp-str value nil))
      ([value _depth]
-      (let [pprint (requiring-resolve 'clojure.pprint/pprint)
-            writer (java.io.StringWriter.)]
-        (pprint value writer)
+      (let [writer (java.io.StringWriter.)]
+        (pprint/pprint value writer)
         (.toString writer)))))
 
 
 #?(:cljs
    (defn pp-str
-     "Pretty-print a value to a string (using pr-str for cljs)"
+     "Pretty-print a value to a string using cljs.pprint"
      ([value] (pp-str value nil))
      ([value _depth]
-      (pr-str value))))
+      (with-out-str (pprint/pprint value)))))
 
 
 #?(:cljd

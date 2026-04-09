@@ -13,26 +13,27 @@ mise install
 
 ## Development
 
-% npx shadow-cljs watch datomworld
-```
-
-or
+Start the browser build:
 
 ```bash
-% npx shadow-cljs clj-repl
-shadow.user=> (shadow/watch :datomworld) 
+npx shadow-cljs watch datomworld
 ```
 
-start cljs REPL
+or open a CLJ REPL and start the build from there:
 
 ```bash
-% npx shadow-cljs cljs-repl datomworld
+npx shadow-cljs clj-repl
+shadow.user=> (shadow/watch :datomworld)
+```
 
+Start a CLJS REPL:
+
+```bash
+npx shadow-cljs cljs-repl datomworld
 cljs.user=> (js/alert 1)
-
 ```
 
-open http://localhost:9000
+Open http://localhost:9000
 
 ## Testing
 
@@ -52,4 +53,42 @@ clj -M:cljs -m shadow.cljs.devtools.cli compile test && node target/node-tests.j
 Run the Dart unit tests (including the Yin VM Dart implementation):
 ```bash
 flutter test
+```
+
+## Dao REPL
+
+Launch the interactive Dao REPL to experiment with the Yin VM and manipulate datoms directly.
+
+### Clojure (JVM)
+```bash
+clj -M:dao-repl
+```
+
+### ClojureScript (Node.js)
+
+First, compile the ClojureScript source to a Node.js script:
+
+```bash
+clj -M:cljs -m shadow.cljs.devtools.cli compile dao-repl
+```
+
+Then, run the compiled script:
+
+```bash
+node target/dao-repl.js
+```
+
+### ClojureDart (cljd)
+The ClojureDart source for the Dao REPL is located in `src/cljd/dao/repl_main/cljd.cljd`.
+
+Compile the ClojureDart namespace to Dart:
+
+```bash
+clj -M:cljd compile dao.repl-main.cljd
+```
+
+Then run the generated Dart entry point:
+
+```bash
+dart run bin/dao_repl_main.dart
 ```
