@@ -86,11 +86,11 @@
 ;; clj -X:clean
 
 ;; npx shadow-cljs compile test && node target/node-tests.js
-;; npx shadow-cljs release datomworld
-;; clj -M:dev -m shadow.cljs.devtools.cli watch datomworld
-;; clj -M:cljs -m shadow.cljs.devtools.cli watch datomworld
-;; clj -M:cljs -m shadow.cljs.devtools.cli compile datomworld
-;; clj -M:cljs -m shadow.cljs.devtools.cli release datomworld
+;; npx shadow-cljs release demo
+;; clj -M:dev -m shadow.cljs.devtools.cli watch demo
+;; clj -M:cljs -m shadow.cljs.devtools.cli watch demo
+;; clj -M:cljs -m shadow.cljs.devtools.cli compile demo
+;; clj -M:cljs -m shadow.cljs.devtools.cli release demo
 
 
 ;; mise exec -- clj -M:cljd watch 

@@ -45,9 +45,12 @@ Architecture overview and advanced topics: docs/agents/architecture.md
 # BUILD & TEST
 
 Run tests:           clj -M:test
+Run CLJS tests:      clj -M:cljs -m shadow.cljs.devtools.cli compile test && node target/node-tests.js
+Run Node.js tests:    npm test
+Compile CLJD:        clj -M:cljd compile
 Lint a file:         clj -M:kondo --lint <path>
-ClojureScript dev:   npx shadow-cljs watch app
-ClojureScript build: npx shadow-cljs compile app
+ClojureScript dev:   npx shadow-cljs watch demo
+ClojureScript build: npx shadow-cljs compile demo
 
 # DESIGN PRINCIPLES
 

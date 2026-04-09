@@ -1,1 +1,1 @@
-clj -M:dev -m shadow.cljs.devtools.cli watch datomworld
+clj -M:dev -m shadow.cljs.devtools.cli watch demo

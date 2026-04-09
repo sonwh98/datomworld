@@ -16,20 +16,20 @@ mise install
 Start the browser build:
 
 ```bash
-npx shadow-cljs watch datomworld
+clj -M:cljs -m shadow.cljs.devtools.cli watch demo
 ```
 
 or open a CLJ REPL and start the build from there:
 
 ```bash
-npx shadow-cljs clj-repl
-shadow.user=> (shadow/watch :datomworld)
+clj -M:cljs -m shadow.cljs.devtools.cli clj-repl
+shadow.user=> (shadow/watch :demo)
 ```
 
 Start a CLJS REPL:
 
 ```bash
-npx shadow-cljs cljs-repl datomworld
+clj -M:cljs -m shadow.cljs.devtools.cli cljs-repl demo
 cljs.user=> (js/alert 1)
 ```
 
@@ -47,12 +47,6 @@ clj -M:test
 Compile and run the tests for the frontend/CLJS logic using the Clojure CLI:
 ```bash
 clj -M:cljs -m shadow.cljs.devtools.cli compile test && node target/node-tests.js
-```
-
-### Dart / Flutter
-Run the Dart unit tests (including the Yin VM Dart implementation):
-```bash
-flutter test
 ```
 
 ## Dao REPL

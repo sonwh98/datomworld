@@ -9,7 +9,7 @@
 
  :dev-http {9000 "public"}
 
- :builds {:datomworld {:target :browser
+ :builds {:demo {:target :browser
                        :devtools {:use-document-protocol true}
                        :modules {:main {:init-fn datomworld.demo/init}}}
 
