@@ -6,6 +6,7 @@
        :cljs [cljs.reader :as edn]
        :cljd [clojure.edn :as edn])
     [clojure.string :as str]
+    [dao.pretty :as pretty]
     [dao.stream :as ds]
     [dao.stream.apply :as dao-apply]
     ;; The following transport namespaces are required for their side-effects
@@ -80,10 +81,7 @@
 
 (defn- format-value
   [value]
-  #?(:clj (let [pprint (requiring-resolve 'clojure.pprint/pprint)]
-            (str/trimr (with-out-str (pprint value))))
-     :cljs (pr-str value)
-     :cljd (pr-str value)))
+  (str/trimr (pretty/pp-str value)))
 
 
 (defn- print-arg
