@@ -536,7 +536,7 @@
         ;; Scans both entity ID and ref-value IDs (respecting same-tx ref schema).
         alloc-base-eid
         (reduce (fn [eid {:keys [op e a v m-raw]}]
-                  (let [mx (if (and (= op :db/add) (integer? e) (>= e 1025)) (inc e) eid)
+                  (let [mx (if (and (= op :db/add) (integer? e) (>= e 1025)) (max eid (inc e)) eid)
                         mx (if (and (= op :db/add) (contains? effective-ref-attrs a)
                                     (integer? v) (>= v 1025))
                              (max mx (inc v))
