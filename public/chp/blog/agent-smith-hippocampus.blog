@@ -75,7 +75,9 @@
            "Fine-tuned weights, when used as memory, construct a high-dimensional parameter space, dynamically rebuilt from the stream on demand rather than stored as a fixed artifact. "
            "Summaries and logs construct interpretive or temporal framings, selecting and shaping slices for a particular consumer. "
            "The same stream can support all of these at once. "
-           "Each construction adds dimension to the same underlying one."]
+           "Each construction adds dimension to the same underlying one. "
+           "That means a materialization can be destroyed without fear, because the facts are still in the stream. "
+           "The materialization can always be reconstructed as needed from those facts."]
 
           [:p
            "Because the knowledge base exists as a persistent, append-only stream of datoms, memory can be constructed and reconstructed from this continuous flow. "
@@ -210,11 +212,14 @@
            "It watches live streams, helps decide what should persist, and returns the right fragments of the past when the present needs them. "
            "Not by hiding memory inside a bigger black box, but by making memory itself part of the same datom world as code, state, and effects."]
 
-          [:p.learn-more
-           "Learn more: "
-           [:a {:href "/blog/containing-agent-smith.blog"} "Containing Agent Smith in a Pocket Universe"]
-           " covers containment and governance, "
-           [:a {:href "/yin.chp"} "Yin.VM"]
-           " explains why agents are continuations, and "
-           [:a {:href "/dao-db.chp"} "DaoDB"]
-           " shows how bounded datom streams become durable, queryable memory."]]]]}
+          [:h2 "Related Readings"]
+
+          [:ul.bulleted
+           [:li [:a {:href "/blog/containing-agent-smith.blog"} "Containing Agent Smith in a Pocket Universe"] " , on containment, continuations, and safe execution"]
+           [:li [:a {:href "/blog/yin-vm-daodb-architecture.blog"} "Yin.VM + DaoDB Architecture"] " , on how continuations and bounded memory fit together"]
+           [:li [:a {:href "/blog/datoms-as-streams.blog"} "Datoms as Streams"] " , on the stream-first model behind durable facts"]
+           [:li [:a {:href "/blog/computation-dimensional-expansion-compression.blog"} "What Is Computation?"] " , on streams expanding into structure and compressing back into invariants"]
+           [:li [:a {:href "/yin.chp"} "Yin.VM"] " , on continuations as first-class execution"]
+           [:li [:a {:href "/dao-db.chp"} "DaoDB"] " , on bounded datom streams as durable memory"]
+           [:li [:a {:href "/blog/architecture.blog"} "Architecture"] " , on restriction, explicit causality, and stream-based systems"]]
+          ]]]}
