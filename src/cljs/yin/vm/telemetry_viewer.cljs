@@ -1,6 +1,5 @@
 (ns yin.vm.telemetry-viewer
   (:require
-    [clojure.string :as str]
     [dao.stream :as ds]
     [dao.stream.apply :as dao-apply]
     [dao.stream.transport.ws :as ws]
@@ -32,10 +31,10 @@
 ;; =============================================================================
 
 (defn index-datoms
-  [datoms]
   "Group datoms by entity; return {eid {attr val ...}}"
+  [datoms]
   (let [entities (atom {})]
-    (doseq [[e a v t m] datoms]
+    (doseq [[e a v _t _m] datoms]
       (if (contains? #{:vm.summary/item :vm.summary/entry} a)
         (swap! entities update-in [e a] (fn [old] (conj (or old []) v)))
         (swap! entities update e assoc a v)))
@@ -43,10 +42,10 @@
 
 
 (defn parse-snapshots
-  [datoms]
   "Group indexed entities by t. Return {t {eid {...}}}"
+  [datoms]
   (let [by-time (atom {})]
-    (doseq [[e a v t m] datoms]
+    (doseq [[e a v t _] datoms]
       (swap! by-time update t
              (fn [es]
                (let [es (or es {})]
@@ -264,7 +263,7 @@
              entities (get snapshots latest-t)]
          [:div
           [:h4 (str "t = " latest-t)]
-          (if-let [[root-eid root] (find-snapshot-root entities)]
+          (if-let [[_ root] (find-snapshot-root entities)]
             [:div
              [:div [:strong "step: "] (:vm/step root)]
              [:div [:strong "halted: "] (str (:vm/halted? root))]

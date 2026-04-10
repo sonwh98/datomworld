@@ -96,7 +96,7 @@
              .builder
              (fn [_ value _]
                (m/Container .width
-                            double/infinity
+                             double/infinity
                             .padding
                             (m/EdgeInsets.all 8.0)
                             .decoration

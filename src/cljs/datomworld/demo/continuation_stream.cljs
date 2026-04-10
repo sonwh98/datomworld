@@ -5,7 +5,6 @@
     ["@codemirror/view" :refer [EditorView]]
     ["@nextjournal/lang-clojure" :refer [clojure]]
     ["codemirror" :refer [basicSetup]]
-    [cljs.pprint :as pprint]
     [cljs.reader :as reader]
     [clojure.string :as str]
     [dao.stream :as ds]
@@ -196,7 +195,7 @@
 
 
 (defn vm-k-depth
-  [vm-key vm-state]
+  [_ vm-state]
   (when vm-state
     (count (or (vm/continuation vm-state) []))))
 

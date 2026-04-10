@@ -71,7 +71,7 @@
                         s
                         (let [stream-idx (mod idx n)
                               stream-id (+ 1000 stream-idx)
-                              cursor-id (+ 2000 stream-idx)
+                              _          (+ 2000 stream-idx)
                               stream-ref {:type :stream-ref :id stream-id}
                               val remaining-m
                               ;; 1. Put value

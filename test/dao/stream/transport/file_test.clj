@@ -1,6 +1,5 @@
 (ns dao.stream.transport.file-test
   (:require
-    [clojure.java.io :as io]
     [clojure.test :refer [deftest is testing]]
     [dao.stream :as ds]
     [dao.stream.transport.file]))

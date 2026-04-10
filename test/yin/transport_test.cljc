@@ -11,10 +11,6 @@
 ;; AST Transport Tests
 ;; =============================================================================
 
-(defn- root-hash-of
-  [datoms]
-  (let [hashes (content/compute-content-hashes datoms)]
-    (get hashes (apply max (keys hashes)))))
 
 
 (deftest export-import-roundtrip-test

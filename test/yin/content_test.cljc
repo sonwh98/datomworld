@@ -1,5 +1,6 @@
 (ns yin.content-test
   (:require
+    [clojure.string :as str]
     [clojure.test :refer [deftest is testing]]
     [yin.content :as content]
     [yin.vm :as vm]))
@@ -90,7 +91,7 @@
       (is (every? (fn [[_e _a _v _t m]] (= 1 m)) hash-datoms)
           "All content-hash datoms have m=1 (derived)")
       (is (every? (fn [[_e _a v _t _m]]
-                    (clojure.string/starts-with? v "sha256:"))
+                    (str/starts-with? v "sha256:"))
                   hash-datoms)
           "All hashes start with sha256: prefix"))))
 
