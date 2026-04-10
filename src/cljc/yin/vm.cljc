@@ -102,22 +102,22 @@
 
 
 ;; Primitive operations
-;; Wrapped in (fn ...) to normalize VM semantics:
-;; - enforce fixed arities (host ops like + are variadic),
+;; Arithmetic and comparison ops are n-ary, matching clojure.core.
+;; Wrapped in (fn ...) only where we need to normalize VM semantics:
 ;; - expose macro-like forms (and/or) as callable values,
 ;; - shape return values/effects for VM contracts (e.g. rest, yin/def).
 (def primitives
-  {'+ (fn [a b] (+ a b)),
-   '- (fn [a b] (- a b)),
-   '* (fn [a b] (* a b)),
-   '/ (fn [a b] (/ a b)),
-   '= (fn [a b] (= a b)),
-   '== (fn [a b] (= a b)),
-   '!= (fn [a b] (not= a b)),
-   '< (fn [a b] (< a b)),
-   '> (fn [a b] (> a b)),
-   '<= (fn [a b] (<= a b)),
-   '>= (fn [a b] (>= a b)),
+  {'+ +,
+   '- -,
+   '* *,
+   '/ /,
+   '= =,
+   '== =,
+   '!= not=,
+   '< <,
+   '> >,
+   '<= <=,
+   '>= >=,
    'and (fn [a b] (and a b)),
    'or (fn [a b] (or a b)),
    'not (fn [a] (not a)),
