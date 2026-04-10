@@ -19,7 +19,12 @@
           "Nothing important is stuck inside a session."]
          [:p
           "DaoSpace extends that into collaboration. Multiple agents share an environment of datoms they can query and modify, so work is coordinated through explicit traces rather than accidental handoffs. "
-          "Datom.World is therefore infrastructure for systems that need reliable shared facts, and for agents that need to remember, reason over history, and work together without losing causality."]]]
+          "Datom.World is therefore infrastructure for systems that need reliable shared facts, and for agents that need to remember, reason over history, and work together without losing causality."]
+         [:p.learn-more "Learn more: "
+          [:a {:href "/blog/containing-agent-smith.blog"} "Containing Agent Smith in a Pocket Universe"]
+          " and "
+          [:a {:href "/blog/agent-smith-hippocampus.blog"} "Agent Smith as the Hippocampus"]
+          "."]]]
        [:section.section-light
         [:div.section-inner
          [:h2 "The Core Concepts"]
