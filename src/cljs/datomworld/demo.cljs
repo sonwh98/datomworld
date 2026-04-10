@@ -12,7 +12,7 @@
   [{:id :continuation,
     :label "Continuation Example",
     :icon "⤱",
-    :desc "Step through VM execution with explicit continuations."}
+    :desc "Step through a single continuation executed by two different VM backends: Register and Stack."}
    {:id :pipeline,
     :label "Pipeline Compilation",
     :icon "⚙",
@@ -20,7 +20,7 @@
    {:id :plotter,
     :label "Equation Plotter",
     :icon "📈",
-    :desc "Interactive math equation plotter using the Yin engine."}
+    :desc "Math equation plotter demonstrating FFI from Yin.VM to functions implemented in ClojureScript"}
    {:id :telemetry,
     :label "VM Telemetry Viewer",
     :icon "📡",

@@ -2,7 +2,7 @@
        :date #inst "2026-03-28T14:30:00.000-00:00"
        :abstract
        [:p
-        "A useful agent needs more than a larger context window. It needs a way to move facts from transient inference into explicit, queryable memory. In Datom.world, Agent Smith plays that hippocampal role by selecting, consolidating, and retrieving datoms across streams."]
+        "A useful agent needs more than a larger context window. It needs a way to move facts from transient inference into explicit, queryable memory. In Datom.world, Agent Smith plays that hippocampal role by selecting, consolidating, and reconstructing datoms across streams."]
        :content
        [:section.blog-article
         [:div.section-inner
@@ -22,40 +22,90 @@
            "It is the structure that helps experience become memory, and helps memory return when needed. "
            "Agent Smith should be understood the same way: not as a mystical super-agent, but as the continuation layer that mediates between live computation and persistent datom streams."]
 
-          [:h2 "From Prompt Memory to Datom Memory"]
+          [:h2 "What the Hippocampus Actually Does"]
 
           [:p
-           "Most agent systems hide memory in prompt fragments, vector stores, and mutable runtime objects. "
-           "That makes memory convenient to demo and difficult to trust. "
-           "You cannot easily ask where a fact came from, which execution produced it, or whether it was later revised."]
+           "If Agent Smith is the hippocampus, its job is not to replace model inference. "
+           "Its job is to manage the passage between immediate experience and durable memory. "
+           "In practice, that means three stream operations:"]
+
+          [:ul.bulleted
+           [:li [:strong "Selective encoding"] " : observe interaction and execution streams, identify datoms worth preserving, and emit candidate memory assertions"]
+           [:li [:strong "Consolidation"] " : transform episodic slices into more stable summaries, indexes, and links while preserving the original stream"]
+           [:li [:strong "Contextual reconstruction"] " : when an active continuation needs relevant context, query bounded memory streams and assemble a fresh memory from the datoms required to continue"]]
 
           [:p
-           "A common version of this problem is markdown memory. "
-           "The system stores notes as natural language, then asks the LLM to parse that language again during retrieval. "
-           "That means part of the model's computation is spent recovering structure from prose before it can even begin reasoning about the content."]
+           "The third operation is where the hippocampal metaphor stops being decoration. "
+           "Human memory is not retrieval from storage. "
+           "It is reconstruction: the brain rebuilds each recalled memory from traces, shaped by the present context in which it is needed. "
+           "Datom.world works the same way. "
+           "Nothing sits in storage as a finished memory waiting to be fetched. "
+           "Every recall is a fresh construction over the stream, built in real time by whichever interpreter the current continuation requires."]
 
           [:p
-           "Datom.world takes the opposite approach. "
-           "Memory must appear as data. "
-           "If a system learns something, that learning should exist as datoms in a stream, not as unstructured facts in a prompt buffer that must be parsed again at retrieval time."]
+           "Each of these is just stream processing. "
+           "Nothing magical happens behind the curtain. "
+           "A memory write is a datom emission. "
+           "A recall is a query, a reconstruction, and a resumed continuation."]
+
+          [:h2 "One Stream, Many Materializations"]
 
           [:p
-           "Datoms remove that parsing tax. "
+           "Agents today store memory in many substrates. "
+           "Prompt fragments, vector indexes, knowledge graphs, fine-tuned weights, execution logs, markdown notes, and mutable runtime objects are all in active use, often in combination. "
+           "None of these are wrong in themselves. "
+           "Each captures something real about how an agent relates to its past."]
+
+          [:p
+           "The problem is not the substrate. "
+           "The problem is treating any one substrate as the ground truth. "
+           "When a vector store or a weight update is primary, the stream of events that produced it becomes implicit. "
+           "Nothing can replay it, migrate it, or reinterpret it under a different ontology. "
+           "The substrate is frozen at the moment of its materialization, and every later query is a negotiation with that frozen shape. "
+           "This is "
+           [:a {:href "/blog/architecture.blog"} "structural decoherence"]
+           " in the memory layer: without a canonical stream as source of truth, the substrate and the events that produced it drift apart, and nothing can reconcile them."]
+
+          [:p
+           "Datom.world inverts this relationship. "
+           "The stream is primary, and it is one-dimensional: an ordered sequence of transactions, base reality with a single time axis. "
+           "Everything else is a construction of the stream, built by adding dimensions the stream does not carry on its own. "
+           "A knowledge graph constructs a graph-topology space, assembling explicit nodes and edges from tuples that carry no graph structure. "
+           "A vector index constructs a geometric similarity space, where distance between encoded content approximates semantic relatedness. "
+           "Fine-tuned weights, when used as memory, construct a high-dimensional parameter space, dynamically rebuilt from the stream on demand rather than stored as a fixed artifact. "
+           "Summaries and logs construct interpretive or temporal framings, selecting and shaping slices for a particular consumer. "
+           "The same stream can support all of these at once. "
+           "Each construction adds dimension to the same underlying one."]
+
+          [:p
+           "Because the knowledge base exists as a persistent, append-only stream of datoms, memory can be constructed and reconstructed from this continuous flow. "
+           "It is a temporal fabric that can be traversed in any direction, even backwards in time, to recover the exact context of a past decision."]
+
+          [:p
+           "Consider markdown memory as an illustration. "
+           "When notes are stored as natural language and that prose is the primary record, retrieval forces the LLM to re-parse the language every time. "
+           "Part of the model's computation is spent recovering structure from prose before it can even begin reasoning about the content. "
+           "This is not a property of markdown itself. "
+           "It is a property of treating markdown as the ground truth instead of as a view over a stream that already carries the structure."]
+
+          [:p
+           "Datom.world's answer is to make memory appear as data first. "
+           "If a system learns something, that learning exists as datoms in a stream, and prose or markdown views become constructions of that stream rather than replacements for it. "
            "An ontology over attributes acts like a type system for memory: it gives the "
            [:code "a"]
            " position stable meaning, constrains what kinds of values belong there, and lets interpreters query explicit facts directly. "
-           "Instead of asking the model to reconstruct semantics from markdown, the system can operate on already-structured memory. "
+           "Instead of asking the model to reconstruct semantics from prose, the system can operate on already-structured memory. "
            "This also minimizes hallucination by narrowing the space of valid interpretations: the model has less latent structure to invent, and the runtime has clearer grounds to reject invalid assertions."]
 
           [:ul.bulleted
            [:li "Raw observations remain immutable datoms in append order"]
            [:li "Promoted memories are explicit assertions with transaction and metadata context"]
-           [:li "Summaries and indexes are interpretable projections over the stream, not replacements for it"]]
+           [:li "Summaries, indexes, and graphs are interpretable constructions over the stream, not replacements for it"]]
 
           [:p
-           "This is the first architectural advantage of Agent Smith. "
-           "It does not pretend the model's hidden state is the memory system. "
-           "It treats memory as something the runtime can inspect, replay, migrate, and query."]
+           "Running through all of this is a single architectural commitment: memory is not the model's hidden state. "
+           "It is data the runtime can inspect, replay, migrate, and query. "
+           "Agent Smith is the part of the system that keeps it that way."]
 
           [:h2 "Mapping the System"]
 
@@ -76,24 +126,6 @@
            "Storage does not decide meaning. "
            "Interpreters do."]
 
-          [:h2 "What the Hippocampus Actually Does"]
-
-          [:p
-           "If Agent Smith is the hippocampus, its job is not to replace model inference. "
-           "Its job is to manage the passage between immediate experience and durable memory. "
-           "In practice, that means three stream operations:"]
-
-          [:ul.bulleted
-           [:li [:strong "Selective encoding"] " : observe interaction and execution streams, identify datoms worth preserving, and emit candidate memory assertions"]
-           [:li [:strong "Consolidation"] " : transform episodic slices into more stable summaries, indexes, and links while preserving the original stream"]
-           [:li [:strong "Contextual retrieval"] " : query bounded memory streams when an active continuation needs relevant context, then return only the datoms required to continue"]]
-
-          [:p
-           "Each of these is just stream processing. "
-           "Nothing magical happens behind the curtain. "
-           "A memory write is a datom emission. "
-           "A recall is a query plus a resumed continuation."]
-
           [:h2 "Episodic Memory and Semantic Memory"]
 
           [:p
@@ -105,13 +137,13 @@
            "The important point is that semantic memory does not overwrite episodic memory. "
            "It is built from it. "
            "The raw stream remains available. "
-           "A summary is a projection, not a replacement. "
+           "A summary is a construction, not a replacement. "
            "The same bounded stream can support multiple interpretations without forcing them into one ontology."]
 
           [:h2 "Agents Are Continuations, Not Sessions"]
 
           [:p
-           "The strongest consequence of this architecture is also the simplest one: the agent is the continuation. "
+           "The strongest consequence of this architecture is also the simplest one: agents are continuations, and Agent Smith is no exception. "
            "When memory is needed, the active continuation can park. "
            "A retrieval continuation can query DaoDB. "
            "Execution then resumes with the returned datoms."]
@@ -156,7 +188,7 @@
            "But the history-first shape is the same."]
 
           [:ol
-           [:li [:strong "Ask"] " : fork the current continuation into candidate futures"]
+           [:li [:strong "Fork"] " : branch the current continuation into candidate futures"]
            [:li [:strong "Retrieve"] " : gather the relevant datoms for each branch from bounded memory streams"]
            [:li [:strong "Simulate"] " : run each branch under explicit capability constraints"]
            [:li [:strong "Evaluate"] " : inspect effects and choose which branch, if any, should survive"]
