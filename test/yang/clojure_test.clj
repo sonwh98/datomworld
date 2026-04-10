@@ -1,6 +1,6 @@
 (ns yang.clojure-test
   (:require
-    [clojure.test :refer :all]
+    [clojure.test :refer [deftest is testing]]
     [yang.clojure :as yang]
     [yin.stream]
     [yin.vm :as vm]

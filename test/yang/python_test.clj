@@ -1,6 +1,6 @@
 (ns yang.python-test
   (:require
-    [clojure.test :refer :all]
+    [clojure.test :refer [deftest is testing]]
     [yang.clojure :as clj]
     [yang.python :as py]
     [yin.vm :as vm]

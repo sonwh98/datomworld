@@ -1,6 +1,6 @@
 (ns yang.php-test
   (:require
-    [clojure.test :refer :all]
+    [clojure.test :refer [deftest is testing]]
     [yang.clojure :as clj]
     [yang.php :as php]
     [yin.vm :as vm]

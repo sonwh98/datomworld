@@ -1,6 +1,6 @@
 (ns yang.macro-test
   (:require
-    [clojure.test :refer :all]
+    [clojure.test :refer [deftest is testing]]
     [yang.clojure :as yang]
     [yin.vm :as vm]
     [yin.vm.ast-walker :as ast-walker]

@@ -37,13 +37,30 @@
 
 (deftest eval-input-dispatch-test
   #?(:clj
-     (testing "Clojure source evaluation persists VM state across inputs"
-       (let [[state-1 result-1] @(repl/eval-input (repl/create-state) "(+ 20 22)")
-             [state-2 result-2] @(repl/eval-input state-1 "(def x 10)")
-             [_state-3 result-3] @(repl/eval-input state-2 "x")]
-         (is (= "42" result-1))
-         (is (= "10" result-2))
-         (is (= "10" result-3))))
+     (do
+       (testing "Clojure source evaluation persists VM state across inputs"
+         (let [[state-1 result-1] @(repl/eval-input (repl/create-state) "(+ 20 22)")
+               [state-2 result-2] @(repl/eval-input state-1 "(def x 10)")
+               [_state-3 result-3] @(repl/eval-input state-2 "x")]
+           (is (= "42" result-1))
+           (is (= "10" result-2))
+           (is (= "10" result-3))))
+       (testing "AST maps are evaluated directly"
+         (let [[_state result] @(repl/eval-input (repl/create-state)
+                                                 "{:type :literal :value 7}")]
+           (is (= "7" result))))
+       (testing "Undefined symbols report an error instead of evaluating to nil"
+         (let [[state-1 missing-result] @(repl/eval-input (repl/create-state)
+                                                          "missing-symbol")
+               [_state-2 nil-result] @(repl/eval-input state-1 "nil")]
+           (is (str/includes? missing-result
+                              "Unable to resolve symbol: missing-symbol in this context"))
+           (is (= "nil" nil-result))))
+       (testing "Raw datom streams are executed directly on datom VMs"
+         (let [[_state result] @(repl/eval-input (repl/create-state)
+                                                 "[[-1 :yin/type :literal 0 0]
+                                                   [-1 :yin/value 99 0 0]]")]
+           (is (= "99" result)))))
      :cljs
      (async done
             (-> (repl/eval-input (repl/create-state) "(+ 20 22)")
@@ -55,51 +72,19 @@
                          (repl/eval-input state-2 "x")))
                 (.then (fn [[_state-3 result-3]]
                          (is (= "10" result-3))
-                         (done))))))
-
-  #?(:clj
-     (testing "AST maps are evaluated directly"
-       (let [[_state result] @(repl/eval-input (repl/create-state)
-                                               "{:type :literal :value 7}")]
-         (is (= "7" result))))
-     :cljs
-     (async done
-            (-> (repl/eval-input (repl/create-state) "{:type :literal :value 7}")
+                         (repl/eval-input (repl/create-state) "{:type :literal :value 7}")))
                 (.then (fn [[_state result]]
                          (is (= "7" result))
-                         (done))))))
-
-  #?(:clj
-     (testing "Undefined symbols report an error instead of evaluating to nil"
-       (let [[state-1 missing-result] @(repl/eval-input (repl/create-state)
-                                                        "missing-symbol")
-             [_state-2 nil-result] @(repl/eval-input state-1 "nil")]
-         (is (str/includes? missing-result
-                            "Unable to resolve symbol: missing-symbol in this context"))
-         (is (= "nil" nil-result))))
-     :cljs
-     (async done
-            (-> (repl/eval-input (repl/create-state) "missing-symbol")
+                         (repl/eval-input (repl/create-state) "missing-symbol")))
                 (.then (fn [[state-1 missing-result]]
-                         (is (str/includes?
-                               missing-result
-                               "Unable to resolve symbol: missing-symbol in this context"))
+                         (is (str/includes? missing-result
+                                            "Unable to resolve symbol: missing-symbol in this context"))
                          (repl/eval-input state-1 "nil")))
                 (.then (fn [[_state-2 nil-result]]
                          (is (= "nil" nil-result))
-                         (done))))))
-
-  #?(:clj
-     (testing "Raw datom streams are executed directly on datom VMs"
-       (let [[_state result] @(repl/eval-input (repl/create-state)
-                                               "[[-1 :yin/type :literal 0 0]
-                                                 [-1 :yin/value 99 0 0]]")]
-         (is (= "99" result))))
-     :cljs
-     (async done
-            (-> (repl/eval-input (repl/create-state)
-                                 "[[-1 :yin/type :literal 0 0]
-                              [-1 :yin/value 99 0 0]]")
+                         (repl/eval-input (repl/create-state)
+                                          "[[-1 :yin/type :literal 0 0]
+                                            [-1 :yin/value 99 0 0]]")))
                 (.then (fn [[_state result]]
                          (is (= "99" result))
                          (done)))))))
@@ -107,19 +92,40 @@
 
 (deftest command-dispatch-test
   #?(:clj
-     (testing "vm and lang commands change subsequent evaluation semantics"
-       (let [[state-1 vm-msg] @(repl/eval-input (repl/create-state) "(vm :register)")
-             [_state-2 vm-result] @(repl/eval-input state-1 "(+ 1 2)")
-             [state-3 lang-msg] @(repl/eval-input state-1 "(lang :python)")
-             [_state-4 py-result] @(repl/eval-input state-3 "1 + 2")
-             [state-5 php-msg] @(repl/eval-input state-3 "(lang :php)")
-             [_state-6 php-result] @(repl/eval-input state-5 "1 + 2;")]
-         (is (str/includes? vm-msg "RegisterVM"))
-         (is (= "3" vm-result))
-         (is (str/includes? lang-msg "Python"))
-         (is (= "3" py-result))
-         (is (str/includes? php-msg "PHP"))
-         (is (= "3" php-result))))
+     (do
+       (testing "vm and lang commands change subsequent evaluation semantics"
+         (let [[state-1 vm-msg] @(repl/eval-input (repl/create-state) "(vm :register)")
+               [_state-2 vm-result] @(repl/eval-input state-1 "(+ 1 2)")
+               [state-3 lang-msg] @(repl/eval-input state-1 "(lang :python)")
+               [_state-4 py-result] @(repl/eval-input state-3 "1 + 2")
+               [state-5 php-msg] @(repl/eval-input state-3 "(lang :php)")
+               [_state-6 php-result] @(repl/eval-input state-5 "1 + 2;")]
+           (is (str/includes? vm-msg "RegisterVM"))
+           (is (= "3" vm-result))
+           (is (str/includes? lang-msg "Python"))
+           (is (= "3" py-result))
+           (is (str/includes? php-msg "PHP"))
+           (is (= "3" php-result))))
+       (testing "compile prints AST and datoms without executing"
+         (let [[_state output] @(repl/eval-input (repl/create-state) "(compile (+ 1 2))")]
+           (is (str/includes? output "AST:"))
+           (is (str/includes? output "Datoms:"))
+           (is (str/includes? output ":type :application"))))
+       (testing "collection values are pretty-printed"
+         (let [[_state result] @(repl/eval-input
+                                  (repl/create-state)
+                                  "{:type :literal
+                                    :value {:alpha-long-keyword 1
+                                            :beta-long-keyword 2
+                                            :gamma-long-keyword 3
+                                            :delta-long-keyword 4
+                                            :epsilon-long-keyword 5}}")]
+           (is (str/includes? result "\n"))
+           (is (str/includes? result ":beta-long-keyword"))))
+       (testing "quit marks the shell as no longer running"
+         (let [[state result] @(repl/eval-input (repl/create-state) "(quit)")]
+           (is (false? (:running? state)))
+           (is (str/includes? result "Bye")))))
      :cljs
      (async done
             (-> (repl/eval-input (repl/create-state) "(vm :register)")
@@ -140,58 +146,23 @@
                          (repl/eval-input state-5 "1 + 2;")))
                 (.then (fn [[_state-6 php-result]]
                          (is (= "3" php-result))
-                         (done))))))
-
-  #?(:clj
-     (testing "compile prints AST and datoms without executing"
-       (let [[_state output] @(repl/eval-input (repl/create-state) "(compile (+ 1 2))")]
-         (is (str/includes? output "AST:"))
-         (is (str/includes? output "Datoms:"))
-         (is (str/includes? output ":type :application"))))
-     :cljs
-     (async done
-            (-> (repl/eval-input (repl/create-state) "(compile (+ 1 2))")
+                         (repl/eval-input (repl/create-state) "(compile (+ 1 2))")))
                 (.then (fn [[_state output]]
                          (is (str/includes? output "AST:"))
                          (is (str/includes? output "Datoms:"))
                          (is (str/includes? output ":type :application"))
-                         (done))))))
-
-  #?(:clj
-     (testing "collection values are pretty-printed"
-       (let [[_state result] @(repl/eval-input
-                                (repl/create-state)
-                                "{:type :literal
-                                  :value {:alpha-long-keyword 1
-                                          :beta-long-keyword 2
-                                          :gamma-long-keyword 3
-                                          :delta-long-keyword 4
-                                          :epsilon-long-keyword 5}}")]
-         (is (str/includes? result "\n"))
-         (is (str/includes? result ":beta-long-keyword"))))
-     :cljs
-     (async done
-            (-> (repl/eval-input
-                  (repl/create-state)
-                  "{:type :literal
-                    :value {:alpha-long-keyword 1
-                            :beta-long-keyword 2
-                            :gamma-long-keyword 3
-                            :delta-long-keyword 4
-                            :epsilon-long-keyword 5}}")
+                         (repl/eval-input
+                           (repl/create-state)
+                           "{:type :literal
+                             :value {:alpha-long-keyword 1
+                                     :beta-long-keyword 2
+                                     :gamma-long-keyword 3
+                                     :delta-long-keyword 4
+                                     :epsilon-long-keyword 5}}")))
                 (.then (fn [[_state result]]
                          (is (str/includes? result "\n"))
                          (is (str/includes? result ":beta-long-keyword"))
-                         (done))))))
-
-  #?(:clj
-     (testing "quit marks the shell as no longer running"
-       (let [[state result] @(repl/eval-input (repl/create-state) "(quit)")]
-         (is (false? (:running? state)))
-         (is (str/includes? result "Bye"))))
-     :cljs
-     (async done
-            (-> (repl/eval-input (repl/create-state) "(quit)")
+                         (repl/eval-input (repl/create-state) "(quit)")))
                 (.then (fn [[state result]]
                          (is (false? (:running? state)))
                          (is (str/includes? result "Bye"))
@@ -320,50 +291,46 @@
 
 (deftest request-handling-test
   #?(:clj
-     (testing "handle-request evaluates input and returns a response payload"
-       (let [[state response] @(repl/handle-request
-                                 (repl/create-state)
-                                 (dao-apply/request :req-1 :op/eval ["(+ 9 33)"]))]
-         (is (= :req-1 (dao-apply/response-id response)))
-         (is (= "42" (dao-apply/response-value response)))
-         (is (= :semantic (:vm-type state)))))
-     :cljs
-     (async done
-            (-> (repl/handle-request (repl/create-state)
-                                     (dao-apply/request :req-1 :op/eval ["(+ 9 33)"]))
-                (.then (fn [[state response]]
-                         (is (= :req-1 (dao-apply/response-id response)))
-                         (is (= "42" (dao-apply/response-value response)))
-                         (is (= :semantic (:vm-type state)))
-                         (done))))))
-
-  #?(:clj
-     (testing "serve-once! persists shell state across requests"
-       (let [state-atom (atom (repl/create-state))
-             request-stream (make-stream)
-             response-stream (make-stream)
-             _ (dao-apply/put-request! request-stream :req-1 :op/eval ["(def x 7)"])
-             served-1 @(repl/serve-once! state-atom
-                                         request-stream
-                                         response-stream
-                                         {:position 0})
-             _ (dao-apply/put-request! request-stream :req-2 :op/eval ["x"])
-             served-2 @(repl/serve-once! state-atom
-                                         request-stream
-                                         response-stream
-                                         (:cursor served-1))
-             response-1 (dao-apply/next-response response-stream {:position 0})
-             response-2 (dao-apply/next-response response-stream (:cursor response-1))]
-         (is (= "7" (dao-apply/response-value (:ok response-1))))
-         (is (= "7" (dao-apply/response-value (:ok response-2))))
-         (is (= {:position 2} (:cursor served-2)))))
+     (do
+       (testing "handle-request evaluates input and returns a response payload"
+         (let [[state response] @(repl/handle-request
+                                   (repl/create-state)
+                                   (dao-apply/request :req-1 :op/eval ["(+ 9 33)"]))]
+           (is (= :req-1 (dao-apply/response-id response)))
+           (is (= "42" (dao-apply/response-value response)))
+           (is (= :semantic (:vm-type state)))))
+       (testing "serve-once! persists shell state across requests"
+         (let [state-atom (atom (repl/create-state))
+               request-stream (make-stream)
+               response-stream (make-stream)
+               _ (dao-apply/put-request! request-stream :req-1 :op/eval ["(def x 7)"])
+               served-1 @(repl/serve-once! state-atom
+                                           request-stream
+                                           response-stream
+                                           {:position 0})
+               _ (dao-apply/put-request! request-stream :req-2 :op/eval ["x"])
+               served-2 @(repl/serve-once! state-atom
+                                           request-stream
+                                           response-stream
+                                           (:cursor served-1))
+               response-1 (dao-apply/next-response response-stream {:position 0})
+               response-2 (dao-apply/next-response response-stream (:cursor response-1))]
+           (is (= "7" (dao-apply/response-value (:ok response-1))))
+           (is (= "7" (dao-apply/response-value (:ok response-2))))
+           (is (= {:position 2} (:cursor served-2))))))
      :cljs
      (async done
             (let [state-atom (atom (repl/create-state))
                   request-stream (make-stream)
-                  response-stream (make-stream)
-                  _ (dao-apply/put-request! request-stream :req-1 :op/eval ["(def x 7)"])]
-              (-> (repl/serve-once! state-atom request-stream response-stream {:position 0})
+                  response-stream (make-stream)]
+              (-> (repl/handle-request (repl/create-state)
+                                       (dao-apply/request :req-1 :op/eval ["(+ 9 33)"]))
+                  (.then (fn [[state response]]
+                           (is (= :req-1 (dao-apply/response-id response)))
+                           (is (= "42" (dao-apply/response-value response)))
+                           (is (= :semantic (:vm-type state)))
+                           (dao-apply/put-request! request-stream :req-1 :op/eval ["(def x 7)"])
+                           (repl/serve-once! state-atom request-stream response-stream {:position 0})))
                   (.then (fn [served-1]
                            (dao-apply/put-request! request-stream :req-2 :op/eval ["x"])
                            (repl/serve-once! state-atom request-stream response-stream (:cursor served-1))))
