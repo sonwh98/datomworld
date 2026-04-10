@@ -10,7 +10,9 @@
           [:h1 "Share data without losing control"]
           [:p.lead
            "Data has to be shared to be useful, but once it is shared, control is easy to lose. "
-           "Datom.World solves that tension with mobile continuations running inside the Yin.VM sandbox: execution stays local, explicit, and interpretable, while append-only streams of facts carry context to wherever work happens next."]]]]
+           "Datom.World solves that tension with mobile continuations running inside the Yin.VM sandbox: execution stays local, explicit, and interpretable, while append-only streams of facts carry context to wherever work happens next."]
+          [:div.hero-actions
+           [:a.btn {:href "/demo.html"} "Try the Live Demo"]]]]]
        [:section.section-dark
         [:div.section-inner
          [:h2 "Memory Agents Can Share"]
