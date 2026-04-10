@@ -12,7 +12,7 @@ datom.world is a multi-platform system built on **datoms** (immutable 5‑tuples
 - **DaoFlow**: Massively parallel computation runtime that interprets datom streams as unified workloads across CPU/GPU, spanning graphics rendering, scientific simulation, and reactive graphical user interfaces
 - **Shibi**: Capability tokens for authentication and authorization in stream descriptors
 
-**Philosophy:** Everything is data, everything is a stream. Structure emerges from constraints, not global ontologies. Graphs are constructed from tuples, not assumed.
+**Philosophy:** Everything is data, everything is a stream. Functions are interpreters that consume streams (often datoms) and transform them into higher‑dimensional structures. Structure emerges from constraints, not global ontologies. Graphs are constructed from tuples, not assumed.
 
 ## Live Demo
 
