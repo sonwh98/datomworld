@@ -1,7 +1,24 @@
-# datomworld
-A world built on data
+# datom.world
+A world built on datoms
 
-## Prerequisites
+datom.world is a multi-platform system built on **datoms** (immutable 5‑tuples `[e a v t m]`) and **streams**. It treats all computation as stream processing, where functions consume and produce streams of datoms.
+
+**Core components:**
+- **Yang**: Compiler frontend that transforms source code (Clojure/Python/PHP) into Universal AST datoms
+- **Yin VM**: Family of CESK continuation machines (stack‑based, register‑based, semantic) that execute projections of the Universal AST
+- **DaoDB**: Persistent datom store with Datalog queries over indexed datom streams
+- **DaoStream**: Stream transport foundation modeling all IO as streams
+- **DaoSpace**: Tuple space for stigmergic coordination via shared datom streams
+- **DaoFlow**: Massively parallel computation runtime that interprets datom streams as unified workloads across CPU/GPU, spanning graphics rendering, scientific simulation, and reactive graphical user interfaces
+- **Shibi**: Capability tokens for authentication and authorization in stream descriptors
+
+**Philosophy:** Everything is data, everything is a stream. Structure emerges from constraints, not global ontologies. Graphs are constructed from tuples, not assumed.
+
+## Live Demo
+
+Try the live demo at [https://datom.world/demo.html](https://datom.world/demo.html)
+
+## Development Prerequisites
 
 This project uses [mise](https://mise.jdx.dev/) to manage development tools.
 
@@ -13,7 +30,7 @@ mise install
 
 ## Development
 
-Start the browser build:
+Start the browser demo build:
 
 ```bash
 clj -M:cljs -m shadow.cljs.devtools.cli watch demo
@@ -33,7 +50,7 @@ clj -M:cljs -m shadow.cljs.devtools.cli cljs-repl demo
 cljs.user=> (js/alert 1)
 ```
 
-Open http://localhost:9000
+Open http://localhost:9000 (or try the live demo at [https://datom.world/demo.html](https://datom.world/demo.html))
 
 ## Testing
 
