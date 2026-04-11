@@ -198,9 +198,9 @@
 
 (defn- format-error
   [error]
-  (str "Error: " #?(:clj (ex-message error)
-                    :cljs (or (ex-message error) (.-message error))
-                    :cljd (ex-message error))))
+  (str "Error: " #?(:clj (or (ex-message error) (str error))
+                    :cljs (or (ex-message error) (.-message error) (str error))
+                    :cljd (or (ex-message error) (str error)))))
 
 
 (defn- stream-status
