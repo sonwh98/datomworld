@@ -326,7 +326,7 @@
           stream (get (vm/store vm) stream-id)]
       (is (some? stream))
       (is
-        (= 1024 (.-capacity stream))
+        (= 1024 (.-capacity #?(:cljs ^dao.stream.transport.ringbuffer/RingBufferStream stream :default stream)))
         "Default buffer is 1024 when not specified (via datom compilation)"))))
 
 

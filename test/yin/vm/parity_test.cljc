@@ -1,6 +1,7 @@
 (ns yin.vm.parity-test
   (:require
     [clojure.test :refer [deftest is testing]]
+    [dao.stream.transport.ringbuffer]
     [yin.vm :as vm]
     [yin.vm.ast-walker :as ast-walker]
     [yin.vm.register :as register]
@@ -12,7 +13,8 @@
   [vm-state]
   (let [stream-ref (vm/value vm-state)
         stream-id (:id stream-ref)
-        stream (get (vm/store vm-state) stream-id)]
+        stream #?(:cljs ^dao.stream.transport.ringbuffer/RingBufferStream (get (vm/store vm-state) stream-id)
+                  :default (get (vm/store vm-state) stream-id))]
     (.-capacity stream)))
 
 
