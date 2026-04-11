@@ -13,6 +13,7 @@ clj -M:cljd compile \
     dao.db.in-memory-test \
     dao.repl-test \
     dao.stream.apply-test \
+    datomworld.transit-test \
     yin.vm.ast-walker-test \
     yin.vm.engine-test \
     yin.vm.macro-test \

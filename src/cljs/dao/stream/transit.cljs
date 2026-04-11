@@ -3,7 +3,7 @@
 
    Encodes to / decodes from UTF-8 JSON strings (text WebSocket frames)."
   (:require
-    [cognitect.transit :as transit]))
+    [datomworld.transit :as transit]))
 
 
 (defn encode

@@ -1,17 +1,20 @@
 (ns dao.stream.transit
-  "EDN text serialization for stream link messages on ClojureDart.
+  "Transit JSON serialization for stream link messages on ClojureDart.
 
-   CLJD does not have cognitect.transit available, so the wire format falls
-   back to EDN strings for test and local transport use."
+   Mirrors the JVM and ClojureScript wrappers by delegating to
+   `datomworld.transit`."
   (:require
-    [clojure.edn :as edn]))
+    ["dart:core" StringBuffer]
+    [datomworld.transit :as transit]))
 
 
 (defn encode
   [msg]
-  (pr-str msg))
+  (let [buf (StringBuffer.)]
+    (transit/write (transit/writer buf :json) msg)
+    (.toString buf)))
 
 
 (defn decode
   [s]
-  (edn/read-string s))
+  (transit/read (transit/reader s :json) s))
