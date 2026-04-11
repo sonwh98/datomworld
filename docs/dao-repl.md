@@ -7,34 +7,37 @@ The Dao REPL can operate as both a local interactive shell and a WebSocket serve
 You can start a REPL server on a specific port using the `--port` flag. This is supported on both the JVM and Dart platforms.
 
 ### Clojure (JVM)
-To start an interactive REPL that also listens for remote connections:
+To run the JVM REPL server with a local prompt:
 ```bash
 clj -M:dao-repl --port 8080
 ```
 
-To start a server in **headless** mode (no local prompt):
+To run the JVM REPL server in **headless** mode:
 ```bash
 clj -M:dao-repl --port 8080 --headless
 ```
 
 ### ClojureDart (Dart VM)
-To start the REPL on the Dart platform:
+To compile the Dart REPL entrypoint:
+```bash
+clj -M:cljd compile dao.repl-main.cljd
+```
+
+To run the Dart REPL server:
 ```bash
 dart bin/dao_repl_main.dart --port 8080
 ```
 
 ### Node.js (ClojureScript)
-To start the REPL on Node.js, you first need to compile it using `shadow-cljs`:
+To compile the Node.js REPL entrypoint:
+```bash
+clj -M:cljs -m shadow.cljs.devtools.cli compile dao-repl
+```
 
-1. Compile the build:
-   ```bash
-   npx shadow-cljs compile dao-repl
-   ```
-
-2. Run the generated script:
-   ```bash
-   node target/dao-repl.js --port 8080
-   ```
+To run the Node.js REPL server:
+```bash
+node target/dao-repl.js --port 8080
+```
 
 ## Connecting to a Remote REPL
 

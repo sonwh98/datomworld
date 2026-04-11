@@ -3,7 +3,8 @@
     [clojure.test :refer [deftest is testing]]
     [dao.stream :as ds]
     [dao.stream.link :as link]
-    [dao.stream.transit :as transit]))
+    [dao.stream.transit :as transit]
+    [dao.stream.transport.ringbuffer]))
 
 
 ;; =============================================================================

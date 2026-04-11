@@ -2,7 +2,7 @@
   (:require
     #?@(:cljd [["dart:core" StringBuffer]])
     [clojure.test :refer [deftest is testing]]
-    [datomworld.transit :as transit]))
+    [dao.stream.transit :as transit]))
 
 
 (defrecord Point
