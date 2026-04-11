@@ -80,7 +80,7 @@
     (on-open! stream (fn [msg] (.add ws msg)))
     (.listen ws
              (fn [raw] (on-message! stream raw))
-             :onDone (fn [] (on-close! stream)))))
+             .onDone (fn [] (on-close! stream)))))
 
 
 (defn- maybe-upgrade-request!
@@ -120,7 +120,7 @@
   :type-only true
   cljd.core/IFn
   (-invoke
-    [_ table]
+    [_ ^Map table]
     (assoc! table
             :websocket
             (fn [descriptor]

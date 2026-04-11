@@ -554,7 +554,7 @@
                                    {:request-id request-id})]
                   #?(:clj (throw err)
                      :cljs (@p-resolve [state (format-error err)])
-                     :cljd (.complete completer [state (format-error err)])))
+                     :cljd (.complete ^async/Completer completer [state (format-error err)])))
                 (let [result (dao-apply/next-response response-stream cursor)]
                   (cond
                     (map? result)
@@ -565,9 +565,8 @@
                                    response]]
                           #?(:clj res
                              :cljs (@p-resolve res)
-                             :cljd (.complete completer res)))
+                             :cljd (.complete ^async/Completer completer res)))
                         (poll next-cursor (inc attempts))))
-
                     (= result :blocked)
                     #?(:clj (do (Thread/sleep 10)
                                 (poll cursor (inc attempts)))
@@ -583,10 +582,10 @@
                                         :result result})]
                       #?(:clj (throw err)
                          :cljs (@p-resolve [state (format-error err)])
-                         :cljd (.complete completer [state (format-error err)])))))))]
+                         :cljd (.complete ^async/Completer completer [state (format-error err)])))))))]
       #?(:clj (poll (:remote-response-cursor state) 0)
          :cljs (do (poll (:remote-response-cursor state) 0) p)
-         :cljd (do (poll (:remote-response-cursor state) 0) (.future completer))))))
+         :cljd (do (poll (:remote-response-cursor state) 0) (.-future ^async/Completer completer))))))
 
 
 (defn- eval-remote-input
@@ -604,7 +603,7 @@
        :cljs (.then p-or-res
                     (fn [[state' response]]
                       [state' (str (dao-apply/response-value response))]))
-       :cljd (.then p-or-res
+       :cljd (.then ^async/Future p-or-res
                     (fn [[state' response]]
                       [state' (str (dao-apply/response-value response))])))))
 
@@ -778,8 +777,8 @@
                 [state' (dao-apply/response request-id result)]))
        :cljs (.then res-p (fn [[state' result]]
                             [state' (dao-apply/response request-id result)]))
-       :cljd (.then res-p (fn [[state' result]]
-                            [state' (dao-apply/response request-id result)])))))
+       :cljd (.then ^async/Future res-p (fn [[state' result]]
+                                          [state' (dao-apply/response request-id result)])))))
 
 
 (defn serve-once!
@@ -805,13 +804,13 @@
                                     :response response
                                     :cursor (:cursor read-result)
                                     :put-result put-result})))
-            :cljd (.then res-p (fn [[state' response]]
-                                 (let [put-result (dao-apply/put-response! response-stream response)]
-                                   (reset! state-atom state')
-                                   {:request request
-                                    :response response
-                                    :cursor (:cursor read-result)
-                                    :put-result put-result})))))
+            :cljd (.then ^async/Future res-p (fn [[state' response]]
+                                               (let [put-result (dao-apply/put-response! response-stream response)]
+                                                 (reset! state-atom state')
+                                                 {:request request
+                                                  :response response
+                                                  :cursor (:cursor read-result)
+                                                  :put-result put-result})))))
        (deliver-result read-result)))))
 
 
@@ -910,11 +909,11 @@
             worker (fn loop-fn
                      [cursor]
                      (when @running?
-                       (.then (serve-once! state-atom stream stream cursor)
+                       (.then ^async/Future (serve-once! state-atom stream stream cursor)
                               (fn [result]
                                 (case result
                                   :blocked (do
-                                             (.then (async/Future.delayed (core/Duration .milliseconds sleep-ms))
+                                             (.then ^async/Future (async/Future.delayed (core/Duration .milliseconds sleep-ms))
                                                     (fn [_] (loop-fn cursor)))
                                              nil)
                                   :end nil

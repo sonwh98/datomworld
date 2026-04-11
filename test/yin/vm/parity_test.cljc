@@ -205,7 +205,7 @@
              [(call-op '- 7) -7]
              [(call-op '- 10 1 2 3) 4]
              ;; / : 1-ary reciprocal, n-ary divide
-             [(call-op '/ 2) 1/2]
+             [(call-op '/ 2) #?(:clj 1/2 :cljs 0.5)]
              [(call-op '/ 100 2 5) 10]
              ;; = and !=
              [(call-op '= 1 1 1) true]

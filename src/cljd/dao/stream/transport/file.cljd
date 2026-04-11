@@ -17,7 +17,7 @@
   :type-only true
   cljd.core/IFn
   (-invoke
-    [_ table]
+    [_ ^Map table]
     (assoc! table
             :file
             (fn [descriptor]

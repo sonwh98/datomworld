@@ -38,7 +38,7 @@
 
             :else
             (async/Future.value [state nil]))]
-    (.then p (fn [[state telemetry-msg]]
+    (.then ^async/Future p (fn [[state telemetry-msg]]
                (when telemetry-msg
                  (write-out! telemetry-msg))
                state))))
@@ -47,11 +47,11 @@
 (defn- run-cli!
   [state-atom]
   (letfn [(prompt-and-read []
-            (-> (print-prompt!)
+            (-> ^async/Future (print-prompt!)
                 (.then (fn [_]
                          (let [line (.readLineSync io/stdin)]
                            (if (and line (not (str/blank? line)))
-                             (-> (repl/eval-input @state-atom line)
+                             (-> ^async/Future (repl/eval-input @state-atom line)
                                  (.then (fn [[state result]]
                                           (reset! state-atom state)
                                           (when (some? result)
@@ -69,7 +69,7 @@
 (defn run-main
   [args]
   (let [opts (repl-args/parse-args args)]
-    (-> (configure-state (repl/create-state) opts)
+    (-> ^async/Future (configure-state (repl/create-state) opts)
         (.then (fn [state]
                  (let [state-atom (atom state)
                        server (when-let [port (:port opts)]
