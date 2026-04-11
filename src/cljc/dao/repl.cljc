@@ -12,6 +12,7 @@
     ;; The following transport namespaces are required for their side-effects
     ;; (registering transport types) during REPL initialization.
     #?(:cljd [dao.stream.transport.ringbuffer :as ringbuffer])
+    #?(:cljd [dao.stream.transport.ws :as ws.cljd])
     #?(:clj [dao.stream.transport.ws])
     #?(:cljs [dao.stream.transport.ws :as ws])
     [yang.clojure :as yang.clojure]
@@ -336,15 +337,22 @@
   #?(:clj ((requiring-resolve 'dao.stream.transport.ws/connect!)
            (normalize-daostream-url url))
      :cljs (ws/connect! (normalize-daostream-url url))
-     :cljd (throw (ex-info "Remote telemetry is not supported on this platform"
-                           {:url url}))))
+     :cljd (ws.cljd/connect! (normalize-daostream-url url))))
 
 
-#?(:clj
-   (defn- open-remote-endpoint
-     [url]
+(defn- open-remote-endpoint
+  [url]
+  #?(:clj
      (let [connect! (requiring-resolve 'dao.stream.transport.ws/connect!)
            stream (connect! (normalize-daostream-url url))]
+       {:request-stream stream
+        :response-stream stream})
+     :cljs
+     (let [stream (ws/connect! (normalize-daostream-url url))]
+       {:request-stream stream
+        :response-stream stream})
+     :cljd
+     (let [stream (ws.cljd/connect! (normalize-daostream-url url))]
        {:request-stream stream
         :response-stream stream})))
 
@@ -660,8 +668,9 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
          (throw (ex-info "Remote Dao REPL connections are not yet supported on Node.js"
                          {:url (first args)}))
          :cljd
-         (throw (ex-info "Remote Dao REPL connections are not supported on this platform"
-                         {:url (first args)})))
+         (let [endpoint (open-remote-endpoint (first args))]
+           [(attach-remote-endpoint state endpoint)
+            (str "Connected to " (normalize-daostream-url (first args)))]))
 
       disconnect
       [(detach-remote-endpoint state)

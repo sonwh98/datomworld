@@ -115,6 +115,18 @@
      stream)))
 
 
+(defn connect!
+  "Connect to a WebSocket server at url. Returns WebSocketStream."
+  ([url] (connect! url nil))
+  ([url opts]
+   (let [local (ds/open! {:transport {:type :ringbuffer, :capacity (:capacity opts)}})
+         stream (make-ws-stream local)]
+     (.then (io/WebSocket.connect url)
+            (fn [ws]
+              (attach-websocket! stream ws)))
+     stream)))
+
+
 (deftype WebSocketOpenMethod
   []
   :type-only true
@@ -127,9 +139,7 @@
               (let [{:keys [mode url port capacity]} (:transport descriptor)]
                 (case mode
                   :listen  (listen! port {:capacity capacity})
-                  :connect (throw (ex-info "websocket mode :connect not supported in CLJD"
-                                           {:descriptor descriptor
-                                            :url url}))
+                  :connect (connect! url {:capacity capacity})
                   (throw (ex-info "websocket transport mode must be :listen or :connect"
                                   {:descriptor descriptor
                                    :mode mode}))))))))
