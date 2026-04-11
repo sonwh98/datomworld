@@ -1,4 +1,35 @@
-# Yin VM Formal Test Suite
+## ClojureDart Test Suite
+
+ClojureDart tests are cross-compiled to Dart and executed using the Dart VM.
+
+### Running ClojureDart Tests
+```bash
+./bin/run-cljd-tests.sh
+```
+This script handles compilation of the test runner and executes all registered tests via `dart`.
+
+### Test Runner
+The entry point for ClojureDart tests is `test/dart/runner.dart`, which imports and executes the `main` function of each compiled test namespace.
+
+### Supported Test Namespaces
+The following namespaces are currently integrated into the ClojureDart test suite:
+- `dao.db-test`
+- `dao.db.in-memory-test`
+- `dao.repl-test`
+- `dao.stream-cljd-test`
+- `dao.stream-test`
+- `dao.stream.apply-test`
+- `yin.vm.ast-walker-test`
+- `yin.vm.engine-test`
+- `yin.vm.macro-test`
+- `yin.vm.parity-test`
+- `yin.vm.register-test`
+- `yin.vm.semantic-test`
+- `yin.vm.stack-test`
+
+---
+
+## Yin VM Formal Test Suite
 
 ## Overview
 
