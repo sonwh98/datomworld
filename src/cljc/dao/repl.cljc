@@ -65,7 +65,8 @@
        "  (telemetry)\n"
        "  (repl-state)\n"
        "  (help)\n"
-       "  (quit)")
+       "  (quit)\n"
+       "  *1, *2, *3  - last, second-to-last, and third-to-last evaluated values")
      :default
      (str
        "Commands:\n"
@@ -76,12 +77,26 @@
        "  (telemetry)\n"
        "  (repl-state)\n"
        "  (help)\n"
-       "  (quit)")))
+       "  (quit)\n"
+       "  *1, *2, *3  - last, second-to-last, and third-to-last evaluated values")))
+
+
+(defn- quote-symbols
+  [x]
+  (cond
+    (symbol? x) (list 'quote x)
+    (vector? x) (mapv quote-symbols x)
+    (map? x) (into {} (map (fn [[k v]] [(quote-symbols k) (quote-symbols v)]) x))
+    (or (list? x) (seq? x))
+    (if (= 'quote (first x))
+      x
+      (map quote-symbols x))
+    :else x))
 
 
 (defn- format-value
   [value]
-  (str/trimr (pretty/pp-str value)))
+  (str/trimr (pretty/pp-str (quote-symbols value))))
 
 
 (defn- print-arg
@@ -116,7 +131,9 @@
           'println (fn [& args]
                      (emit-output! output-stream :println (str (print-text args) "\n")))
           'prn (fn [& args]
-                 (emit-output! output-stream :prn (prn-text args)))}))
+                 (emit-output! output-stream :prn (prn-text args)))
+          'ast->datoms vm/ast->datoms
+          'datoms->ast vm/datoms->ast}))
 
 
 (defn- telemetry-config
@@ -163,6 +180,9 @@
      {:lang lang
       :exposed-ports exposed-ports
       :exposed-streams exposed-streams
+      :last-value nil
+      :last-value-2 nil
+      :last-value-3 nil
       :output-cursor output-cursor
       :output-stream output-stream
       :remote-endpoint nil
@@ -410,29 +430,55 @@
     [state' (str output-text (format-value value))]))
 
 
+(defn- inject-last-value
+  [state]
+  (let [vm (:vm state)
+        v1 (:last-value state)
+        v2 (:last-value-2 state)
+        v3 (:last-value-3 state)]
+    (assoc state :vm (update vm :store assoc
+                             '*1 v1
+                             '*2 v2
+                             '*3 v3))))
+
+
+(defn- record-last-value
+  [state state-after value]
+  (assoc state-after
+         :last-value value
+         :last-value-2 (:last-value state)
+         :last-value-3 (:last-value-2 state)))
+
+
+(defn- finalize-eval
+  [state vm']
+  (let [value (vm/value vm')
+        [state' result-str] (format-eval-result (-> state
+                                                    (assoc :vm vm')
+                                                    flush-telemetry)
+                                                value)]
+    [(record-last-value state state' value) result-str]))
+
+
 (defn- eval-datoms
   [state datoms]
   (when (= :ast-walker (:vm-type state))
     (throw (ex-info "ASTWalkerVM cannot load raw datom streams directly"
                     {:vm-type (:vm-type state)})))
-  (let [root-id (apply max (map first datoms))
-        vm' (-> (:vm state)
+  (let [state' (inject-last-value state)
+        root-id (apply max (map first datoms))
+        vm' (-> (:vm state')
                 (vm/load-program {:node root-id
                                   :datoms datoms})
                 (vm/run))]
-    (format-eval-result (-> state
-                            (assoc :vm vm')
-                            flush-telemetry)
-                        (vm/value vm'))))
+    (finalize-eval state' vm')))
 
 
 (defn- eval-ast
   [state ast]
-  (let [vm' (vm/eval (:vm state) ast)]
-    (format-eval-result (-> state
-                            (assoc :vm vm')
-                            flush-telemetry)
-                        (vm/value vm'))))
+  (let [state' (inject-last-value state)
+        vm' (vm/eval (:vm state') ast)]
+    (finalize-eval state' vm')))
 
 
 (defn- compile-clojure-forms

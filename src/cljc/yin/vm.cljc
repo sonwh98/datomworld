@@ -401,6 +401,79 @@
    (second (ast->datoms-with-root ast opts))))
 
 
+(declare index-datoms)
+
+
+(defn datoms->ast
+  "Convert a vector of datoms [e a v t m] back into an AST map."
+  ([datoms]
+   (let [indexed (index-datoms datoms)
+         root-id (:root-id indexed)]
+     (datoms->ast datoms {:indexed indexed :root-id root-id})))
+  ([datoms {:keys [indexed root-id]}]
+   (let [{:keys [get-attr]} indexed
+         node-type (get-attr root-id :yin/type)
+         tail? (get-attr root-id :yin/tail?)
+         base (cond-> {:type node-type}
+                tail? (assoc :tail? true))
+         recur-ast (fn [eid] (datoms->ast datoms {:indexed indexed :root-id eid}))]
+     (case node-type
+       :literal (assoc base :value (get-attr root-id :yin/value))
+       :variable (assoc base :name (get-attr root-id :yin/name))
+       :lambda (let [body-eid (get-attr root-id :yin/body)
+                     macro? (get-attr root-id :yin/macro?)]
+                 (cond-> (assoc base
+                                :params (get-attr root-id :yin/params)
+                                :body (recur-ast body-eid))
+                   macro? (assoc :macro? true
+                                 :phase-policy (get-attr root-id :yin/phase-policy))))
+       :application (let [op-eid (get-attr root-id :yin/operator)
+                          operand-eids (get-attr root-id :yin/operands)]
+                      (assoc base
+                             :operator (recur-ast op-eid)
+                             :operands (mapv recur-ast operand-eids)))
+       :dao.stream.apply/call (let [op (get-attr root-id :yin/op)
+                                    operand-eids (get-attr root-id :yin/operands)]
+                                (assoc base
+                                       :op op
+                                       :operands (mapv recur-ast operand-eids)))
+       :if (let [test-eid (get-attr root-id :yin/test)
+                 cons-eid (get-attr root-id :yin/consequent)
+                 alt-eid (get-attr root-id :yin/alternate)]
+             (assoc base
+                    :test (recur-ast test-eid)
+                    :consequent (recur-ast cons-eid)
+                    :alternate (recur-ast alt-eid)))
+       :vm/gensym (assoc base :prefix (get-attr root-id :yin/prefix))
+       :vm/store-get (assoc base :key (get-attr root-id :yin/key))
+       :vm/store-put (assoc base
+                            :key (get-attr root-id :yin/key)
+                            :val (get-attr root-id :yin/value))
+       :stream/make (assoc base :buffer (get-attr root-id :yin/buffer))
+       :stream/put (let [target-eid (get-attr root-id :yin/target)
+                         val-eid (get-attr root-id :yin/val-node)]
+                     (assoc base
+                            :target (recur-ast target-eid)
+                            :val (recur-ast val-eid)))
+       :stream/cursor (assoc base :source (recur-ast (get-attr root-id :yin/source)))
+       :stream/next (assoc base :source (recur-ast (get-attr root-id :yin/source)))
+       :stream/close (assoc base :source (recur-ast (get-attr root-id :yin/source)))
+       :vm/park base
+       :vm/resume (let [val-eid (get-attr root-id :yin/val-node)]
+                    (assoc base
+                           :parked-id (get-attr root-id :yin/parked-id)
+                           :val (recur-ast val-eid)))
+       :vm/current-continuation base
+       :yin/macro-expand (let [op-eid (get-attr root-id :yin/operator)
+                               operand-eids (get-attr root-id :yin/operands)]
+                           (assoc base
+                                  :operator (recur-ast op-eid)
+                                  :operands (mapv recur-ast operand-eids)))
+       ;; fallback
+       (throw (ex-info "Unknown AST node type in datoms"
+                       {:type node-type, :root-id root-id}))))))
+
+
 (defn index-datoms
   "Index AST datoms by entity.
    Returns {:by-entity map, :get-attr fn, :root-id int}.

@@ -341,3 +341,63 @@
                              (is (= "7" (dao-apply/response-value (:ok response-2))))
                              (is (= {:position 2} (:cursor served-2)))
                              (done)))))))))
+
+
+(deftest last-value-test
+  #?(:clj
+     (testing "*1, *2, *3 hold the last three evaluated values"
+       (let [[state-1 result-1] @(repl/eval-input (repl/create-state) "10")
+             [state-2 result-2] @(repl/eval-input state-1 "20")
+             [state-3 result-3] @(repl/eval-input state-2 "30")
+             [_state-4 result-4] @(repl/eval-input state-3 "(+ *1 *2 *3)")]
+         (is (= "10" result-1))
+         (is (= "20" result-2))
+         (is (= "30" result-3))
+         (is (= "60" result-4))
+         ;; If *1 is a function (from a previous eval), it should be callable
+         (let [[state-5 result-5] @(repl/eval-input (repl/create-state) "(fn [x] (* x x))")
+               [_state-6 result-6] @(repl/eval-input state-5 "(*1 5)")]
+           (is (= "25" result-6)))))
+     :cljs
+     (async done
+            (-> (repl/eval-input (repl/create-state) "10")
+                (.then (fn [[state-1 result-1]]
+                         (is (= "10" result-1))
+                         (repl/eval-input state-1 "20")))
+                (.then (fn [[state-2 result-2]]
+                         (is (= "20" result-2))
+                         (repl/eval-input state-2 "30")))
+                (.then (fn [[state-3 result-3]]
+                         (is (= "30" result-3))
+                         (repl/eval-input state-3 "(+ *1 *2 *3)")))
+                (.then (fn [[state-4 result-4]]
+                         (is (= "60" result-4))
+                         (repl/eval-input (repl/create-state) "(fn [x] (* x x))")))
+                (.then (fn [[state-5 result-5]]
+                         (repl/eval-input state-5 "(*1 5)")))
+                (.then (fn [[_state-6 result-6]]
+                         (is (= "25" result-6))
+                         (done)))))))
+
+
+(deftest symbol-quoting-test
+  #?(:clj
+     (testing "Symbols in REPL output are quoted for copy-paste safety"
+       (let [[_state-1 result-1] @(repl/eval-input (repl/create-state) "(quote foo)")
+             [_state-2 result-2] @(repl/eval-input (repl/create-state) "[1 (quote bar) :baz]")
+             [_state-3 result-3] @(repl/eval-input (repl/create-state) "{(quote a) 1 :b 2}")]
+         (is (= "'foo" result-1))
+         (is (= "[1 'bar :baz]" result-2))
+         (is (= "{'a 1, :b 2}" result-3))))
+     :cljs
+     (async done
+            (-> (repl/eval-input (repl/create-state) "(quote foo)")
+                (.then (fn [[_state-1 result-1]]
+                         (is (= "'foo" result-1))
+                         (repl/eval-input (repl/create-state) "[1 (quote bar) :baz]")))
+                (.then (fn [[_state-2 result-2]]
+                         (is (= "[1 'bar :baz]" result-2))
+                         (repl/eval-input (repl/create-state) "{(quote a) 1 :b 2}")))
+                (.then (fn [[_state-3 result-3]]
+                         (is (= "{'a 1, :b 2}" result-3))
+                         (done)))))))
