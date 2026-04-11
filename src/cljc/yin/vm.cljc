@@ -474,6 +474,9 @@
                        {:type node-type, :root-id root-id}))))))
 
 
+(def ^:private many-attrs #{:yin/operands :yin/args :yin/params})
+
+
 (defn index-datoms
   "Index AST datoms by entity.
    Returns {:by-entity map, :get-attr fn, :root-id int}.
@@ -486,13 +489,32 @@
    (let [datoms (vec ast-as-datoms)
          by-entity (or by-entity (group-by first datoms))
          get-attr (fn [e attr]
-                    ;; Use last-write-wins for repeated [e a] assertions in
-                    ;; append order within a bounded stream snapshot.
-                    (some (fn [[_ a v]] (when (= a attr) v))
-                          (rseq (vec (get by-entity e)))))
+                    (let [matching (filter (fn [d] (= (nth d 1) attr)) (get by-entity e))]
+                      (if (contains? many-attrs attr)
+                        (vec (mapcat (fn [d]
+                                       (let [v (nth d 2)]
+                                         (if (vector? v) v [v])))
+                                     matching))
+                        (when (seq matching)
+                          (nth (last matching) 2)))))
          root-id (or root-id
                      (when (seq by-entity)
-                       (apply max (keys by-entity))))]
+                       ;; Heuristic for finding the root:
+                       ;; 1. Find all eids that have a :yin/type
+                       ;; 2. Prefer the ones that are NOT used as structural children
+                       ;; 3. Return the LAST such eid (most recent addition)
+                       ;; 4. Fallback to max eid
+                       (let [type-eids (keep (fn [[e datoms]]
+                                               (when (some #(= :yin/type (nth % 1)) datoms)
+                                                 e))
+                                             by-entity)
+                             referenced-eids (set (mapcat (fn [[_ a v]]
+                                                            (when (contains? #{:yin/body :yin/operator :yin/operands :yin/target :yin/val-node} a)
+                                                              (if (vector? v) v [v])))
+                                                          datoms))
+                             unreferenced (filter (complement referenced-eids) type-eids)]
+                         (or (last (sort unreferenced))
+                             (apply max (keys by-entity))))))]
      {:by-entity by-entity, :get-attr get-attr, :root-id root-id})))
 
 

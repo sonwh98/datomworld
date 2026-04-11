@@ -32,10 +32,7 @@
                       :operands [{:type :variable :name 'x}
                                  {:type :literal :value 1}]}}
           datoms (vm/ast->datoms ast)]
-      (clojure.pprint/pprint datoms)
-
-      (is (= ast (vm/datoms->ast datoms)))
-      (clojure.pprint/pprint ast)))
+      (is (= ast (vm/datoms->ast datoms)))))
 
   (testing "Function definition (defn foo) roundtrip"
     (let [ast (yang/compile '(defn foo
@@ -102,37 +99,14 @@
         (is (= ast-put (vm/datoms->ast datoms-put)))))))
 
 
-(comment
-
-    [[1052 :yin/tail? true 2 0]
-     [1052 :yin/type :application 2 0]
-     [1053 :yin/type :variable 2 0]
-     [1053 :yin/name 'yin/def 2 0]
-     [1054 :yin/type :literal 2 0]
-     [1054 :yin/value 'a 2 0]
-     [1055 :yin/type :literal 2 0]
-     [1055 :yin/value 1 2 0]
-     [1052 :yin/operator 1053 2 0]
-     [1052 :yin/operands 1054 2 0]
-     [1052 :yin/operands 1055 2 0]
-     [1056 :yin/type :variable 3 0]
-     [1056 :yin/name 'a 3 0]
-     [1057 :yin/tail? true 4 0]
-     [1057 :yin/type :application 4 0]
-     [1058 :yin/type :variable 4 0]
-     [1058 :yin/name 'yin/def 4 0]
-     [1059 :yin/type :literal 4 0]
-     [1059 :yin/value 'f 4 0]
-     [1060 :yin/type :lambda 4 0]
-     [1060 :yin/params ['n] 4 0]
-     [1061 :yin/type :variable 4 0]
-     [1061 :yin/name 'n 4 0]
-     [1060 :yin/body 1061 4 0]
-     [1057 :yin/operator 1058 4 0]
-     [1057 :yin/operands 1059 4 0]
-     [1057 :yin/operands 1060 4 0]]
-
-
-    [[1052 :yin/tail? true 2 0]]    
-    
-    )
+(deftest root-id-detection-test
+  (testing "Detects most recent unreferenced node as root"
+    (let [datoms [[1052 :yin/type :literal 2 0]
+                  [1052 :yin/value "old" 2 0]
+                  [1059 :yin/type :application 10 0]
+                  [1060 :yin/type :variable 10 0]
+                  [1060 :yin/name 'f 10 0]
+                  [1059 :yin/operator 1060 10 0]
+                  [1059 :yin/operands [] 10 0]]]
+      (is (= :application (:type (vm/datoms->ast datoms))))
+      (is (= 'f (get-in (vm/datoms->ast datoms) [:operator :name]))))))
