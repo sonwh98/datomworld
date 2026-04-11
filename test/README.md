@@ -11,21 +11,20 @@ This script handles compilation of the test runner and executes all registered t
 ### Test Runner
 The entry point for ClojureDart tests is `test/dart/runner.dart`, which imports and executes the `main` function of each compiled test namespace.
 
-### Supported Test Namespaces
-The following namespaces are currently integrated into the ClojureDart test suite:
-- `dao.db-test`
-- `dao.db.in-memory-test`
-- `dao.repl-test`
-- `dao.stream-cljd-test`
-- `dao.stream-test`
-- `dao.stream.apply-test`
-- `yin.vm.ast-walker-test`
-- `yin.vm.engine-test`
-- `yin.vm.macro-test`
-- `yin.vm.parity-test`
-- `yin.vm.register-test`
-- `yin.vm.semantic-test`
-- `yin.vm.stack-test`
+---
+
+## ClojureScript Test Suite
+
+ClojureScript tests are cross-compiled to JavaScript and executed using Node.js.
+
+### Running ClojureScript Tests
+```bash
+./bin/run-cljs-tests.sh
+```
+This script uses `shadow-cljs` to compile the `:test` build and runs the resulting script with `node`.
+
+### Supported Test Build
+The configuration for the test build is defined in `shadow-cljs.edn` under the `:test` key.
 
 ---
 
