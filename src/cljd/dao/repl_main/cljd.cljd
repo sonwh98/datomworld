@@ -3,6 +3,7 @@
     ["dart:io" :as io :refer [stdout]]
     ["dart:async" :as async]
     [clojure.string :as str]
+    [clojure.edn :as edn]
     [dao.repl :as repl]
     [dao.repl-args :as repl-args]))
 
@@ -22,6 +23,36 @@
   []
   (.write stdout "dao> ")
   (.flush stdout))
+
+
+(defn- print-continuation-prompt!
+  []
+  (.write stdout "dao.. ")
+  (.flush stdout))
+
+
+(defn- balanced?
+  [s]
+  (let [counts (reduce (fn [counts char]
+                         (case char
+                           \( (update counts :paren inc)
+                           \) (update counts :paren dec)
+                           \[ (update counts :bracket inc)
+                           \] (update counts :bracket dec)
+                           \{ (update counts :brace inc)
+                           \} (update counts :brace dec)
+                           counts))
+                       {:paren 0 :bracket 0 :brace 0}
+                       s)]
+    (every? (fn [v] (<= v 0)) (vals counts))))
+
+
+(defn- complete-form?
+  [input-str]
+  (let [trimmed (str/trim input-str)]
+    (if (or (str/blank? trimmed) (str/starts-with? trimmed ";"))
+      true
+      (balanced? input-str))))
 
 
 (defn- configure-state
@@ -46,24 +77,34 @@
 
 (defn- run-cli!
   [state-atom]
-  (letfn [(prompt-and-read []
-            (-> ^async/Future (print-prompt!)
+  (letfn [(prompt-and-read [acc]
+            (-> ^async/Future (if (empty? acc)
+                                (print-prompt!)
+                                (print-continuation-prompt!))
                 (.then (fn [_]
                          (let [line (.readLineSync io/stdin)]
-                           (if (and line (not (str/blank? line)))
-                             (-> ^async/Future (repl/eval-input @state-atom line)
-                                 (.then (fn [[state result]]
-                                          (reset! state-atom state)
-                                          (when (some? result)
-                                            (write-out! result)
-                                            (println))
-                                          (prompt-and-read))))
+                           (if line
+                             (let [new-acc (str acc "\n" line)]
+                               (if (complete-form? new-acc)
+                                 (if (str/blank? (str/trim new-acc))
+                                   (prompt-and-read "")
+                                   (-> ^async/Future (repl/eval-input @state-atom new-acc)
+                                       (.then (fn [[state result]]
+                                                (reset! state-atom state)
+                                                (when (some? result)
+                                                  (write-out! result)
+                                                  (println))
+                                                (prompt-and-read "")))))
+                                 (prompt-and-read new-acc)))
+                             ;; EOF
                              (when (:running? @state-atom)
-                               (prompt-and-read))))))
-                (.catchError (fn [_]
+                               (println)
+                               (reset! state-atom (assoc @state-atom :running? false)))))))
+                (.catchError (fn [e]
+                               (write-err! (str "Error: " e))
                                (when (:running? @state-atom)
-                                 (prompt-and-read))))))]
-    (prompt-and-read)))
+                                 (prompt-and-read ""))))))]
+    (prompt-and-read "")))
 
 
 (defn run-main
