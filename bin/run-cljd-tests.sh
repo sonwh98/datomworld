@@ -6,14 +6,13 @@ echo "Compiling ClojureDart tests..."
 # Since we have a lot of .cljc files in test/, we let cljd find them.
 # We explicitly compile the ones needed by test/dart/runner.dart
 clj -M:cljd compile \
-    dao.stream-cljd-test \
     dao.stream-test \
     yin.vm.parity-test \
     dao.db-test \
     dao.db.in-memory-test \
     dao.repl-test \
     dao.stream.apply-test \
-    datomworld.transit-test \
+    dao.stream.transit-test \
     yin.vm.ast-walker-test \
     yin.vm.engine-test \
     yin.vm.macro-test \

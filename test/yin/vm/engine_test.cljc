@@ -295,8 +295,8 @@
 (defn- ringbuffer-state-atom
   [stream]
   #?(:clj  (.-state-atom ^dao.stream.transport.ringbuffer.RingBufferStream stream)
-     :cljs (.-state-atom stream)
-     :cljd (.-state-atom stream)))
+     :cljs (.-state-atom ^dao.stream.transport.ringbuffer/RingBufferStream stream)
+     :cljd (.-state-atom ^dao.stream.transport.ringbuffer/RingBufferStream stream)))
 
 
 #?(:cljd

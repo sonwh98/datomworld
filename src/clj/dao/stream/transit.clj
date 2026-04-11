@@ -5,7 +5,7 @@
    datom.world stream layer. It delegates to `cognitect.transit` on the JVM,
    and mirrors the CLJD implementation so callers can use the same API on all
    supported platforms."
-  (:refer-clojure :exclude [read])
+  (:refer-clojure :exclude [read bigint bigdec])
   (:require
     [cognitect.transit :as transit])
   (:import

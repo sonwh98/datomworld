@@ -526,6 +526,7 @@
                  (vm/run))
           stream-id (:id (vm/value vm))
           stream #?(:cljs ^dao.stream.transport.ringbuffer/RingBufferStream (get (vm/store vm) stream-id)
+                    :cljd ^dao.stream.transport.ringbuffer/RingBufferStream (get (vm/store vm) stream-id)
                     :default (get (vm/store vm) stream-id))]
       (is (some? stream))
       (is (= 1024 (.-capacity stream))))))
