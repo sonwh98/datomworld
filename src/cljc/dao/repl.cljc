@@ -471,7 +471,12 @@
                 (vm/load-program {:node root-id
                                   :datoms datoms})
                 (vm/run))]
-    (finalize-eval state' vm')))
+    (if (vm/halted? vm')
+      (finalize-eval state' vm')
+      (throw (ex-info "Datom stream did not form a complete, runnable Yin VM program.
+Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
+                      {:root-id root-id
+                       :datom-count (count datoms)})))))
 
 
 (defn- eval-ast
