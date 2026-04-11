@@ -31,6 +31,37 @@
   (.flush stdout))
 
 
+(defn- clean-cljd-input
+  "Works around a CLJD bug where spaces before closing delimiters cause reader errors."
+  [s]
+  (let [res (reduce
+              (fn [{:keys [state result] :as acc} char]
+                (case state
+                  :normal (case char
+                            \" (-> acc (update :result conj char) (assoc :state :string))
+                            \; (-> acc (update :result conj char) (assoc :state :comment))
+                            (\space \tab \newline \return) (assoc acc :state :whitespace)
+                            (update acc :result conj char))
+                  :string (if (= char \")
+                            (-> acc (update :result conj char) (assoc :state :normal))
+                            (if (= char \\)
+                              (-> acc (update :result conj char) (assoc :state :string-escape))
+                              (update acc :result conj char)))
+                  :string-escape (-> acc (update :result conj char) (assoc :state :string))
+                  :comment (if (= char \newline)
+                             (-> acc (update :result conj char) (assoc :state :normal))
+                             (update acc :result conj char))
+                  :whitespace (case char
+                                (\] \} \)) (-> acc (update :result conj char) (assoc :state :normal))
+                                (\space \tab \newline \return) acc
+                                \" (-> acc (update :result conj \space) (update :result conj char) (assoc :state :string))
+                                \; (-> acc (update :result conj \space) (update :result conj char) (assoc :state :comment))
+                                (-> acc (update :result conj \space) (update :result conj char) (assoc :state :normal)))))
+              {:state :normal :result []}
+              s)]
+    (apply str (:result res))))
+
+
 (defn- balanced?
   [s]
   (let [counts (reduce (fn [counts char]
@@ -88,13 +119,14 @@
                                (if (complete-form? new-acc)
                                  (if (str/blank? (str/trim new-acc))
                                    (prompt-and-read "")
-                                   (-> ^async/Future (repl/eval-input @state-atom new-acc)
-                                       (.then (fn [[state result]]
-                                                (reset! state-atom state)
-                                                (when (some? result)
-                                                  (write-out! result)
-                                                  (println))
-                                                (prompt-and-read "")))))
+                                   (let [cleaned (clean-cljd-input new-acc)]
+                                     (-> ^async/Future (repl/eval-input @state-atom cleaned)
+                                         (.then (fn [[state result]]
+                                                  (reset! state-atom state)
+                                                  (when (some? result)
+                                                    (write-out! result)
+                                                    (println))
+                                                  (prompt-and-read ""))))))
                                  (prompt-and-read new-acc)))
                              ;; EOF
                              (when (:running? @state-atom)
