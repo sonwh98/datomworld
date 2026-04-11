@@ -73,7 +73,7 @@
   :type-only true
   cljd.core/IFn
   (-invoke
-    [_ ^Map table]
+    [_ ^dynamic table]
     (assoc! table
             :ringbuffer
             (fn [descriptor]
