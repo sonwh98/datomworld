@@ -137,6 +137,8 @@
 (defrecord SemanticVM
   [blocked    ; true if blocked
    bridge     ; explicit host-side FFI bridge state
+   in-stream  ; ingress DaoStream carrying canonical datom programs
+   in-cursor  ; ingress cursor position
    control    ; current control state {:type :node/:value, ...}
    datoms     ; AST datoms
    db         ; DaoDB AST store
@@ -175,6 +177,8 @@
   (->SemanticVM
     (:blocked vm)
     (:bridge vm)
+    (:in-stream vm)
+    (:in-cursor vm)
     control
     (:datoms vm)
     (:db vm)
@@ -1293,66 +1297,49 @@
             :else result))))))
 
 
-(defn- semantic-vm-run
-  "Run a loaded SemanticVM until halt or block."
-  [^SemanticVM v]
-  (if (or (telemetry/enabled? v)
-          (:blocked v)
-          (:halted v)
-          (seq (:run-queue v)))
-    (engine/run-loop v
-                     engine/active-continuation?
-                     (if (telemetry/enabled? v)
-                       (fn [state]
-                         (telemetry/emit-snapshot (semantic-vm-step state) :step))
-                       semantic-vm-step)
-                     resume-from-run-queue)
-    ;; Run hot loop, restarting when runtime macro expansion updates the index
-    (loop [v v]
-      (let [result (semantic-run-active-continuation v
-                                                     (:control v)
-                                                     (:env v)
-                                                     (:k v))]
-        (cond
-          ;; Blocked: hand off to scheduler (FFI, stream wait-set, run-queue)
-          (:blocked result)
-          (engine/run-loop result
-                           engine/active-continuation?
-                           semantic-vm-step
-                           resume-from-run-queue)
-          ;; Not halted and still has pending control: runtime macro expanded new nodes,
-          ;; restart hot loop with the updated index
-          (and (not (:halted result)) (some? (:control result)))
-          (recur result)
-          ;; Halted or no pending control
-          :else result)))))
-
-
 (defn- semantic-vm-eval
   "Evaluate an AST. Owns the step loop with scheduler.
    When ast is non-nil, converts to datoms and loads. When nil, resumes."
   [^SemanticVM vm ast]
-  (let [v (if ast
-            (let [datoms (vm/ast->datoms ast {:id-start (:node-id-counter vm)})
-                  root-id (apply max (map first datoms))
-                  min-id (apply min (map first datoms))
-                  next-node-id (dec min-id)]
-              (semantic-vm-load-program (assoc vm :node-id-counter next-node-id)
-                                        {:node root-id, :datoms datoms}))
-            vm)]
-    (host-ffi/maybe-run v semantic-vm-run)))
+  (if ast
+    (let [datoms (vm/ast->datoms ast {:id-start (:node-id-counter vm)})
+          root-id (apply max (map first datoms))
+          min-id (apply min (map first datoms))
+          next-node-id (dec min-id)]
+      (-> (assoc vm :node-id-counter next-node-id)
+          (vm/load-program {:node root-id, :datoms datoms})
+          (vm/run)))
+    (vm/run vm)))
+
+
+(defn- semantic-vm-run-on-stream
+  [vm]
+  (engine/run-on-stream vm
+                        (:in-stream vm)
+                        vm/ingest-program
+                        (if (telemetry/enabled? vm)
+                          (fn [state]
+                            (telemetry/emit-snapshot (semantic-vm-step state) :step))
+                          semantic-vm-step)
+                        resume-from-run-queue))
+
+
+(defmethod vm/ingest-program :semantic
+  [vm program]
+  (semantic-vm-load-program vm program))
 
 
 (extend-type SemanticVM
   vm/IVMStep
-  (step [vm] (telemetry/emit-snapshot (semantic-vm-step vm) :step))
+  (step [vm]
+    (telemetry/emit-snapshot
+      (engine/step-on-stream vm (:in-stream vm) vm/ingest-program semantic-vm-step)
+      :step))
   (halted? [vm] (semantic-vm-halted? vm))
   (blocked? [vm] (semantic-vm-blocked? vm))
   (value [vm] (semantic-vm-value vm))
   vm/IVMRun
-  (run [vm] (vm/eval vm nil))
-  vm/IVMLoad
-  (load-program [vm program] (semantic-vm-load-program vm program))
+  (run [vm] (host-ffi/maybe-run vm semantic-vm-run-on-stream))
   vm/IVMEval
   (eval [vm ast] (semantic-vm-eval vm ast))
   vm/IVMState
@@ -1377,9 +1364,12 @@
          base (vm/empty-state {:primitives (:primitives opts)
                                :telemetry (:telemetry opts)
                                :vm-model :semantic})
-         bridge-state (host-ffi/bridge-from-opts opts)]
+         bridge-state (host-ffi/bridge-from-opts opts)
+         in-stream (or (:in-stream opts) (vm/make-ingress-stream))]
      (-> (map->SemanticVM (merge base
                                  {:bridge bridge-state,
+                                  :in-stream in-stream,
+                                  :in-cursor {:position 0},
                                   :control nil,
                                   :env env,
                                   :k nil,

@@ -44,6 +44,8 @@
 
 (defrecord StackVM
   [blocked    ; true if blocked
+   in-stream  ; ingress DaoStream carrying canonical datom programs
+   in-cursor  ; ingress cursor position
    bytecode   ; bytecode vector
    k          ; continuation (call frame stack)
    compiled-by-version ; {program-version -> compiled artifact}
@@ -1389,20 +1391,6 @@
               (fallback))))))))
 
 
-(defn- stack-vm-run
-  [vm]
-  ;; Boundary recompilation requires scheduler checkpoints when dirty.
-  (if (or (telemetry/enabled? vm)
-          (:compile-dirty? vm)
-          (:blocked vm)
-          (:halted vm)
-          (seq (:run-queue vm))
-          (seq (:wait-set vm))
-          (nil? (:bytecode vm)))
-    (stack-vm-run-scheduler vm)
-    (stack-vm-run-active-continuation vm)))
-
-
 ;; =============================================================================
 ;; StackVM Protocol Implementation
 ;; =============================================================================
@@ -1464,24 +1452,43 @@
    canonical {:node :datoms} path.
    When nil, resumes from current state."
   [^StackVM vm ast]
-  (let [v (if ast
-            (let [datoms (vec (vm/ast->datoms ast))
-                  root-id (apply max (map first datoms))]
-              (stack-vm-load-program vm {:node root-id, :datoms datoms}))
-            vm)]
-    (host-ffi/maybe-run v stack-vm-run)))
+  (if ast
+    (let [datoms (vec (vm/ast->datoms ast))
+          root-id (apply max (map first datoms))]
+      (-> vm
+          (vm/load-program {:node root-id, :datoms datoms})
+          (vm/run)))
+    (vm/run vm)))
+
+
+(defn- stack-vm-run-on-stream
+  [vm]
+  (engine/run-on-stream vm
+                        (:in-stream vm)
+                        vm/ingest-program
+                        (if (telemetry/enabled? vm)
+                          (fn [state]
+                            (telemetry/emit-snapshot (stack-step state) :step))
+                          stack-step)
+                        resume-from-run-queue))
+
+
+(defmethod vm/ingest-program :stack
+  [vm program]
+  (stack-vm-load-program vm program))
 
 
 (extend-type StackVM
   vm/IVMStep
-  (step [vm] (telemetry/emit-snapshot (stack-step vm) :step))
+  (step [vm]
+    (telemetry/emit-snapshot
+      (engine/step-on-stream vm (:in-stream vm) vm/ingest-program stack-step)
+      :step))
   (halted? [vm] (stack-vm-halted? vm))
   (blocked? [vm] (stack-vm-blocked? vm))
   (value [vm] (stack-vm-value vm))
   vm/IVMRun
-  (run [vm] (vm/eval vm nil))
-  vm/IVMLoad
-  (load-program [vm program] (stack-vm-load-program vm program))
+  (run [vm] (host-ffi/maybe-run vm stack-vm-run-on-stream))
   vm/IVMEval
   (eval [vm ast] (stack-vm-eval vm ast))
   vm/IVMState
@@ -1504,11 +1511,14 @@
   ([opts]
    (let [env (or (:env opts) {})
          bridge-state (host-ffi/bridge-from-opts opts)
+         in-stream (or (:in-stream opts) (vm/make-ingress-stream))
          base (vm/empty-state {:primitives (:primitives opts)
                                :telemetry (:telemetry opts)
                                :vm-model :stack})]
      (-> (map->StackVM (merge base
-                              {:control 0,
+                              {:in-stream in-stream,
+                               :in-cursor {:position 0},
+                               :control 0,
                                :bytecode [],
                                :stack [],
                                :env env,

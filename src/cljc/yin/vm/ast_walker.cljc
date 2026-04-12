@@ -35,6 +35,8 @@
 (defrecord ASTWalkerVM
   [blocked      ; boolean, true if blocked
    bridge       ; explicit host-side FFI bridge state
+   in-stream    ; ingress DaoStream carrying AST programs
+   in-cursor    ; ingress cursor position
    halted       ; boolean, true when active continuation has completed
    k            ; reified continuation or nil
    control      ; current AST node or nil
@@ -63,6 +65,8 @@
     (->ASTWalkerVM
       blocked
       (:bridge vm)
+      (:in-stream vm)
+      (:in-cursor vm)
       (and (not blocked) (nil? control) (nil? k))
       k
       control
@@ -685,45 +689,45 @@
     resume-from-run-queue))
 
 
-(defn- ast-walker-run
-  "Dispatcher: chooses fast path (hot loop) or slow path (scheduler)."
-  [vm]
-  (if (or (telemetry/enabled? vm)
-          (:blocked vm)
-          (:halted vm)
-          (seq (:run-queue vm))
-          (seq (:wait-set vm)))
-    (ast-walker-run-scheduler vm)
-    (ast-walker-run-active-continuation
-      vm (:control vm) (:env vm) (:k vm) (:value vm))))
-
-
 (defn- vm-eval
   "Evaluate an AST. Owns the step loop with scheduler.
    When ast is non-nil, loads it first. When nil, resumes from current state."
   [^ASTWalkerVM vm ast]
-  (let [v (if ast (vm-load-program vm ast) vm)
-        run-loaded
-        (fn [state]
-          (let [result (ast-walker-run state)]
-            ;; Fast path may yield a blocked state immediately after parking.
-            ;; Re-enter scheduler once so idle handlers (wait-set/FFI) can run.
-            (if (:blocked result)
-              (ast-walker-run-scheduler result)
-              result)))]
-    (host-ffi/maybe-run v run-loaded)))
+  (if ast
+    (-> vm
+        (vm/load-program ast)
+        (vm/run))
+    (vm/run vm)))
+
+
+(defn- ast-walker-run-on-stream
+  [vm]
+  (engine/run-on-stream vm
+                        (:in-stream vm)
+                        vm/ingest-program
+                        (if (telemetry/enabled? vm)
+                          (fn [state]
+                            (telemetry/emit-snapshot (vm-step state) :step))
+                          vm-step)
+                        resume-from-run-queue))
+
+
+(defmethod vm/ingest-program :ast-walker
+  [vm program]
+  (vm-load-program vm program))
 
 
 (extend-type ASTWalkerVM
   vm/IVMStep
-  (step [vm] (telemetry/emit-snapshot (vm-step vm) :step))
+  (step [vm]
+    (telemetry/emit-snapshot
+      (engine/step-on-stream vm (:in-stream vm) vm/ingest-program vm-step)
+      :step))
   (halted? [vm] (vm-halted? vm))
   (blocked? [vm] (vm-blocked? vm))
   (value [vm] (vm-value vm))
   vm/IVMRun
-  (run [vm] (vm/eval vm nil))
-  vm/IVMLoad
-  (load-program [vm program] (vm-load-program vm program))
+  (run [vm] (host-ffi/maybe-run vm ast-walker-run-on-stream))
   vm/IVMEval
   (eval [vm ast] (vm-eval vm ast))
   vm/IVMState
@@ -748,9 +752,12 @@
          base (vm/empty-state {:primitives (:primitives opts)
                                :telemetry (:telemetry opts)
                                :vm-model :ast-walker})
-         bridge-state (host-ffi/bridge-from-opts opts)]
+         bridge-state (host-ffi/bridge-from-opts opts)
+         in-stream (or (:in-stream opts) (vm/make-ingress-stream))]
      (-> (map->ASTWalkerVM (merge base
                                   {:bridge bridge-state,
+                                   :in-stream in-stream,
+                                   :in-cursor {:position 0},
                                    :control nil,
                                    :env env,
                                    :k nil,

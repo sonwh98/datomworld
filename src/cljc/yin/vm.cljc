@@ -7,7 +7,8 @@
     [dao.stream :as ds]
     #?(:clj [dao.stream.transport.ringbuffer])
     #?(:cljs [dao.stream.transport.ringbuffer])
-    #?(:cljd [dao.stream.transport.ringbuffer :as ringbuffer])))
+    #?(:cljd [dao.stream.transport.ringbuffer :as ringbuffer])
+    [yin.vm.stream-driver :as stream-driver]))
 
 
 ;; =============================================================================
@@ -59,22 +60,6 @@
   (reset
     [vm]
     "Reset execution state to a known initial state, preserving loaded program."))
-
-
-(defprotocol IVMLoad
-  "Load program into VM protocol."
-
-  (load-program
-    [vm program]
-    "Load a program into the VM. Program format is VM-specific:
-     - ASTWalkerVM: AST map
-     - RegisterVM: {:node root-id :datoms [...]}
-     - StackVM: {:node root-id :datoms [...]}
-     - SemanticVM: {:node root-id :datoms [...]}
-     Macro expansion (if a macro-registry is set on the VM) runs automatically
-     inside load-program for register/stack/semantic. No per-call opts are
-     exposed; expansion behaviour is a VM-instance invariant, not a call-site
-     decision. Returns new VM with program loaded."))
 
 
 (defprotocol IVMState
@@ -151,6 +136,40 @@
 (def call-out-cursor-key
   "Store key for the shared dao.stream.apply outbound stream cursor."
   :yin/call-out-cursor)
+
+
+(defn make-ingress-stream
+  "Create the default in-process DaoStream used for VM ingress."
+  []
+  #?(:cljd (ringbuffer/make-ring-buffer-stream nil)
+     :default (ds/open! {:transport {:type :ringbuffer
+                                     :mode :create
+                                     :capacity nil}})))
+
+
+(defmulti ingest-program
+  "VM-specific program ingestion function used by the shared stream driver."
+  (fn [vm _program] (:vm-model vm)))
+
+
+(defn load-program
+  "Synchronously ingest one program batch using the same DaoStream mechanics as
+   the live ingress path, while leaving the VM's long-lived :in-stream intact.
+   External producers should write directly to :in-stream."
+  [vm program]
+  (let [live-in-stream (:in-stream vm)
+        live-in-cursor (:in-cursor vm)
+        temp-in-stream (make-ingress-stream)
+        temp-vm (assoc vm
+                       :in-stream temp-in-stream
+                       :in-cursor {:position 0})]
+    (when-not live-in-stream
+      (throw (ex-info "VM does not expose an :in-stream for program ingress"
+                      {:vm-model (:vm-model vm)})))
+    (ds/put! temp-in-stream program)
+    (-> (:state (stream-driver/ingest-next-program temp-vm temp-in-stream ingest-program))
+        (assoc :in-stream live-in-stream
+               :in-cursor live-in-cursor))))
 
 
 ;; =============================================================================
@@ -564,13 +583,8 @@
    :primitives map, :run-queue [], :wait-set [], and shared telemetry counters."
   ([] (empty-state {}))
   ([opts]
-   (let [open-ringbuffer (fn []
-                           #?(:cljd (ringbuffer/make-ring-buffer-stream nil)
-                              :default (ds/open! {:transport {:type :ringbuffer
-                                                              :mode :create
-                                                              :capacity nil}})))
-         call-in (or (:call-in opts) (open-ringbuffer))
-         call-out (or (:call-out opts) (open-ringbuffer))]
+   (let [call-in (or (:call-in opts) (make-ingress-stream))
+         call-out (or (:call-out opts) (make-ingress-stream))]
      {:store
       {call-in-stream-key  call-in
        call-in-cursor-key  {:stream-id call-in-stream-key, :position 0}

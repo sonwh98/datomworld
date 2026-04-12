@@ -4,6 +4,7 @@
     [dao.stream :as ds]
     [yin.module :as module]
     [yin.stream :as stream]
+    [yin.vm.stream-driver :as stream-driver]
     [yin.vm.telemetry :as telemetry]))
 
 
@@ -50,6 +51,15 @@
   "Returns true when the currently active continuation should keep stepping."
   [vm]
   (and (not (:blocked vm)) (not (:halted vm))))
+
+
+(def ready-for-ingress? stream-driver/ready-for-ingress?)
+
+
+(def ingest-next-program stream-driver/ingest-next-program)
+
+
+(def step-on-stream stream-driver/step-on-stream)
 
 
 (defn make-woken-run-queue-entries
@@ -196,6 +206,23 @@
           :else (if (:halted v)
                   (telemetry/emit-snapshot v :halt)
                   v))))
+
+
+(defn run-on-stream
+  "Run a VM while polling its ingress DaoStream between evaluations.
+   Internal VM blocking still returns immediately; ingress polling only happens
+   when the VM is idle between program batches."
+  [vm in-stream ingest-fn step-fn resume-fn]
+  (loop [v vm]
+    (if (ready-for-ingress? v)
+      (let [{:keys [status state]} (ingest-next-program v in-stream ingest-fn)]
+        (case status
+          :ok (recur state)
+          state))
+      (let [v' (run-loop v active-continuation? step-fn resume-fn)]
+        (if (and (not (:blocked v')) (ready-for-ingress? v'))
+          (recur v')
+          v')))))
 
 
 (defn- resume-entries-with-nil

@@ -39,6 +39,8 @@
 (defrecord RegisterVM
   [blocked    ; true if blocked
    bridge     ; explicit host-side FFI bridge state
+   in-stream  ; ingress DaoStream carrying canonical datom programs
+   in-cursor  ; ingress cursor position
    bytecode   ; numeric bytecode vector
    compiled-by-version ; {program-version -> compiled artifact}
    compiled-cache-limit ; max retained compiled artifacts
@@ -1415,20 +1417,6 @@
           (fallback))))))
 
 
-(defn- reg-vm-run
-  [vm]
-  ;; Boundary recompilation requires scheduler checkpoints when dirty.
-  (if (or (telemetry/enabled? vm)
-          (:compile-dirty? vm)
-          (:blocked vm)
-          (:halted vm)
-          (seq (:run-queue vm))
-          (seq (:wait-set vm))
-          (nil? (:bytecode vm)))
-    (reg-vm-run-scheduler vm)
-    (reg-vm-run-active-continuation vm)))
-
-
 ;; =============================================================================
 ;; RegisterVM Protocol Implementation
 ;; =============================================================================
@@ -1505,26 +1493,45 @@
    canonical {:node :datoms} path.
    When nil, resumes from current state."
   [^RegisterVM vm ast]
-  (let [v (if ast
-            (let [datoms (vec (vm/ast->datoms ast))
-                  root-id (apply max (map first datoms))]
-              (reg-vm-load-program vm {:node root-id, :datoms datoms}))
-            vm)]
-    (host-ffi/maybe-run v reg-vm-run)))
+  (if ast
+    (let [datoms (vec (vm/ast->datoms ast))
+          root-id (apply max (map first datoms))]
+      (-> vm
+          (vm/load-program {:node root-id, :datoms datoms})
+          (vm/run)))
+    (vm/run vm)))
+
+
+(defn- reg-vm-run-on-stream
+  [vm]
+  (engine/run-on-stream vm
+                        (:in-stream vm)
+                        vm/ingest-program
+                        (if (telemetry/enabled? vm)
+                          (fn [state]
+                            (telemetry/emit-snapshot (reg-vm-step state) :step))
+                          reg-vm-step)
+                        resume-from-run-queue))
+
+
+(defmethod vm/ingest-program :register
+  [vm program]
+  (reg-vm-load-program vm program))
 
 
 (extend-type RegisterVM
   vm/IVMStep
-  (step [vm] (telemetry/emit-snapshot (reg-vm-step vm) :step))
+  (step [vm]
+    (telemetry/emit-snapshot
+      (engine/step-on-stream vm (:in-stream vm) vm/ingest-program reg-vm-step)
+      :step))
   (halted? [vm] (reg-vm-halted? vm))
   (blocked? [vm] (reg-vm-blocked? vm))
   (value [vm] (reg-vm-value vm))
   vm/IVMRun
-  (run [vm] (vm/eval vm nil))
+  (run [vm] (host-ffi/maybe-run vm reg-vm-run-on-stream))
   vm/IVMReset
   (reset [vm] (reg-vm-reset vm))
-  vm/IVMLoad
-  (load-program [vm program] (reg-vm-load-program vm program))
   vm/IVMEval
   (eval [vm ast] (reg-vm-eval vm ast))
   vm/IVMState
@@ -1547,11 +1554,14 @@
   ([opts]
    (let [env (or (:env opts) {})
          bridge-state (host-ffi/bridge-from-opts opts)
+         in-stream (or (:in-stream opts) (vm/make-ingress-stream))
          base (vm/empty-state {:primitives (:primitives opts)
                                :telemetry (:telemetry opts)
                                :vm-model :register})]
      (-> (map->RegisterVM (merge base
-                                 {:regs [],
+                                 {:in-stream in-stream,
+                                  :in-cursor {:position 0},
+                                  :regs [],
                                   :k nil,
                                   :env env,
                                   :control 0,

@@ -524,10 +524,6 @@
   vm/IVMRun
   (run [vm] (vm/eval vm nil))
 
-  vm/IVMLoad
-  (load-program [_vm _program]
-    (throw (ex-info "wasm/load-program: v1 is eval-only" {})))
-
   vm/IVMEval
   (eval [vm ast] (wasm-eval vm ast))
 
