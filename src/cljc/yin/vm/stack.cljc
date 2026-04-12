@@ -445,7 +445,7 @@
         [vm' artifact]))))
 
 
-(defn- maybe-recompile-at-boundary
+(defn maybe-recompile-at-boundary
   "Compile the current canonical program version if dirty.
    Called at explicit dispatch boundaries only."
   [vm]
@@ -1413,6 +1413,21 @@
   (engine/vm-value vm))
 
 
+(defn- stack-vm-reset
+  "Reset StackVM execution state to initial baseline, preserving loaded program."
+  [^StackVM vm]
+  (if-let [artifact (get-in vm [:compiled-by-version
+                                (:active-compiled-version vm)])]
+    (activate-compiled-artifact vm artifact)
+    (assoc vm
+           :stack []
+           :k nil
+           :control (when (seq (:bytecode vm)) 0)
+           :halted (empty? (:bytecode vm))
+           :value nil
+           :blocked false)))
+
+
 (defn- stack-vm-load-canonical-program
   "Load canonical datom-form program into the VM.
    Runs macro expansion before bytecode compilation if macro-registry is set."
@@ -1436,14 +1451,11 @@
 
 
 (defn- stack-vm-load-program
-  "Load a program into the Stack VM.
-   Expects canonical form: {:node root-id :datoms [...]}."
-  [^StackVM vm program]
-  (if (canonical-program? program)
-    (stack-vm-load-canonical-program vm program)
-    (throw (ex-info "Unsupported stack program form"
-                    {:expected {:node :datoms},
-                     :program program}))))
+  "Load one datom transaction into the Stack VM."
+  [^StackVM vm datoms]
+  (let [d (vec datoms)
+        root-id (:root-id (vm/index-datoms d))]
+    (stack-vm-load-canonical-program vm {:node root-id :datoms d})))
 
 
 (defn- stack-vm-eval
@@ -1453,10 +1465,9 @@
    When nil, resumes from current state."
   [^StackVM vm ast]
   (if ast
-    (let [datoms (vec (vm/ast->datoms ast))
-          root-id (apply max (map first datoms))]
+    (let [datoms (vec (vm/ast->datoms ast))]
       (-> vm
-          (vm/load-program {:node root-id, :datoms datoms})
+          (stack-vm-load-program datoms)
           (vm/run)))
     (vm/run vm)))
 
@@ -1465,7 +1476,7 @@
   [vm]
   (engine/run-on-stream vm
                         (:in-stream vm)
-                        vm/ingest-program
+                        stack-vm-load-program
                         (if (telemetry/enabled? vm)
                           (fn [state]
                             (telemetry/emit-snapshot (stack-step state) :step))
@@ -1473,24 +1484,18 @@
                         resume-from-run-queue))
 
 
-(defmethod vm/ingest-program :stack
-  [vm program]
-  (stack-vm-load-program vm program))
-
-
 (extend-type StackVM
-  vm/IVMStep
+  vm/IVM
   (step [vm]
     (telemetry/emit-snapshot
-      (engine/step-on-stream vm (:in-stream vm) vm/ingest-program stack-step)
+      (engine/step-on-stream vm (:in-stream vm) stack-vm-load-program stack-step)
       :step))
+  (run [vm] (host-ffi/maybe-run vm stack-vm-run-on-stream))
+  (eval [vm ast] (stack-vm-eval vm ast))
+  (reset [vm] (stack-vm-reset vm))
   (halted? [vm] (stack-vm-halted? vm))
   (blocked? [vm] (stack-vm-blocked? vm))
   (value [vm] (stack-vm-value vm))
-  vm/IVMRun
-  (run [vm] (host-ffi/maybe-run vm stack-vm-run-on-stream))
-  vm/IVMEval
-  (eval [vm ast] (stack-vm-eval vm ast))
   vm/IVMState
   (control [vm] {:control (:control vm), :bytecode (:bytecode vm)})
   (environment [vm] (:env vm))
@@ -1511,14 +1516,14 @@
   ([opts]
    (let [env (or (:env opts) {})
          bridge-state (host-ffi/bridge-from-opts opts)
-         in-stream (or (:in-stream opts) (vm/make-ingress-stream))
+         in-stream (:in-stream opts)
          base (vm/empty-state {:primitives (:primitives opts)
                                :telemetry (:telemetry opts)
                                :vm-model :stack})]
      (-> (map->StackVM (merge base
                               {:in-stream in-stream,
                                :in-cursor {:position 0},
-                               :control 0,
+                               :control nil,
                                :bytecode [],
                                :stack [],
                                :env env,
@@ -1534,7 +1539,7 @@
                                :program-datoms [],
                                :program-version 0,
                                :program-index nil,
-                               :halted false,
+                               :halted true,
                                :value nil,
                                :blocked false}
                               (when bridge-state

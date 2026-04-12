@@ -12,6 +12,8 @@
     [clojure.walk :as walk]
     [dao.db :as dao.db]
     [dao.db.datascript :as ds-db]
+    [dao.stream :as ds]
+    [dao.stream.transport.ringbuffer]
     [reagent.core :as r]
     [yang.clojure :as yang]
     [yang.php :as php-comp]
@@ -535,28 +537,39 @@
   (set-vm-state! app-state vm-key nil))
 
 
+(defn- queue-vm-state
+  "Attach a fresh ingress stream to a VM and queue one or more datom
+   transactions on it. Each element of `txns` is a vector of datoms
+   representing a single program form / transaction."
+  [vm-state txns]
+  (let [in-stream (ds/open! {:transport {:type :ringbuffer
+                                         :capacity nil}})
+        queued-state (assoc vm-state
+                            :in-stream in-stream
+                            :in-cursor {:position 0})]
+    (doseq [tx txns]
+      (ds/put! in-stream (vec tx)))
+    (assoc queued-state :halted false)))
+
+
 (defn load-stack-state
-  [root-id datoms]
-  (-> (stack/create-vm)
-      (vm/load-program {:node root-id, :datoms datoms})))
+  [root-id datom-groups]
+  (queue-vm-state (stack/create-vm) datom-groups))
 
 
 (defn load-register-state
-  [root-id datoms]
-  (-> (register/create-vm)
-      (vm/load-program {:node root-id, :datoms datoms})))
+  [root-id datom-groups]
+  (queue-vm-state (register/create-vm) datom-groups))
 
 
 (defn load-semantic-state
-  [root-id datoms]
-  (-> (semantic/create-vm)
-      (vm/load-program {:node root-id, :datoms datoms})))
+  [root-id datom-groups]
+  (queue-vm-state (semantic/create-vm) datom-groups))
 
 
 (defn load-walker-state
   [ast]
-  (-> (walker/create-vm)
-      (vm/load-program ast)))
+  (queue-vm-state (walker/create-vm) [(vm/ast->datoms ast)]))
 
 
 (defn compile-stack
@@ -577,7 +590,7 @@
              last-result (last results)
              initial-state (when last-result
                              (load-stack-state (:root-id last-result)
-                                               (:datoms last-result)))]
+                                               (mapv :datoms results)))]
          (swap! app-state assoc
                 :stack-asm (mapv :asm results)
                 :stack-datoms (mapv :datoms results)
@@ -602,10 +615,10 @@
 (defn reset-stack
   "Reset stack VM to initial state from canonical datom program."
   [app-state]
-  (let [datoms (last (:stack-datoms @app-state))
+  (let [datom-groups (:stack-datoms @app-state)
         root-id (last (:stack-root-ids @app-state))]
-    (when (and datoms root-id)
-      (let [initial-state (load-stack-state root-id datoms)]
+    (when (and (seq datom-groups) root-id)
+      (let [initial-state (load-stack-state root-id datom-groups)]
         (set-vm-state! app-state :stack initial-state)
         (swap! app-state assoc :stack-result nil)))))
 
@@ -704,9 +717,10 @@
                  :literals (count (semantic/find-by-type dao-db :literal))}
           last-root (last root-eids)
           initial-state (when last-root
-                          (load-semantic-state last-root all-datoms))]
+                          (load-semantic-state last-root all-datom-groups))]
       (swap! app-state assoc
              :datoms all-datoms
+             :datom-groups all-datom-groups
              :dao-db dao-db
              :root-ids root-ids
              :root-eids root-eids
@@ -718,6 +732,7 @@
       (swap! app-state assoc
              :error (.-message e)
              :datoms nil
+             :datom-groups nil
              :dao-db nil
              :root-ids nil
              :semantic-stats nil)
@@ -728,11 +743,11 @@
 (defn reset-semantic
   "Reset semantic VM to initial state."
   [app-state]
-  (let [datoms (:datoms @app-state)
+  (let [datom-groups (:datom-groups @app-state)
         root-ids (or (:root-eids @app-state) (:root-ids @app-state))
         last-root (last root-ids)]
-    (when (and datoms last-root)
-      (let [initial-state (load-semantic-state last-root datoms)]
+    (when (and (seq datom-groups) last-root)
+      (let [initial-state (load-semantic-state last-root datom-groups)]
         (set-vm-state! app-state :semantic initial-state)
         (swap! app-state assoc :semantic-result nil)))))
 
@@ -793,7 +808,7 @@
           last-result (last results)
           initial-state (when last-result
                           (load-register-state (:root-id last-result)
-                                               (:datoms last-result)))]
+                                               (mapv :datoms results)))]
       (swap! app-state assoc
              :register-asm (mapv :asm results)
              :register-datoms (mapv :datoms results)
@@ -819,13 +834,13 @@
 (defn reset-register
   "Reset register VM to initial state from canonical datom program."
   [app-state]
-  (let [datoms (last (:register-datoms @app-state))
+  (let [datom-groups (:register-datoms @app-state)
         root-id (last (:register-root-ids @app-state))
         state (get-in @app-state [:vm-states :register :state])]
-    (when (and datoms root-id)
-      (let [initial-state (if (and state (satisfies? vm/IVMReset state))
+    (when (and (seq datom-groups) root-id)
+      (let [initial-state (if (and state (satisfies? vm/IVM state))
                             (vm/reset state)
-                            (load-register-state root-id datoms))]
+                            (load-register-state root-id datom-groups))]
         (set-vm-state! app-state :register initial-state)
         (swap! app-state assoc :register-result nil)))))
 
@@ -1030,7 +1045,7 @@
         running (:running vm-state)
         state (:state vm-state)
         halted (when state
-                 (try (if (satisfies? vm/IVMStep state)
+                 (try (if (satisfies? vm/IVM state)
                         (vm/halted? state)
                         (or (:halted state) false))
                       (catch js/Error _ (or (:halted state) false))))]

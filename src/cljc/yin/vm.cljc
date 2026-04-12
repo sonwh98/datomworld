@@ -7,8 +7,7 @@
     [dao.stream :as ds]
     #?(:clj [dao.stream.transport.ringbuffer])
     #?(:cljs [dao.stream.transport.ringbuffer])
-    #?(:cljd [dao.stream.transport.ringbuffer :as ringbuffer])
-    [yin.vm.stream-driver :as stream-driver]))
+    #?(:cljd [dao.stream.transport.ringbuffer :as ringbuffer])))
 
 
 ;; =============================================================================
@@ -16,12 +15,24 @@
 ;; =============================================================================
 ;; Common VM interfaces implemented by all execution engines.
 
-(defprotocol IVMStep
-  "Single-step VM execution protocol."
+(defprotocol IVM
+  "Unified VM protocol for execution, evaluation, and observable state."
 
   (step
     [vm]
-    "Execute one step of the VM. Returns updated VM.")
+    "Execute one step of the VM. Reads from :in-stream if idle.")
+
+  (run
+    [vm]
+    "Run VM until halted or blocked.")
+
+  (eval
+    [vm ast]
+    "Compile and evaluate an AST.")
+
+  (reset
+    [vm]
+    "Reset execution state to a known initial state, preserving loaded program.")
 
   (halted?
     [vm]
@@ -34,32 +45,6 @@
   (value
     [vm]
     "Returns the current result value, or nil if not yet computed."))
-
-
-(defprotocol IVMRun
-  "Run VM to completion protocol."
-
-  (run
-    [vm]
-    "Run VM until halted or blocked. Returns final VM state."))
-
-
-(defprotocol IVMEval
-  "Evaluate an AST to a value."
-
-  (eval
-    [vm ast]
-    "Load and evaluate an AST, running the VM to completion.
-     Returns the final VM state (from which value can be extracted),
-     or a blocked VM state if execution parks."))
-
-
-(defprotocol IVMReset
-  "Reset VM execution protocol."
-
-  (reset
-    [vm]
-    "Reset execution state to a known initial state, preserving loaded program."))
 
 
 (defprotocol IVMState
@@ -138,38 +123,13 @@
   :yin/call-out-cursor)
 
 
-(defn make-ingress-stream
-  "Create the default in-process DaoStream used for VM ingress."
+(defn- open-local-stream
+  "Create an in-process DaoStream for VM-local request/response plumbing."
   []
   #?(:cljd (ringbuffer/make-ring-buffer-stream nil)
      :default (ds/open! {:transport {:type :ringbuffer
                                      :mode :create
                                      :capacity nil}})))
-
-
-(defmulti ingest-program
-  "VM-specific program ingestion function used by the shared stream driver."
-  (fn [vm _program] (:vm-model vm)))
-
-
-(defn load-program
-  "Synchronously ingest one program batch using the same DaoStream mechanics as
-   the live ingress path, while leaving the VM's long-lived :in-stream intact.
-   External producers should write directly to :in-stream."
-  [vm program]
-  (let [live-in-stream (:in-stream vm)
-        live-in-cursor (:in-cursor vm)
-        temp-in-stream (make-ingress-stream)
-        temp-vm (assoc vm
-                       :in-stream temp-in-stream
-                       :in-cursor {:position 0})]
-    (when-not live-in-stream
-      (throw (ex-info "VM does not expose an :in-stream for program ingress"
-                      {:vm-model (:vm-model vm)})))
-    (ds/put! temp-in-stream program)
-    (-> (:state (stream-driver/ingest-next-program temp-vm temp-in-stream ingest-program))
-        (assoc :in-stream live-in-stream
-               :in-cursor live-in-cursor))))
 
 
 ;; =============================================================================
@@ -583,8 +543,8 @@
    :primitives map, :run-queue [], :wait-set [], and shared telemetry counters."
   ([] (empty-state {}))
   ([opts]
-   (let [call-in (or (:call-in opts) (make-ingress-stream))
-         call-out (or (:call-out opts) (make-ingress-stream))]
+   (let [call-in (or (:call-in opts) (open-local-stream))
+         call-out (or (:call-out opts) (open-local-stream))]
      {:store
       {call-in-stream-key  call-in
        call-in-cursor-key  {:stream-id call-in-stream-key, :position 0}

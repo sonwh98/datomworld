@@ -1,6 +1,8 @@
 (ns datomworld.main
   (:require ["package:flutter/material.dart" :as m]
             [clojure.edn :as edn]
+            [dao.stream :as ds]
+            [dao.stream.transport.ringbuffer :as ringbuffer]
             [yang.clojure :as yang]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]))
@@ -13,10 +15,18 @@
  :operands [{:type :literal :value 30}
             {:type :literal :value 20}]}")
 
+(defn- queue-vm
+  [vm-state datoms]
+  (let [in-stream (ringbuffer/make-ring-buffer-stream nil)
+        queued-vm (assoc vm-state :in-stream in-stream :in-cursor {:position 0})]
+    (ds/put! in-stream (vec datoms))
+    queued-vm))
+
+
 (defn compile-and-run
   [ast]
   (-> (ast-walker/create-vm)
-      (vm/load-program ast)
+      (queue-vm (vm/ast->datoms ast))
       (vm/run)
       (vm/value)))
 

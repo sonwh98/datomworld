@@ -212,17 +212,21 @@
   "Run a VM while polling its ingress DaoStream between evaluations.
    Internal VM blocking still returns immediately; ingress polling only happens
    when the VM is idle between program batches."
-  [vm in-stream ingest-fn step-fn resume-fn]
+  [vm in-stream load-fn step-fn resume-fn]
   (loop [v vm]
-    (if (ready-for-ingress? v)
-      (let [{:keys [status state]} (ingest-next-program v in-stream ingest-fn)]
+    (if (and in-stream (ready-for-ingress? v))
+      (let [{:keys [status state]} (ingest-next-program v in-stream load-fn)]
         (case status
           :ok (recur state)
           state))
-      (let [v' (run-loop v active-continuation? step-fn resume-fn)]
-        (if (and (not (:blocked v')) (ready-for-ingress? v'))
-          (recur v')
-          v')))))
+      (if (ready-for-ingress? v)
+        v
+        (let [v' (run-loop v active-continuation? step-fn resume-fn)]
+          (if (and in-stream
+                   (not (:blocked v'))
+                   (ready-for-ingress? v'))
+            (recur v')
+            v'))))))
 
 
 (defn- resume-entries-with-nil

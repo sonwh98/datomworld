@@ -7,6 +7,8 @@
     ["codemirror" :refer [basicSetup]]
     [cljs.reader :as reader]
     [clojure.string :as str]
+    [dao.stream :as ds]
+    [dao.stream.transport.ringbuffer]
     [reagent.core :as r]
     [yang.clojure :as yang]
     [yin.vm :as vm]
@@ -213,10 +215,16 @@
 
 (defn- ast->program
   [ast]
-  (let [datoms (vec (vm/ast->datoms ast))
-        root-id (apply max (map first datoms))]
-    {:node root-id
-     :datoms datoms}))
+  {:datoms (vec (vm/ast->datoms ast))})
+
+
+(defn- queue-vm
+  [vm-state datoms]
+  (let [in-stream (ds/open! {:transport {:type :ringbuffer
+                                         :capacity nil}})
+        queued-vm (assoc vm-state :in-stream in-stream :in-cursor {:position 0})]
+    (ds/put! in-stream (vec datoms))
+    queued-vm))
 
 
 (defn compile!
@@ -259,13 +267,14 @@
       (when-not program
         (throw (ex-info "Nothing compiled. Click Compile first." {})))
       (clear-plot!)
-      (let [points* (volatile! [])
+      (let [{:keys [datoms]} program
+            points* (volatile! [])
             call-count* (volatile! 0)
             bridge-handlers {:plot/point (make-plot-handler points* call-count*)}
-            vm-instance (register/create-vm
-                          {:primitives (merge vm/primitives math-primitives)
-                           :bridge bridge-handlers})
-            vm-loaded (vm/load-program vm-instance program)
+            vm-loaded (queue-vm (register/create-vm
+                                  {:primitives (merge vm/primitives math-primitives)
+                                   :bridge bridge-handlers})
+                                datoms)
             result-vm (vm/run vm-loaded)]
         (flush-plot-batch! points* call-count*)
         (swap! app-state assoc

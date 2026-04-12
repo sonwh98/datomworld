@@ -13,6 +13,28 @@
 ;; Stack VM tests (full pipeline through numeric bytecode via protocols)
 ;; =============================================================================
 
+(defn- ensure-program-stream
+  [vm-state]
+  (if (:in-stream vm-state)
+    vm-state
+    (assoc vm-state
+           :in-stream (ds/open! {:transport {:type :ringbuffer
+                                             :capacity nil}})
+           :in-cursor {:position 0})))
+
+
+(defn- queue-program!
+  [vm-state {:keys [datoms]}]
+  (let [vm-state' (ensure-program-stream vm-state)]
+    (ds/put! (:in-stream vm-state') (vec datoms))
+    (assoc vm-state' :halted false)))
+
+
+(defn- queue-ast!
+  [vm-state ast]
+  (queue-program! vm-state {:datoms (vm/ast->datoms ast)}))
+
+
 (defn- bridge-step
   [vm handlers cursor]
   (let [call-in (get (vm/store vm) vm/call-in-stream-key)
@@ -37,22 +59,15 @@
 (defn compile-and-run
   "Compile AST to datoms and run to completion."
   [ast]
-  (let [datoms (vec (vm/ast->datoms ast))
-        root-id (apply max (map first datoms))
-        vm (stack/create-vm)]
-    (-> vm
-        (vm/load-program {:node root-id, :datoms datoms})
-        (vm/run)
-        (vm/value))))
+  (-> (queue-ast! (stack/create-vm) ast)
+      (vm/run)
+      (vm/value)))
 
 
 (defn- load-ast
-  "Compile and load AST into a Stack VM without running it."
+  "Queue an AST on a Stack VM ingress stream."
   [ast]
-  (let [datoms (vec (vm/ast->datoms ast))
-        root-id (apply max (map first datoms))]
-    (-> (stack/create-vm)
-        (vm/load-program {:node root-id, :datoms datoms}))))
+  (queue-ast! (stack/create-vm) ast))
 
 
 (defn- ast->program
@@ -90,12 +105,11 @@
       (is (contains? (vm/store vm) vm/call-out-cursor-key))
       (is (nil? (:call-stack vm)))
       (is (empty? (vm/continuation vm)))))
-  (testing "After load-program, control has bytecode"
+  (testing "Queued ingress is consumed on run"
     (let [vm (load-ast {:type :literal, :value 42})
-          ctrl (vm/control vm)]
-      (is (= 0 (:control ctrl)))
-      (is (nil? (:call-stack vm)))
-      (is (seq (:bytecode ctrl)))))
+          result (vm/run vm)]
+      (is (= {:position 1} (:in-cursor result)))
+      (is (= 42 (vm/value result)))))
   (testing "After run, continuation is empty and store is empty"
     (let [vm (-> (load-ast {:type :literal, :value 42})
                  (vm/run))]
@@ -137,8 +151,7 @@
                                  :operator {:type :variable, :name '+},
                                  :operands [{:type :literal, :value 10}
                                             {:type :literal, :value 20}]})
-          result (-> (stack/create-vm)
-                     (vm/load-program program)
+          result (-> (queue-program! (stack/create-vm) program)
                      (vm/run))]
       (is (vm/halted? result))
       (is (= 30 (vm/value result)))
@@ -395,13 +408,14 @@
                                                {:type :literal, :value 2}]})
           program-v2 (ast->program {:type :literal, :value 42})
           vm0 (-> (stack/create-vm)
-                  (vm/load-program program-v1))
+                  (queue-program! program-v1)
+                  (vm/step))
           vm1 (stack/append-program-datoms vm0
                                            (:datoms program-v2)
                                            (:node program-v2))
           vm2 (step-until-halt vm1)
-          vm3 (vm/load-program vm2 {:node (:program-root-eid vm2),
-                                    :datoms (:program-datoms vm2)})
+          vm3 (queue-program! vm2 {:node (:program-root-eid vm2),
+                                   :datoms (:program-datoms vm2)})
           vm4 (vm/run vm3)]
       (is (= 3 (vm/value vm2)))
       (is (= 2 (:program-version vm2)))
@@ -415,13 +429,19 @@
           program-v2 (ast->program {:type :literal, :value 2})
           program-v3 (ast->program {:type :literal, :value 3})
           vm0 (stack/create-vm {:compiled-cache-limit 1})
-          vm1 (vm/load-program vm0 program-v1)
+          vm1 (-> (queue-program! vm0 program-v1)
+                  (vm/step))
           ;; Pin version 1 through a runnable continuation entry.
           vm1 (assoc vm1 :run-queue [{:type :call-frame, :compiled-version 1}])
-          vm2 (vm/load-program vm1 program-v2)
-          vm3 (vm/load-program vm2 program-v3)]
-      (is (= #{1 2} (set (keys (:compiled-by-version vm2)))))
-      (is (= #{1 3} (set (keys (:compiled-by-version vm3))))))))
+          vm2 (stack/maybe-recompile-at-boundary
+                (stack/append-program-datoms vm1
+                                             (:datoms program-v2)
+                                             (:node program-v2)))
+          vm3 (stack/maybe-recompile-at-boundary
+                (stack/append-program-datoms vm2
+                                             (:datoms program-v3)
+                                             (:node program-v3)))]      (is (= #{1 2} (set (keys (:compiled-by-version vm2)))))
+         (is (= #{1 3} (set (keys (:compiled-by-version vm3))))))))
 
 
 ;; =============================================================================

@@ -1,6 +1,8 @@
 (ns yin.transport-test
   (:require
     [clojure.test :refer [deftest is testing]]
+    [dao.stream :as ds]
+    [dao.stream.transport.ringbuffer]
     [yin.content :as content]
     [yin.transport :as transport]
     [yin.vm :as vm]
@@ -11,6 +13,14 @@
 ;; AST Transport Tests
 ;; =============================================================================
 
+
+(defn- queue-vm
+  [vm-state datoms]
+  (let [in-stream (ds/open! {:transport {:type :ringbuffer
+                                         :capacity nil}})
+        queued-vm (assoc vm-state :in-stream in-stream :in-cursor {:position 0})]
+    (ds/put! in-stream (vec datoms))
+    queued-vm))
 
 
 (deftest export-import-roundtrip-test
@@ -38,10 +48,8 @@
                           {:type :literal, :value 20}]}
           original-datoms (vm/ast->datoms ast)
           exported (transport/export-ast original-datoms)
-          {:keys [datoms root-eid]} (transport/import-ast exported -3000 {})
-          vm (semantic/create-vm)
-          result (-> vm
-                     (vm/load-program {:node root-eid, :datoms datoms})
+          {:keys [datoms]} (transport/import-ast exported -3000 {})
+          result (-> (queue-vm (semantic/create-vm) datoms)
                      (vm/run)
                      (vm/value))]
       (is (= 30 result) "Imported AST evaluates to same result"))))
@@ -126,9 +134,7 @@
       (is (= canonical-root imported-root)
           "Materialized datoms produce same hash as canonical vector form")
       ;; Verify the imported datoms actually evaluate correctly
-      (let [vm (semantic/create-vm)
-            result (-> vm
-                       (vm/load-program {:node root-eid, :datoms datoms})
+      (let [result (-> (queue-vm (semantic/create-vm) datoms)
                        (vm/run)
                        (vm/value))]
         (is (= 3 result) "Imported materialized datoms evaluate correctly")))))
@@ -171,9 +177,8 @@
       ;; Inject the continuation state directly and resume with value 42
       ;; Expected: (+ 42 1) = 43
       (let [fresh-vm (semantic/create-vm)
-            loaded (vm/load-program fresh-vm
-                                    {:node (:root-eid ast-imported),
-                                     :datoms (:datoms ast-imported)})
+            loaded (-> (queue-vm fresh-vm (:datoms ast-imported))
+                       (vm/step))
             resumed (assoc loaded
                            :k (:k imported-cont)
                            :env (:env imported-cont)

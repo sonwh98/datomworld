@@ -39,6 +39,7 @@
    in-cursor    ; ingress cursor position
    halted       ; boolean, true when active continuation has completed
    k            ; reified continuation or nil
+   program      ; last ingested AST program
    control      ; current AST node or nil
    env          ; persistent lexical scope map
    id-counter   ; integer counter for unique IDs
@@ -69,6 +70,7 @@
       (:in-cursor vm)
       (and (not blocked) (nil? control) (nil? k))
       k
+      (:program vm)
       control
       env
       (:id-counter vm)
@@ -668,11 +670,25 @@
 
 
 (defn- vm-load-program
-  "Load an AST into the VM."
-  [^ASTWalkerVM vm ast]
+  "Load one datom transaction into the VM."
+  [^ASTWalkerVM vm datoms]
+  (let [ast (vm/datoms->ast datoms)]
+    (assoc vm
+           :program ast
+           :control ast
+           :halted false
+           :blocked false
+           :value nil)))
+
+
+(defn- vm-reset
+  "Reset execution state, preserving the loaded AST program."
+  [^ASTWalkerVM vm]
   (assoc vm
-         :control ast
-         :halted false
+         :control (:program vm)
+         :k nil
+         :halted (nil? (:program vm))
+         :value nil
          :blocked false))
 
 
@@ -695,7 +711,7 @@
   [^ASTWalkerVM vm ast]
   (if ast
     (-> vm
-        (vm/load-program ast)
+        (vm-load-program (vm/ast->datoms ast))
         (vm/run))
     (vm/run vm)))
 
@@ -704,7 +720,7 @@
   [vm]
   (engine/run-on-stream vm
                         (:in-stream vm)
-                        vm/ingest-program
+                        vm-load-program
                         (if (telemetry/enabled? vm)
                           (fn [state]
                             (telemetry/emit-snapshot (vm-step state) :step))
@@ -712,24 +728,18 @@
                         resume-from-run-queue))
 
 
-(defmethod vm/ingest-program :ast-walker
-  [vm program]
-  (vm-load-program vm program))
-
-
 (extend-type ASTWalkerVM
-  vm/IVMStep
+  vm/IVM
   (step [vm]
     (telemetry/emit-snapshot
-      (engine/step-on-stream vm (:in-stream vm) vm/ingest-program vm-step)
+      (engine/step-on-stream vm (:in-stream vm) vm-load-program vm-step)
       :step))
+  (run [vm] (host-ffi/maybe-run vm ast-walker-run-on-stream))
+  (eval [vm ast] (vm-eval vm ast))
+  (reset [vm] (vm-reset vm))
   (halted? [vm] (vm-halted? vm))
   (blocked? [vm] (vm-blocked? vm))
   (value [vm] (vm-value vm))
-  vm/IVMRun
-  (run [vm] (host-ffi/maybe-run vm ast-walker-run-on-stream))
-  vm/IVMEval
-  (eval [vm ast] (vm-eval vm ast))
   vm/IVMState
   (control [vm] (:control vm))
   (environment [vm] (:env vm))
@@ -753,11 +763,12 @@
                                :telemetry (:telemetry opts)
                                :vm-model :ast-walker})
          bridge-state (host-ffi/bridge-from-opts opts)
-         in-stream (or (:in-stream opts) (vm/make-ingress-stream))]
+         in-stream (:in-stream opts)]
      (-> (map->ASTWalkerVM (merge base
                                   {:bridge bridge-state,
                                    :in-stream in-stream,
                                    :in-cursor {:position 0},
+                                   :program nil,
                                    :control nil,
                                    :env env,
                                    :k nil,

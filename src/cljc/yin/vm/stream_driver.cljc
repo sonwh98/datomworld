@@ -21,16 +21,16 @@
 
 
 (defn ingest-next-program
-  "Poll one program batch from in-stream and hand it to ingest-fn.
+  "Poll one program batch from in-stream and hand it to load-fn.
    Returns {:status :ok|:blocked|:end :state vm'}."
-  [vm in-stream ingest-fn]
+  [vm in-stream load-fn]
   (let [cursor (or (:in-cursor vm) {:position 0})
         result (ds/next in-stream cursor)]
     (cond
       (map? result)
       (let [cursor' (:cursor result)
             vm' (-> (assoc vm :in-cursor cursor')
-                    (ingest-fn (:ok result))
+                    (load-fn (:ok result))
                     (assoc :in-cursor cursor'))]
         {:status :ok, :state vm'})
 
@@ -53,10 +53,16 @@
 
 (defn step-on-stream
   "If the VM is idle, ingest one pending program batch before executing a single step."
-  [vm in-stream ingest-fn step-fn]
-  (if (ready-for-ingress? vm)
-    (let [{:keys [status state]} (ingest-next-program vm in-stream ingest-fn)]
+  [vm in-stream load-fn step-fn]
+  (cond
+    (and in-stream (ready-for-ingress? vm))
+    (let [{:keys [status state]} (ingest-next-program vm in-stream load-fn)]
       (case status
         :ok (step-fn state)
         state))
+
+    (ready-for-ingress? vm)
+    vm
+
+    :else
     (step-fn vm)))

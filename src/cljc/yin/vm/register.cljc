@@ -471,7 +471,7 @@
         [vm' artifact]))))
 
 
-(defn- maybe-recompile-at-boundary
+(defn maybe-recompile-at-boundary
   "Compile the current canonical program version if dirty.
    Called at explicit dispatch boundaries only."
   [vm]
@@ -1448,8 +1448,8 @@
     (assoc vm
            :regs (vec (repeat (count (:regs vm)) nil))
            :k nil
-           :control 0
-           :halted false
+           :control (when (seq (:bytecode vm)) 0)
+           :halted (nil? (:bytecode vm))
            :value nil
            :blocked false)))
 
@@ -1477,14 +1477,11 @@
 
 
 (defn- reg-vm-load-program
-  "Load a program into the Register VM.
-   Expects canonical form: {:node root-id :datoms [...]}."
-  [^RegisterVM vm program]
-  (if (canonical-program? program)
-    (reg-vm-load-canonical-program vm program)
-    (throw (ex-info "Unsupported register program form"
-                    {:expected {:node :datoms},
-                     :program program}))))
+  "Load one datom transaction into the Register VM."
+  [^RegisterVM vm datoms]
+  (let [d (vec datoms)
+        root-id (:root-id (vm/index-datoms d))]
+    (reg-vm-load-canonical-program vm {:node root-id :datoms d})))
 
 
 (defn- reg-vm-eval
@@ -1494,10 +1491,9 @@
    When nil, resumes from current state."
   [^RegisterVM vm ast]
   (if ast
-    (let [datoms (vec (vm/ast->datoms ast))
-          root-id (apply max (map first datoms))]
+    (let [datoms (vec (vm/ast->datoms ast))]
       (-> vm
-          (vm/load-program {:node root-id, :datoms datoms})
+          (reg-vm-load-program datoms)
           (vm/run)))
     (vm/run vm)))
 
@@ -1506,7 +1502,7 @@
   [vm]
   (engine/run-on-stream vm
                         (:in-stream vm)
-                        vm/ingest-program
+                        reg-vm-load-program
                         (if (telemetry/enabled? vm)
                           (fn [state]
                             (telemetry/emit-snapshot (reg-vm-step state) :step))
@@ -1514,26 +1510,18 @@
                         resume-from-run-queue))
 
 
-(defmethod vm/ingest-program :register
-  [vm program]
-  (reg-vm-load-program vm program))
-
-
 (extend-type RegisterVM
-  vm/IVMStep
+  vm/IVM
   (step [vm]
     (telemetry/emit-snapshot
-      (engine/step-on-stream vm (:in-stream vm) vm/ingest-program reg-vm-step)
+      (engine/step-on-stream vm (:in-stream vm) reg-vm-load-program reg-vm-step)
       :step))
+  (run [vm] (host-ffi/maybe-run vm reg-vm-run-on-stream))
+  (eval [vm ast] (reg-vm-eval vm ast))
+  (reset [vm] (reg-vm-reset vm))
   (halted? [vm] (reg-vm-halted? vm))
   (blocked? [vm] (reg-vm-blocked? vm))
   (value [vm] (reg-vm-value vm))
-  vm/IVMRun
-  (run [vm] (host-ffi/maybe-run vm reg-vm-run-on-stream))
-  vm/IVMReset
-  (reset [vm] (reg-vm-reset vm))
-  vm/IVMEval
-  (eval [vm ast] (reg-vm-eval vm ast))
   vm/IVMState
   (control [vm] {:control (:control vm), :bytecode (:bytecode vm), :regs (:regs vm)})
   (environment [vm] (:env vm))
@@ -1554,7 +1542,7 @@
   ([opts]
    (let [env (or (:env opts) {})
          bridge-state (host-ffi/bridge-from-opts opts)
-         in-stream (or (:in-stream opts) (vm/make-ingress-stream))
+         in-stream (:in-stream opts)
          base (vm/empty-state {:primitives (:primitives opts)
                                :telemetry (:telemetry opts)
                                :vm-model :register})]
@@ -1564,7 +1552,7 @@
                                   :regs [],
                                   :k nil,
                                   :env env,
-                                  :control 0,
+                                  :control nil,
                                   :bytecode nil,
                                   :pool nil,
                                   :compiled-by-version {},
@@ -1577,7 +1565,7 @@
                                   :program-datoms [],
                                   :program-version 0,
                                   :program-index nil,
-                                  :halted false,
+                                  :halted true,
                                   :value nil,
                                   :blocked false}
                                  (when bridge-state

@@ -3,6 +3,8 @@
     [clojure.test :refer [deftest is testing]]
     [dao.db :as dao-db]
     [dao.db.in-memory :as in-m]
+    [dao.stream :as ds]
+    [dao.stream.transport.ringbuffer]
     [yin.vm :as vm]
     [yin.vm.semantic :as semantic]))
 
@@ -16,6 +18,15 @@
   [db eid attr]
   (:v (first (filter #(= attr (:a %))
                      (filter #(= eid (:e %)) (in-m/native-datoms db :eavt))))))
+
+
+(defn- queue-vm
+  [vm-state datoms]
+  (let [in-stream (ds/open! {:transport {:type :ringbuffer
+                                         :capacity nil}})
+        queued-vm (assoc vm-state :in-stream in-stream :in-cursor {:position 0})]
+    (ds/put! in-stream (vec datoms))
+    queued-vm))
 
 
 ;; =============================================================================
@@ -313,8 +324,8 @@
           all-datoms (mapv (fn [d] [(:e d) (:a d) (:v d) (:t d) (:m d)])
                            (in-m/native-datoms db :eavt))
           ;; Run SemanticVM
-          loaded-svm (-> (semantic/create-vm)
-                         (vm/load-program {:node actual-root :datoms all-datoms}))
+          loaded-svm (-> (queue-vm (semantic/create-vm) all-datoms)
+                         (vm/step))
           svm (vm/run loaded-svm)]
       (is (some? actual-root))
       (is (satisfies? dao-db/IDaoDB (:db loaded-svm))

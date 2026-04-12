@@ -1,6 +1,7 @@
 (ns yin.vm.parity-test
   (:require
     [clojure.test :refer [deftest is testing]]
+    [dao.stream :as ds]
     [dao.stream.transport.ringbuffer]
     [yin.vm :as vm]
     [yin.vm.ast-walker :as ast-walker]
@@ -19,10 +20,27 @@
     (.-capacity stream)))
 
 
+(defn- queue-vm
+  [vm-state datoms]
+  (let [in-stream (ds/open! {:transport {:type :ringbuffer
+                                         :capacity nil}})
+        queued-vm (assoc vm-state
+                         :in-stream in-stream
+                         :in-cursor {:position 0}
+                         :halted false)]
+    (ds/put! in-stream (vec datoms))
+    queued-vm))
+
+
+(defn- queue-ast
+  [vm-state ast]
+  (queue-vm vm-state (vm/ast->datoms ast)))
+
+
 (defn- ast-walker-stream-make-default-vm
   []
   (-> (ast-walker/create-vm)
-      (vm/load-program {:type :stream/make})
+      (queue-ast {:type :stream/make})
       (vm/run)))
 
 
@@ -73,18 +91,13 @@
                :operands [{:type :literal, :value 20}
                           {:type :literal, :value 22}]}
           datoms (vec (vm/ast->datoms ast))
-          root-id (apply max (map first datoms))
-          program {:node root-id, :datoms datoms}
-          semantic-value (-> (semantic/create-vm)
-                             (vm/load-program program)
+          semantic-value (-> (queue-vm (semantic/create-vm) datoms)
                              (vm/run)
                              (vm/value))
-          register-value (-> (register/create-vm)
-                             (vm/load-program program)
+          register-value (-> (queue-vm (register/create-vm) datoms)
                              (vm/run)
                              (vm/value))
-          stack-value (-> (stack/create-vm)
-                          (vm/load-program program)
+          stack-value (-> (queue-vm (stack/create-vm) datoms)
                           (vm/run)
                           (vm/value))]
       (is (= semantic-value register-value))
@@ -254,13 +267,8 @@
                :tail? true}]
       (doseq [vm-type [:ast-walker :semantic :stack :register]]
         (let [vm (case vm-type
-                   :ast-walker (-> (ast-walker/create-vm)
-                                   (vm/load-program ast))
-                   :semantic (let [datoms (vm/ast->datoms ast)
-                                   root-id (apply max (map first datoms))]
-                               (-> (semantic/create-vm)
-                                   (vm/load-program {:node root-id,
-                                                     :datoms datoms})))
+                   :ast-walker (queue-ast (ast-walker/create-vm) ast)
+                   :semantic (queue-vm (semantic/create-vm) (vm/ast->datoms ast))
                    :stack (-> (stack/create-vm)
                               (vm/eval ast))
                    :register (-> (register/create-vm)

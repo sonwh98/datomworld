@@ -14,6 +14,18 @@
 ;; Semantic VM tests (datom graph traversal via protocols)
 ;; =============================================================================
 
+(defn- queue-vm
+  [vm-state datoms]
+  (let [in-stream (ds/open! {:transport {:type :ringbuffer
+                                         :capacity nil}})
+        queued-vm (assoc vm-state
+                         :in-stream in-stream
+                         :in-cursor {:position 0}
+                         :halted false)]
+    (ds/put! in-stream (vec datoms))
+    queued-vm))
+
+
 (defn- bridge-step
   [vm handlers cursor]
   (let [call-in (get (vm/store vm) vm/call-in-stream-key)
@@ -37,21 +49,15 @@
 
 (defn compile-and-run
   [ast]
-  (let [datoms (vm/ast->datoms ast)
-        root-id (ffirst datoms)
-        vm (semantic/create-vm)]
-    (-> vm
-        (vm/load-program {:node root-id, :datoms datoms})
+  (let [datoms (vm/ast->datoms ast)]
+    (-> (queue-vm (semantic/create-vm) datoms)
         (vm/run)
         (vm/value))))
 
 
 (defn- load-ast
   [ast]
-  (let [datoms (vm/ast->datoms ast)
-        root-id (ffirst datoms)]
-    (-> (semantic/create-vm)
-        (vm/load-program {:node root-id, :datoms datoms}))))
+  (queue-vm (semantic/create-vm) (vm/ast->datoms ast)))
 
 
 (deftest cesk-state-test
@@ -63,9 +69,11 @@
       (is (contains? (vm/store vm) vm/call-out-cursor-key))
       (is (nil? (vm/control vm)))
       (is (empty? (vm/continuation vm)))))
-  (testing "After load-program, control is non-nil"
-    (let [vm (load-ast {:type :literal, :value 42})]
-      (is (some? (vm/control vm)))))
+  (testing "Queued ingress is consumed on run"
+    (let [vm (load-ast {:type :literal, :value 42})
+          result (vm/run vm)]
+      (is (= {:position 1} (:in-cursor result)))
+      (is (= 42 (vm/value result)))))
   (testing "After run, continuation is empty and store is empty"
     (let [vm (-> (load-ast {:type :literal, :value 42})
                  (vm/run))]
@@ -84,11 +92,13 @@
                :operator {:type :variable, :name '+}
                :operands [{:type :literal, :value 1}
                           {:type :literal, :value 2}]}
-          [root-tempid datoms] (vm/ast->datoms-with-root ast)
-          loaded (-> (semantic/create-vm)
-                     (vm/load-program {:node root-tempid, :datoms datoms}))
+          [_root-tempid datoms] (vm/ast->datoms-with-root ast)
+          loaded (-> (queue-vm (semantic/create-vm) datoms)
+                     (vm/run))
           ast-db (:db loaded)
-          root-eid (:id (vm/control loaded))]
+          root-eid (ffirst (dao-db/q '[:find ?e
+                                       :where [?e :yin/type :application]]
+                                     ast-db))]
       (is (satisfies? dao-db/IDaoDB ast-db))
       (is (= :application (:yin/type (dao-db/entity-attrs ast-db root-eid))))
       (is (= #{['+]}
@@ -97,12 +107,14 @@
                        ast-db)))
       (is (= 3 (-> loaded vm/run vm/value)))))
   (testing "nil literal values remain explicit AST facts after DaoDB load"
-    (let [[root-tempid datoms] (vm/ast->datoms-with-root {:type :literal, :value nil})
-          loaded (-> (semantic/create-vm)
-                     (vm/load-program {:node root-tempid, :datoms datoms}))
-          root-eid (:id (vm/control loaded))
+    (let [[_root-tempid datoms] (vm/ast->datoms-with-root {:type :literal, :value nil})
+          loaded (-> (queue-vm (semantic/create-vm) datoms)
+                     (vm/run))
+          root-eid (ffirst (dao-db/q '[:find ?e
+                                       :where [?e :yin/type :literal]]
+                                     (:db loaded)))
           attrs (dao-db/entity-attrs (:db loaded) root-eid)
-          result (vm/run loaded)]
+          result loaded]
       (is (contains? attrs :yin/value))
       (is (vm/halted? result))
       (is (nil? (vm/value result))))))

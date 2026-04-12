@@ -4,12 +4,23 @@
   (:require
     [clojure.test :refer [deftest is testing]]
     [dao.db :as dao-db]
+    [dao.stream :as ds]
+    [dao.stream.transport.ringbuffer]
     [yang.clojure :as yang]
     [yin.vm :as vm]
     [yin.vm.macro :as macro]
     [yin.vm.register :as register]
     [yin.vm.semantic :as semantic]
     [yin.vm.stack :as stack]))
+
+
+(defn- queue-vm
+  [vm-state datoms]
+  (let [in-stream (ds/open! {:transport {:type :ringbuffer
+                                         :capacity nil}})
+        queued-vm (assoc vm-state :in-stream in-stream :in-cursor {:position 0})]
+    (ds/put! in-stream (vec datoms))
+    queued-vm))
 
 
 (defn- make-literal-macro
@@ -270,8 +281,7 @@
                   [call-eid :yin/operator macro-lambda-eid 0 0]
                   [call-eid :yin/operands [] 0 0]]
           registry {macro-lambda-eid (make-literal-macro 77)}
-          vm (-> (register/create-vm {:macro-registry registry})
-                 (vm/load-program {:node call-eid, :datoms datoms})
+          vm (-> (queue-vm (register/create-vm {:macro-registry registry}) datoms)
                  (vm/run))]
       (is (= 77 (vm/value vm)))))
 
@@ -285,8 +295,7 @@
                   [lit-eid :yin/type :literal 0 0]
                   [lit-eid :yin/value 123 0 0]]
           registry {macro-lambda-eid (make-identity-macro)}
-          vm (-> (register/create-vm {:macro-registry registry})
-                 (vm/load-program {:node call-eid, :datoms datoms})
+          vm (-> (queue-vm (register/create-vm {:macro-registry registry}) datoms)
                  (vm/run))]
       (is (= 123 (vm/value vm))))))
 
@@ -303,8 +312,7 @@
                   [call-eid :yin/operator macro-lambda-eid 0 0]
                   [call-eid :yin/operands [] 0 0]]
           registry {macro-lambda-eid (make-literal-macro 88)}
-          vm (-> (stack/create-vm {:macro-registry registry})
-                 (vm/load-program {:node call-eid, :datoms datoms})
+          vm (-> (queue-vm (stack/create-vm {:macro-registry registry}) datoms)
                  (vm/run))]
       (is (= 88 (vm/value vm))))))
 
@@ -321,8 +329,7 @@
                   [call-eid :yin/operator macro-lambda-eid 0 0]
                   [call-eid :yin/operands [] 0 0]]
           registry {macro-lambda-eid (make-literal-macro 55)}
-          vm (-> (semantic/create-vm {:macro-registry registry})
-                 (vm/load-program {:node call-eid, :datoms datoms})
+          vm (-> (queue-vm (semantic/create-vm {:macro-registry registry}) datoms)
                  (vm/run))]
       (is (= 55 (vm/value vm)))))
 
@@ -336,8 +343,7 @@
                   [lit-eid :yin/type :literal 0 0]
                   [lit-eid :yin/value 321 0 0]]
           registry {macro-lambda-eid (make-identity-macro)}
-          vm (-> (semantic/create-vm {:macro-registry registry})
-                 (vm/load-program {:node call-eid, :datoms datoms})
+          vm (-> (queue-vm (semantic/create-vm {:macro-registry registry}) datoms)
                  (vm/run))]
       (is (= 321 (vm/value vm))))))
 
@@ -355,8 +361,7 @@
                   [call-eid :yin/operands [] 0 0]]
           registry {macro-lambda-eid (make-literal-macro 42)}
           run-vm (fn [create-fn]
-                   (-> (create-fn {:macro-registry registry})
-                       (vm/load-program {:node call-eid, :datoms datoms})
+                   (-> (queue-vm (create-fn {:macro-registry registry}) datoms)
                        (vm/run)
                        (vm/value)))]
       (is (= 42 (run-vm register/create-vm)) "Register VM")
@@ -389,13 +394,11 @@
                   [lit3-eid :yin/value 3 0 0]]
           registry {macro-lambda-eid (make-swap-args-macro)}]
       ;; Verify compile-time result
-      (let [vm (-> (register/create-vm {:macro-registry registry})
-                   (vm/load-program {:node call-eid, :datoms datoms})
+      (let [vm (-> (queue-vm (register/create-vm {:macro-registry registry}) datoms)
                    (vm/run))]
         (is (= -7 (vm/value vm)) "Register VM: (- 3 10) = -7"))
       ;; Verify semantic VM (runtime expansion)
-      (let [vm (-> (semantic/create-vm {:macro-registry registry})
-                   (vm/load-program {:node call-eid, :datoms datoms})
+      (let [vm (-> (queue-vm (semantic/create-vm {:macro-registry registry}) datoms)
                    (vm/run))]
         (is (= -7 (vm/value vm)) "Semantic VM: (- 3 10) = -7")))))
 
@@ -670,7 +673,7 @@
           ;; Load initial program: literal 1
           initial-datoms [[-1025 :yin/type :literal 0 0]
                           [-1025 :yin/value 1 0 0]]
-          vm-loaded (vm/load-program vm {:node -1025, :datoms initial-datoms})
+          vm-loaded (queue-vm vm initial-datoms)
           ;; Append new datoms: a new literal node
           new-datoms [[-2000 :yin/type :literal 0 0]
                       [-2000 :yin/value 99 0 0]]

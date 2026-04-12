@@ -1,17 +1,27 @@
 (ns yang.php-test
   (:require
     [clojure.test :refer [deftest is testing]]
+    [dao.stream :as ds]
+    [dao.stream.transport.ringbuffer]
     [yang.clojure :as clj]
     [yang.php :as php]
     [yin.vm :as vm]
     [yin.vm.ast-walker :as ast-walker]))
 
 
+(defn- queue-vm
+  [vm-state datoms]
+  (let [in-stream (ds/open! {:transport {:type :ringbuffer
+                                         :capacity nil}})
+        queued-vm (assoc vm-state :in-stream in-stream :in-cursor {:position 0})]
+    (ds/put! in-stream (vec datoms))
+    queued-vm))
+
+
 (defn compile-and-run
   ([ast] (compile-and-run ast {}))
   ([ast env]
-   (-> (ast-walker/create-vm {:env env})
-       (vm/load-program ast)
+   (-> (queue-vm (ast-walker/create-vm {:env env}) (vm/ast->datoms ast))
        (vm/run)
        (vm/value))))
 

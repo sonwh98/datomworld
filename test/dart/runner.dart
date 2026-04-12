@@ -11,6 +11,7 @@ import '../cljd-out/yin/vm/macro-test_test.dart' as macro;
 import '../cljd-out/yin/vm/register-test_test.dart' as register;
 import '../cljd-out/yin/vm/semantic-test_test.dart' as semantic;
 import '../cljd-out/yin/vm/stack-test_test.dart' as stack;
+import '../cljd-out/datomworld/demo/continuation-handoff-test_test.dart' as continuation_handoff;
 
 void main() {
   print('Starting Dart Runner...');
@@ -28,6 +29,7 @@ void main() {
   register.main();
   semantic.main();
   stack.main();
+  continuation_handoff.main();
 
   print('All tests registered with package:test');
 }

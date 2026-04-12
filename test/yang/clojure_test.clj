@@ -1,10 +1,21 @@
 (ns yang.clojure-test
   (:require
     [clojure.test :refer [deftest is testing]]
+    [dao.stream :as ds]
+    [dao.stream.transport.ringbuffer]
     [yang.clojure :as yang]
     [yin.stream]
     [yin.vm :as vm]
     [yin.vm.ast-walker :as ast-walker]))
+
+
+(defn- queue-vm
+  [vm-state datoms]
+  (let [in-stream (ds/open! {:transport {:type :ringbuffer
+                                         :capacity nil}})
+        queued-vm (assoc vm-state :in-stream in-stream :in-cursor {:position 0})]
+    (ds/put! in-stream (vec datoms))
+    queued-vm))
 
 
 (defn compile-and-run
@@ -12,7 +23,7 @@
   ([form env] (compile-and-run form env {}))
   ([form env vm-opts]
    (let [vm (ast-walker/create-vm (merge {:env env} vm-opts))
-         vm-loaded (vm/load-program vm (yang/compile form))]
+         vm-loaded (queue-vm vm (vm/ast->datoms (yang/compile form)))]
      (vm/value (vm/run vm-loaded)))))
 
 
@@ -21,7 +32,7 @@
   ([forms env] (compile-program-and-run forms env {}))
   ([forms env vm-opts]
    (let [vm (ast-walker/create-vm (merge {:env env} vm-opts))
-         vm-loaded (vm/load-program vm (yang/compile-program forms))]
+         vm-loaded (queue-vm vm (vm/ast->datoms (yang/compile-program forms)))]
      (vm/value (vm/run vm-loaded)))))
 
 

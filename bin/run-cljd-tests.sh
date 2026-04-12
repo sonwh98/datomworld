@@ -18,7 +18,8 @@ clj -M:cljd compile \
     yin.vm.macro-test \
     yin.vm.register-test \
     yin.vm.semantic-test \
-    yin.vm.stack-test
+    yin.vm.stack-test \
+    datomworld.demo.continuation-handoff-test
 
 echo "Running Dart tests..."
 dart test/dart/runner.dart

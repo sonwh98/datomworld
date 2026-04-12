@@ -515,18 +515,14 @@
 
 
 (extend-type WasmVM
-  vm/IVMStep
+  vm/IVM
   (step     [vm]  (telemetry/emit-snapshot vm :step))
+  (run [vm] (vm/eval vm nil))
+  (eval [vm ast] (wasm-eval vm ast))
+  (reset [vm] (assoc vm :halted false :value nil))
   (halted?  [vm]  (boolean (:halted vm)))
   (blocked? [_vm] false)
   (value    [vm]  (:value vm))
-
-  vm/IVMRun
-  (run [vm] (vm/eval vm nil))
-
-  vm/IVMEval
-  (eval [vm ast] (wasm-eval vm ast))
-
   vm/IVMState
   (control      [vm] (:control vm))
   (environment  [vm] (:env vm))

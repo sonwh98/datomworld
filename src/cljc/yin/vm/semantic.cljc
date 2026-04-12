@@ -887,13 +887,27 @@
   (engine/vm-value vm))
 
 
+(defn- semantic-vm-reset
+  "Reset SemanticVM execution state to initial baseline, preserving loaded program."
+  [^SemanticVM vm]
+  (let [root-id (when (seq (:datoms vm))
+                  (:root-id (vm/index-datoms (:datoms vm))))]
+    (assoc vm
+           :control (when root-id {:type :node, :id root-id})
+           :k nil
+           :halted (nil? root-id)
+           :value nil
+           :blocked false)))
+
+
 (defn- semantic-vm-load-program
-  "Load datoms into the VM.
-   Expects {:node root-id :datoms [...]}."
-  [^SemanticVM vm {:keys [node datoms]}]
-  (let [ast-db (or (:db vm) (create-ast-db))
-        {:keys [db-after tempids]} (transact-ast-datoms ast-db datoms)
-        root-id (get tempids node node)
+  "Load one datom transaction into the VM."
+  [^SemanticVM vm datoms]
+  (let [d (vec datoms)
+        root-tempid (:root-id (vm/index-datoms d))
+        ast-db (or (:db vm) (create-ast-db))
+        {:keys [db-after tempids]} (transact-ast-datoms ast-db d)
+        root-id (get tempids root-tempid root-tempid)
         vm (-> vm
                (assoc :macro-registry (remap-macro-registry (:macro-registry vm) tempids))
                (refresh-semantic-index-from-db db-after)
@@ -1303,11 +1317,10 @@
   [^SemanticVM vm ast]
   (if ast
     (let [datoms (vm/ast->datoms ast {:id-start (:node-id-counter vm)})
-          root-id (apply max (map first datoms))
           min-id (apply min (map first datoms))
           next-node-id (dec min-id)]
       (-> (assoc vm :node-id-counter next-node-id)
-          (vm/load-program {:node root-id, :datoms datoms})
+          (semantic-vm-load-program datoms)
           (vm/run)))
     (vm/run vm)))
 
@@ -1316,7 +1329,7 @@
   [vm]
   (engine/run-on-stream vm
                         (:in-stream vm)
-                        vm/ingest-program
+                        semantic-vm-load-program
                         (if (telemetry/enabled? vm)
                           (fn [state]
                             (telemetry/emit-snapshot (semantic-vm-step state) :step))
@@ -1324,24 +1337,18 @@
                         resume-from-run-queue))
 
 
-(defmethod vm/ingest-program :semantic
-  [vm program]
-  (semantic-vm-load-program vm program))
-
-
 (extend-type SemanticVM
-  vm/IVMStep
+  vm/IVM
   (step [vm]
     (telemetry/emit-snapshot
-      (engine/step-on-stream vm (:in-stream vm) vm/ingest-program semantic-vm-step)
+      (engine/step-on-stream vm (:in-stream vm) semantic-vm-load-program semantic-vm-step)
       :step))
+  (run [vm] (host-ffi/maybe-run vm semantic-vm-run-on-stream))
+  (eval [vm ast] (semantic-vm-eval vm ast))
+  (reset [vm] (semantic-vm-reset vm))
   (halted? [vm] (semantic-vm-halted? vm))
   (blocked? [vm] (semantic-vm-blocked? vm))
   (value [vm] (semantic-vm-value vm))
-  vm/IVMRun
-  (run [vm] (host-ffi/maybe-run vm semantic-vm-run-on-stream))
-  vm/IVMEval
-  (eval [vm ast] (semantic-vm-eval vm ast))
   vm/IVMState
   (control [vm] (:control vm))
   (environment [vm] (:env vm))
@@ -1365,7 +1372,7 @@
                                :telemetry (:telemetry opts)
                                :vm-model :semantic})
          bridge-state (host-ffi/bridge-from-opts opts)
-         in-stream (or (:in-stream opts) (vm/make-ingress-stream))]
+         in-stream (:in-stream opts)]
      (-> (map->SemanticVM (merge base
                                  {:bridge bridge-state,
                                   :in-stream in-stream,
@@ -1378,7 +1385,7 @@
                                   :index {},
                                   :index-arr (make-semantic-object-array 0),
                                   :index-base-id 0,
-                                  :halted false,
+                                  :halted true,
                                   :value nil,
                                   :blocked false,
                                   :node-id-counter -1024,

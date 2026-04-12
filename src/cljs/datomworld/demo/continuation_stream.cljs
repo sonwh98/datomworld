@@ -9,6 +9,7 @@
     [clojure.string :as str]
     [dao.stream :as ds]
     [datomworld.continuation-transport :as ct]
+    [datomworld.demo.continuation-handoff :as handoff]
     [reagent.core :as r]
     [yang.clojure :as yang]
     [yin.demo.utils :as demo.utils]
@@ -145,17 +146,6 @@
 (defonce run-raf-id (atom nil))
 
 
-(def register-k-keys
-  [:regs :k :env :control :bytecode :pool :halted :value :store :parked
-   :id-counter
-   :blocked :run-queue :wait-set])
-
-
-(def stack-k-keys
-  [:control :bytecode :stack :env :k :pool :halted :value :store :parked
-   :id-counter :blocked :run-queue :wait-set])
-
-
 (defn k-depth
   [k]
   (loop [frame k
@@ -186,7 +176,7 @@
 
 (defn stack-vm?
   [vm-key]
-  (= vm-key :stack-vm))
+  (handoff/stack-vm? vm-key))
 
 
 (defn vm-control-counter
@@ -202,19 +192,12 @@
 
 (defn vm-state->k
   [vm-key vm-state]
-  (let [keys* (if (stack-vm? vm-key)
-                stack-k-keys
-                register-k-keys)]
-    (select-keys vm-state keys*)))
+  (handoff/vm-state->handoff vm-key vm-state))
 
 
 (defn k->vm-state
   [vm-key k]
-  (let [base (if (stack-vm? vm-key)
-               (stack/create-vm)
-               (register/create-vm))
-        resumed (reduce-kv (fn [acc k* v] (assoc acc k* v)) base k)]
-    (assoc resumed :primitives vm/primitives)))
+  (handoff/handoff->vm-state vm-key k))
 
 
 (defn other-vm
@@ -222,18 +205,23 @@
   (if (= vm-key :register-vm) :stack-vm :register-vm))
 
 
+(defn- queue-vm
+  [vm-state datoms]
+  (let [in-stream (ds/open! {:transport {:type :ringbuffer
+                                         :capacity nil}})
+        queued-vm (assoc vm-state :in-stream in-stream :in-cursor {:position 0})]
+    (ds/put! in-stream (vec datoms))
+    queued-vm))
+
+
 (defn create-loaded-register-vm
   [ast-datoms]
-  (let [root-id (apply max (map first ast-datoms))]
-    (-> (register/create-vm)
-        (vm/load-program {:node root-id, :datoms ast-datoms}))))
+  (queue-vm (register/create-vm) ast-datoms))
 
 
 (defn create-loaded-stack-vm
   [ast-datoms]
-  (let [root-id (apply max (map first ast-datoms))]
-    (-> (stack/create-vm)
-        (vm/load-program {:node root-id, :datoms ast-datoms}))))
+  (queue-vm (stack/create-vm) ast-datoms))
 
 
 (defn create-initial-vm

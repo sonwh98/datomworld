@@ -1,5 +1,7 @@
 (ns yin.register-bench-cljd
   (:require
+    [dao.stream :as ds]
+    [dao.stream.transport.ringbuffer :as ringbuffer]
     [yin.vm :as vm]
     [yin.vm.register :as register])
   (:import ["dart:core" DateTime]))
@@ -81,11 +83,17 @@
                     {:workload workload}))))
 
 
+(defn- queue-vm
+  [vm-state datoms]
+  (let [in-stream (ringbuffer/make-ring-buffer-stream nil)
+        queued-vm (assoc vm-state :in-stream in-stream :in-cursor {:position 0})]
+    (ds/put! in-stream (vec datoms))
+    queued-vm))
+
+
 (defn- load-register-program
   [ast]
-  (let [datoms (vm/ast->datoms ast)
-        root-id (apply max (map first datoms))]
-    (vm/load-program (register/create-vm) {:node root-id :datoms datoms})))
+  (queue-vm (register/create-vm) (vm/ast->datoms ast)))
 
 
 (defn- run-iterations

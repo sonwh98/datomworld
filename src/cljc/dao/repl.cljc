@@ -153,6 +153,9 @@
       (update :telemetry-t #(or % 0))))
 
 
+(declare make-local-stream)
+
+
 (defn- make-vm
   ([vm-type] (make-vm vm-type nil nil))
   ([vm-type telemetry-stream] (make-vm vm-type telemetry-stream nil))
@@ -161,12 +164,11 @@
      (throw (ex-info "Unknown Dao REPL VM type"
                      {:vm-type vm-type
                       :supported (vec (keys vm-constructors))})))
-   (let [constructor (get vm-constructors vm-type)]
-     (cond-> (constructor {:primitives (make-repl-primitives output-stream)})
+   (let [constructor (get vm-constructors vm-type)
+         in-stream (make-local-stream)]
+     (cond-> (constructor {:primitives (make-repl-primitives output-stream)
+                           :in-stream in-stream})
        telemetry-stream (install-telemetry vm-type telemetry-stream)))))
-
-
-(declare make-local-stream)
 
 
 (defn create-state
@@ -470,20 +472,15 @@
 
 (defn- eval-datoms
   [state datoms]
-  (when (= :ast-walker (:vm-type state))
-    (throw (ex-info "ASTWalkerVM cannot load raw datom streams directly"
-                    {:vm-type (:vm-type state)})))
   (let [state' (inject-last-value state)
-        root-id (apply max (map first datoms))
-        vm' (-> (:vm state')
-                (vm/load-program {:node root-id
-                                  :datoms datoms})
-                (vm/run))]
+        vm0 (:vm state')
+        _ (ds/put! (:in-stream vm0) (vec datoms))
+        vm' (vm/run vm0)]
     (if (vm/halted? vm')
       (finalize-eval state' vm')
       (throw (ex-info "Datom stream did not form a complete, runnable Yin VM program.
 Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
-                      {:root-id root-id
+                      {:root-id (:root-id (vm/index-datoms datoms))
                        :datom-count (count datoms)})))))
 
 

@@ -1,6 +1,8 @@
 (ns yang.macro-test
   (:require
     [clojure.test :refer [deftest is testing]]
+    [dao.stream :as ds]
+    [dao.stream.transport.ringbuffer]
     [yang.clojure :as yang]
     [yin.vm :as vm]
     [yin.vm.ast-walker :as ast-walker]
@@ -8,12 +10,21 @@
     [yin.vm.semantic :as semantic]))
 
 
+(defn- queue-vm
+  [vm-state datoms]
+  (let [in-stream (ds/open! {:transport {:type :ringbuffer
+                                         :capacity nil}})
+        queued-vm (assoc vm-state :in-stream in-stream :in-cursor {:position 0})]
+    (ds/put! in-stream (vec datoms))
+    queued-vm))
+
+
 (defn compile-program-and-run
   ([forms] (compile-program-and-run forms {} {}))
   ([forms env] (compile-program-and-run forms env {}))
   ([forms env vm-opts]
-   (-> (ast-walker/create-vm (merge {:env env} vm-opts))
-       (vm/load-program (yang/compile-program forms))
+   (-> (queue-vm (ast-walker/create-vm (merge {:env env} vm-opts))
+                 (vm/ast->datoms (yang/compile-program forms)))
        (vm/run)
        (vm/value))))
 
@@ -23,10 +34,9 @@
    Prepends macro/stdlib-forms so defn is forced through the macro path."
   [forms]
   (let [ast    (yang/compile-program (concat macro/stdlib-forms forms))
-        datoms (vec (vm/ast->datoms ast))
-        root   (apply max (map first datoms))]
-    (-> (semantic/create-vm {:macro-registry macro/default-macro-registry})
-        (vm/load-program {:node root :datoms datoms})
+        datoms (vec (vm/ast->datoms ast))]
+    (-> (queue-vm (semantic/create-vm {:macro-registry macro/default-macro-registry})
+                  datoms)
         (vm/run)
         (vm/value))))
 
@@ -170,11 +180,9 @@
     (let [ast    (yang/compile-program '((defn double
                                            [x]
                                            (* x 2)) (double 3)))
-          datoms (vec (vm/ast->datoms ast))
-          root   (apply max (map first datoms))]
+          datoms (vec (vm/ast->datoms ast))]
       (is (= 6
-             (-> (semantic/create-vm)
-                 (vm/load-program {:node root :datoms datoms})
+             (-> (queue-vm (semantic/create-vm) datoms)
                  (vm/run)
                  (vm/value))))))
 
@@ -187,11 +195,9 @@
                            (+ x n))
                          adder))
                      ((make-adder 2) 40)))
-          datoms (vec (vm/ast->datoms ast))
-          root   (apply max (map first datoms))]
+          datoms (vec (vm/ast->datoms ast))]
       (is (= 42
-             (-> (semantic/create-vm)
-                 (vm/load-program {:node root :datoms datoms})
+             (-> (queue-vm (semantic/create-vm) datoms)
                  (vm/run)
                  (vm/value)))))))
 

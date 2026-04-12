@@ -2,6 +2,8 @@
   (:require
     [clojure.string :as str]
     [criterium.core :as criterium]
+    [dao.stream :as ds]
+    [dao.stream.transport.ringbuffer]
     [yin.vm :as vm]
     [yin.vm.ast-walker :as ast-walker]
     [yin.vm.register :as register]
@@ -93,25 +95,28 @@
       v)))
 
 
+(defn- queue-vm
+  [vm-state datoms]
+  (let [in-stream (ds/open! {:transport {:type :ringbuffer
+                                         :capacity nil}})
+        queued-vm (assoc vm-state :in-stream in-stream :in-cursor {:position 0})]
+    (ds/put! in-stream (vec datoms))
+    queued-vm))
+
+
 (defn- load-register-program
   [ast]
-  (let [datoms (vm/ast->datoms ast)
-        root-id (apply max (map first datoms))]
-    (vm/load-program (register/create-vm) {:node root-id :datoms datoms})))
+  (queue-vm (register/create-vm) (vm/ast->datoms ast)))
 
 
 (defn- load-stack-program
   [ast]
-  (let [datoms (vm/ast->datoms ast)
-        root-id (apply max (map first datoms))]
-    (vm/load-program (stack/create-vm) {:node root-id :datoms datoms})))
+  (queue-vm (stack/create-vm) (vm/ast->datoms ast)))
 
 
 (defn- load-semantic-program
   [ast]
-  (let [datoms (vm/ast->datoms ast)
-        root-id (apply max (map first datoms))]
-    (vm/load-program (semantic/create-vm) {:node root-id :datoms datoms})))
+  (queue-vm (semantic/create-vm) (vm/ast->datoms ast)))
 
 
 (defn- track-vm-steps
@@ -210,5 +215,5 @@
         (let [program (load-semantic-program ast)]
           (bench-stepping-vm "Semantic VM" program opts)))
       (when run-ast-walker?
-        (let [program (vm/load-program (ast-walker/create-vm) ast)]
+        (let [program (queue-vm (ast-walker/create-vm) (vm/ast->datoms ast))]
           (bench-stepping-vm "AST Walker VM" program opts))))))

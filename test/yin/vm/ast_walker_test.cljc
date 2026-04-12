@@ -14,6 +14,19 @@
 ;; AST Walker VM tests (direct AST interpretation via protocols)
 ;; =============================================================================
 
+(defn- queue-ast!
+  [vm-state ast]
+  (let [in-stream (or (:in-stream vm-state)
+                      (ds/open! {:transport {:type :ringbuffer
+                                             :capacity nil}}))
+        queued-vm (assoc vm-state
+                         :in-stream in-stream
+                         :in-cursor {:position 0}
+                         :halted false)]
+    (ds/put! in-stream (vec (vm/ast->datoms ast)))
+    queued-vm))
+
+
 (defn- bridge-step
   [vm handlers cursor]
   (let [call-in (get (vm/store vm) vm/call-in-stream-key)
@@ -38,7 +51,7 @@
 (defn compile-and-run
   [ast]
   (-> (ast-walker/create-vm)
-      (vm/load-program ast)
+      (queue-ast! ast)
       (vm/run)
       (vm/value)))
 
@@ -52,13 +65,15 @@
       (is (contains? (vm/store vm) vm/call-out-cursor-key))
       (is (nil? (vm/control vm)))
       (is (nil? (vm/continuation vm)))))
-  (testing "After load-program, control is non-nil"
+  (testing "Queued ingress is consumed on step"
     (let [vm (-> (ast-walker/create-vm)
-                 (vm/load-program {:type :literal, :value 42}))]
-      (is (some? (vm/control vm)))))
+                 (queue-ast! {:type :literal, :value 42})
+                 (vm/step))]
+      (is (vm/halted? vm))
+      (is (= 42 (vm/value vm)))))
   (testing "After run, continuation is nil and store is empty"
     (let [vm (-> (ast-walker/create-vm)
-                 (vm/load-program {:type :literal, :value 42})
+                 (queue-ast! {:type :literal, :value 42})
                  (vm/run))]
       (is (nil? (vm/continuation vm)))
       (is (contains? (vm/store vm) vm/call-in-stream-key))
@@ -87,7 +102,7 @@
 (deftest literal-single-step-test
   (testing "Literal evaluation completes in one step"
     (let [vm (-> (ast-walker/create-vm)
-                 (vm/load-program {:type :literal, :value 42})
+                 (queue-ast! {:type :literal, :value 42})
                  (vm/step))]
       (is (= 42 (vm/value vm)))
       (is (vm/halted? vm))
@@ -515,15 +530,13 @@
 
 (deftest stream-make-test
   (testing "stream/make creates a stream reference"
-    (let [vm (-> (ast-walker/create-vm)
-                 (vm/load-program {:type :stream/make, :buffer 10})
-                 (vm/run))]
+    (let [vm (vm/eval (ast-walker/create-vm)
+                      {:type :stream/make, :buffer 10})]
       (is (= :stream-ref (:type (vm/value vm))))
       (is (keyword? (:id (vm/value vm))))))
   (testing "stream/make with default buffer (unbounded)"
-    (let [vm (-> (ast-walker/create-vm)
-                 (vm/load-program {:type :stream/make})
-                 (vm/run))
+    (let [vm (vm/eval (ast-walker/create-vm)
+                      {:type :stream/make})
           stream-id (:id (vm/value vm))
           stream #?(:cljs ^dao.stream.transport.ringbuffer/RingBufferStream (get (vm/store vm) stream-id)
                     :cljd ^dao.stream.transport.ringbuffer/RingBufferStream (get (vm/store vm) stream-id)
@@ -534,24 +547,21 @@
 
 (deftest stream-put-test
   (testing "stream/put adds value to stream"
-    (let [vm-with-stream (-> (ast-walker/create-vm)
-                             (vm/load-program {:type :stream/make, :buffer 5})
-                             (vm/run))
+    (let [vm-with-stream (vm/eval (ast-walker/create-vm)
+                                  {:type :stream/make, :buffer 5})
           stream-ref (vm/value vm-with-stream)
           stream-id (:id stream-ref)
-          vm-after-put (-> vm-with-stream
-                           (vm/load-program {:type :stream/put,
-                                             :target {:type :literal,
-                                                      :value stream-ref},
-                                             :val {:type :literal, :value 42}})
-                           (vm/run))
+          vm-after-put (vm/eval vm-with-stream
+                                {:type :stream/put,
+                                 :target {:type :literal,
+                                          :value stream-ref},
+                                 :val {:type :literal, :value 42}})
           stream (get (vm/store vm-after-put) stream-id)]
       (is (= 42 (vm/value vm-after-put)))
       (is (= 1 (count stream)))))
   (testing "stream/put multiple values"
-    (let [vm-with-stream (-> (ast-walker/create-vm)
-                             (vm/load-program {:type :stream/make, :buffer 10})
-                             (vm/run))
+    (let [vm-with-stream (vm/eval (ast-walker/create-vm)
+                                  {:type :stream/make, :buffer 10})
           stream-ref (vm/value vm-with-stream)
           stream-id (:id stream-ref)
           put-ast (fn [val]
@@ -559,27 +569,23 @@
                      :target {:type :literal, :value stream-ref},
                      :val {:type :literal, :value val}})
           vm-after-puts (-> vm-with-stream
-                            (vm/load-program (put-ast 1))
-                            (vm/run)
-                            (vm/load-program (put-ast 2))
-                            (vm/run))
+                            (vm/eval (put-ast 1))
+                            (vm/eval (put-ast 2)))
           stream (get (vm/store vm-after-puts) stream-id)]
       (is (= 2 (count stream))))))
 
 
 (deftest stream-cursor-next-test
   (testing "cursor+next retrieves value from stream"
-    (let [vm-with-stream (-> (ast-walker/create-vm)
-                             (vm/load-program {:type :stream/make, :buffer 5})
-                             (vm/run))
+    (let [vm-with-stream (vm/eval (ast-walker/create-vm)
+                                  {:type :stream/make, :buffer 5})
           stream-ref (vm/value vm-with-stream)
           ;; Put a value
-          vm-after-put (-> vm-with-stream
-                           (vm/load-program {:type :stream/put,
-                                             :target {:type :literal,
-                                                      :value stream-ref},
-                                             :val {:type :literal, :value 99}})
-                           (vm/run))
+          vm-after-put (vm/eval vm-with-stream
+                                {:type :stream/put,
+                                 :target {:type :literal,
+                                          :value stream-ref},
+                                 :val {:type :literal, :value 99}})
           ;; Create cursor and read
           ast {:type :application,
                :operator {:type :lambda,
@@ -588,14 +594,11 @@
                                  :source {:type :variable, :name 'c}}},
                :operands [{:type :stream/cursor,
                            :source {:type :literal, :value stream-ref}}]}
-          vm-after-next (-> vm-after-put
-                            (vm/load-program ast)
-                            (vm/run))]
+          vm-after-next (vm/eval vm-after-put ast)]
       (is (= 99 (vm/value vm-after-next)))))
   (testing "next from empty stream blocks"
-    (let [vm-with-stream (-> (ast-walker/create-vm)
-                             (vm/load-program {:type :stream/make, :buffer 5})
-                             (vm/run))
+    (let [vm-with-stream (vm/eval (ast-walker/create-vm)
+                                  {:type :stream/make, :buffer 5})
           stream-ref (vm/value vm-with-stream)
           ast {:type :application,
                :operator {:type :lambda,
@@ -604,51 +607,38 @@
                                  :source {:type :variable, :name 'c}}},
                :operands [{:type :stream/cursor,
                            :source {:type :literal, :value stream-ref}}]}
-          vm-after-next (-> vm-with-stream
-                            (vm/load-program ast)
-                            (vm/run))]
+          vm-after-next (vm/eval vm-with-stream ast)]
       (is (= :yin/blocked (vm/value vm-after-next))))))
 
 
 (deftest stream-ordering-test
   (testing "stream maintains append order via cursors"
-    (let [vm-with-stream (-> (ast-walker/create-vm)
-                             (vm/load-program {:type :stream/make, :buffer 10})
-                             (vm/run))
+    (let [vm-with-stream (vm/eval (ast-walker/create-vm)
+                                  {:type :stream/make, :buffer 10})
           stream-ref (vm/value vm-with-stream)
           put-ast (fn [val]
                     {:type :stream/put,
                      :target {:type :literal, :value stream-ref},
                      :val {:type :literal, :value val}})
           vm-after-puts (-> vm-with-stream
-                            (vm/load-program (put-ast :first))
-                            (vm/run)
-                            (vm/load-program (put-ast :second))
-                            (vm/run)
-                            (vm/load-program (put-ast :third))
-                            (vm/run))
+                            (vm/eval (put-ast :first))
+                            (vm/eval (put-ast :second))
+                            (vm/eval (put-ast :third)))
           ;; Create cursor and read three values
           read-ast (fn [cursor-ref]
                      {:type :stream/next,
                       :source {:type :literal, :value cursor-ref}})
           ;; Create cursor
-          vm-with-cursor (-> vm-after-puts
-                             (vm/load-program {:type :stream/cursor,
-                                               :source {:type :literal,
-                                                        :value stream-ref}})
-                             (vm/run))
+          vm-with-cursor (vm/eval vm-after-puts
+                                  {:type :stream/cursor,
+                                   :source {:type :literal,
+                                            :value stream-ref}})
           cursor-ref (vm/value vm-with-cursor)
-          vm-read1 (-> vm-with-cursor
-                       (vm/load-program (read-ast cursor-ref))
-                       (vm/run))
+          vm-read1 (vm/eval vm-with-cursor (read-ast cursor-ref))
           ;; After next!, the cursor in store was updated
           ;; We need the same cursor-ref (it points to updated store entry)
-          vm-read2 (-> vm-read1
-                       (vm/load-program (read-ast cursor-ref))
-                       (vm/run))
-          vm-read3 (-> vm-read2
-                       (vm/load-program (read-ast cursor-ref))
-                       (vm/run))]
+          vm-read2 (vm/eval vm-read1 (read-ast cursor-ref))
+          vm-read3 (vm/eval vm-read2 (read-ast cursor-ref))]
       (is (= :first (vm/value vm-read1)))
       (is (= :second (vm/value vm-read2)))
       (is (= :third (vm/value vm-read3))))))
@@ -676,53 +666,44 @@
     ;; put 42 into B, put B's stream-ref into A, read A to get B's ref,
     ;; read B through recovered ref to get 42.
     (let [;; Create stream A
-          vm0 (-> (ast-walker/create-vm)
-                  (vm/load-program {:type :stream/make, :buffer 10})
-                  (vm/run))
+          vm0 (vm/eval (ast-walker/create-vm)
+                       {:type :stream/make, :buffer 10})
           ref-a (vm/value vm0)
           ;; Create stream B
-          vm1 (-> vm0
-                  (vm/load-program {:type :stream/make, :buffer 10})
-                  (vm/run))
+          vm1 (vm/eval vm0 {:type :stream/make, :buffer 10})
           ref-b (vm/value vm1)
           ;; Put 42 into B
-          vm2 (-> vm1
-                  (vm/load-program {:type :stream/put,
-                                    :target {:type :literal, :value ref-b},
-                                    :val {:type :literal, :value 42}})
-                  (vm/run))
+          vm2 (vm/eval vm1
+                       {:type :stream/put,
+                        :target {:type :literal, :value ref-b},
+                        :val {:type :literal, :value 42}})
           ;; Put B's stream-ref into A
-          vm3 (-> vm2
-                  (vm/load-program {:type :stream/put,
-                                    :target {:type :literal, :value ref-a},
-                                    :val {:type :literal, :value ref-b}})
-                  (vm/run))
+          vm3 (vm/eval vm2
+                       {:type :stream/put,
+                        :target {:type :literal, :value ref-a},
+                        :val {:type :literal, :value ref-b}})
           ;; Create cursor on A, read to get B's ref
-          vm4 (-> vm3
-                  (vm/load-program {:type :stream/cursor,
-                                    :source {:type :literal, :value ref-a}})
-                  (vm/run))
+          vm4 (vm/eval vm3
+                       {:type :stream/cursor,
+                        :source {:type :literal, :value ref-a}})
           cursor-a (vm/value vm4)
-          vm5 (-> vm4
-                  (vm/load-program {:type :stream/next,
-                                    :source {:type :literal, :value cursor-a}})
-                  (vm/run))
+          vm5 (vm/eval vm4
+                       {:type :stream/next,
+                        :source {:type :literal, :value cursor-a}})
           recovered-ref (vm/value vm5)]
       ;; The recovered ref should be B's stream-ref
       (is (= ref-b recovered-ref)
           "Stream-ref passes through a stream unchanged")
       ;; Now read from recovered ref to get 42
-      (let [vm6 (-> vm5
-                    (vm/load-program {:type :stream/cursor,
-                                      :source {:type :literal,
-                                               :value recovered-ref}})
-                    (vm/run))
+      (let [vm6 (vm/eval vm5
+                         {:type :stream/cursor,
+                          :source {:type :literal,
+                                   :value recovered-ref}})
             cursor-b (vm/value vm6)
-            vm7 (-> vm6
-                    (vm/load-program {:type :stream/next,
-                                      :source {:type :literal,
-                                               :value cursor-b}})
-                    (vm/run))]
+            vm7 (vm/eval vm6
+                         {:type :stream/next,
+                          :source {:type :literal,
+                                   :value cursor-b}})]
         (is (= 42 (vm/value vm7))
             "Reading from recovered stream-ref yields the original value")))))
 
