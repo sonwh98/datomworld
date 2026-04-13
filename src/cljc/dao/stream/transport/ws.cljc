@@ -20,7 +20,7 @@
     [dao.stream :as ds]
     [dao.stream.link :as link]
     [dao.stream.transit :as transit]
-    [dao.stream.transport.ringbuffer]
+    [dao.stream.transport.ringbuffer :as ringbuffer]
     #?(:clj [org.httpkit.server :as http-server])))
 
 
@@ -72,6 +72,14 @@
 
 (defn- on-open!
   [ws-stream send-fn]
+  (swap! (:link-state-atom ws-stream)
+         (fn [state]
+           (let [remote-stream (:remote-stream state)]
+             (cond-> (assoc state :status :connecting)
+               (ds/closed? remote-stream)
+               (assoc :remote-stream
+                      (ringbuffer/make-ring-buffer-stream nil
+                                                          (:remote-pos state)))))))
   (reset! (:send-fn-atom ws-stream) send-fn)
   (let [msg (link/connect-msg @(:link-state-atom ws-stream))]
     (send-fn (transit/encode msg))))
@@ -92,6 +100,7 @@
   [ws-stream]
   (let [remote (:remote-stream @(:link-state-atom ws-stream))]
     (when-not (ds/closed? remote) (ds/close! remote)))
+  (reset! (:send-fn-atom ws-stream) nil)
   (swap! (:link-state-atom ws-stream) assoc :status :closed))
 
 

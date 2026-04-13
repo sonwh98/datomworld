@@ -50,6 +50,19 @@
       (is (= :payload (:ok (ds/drain-one! remote)))))))
 
 
+(deftest ringbuffer-constructor-position-contract-test
+  (testing "ringbuffer constructor can reopen at an absolute position"
+    (let [stream (dao.stream.transport.ringbuffer/make-ring-buffer-stream nil 3)]
+      (is (= :daostream/gap
+             (ds/next stream {:position 2})))
+      (is (= :blocked
+             (ds/next stream {:position 3})))
+      (is (= :ok (:result (ds/put! stream :value))))
+      (is (= {:ok :value
+              :cursor {:position 4}}
+             (ds/next stream {:position 3}))))))
+
+
 (deftest ring-buffer-stream-test
   (testing "Fresh RingBufferStream is open and empty"
     (let [s (make-stream)]

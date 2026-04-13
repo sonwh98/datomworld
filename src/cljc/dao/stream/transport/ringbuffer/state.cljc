@@ -7,13 +7,14 @@
 
 
 (defn initial-state
-  []
-  {:buffer {}
-   :head 0
-   :tail 0
-   :closed false
-   :reader-waiters {}
-   :writer-waiters []})
+  ([] (initial-state 0))
+  ([position]
+   {:buffer {}
+    :head position
+    :tail position
+    :closed false
+    :reader-waiters {}
+    :writer-waiters []}))
 
 
 (defn count-state

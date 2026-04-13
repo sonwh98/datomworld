@@ -343,8 +343,8 @@
                              (done)))))))))
 
 
-#?(:clj
-   (deftest remote-eval-input-contract-test
+(deftest remote-eval-input-contract-test
+  #?(:clj
      (testing "remote eval keeps the same derefable contract as local eval"
        (with-redefs [dao.stream.apply/put-request!
                      (fn [_request-stream _request-id _op _args]
@@ -358,11 +358,13 @@
                result (repl/eval-input state "(+ 1 2)")]
            (is (instance? clojure.lang.IDeref result))
            (is (= [(update state :request-id inc) "3"]
-                  @result)))))))
+                  @result)))))
+     :default
+     (is true)))
 
 
-#?(:clj
-   (deftest repl-state-stays-local-while-remote-connected-test
+(deftest repl-state-stays-local-while-remote-connected-test
+  #?(:clj
      (testing "repl-state reports the local shell even when a remote endpoint is attached"
        (with-redefs [dao.repl/eval-remote-input
                      (fn [state _input-str]
@@ -382,7 +384,91 @@
                                        :status :unknown}
                              :response {:present? true
                                         :status :unknown}}}
-                  (-> summary-str edn/read-string :remote))))))))
+                  (-> summary-str edn/read-string :remote))))))
+     :default
+     (is true)))
+
+
+(deftest reconnect-closes-previous-remote-endpoint-test
+  #?(:clj
+     (testing "connecting again closes the previous remote request and response streams"
+       (let [closed-streams (atom [])
+             endpoint-1 {:request-stream ::request-1
+                         :response-stream ::response-1}
+             endpoint-2 {:request-stream ::request-2
+                         :response-stream ::response-2}]
+         (with-redefs [dao.repl/open-remote-endpoint
+                       (fn [url]
+                         (case url
+                           "ws://one" endpoint-1
+                           "ws://two" endpoint-2))
+                       dao.stream/close!
+                       (fn [stream]
+                         (swap! closed-streams conj stream)
+                         {:woke []})]
+           (let [[state-1 _] @(repl/eval-input (repl/create-state) "(connect \"ws://one\")")
+                 [state-2 _] @(repl/eval-input state-1 "(connect \"ws://two\")")]
+             (is (= endpoint-2 (:remote-endpoint state-2)))
+             (is (= [::request-1 ::response-1]
+                    @closed-streams))))))
+     :default
+     (is true)))
+
+
+(deftest repl-server-worker-retries-after-stream-end-test
+  #?(:clj
+     (testing "serve! keeps polling after a transient :end so reconnects can resume"
+       (let [calls (atom [])
+             results (atom [:end :blocked :blocked])
+             state-atom (atom (repl/create-state))]
+         (with-redefs [dao.stream/open!
+                       (fn [_] ::stream)
+                       dao.repl/serve-once!
+                       (fn [_state-atom _request-stream _response-stream cursor]
+                         (swap! calls conj cursor)
+                         (let [result (or (first @results) :blocked)
+                               p (promise)]
+                           (swap! results #(if (seq %) (vec (rest %)) %))
+                           (deliver p result)
+                           p))
+                       dao.stream/close!
+                       (fn [_] {:woke []})]
+           (let [server (repl/serve! state-atom 7779 {:sleep-ms 1})]
+             (Thread/sleep 25)
+             ((:stop! server))
+             (is (<= 2 (count @calls)))
+             (is (= [{:position 0} {:position 0}]
+                    (take 2 @calls)))))))
+     :default
+     (is true)))
+
+
+(deftest telemetry-reroute-closes-previous-sink-test
+  #?(:clj
+     (testing "routing telemetry to a new sink closes the previous stream sink"
+       (let [closed-streams (atom [])
+             telemetry-stream ::telemetry
+             old-sink ::old-sink
+             new-sink ::new-sink]
+         (with-redefs [dao.repl/open-telemetry-sink
+                       (fn [_url] new-sink)
+                       dao.stream/close!
+                       (fn [stream]
+                         (swap! closed-streams conj stream)
+                         {:woke []})]
+           (let [state (assoc (repl/create-state {:telemetry-stream telemetry-stream})
+                              :telemetry-mode {:type :stream
+                                               :stream old-sink
+                                               :url "ws://old"})
+                 [state' _] @(repl/eval-input state "(telemetry \"ws://new\")")]
+             (is (= {:type :stream
+                     :stream new-sink
+                     :url "ws://new"}
+                    (:telemetry-mode state')))
+             (is (= [old-sink]
+                    @closed-streams))))))
+     :default
+     (is true)))
 
 
 (deftest last-value-test

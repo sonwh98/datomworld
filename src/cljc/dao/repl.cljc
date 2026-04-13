@@ -30,7 +30,7 @@
 
 
 (def ^:private local-only-command-heads
-  #{'connect 'disconnect 'telemetry 'help 'quit})
+  #{'connect 'disconnect 'telemetry 'help 'quit 'repl-state})
 
 
 (def ^:private vm-constructors
@@ -659,14 +659,16 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
 
       connect
       #?(:clj
-         (let [endpoint (open-remote-endpoint (first args))]
+         (let [endpoint (open-remote-endpoint (first args))
+               state (detach-remote-endpoint state)]
            [(attach-remote-endpoint state endpoint)
             (str "Connected to " (normalize-daostream-url (first args)))])
          :cljs
          (throw (ex-info "Remote Dao REPL connections are not yet supported on Node.js"
                          {:url (first args)}))
          :cljd
-         (let [endpoint (open-remote-endpoint (first args))]
+         (let [endpoint (open-remote-endpoint (first args))
+               state (detach-remote-endpoint state)]
            [(attach-remote-endpoint state endpoint)
             (str "Connected to " (normalize-daostream-url (first args)))]))
 
@@ -681,6 +683,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
           (let [telemetry-stream (or (:telemetry-stream state)
                                      (make-local-stream))
                 telemetry-url (normalize-daostream-url arg)
+                _ (close-telemetry-sink! state)
                 sink-stream (open-telemetry-sink arg)]
             [(set-telemetry-stream state
                                    telemetry-stream
@@ -863,7 +866,8 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                            (case result
                              :blocked (do (Thread/sleep sleep-ms)
                                           (recur cursor))
-                             :end nil
+                             :end (do (Thread/sleep sleep-ms)
+                                      (recur cursor))
                              :daostream/gap (recur {:position 0})
                              (recur (:cursor result))))
                          nil)))]
@@ -896,7 +900,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                               (fn [result]
                                 (case result
                                   :blocked (js/setTimeout #(loop-fn cursor) sleep-ms)
-                                  :end nil
+                                  :end (js/setTimeout #(loop-fn cursor) sleep-ms)
                                   :daostream/gap (loop-fn {:position 0})
                                   (loop-fn (:cursor result)))))))]
         (worker {:position 0})
@@ -928,7 +932,10 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                                              (.then ^async/Future (async/Future.delayed (core/Duration .milliseconds sleep-ms))
                                                     (fn [_] (loop-fn cursor)))
                                              nil)
-                                  :end nil
+                                  :end (do
+                                         (.then ^async/Future (async/Future.delayed (core/Duration .milliseconds sleep-ms))
+                                                (fn [_] (loop-fn cursor)))
+                                         nil)
                                   :daostream/gap (loop-fn {:position 0})
                                   (loop-fn (:cursor result)))))))]
         (worker {:position 0})

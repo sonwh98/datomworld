@@ -129,8 +129,10 @@
 
 
 (defn make-ring-buffer-stream
-  [capacity]
-  (->RingBufferStream capacity (atom (state/initial-state))))
+  ([capacity]
+   (make-ring-buffer-stream capacity 0))
+  ([capacity position]
+   (->RingBufferStream capacity (atom (state/initial-state position)))))
 
 
 (defmethod ds/open! :ringbuffer [descriptor]
