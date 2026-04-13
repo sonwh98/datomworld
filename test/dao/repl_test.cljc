@@ -343,6 +343,48 @@
                              (done)))))))))
 
 
+#?(:clj
+   (deftest remote-eval-input-contract-test
+     (testing "remote eval keeps the same derefable contract as local eval"
+       (with-redefs [dao.stream.apply/put-request!
+                     (fn [_request-stream _request-id _op _args]
+                       {:result :ok})
+                     dao.repl/wait-for-response
+                     (fn [state request-id]
+                       [state (dao-apply/response request-id "3")])]
+         (let [state (assoc (repl/create-state)
+                            :remote-endpoint {:request-stream ::request
+                                              :response-stream ::response})
+               result (repl/eval-input state "(+ 1 2)")]
+           (is (instance? clojure.lang.IDeref result))
+           (is (= [(update state :request-id inc) "3"]
+                  @result)))))))
+
+
+#?(:clj
+   (deftest repl-state-stays-local-while-remote-connected-test
+     (testing "repl-state reports the local shell even when a remote endpoint is attached"
+       (with-redefs [dao.repl/eval-remote-input
+                     (fn [state _input-str]
+                       (let [p (promise)]
+                         (deliver p [state "REMOTE"])
+                         p))]
+         (let [state (assoc (repl/create-state)
+                            :remote-endpoint {:request-stream ::request
+                                              :response-stream ::response})
+               result @(repl/eval-input state "(repl-state)")
+               [_state summary-str] result]
+           (is (not= "REMOTE" summary-str))
+           (is (= {:connected? true
+                   :request-id 0
+                   :response-cursor {:position 0}
+                   :streams {:request {:present? true
+                                       :status :unknown}
+                             :response {:present? true
+                                        :status :unknown}}}
+                  (-> summary-str edn/read-string :remote))))))))
+
+
 (deftest last-value-test
   #?(:clj
      (testing "*1, *2, *3 hold the last three evaluated values"

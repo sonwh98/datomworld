@@ -608,8 +608,9 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                                   [input-str])
         p-or-res (wait-for-response (update state :request-id inc)
                                     request-id)]
-    #?(:clj (let [[state' response] p-or-res]
-              [state' (str (dao-apply/response-value response))])
+    #?(:clj (deliver-result
+              (let [[state' response] p-or-res]
+                [state' (str (dao-apply/response-value response))]))
        :cljs (.then p-or-res
                     (fn [[state' response]]
                       [state' (str (dao-apply/response-value response))]))
