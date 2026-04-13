@@ -472,8 +472,8 @@
         {:control {:control control,
                    :instruction-index instr-idx,
                    :instruction instr,
-                   :halted (:halted vm-state),
-                   :blocked (:blocked vm-state)},
+                   :halted? (:halted? vm-state),
+                   :blocked? (:blocked? vm-state)},
          :environment (:env vm-state),
          :store (:store vm-state),
          :continuation {:depth (count (or continuation [])),
@@ -485,8 +485,8 @@
         {:control {:control control,
                    :instruction-index instr-idx,
                    :instruction instr,
-                   :halted (:halted vm-state),
-                   :blocked (:blocked vm-state)},
+                   :halted? (:halted? vm-state),
+                   :blocked? (:blocked? vm-state)},
          :environment (:env vm-state),
          :store (:store vm-state),
          :continuation {:depth (count (or continuation [])),
@@ -552,7 +552,7 @@
         cesk (or (vm->cesk vm-key vm-state asm source-map)
                  {:state :waiting-for-continuation})
         status (cond (nil? vm-state) "Waiting"
-                     (:halted vm-state) "Halted"
+                     (:halted? vm-state) "Halted"
                      active? "Running"
                      :else "Parked snapshot")]
     [:div

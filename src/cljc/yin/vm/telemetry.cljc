@@ -60,12 +60,12 @@
 
 (defn- blocked?
   [state]
-  (boolean (:blocked state)))
+  (boolean (:blocked? state)))
 
 
 (defn- halted?
   [state]
-  (boolean (:halted state)))
+  (boolean (:halted? state)))
 
 
 (defn- control

@@ -43,7 +43,7 @@
 ;; =============================================================================
 
 (defrecord StackVM
-  [blocked    ; true if blocked
+  [blocked?   ; true if blocked
    in-stream  ; ingress DaoStream carrying canonical datom programs
    in-cursor  ; ingress cursor position
    bytecode   ; bytecode vector
@@ -53,14 +53,14 @@
    active-compiled-version ; compiled program version for new control transfers
    compile-dirty? ; canonical datom stream changed since last compile
    env        ; lexical environment (E in CESK)
-   halted     ; true if execution completed
+   halted?    ; true if execution completed
    id-counter ; unique ID counter
    macro-registry ; {macro-lambda-eid -> (fn [ctx] {:datoms [...] :root-eid eid})}
    parked     ; parked continuations
    control    ; program counter (C in CESK)
    pool       ; constant pool
-   program-datoms ; canonical bounded datom stream snapshot
-   program-index ; derived datom index for compilation
+   datoms     ; canonical bounded datom stream snapshot
+   datom-index ; derived datom index for compilation
    program-root-eid ; root entity id of canonical program
    program-version ; monotonic program version for append/recompile lifecycle
    primitives ; primitive operations
@@ -420,7 +420,7 @@
 (defn- cache-compiled-artifact
   [vm version artifact program-index]
   (-> vm
-      (assoc :program-index program-index
+      (assoc :datom-index program-index
              :compile-dirty? false
              :active-compiled-version version)
       (update :compiled-by-version (fnil assoc {}) version artifact)
@@ -431,12 +431,12 @@
   [vm version]
   (if-let [artifact (get-in vm [:compiled-by-version version])]
     [vm artifact]
-    (let [program-datoms (vec (or (:program-datoms vm) []))
+    (let [program-datoms (vec (or (:datoms vm) []))
           program-root-eid (:program-root-eid vm)]
       (when (or (empty? program-datoms) (nil? program-root-eid))
         (throw (ex-info "Canonical program is not loaded"
                         {:program-version version})))
-      (let [program-index (or (:program-index vm)
+      (let [program-index (or (:datom-index vm)
                               (build-program-index program-datoms))
             artifact (compile-stack-artifact program-root-eid
                                              program-datoms
@@ -450,7 +450,7 @@
    Called at explicit dispatch boundaries only."
   [vm]
   (if (and (:compile-dirty? vm)
-           (seq (:program-datoms vm))
+           (seq (:datoms vm))
            (some? (:program-root-eid vm)))
     (let [version (:program-version vm)
           [vm' _artifact] (ensure-compiled-version vm version)]
@@ -473,14 +473,14 @@
              executable? (or (some executable-program-datom? appended)
                              (some? new-root-eid))]
          (-> vm
-             (update :program-datoms into appended)
+             (update :datoms into appended)
              (assoc :program-version version
                     :program-root-eid (or new-root-eid
                                           (:program-root-eid vm))
                     :compile-dirty? (or (:compile-dirty? vm) executable?)
-                    :program-index (if executable?
-                                     nil
-                                     (:program-index vm)))))))))
+                    :datom-index (if executable?
+                                   nil
+                                   (:datom-index vm)))))))))
 
 
 (defn- activate-compiled-artifact
@@ -491,9 +491,9 @@
          :pool (:pool artifact)
          :stack []
          :k nil
-         :halted false
+         :halted? false
          :value nil
-         :blocked false))
+         :blocked? false))
 
 
 (defn- fetch-short-unsigned
@@ -739,7 +739,7 @@
 
 (defn- stack-step
   "Execute one stack VM instruction. Returns updated state.
-   When execution completes, :halted is true and :value contains the result."
+   When execution completes, :halted? is true and :value contains the result."
   [state]
   (let [op0 (nth (:bytecode state) (:control state) nil)
         state (if (and (:compile-dirty? state)
@@ -755,7 +755,7 @@
       (let [result (peek stack)]
         (if (nil? k)
           (assoc state
-                 :halted true
+                 :halted? true
                  :value result)
           (restore-frame state k result)))
       (let [op (nth bytecode control)]
@@ -809,7 +809,7 @@
           (let [result (peek stack)]
             (if (nil? k)
               (assoc state
-                     :halted true
+                     :halted? true
                      :value result)
               (restore-frame state k result)))
           :gensym
@@ -931,8 +931,8 @@
                 _ (ds/put! call-in request)]
             (assoc (telemetry/emit-snapshot parked :bridge {:bridge-op op-name})
                    :value :yin/blocked
-                   :blocked true
-                   :halted false))
+                   :blocked? true
+                   :halted? false))
           :park
           (engine/park-continuation state (snap-frame state stack control))
           :resume ; OP_RESUME - pop val, pop parked-id
@@ -996,8 +996,8 @@
          :k k
          :store store
          :id-counter id-counter
-         :halted false
-         :blocked false))
+         :halted? false
+         :blocked? false))
 
 
 (defn- halt-fast-state
@@ -1011,8 +1011,8 @@
          :k k
          :store store
          :id-counter id-counter
-         :halted true
-         :blocked false
+         :halted? true
+         :blocked? false
          :value result))
 
 
@@ -1423,9 +1423,9 @@
            :stack []
            :k nil
            :control (when (seq (:bytecode vm)) 0)
-           :halted (empty? (:bytecode vm))
+           :halted? (empty? (:bytecode vm))
            :value nil
-           :blocked false)))
+           :blocked? false)))
 
 
 (defn- stack-vm-load-canonical-program
@@ -1442,9 +1442,9 @@
         program-version (inc (or (:program-version vm) 0))
         vm' (assoc vm
                    :program-root-eid root-eid
-                   :program-datoms datoms
+                   :datoms datoms
                    :program-version program-version
-                   :program-index nil
+                   :datom-index nil
                    :compile-dirty? true)
         [compiled-vm artifact] (ensure-compiled-version vm' program-version)]
     (activate-compiled-artifact compiled-vm artifact)))
@@ -1536,12 +1536,12 @@
                                :compile-dirty? false,
                                :macro-registry (or (:macro-registry opts) {}),
                                :program-root-eid nil,
-                               :program-datoms [],
+                               :datoms [],
                                :program-version 0,
-                               :program-index nil,
-                               :halted true,
+                               :datom-index nil,
+                               :halted? true,
                                :value nil,
-                               :blocked false}
+                               :blocked? false}
                               (when bridge-state
                                 {:bridge bridge-state})))
          (telemetry/install :stack)

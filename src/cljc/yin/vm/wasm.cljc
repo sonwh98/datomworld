@@ -13,7 +13,7 @@
        -> WebAssembly.Module      (Node.js built-in, CLJS-only)
        -> WebAssembly.Instance
        -> call main export
-       -> WasmVM{:halted true :value result}
+       -> WasmVM{:halted? true :value result}
 
    V1 supported subset: numeric/boolean literals, arithmetic (+,-,*,/),
    comparisons (=,<,>,<=,>=), logical negation (not), if/else.
@@ -506,9 +506,9 @@
                          (not (zero? raw))
                          raw)]
          (-> vm
-             (assoc :halted false :value nil)
+             (assoc :halted? false :value nil)
              (telemetry/emit-snapshot :step)
-             (assoc :halted true :value result)
+             (assoc :halted? true :value result)
              (telemetry/emit-snapshot :halt)))
        :clj
        (throw (ex-info "wasm: JVM execution not supported" {})))))
@@ -519,8 +519,8 @@
   (step     [vm]  (telemetry/emit-snapshot vm :step))
   (run [vm] (vm/eval vm nil))
   (eval [vm ast] (wasm-eval vm ast))
-  (reset [vm] (assoc vm :halted false :value nil))
-  (halted?  [vm]  (boolean (:halted vm)))
+  (reset [vm] (assoc vm :halted? false :value nil))
+  (halted?  [vm]  (boolean (:halted? vm)))
   (blocked? [_vm] false)
   (value    [vm]  (:value vm))
   vm/IVMState
@@ -542,7 +542,7 @@
    (-> (map->WasmVM (merge (vm/empty-state {:primitives (:primitives opts)
                                             :telemetry (:telemetry opts)
                                             :vm-model :wasm})
-                           {:halted  false
+                           {:halted?  false
                             :value   nil
                             :control nil
                             :env     (or (:env opts) {})

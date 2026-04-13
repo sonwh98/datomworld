@@ -32,7 +32,7 @@
 (defn vm-blocked?
   "Returns true if the VM is blocked."
   [vm]
-  (boolean (:blocked vm)))
+  (boolean (:blocked? vm)))
 
 
 (defn vm-value
@@ -44,13 +44,13 @@
 (defn halted-with-empty-queue?
   "Returns true if the VM has halted and its run-queue is empty."
   [vm]
-  (and (boolean (:halted vm)) (empty? (or (:run-queue vm) []))))
+  (and (boolean (:halted? vm)) (empty? (or (:run-queue vm) []))))
 
 
 (defn active-continuation?
   "Returns true when the currently active continuation should keep stepping."
   [vm]
-  (and (not (:blocked vm)) (not (:halted vm))))
+  (and (not (:blocked? vm)) (not (:halted? vm))))
 
 
 (def ready-for-ingress? stream-driver/ready-for-ingress?)
@@ -196,14 +196,14 @@
   [state active? step-fn resume-fn]
   (loop [v state]
     (cond (active? v) (recur (step-fn v))
-          (:blocked v) (let [v' (check-wait-set v)]
-                         (if-let [resumed (resume-fn v')]
-                           (recur resumed)
-                           (telemetry/emit-snapshot v' :blocked)))
+          (:blocked? v) (let [v' (check-wait-set v)]
+                          (if-let [resumed (resume-fn v')]
+                            (recur resumed)
+                            (telemetry/emit-snapshot v' :blocked)))
           (seq (or (:run-queue v) [])) (if-let [resumed (resume-fn v)]
                                          (recur resumed)
                                          v)
-          :else (if (:halted v)
+          :else (if (:halted? v)
                   (telemetry/emit-snapshot v :halt)
                   v))))
 
@@ -223,7 +223,7 @@
         v
         (let [v' (run-loop v active-continuation? step-fn resume-fn)]
           (if (and in-stream
-                   (not (:blocked v'))
+                   (not (:blocked? v'))
                    (ready-for-ingress? v'))
             (recur v')
             v'))))))
@@ -248,8 +248,8 @@
             base (assoc state
                         :run-queue rest-queue
                         :store (merge (:store state) (:store-updates entry))
-                        :blocked false
-                        :halted false)]
+                        :blocked? false
+                        :halted? false)]
         (restore-fn base entry)))))
 
 
@@ -262,7 +262,7 @@
     (-> state
         (update :parked assoc park-id parked)
         (assoc :value parked
-               :halted true
+               :halted? true
                :id-counter (inc id-counter))
         (telemetry/emit-snapshot :park {:parked-id park-id}))))
 
@@ -301,8 +301,8 @@
           new-state (-> (:state result)
                         (add-wait-entry entry)
                         (assoc :value :yin/blocked
-                               :blocked true
-                               :halted false))]
+                               :blocked? true
+                               :halted? false))]
       {:state new-state, :value :yin/blocked, :blocked? true})
     {:state (:state result), :value (:value result), :blocked? false}))
 
@@ -334,7 +334,7 @@
                                 stream      (get (:store state) stream-id)]
                             (if (and built-entry (satisfies? ds/IDaoStreamWaitable stream))
                               (do (ds/register-writer-waiter! stream built-entry)
-                                  {:state (assoc (:state result) :blocked true :halted false
+                                  {:state (assoc (:state result) :blocked? true :halted? false
                                                  :value :yin/blocked)
                                    :value :yin/blocked
                                    :blocked? true})
@@ -354,7 +354,7 @@
                                  position    (:position (get (:store state) cursor-id))]
                              (if (and built-entry (satisfies? ds/IDaoStreamWaitable stream))
                                (do (ds/register-reader-waiter! stream position built-entry)
-                                   {:state (assoc (:state result) :blocked true :halted false
+                                   {:state (assoc (:state result) :blocked? true :halted? false
                                                   :value :yin/blocked)
                                     :value :yin/blocked
                                     :blocked? true})

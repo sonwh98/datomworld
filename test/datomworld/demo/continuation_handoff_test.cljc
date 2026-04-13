@@ -20,12 +20,12 @@
                     :control 12
                     :bytecode [[:const 0 1]]
                     :pool [:value]
-                    :halted false
+                    :halted? false
                     :value :ok
                     :store {:s 1}
                     :parked {:p {:type :parked-continuation}}
                     :id-counter 99
-                    :blocked true
+                    :blocked? true
                     :run-queue [:resume]
                     :wait-set [:wait])
           payload (handoff/vm-state->handoff :register-vm vm)
@@ -36,7 +36,9 @@
       (is (= 12 (:control resumed)))
       (is (= [[:const 0 1]] (:bytecode resumed)))
       (is (= {:s 1} (:store resumed)))
-      (is (= [:resume] (:run-queue resumed))))))
+      (is (= [:resume] (:run-queue resumed)))
+      (is (false? (:halted? resumed)))
+      (is (true? (:blocked? resumed))))))
 
 
 (deftest stack-handoff-preserves-ingress-state-test
@@ -51,12 +53,12 @@
                     :control 5
                     :bytecode [[:const 1]]
                     :pool [:const]
-                    :halted false
+                    :halted? false
                     :value 42
                     :store {:s 2}
                     :parked {:p {:type :parked-continuation}}
                     :id-counter 17
-                    :blocked false
+                    :blocked? false
                     :run-queue [:resume]
                     :wait-set [:wait])
           payload (handoff/vm-state->handoff :stack-vm vm)
@@ -67,4 +69,6 @@
       (is (= 5 (:control resumed)))
       (is (= [[:const 1]] (:bytecode resumed)))
       (is (= {:s 2} (:store resumed)))
-      (is (= [:resume] (:run-queue resumed))))))
+      (is (= [:resume] (:run-queue resumed)))
+      (is (false? (:halted? resumed)))
+      (is (false? (:blocked? resumed))))))

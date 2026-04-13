@@ -33,11 +33,11 @@
 ;; =============================================================================
 
 (defrecord ASTWalkerVM
-  [blocked      ; boolean, true if blocked
+  [blocked?     ; boolean, true if blocked
    bridge       ; explicit host-side FFI bridge state
    in-stream    ; ingress DaoStream carrying AST programs
    in-cursor    ; ingress cursor position
-   halted       ; boolean, true when active continuation has completed
+   halted?      ; boolean, true when active continuation has completed
    k            ; reified continuation or nil
    program      ; last ingested AST program
    control      ; current AST node or nil
@@ -60,9 +60,9 @@
 (defn- cesk-return
   "Create a new ASTWalkerVM with updated CESK fields in a single allocation.
    Preserves blocked, store, and scheduler fields from vm.
-   Derives :halted from the new CESK state."
+   Derives :halted? from the new CESK state."
   [^ASTWalkerVM vm control env k val]
-  (let [blocked (:blocked vm)]
+  (let [blocked (:blocked? vm)]
     (->ASTWalkerVM
       blocked
       (:bridge vm)
@@ -109,7 +109,7 @@
                               :cursor-ref (:cursor-ref r),
                               :stream-id (:stream-id r)})}})]
       (if blocked?
-        (assoc state :control nil :k nil :halted false)
+        (assoc state :control nil :k nil :halted? false)
         (cesk-return state nil env k value)))
     (cesk-return state nil env k result)))
 
@@ -152,8 +152,8 @@
            :control nil
            :k nil
            :value :yin/blocked
-           :blocked true
-           :halted false)))
+           :blocked? true
+           :halted? false)))
 
 
 (defn- apply-function
@@ -286,7 +286,7 @@
                                    :stream-id (:stream-id r),
                                    :datom val})}})]
             (if blocked?
-              (assoc state :control nil :k nil :halted false)
+              (assoc state :control nil :k nil :halted? false)
               (cesk-return state nil env (:next k) value)))
           ;; Stream continuation: evaluate source for cursor creation
           :eval-stream-cursor-source
@@ -310,7 +310,7 @@
                                     :cursor-ref (:cursor-ref r),
                                     :stream-id (:stream-id r)})}})]
             (if blocked?
-              (assoc state :control nil :k nil :halted false)
+              (assoc state :control nil :k nil :halted? false)
               (cesk-return state nil env (:next k) value)))
           ;; Resume: val has been evaluated, now do the resume
           :eval-resume-val
@@ -389,7 +389,7 @@
                      (assoc s'
                             :value id
                             :control nil
-                            :halted (nil? k)))
+                            :halted? (nil? k)))
         ;; Read from store
         :vm/store-get
         (cesk-return state nil env k (get store (:key node)))
@@ -401,8 +401,8 @@
                                :store new-store
                                :value value
                                :control nil
-                               :halted (and (not (:blocked state))
-                                            (nil? k))))
+                               :halted? (and (not (:blocked? state))
+                                             (nil? k))))
         ;; Update store (apply function to current value)
         :vm/store-update (let [key (:key node)
                                f (:fn node)
@@ -414,8 +414,8 @@
                                   :store new-store
                                   :value new-value
                                   :control nil
-                                  :halted (and (not (:blocked state))
-                                               (nil? k))))
+                                  :halted? (and (not (:blocked? state))
+                                                (nil? k))))
         ;; ============================================================
         ;; VM Primitives for Continuation Control
         ;; ============================================================
@@ -534,7 +534,7 @@
                                                          result
                                                          (:next k)
                                                          saved-env)]
-                        (if (or (:blocked res) (and (nil? (:control res)) (nil? (:k res))))
+                        (if (or (:blocked? res) (and (nil? (:control res)) (nil? (:k res))))
                           res
                           (recur (:control res) (:env res) (:k res) (:value res) res)))
                       (recur nil saved-env (:next k) result vm)))
@@ -567,7 +567,7 @@
                                                            result
                                                            (:next k)
                                                            saved-env)]
-                          (if (or (:blocked res) (and (nil? (:control res)) (nil? (:k res))))
+                          (if (or (:blocked? res) (and (nil? (:control res)) (nil? (:k res))))
                             res
                             (recur (:control res) (:env res) (:k res) (:value res) res)))
                         (recur nil saved-env (:next k) result vm)))
@@ -589,7 +589,7 @@
             ;; Fallback for complex/uncommon continuations
             (let [state (cesk-return vm control env k val)
                   next (cesk-transition state nil)]
-              (if (or (:blocked next) (and (nil? (:control next)) (nil? (:k next))))
+              (if (or (:blocked? next) (and (nil? (:control next)) (nil? (:k next))))
                 next
                 (recur (:control next) (:env next) (:k next) (:value next) next)))))
 
@@ -616,7 +616,7 @@
           ;; Fallback for complex/uncommon nodes
           (let [state (cesk-return vm node env k val)
                 next (cesk-transition state nil)]
-            (if (or (:blocked next) (and (nil? (:control next)) (nil? (:k next))))
+            (if (or (:blocked? next) (and (nil? (:control next)) (nil? (:k next))))
               next
               (recur (:control next) (:env next) (:k next) (:value next) next))))
 
@@ -624,7 +624,7 @@
         :else
         (let [result (cesk-return vm control env k val)]
           (cond
-            (:blocked result)
+            (:blocked? result)
             (let [v' (engine/check-wait-set result)]
               (if-let [resumed (resume-from-run-queue v')]
                 (recur (:control resumed) (:env resumed)
@@ -646,7 +646,7 @@
 
 (defn- vm-step
   "Execute one step of ASTWalkerVM. Returns updated VM.
-   cesk-transition derives :halted via cesk-return, so no extra assoc needed."
+   cesk-transition derives :halted? via cesk-return, so no extra assoc needed."
   [^ASTWalkerVM vm]
   (cesk-transition vm nil))
 
@@ -676,8 +676,8 @@
     (assoc vm
            :program ast
            :control ast
-           :halted false
-           :blocked false
+           :halted? false
+           :blocked? false
            :value nil)))
 
 
@@ -687,9 +687,9 @@
   (assoc vm
          :control (:program vm)
          :k nil
-         :halted (nil? (:program vm))
+         :halted? (nil? (:program vm))
          :value nil
-         :blocked false))
+         :blocked? false))
 
 
 (defn- ast-walker-run-scheduler
@@ -773,7 +773,7 @@
                                    :env env,
                                    :k nil,
                                    :value nil,
-                                   :halted true,
-                                   :blocked false}))
+                                   :halted? true,
+                                   :blocked? false}))
          (telemetry/install :ast-walker)
          (telemetry/emit-snapshot :init)))))

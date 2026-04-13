@@ -27,7 +27,7 @@
         queued-vm (assoc vm-state
                          :in-stream in-stream
                          :in-cursor {:position 0}
-                         :halted false)]
+                         :halted? false)]
     (ds/put! in-stream (vec datoms))
     queued-vm))
 
@@ -35,6 +35,19 @@
 (defn- queue-ast
   [vm-state ast]
   (queue-vm vm-state (vm/ast->datoms ast)))
+
+
+(deftest queue-vm-clears-halted-state-parity-test
+  (testing "queueing a datom program marks every VM backend as runnable"
+    (let [datoms (vm/ast->datoms {:type :literal, :value 42})
+          states [(queue-vm (ast-walker/create-vm) datoms)
+                  (queue-vm (stack/create-vm) datoms)
+                  (queue-vm (semantic/create-vm) datoms)
+                  (queue-vm (register/create-vm) datoms)]]
+      (doseq [state states]
+        (is (= {:position 0} (:in-cursor state)))
+        (is (false? (:halted? state)))
+        (is (false? (vm/halted? state)))))))
 
 
 (defn- ast-walker-stream-make-default-vm

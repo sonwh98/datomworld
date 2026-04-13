@@ -12,8 +12,8 @@
 (deftest run-loop-resumes-when-blocked-with-preexisting-run-queue-test
   (testing "Blocked VM still resumes from an already non-empty run-queue"
     (let [resume-calls (atom 0)
-          state {:blocked true,
-                 :halted false,
+          state {:blocked? true,
+                 :halted? false,
                  :run-queue [{:value 42}],
                  :wait-set []}
           result (engine/run-loop state
@@ -25,22 +25,22 @@
                                       (assoc v
                                              :value (:value entry)
                                              :run-queue (vec (rest (:run-queue v)))
-                                             :blocked false
-                                             :halted true))))]
+                                             :blocked? false
+                                             :halted? true))))]
       (is (= 1 @resume-calls))
       (is (= 42 (:value result)))
-      (is (false? (:blocked result)))
-      (is (true? (:halted result)))
+      (is (false? (:blocked? result)))
+      (is (true? (:halted? result)))
       (is (empty? (:run-queue result))))))
 
 
 (deftest run-loop-noop-when-blocked-and-no-runnable-work-test
   (testing
     "Blocked VM remains blocked if scheduler cannot wake and run-queue is empty"
-    (let [state {:blocked true, :halted false, :run-queue [], :wait-set []}
+    (let [state {:blocked? true, :halted? false, :run-queue [], :wait-set []}
           result (engine/run-loop state (fn [_] false) (fn [v] v) (fn [_] nil))]
-      (is (true? (:blocked result)))
-      (is (false? (:halted result)))
+      (is (true? (:blocked? result)))
+      (is (false? (:halted? result)))
       (is (empty? (:run-queue result))))))
 
 
@@ -64,8 +64,8 @@
 (deftest handle-effect-emits-telemetry-snapshot-test
   (testing "handle-effect emits :effect snapshots when telemetry is enabled"
     (let [telemetry-stream (make-stream)
-          state {:blocked false
-                 :halted false
+          state {:blocked? false
+                 :halted? false
                  :parked {}
                  :run-queue []
                  :wait-set []
@@ -90,8 +90,8 @@
 (deftest park-and-resume-emit-telemetry-snapshots-test
   (testing "park-continuation and resume-continuation emit phase-tagged telemetry"
     (let [telemetry-stream (make-stream)
-          state {:blocked false
-                 :halted false
+          state {:blocked? false
+                 :halted? false
                  :parked {}
                  :run-queue []
                  :wait-set []
@@ -110,8 +110,8 @@
                           (fn [base _parked resume-val]
                             (assoc base
                                    :value resume-val
-                                   :halted true
-                                   :blocked false)))
+                                   :halted? true
+                                   :blocked? false)))
           datoms (stream-values telemetry-stream)]
       (is (= :resumed (:value resumed-state)))
       (is (fact? datoms :vm/phase :park))
@@ -120,10 +120,10 @@
 
 
 (deftest run-loop-emits-terminal-telemetry-test
-  (testing "run-loop emits :blocked terminal snapshots"
+  (testing "run-loop emits :blocked? terminal snapshots"
     (let [telemetry-stream (make-stream)
-          state {:blocked true
-                 :halted false
+          state {:blocked? true
+                 :halted? false
                  :parked {}
                  :run-queue []
                  :wait-set []
@@ -138,8 +138,8 @@
       (is (fact? datoms :vm/phase :blocked))))
   (testing "run-loop emits :halt terminal snapshots"
     (let [telemetry-stream (make-stream)
-          state {:blocked false
-                 :halted true
+          state {:blocked? false
+                 :halted? true
                  :parked {}
                  :run-queue []
                  :wait-set []
@@ -423,8 +423,8 @@
                                      :env {}}},
                  :run-queue [],
                  :wait-set [],
-                 :blocked true,
-                 :halted false}
+                 :blocked? true,
+                 :halted? false}
           ;; 1. Register reader-waiter on call-out (happens during dao-call)
           waiter-entry {:cursor-ref {:type :cursor-ref, :id vm/call-out-cursor-key}
                         :reason :next

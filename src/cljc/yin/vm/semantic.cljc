@@ -135,7 +135,7 @@
 ;; =============================================================================
 
 (defrecord SemanticVM
-  [blocked    ; true if blocked
+  [blocked?   ; true if blocked
    bridge     ; explicit host-side FFI bridge state
    in-stream  ; ingress DaoStream carrying canonical datom programs
    in-cursor  ; ingress cursor position
@@ -143,9 +143,9 @@
    datoms     ; AST datoms
    db         ; DaoDB AST store
    env        ; lexical environment
-   halted     ; true if execution completed
+   halted?    ; true if execution completed
    id-counter ; unique ID counter
-   index      ; Entity index {eid node-attr-array}
+   datom-index ; Entity index {eid node-attr-array}
    node-id-counter ; unique negative ID counter for AST nodes
    parked     ; parked continuations
    primitives ; primitive operations
@@ -175,7 +175,7 @@
   "Materialize SemanticVM state from CES fields."
   [^SemanticVM vm control env k halted? val]
   (->SemanticVM
-    (:blocked vm)
+    (:blocked? vm)
     (:bridge vm)
     (:in-stream vm)
     (:in-cursor vm)
@@ -185,7 +185,7 @@
     env
     halted?
     (:id-counter vm)
-    (:index vm)
+    (:datom-index vm)
     (:node-id-counter vm)
     (:parked vm)
     (:primitives vm)
@@ -236,8 +236,8 @@
     (assoc (telemetry/emit-snapshot parked :bridge {:bridge-op op})
            :control nil
            :value :yin/blocked
-           :blocked true
-           :halted false)))
+           :blocked? true
+           :halted? false)))
 
 
 (defn- handle-return-value
@@ -246,7 +246,7 @@
         val (:val control)]
     (if (nil? k)
       (assoc vm
-             :halted true
+             :halted? true
              :value val)
       (let [frame k
             new-k (:next k)]
@@ -895,9 +895,9 @@
     (assoc vm
            :control (when root-id {:type :node, :id root-id})
            :k nil
-           :halted (nil? root-id)
+           :halted? (nil? root-id)
            :value nil
-           :blocked false)))
+           :blocked? false)))
 
 
 (defn- semantic-vm-load-program
@@ -915,9 +915,9 @@
     (assoc vm
            :control {:type :node, :id root-id}
            :k nil
-           :halted false
+           :halted? false
            :value nil
-           :blocked false)))
+           :blocked? false)))
 
 
 (defn- semantic-append-datoms*
@@ -1185,7 +1185,7 @@
                                                false
                                                val)
                         next (handle-return-value state)]
-                    (if (or (:blocked next) (:halted next))
+                    (if (or (:blocked? next) (:halted? next))
                       next
                       (let [next-control (:control next)
                             next-tag (:type next-control)
@@ -1204,7 +1204,7 @@
                                              false
                                              val)
                       next (handle-return-value state)]
-                  (if (or (:blocked next) (:halted next))
+                  (if (or (:blocked? next) (:halted? next))
                     next
                     (let [next-control (:control next)
                           next-tag (:type next-control)
@@ -1263,11 +1263,11 @@
                                              false
                                              nil)
                       next (handle-node-eval state)]
-                  (if (or (:blocked next)
+                  (if (or (:blocked? next)
                           (nil? (:control next))
                           ;; Index changed (e.g., runtime macro expanded new nodes):
                           ;; exit hot loop so outer eval can restart with updated index
-                          (not (identical? (:index next) index)))
+                          (not (identical? (:datom-index next) index)))
                     next
                     (let [next-control (:control next)
                           next-tag (:type next-control)
@@ -1285,7 +1285,7 @@
                         nil)
               result (semantic-return vm control env (materialize-k sp) false nil)]
           (cond
-            (:blocked result)
+            (:blocked? result)
             (let [v' (engine/check-wait-set result)]
               (if-let [resumed (resume-from-run-queue v')]
                 (let [resumed-control (:control resumed)
@@ -1382,12 +1382,12 @@
                                   :k nil,
                                   :datoms [],
                                   :db (create-ast-db),
-                                  :index {},
+                                  :datom-index {},
                                   :index-arr (make-semantic-object-array 0),
                                   :index-base-id 0,
-                                  :halted true,
+                                  :halted? true,
                                   :value nil,
-                                  :blocked false,
+                                  :blocked? false,
                                   :node-id-counter -1024,
                                   :macro-registry (or (:macro-registry opts) {})}))
          (telemetry/install :semantic)
@@ -1493,8 +1493,8 @@
                         :primitives (merge (:primitives vm-data) macro-prims)
                         :control {:type :node, :id body-eid}
                         :env env
-                        :halted false
-                        :blocked false
+                        :halted? false
+                        :blocked? false
                         :k nil)
         result-vm (vm/run vm-ready)
         raw-val   (vm/value result-vm)

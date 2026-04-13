@@ -21,7 +21,7 @@
         queued-vm (assoc vm-state
                          :in-stream in-stream
                          :in-cursor {:position 0}
-                         :halted false)]
+                         :halted? false)]
     (ds/put! in-stream (vec datoms))
     queued-vm))
 

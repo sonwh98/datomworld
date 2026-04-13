@@ -549,7 +549,7 @@
                             :in-cursor {:position 0})]
     (doseq [tx txns]
       (ds/put! in-stream (vec tx)))
-    (assoc queued-state :halted false)))
+    (assoc queued-state :halted? false)))
 
 
 (defn load-stack-state
@@ -1047,8 +1047,8 @@
         halted (when state
                  (try (if (satisfies? vm/IVM state)
                         (vm/halted? state)
-                        (or (:halted state) false))
-                      (catch js/Error _ (or (:halted state) false))))]
+                        (or (:halted? state) false))
+                      (catch js/Error _ (or (:halted? state) false))))]
     [:div {:style {:display "flex", :gap "5px", :margin-bottom "4px"}}
      [:button
       {:on-click step-fn,
@@ -1632,7 +1632,7 @@
               [vm-state-display app-state codemirror-editor
                {:vm-key :semantic,
                 :status-fn (fn [state]
-                             (if (:halted state)
+                             (if (:halted? state)
                                "HALTED"
                                (let [ctrl (:control state)]
                                  (if (= :node (:type ctrl))
@@ -1640,7 +1640,7 @@
                                    (str "Val: " (pr-str (:val ctrl))))))),
                 :summary-fn
                 (fn [state]
-                  (when (not (:halted state))
+                  (when (not (:halted? state))
                     (let [ctrl (:control state)
                           info
                           (if (= :node (:type ctrl))
@@ -1661,7 +1661,7 @@
                                 (count (or (vm/continuation state) [])),
                                 :value (:value state)})}]]]
             [vm-result-editor codemirror-editor (:value asm-vm-state)
-             (boolean (and asm-vm-state (:halted asm-vm-state)))]]]
+             (boolean (and asm-vm-state (:halted? asm-vm-state)))]]]
           [draggable-card :register "Register VM"
            [vm-split-layout :register
             [instruction-list-view reg-asm active-reg-instr]
@@ -1682,7 +1682,7 @@
                {:vm-key :register,
                 :status-fn
                 (fn [state]
-                  (if (:halted state)
+                  (if (:halted? state)
                     "HALTED"
                     (str "control: " (:control state)))),
                 :summary-fn (fn [state]
@@ -1699,7 +1699,7 @@
                                 (count (or (vm/continuation state) [])),
                                 :value (:value state)})}]]]
             [vm-result-editor codemirror-editor (:value reg-state)
-             (boolean (and reg-state (:halted reg-state)))]]]
+             (boolean (and reg-state (:halted? reg-state)))]]]
           [draggable-card :stack "Stack VM"
            [vm-split-layout :stack
             [instruction-list-view stack-asm active-stack-instr]
@@ -1720,7 +1720,7 @@
                {:vm-key :stack,
                 :status-fn
                 (fn [state]
-                  (if (:halted state)
+                  (if (:halted? state)
                     "HALTED"
                     (str "control: " (:control state)))),
                 :summary-fn (fn [state]
@@ -1735,7 +1735,7 @@
                                 (count (or (vm/continuation state) [])),
                                 :value (:value state)})}]]]
             [vm-result-editor codemirror-editor (:value stack-state)
-             (boolean (and stack-state (:halted stack-state)))]]]
+             (boolean (and stack-state (:halted? stack-state)))]]]
           [draggable-card :query "Datalog Query"
            [:div
             {:style {:display "flex",

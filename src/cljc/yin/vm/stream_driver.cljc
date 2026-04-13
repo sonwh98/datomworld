@@ -11,11 +11,11 @@
         no-bytecode? (and has-bytecode?
                           (or (nil? bytecode)
                               (and (sequential? bytecode) (empty? bytecode))))]
-    (and (not (:blocked vm))
+    (and (not (:blocked? vm))
          (empty? (or (:run-queue vm) []))
          (empty? (or (:wait-set vm) []))
          (nil? (:k vm))
-         (or (:halted vm)
+         (or (:halted? vm)
              (nil? (:control vm))
              no-bytecode?))))
 
@@ -35,10 +35,10 @@
         {:status :ok, :state vm'})
 
       (= :blocked result)
-      {:status :blocked, :state (assoc vm :halted true :blocked false)}
+      {:status :blocked, :state (assoc vm :halted? true :blocked? false)}
 
       (= :end result)
-      {:status :end, :state (assoc vm :halted true :blocked false)}
+      {:status :end, :state (assoc vm :halted? true :blocked? false)}
 
       (= :daostream/gap result)
       (throw (ex-info "VM ingress cursor fell behind the input stream"

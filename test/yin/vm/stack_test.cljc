@@ -27,7 +27,7 @@
   [vm-state {:keys [datoms]}]
   (let [vm-state' (ensure-program-stream vm-state)]
     (ds/put! (:in-stream vm-state') (vec datoms))
-    (assoc vm-state' :halted false)))
+    (assoc vm-state' :halted? false)))
 
 
 (defn- queue-ast!
@@ -415,7 +415,7 @@
                                            (:node program-v2))
           vm2 (step-until-halt vm1)
           vm3 (queue-program! vm2 {:node (:program-root-eid vm2),
-                                   :datoms (:program-datoms vm2)})
+                                   :datoms (:datoms vm2)})
           vm4 (vm/run vm3)]
       (is (= 3 (vm/value vm2)))
       (is (= 2 (:program-version vm2)))

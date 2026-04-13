@@ -28,7 +28,7 @@
   [vm-state {:keys [datoms]}]
   (let [vm-state' (ensure-program-stream vm-state)]
     (ds/put! (:in-stream vm-state') (vec datoms))
-    (assoc vm-state' :halted false)))
+    (assoc vm-state' :halted? false)))
 
 
 (defn- queue-ast!

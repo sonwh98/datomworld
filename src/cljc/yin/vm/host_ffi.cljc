@@ -143,7 +143,7 @@
   (if-not (installed? vm)
     (run-fn vm)
     (loop [v (run-fn vm)]
-      (if (:blocked v)
+      (if (:blocked? v)
         (let [{:keys [handled? vm]} (bridge-step v)]
           (if handled?
             (recur (run-fn vm))

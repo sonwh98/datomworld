@@ -7,15 +7,15 @@
 
 (def register-handoff-keys
   [:in-stream :in-cursor
-   :regs :k :env :control :bytecode :pool :halted :value :store :parked
+   :regs :k :env :control :bytecode :pool :halted? :value :store :parked
    :id-counter
-   :blocked :run-queue :wait-set])
+   :blocked? :run-queue :wait-set])
 
 
 (def stack-handoff-keys
   [:in-stream :in-cursor
-   :control :bytecode :stack :env :k :pool :halted :value :store :parked
-   :id-counter :blocked :run-queue :wait-set])
+   :control :bytecode :stack :env :k :pool :halted? :value :store :parked
+   :id-counter :blocked? :run-queue :wait-set])
 
 
 (defn stack-vm?
