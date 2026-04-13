@@ -20,6 +20,23 @@
            "None of these assumptions survive contact with an agent. An agent does not type. It rewrites. It can fork a hundred variants of a function in parallel, test each against a fitness function, and promote the survivor. It does not pause to write a commit message. It does not care which file a function lives in."]
           [:p
            "The substrate has to match the worker. Git matches humans. It does not match agents."]
+          [:h2 "Agents Edit Geometry, Not Text"]
+          [:p
+           "Go one layer deeper than \"the agent does not type\". An LLM does not understand a program as a sequence of characters. It understands it as a "
+           [:strong "point in a high-dimensional space"]
+           ". Tokens are embedded into vectors, attention warps those vectors against every other vector in the context, and the output is another point in the same space projected back down to tokens. What looks like code generation from the outside is a "
+           [:em "geometric transformation"]
+           " on the inside. (The underlying lift from symbols to vectors is developed in "
+           [:a {:href "/blog/language-as-geometry.blog"} "Language as Geometry"]
+           ".)"]
+          [:p
+           "Refactoring, under this view, is rotation. Renaming is translation along an axis the model has already learned. Generalizing a function is a shear that preserves the semantic direction while relaxing a constraint. The model is not editing lines. It is moving a program through a manifold of programs and reading off the nearest lawful point."]
+          [:p
+           "The printed source is the "
+           [:em "shadow"]
+           " of that transformation. Text is a projection chosen for humans, the way a blueprint is a projection of a building. Asking an agent to operate through Git is asking it to move a point in a high-dimensional space by hand-editing the blueprint, line by line, and then reconstructing the geometry from the blueprint on every step. The loss at each projection boundary is where merge conflicts, reformatting noise, and phantom deletes are born."]
+          [:p
+           "If the worker moves programs as geometry, the substrate has to live closer to geometry than to text. Anything that forces a round trip through a byte stream on every edit is paying a translation tax the worker was built to avoid."]
           [:h2 "The Real Break: Parallel Swarms"]
           [:p
            "The argument against Git sharpens when you stop thinking about one agent and start thinking about "
