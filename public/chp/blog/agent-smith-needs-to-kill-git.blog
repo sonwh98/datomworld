@@ -94,6 +94,66 @@
            ". The log of transactions "
            [:em "is"]
            " the version control system."]
+          [:h2 "Git's Best Idea, Kept and Sharpened"]
+          [:p
+           "Git's deepest idea was not the commit log, it was "
+           [:strong "content addressing"]
+           ". A blob's name "
+           [:em "is"]
+           " the hash of its bytes. Two files with identical content have identical names, everywhere, forever, with no coordinating authority. That single move is why "
+           [:code "git"]
+           " can be distributed, why pushes and pulls are just transfers of missing hashes, and why integrity comes for free."]
+          [:p
+           "The trouble is Git hashes the "
+           [:em "wrong object"]
+           ". It hashes the serialized byte stream of a file. Rename a local variable and the hash changes. Add a trailing newline and the hash changes. Reformat and the hash changes. The identity is pinned to the surface, not the substance."]
+          [:p
+           "Datoms keep the idea and move it one layer down. Entity IDs are hashes of "
+           [:strong "structural content"]
+           ", not of text. A function's identity is the hash of its AST subtree: same parameters, same body, same facts, same ID, regardless of which file it lives in, which language it was written in, or how it was indented when a human last looked at it. Alpha-equivalent definitions collapse to one entity. Reformatting is invisible because formatting was never part of the hashed content in the first place."]
+          [:p "A few consequences fall out immediately:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Structural sharing is free."]
+            " Fifty forked variants of a function share every unchanged subtree by hash. The store holds the deltas, not fifty copies. A swarm that forks ten thousand variants pays for ten thousand "
+            [:em "differences"]
+            ", not ten thousand programs."]
+           [:li
+            [:strong "Cache keys are semantic."]
+            " Compiled bytecode, type-check results, test outcomes, and proofs can all be keyed to the hash of the subtree they describe. \"Did I already test this function?\" becomes a hash lookup, not a rerun. The same function rediscovered in another repository hits the same cache."]
+           [:li
+            [:strong "Cross-repository dedup."]
+            " Two teams independently write the same helper and it has the same ID in both codebases. Libraries stop being copied; they are "
+            [:em "referred to"]
+            " by hash. Dependency is attribution, not import."]
+           [:li
+            [:strong "Merge by union."]
+            " Two offline swarms producing disjoint fact sets can be merged by set union because hash collisions mean identical content by construction. There is no \"did we both invent the same thing\" ambiguity: if the hashes match, we did."]
+           [:li
+            [:strong "Provenance is verifiable."]
+            " \"Agent X asserted fact Y at transaction T\" is checkable by anyone, because Y is content-addressed. Audit logs stop being narratives and start being proofs."]
+           [:li
+            [:strong "Queries over fragments."]
+            " \"Find every call site that uses this exact expression\" becomes a hash lookup, not a regex. Copy-paste detection, supply-chain auditing, and refactor-impact analysis stop being heuristics."]]
+          [:p
+           "Git showed that content addressing is the right primitive for a versioned, distributed, tamper-evident system. Datoms finish the argument by applying the primitive to the object the worker actually edits: the fact, not the file."]
+          [:h2 "DaoDB Already Is Git"]
+          [:p
+           "The claim sharpens once you put the pieces together. Datoms live as a "
+           [:strong "content-addressed stream"]
+           " inside "
+           [:a {:href "/dao-db.chp"} [:strong "DaoDB"]]
+           ". A stream of content-addressed, append-only, hash-linked records replicated by hash transfer is, structurally, "
+           [:em "what Git is"]
+           ". The commit graph is a Merkle DAG of content-addressed blobs; our datom stream is a Merkle sequence of content-addressed facts. Same primitive, same guarantees."]
+          [:p
+           "So the comparison is not \"datoms instead of Git\" as if something is being given up. DaoDB plus content-addressed datoms "
+           [:em "is"]
+           " Git at the core. Distribution, offline work, cryptographic integrity, replayable history, pull-by-missing-hashes: all present as properties of the substrate, not as features to reimplement. Any capability Git has at the blob layer, DaoDB has at the datom layer, by isomorphism."]
+          [:p
+           "What changes is the range above the floor. Because the addressed object is a semantic fact rather than a byte blob, everything Git could "
+           [:em "not"]
+           " do (structural sharing across forks, hash-keyed semantic caches, merge by set union, sub-atomic fork and promote, cross-repository dedup of alpha-equivalent code) falls out as additional reach from the same primitive. Git is the floor. Datoms are the ceiling lifted."]
           [:h2 "Programmers Keep Their Tools"]
           [:p
            "The datom representation is the substrate, not the interface. Programmers do not have to learn a new language, a new editor, or a new workflow. They keep writing Clojure, Python, JavaScript, Dart, or whatever they already use. They keep using their editor, their formatter, their linter. They keep saving files."]
