@@ -1,0 +1,198 @@
+#:blog{:title "Agent Smith Needs to Kill Git",
+       :date #inst "2026-04-13T00:00:00.000-00:00",
+       :abstract
+       [:p
+        "Git diffs text line by line. It was built for humans who type slowly. Agents rewrite a hundred files in a second, and every reorder, rename, and reformat turns into merge hell. When code is represented as "
+        [:strong "datoms"]
+        " instead of files, the conflict surface collapses. The solution to agentic merge hell is not a better Git, it is to stop versioning files at all."],
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+          [:h2 "Git Is a Tool for Slow Typists"]
+          [:p
+           "Git is past twenty now. It was designed for a workflow where a human edits a few files, stages them, writes a commit message, and pushes. The unit of change is a "
+           [:strong "line of text"]
+           ". The unit of conflict is the same line edited by two people. The unit of history is a commit, which is a manual act of attention."]
+          [:p
+           "None of these assumptions survive contact with an agent. An agent does not type. It rewrites. It can fork a hundred variants of a function in parallel, test each against a fitness function, and promote the survivor. It does not pause to write a commit message. It does not care which file a function lives in."]
+          [:p
+           "The substrate has to match the worker. Git matches humans. It does not match agents."]
+          [:h2 "The Real Break: Parallel Swarms"]
+          [:p
+           "The argument against Git sharpens when you stop thinking about one agent and start thinking about "
+           [:strong "hundreds or thousands"]
+           " of them working in parallel. Agentic coding is not a faster human workflow. It is a "
+           [:em "swarm"]
+           " workflow. Fork a thousand variants of a refactor, let each explore a slightly different path, keep the survivors, merge the rest."]
+          [:p
+           "Git cannot carry that load. Not because it is slow, but because textual merge does not compose. Every pairwise merge introduces some chance of a conflict. Stack a thousand of them and the probability that "
+           [:em "something"]
+           " collides approaches one. The conflicts are almost never semantic. They are two agents touching the same line for unrelated reasons, or one agent reformatting while another edits, or the same function moved in two directions."]
+          [:p
+           "Merging that pile is next to impossible even for another agent. The conflict is stated in the vocabulary of "
+           [:em "text"]
+           " (\"these two lines disagree\"), not in the vocabulary of the program (\"these two facts disagree\"). An agent trying to resolve a textual conflict has to re-infer the semantics from the lines, decide which side is right, and hope the context around the conflict is stable. At swarm scale this re-inference becomes the bottleneck, and the error rate compounds."]
+          [:p "Three failure modes follow from the same root:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Reordering looks like rewriting."]
+            " Move ten functions inside a file and Git sees a 500 line delete and a 500 line add. The semantic change (permute the "
+            [:code ":ast/index"]
+            " of ten entities) is drowned in noise. Every other agent editing that file now has a conflict."]
+           [:li
+            [:strong "Forks are heavyweight."]
+            " A branch is a full pointer into the commit DAG. Agents want to fork at the granularity of a single function, run fifty variants, and throw forty nine of them away. Git branches are too expensive for that, and the forty nine losers still have to be torn down."]
+           [:li
+            [:strong "Conflicts are textual, not semantic."]
+            " One agent renames a function. Another adds a parameter to the same function. Both edits land on the signature line. In the text these are a three-way conflict; in the AST they are two independent facts. Someone (human or agent) has to adjudicate a disagreement that has no semantic content."]]
+          [:p
+           "The common root is that Git versions the "
+           [:em "wrong thing"]
+           ". It versions the serialization (text) rather than the meaning (AST). At one-agent scale that mismatch is an annoyance. At swarm scale it is a wall."]
+          [:h2 "The Solution: Code as Datoms, Not Files"]
+          [:p
+           "The fix is not a better diff algorithm or a smarter merge tool. The fix is to stop representing code as "
+           [:strong "files"]
+           " and start representing it as "
+           [:strong "datoms"]
+           ". A file is a linear byte sequence that happens to encode a program. A datom is a fact about the program itself. Versioning the file versions the encoding. Versioning the datoms versions the meaning."]
+          [:p
+           "In "
+           [:a {:href "/yin.chp"} "Yin.vm"]
+           " the canonical form of code is the "
+           [:strong "Universal AST"]
+           ", and the AST is a graph of datoms. A datom is a 5-tuple:"]
+          [:pre [:code "[e a v t m]"]]
+          [:p
+           "Entity, attribute, value, transaction, meta. Every AST node is an entity. Every property of that node (its name, its type, its parent, its position in a sequence, its docstring) is a separate fact. A function is not a blob of text, it is a set of datoms:"]
+          [:pre
+           [:code
+            "[fn-17 :ast/type       :function   t1 m1]\n[fn-17 :ast/name       \"calculate\" t1 m1]\n[fn-17 :ast/params     [p-1 p-2]   t1 m1]\n[fn-17 :ast/body       expr-42     t1 m1]\n[fn-17 :ast/doc        \"totals \"   t2 m2]"]]
+          [:p
+           "Editing is transacting new datoms. History is automatic, not a manual "
+           [:code "git commit"]
+           ". The log of transactions "
+           [:em "is"]
+           " the version control system."]
+          [:h2 "Programmers Keep Their Tools"]
+          [:p
+           "The datom representation is the substrate, not the interface. Programmers do not have to learn a new language, a new editor, or a new workflow. They keep writing Clojure, Python, JavaScript, Dart, or whatever they already use. They keep using their editor, their formatter, their linter. They keep saving files."]
+          [:p
+           "The "
+           [:strong "Yang compiler"]
+           " sits at the boundary. It reads source in the programmer's language of choice and emits the canonical datom stream. Saving a file is what produces a transaction; the programmer never sees the datoms unless they want to. The source file is still there (a view, a serialization), but the facts that get versioned, forked, queried, and merged are the datoms that Yang produced."]
+          [:p
+           "This matters because it means the transition is not a rewrite of the ecosystem. A team can adopt the datom substrate while every developer keeps their familiar tools on the surface. Agents operate on the datom layer, where merges compose. Humans operate on the text layer, where habits live. Yang keeps the two in sync."]
+          [:h2 "The Round Trip"]
+          [:p
+           "Because the datom AST preserves the full semantics of the original source, the trip goes "
+           [:strong "both ways"]
+           ". Source compiles down to datoms through Yang, and datoms regenerate source through a pretty printer. Nothing meaningful is lost on the way down, so nothing meaningful is invented on the way back up."]
+          [:p
+           "This is what makes the substrate safe for humans. A developer can pull the latest datoms from a swarm of agents and read the result as ordinary Python, Clojure, or Dart, formatted however they prefer. The regenerated source is not a reconstruction guess, it is a rendering of the same facts the agents were editing. The AST is canonical; the source is a view. The view is always available, and it always matches."]
+          [:p
+           "The round-trip property is developed in detail elsewhere: "
+           [:a
+            {:href "/blog/many-syntaxes-one-ast.blog"}
+            "Many Syntaxes, One AST"]
+           " (round-trip stability across syntaxes), "
+           [:a
+            {:href "/blog/yin-vm-ast-chinese-characters.blog"}
+            "Yin.vm: Chinese Characters for Programming Languages"]
+           " (bijective translation through the Universal AST), and "
+           [:a
+            {:href "/blog/ast-datom-streams-bytecode-performance.blog"}
+            "AST Datom Streams and Bytecode Performance"]
+           " (source regenerated from AST datoms)."]
+          [:h2 "The Conflict Surface Collapses"]
+          [:p "Now replay the three Git failure modes:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Reordering."]
+            " Permuting function order is updating "
+            [:code ":ast/index"]
+            " on ten entities. Ten small facts. No phantom deletes."]
+           [:li
+            [:strong "Forking."]
+            " A fork is a new transaction namespace scoped to a subset of entities. Fork one function without forking the rest of the graph. Fifty variants live side by side as fifty parallel fact sets, and the loser variants are simply never promoted."]
+           [:li
+            [:strong "Rename plus add-parameter."]
+            " One agent writes "
+            [:code "[fn-17 :ast/name \"total\" t3 m3]"]
+            ". Another writes "
+            [:code "[fn-17 :ast/params [p-1 p-2 p-3] t3 m3]"]
+            ". Different attributes, different facts, no conflict. The merge is a set union."]]
+          [:p
+           "Formatting changes vanish entirely. Whitespace, bracket style, import ordering are all properties of the text rendering, not of the AST. Two agents that disagree about formatting are not disagreeing about anything the store records."]
+          [:p
+           "The only real conflict is two agents asserting "
+           [:em "different values for the same attribute on the same entity at the same transaction"]
+           ". That is a narrow, precise, semantic disagreement. A human (or a policy) can resolve it with full context, because the conflict is stated in the vocabulary of the program, not of the file."]
+          [:h2 "What Agents Can Finally Do"]
+          [:p "Once code is datoms, the agent gets capabilities Git never offered:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Sub-atomic forking."]
+            " Fork a single function. Run a swarm of variants against a fitness constraint. Promote the winner. No "
+            [:code ".git"]
+            ", no branch cleanup."]
+           [:li
+            [:strong "Datalog over the codebase."]
+            " \"Find every call site that uses the legacy connection without a timeout.\" That is a query, not a regex."]
+           [:li
+            [:strong "Semantic diffs."]
+            " The diff is a list of facts added and retracted, not a pile of line changes. \"Renamed "
+            [:code "total"]
+            " to "
+            [:code "sum"]
+            ", added "
+            [:code "tax-rate"]
+            " parameter, no logic change.\""]
+           [:li
+            [:strong "Parallel swarms that actually merge."]
+            " N agents working on N parts of the graph produce N disjoint fact sets. The merge is a "
+            [:code "transact"]
+            ", not a negotiation."]
+           [:li
+            [:strong "Time travel for free."]
+            " Every fact has a "
+            [:code "t"]
+            ". Ask what the function looked like before the refactor. Ask which transaction introduced the regression. The log is the answer."]]
+          [:h2 "Git Becomes a View"]
+          [:p
+           "This does not mean Git disappears tomorrow. Text is still how humans read code on a plane, and "
+           [:code "git log"]
+           " is still how humans narrate change to each other. In a datom-native world both are "
+           [:strong "views"]
+           ". The canonical form is the fact stream. Text, patch files, and commit history are projections for humans who want them, the same way "
+           [:a
+            {:href "/blog/ide-edits-ast-not-text.blog"}
+            "text is a projection over the AST"]
+           "."]
+          [:p
+           "An agent can emit a Git patch for a reviewer. A reviewer can approve the patch. Behind the scenes the patch is a packaging of the underlying datom transactions. Git is demoted from substrate to serialization."]
+          [:h2 "The Line That Matters"]
+          [:p
+           "Git solved version control for "
+           [:em "files"]
+           ". Agents do not edit files. They edit meaning. The substrate has to match the worker, and the worker is no longer a human with a keyboard. It is a continuation that can fork, query, and merge at the speed of the graph."]
+          [:p "Killing Git is not hostility. It is promotion. Git did its job. The job changed."]
+          [:p [:strong "See also:"]]
+          [:ul.bulleted
+           [:li
+            [:a
+             {:href "/blog/ide-edits-ast-not-text.blog"}
+             "When the IDE Edits AST, Not Text"]]
+           [:li
+            [:a
+             {:href "/blog/collaborative-writing-needs-datoms.blog"}
+             "Collaborative Writing Needs Datoms"]]
+           [:li
+            [:a
+             {:href "/blog/ast-higher-dimensional-datom-streams.blog"}
+             "AST as Higher Dimensional Construction of Datom Streams"]]
+           [:li
+            [:a {:href "/yin.chp"} "Yin VM Documentation"]]]]]]}
