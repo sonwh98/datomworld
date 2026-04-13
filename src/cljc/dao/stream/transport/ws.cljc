@@ -193,9 +193,24 @@
             (let [local (ds/open! {:transport {:type :ringbuffer, :capacity (:capacity opts)}})
                   stream (make-ws-stream local)
                   ws (js/WebSocket. url)]
-              (set! (.-onopen ws) #(on-open! stream (fn [msg] (.send ws msg))))
-              (set! (.-onmessage ws) #(on-message! stream (.-data %)))
-              (set! (.-onclose ws) #(on-close! stream))
+              (set! (.-onopen ws)
+                    #(do
+                       (on-open! stream (fn [msg] (.send ws msg)))
+                       (when-let [callback (:on-open opts)]
+                         (callback stream %))))
+              (set! (.-onmessage ws)
+                    #(do
+                       (on-message! stream (.-data %))
+                       (when-let [callback (:on-message opts)]
+                         (callback stream %))))
+              (set! (.-onerror ws)
+                    #(when-let [callback (:on-error opts)]
+                       (callback stream %)))
+              (set! (.-onclose ws)
+                    #(do
+                       (on-close! stream)
+                       (when-let [callback (:on-close opts)]
+                         (callback stream %))))
               stream))))
 
 

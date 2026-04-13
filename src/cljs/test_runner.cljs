@@ -6,6 +6,7 @@
     [dao.stream.transport.file-test]
     [datomworld.continuation-transport-test]
     [datomworld.demo.continuation-handoff-test]
+    [datomworld.demo.dao-repl-test]
     [datomworld.demo.vm-state-keys-test]
     [yin.content-test]
     [yin.transport-test]
@@ -21,6 +22,7 @@
 (defn -main
   []
   (run-tests 'datomworld.continuation-transport-test
+             'datomworld.demo.dao-repl-test
              'datomworld.demo.continuation-handoff-test
              'datomworld.demo.vm-state-keys-test
              'dao.repl-test

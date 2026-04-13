@@ -2,6 +2,7 @@
   (:require
     [datomworld.demo.compilation-pipeline :as pipeline]
     [datomworld.demo.continuation-stream :as cont-demo]
+    [datomworld.demo.dao-repl :as dao-repl-demo]
     [datomworld.demo.equation-plotter :as plotter-demo]
     [reagent.core :as r]
     [reagent.dom :as rdom]
@@ -9,7 +10,11 @@
 
 
 (def demo-options
-  [{:id :continuation,
+  [{:id :dao-repl,
+    :label "Dao REPL",
+    :icon "λ",
+    :desc "Browser CodeMirror client for a remote Dao REPL over WebSockets."}
+   {:id :continuation,
     :label "Continuation Example",
     :icon "⤱",
     :desc "Step through a single continuation executed by two different VM backends: Register and Stack."}
@@ -30,6 +35,7 @@
 (defn- hash->demo
   [hash-value]
   (case hash-value
+    "#dao-repl" :dao-repl
     "#pipeline" :pipeline
     "#plotter" :plotter
     "#continuation" :continuation
@@ -40,6 +46,7 @@
 (defn- demo->hash
   [demo-id]
   (case demo-id
+    :dao-repl "#dao-repl"
     :pipeline "#pipeline"
     :plotter "#plotter"
     :continuation "#continuation"
@@ -109,6 +116,7 @@
   (let [selected-demo (:selected-demo @demo-shell-state)]
     [:<>
      (case selected-demo
+       :dao-repl [dao-repl-demo/main-view]
        :pipeline [pipeline/main-view]
        :plotter [plotter-demo/main-view]
        :continuation [cont-demo/main-view]
