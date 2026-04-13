@@ -10,8 +10,8 @@
  :dev-http {9000 "public"}
 
  :builds {:demo {:target :browser
-                       :devtools {:use-document-protocol true}
-                       :modules {:main {:init-fn datomworld.demo/init}}}
+                 :devtools {:use-document-protocol true}
+                 :modules {:main {:init-fn datomworld.demo/init}}}
 
           :local {:target :browser
                   :devtools {:use-document-protocol true}

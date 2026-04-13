@@ -196,8 +196,7 @@
            "The central question is not, "
            [:em "What is DaoDB's one true query language?"]
            ", but rather, "
-           [:em "What is DaoDB's query compiler pipeline?"]
-           ]
+           [:em "What is DaoDB's query compiler pipeline?"]]
 
           [:p
            "That shift matters. It moves us away from the idea of sending a finished query to a fixed engine. "
@@ -290,7 +289,7 @@
             [:strong "Restrictions are a feature"]
             ": only declared views and declared traversals exist."]
            [:li
-           [:strong "Explicit causality"]
+            [:strong "Explicit causality"]
             ": historical semantics belong to the view contract, not to undocumented runtime behavior."]
            [:li
             [:strong "Everything is a stream"]

@@ -106,4 +106,4 @@ S_A ~= S_B ~= S_C"]]
              "DaoDB: Distributed Database from Immutable Streams"]]
            [:li
             [:a {:href "/blog/path-integral-history-and-datom-streams.blog"}
-             "Path Integrals and Datom Streams: History Is Primary"]]]]]]} 
+             "Path Integrals and Datom Streams: History Is Primary"]]]]]]}
