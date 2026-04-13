@@ -2,6 +2,7 @@
   (:require
     #?@(:cljd [["dart:core" StringBuffer]])
     [clojure.test :refer [deftest is testing]]
+    [dao.stream.apply :as dao-apply]
     [dao.stream.transit :as transit]))
 
 
@@ -113,3 +114,31 @@
       (is (= "[\"~#with-meta\",[[1,2],[\"^ \",\"~:origin\",\"~:test\"]]]" encoded))
       (is (= [1 2] decoded))
       (is (= {:origin :test} (meta decoded))))))
+
+
+(deftest dao-apply-response-cross-runtime-shape-test
+  (testing "a JVM-encoded dao.stream.apply response with a composite id decodes intact"
+    (let [encoded "[\"^ \",\"~:dao.stream.apply/id\",[\"~:dao.repl/request\",\"scope\",1],\"~:dao.stream.apply/value\",\"ok\"]"
+          decoded (read-str encoded)]
+      (is (= (dao-apply/response [:dao.repl/request "scope" 1] "ok")
+             decoded))
+      (is (dao-apply/response? decoded))
+      (is (= [:dao.repl/request "scope" 1]
+             (dao-apply/response-id decoded)))
+      (is (= "ok"
+             (dao-apply/response-value decoded))))))
+
+
+(deftest nested-cached-dao-apply-responses-cross-runtime-test
+  (testing "cached keyword refs inside a JVM sync-response preserve nested dao.stream.apply responses"
+    (let [encoded "[\"^ \",\"~:type\",\"~:datom/sync-response\",\"~:datoms\",[[\"^ \",\"~:dao.stream.apply/id\",\"dao.repl/request/scope/0\",\"~:dao.stream.apply/value\",\"CLOSURE\"],[\"^ \",\"^3\",\"dao.repl/request/scope/1\",\"^4\",\"1\"]],\"~:from-pos\",0,\"~:to-pos\",2]"
+          decoded (read-str encoded)]
+      (is (= {:type :datom/sync-response
+              :datoms [(dao-apply/response "dao.repl/request/scope/0" "CLOSURE")
+                       (dao-apply/response "dao.repl/request/scope/1" "1")]
+              :from-pos 0
+              :to-pos 2}
+             decoded))
+      (is (= [(dao-apply/response "dao.repl/request/scope/0" "CLOSURE")
+              (dao-apply/response "dao.repl/request/scope/1" "1")]
+             (:datoms decoded))))))

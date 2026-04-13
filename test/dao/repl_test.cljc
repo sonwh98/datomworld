@@ -363,6 +363,29 @@
      (is true)))
 
 
+(deftest remote-connect-ignores-stale-response-history-test
+  #?(:clj
+     (testing "reconnecting to a persistent remote endpoint does not reuse stale response ids"
+       (let [request-stream (make-stream)
+             response-stream (make-stream)
+             stale-id :dao.repl/request-0
+             endpoint {:request-stream request-stream
+                       :response-stream response-stream}]
+         (dao-apply/put-response! response-stream stale-id "STALE")
+         (with-redefs [dao.repl/open-remote-endpoint
+                       (fn [_url] endpoint)
+                       dao.stream.apply/put-request!
+                       (fn [_request-stream request-id _op _args]
+                         (dao-apply/put-response! response-stream request-id "FRESH")
+                         {:result :ok})]
+           (let [[state-1 _] @(repl/eval-input (repl/create-state)
+                                               "(connect \"ws://remote\")")
+                 [_state-2 result] @(repl/eval-input state-1 "(+ 1 2)")]
+             (is (= "FRESH" result))))))
+     :default
+     (is true)))
+
+
 (deftest repl-state-stays-local-while-remote-connected-test
   #?(:clj
      (testing "repl-state reports the local shell even when a remote endpoint is attached"

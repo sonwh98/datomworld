@@ -340,7 +340,7 @@
           handler (get handlers tag)]
       (cond
         handler (let [v (handler rep)]
-                  (if (and (#{:key :tag} position) (cacheable? s))
+                  (if (cacheable? s)
                     (cache-put! cache v)
                     v))
         default-handler (default-handler rep)

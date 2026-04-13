@@ -144,6 +144,17 @@
      :vm-id (keyword (str "dao.repl/" (name vm-type)))}))
 
 
+(defn- make-request-scope
+  []
+  #?(:clj (str (java.util.UUID/randomUUID))
+     :cljs (str (random-uuid))
+     :cljd (str (rand-int 2147483647)
+                "-"
+                (rand-int 2147483647)
+                "-"
+                (rand-int 2147483647))))
+
+
 (defn- install-telemetry
   [vm-state vm-type stream]
   (-> vm-state
@@ -173,7 +184,7 @@
 
 (defn create-state
   ([] (create-state {}))
-  ([{:keys [exposed-ports exposed-streams lang output-cursor output-stream telemetry-stream vm-type]
+  ([{:keys [exposed-ports exposed-streams lang output-cursor output-stream request-scope telemetry-stream vm-type]
      :or {exposed-ports {}
           exposed-streams {}
           lang :clojure
@@ -191,6 +202,7 @@
       :remote-endpoint nil
       :remote-response-cursor {:position 0}
       :request-id 0
+      :request-scope (or request-scope (make-request-scope))
       :running? true
       :telemetry-cursor {:position 0}
       :telemetry-mode (when telemetry-stream :stderr)
@@ -600,7 +612,10 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
 
 (defn- eval-remote-input
   [state input-str]
-  (let [request-id (keyword (str "dao.repl/request-" (:request-id state)))
+  (let [request-id (str "dao.repl/request/"
+                        (:request-scope state)
+                        "/"
+                        (:request-id state))
         endpoint (:remote-endpoint state)
         _ (dao-apply/put-request! (:request-stream endpoint)
                                   request-id
