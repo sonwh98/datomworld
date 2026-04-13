@@ -9,7 +9,7 @@
     [dao.repl :as repl]
     [dao.stream :as ds]
     [dao.stream.apply :as dao-apply]
-    [dao.stream.transport.ringbuffer]))
+    [dao.stream.transport.ringbuffer :as ringbuffer]))
 
 
 (defn- make-stream
@@ -237,10 +237,9 @@
      (testing "repl-state returns serializable shell state with stream and port exposure"
        (let [[state-1 _msg] @(repl/eval-input (repl/create-state) "(telemetry)")
              state-1 (-> state-1
-                         (assoc-in [:exposed-streams :repl/server] (:telemetry-stream state-1))
                          (assoc-in [:exposed-ports :repl] {:transport :websocket
                                                            :port 7777
-                                                           :stream :repl/server}))
+                                                           :server {:dummy :server-handle}}))
              [state-2 result] @(repl/eval-input state-1 "(repl-state)")
              summary (edn/read-string result)]
          (is (= state-1 state-2))
@@ -253,21 +252,16 @@
          (is (= :open (get-in summary [:streams :telemetry :status])))
          (is (= [{:name :repl
                   :transport :websocket
-                  :port 7777
-                  :stream :repl/server}]
-                (:ports summary)))
-         (is (= {:present? true
-                 :status :open}
-                (get-in summary [:exposed-streams :repl/server])))))
+                  :port 7777}]
+                (:ports summary)))))
      :cljs
      (async done
             (-> (repl/eval-input (repl/create-state) "(telemetry)")
                 (.then (fn [[state-1 _msg]]
                          (let [state-1 (-> state-1
-                                           (assoc-in [:exposed-streams :repl/server] (:telemetry-stream state-1))
                                            (assoc-in [:exposed-ports :repl] {:transport :websocket
                                                                              :port 7777
-                                                                             :stream :repl/server}))]
+                                                                             :server {:dummy :server-handle}}))]
                            (repl/eval-input state-1 "(repl-state)"))))
                 (.then (fn [[_state-2 result]]
                          (let [summary (edn/read-string result)]
@@ -280,12 +274,8 @@
                            (is (= :open (get-in summary [:streams :telemetry :status])))
                            (is (= [{:name :repl
                                     :transport :websocket
-                                    :port 7777
-                                    :stream :repl/server}]
+                                    :port 7777}]
                                   (:ports summary)))
-                           (is (= {:present? true
-                                   :status :open}
-                                  (get-in summary [:exposed-streams :repl/server])))
                            (done))))))))
 
 
@@ -443,9 +433,17 @@
      (testing "serve! keeps polling after a transient :end so reconnects can resume"
        (let [calls (atom [])
              results (atom [:end :blocked :blocked])
-             state-atom (atom (repl/create-state))]
+             state-atom (atom (repl/create-state))
+             stream (ringbuffer/make-ring-buffer-stream nil)]
          (with-redefs [dao.stream/open!
-                       (fn [_] ::stream)
+                       (fn [descriptor]
+                         (if-let [on-connect (get-in descriptor [:transport :on-connect])]
+                           (do
+                             ;; simulate a connection happening immediately
+                             (on-connect stream)
+                             {:stop-fn (constantly nil)
+                              :conns (atom #{stream})})
+                           stream))
                        dao.repl/serve-once!
                        (fn [_state-atom _request-stream _response-stream cursor]
                          (swap! calls conj cursor)
@@ -457,7 +455,7 @@
                        dao.stream/close!
                        (fn [_] {:woke []})]
            (let [server (repl/serve! state-atom 7779 {:sleep-ms 1})]
-             (Thread/sleep 25)
+             (Thread/sleep 100)
              ((:stop! server))
              (is (<= 2 (count @calls)))
              (is (= [{:position 0} {:position 0}]
@@ -552,3 +550,69 @@
                 (.then (fn [[_state-3 result-3]]
                          (is (= "{'a 1, :b 2}" result-3))
                          (done)))))))
+
+
+(deftest concurrent-clients-test
+  #?(:clj
+     (testing "serve! handles multiple concurrent websocket clients independently"
+       (let [port 7781
+             server-state (atom (repl/create-state))
+             server (repl/serve! server-state port {:sleep-ms 10})
+             ;; wait for server to start
+             _ (Thread/sleep 200)
+             ;; Client A
+             client-a-stream (ds/open! {:transport {:type :websocket
+                                                    :mode :connect
+                                                    :url (str "ws://localhost:" port)}})
+             client-a-req-id (atom 100)
+             ;; Client B
+             client-b-stream (ds/open! {:transport {:type :websocket
+                                                    :mode :connect
+                                                    :url (str "ws://localhost:" port)}})
+             client-b-req-id (atom 200)
+
+             ;; Helper to send request and await response
+             send-req (fn [stream req-id-atom expr]
+                        (let [req-id (swap! req-id-atom inc)
+                              req (dao-apply/request req-id :op/eval [expr])]
+                          (dao-apply/put-request! stream req)
+                          (loop [attempts 100
+                                 cursor {:position 0}]
+                            (if (zero? attempts)
+                              (throw (ex-info "Timeout waiting for response" {:req req}))
+                              (let [res (dao-apply/next-response stream cursor)]
+                                (cond
+                                  (map? res)
+                                  (let [response (:ok res)]
+                                    (if (= req-id (dao-apply/response-id response))
+                                      (dao-apply/response-value response)
+                                      (recur (dec attempts) (:cursor res))))
+                                  (= :blocked res)
+                                  (do (Thread/sleep 50) (recur (dec attempts) cursor))
+                                  (= :daostream/gap res)
+                                  (recur (dec attempts) {:position 0})
+                                  :else (recur (dec attempts) cursor)))))))]
+         (try
+           ;; Both clients connect successfully
+           (Thread/sleep 300)
+
+           ;; Client A sends a request
+           (let [res-a (send-req client-a-stream client-a-req-id "(+ 1 1)")]
+             (is (= "2" res-a)))
+
+           ;; Client B sends a request
+           (let [res-b (send-req client-b-stream client-b-req-id "(+ 3 3)")]
+             (is (= "6" res-b)))
+
+           ;; Close client A
+           (ds/close! client-a-stream)
+           (Thread/sleep 200)
+
+           ;; Client B should still work perfectly
+           (let [res-b2 (send-req client-b-stream client-b-req-id "(+ 10 10)")]
+             (is (= "20" res-b2)))
+
+           (finally
+             (ds/close! client-a-stream)
+             (ds/close! client-b-stream)
+             ((:stop! server))))))))
