@@ -252,8 +252,7 @@ dispatch to the appropriate protocol based on the operation:
 | `find-eids-by-av` | `IDaoDB` | `(find-eids-by-av db attr val)` — lookup by attribute+value |
 
 Factory function: each backend namespace exposes `create` for that backend. For example,
-`dao.db.in-memory/create` returns an `InMemoryDaoDB`, while
-`dao.db.datascript/create` returns a DataScript-backed `DaoDbDataScript`.
+`dao.db.in-memory/create` returns an `InMemoryDaoDB`.
 
 ---
 
@@ -283,14 +282,10 @@ mutation outside the returned db value.
 **Phase 1 (done):** `InMemoryDaoDB` implemented in `dao.db.in-memory` with all four
 protocols: `IDaoStorage`, `IDaoTransactor`, `IDaoQueryEngine`, `IDaoDB`.
 
-**Phase 2 (done):** DataScript-backed `DaoDbDataScript` implements `IDaoTransactor`,
-`IDaoQueryEngine`, and `IDaoDB` (storage is delegated to DataScript's internal engine).
+**Phase 2 (done):** Backend-specific namespaces expose `create` as the canonical
+constructor. `dao.db.in-memory/create` returns `InMemoryDaoDB`.
 
-**Phase 3 (done):** Backend-specific namespaces expose `create` as the canonical
-constructor. `dao.db.in-memory/create` returns `InMemoryDaoDB`;
-`dao.db.datascript/create` returns `DaoDbDataScript`.
-
-**Phase 4 (planned):** Distributed topology: separate processes for Storage, Transactor,
+**Phase 3 (planned):** Distributed topology: separate processes for Storage, Transactor,
 and QueryEngine, all communicating via the protocol boundaries.
 
 

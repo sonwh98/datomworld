@@ -23,7 +23,7 @@
 
 
 (def ^:private cardinality-many-attrs
-  "Attributes materialized as repeated datoms in DataScript."
+  "Attributes materialized as repeated datoms in DaoDB."
   #{:yin/operands})
 
 

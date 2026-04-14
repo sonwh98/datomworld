@@ -3,7 +3,25 @@
 
 
 (defrecord Datom
-  [e a v t m])
+  [e a v t m]
+  #?@(:cljs
+      [IIndexed
+       (-nth [this n]
+             (case n
+               0 e
+               1 a
+               2 v
+               3 t
+               4 m
+               (throw (js/Error. (str "Index out of bounds: " n)))))
+       (-nth [this n not-found]
+             (case n
+               0 e
+               1 a
+               2 v
+               3 t
+               4 m
+               not-found))]))
 
 
 (defn ->datom

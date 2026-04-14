@@ -11,7 +11,7 @@
     [cljs.reader :as reader]
     [clojure.walk :as walk]
     [dao.db :as dao.db]
-    [dao.db.datascript :as ds-db]
+    [dao.db.in-memory :as in-m]
     [dao.stream :as ds]
     [dao.stream.transport.ringbuffer]
     [reagent.core :as r]
@@ -703,11 +703,10 @@
           all-datoms-before (vec (mapcat identity all-datom-groups))
           root-ids (mapv (fn [dg] (apply max (map first dg))) all-datom-groups)
           tx-data (vm/datoms->tx-data all-datoms-before)
-          {:keys [db tempids]} (ds-db/from-tx-data vm/schema tx-data)
+          {:keys [db tempids]} (in-m/run-tx (in-m/create vm/schema) tx-data)
           dao-db db
           all-datoms (mapv (fn [d]
-                             [(nth d 0) (nth d 1) (nth d 2) (nth d 3)
-                              nil])
+                             [(:e d) (:a d) (:v d) (:t d) nil])
                            (dao.db/datoms dao-db :eavt))
           root-eids (mapv #(get tempids % %) root-ids)
           stats {:total-datoms (count all-datoms),
@@ -1648,7 +1647,8 @@
                                   (let [tx-data (vm/datoms->tx-data
                                                   (:datoms state))
                                         {dao-db :db}
-                                        (ds-db/from-tx-data vm/schema tx-data)]
+                                        (in-m/run-tx (in-m/create vm/schema)
+                                                     tx-data)]
                                     (dao.db/entity-attrs dao-db
                                                          (:id ctrl)))]
                               (str (:yin/type attrs)))

@@ -197,7 +197,7 @@
 
 
 (def schema
-  "DataScript schema for :yin/ AST datoms.
+  "DaoDB schema for :yin/ AST datoms.
    Complete data model for the Universal AST as queryable datoms."
   {;; Ref attributes (entity references, tempid resolution)
    :yin/body {:db/valueType :db.type/ref},
@@ -211,8 +211,8 @@
    :yin/target {:db/valueType :db.type/ref},
    :yin/val-node {:db/valueType :db.type/ref},
    ;; Ground-value attributes
-   ;; DataScript only validates :db.type/ref and :db.type/tuple,
-   ;; so value types are declared in comments for the data model.
+   ;; The data model uses Datomic-style schema definitions.
+   ;; value types are declared in comments for the data model.
    :yin/type {},        ; keyword (:literal, :variable, :lambda, :yin/macro-expand, ...)
    :yin/value {},       ; polymorphic (number, string, boolean, keyword, ...)
    :yin/name {},        ; symbol
@@ -243,12 +243,13 @@
 
 
 (defn datoms->tx-data
-  "Convert [e a v t m] datoms to DataScript tx-data [:db/add e a v].
+  "Convert [e a v t m] datoms to DaoDB tx-data [:db/add e a v].
    Expands cardinality-many vector values into individual assertions.
 
-   DataScript does not allow nil as a stored value, so nil-valued assertions
-   are omitted in this index projection. The canonical datom stream remains
-   unchanged and still carries the original nil facts."
+   DaoDB implementations like InMemoryDaoDB do not allow nil as a stored
+   value, so nil-valued assertions are omitted in this index projection.
+   The canonical datom stream remains unchanged and still carries the
+   original nil facts."
   [datoms]
   (mapcat (fn [[e a v _t _m]]
             (cond (and (contains? cardinality-many-attrs a) (vector? v))
