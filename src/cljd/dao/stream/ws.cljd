@@ -1,11 +1,11 @@
-(ns dao.stream.transport.ws
+(ns dao.stream.ws
   "WebSocket-backed stream for ClojureDart using dart:io."
   (:require
     ["dart:io" :as io]
     [dao.stream :as ds]
     [dao.stream.link :as link]
     [dao.stream.transit :as transit]
-    [dao.stream.transport.ringbuffer :as ringbuffer]))
+    [dao.stream.ringbuffer :as ringbuffer]))
 
 
 (defrecord WebSocketStream
@@ -156,5 +156,5 @@
 
 (contribute* :multi-method
              dao.stream/open!
-             dao.stream.transport.ws/WebSocketOpenMethod
-             dao.stream.transport.ws/WebSocketOpenMethod)
+             dao.stream.ws/WebSocketOpenMethod
+             dao.stream.ws/WebSocketOpenMethod)

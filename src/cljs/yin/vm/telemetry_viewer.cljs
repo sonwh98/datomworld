@@ -2,7 +2,7 @@
   (:require
     [dao.stream :as ds]
     [dao.stream.apply :as dao-apply]
-    [dao.stream.transport.ws :as ws]
+    [dao.stream.ws :as ws]
     [reagent.core :as r]
     [reagent.dom :as rdom]))
 

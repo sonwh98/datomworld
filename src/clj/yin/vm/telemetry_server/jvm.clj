@@ -2,7 +2,7 @@
   (:require
     [dao.repl :as repl]
     [dao.stream :as ds]
-    [dao.stream.transport.ws :as ws]))
+    [dao.stream.ws :as ws]))
 
 
 (defn -main

@@ -9,7 +9,7 @@
     [dao.repl :as repl]
     [dao.stream :as ds]
     [dao.stream.apply :as dao-apply]
-    [dao.stream.transport.ringbuffer :as ringbuffer]))
+    [dao.stream.ringbuffer :as ringbuffer]))
 
 
 (defn- make-stream

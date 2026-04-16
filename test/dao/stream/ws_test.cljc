@@ -1,11 +1,11 @@
-(ns dao.stream.transport.ws-test
+(ns dao.stream.ws-test
   (:require
     [clojure.test :refer [deftest is testing]]
     [dao.stream :as ds]
     [dao.stream.link :as link]
     [dao.stream.transit :as transit]
-    [dao.stream.transport.ringbuffer]
-    [dao.stream.transport.ws]))
+    [dao.stream.ringbuffer]
+    [dao.stream.ws]))
 
 
 (defn- make-stream
@@ -15,10 +15,10 @@
 
 (deftest reconnect-reopens-remote-stream-at-current-position-test
   (testing "reconnect keeps the inbound cursor position while reopening the remote stream"
-    (let [stream (#'dao.stream.transport.ws/make-ws-stream (make-stream))
+    (let [stream (#'dao.stream.ws/make-ws-stream (make-stream))
           send-fn (fn [_] nil)]
-      (#'dao.stream.transport.ws/on-open! stream send-fn)
-      (#'dao.stream.transport.ws/on-message!
+      (#'dao.stream.ws/on-open! stream send-fn)
+      (#'dao.stream.ws/on-message!
        stream
        (transit/encode (link/put-msg [{:type :repl/request
                                        :value "first"}]
@@ -29,19 +29,19 @@
               :cursor {:position 1}}
              (ds/next stream {:position 0})))
 
-      (#'dao.stream.transport.ws/on-close! stream)
+      (#'dao.stream.ws/on-close! stream)
 
       (is (= :end
              (ds/next stream {:position 1})))
 
-      (#'dao.stream.transport.ws/on-open! stream send-fn)
+      (#'dao.stream.ws/on-open! stream send-fn)
 
       (is (= :daostream/gap
              (ds/next stream {:position 0})))
       (is (= :blocked
              (ds/next stream {:position 1})))
 
-      (#'dao.stream.transport.ws/on-message!
+      (#'dao.stream.ws/on-message!
        stream
        (transit/encode (link/put-msg [{:type :repl/request
                                        :value "second"}]

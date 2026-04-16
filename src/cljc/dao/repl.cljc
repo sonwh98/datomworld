@@ -11,10 +11,10 @@
     [dao.stream.apply :as dao-apply]
     ;; The following transport namespaces are required for their side-effects
     ;; (registering transport types) during REPL initialization.
-    #?(:cljd [dao.stream.transport.ringbuffer :as ringbuffer])
-    #?(:cljd [dao.stream.transport.ws :as ws.cljd])
-    #?(:clj [dao.stream.transport.ws])
-    #?(:cljs [dao.stream.transport.ws :as ws])
+    #?(:cljd [dao.stream.ringbuffer :as ringbuffer])
+    #?(:cljd [dao.stream.ws :as ws.cljd])
+    #?(:clj [dao.stream.ws])
+    #?(:cljs [dao.stream.ws :as ws])
     [yang.clojure :as yang.clojure]
     [yang.php :as yang.php]
     [yang.python :as yang.python]
@@ -348,7 +348,7 @@
 
 (defn- open-telemetry-sink
   [url]
-  #?(:clj ((requiring-resolve 'dao.stream.transport.ws/connect!)
+  #?(:clj ((requiring-resolve 'dao.stream.ws/connect!)
            (normalize-daostream-url url))
      :cljs (ws/connect! (normalize-daostream-url url))
      :cljd (ws.cljd/connect! (normalize-daostream-url url))))
@@ -357,7 +357,7 @@
 (defn- open-remote-endpoint
   [url]
   #?(:clj
-     (let [connect! (requiring-resolve 'dao.stream.transport.ws/connect!)
+     (let [connect! (requiring-resolve 'dao.stream.ws/connect!)
            stream (connect! (normalize-daostream-url url))]
        {:request-stream stream
         :response-stream stream})

@@ -4,7 +4,7 @@
     [dao.db :as dao-db]
     [dao.stream :as ds]
     [dao.stream.apply :as dao.stream.apply]
-    [dao.stream.transport.ringbuffer]
+    [dao.stream.ringbuffer]
     [yin.vm :as vm]
     [yin.vm.engine :as engine]
     [yin.vm.semantic :as semantic]))
@@ -338,8 +338,8 @@
           stream (get (vm/store vm) stream-id)]
       (is (some? stream))
       (is
-        (= 1024 (.-capacity #?(:cljs ^dao.stream.transport.ringbuffer/RingBufferStream stream
-                               :cljd ^dao.stream.transport.ringbuffer/RingBufferStream stream
+        (= 1024 (.-capacity #?(:cljs ^dao.stream.ringbuffer/RingBufferStream stream
+                               :cljd ^dao.stream.ringbuffer/RingBufferStream stream
                                :default stream)))
         "Default buffer is 1024 when not specified (via datom compilation)"))))
 

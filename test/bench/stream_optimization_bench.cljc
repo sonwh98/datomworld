@@ -1,7 +1,7 @@
 (ns bench.stream-optimization-bench
   (:require
     [dao.stream :as ds]
-    [yin.stream :as stream]
+    [dao.stream.ringbuffer :as stream]
     [yin.vm.engine :as engine]))
 
 

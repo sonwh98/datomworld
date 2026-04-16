@@ -7,7 +7,7 @@
      :pending-ks {position k}}"
   (:require
     [dao.stream :as ds]
-    [dao.stream.transport.ringbuffer]))
+    [dao.stream.ringbuffer]))
 
 
 (defn init-state

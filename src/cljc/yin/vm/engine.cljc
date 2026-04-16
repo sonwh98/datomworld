@@ -2,8 +2,9 @@
   (:refer-clojure :exclude [gensym])
   (:require
     [dao.stream :as ds]
+    [dao.stream.ringbuffer]
+    [yin.io]
     [yin.module :as module]
-    [yin.stream :as stream]
     [yin.vm.stream-driver :as stream-driver]
     [yin.vm.telemetry :as telemetry]))
 
@@ -79,6 +80,121 @@
     woken))
 
 
+(defn handle-make
+  "Handle :stream/make effect. Creates a stream in the VM store.
+   Returns [stream-ref updated-state]."
+  [state effect id]
+  (let [capacity (:capacity effect)
+        descriptor {:type :ringbuffer
+                    :mode :create
+                    :capacity capacity}
+        stream (ds/open! descriptor)
+        new-store (assoc (:store state) id stream)
+        stream-ref {:type :stream-ref, :id id}]
+    [stream-ref (assoc state :store new-store)]))
+
+
+(defn handle-put
+  "Handle :stream/put effect. Appends value to stream.
+   Returns result map:
+   {:value v, :state s, :woke [...]}       on success
+   {:park true, :stream-id id, :state s}   if at capacity"
+  [state effect]
+  (let [stream-ref (:stream effect)
+        val (:val effect)
+        stream-id (:id stream-ref)
+        stream (get (:store state) stream-id)]
+    (when (nil? stream)
+      (throw (ex-info "Invalid stream reference" {:ref stream-ref})))
+    (let [result (ds/put! stream val)]
+      (if (= :full (:result result))
+        {:park true, :stream-id stream-id, :state state}
+        {:value val,
+         :state state,
+         :woke (:woke result)}))))
+
+
+(defn handle-cursor
+  "Handle :stream/cursor effect. Creates a cursor in the VM store.
+   Returns [cursor-ref updated-state].
+   cursor-data is VM-internal: {:stream-id id, :position 0}"
+  [state effect id]
+  (let [stream-ref (:stream effect)
+        cursor-data {:stream-id (:id stream-ref), :position 0}
+        new-store (assoc (:store state) id cursor-data)
+        cursor-ref {:type :cursor-ref, :id id}]
+    [cursor-ref (assoc state :store new-store)]))
+
+
+(defn handle-next
+  "Handle :stream/next effect. Advances cursor, returns next value.
+   Returns result map:
+   {:value val, :state s'}                    data available
+   {:park true, :cursor-ref ref, :stream-id id, :state s}  blocked
+   {:value nil, :state s}                     end of closed stream"
+  [state effect]
+  (let [cursor-ref (:cursor effect)
+        cursor-id (:id cursor-ref)
+        store (:store state)
+        cursor-data (get store cursor-id)]
+    (when (nil? cursor-data)
+      (throw (ex-info "Invalid cursor reference" {:ref cursor-ref})))
+    (let [stream-id (:stream-id cursor-data)
+          stream (get store stream-id)]
+      (when (nil? stream)
+        (throw (ex-info "Stream not found for cursor" {:stream-id stream-id})))
+      (let [ds-cursor {:position (:position cursor-data)}
+            result (ds/next stream ds-cursor)]
+        (cond (map? result)
+              (let [new-cursor (assoc cursor-data
+                                      :position (:position (:cursor result)))
+                    new-store (assoc store cursor-id new-cursor)]
+                {:value (:ok result), :state (assoc state :store new-store)})
+              (= :blocked result) {:park true,
+                                   :cursor-ref cursor-ref,
+                                   :stream-id stream-id,
+                                   :state state}
+              (= :end result) {:value nil, :state state}
+              ;; Reserved: :daostream/gap (requires eviction, deferred)
+              (= :daostream/gap result) {:value :daostream/gap,
+                                         :state state})))))
+
+
+(defn handle-take
+  "Handle :stream/take effect. Destructively consumes next value.
+   Returns result map:
+   {:value val, :state s, :woke [...]}  value available, head advanced, woken writers
+   {:park true, :stream-id id, :state s} empty (open stream, no data)
+   {:value nil, :state s}                end of closed stream
+
+   NOTE: This uses ds/drain-one! (utility function) not a protocol method,
+   since destructive consumption is not part of the canonical model."
+  [state effect]
+  (let [stream-ref (:stream effect)
+        stream-id (:id stream-ref)
+        stream (get (:store state) stream-id)]
+    (when (nil? stream)
+      (throw (ex-info "Invalid stream reference" {:ref stream-ref})))
+    (let [result (ds/drain-one! stream)]
+      (cond (map? result) {:value (:ok result),
+                           :state state,
+                           :woke (:woke result)}
+            (= :empty result) {:park true, :stream-id stream-id, :state state}
+            (= :end result) {:value nil, :state state}))))
+
+
+(defn handle-close
+  "Handle :stream/close effect. Closes the stream.
+   Returns {:state s', :resume-parked woke-entries}"
+  [state effect]
+  (let [stream-ref (:stream effect)
+        stream-id (:id stream-ref)
+        stream (get (:store state) stream-id)
+        {:keys [woke]} (ds/close! stream)]
+    {:state state,
+     :resume-parked woke}))
+
+
 (defn check-wait-set
   "Check wait-set entries against current store.
    Returns updated state with newly runnable entries moved to run-queue.
@@ -108,8 +224,8 @@
                 (let [cursor-ref (:cursor-ref entry)
                       cursor-id (:id cursor-ref)
                       effect {:effect :stream/next, :cursor cursor-ref}
-                      result (stream/handle-next (assoc state :store store)
-                                                 effect)]
+                      result (handle-next (assoc state :store store)
+                                          effect)]
                   (if (:park result)
                     (recur rest-entries (conj new-wait entry) new-run store)
                     (let [updated-store (:store (:state result))
@@ -126,8 +242,8 @@
                 (let [stream-id (:stream-id entry)
                       stream-ref {:type :stream-ref, :id stream-id}
                       effect {:effect :stream/take, :stream stream-ref}
-                      result (stream/handle-take (assoc state :store store)
-                                                 effect)]
+                      result (handle-take (assoc state :store store)
+                                          effect)]
                   (if (:park result)
                     (recur rest-entries (conj new-wait entry) new-run store)
                     (let [updated-store (:store (:state result))
@@ -158,9 +274,9 @@
                           effect {:effect :stream/put,
                                   :stream stream-ref,
                                   :val datom}
-                          result (stream/handle-put (assoc state
-                                                           :store store)
-                                                    effect)]
+                          result (handle-put (assoc state
+                                                    :store store)
+                                             effect)]
                       (if (:park result)
                         (recur rest-entries
                                (conj new-wait entry)
@@ -292,7 +408,7 @@
      [id (assoc state :id-counter (inc id-counter))])))
 
 
-(defn- handle-stream-block
+(defn handle-stream-block
   [result entry]
   (if (:park result)
     (let [entry (or entry
@@ -310,7 +426,7 @@
 (defn handle-effect
   "Dispatch an effect and return {:state updated-state :value v :blocked? bool}.
    park-entry-fns maps :stream/put/:stream/next etc to functions that build wait entries."
-  [state effect {:keys [park-entry-fns]}]
+  [state effect {:keys [park-entry-fns] :as opts}]
   (let [park-entry (get park-entry-fns (:effect effect))
         result
         (case (:effect effect)
@@ -321,21 +437,13 @@
                          :blocked? false}
           :stream/make (let [[id s'] (gensym state "stream")
                              [stream-ref new-state]
-                             (stream/handle-make s' effect id)]
+                             (handle-make s' effect id)]
                          {:state new-state, :value stream-ref, :blocked? false})
-          :stream/file-input-stream (let [[id s'] (gensym state "stream")
-                                          [stream-ref new-state]
-                                          (stream/handle-file-input-stream s' effect id)]
-                                      {:state new-state, :value stream-ref, :blocked? false})
-          :stream/file-output-stream (let [[id s'] (gensym state "stream")
-                                           [stream-ref new-state]
-                                           (stream/handle-file-output-stream s' effect id)]
-                                       {:state new-state, :value stream-ref, :blocked? false})
           :stream/cursor (let [[id s'] (gensym state "cursor")
                                [cursor-ref new-state]
-                               (stream/handle-cursor s' effect id)]
+                               (handle-cursor s' effect id)]
                            {:state new-state, :value cursor-ref, :blocked? false})
-          :stream/put (let [result (stream/handle-put state effect)]
+          :stream/put (let [result (handle-put state effect)]
                         (if (:park result)
                           (let [built-entry (when park-entry (park-entry state effect result))
                                 stream-id   (:stream-id result)
@@ -353,7 +461,7 @@
                               (let [entries (make-woken-run-queue-entries (:state result) woken)]
                                 (update base :state update :run-queue into entries))
                               base))))
-          :stream/next (let [result (stream/handle-next state effect)]
+          :stream/next (let [result (handle-next state effect)]
                          (if (:park result)
                            (let [built-entry (when park-entry (park-entry state effect result))
                                  stream-id   (:stream-id result)
@@ -368,7 +476,7 @@
                                     :blocked? true})
                                (handle-stream-block result built-entry)))
                            {:state (:state result), :value (:value result), :blocked? false}))
-          :stream/take (let [result (stream/handle-take state effect)]
+          :stream/take (let [result (handle-take state effect)]
                          (if (:park result)
                            (handle-stream-block result
                                                 (when park-entry
@@ -379,7 +487,7 @@
                                (let [entries (make-woken-run-queue-entries (:state result) woken)]
                                  (update base :state update :run-queue into entries))
                                base))))
-          :stream/close (let [close-result (stream/handle-close state effect)
+          :stream/close (let [close-result (handle-close state effect)
                               new-state (:state close-result)
                               to-resume (:resume-parked close-result)
                               run-queue (or (:run-queue new-state) [])
@@ -389,7 +497,13 @@
                           {:state (assoc new-state :run-queue new-run-queue),
                            :value nil,
                            :blocked? false})
-          (throw (ex-info "Unknown effect" {:effect effect})))]
+
+          (let [[id s'] (gensym state "effect")
+                handler (module/get-effect-handler (:effect effect))]
+            (if handler
+              (handler s' effect (assoc opts :id id))
+              (throw (ex-info "Unknown effect" {:effect (:effect effect)})))))]
+
     (update result
             :state
             (fn [result-state]

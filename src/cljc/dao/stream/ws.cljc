@@ -1,4 +1,4 @@
-(ns dao.stream.transport.ws
+(ns dao.stream.ws
   "WebSocket-backed stream using three orthogonal protocols.
 
    Three entry points:
@@ -20,7 +20,7 @@
     [dao.stream :as ds]
     [dao.stream.link :as link]
     [dao.stream.transit :as transit]
-    [dao.stream.transport.ringbuffer :as ringbuffer]
+    [dao.stream.ringbuffer :as ringbuffer]
     #?(:clj [org.httpkit.server :as http-server])))
 
 

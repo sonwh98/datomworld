@@ -13,7 +13,7 @@
     [dao.db :as dao.db]
     [dao.db.in-memory :as in-m]
     [dao.stream :as ds]
-    [dao.stream.transport.ringbuffer]
+    [dao.stream.ringbuffer]
     [reagent.core :as r]
     [yang.clojure :as yang]
     [yang.php :as php-comp]

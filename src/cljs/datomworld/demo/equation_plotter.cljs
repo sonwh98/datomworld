@@ -8,7 +8,7 @@
     [cljs.reader :as reader]
     [clojure.string :as str]
     [dao.stream :as ds]
-    [dao.stream.transport.ringbuffer]
+    [dao.stream.ringbuffer]
     [reagent.core :as r]
     [yang.clojure :as yang]
     [yin.vm :as vm]

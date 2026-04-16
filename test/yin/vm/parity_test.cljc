@@ -2,7 +2,7 @@
   (:require
     [clojure.test :refer [deftest is testing]]
     [dao.stream :as ds]
-    [dao.stream.transport.ringbuffer]
+    [dao.stream.ringbuffer]
     [yin.vm :as vm]
     [yin.vm.ast-walker :as ast-walker]
     [yin.vm.register :as register]
@@ -14,8 +14,8 @@
   [vm-state]
   (let [stream-ref (vm/value vm-state)
         stream-id (:id stream-ref)
-        stream #?(:cljs ^dao.stream.transport.ringbuffer/RingBufferStream (get (vm/store vm-state) stream-id)
-                  :cljd ^dao.stream.transport.ringbuffer/RingBufferStream (get (vm/store vm-state) stream-id)
+        stream #?(:cljs ^dao.stream.ringbuffer/RingBufferStream (get (vm/store vm-state) stream-id)
+                  :cljd ^dao.stream.ringbuffer/RingBufferStream (get (vm/store vm-state) stream-id)
                   :default (get (vm/store vm-state) stream-id))]
     (.-capacity stream)))
 

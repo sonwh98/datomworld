@@ -3,7 +3,7 @@
     [clojure.string :as str]
     [criterium.core :as criterium]
     [dao.stream :as ds]
-    [dao.stream.transport.ringbuffer]
+    [dao.stream.ringbuffer]
     [yin.vm :as vm]
     [yin.vm.ast-walker :as ast-walker]
     [yin.vm.register :as register]

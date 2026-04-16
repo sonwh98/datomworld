@@ -4,7 +4,7 @@
     [dao.db :as dao-db]
     [dao.db.in-memory :as in-m]
     [dao.stream :as ds]
-    [dao.stream.transport.ringbuffer]
+    [dao.stream.ringbuffer]
     [yin.vm :as vm]
     [yin.vm.semantic :as semantic]))
 

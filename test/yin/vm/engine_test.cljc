@@ -3,8 +3,8 @@
     [clojure.test :refer [deftest is testing]]
     [dao.stream :as ds]
     [dao.stream.apply :as dao.stream.apply]
-    [dao.stream.transport.ringbuffer]
-    [yin.stream :as stream]
+    [dao.stream.ringbuffer]
+    [dao.stream.ringbuffer :as stream]
     [yin.vm :as vm]
     [yin.vm.engine :as engine]))
 
@@ -294,9 +294,9 @@
 
 (defn- ringbuffer-state-atom
   [stream]
-  #?(:clj  (.-state-atom ^dao.stream.transport.ringbuffer.RingBufferStream stream)
-     :cljs (.-state-atom ^dao.stream.transport.ringbuffer/RingBufferStream stream)
-     :cljd (.-state-atom ^dao.stream.transport.ringbuffer/RingBufferStream stream)))
+  #?(:clj  (.-state-atom ^dao.stream.ringbuffer.RingBufferStream stream)
+     :cljs (.-state-atom ^dao.stream.ringbuffer/RingBufferStream stream)
+     :cljd (.-state-atom ^dao.stream.ringbuffer/RingBufferStream stream)))
 
 
 #?(:cljd
@@ -329,8 +329,8 @@
     "stream close should enqueue the parked writer entry itself, not a nested {:entry ...} wrapper"
     (let [state {:store {}, :id-counter 0, :run-queue []}
           [id s'] (engine/gensym state "stream")
-          [stream-ref state] (stream/handle-make s' {:capacity 1} id)
-          state (:state (stream/handle-put state {:stream stream-ref, :val 1}))
+          [stream-ref state] (engine/handle-make s' {:capacity 1} id)
+          state (:state (engine/handle-put state {:stream stream-ref, :val 1}))
           put-effect {:effect :stream/put, :stream stream-ref, :val 2}
           put-result (engine/handle-effect
                        state
@@ -361,11 +361,11 @@
     "stream take should preserve cursor advance metadata when it wakes a parked reader and writer together"
     (let [state {:store {}, :id-counter 0, :run-queue []}
           [stream-id s'] (engine/gensym state "stream")
-          [stream-ref state] (stream/handle-make s' {:capacity 1} stream-id)
-          state (:state (stream/handle-put state {:stream stream-ref, :val :a}))
+          [stream-ref state] (engine/handle-make s' {:capacity 1} stream-id)
+          state (:state (engine/handle-put state {:stream stream-ref, :val :a}))
           [cursor-id s''] (engine/gensym state "cursor")
-          [cursor-ref state] (stream/handle-cursor s'' {:stream stream-ref} cursor-id)
-          state (:state (stream/handle-next state {:cursor cursor-ref}))
+          [cursor-ref state] (engine/handle-cursor s'' {:stream stream-ref} cursor-id)
+          state (:state (engine/handle-next state {:cursor cursor-ref}))
           next-result (engine/handle-effect
                         state
                         {:effect :stream/next, :cursor cursor-ref}

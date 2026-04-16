@@ -17,6 +17,7 @@
 
 ;; Global module registry
 (defonce ^:private module-registry (atom {}))
+(defonce ^:private effect-registry (atom {}))
 
 
 (defn register-module!
@@ -31,6 +32,21 @@
   "Get a registered module's bindings."
   [module-name]
   (get @module-registry module-name))
+
+
+(defn register-effect-handler!
+  "Register a global handler for a specific effect keyword.
+   Used for effects like file I/O that the engine doesn't inline.
+   Handler: (fn [state effect opts] -> {:state s :value v :blocked? bool})"
+  [kw handler-fn]
+  (swap! effect-registry assoc kw handler-fn)
+  kw)
+
+
+(defn get-effect-handler
+  "Get the handler function for an effect keyword."
+  [kw]
+  (get @effect-registry kw))
 
 
 (defn resolve-symbol
@@ -51,9 +67,10 @@
 
 
 (defn clear-modules!
-  "Clear all registered modules. Useful for testing."
+  "Clear all registered modules and effect handlers. Useful for testing."
   []
-  (reset! module-registry {}))
+  (reset! module-registry {})
+  (reset! effect-registry {}))
 
 
 ;; ============================================================

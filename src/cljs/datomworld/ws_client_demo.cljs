@@ -4,8 +4,8 @@
     [cljs.core.async :as async :refer [<!]]
     [dao.stream :as ds]
     [dao.stream.apply :as dao-apply]
-    [dao.stream.transport.ringbuffer]
-    [dao.stream.transport.ws]))
+    [dao.stream.ringbuffer]
+    [dao.stream.ws]))
 
 
 (defn call-remote
@@ -39,7 +39,7 @@
     (println (str "Connecting to " url "..."))
     (async/go
       (try
-        (let [stream (dao.stream.transport.ws/connect! url)]
+        (let [stream (dao.stream.ws/connect! url)]
           (<! (async/timeout 1000))  ; Give WebSocket time to fully connect
 
           (println "Connected. Sending requests...")

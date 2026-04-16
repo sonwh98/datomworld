@@ -5,7 +5,7 @@
     [clojure.test :refer [deftest is testing]]
     [dao.db :as dao-db]
     [dao.stream :as ds]
-    [dao.stream.transport.ringbuffer]
+    [dao.stream.ringbuffer]
     [yang.clojure :as yang]
     [yin.vm :as vm]
     [yin.vm.macro :as macro]

@@ -1,7 +1,7 @@
 (ns yin.vm.telemetry-server.node
   (:require
     [dao.repl :as repl]
-    [dao.stream.transport.ws :as ws]))
+    [dao.stream.ws :as ws]))
 
 
 (defn -main

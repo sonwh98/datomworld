@@ -4,7 +4,7 @@
     [dao.db.in-memory :as in-m]
     [dao.stream :as ds]
     [dao.stream.apply :as dao.stream.apply]
-    [dao.stream.transport.ringbuffer]
+    [dao.stream.ringbuffer]
     [yin.vm :as vm]
     [yin.vm.ast-walker :as ast-walker]
     [yin.vm.engine :as engine]))
@@ -538,8 +538,8 @@
     (let [vm (vm/eval (ast-walker/create-vm)
                       {:type :stream/make})
           stream-id (:id (vm/value vm))
-          stream #?(:cljs ^dao.stream.transport.ringbuffer/RingBufferStream (get (vm/store vm) stream-id)
-                    :cljd ^dao.stream.transport.ringbuffer/RingBufferStream (get (vm/store vm) stream-id)
+          stream #?(:cljs ^dao.stream.ringbuffer/RingBufferStream (get (vm/store vm) stream-id)
+                    :cljd ^dao.stream.ringbuffer/RingBufferStream (get (vm/store vm) stream-id)
                     :default (get (vm/store vm) stream-id))]
       (is (some? stream))
       (is (= 1024 (.-capacity stream))))))

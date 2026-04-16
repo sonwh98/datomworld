@@ -2,7 +2,7 @@
   (:require
     [clojure.test :refer [deftest is testing]]
     [dao.stream :as ds]
-    [dao.stream.transport.ringbuffer]
+    [dao.stream.ringbuffer]
     [yang.clojure :as clj]
     [yang.python :as py]
     [yin.vm :as vm]

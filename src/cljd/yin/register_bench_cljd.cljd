@@ -1,7 +1,7 @@
 (ns yin.register-bench-cljd
   (:require
     [dao.stream :as ds]
-    [dao.stream.transport.ringbuffer :as ringbuffer]
+    [dao.stream.ringbuffer :as ringbuffer]
     [yin.vm :as vm]
     [yin.vm.register :as register])
   (:import ["dart:core" DateTime]))

@@ -2,9 +2,9 @@
   (:require
     [clojure.test :refer [deftest is testing]]
     [dao.stream :as ds]
-    [dao.stream.transport.ringbuffer]
+    [dao.stream.ringbuffer]
+    [dao.stream.ringbuffer]
     [yang.clojure :as yang]
-    [yin.stream]
     [yin.vm :as vm]
     [yin.vm.ast-walker :as ast-walker]))
 

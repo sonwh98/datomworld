@@ -3,7 +3,7 @@
     [clojure.test :refer [deftest is testing]]
     [dao.stream :as ds]
     [dao.stream.link :as link]
-    [dao.stream.transport.ringbuffer]))
+    [dao.stream.ringbuffer]))
 
 
 ;; =============================================================================
@@ -18,9 +18,9 @@
 
 (defn- ringbuffer-state-atom
   [stream]
-  #?(:clj  (.-state-atom ^dao.stream.transport.ringbuffer.RingBufferStream stream)
-     :cljs (.-state-atom ^dao.stream.transport.ringbuffer/RingBufferStream stream)
-     :cljd (.-state-atom ^dao.stream.transport.ringbuffer/RingBufferStream stream)))
+  #?(:clj  (.-state-atom ^dao.stream.ringbuffer.RingBufferStream stream)
+     :cljs (.-state-atom ^dao.stream.ringbuffer/RingBufferStream stream)
+     :cljd (.-state-atom ^dao.stream.ringbuffer/RingBufferStream stream)))
 
 
 ;; =============================================================================
@@ -59,7 +59,7 @@
 
 (deftest ringbuffer-constructor-position-contract-test
   (testing "ringbuffer constructor can reopen at an absolute position"
-    (let [stream (dao.stream.transport.ringbuffer/make-ring-buffer-stream nil 3)]
+    (let [stream (dao.stream.ringbuffer/make-ring-buffer-stream nil 3)]
       (is (= :daostream/gap
              (ds/next stream {:position 2})))
       (is (= :blocked
