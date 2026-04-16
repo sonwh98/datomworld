@@ -40,8 +40,8 @@
 (deftest datom-vms-run-programs-produced-on-ingress-stream-test
   (testing "semantic/register/stack consume datom programs directly from :in-stream"
     (doseq [[vm-type create-vm] (datom-vms)]
-      (let [in-stream (ds/open! {:transport {:type :ringbuffer
-                                             :capacity nil}})
+      (let [in-stream (ds/open! {:type :ringbuffer
+                                 :capacity nil})
             vm0 (create-vm {:in-stream in-stream})
             in-stream (:in-stream vm0)]
         (is (some? in-stream) (str vm-type " should expose :in-stream"))
@@ -57,8 +57,8 @@
 (deftest datom-vms-stop-cleanly-when-ingress-stream-ends-test
   (testing "closing :in-stream lets run return the last final VM state"
     (doseq [[vm-type create-vm] (datom-vms)]
-      (let [in-stream (ds/open! {:transport {:type :ringbuffer
-                                             :capacity nil}})
+      (let [in-stream (ds/open! {:type :ringbuffer
+                                 :capacity nil})
             vm0 (create-vm {:in-stream in-stream})
             in-stream (:in-stream vm0)]
         (ds/put! in-stream define-x-program)

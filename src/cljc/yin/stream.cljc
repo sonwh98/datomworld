@@ -66,6 +66,23 @@
   {:effect :stream/close, :stream stream-ref})
 
 
+(defn file-input-stream
+  "Open a finite file-backed input stream of raw byte chunks."
+  ([path]
+   (file-input-stream path 65536))
+  ([path chunk-size]
+   {:effect :stream/file-input-stream
+    :path path
+    :chunk-size chunk-size}))
+
+
+(defn file-output-stream
+  "Open an append-only file-backed output stream for raw bytes."
+  [path]
+  {:effect :stream/file-output-stream
+   :path path})
+
+
 ;; ============================================================
 ;; VM-Level Effect Handlers
 ;; Called by VM when executing stream effects.
@@ -77,13 +94,46 @@
    Returns [stream-ref updated-state]."
   [state effect id]
   (let [capacity (:capacity effect)
-        descriptor {:transport {:type :ringbuffer
-                                :mode :create
-                                :capacity capacity}}
+        descriptor {:type :ringbuffer
+                    :mode :create
+                    :capacity capacity}
         stream (ds/open! descriptor)
         new-store (assoc (:store state) id stream)
         stream-ref {:type :stream-ref, :id id}]
     [stream-ref (assoc state :store new-store)]))
+
+
+(defn handle-file-input-stream
+  "Handle :stream/file-input-stream effect. Realizes a file-backed input stream."
+  [state effect id]
+  #?(:clj
+     (let [descriptor {:type :file-input-stream
+                       :path (:path effect)
+                       :chunk-size (:chunk-size effect)}
+           stream (ds/open! descriptor)
+           new-store (assoc (:store state) id stream)
+           stream-ref {:type :stream-ref, :id id}]
+       [stream-ref (assoc state :store new-store)])
+     :default
+     (throw (ex-info "file-input-stream is not supported on this platform"
+                     {:platform #?(:clj :clj :cljs :cljs :cljd :cljd :default :unknown)
+                      :effect effect}))))
+
+
+(defn handle-file-output-stream
+  "Handle :stream/file-output-stream effect. Realizes a file-backed output stream."
+  [state effect id]
+  #?(:clj
+     (let [descriptor {:type :file-output-stream
+                       :path (:path effect)}
+           stream (ds/open! descriptor)
+           new-store (assoc (:store state) id stream)
+           stream-ref {:type :stream-ref, :id id}]
+       [stream-ref (assoc state :store new-store)])
+     :default
+     (throw (ex-info "file-output-stream is not supported on this platform"
+                     {:platform #?(:clj :clj :cljs :cljs :cljd :cljd :default :unknown)
+                      :effect effect}))))
 
 
 (defn handle-put
@@ -197,6 +247,8 @@
   []
   (module/register-module! 'stream
                            {'make make,
+                            'file-input-stream file-input-stream,
+                            'file-output-stream file-output-stream,
                             'put! put!,
                             'cursor cursor,
                             'next! next!,

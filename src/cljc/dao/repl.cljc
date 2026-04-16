@@ -342,8 +342,8 @@
 (defn- make-local-stream
   []
   #?(:cljd (ringbuffer/make-ring-buffer-stream nil)
-     :default (ds/open! {:transport {:type :ringbuffer
-                                     :capacity nil}})))
+     :default (ds/open! {:type :ringbuffer
+                         :capacity nil})))
 
 
 (defn- open-telemetry-sink
@@ -867,22 +867,22 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
       (let [running? (atom true)
             workers (atom #{})
             server-handle
-            (ds/open! {:transport {:type :websocket
-                                   :mode :listen
-                                   :port port
-                                   :on-connect (fn [stream]
-                                                 (let [worker (future
-                                                                (loop [cursor {:position 0}]
-                                                                  (when (and @running? (not (ds/closed? stream)))
-                                                                    (let [result @(serve-once! state-atom stream stream cursor)]
-                                                                      (case result
-                                                                        :blocked (do (Thread/sleep sleep-ms)
-                                                                                     (recur cursor))
-                                                                        :end (do (Thread/sleep sleep-ms)
-                                                                                 (recur cursor))
-                                                                        :daostream/gap (recur {:position 0})
-                                                                        (recur (:cursor result)))))))]
-                                                   (swap! workers conj worker)))}})
+            (ds/open! {:type :websocket
+                       :mode :listen
+                       :port port
+                       :on-connect (fn [stream]
+                                     (let [worker (future
+                                                    (loop [cursor {:position 0}]
+                                                      (when (and @running? (not (ds/closed? stream)))
+                                                        (let [result @(serve-once! state-atom stream stream cursor)]
+                                                          (case result
+                                                            :blocked (do (Thread/sleep sleep-ms)
+                                                                         (recur cursor))
+                                                            :end (do (Thread/sleep sleep-ms)
+                                                                     (recur cursor))
+                                                            :daostream/gap (recur {:position 0})
+                                                            (recur (:cursor result)))))))]
+                                       (swap! workers conj worker)))})
             _ (swap! state-atom expose-repl-server port server-handle)]
         {:port port
          :server server-handle
@@ -907,21 +907,21 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                         :or {sleep-ms 10}}]
       (let [running? (atom true)
             server-handle
-            (ds/open! {:transport {:type :websocket
-                                   :mode :listen
-                                   :port port
-                                   :on-connect (fn [stream]
-                                                 (let [worker (fn loop-fn
-                                                                [cursor]
-                                                                (when (and @running? (not (ds/closed? stream)))
-                                                                  (.then (serve-once! state-atom stream stream cursor)
-                                                                         (fn [result]
-                                                                           (case result
-                                                                             :blocked (js/setTimeout #(loop-fn cursor) sleep-ms)
-                                                                             :end (js/setTimeout #(loop-fn cursor) sleep-ms)
-                                                                             :daostream/gap (loop-fn {:position 0})
-                                                                             (loop-fn (:cursor result)))))))]
-                                                   (worker {:position 0})))}})
+            (ds/open! {:type :websocket
+                       :mode :listen
+                       :port port
+                       :on-connect (fn [stream]
+                                     (let [worker (fn loop-fn
+                                                    [cursor]
+                                                    (when (and @running? (not (ds/closed? stream)))
+                                                      (.then (serve-once! state-atom stream stream cursor)
+                                                             (fn [result]
+                                                               (case result
+                                                                 :blocked (js/setTimeout #(loop-fn cursor) sleep-ms)
+                                                                 :end (js/setTimeout #(loop-fn cursor) sleep-ms)
+                                                                 :daostream/gap (loop-fn {:position 0})
+                                                                 (loop-fn (:cursor result)))))))]
+                                       (worker {:position 0})))})
             _ (swap! state-atom expose-repl-server port server-handle)]
         {:port port
          :server server-handle
@@ -941,27 +941,27 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                         :or {sleep-ms 10}}]
       (let [running? (atom true)
             server-handle
-            (ds/open! {:transport {:type :websocket
-                                   :mode :listen
-                                   :port port
-                                   :on-connect (fn [stream]
-                                                 (let [worker (fn loop-fn
-                                                                [cursor]
-                                                                (when (and @running? (not (ds/closed? stream)))
-                                                                  (.then ^async/Future (serve-once! state-atom stream stream cursor)
-                                                                         (fn [result]
-                                                                           (case result
-                                                                             :blocked (do
-                                                                                        (.then ^async/Future (async/Future.delayed (core/Duration .milliseconds sleep-ms))
-                                                                                               (fn [_] (loop-fn cursor)))
-                                                                                        nil)
-                                                                             :end (do
-                                                                                    (.then ^async/Future (async/Future.delayed (core/Duration .milliseconds sleep-ms))
-                                                                                           (fn [_] (loop-fn cursor)))
-                                                                                    nil)
-                                                                             :daostream/gap (loop-fn {:position 0})
-                                                                             (loop-fn (:cursor result)))))))]
-                                                   (worker {:position 0})))}})
+            (ds/open! {:type :websocket
+                       :mode :listen
+                       :port port
+                       :on-connect (fn [stream]
+                                     (let [worker (fn loop-fn
+                                                    [cursor]
+                                                    (when (and @running? (not (ds/closed? stream)))
+                                                      (.then ^async/Future (serve-once! state-atom stream stream cursor)
+                                                             (fn [result]
+                                                               (case result
+                                                                 :blocked (do
+                                                                            (.then ^async/Future (async/Future.delayed (core/Duration .milliseconds sleep-ms))
+                                                                                   (fn [_] (loop-fn cursor)))
+                                                                            nil)
+                                                                 :end (do
+                                                                        (.then ^async/Future (async/Future.delayed (core/Duration .milliseconds sleep-ms))
+                                                                               (fn [_] (loop-fn cursor)))
+                                                                        nil)
+                                                                 :daostream/gap (loop-fn {:position 0})
+                                                                 (loop-fn (:cursor result)))))))]
+                                       (worker {:position 0})))})
             _ (swap! state-atom expose-repl-server port server-handle)]
         {:port port
          :server server-handle

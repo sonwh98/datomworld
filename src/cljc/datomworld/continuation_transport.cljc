@@ -15,7 +15,7 @@
    identifying the consuming VMs (e.g. [:register-vm :stack-vm])."
   [vm-keys]
   {:k-stream
-   (ds/open! {:transport {:type :ringbuffer, :capacity nil}}),
+   (ds/open! {:type :ringbuffer, :capacity nil}),
    :cursors (into {} (map (fn [k] [k {:position 0}])) vm-keys),
    :pending-ks {}})
 

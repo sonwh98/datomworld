@@ -46,7 +46,7 @@
 
 (defn- make-stream
   []
-  (ds/open! {:transport {:type :ringbuffer, :capacity nil}}))
+  (ds/open! {:type :ringbuffer, :capacity nil}))
 
 
 (defn- stream-values
@@ -413,7 +413,7 @@
 
 (deftest daocall-dispatch-and-wake-test
   (testing "dao.stream.apply response wakes caller and advances cursor"
-    (let [call-out (ds/open! {:transport {:type :ringbuffer, :capacity nil}})
+    (let [call-out (ds/open! {:type :ringbuffer, :capacity nil})
           state {:store {vm/call-out-stream-key call-out,
                          vm/call-out-cursor-key {:stream-id vm/call-out-stream-key,
                                                  :position 0}},

@@ -3,7 +3,6 @@
     [cljs.test :refer-macros [run-tests]]
     [dao.repl-test]
     [dao.stream-test]
-    [dao.stream.transport.file-test]
     [datomworld.continuation-transport-test]
     [datomworld.demo.continuation-handoff-test]
     [datomworld.demo.dao-repl-test]
@@ -27,7 +26,6 @@
              'datomworld.demo.vm-state-keys-test
              'dao.repl-test
              'dao.stream-test
-             'dao.stream.transport.file-test
              'yin.content-test
              'yin.transport-test
              'yin.vm.ast-walker-test

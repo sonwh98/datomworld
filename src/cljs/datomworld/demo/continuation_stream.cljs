@@ -81,7 +81,7 @@
        :component-did-update
        (fn [this _]
          (let [{:keys [value auto-scroll-bottom]} (r/props this)]
-           (when-let [view @view-ref]
+           (when-let [^js view @view-ref]
              (let [next-value (or value "")
                    current-value (.. view -state -doc toString)]
                (when (not= next-value current-value)
@@ -97,7 +97,7 @@
                          (set! (.-scrollTop scroll-dom)
                                (.-scrollHeight scroll-dom))))))))))),
        :component-will-unmount (fn [_]
-                                 (when-let [view @view-ref]
+                                 (when-let [^js view @view-ref]
                                    (.destroy view)
                                    (reset! view-ref nil))),
        :reagent-render
@@ -207,8 +207,8 @@
 
 (defn- queue-vm
   [vm-state datoms]
-  (let [in-stream (ds/open! {:transport {:type :ringbuffer
-                                         :capacity nil}})
+  (let [in-stream (ds/open! {:type :ringbuffer
+                             :capacity nil})
         queued-vm (assoc vm-state :in-stream in-stream :in-cursor {:position 0})]
     (ds/put! in-stream (vec datoms))
     queued-vm))

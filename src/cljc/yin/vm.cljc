@@ -127,9 +127,9 @@
   "Create an in-process DaoStream for VM-local request/response plumbing."
   []
   #?(:cljd (ringbuffer/make-ring-buffer-stream nil)
-     :default (ds/open! {:transport {:type :ringbuffer
-                                     :mode :create
-                                     :capacity nil}})))
+     :default (ds/open! {:type :ringbuffer
+                         :mode :create
+                         :capacity nil})))
 
 
 ;; =============================================================================

@@ -61,7 +61,7 @@
 (defn make-link-state
   [local-stream]
   {:local-stream local-stream,
-   :remote-stream (ds/open! {:transport {:type :ringbuffer, :capacity nil}}),
+   :remote-stream (ds/open! {:type :ringbuffer, :capacity nil}),
    :local-pos 0,
    :remote-pos 0,
    :status :connecting})

@@ -2,7 +2,7 @@
   "UDP‑based transport for DaoStream, treating each datom as a UDP datagram.
    
    Descriptor:
-     {:transport {:type :udp
+     {:type :udp
                   :mode :create
                   :host \"192.168.1.100\"
                   :port 9000
@@ -10,7 +10,7 @@
                   :mtu 1450
                   :reliable? false
                   :ack-timeout-ms 2000
-                  :max-retries 5}}
+                  :max-retries 5}
    
    The transport can be configured for fire‑and‑forget (:reliable? false) or
    with DRDS reliability (:reliable? true). This implementation currently
@@ -183,7 +183,7 @@
 
 #?(:clj (defmethod ds/open! :udp
           [descriptor]
-          (let [{:keys [host port listen-port mtu reliable?]} (:transport descriptor)
+          (let [{:keys [host port listen-port mtu reliable?]} descriptor
                 port (or port 0)
                 listen-port (or listen-port port)
                 socket (DatagramSocket. listen-port)

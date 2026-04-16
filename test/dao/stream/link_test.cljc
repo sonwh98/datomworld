@@ -13,7 +13,7 @@
 
 (defn- make-stream
   []
-  (ds/open! {:transport {:type :ringbuffer, :capacity nil}}))
+  (ds/open! {:type :ringbuffer, :capacity nil}))
 
 
 (defn- make-stream-with

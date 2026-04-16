@@ -13,7 +13,7 @@
   (let [handlers {:op/add +
                   :op/multiply *
                   :op/uppercase clojure.string/upper-case}
-        endpoint (ds/open! {:transport {:type :websocket, :mode :listen, :port port}})
+        endpoint (ds/open! {:type :websocket, :mode :listen, :port port})
         stop-atom (atom false)]
 
     (println (str "WebSocket server listening on ws://localhost:" port))

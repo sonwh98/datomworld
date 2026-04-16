@@ -21,7 +21,7 @@
         ;; 1. Create N streams
         streams (mapv (fn [i]
                         (let [id (+ 1000 i)
-                              stream (ds/open! {:transport {:type :ringbuffer :capacity capacity}})]
+                              stream (ds/open! {:type :ringbuffer :capacity capacity})]
                           [id stream]))
                       (range n))
         store (into {} (map (fn [[id s]] [id s]) streams))

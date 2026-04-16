@@ -11,9 +11,9 @@
 ;; =============================================================================
 
 (defn- make-stream
-  ([] (ds/open! {:transport {:type :ringbuffer, :capacity nil}}))
+  ([] (ds/open! {:type :ringbuffer, :capacity nil}))
   ([capacity]
-   (ds/open! {:transport {:type :ringbuffer, :capacity capacity}})))
+   (ds/open! {:type :ringbuffer, :capacity capacity})))
 
 
 (defn- ringbuffer-state-atom
@@ -30,9 +30,9 @@
 (defn- ringbuffer-descriptor
   ([] (ringbuffer-descriptor nil))
   ([capacity]
-   {:transport {:type :ringbuffer
-                :mode :create
-                :capacity capacity}}))
+   {:type :ringbuffer
+    :mode :create
+    :capacity capacity}))
 
 
 (deftest ringbuffer-descriptor-open-contract-test
@@ -47,7 +47,14 @@
           remote (:remote-stream state)]
       (is (some? remote))
       (is (= :ok (:result (ds/put! remote :payload))))
-      (is (= :payload (:ok (ds/drain-one! remote)))))))
+      (is (= :payload (:ok (ds/drain-one! remote))))))
+
+  (testing "nested transport descriptors are rejected"
+    (is (thrown? #?(:clj Exception
+                    :cljs js/Error
+                    :cljd Object)
+          (ds/open! {:transport {:type :ringbuffer
+                                 :capacity 1}})))))
 
 
 (deftest ringbuffer-constructor-position-contract-test
@@ -277,7 +284,7 @@
 
 (deftest memory-reclamation-test
   (testing "take! removes consumed entries from the buffer map"
-    (let [s (ds/open! {:transport {:type :ringbuffer, :capacity nil}})]
+    (let [s (ds/open! {:type :ringbuffer, :capacity nil})]
       (ds/put! s :a)
       (ds/put! s :b)
       (ds/drain-one! s)
@@ -288,13 +295,13 @@
 
 (deftest zero-capacity-test
   (testing "capacity=0 rejects every put!"
-    (let [s (ds/open! {:transport {:type :ringbuffer, :capacity 0}})]
+    (let [s (ds/open! {:type :ringbuffer, :capacity 0})]
       (is (= :full (:result (ds/put! s :a)))))))
 
 
 (deftest capacity-one-boundary-test
   (testing "capacity=1: full after one put!, freed after take!"
-    (let [s (ds/open! {:transport {:type :ringbuffer, :capacity 1}})]
+    (let [s (ds/open! {:type :ringbuffer, :capacity 1})]
       (is (= :ok (:result (ds/put! s :a))))
       (is (= :full (:result (ds/put! s :b))))
       (is (= :a (:ok (ds/drain-one! s))))
@@ -304,7 +311,7 @@
 
 (deftest put-take-cycle-index-continuity-test
   (testing "absolute indices advance monotonically across multiple put!/take! cycles"
-    (let [s (ds/open! {:transport {:type :ringbuffer, :capacity nil}})]
+    (let [s (ds/open! {:type :ringbuffer, :capacity nil})]
       (ds/put! s :a)
       (ds/drain-one! s)
       (ds/put! s :b)
@@ -338,13 +345,13 @@
 
 (deftest open-descriptor-capacity-test
   (testing "open! with :capacity propagates to ringbuffer transport"
-    (let [s (ds/open! {:transport {:type :ringbuffer :mode :create :capacity 3}})]
+    (let [s (ds/open! {:type :ringbuffer :mode :create :capacity 3})]
       (is (= :ok (:result (ds/put! s 1))))
       (is (= :ok (:result (ds/put! s 2))))
       (is (= :ok (:result (ds/put! s 3))))
       (is (= :full (:result (ds/put! s 4))))))
   (testing "open! with nil :capacity is unbounded"
-    (let [s (ds/open! {:transport {:type :ringbuffer :mode :create :capacity nil}})]
+    (let [s (ds/open! {:type :ringbuffer :mode :create :capacity nil})]
       (dotimes [i 1000] (ds/put! s i))
       (is (= 1000 (count s))))))
 
@@ -355,7 +362,7 @@
 
 (deftest writer-waiter-woken-by-drain-test
   (testing "drain-one! wakes a registered writer-waiter and writes its datom"
-    (let [s (ds/open! {:transport {:type :ringbuffer, :capacity 1}})]
+    (let [s (ds/open! {:type :ringbuffer, :capacity 1})]
       ;; Fill the stream
       (is (= :ok (:result (ds/put! s :value1))))
       ;; Try to put another but it's full
@@ -377,7 +384,7 @@
 
 (deftest drain-one-no-writer-waiters-test
   (testing "drain-one! returns empty :woke when no writers are registered"
-    (let [s (ds/open! {:transport {:type :ringbuffer, :capacity nil}})]
+    (let [s (ds/open! {:type :ringbuffer, :capacity nil})]
       (ds/put! s :x)
       (let [result (ds/drain-one! s)]
         (is (= :x (:ok result)))
@@ -386,7 +393,7 @@
 
 (deftest close-wakes-writer-waiters-test
   (testing "close! wakes both reader-waiters and writer-waiters with :value nil"
-    (let [s (ds/open! {:transport {:type :ringbuffer, :capacity nil}})]
+    (let [s (ds/open! {:type :ringbuffer, :capacity nil})]
       ;; Register a reader-waiter
       (ds/register-reader-waiter! s 0 {:reason :next, :cursor-ref {:type :cursor-ref, :id :c1}})
       ;; Register a writer-waiter
@@ -402,7 +409,7 @@
 
 (deftest close-does-not-append-writer-datom-test
   (testing "close! resolves parked writers without letting drain-one! append them later"
-    (let [s (ds/open! {:transport {:type :ringbuffer, :capacity 1}})]
+    (let [s (ds/open! {:type :ringbuffer, :capacity 1})]
       (is (= :ok (:result (ds/put! s :value1))))
       (ds/register-writer-waiter! s {:reason :put, :datom :value2, :k {:type :write}})
       (let [close-result (ds/close! s)

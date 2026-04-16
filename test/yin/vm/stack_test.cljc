@@ -18,8 +18,8 @@
   (if (:in-stream vm-state)
     vm-state
     (assoc vm-state
-           :in-stream (ds/open! {:transport {:type :ringbuffer
-                                             :capacity nil}})
+           :in-stream (ds/open! {:type :ringbuffer
+                                 :capacity nil})
            :in-cursor {:position 0})))
 
 

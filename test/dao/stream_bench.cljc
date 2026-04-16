@@ -49,7 +49,7 @@
   []
   (let [n 10000
         adhoc-stream {:datoms [], :next-e 7000, :next-t 1}
-        ds-stream {:log (ds/open! {:transport {:type :ringbuffer, :capacity nil}}), :next-e 7000, :next-t 1}]
+        ds-stream {:log (ds/open! {:type :ringbuffer, :capacity nil}), :next-e 7000, :next-t 1}]
     (bench "adhoc-append"
            #(loop [s adhoc-stream
                    i 0]

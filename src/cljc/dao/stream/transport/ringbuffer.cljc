@@ -136,5 +136,5 @@
 
 
 (defmethod ds/open! :ringbuffer [descriptor]
-  (let [capacity (get-in descriptor [:transport :capacity])]
+  (let [capacity (:capacity descriptor)]
     (make-ring-buffer-stream capacity)))

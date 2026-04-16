@@ -20,7 +20,7 @@
     (register-writer-waiter! [stream entry])
 
   Descriptor (serializable):
-    {:transport {:type :ringbuffer :capacity nil-or-int}}
+    {:type :ringbuffer :capacity nil-or-int}
 
   Cursor (plain map, constructed inline by caller):
     {:position n}"
@@ -92,7 +92,7 @@
 
 (defmulti open!
   "Realize a descriptor into an operational IStream transport."
-  (fn [descriptor] (get-in descriptor [:transport :type])))
+  (fn [descriptor] (:type descriptor)))
 
 
 ;; =============================================================================

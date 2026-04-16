@@ -17,8 +17,8 @@
 (defn- queue-ast!
   [vm-state ast]
   (let [in-stream (or (:in-stream vm-state)
-                      (ds/open! {:transport {:type :ringbuffer
-                                             :capacity nil}}))
+                      (ds/open! {:type :ringbuffer
+                                 :capacity nil}))
         queued-vm (assoc vm-state
                          :in-stream in-stream
                          :in-cursor {:position 0}

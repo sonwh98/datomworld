@@ -14,7 +14,7 @@
 
 (defn- make-stream
   []
-  (ds/open! {:transport {:type :ringbuffer :capacity nil}}))
+  (ds/open! {:type :ringbuffer :capacity nil}))
 
 
 (defn- fact?
@@ -172,7 +172,7 @@
 (deftest telemetry-command-test
   #?(:clj
      (testing "telemetry wires a stream into the active VM and records snapshots"
-       (let [sink (ds/open! {:transport {:type :ringbuffer :capacity nil}})
+       (let [sink (ds/open! {:type :ringbuffer :capacity nil})
              [state-1 _msg] @(repl/eval-input (repl/create-state) "(telemetry)")
              state-1 (assoc state-1 :telemetry-mode {:type :stream :stream sink})
              telemetry-stream (:telemetry-stream state-1)
@@ -184,7 +184,7 @@
          (is (fact? datoms :vm/phase :halt))))
      :cljs
      (async done
-            (let [sink (ds/open! {:transport {:type :ringbuffer :capacity nil}})]
+            (let [sink (ds/open! {:type :ringbuffer :capacity nil})]
               (-> (repl/eval-input (repl/create-state) "(telemetry)")
                   (.then (fn [[state-1 _msg]]
                            (let [state-1 (assoc state-1 :telemetry-mode {:type :stream :stream sink})]
@@ -437,7 +437,7 @@
              stream (ringbuffer/make-ring-buffer-stream nil)]
          (with-redefs [dao.stream/open!
                        (fn [descriptor]
-                         (if-let [on-connect (get-in descriptor [:transport :on-connect])]
+                         (if-let [on-connect (:on-connect descriptor)]
                            (do
                              ;; simulate a connection happening immediately
                              (on-connect stream)
@@ -561,14 +561,14 @@
              ;; wait for server to start
              _ (Thread/sleep 200)
              ;; Client A
-             client-a-stream (ds/open! {:transport {:type :websocket
-                                                    :mode :connect
-                                                    :url (str "ws://localhost:" port)}})
+             client-a-stream (ds/open! {:type :websocket
+                                        :mode :connect
+                                        :url (str "ws://localhost:" port)})
              client-a-req-id (atom 100)
              ;; Client B
-             client-b-stream (ds/open! {:transport {:type :websocket
-                                                    :mode :connect
-                                                    :url (str "ws://localhost:" port)}})
+             client-b-stream (ds/open! {:type :websocket
+                                        :mode :connect
+                                        :url (str "ws://localhost:" port)})
              client-b-req-id (atom 200)
 
              ;; Helper to send request and await response

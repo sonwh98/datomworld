@@ -323,6 +323,14 @@
                              [stream-ref new-state]
                              (stream/handle-make s' effect id)]
                          {:state new-state, :value stream-ref, :blocked? false})
+          :stream/file-input-stream (let [[id s'] (gensym state "stream")
+                                          [stream-ref new-state]
+                                          (stream/handle-file-input-stream s' effect id)]
+                                      {:state new-state, :value stream-ref, :blocked? false})
+          :stream/file-output-stream (let [[id s'] (gensym state "stream")
+                                           [stream-ref new-state]
+                                           (stream/handle-file-output-stream s' effect id)]
+                                       {:state new-state, :value stream-ref, :blocked? false})
           :stream/cursor (let [[id s'] (gensym state "cursor")
                                [cursor-ref new-state]
                                (stream/handle-cursor s' effect id)]

@@ -10,8 +10,8 @@
 
 (deftest register-handoff-preserves-ingress-state-test
   (testing "register vm handoff payload round-trips the ingress stream"
-    (let [in-stream (ds/open! {:transport {:type :ringbuffer
-                                           :capacity nil}})
+    (let [in-stream (ds/open! {:type :ringbuffer
+                               :capacity nil})
           vm (assoc (register/create-vm {:in-stream in-stream})
                     :in-cursor {:position 7}
                     :regs [:r0 :r1]
@@ -43,8 +43,8 @@
 
 (deftest stack-handoff-preserves-ingress-state-test
   (testing "stack vm handoff payload round-trips the ingress stream"
-    (let [in-stream (ds/open! {:transport {:type :ringbuffer
-                                           :capacity nil}})
+    (let [in-stream (ds/open! {:type :ringbuffer
+                               :capacity nil})
           vm (assoc (stack/create-vm {:in-stream in-stream})
                     :in-cursor {:position 11}
                     :stack [:arg :fn]

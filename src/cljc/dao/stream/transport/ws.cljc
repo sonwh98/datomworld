@@ -119,7 +119,7 @@
                     (fn [req]
                       (http-server/as-channel
                         req
-                        (let [local (ds/open! {:transport {:type :ringbuffer, :capacity (:capacity opts)}})
+                        (let [local (ds/open! {:type :ringbuffer, :capacity (:capacity opts)})
                               stream (make-ws-stream local)]
                           {:on-open (fn [ch]
                                       (on-open! stream
@@ -147,7 +147,7 @@
           "Connect to a WebSocket server at url. Returns WebSocketStream."
           ([url] (connect! url nil))
           ([url opts]
-           (let [local (ds/open! {:transport {:type :ringbuffer, :capacity (:capacity opts)}})
+           (let [local (ds/open! {:type :ringbuffer, :capacity (:capacity opts)})
                  stream (make-ws-stream local)
                  client (java.net.http.HttpClient/newHttpClient)
                  ws-ref (atom nil)
@@ -190,7 +190,7 @@
            "Connect to a WebSocket server at url. Returns WebSocketStream."
            ([url] (connect! url nil))
            ([url opts]
-            (let [local (ds/open! {:transport {:type :ringbuffer, :capacity (:capacity opts)}})
+            (let [local (ds/open! {:type :ringbuffer, :capacity (:capacity opts)})
                   stream (make-ws-stream local)
                   ws (js/WebSocket. url)]
               (set! (.-onopen ws)
@@ -221,7 +221,7 @@
 #?(:clj
    (defmethod ds/open! :websocket
      [descriptor]
-     (let [{:keys [mode url port capacity] :as opts} (:transport descriptor)]
+     (let [{:keys [mode url port capacity] :as opts} descriptor]
        (case mode
          :listen  (listen! port opts)
          :connect (connect! url {:capacity capacity})
@@ -240,7 +240,7 @@
             conns (atom #{})]
         (.on ^js wss "connection"
              (fn [ws]
-               (let [local (ds/open! {:transport {:type :ringbuffer, :capacity (:capacity opts)}})
+               (let [local (ds/open! {:type :ringbuffer, :capacity (:capacity opts)})
                      stream (make-ws-stream local)]
                  (on-open! stream (fn [msg] (.send ^js ws msg)))
                  (swap! conns conj stream)
@@ -259,7 +259,7 @@
 #?(:cljs
    (defmethod ds/open! :websocket
      [descriptor]
-     (let [{:keys [mode url port capacity] :as opts} (:transport descriptor)]
+     (let [{:keys [mode url port capacity] :as opts} descriptor]
        (case mode
          :listen  (listen! port opts)
          :connect (connect! url {:capacity capacity})
@@ -286,7 +286,7 @@
                                       (-> (io/WebSocketTransformer.upgrade request)
                                           (.then (fn [ws]
                                                    (let [ws ^io/WebSocket ws
-                                                         local (ds/open! {:transport {:type :ringbuffer, :capacity (:capacity opts)}})
+                                                         local (ds/open! {:type :ringbuffer, :capacity (:capacity opts)})
                                                          stream (make-ws-stream local)]
                                                      (on-open! stream (fn [msg] (.add ws msg)))
                                                      (swap! conns conj stream)
@@ -306,7 +306,7 @@
 #?(:cljd
    (defmethod ds/open! :websocket
      [descriptor]
-     (let [{:keys [mode url port capacity] :as opts} (:transport descriptor)]
+     (let [{:keys [mode url port capacity] :as opts} descriptor]
        (case mode
          :listen  (listen! port opts)
          :connect (throw (ex-info "websocket mode :connect not supported in CLJD"
