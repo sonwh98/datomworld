@@ -3,7 +3,6 @@
   (:require
     [dao.stream :as ds]
     [dao.stream.ringbuffer]
-    [yin.io]
     [yin.module :as module]
     [yin.vm.stream-driver :as stream-driver]
     [yin.vm.telemetry :as telemetry]))

@@ -21,10 +21,10 @@
 
 
 (defn register-module!
-  "Register a module with its exported bindings.
+  "Register bindings into a module. Merges with any existing bindings.
    bindings is a map of symbol -> function."
   [module-name bindings]
-  (swap! module-registry assoc module-name bindings)
+  (swap! module-registry update module-name merge bindings)
   module-name)
 
 
