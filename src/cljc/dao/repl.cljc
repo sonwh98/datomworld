@@ -2,19 +2,13 @@
   (:require
     #?(:cljd ["dart:async" :as async])
     #?(:cljd ["dart:core" :as core])
-    #?(:clj [clojure.edn :as edn]
-       :cljs [cljs.reader :as edn]
-       :cljd [clojure.edn :as edn])
+    #?(:cljs [cljs.reader :as edn]
+       :default [clojure.edn :as edn])
     [clojure.string :as str]
     [dao.pretty :as pretty]
     [dao.stream :as ds]
     [dao.stream.apply :as dao-apply]
-    ;; The following transport namespaces are required for their side-effects
-    ;; (registering transport types) during REPL initialization.
-    #?(:cljd [dao.stream.ringbuffer :as ringbuffer])
-    #?(:cljd [dao.stream.ws :as ws.cljd])
-    #?(:clj [dao.stream.ws])
-    #?(:cljs [dao.stream.ws :as ws])
+    [dao.stream.ws :as ws]
     [yang.clojure :as yang.clojure]
     [yang.php :as yang.php]
     [yang.python :as yang.python]
@@ -341,34 +335,19 @@
 
 (defn- make-local-stream
   []
-  #?(:cljd (ringbuffer/make-ring-buffer-stream nil)
-     :default (ds/open! {:type :ringbuffer
-                         :capacity nil})))
+  (ds/open! {:type :ringbuffer :capacity nil}))
 
 
 (defn- open-telemetry-sink
   [url]
-  #?(:clj ((requiring-resolve 'dao.stream.ws/connect!)
-           (normalize-daostream-url url))
-     :cljs (ws/connect! (normalize-daostream-url url))
-     :cljd (ws.cljd/connect! (normalize-daostream-url url))))
+  (ws/connect! (normalize-daostream-url url)))
 
 
 (defn- open-remote-endpoint
   [url]
-  #?(:clj
-     (let [connect! (requiring-resolve 'dao.stream.ws/connect!)
-           stream (connect! (normalize-daostream-url url))]
-       {:request-stream stream
-        :response-stream stream})
-     :cljs
-     (let [stream (ws/connect! (normalize-daostream-url url))]
-       {:request-stream stream
-        :response-stream stream})
-     :cljd
-     (let [stream (ws.cljd/connect! (normalize-daostream-url url))]
-       {:request-stream stream
-        :response-stream stream})))
+  (let [stream (ws/connect! (normalize-daostream-url url))]
+    {:request-stream stream
+     :response-stream stream}))
 
 
 (defn- attach-remote-endpoint
