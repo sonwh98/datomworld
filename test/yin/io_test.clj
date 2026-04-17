@@ -4,8 +4,8 @@
     [clojure.test :refer [deftest is testing]]
     [dao.stream.file-input-stream]
     [dao.stream.file-output-stream]
-    [yin.io :as yin.io]
     [dao.stream.ringbuffer :as stream]
+    [yin.io :as yin.io]
     [yin.vm :as vm]
     [yin.vm.engine :as engine]))
 
@@ -58,6 +58,8 @@
                    "yin-stream-output"
                    (make-array java.nio.file.attribute.FileAttribute 0))
         path (str (.resolve temp-dir "out.bin"))
+        _ (-> (java.io.File. path) .deleteOnExit)
+        _ (-> temp-dir .toFile .deleteOnExit)
         {state-1 :state stream-ref :value}
         (run-effect (vm/empty-state)
                     (yin.io/output-stream path))
@@ -66,3 +68,19 @@
     (testing "yin io effects append bytes through the output stream"
       (is (= [1 2 3 4] (bytes->vec (read-bytes path)))))
     (run-effect (:state put-2) (stream/close! stream-ref))))
+
+
+(deftest file-output-stream-writes-hello-world-test
+  (let [temp-dir (java.nio.file.Files/createTempDirectory
+                   "yin-stream-output"
+                   (make-array java.nio.file.attribute.FileAttribute 0))
+        path (str (.resolve temp-dir "hello.txt"))
+        _ (-> (java.io.File. path) .deleteOnExit)
+        _ (-> temp-dir .toFile .deleteOnExit)
+        {state-1 :state stream-ref :value}
+        (run-effect (vm/empty-state)
+                    (yin.io/output-stream path))
+        put-1 (run-effect state-1 (stream/put! stream-ref (.getBytes "hello world" "UTF-8")))]
+    (run-effect (:state put-1) (stream/close! stream-ref))
+    (testing "file-output-stream writes hello world"
+      (is (= "hello world" (slurp path))))))
