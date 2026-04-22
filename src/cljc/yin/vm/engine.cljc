@@ -49,6 +49,15 @@
   (and (boolean (:halted? vm)) (empty? (or (:run-queue vm) []))))
 
 
+(defn restore-initial-env
+  "After eval, restore :env to initial-env when the computation halted.
+   Blocked and parked states keep the active lexical env for resumption."
+  [initial-env result]
+  (if (halted-with-empty-queue? result)
+    (assoc result :env initial-env)
+    result))
+
+
 (defn active-continuation?
   "Returns true when the currently active continuation should keep stepping."
   [vm]

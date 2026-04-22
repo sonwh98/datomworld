@@ -44,6 +44,29 @@
       (is (empty? (:run-queue result))))))
 
 
+(deftest restore-initial-env-test
+  (testing "Halted computations restore the caller env"
+    (let [initial-env {'outer 1}
+          result {:halted? true
+                  :run-queue []
+                  :env {'inner 2}}]
+      (is (= initial-env
+             (:env (engine/restore-initial-env initial-env result))))))
+  (testing "Blocked and queued computations keep the active env for resumption"
+    (let [initial-env {'outer 1}
+          blocked-result {:blocked? true
+                          :halted? false
+                          :run-queue []
+                          :env {'inner 2}}
+          queued-result {:halted? true
+                         :run-queue [{:continuation {:id :k}}]
+                         :env {'inner 2}}]
+      (is (= {'inner 2}
+             (:env (engine/restore-initial-env initial-env blocked-result))))
+      (is (= {'inner 2}
+             (:env (engine/restore-initial-env initial-env queued-result)))))))
+
+
 (defn- make-stream
   []
   (ds/open! {:type :ringbuffer, :capacity nil}))
