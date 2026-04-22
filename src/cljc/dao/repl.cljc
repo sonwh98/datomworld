@@ -323,7 +323,11 @@
 
 (defn- read-clojure-forms
   [input-str]
-  (edn/read-string (str "[" input-str "]")))
+  ;; Use the full Clojure reader (not EDN) so that reader macros like
+  ;; ' (quote), # (dispatch), etc. are supported in REPL input.
+  #?(:clj  (clojure.core/read-string (str "[" input-str "]"))
+     :cljs (cljs.reader/read-string (str "[" input-str "]"))
+     :cljd (edn/read-string (str "[" input-str "]"))))
 
 
 (defn- normalize-daostream-url
@@ -710,51 +714,81 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                       {:command command})))))
 
 
+(defn- bracket-balance
+  "Count open minus close brackets in s, ignoring string literals and ; comments.
+   Positive → input is incomplete (unclosed brackets).
+   Zero     → balanced.
+   Negative → extra closers."
+  [s]
+  (loop [chars (seq s) depth 0 in-str? false]
+    (if (empty? chars)
+      depth
+      (let [ch (first chars) tail (rest chars)]
+        (cond
+          in-str? (cond
+                    (= ch \\) (recur (rest tail) depth true)
+                    (= ch \") (recur tail depth false)
+                    :else     (recur tail depth true))
+          (= ch \") (recur tail depth true)
+          (= ch \;) (recur (drop-while #(not= % \newline) tail) depth false)
+          (#{\( \[ \{} ch) (recur tail (inc depth) false)
+          (#{\) \] \}} ch) (recur tail (dec depth) false)
+          :else (recur tail depth false))))))
+
+
 (defn eval-input
   [state input-str]
-  (let [trimmed (str/trim input-str)
-        parsed (try
-                 {:forms (read-clojure-forms trimmed)}
-                 (catch #?(:clj Exception :cljs js/Error :cljd Object) error
-                   {:error error}))]
-    (try
-      (cond
-        (and (:forms parsed)
-             (= 1 (count (:forms parsed)))
-             (local-only-command-form? (first (:forms parsed))))
-        (deliver-result (handle-command state (first (:forms parsed))))
+  (let [pending  (:pending-input state "")
+        combined (if (str/blank? pending)
+                   (str/trim input-str)
+                   (str pending "\n" (str/trim input-str)))
+        balance  (bracket-balance combined)]
+    (if (pos? balance)
+      (deliver-result [(assoc state :pending-input combined) ""])
+      (let [state'  (dissoc state :pending-input)
+            trimmed combined
+            parsed  (try
+                      {:forms (read-clojure-forms trimmed)}
+                      (catch #?(:clj Exception :cljs js/Error :cljd Object) error
+                        {:error error}))]
+        (try
+          (cond
+            (and (:forms parsed)
+                 (= 1 (count (:forms parsed)))
+                 (local-only-command-form? (first (:forms parsed))))
+            (deliver-result (handle-command state' (first (:forms parsed))))
 
-        (:remote-endpoint state)
-        (eval-remote-input state input-str)
+            (:remote-endpoint state')
+            (eval-remote-input state' trimmed)
 
-        (and (:forms parsed)
-             (= 1 (count (:forms parsed)))
-             (shell-command-form? (first (:forms parsed))))
-        (deliver-result (handle-command state (first (:forms parsed))))
+            (and (:forms parsed)
+                 (= 1 (count (:forms parsed)))
+                 (shell-command-form? (first (:forms parsed))))
+            (deliver-result (handle-command state' (first (:forms parsed))))
 
-        (and (:forms parsed)
-             (= 1 (count (:forms parsed)))
-             (datom-stream? (first (:forms parsed))))
-        (deliver-result (eval-datoms state (first (:forms parsed))))
+            (and (:forms parsed)
+                 (= 1 (count (:forms parsed)))
+                 (datom-stream? (first (:forms parsed))))
+            (deliver-result (eval-datoms state' (first (:forms parsed))))
 
-        (and (:forms parsed)
-             (= 1 (count (:forms parsed)))
-             (ast-map? (first (:forms parsed))))
-        (deliver-result (eval-ast state (first (:forms parsed))))
+            (and (:forms parsed)
+                 (= 1 (count (:forms parsed)))
+                 (ast-map? (first (:forms parsed))))
+            (deliver-result (eval-ast state' (first (:forms parsed))))
 
-        (:forms parsed)
-        (deliver-result (if (= :clojure (:lang state))
-                          (eval-clojure-forms state (:forms parsed))
-                          (eval-source state input-str)))
+            (:forms parsed)
+            (deliver-result (if (= :clojure (:lang state'))
+                              (eval-clojure-forms state' (:forms parsed))
+                              (eval-source state' trimmed)))
 
-        (= :clojure (:lang state))
-        (deliver-result [state (format-error (:error parsed))])
+            (= :clojure (:lang state'))
+            (deliver-result [state' (format-error (:error parsed))])
 
-        :else
-        (deliver-result (eval-source state input-str)))
-      (catch #?(:clj Exception :cljs js/Error :cljd Object) error
-        (let [[state' output-text] (collect-output state)]
-          (deliver-result [state' (str output-text (format-error error))]))))))
+            :else
+            (deliver-result (eval-source state' trimmed)))
+          (catch #?(:clj Exception :cljs js/Error :cljd Object) error
+            (let [[state'' output-text] (collect-output state')]
+              (deliver-result [state'' (str output-text (format-error error))]))))))))
 
 
 (defn handle-request
