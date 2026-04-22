@@ -17,7 +17,9 @@
       (val pair)
       (if-let [pair (find primitives name)]
         (val pair)
-        (if-let [resolved (module/resolve-symbol name)]
+        (if-let [resolved (when (namespace name)
+                            (module/resolve-module
+                              (symbol (str (namespace name) "." (clojure.core/name name)))))]
           resolved
           (throw (ex-info (str "Unable to resolve symbol: " name " in this context")
                           {:symbol name})))))))

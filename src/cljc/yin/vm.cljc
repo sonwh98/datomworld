@@ -99,8 +99,17 @@
    'assoc (fn [m k v] (assoc m k v)),
    'get (fn [m k] (get m k)),
    'vec (fn [coll] (vec coll)),
+   'bytes->str #?(:clj  (fn
+                          ([b] (String. ^bytes b "UTF-8"))
+                          ([b enc] (String. ^bytes b ^String enc)))
+                  :cljs (fn [b] (.apply js/String.fromCharCode nil b))
+                  :cljd (fn [b] (dart:core/String.fromCharCodes b))),
    ;; Definition primitive - returns an effect
-   'yin/def (fn [k v] {:effect :vm/store-put, :key k, :val v})})
+   'yin/def (fn [k v] {:effect :vm/store-put, :key k, :val v}),
+   ;; Module loading primitive - returns an effect dispatched to the host
+   'require (fn [spec]
+              (let [ns-sym (if (vector? spec) (first spec) spec)]
+                {:effect :module/require :module ns-sym}))})
 
 
 (def call-in-stream-key

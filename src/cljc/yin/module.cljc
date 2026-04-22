@@ -12,7 +12,9 @@
 
     ;; In client code (compiled by Yang)
     (require '[my.lib :as m])
-    (m/foo 42)")
+    (m/foo 42)"
+  (:require
+    [clojure.string :as str]))
 
 
 ;; Global module registry
@@ -20,18 +22,28 @@
 (defonce ^:private effect-registry (atom {}))
 
 
+(defn- symbol->path
+  "Split a dotted symbol into a get-in path of symbols.
+   'yin.io.file-input-stream → ['yin 'io 'file-input-stream]"
+  [sym]
+  (mapv symbol (str/split (str sym) #"\.")))
+
+
 (defn register-module!
   "Register bindings into a module. Merges with any existing bindings.
-   bindings is a map of symbol -> function."
+   module-name is a dotted symbol; bindings is a map of symbol -> function.
+   (register-module! 'yin.io {'file-input-stream f}) registers under ['yin 'io]."
   [module-name bindings]
-  (swap! module-registry update module-name merge bindings)
+  (swap! module-registry update-in (symbol->path module-name) merge bindings)
   module-name)
 
 
-(defn get-module
-  "Get a registered module's bindings."
-  [module-name]
-  (get @module-registry module-name))
+(defn resolve-module
+  "Get a value from the module registry by dotted symbol path.
+   (resolve-module 'io)                      → full 'io bindings map
+   (resolve-module 'io.file-output-stream)   → the specific binding"
+  [sym]
+  (get-in @module-registry (symbol->path sym)))
 
 
 (defn register-effect-handler!
@@ -47,17 +59,6 @@
   "Get the handler function for an effect keyword."
   [kw]
   (get @effect-registry kw))
-
-
-(defn resolve-symbol
-  "Resolve a namespaced symbol to its value.
-   E.g., 'stream/make -> the make function from stream module"
-  [sym]
-  (let [ns-str (namespace sym)
-        name-str (name sym)]
-    (when ns-str
-      (let [module (get-module (symbol ns-str))]
-        (get module (symbol name-str))))))
 
 
 (defn list-modules
@@ -87,3 +88,27 @@
   "Create an effect descriptor."
   [effect-type & {:as params}]
   (assoc params :effect effect-type))
+
+
+;; ============================================================
+;; Built-in Effect Handlers
+;; ============================================================
+
+#?(:clj
+   (register-effect-handler!
+     :module/require
+     (fn [state effect _opts]
+       (clojure.core/require (:module effect))
+       {:value (:module effect) :state state :blocked? false}))
+
+   :cljs
+   (register-effect-handler!
+     :module/require
+     (fn [state effect _opts]
+       {:value (:module effect) :state state :blocked? false}))
+
+   :cljd
+   (register-effect-handler!
+     :module/require
+     (fn [state effect _opts]
+       {:value (:module effect) :state state :blocked? false})))

@@ -3,6 +3,7 @@
    Self-registers into the 'io module and effect registry on require."
   (:require
     #?(:clj [dao.stream :as ds])
+    #?(:clj [dao.stream.file-input-stream])
     [yin.module :as module]))
 
 
@@ -15,7 +16,7 @@
           (if (number? opts) {:chunk-size opts} opts))))
 
 
-(module/register-module! 'io {'file-input-stream file-input-stream})
+(module/register-module! 'yin.io {'file-input-stream file-input-stream})
 
 
 #?(:clj
