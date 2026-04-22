@@ -19,8 +19,8 @@
     #?(:cljd ["dart:io" :as io])
     [dao.stream :as ds]
     [dao.stream.link :as link]
-    [dao.stream.transit :as transit]
     [dao.stream.ringbuffer :as ringbuffer]
+    [dao.stream.transit :as transit]
     #?(:clj [org.httpkit.server :as http-server])))
 
 
