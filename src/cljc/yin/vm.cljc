@@ -72,10 +72,11 @@
 
 
 ;; Primitive operations
-;; Arithmetic and comparison ops are n-ary, matching clojure.core.
-;; Wrapped in (fn ...) only where we need to normalize VM semantics:
-;; - expose macro-like forms (and/or) as callable values,
-;; - shape return values/effects for VM contracts (e.g. rest, yin/def).
+;; Arithmetic and comparison ops are direct clojure.core references.
+;; Wrapped in (fn ...) only where VM semantics require it:
+;; - rest: clojure.core/rest returns a lazy seq; wrapped to return a vector
+;;   so that conj appends rather than prepends.
+;; - yin/def, require: return effect descriptors consumed by the engine.
 (def primitives
   {'+ +,
    '- -,
@@ -88,17 +89,15 @@
    '> >,
    '<= <=,
    '>= >=,
-   'and (fn [a b] (and a b)),
-   'or (fn [a b] (or a b)),
-   'not (fn [a] (not a)),
-   'nil? (fn [a] (nil? a)),
-   'empty? (fn [a] (empty? a)),
-   'first (fn [a] (first a)),
-   'rest (fn [a] (vec (rest a))),
-   'conj (fn [coll x] (conj coll x)),
-   'assoc (fn [m k v] (assoc m k v)),
-   'get (fn [m k] (get m k)),
-   'vec (fn [coll] (vec coll)),
+   'not not,
+   'nil? nil?,
+   'empty? empty?,
+   'first first,
+   'rest (fn [a] (vec (rest a))),  ; clojure.core/rest returns a lazy seq; vec coerces to vector so conj appends rather than prepends
+   'conj conj,
+   'assoc assoc,
+   'get get,
+   'vec vec,
    'bytes->str #?(:clj  (fn
                           ([b] (String. ^bytes b "UTF-8"))
                           ([b enc] (String. ^bytes b ^String enc)))

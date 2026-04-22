@@ -360,6 +360,27 @@
                  (compile-let bindings body-expr env tail? macro-env))
            ;; Do block: (do expr1 expr2 ...)
            do (compile-do operands env tail? macro-env)
+           ;; Short-circuit logical: expand to if chains so unevaluated operands are never touched
+           ;; (and)       → true
+           ;; (and x)     → x
+           ;; (and x y z) → (let [g x] (if g (and y z) g))
+           and (cond
+                 (empty? operands) {:type :literal :value true}
+                 (= 1 (count operands)) (compile-form (first operands) tail? env macro-env)
+                 :else (let [g (gensym "and__")]
+                         (compile-form (list 'let [g (first operands)]
+                                             (list 'if g (cons 'and (rest operands)) g))
+                                       tail? env macro-env)))
+           ;; (or)        → nil
+           ;; (or x)      → x
+           ;; (or x y z)  → (let [g x] (if g g (or y z)))
+           or  (cond
+                 (empty? operands) {:type :literal :value nil}
+                 (= 1 (count operands)) (compile-form (first operands) tail? env macro-env)
+                 :else (let [g (gensym "or__")]
+                         (compile-form (list 'let [g (first operands)]
+                                             (list 'if g g (cons 'or (rest operands))))
+                                       tail? env macro-env)))
            ;; Quote: (quote form)
            quote (compile-quote (first operands) tail?)
            ;; Def: (def sym value)
