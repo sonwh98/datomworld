@@ -709,11 +709,17 @@
   "Evaluate an AST. Owns the step loop with scheduler.
    When ast is non-nil, loads it first. When nil, resumes from current state."
   [^ASTWalkerVM vm ast]
-  (if ast
-    (-> vm
-        (vm-load-program (vm/ast->datoms ast))
-        (vm/run))
-    (vm/run vm)))
+  (let [initial-env (:env vm)]
+    (let [res (if ast
+                (-> vm
+                    (vm-load-program (vm/ast->datoms ast))
+                    (vm/run))
+                (vm/run vm))]
+      ;; Only restore env when the computation completes — not when blocked or parked,
+      ;; since those states need the active lexical env for resumption.
+      (if (vm/halted? res)
+        (assoc res :env initial-env)
+        res))))
 
 
 (defn- ast-walker-run-on-stream

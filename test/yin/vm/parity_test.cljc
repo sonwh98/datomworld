@@ -3,6 +3,7 @@
     [clojure.test :refer [deftest is testing]]
     [dao.stream :as ds]
     [dao.stream.ringbuffer]
+    [yang.clojure :as yang]
     [yin.vm :as vm]
     [yin.vm.ast-walker :as ast-walker]
     [yin.vm.register :as register]
@@ -297,3 +298,25 @@
               (let [v' (vm/step v)
                     d (k-depth vm-type (vm/continuation v'))]
                 (recur v' (max max-d d))))))))))
+
+
+(deftest parameter-does-not-leak-into-store-parity-test
+  (testing "a function parameter with the same name as a global def
+            must not overwrite the global after the function returns
+            — evaluated as separate REPL inputs to reproduce the env-leak bug"
+    ;; Bug: in the REPL each form is vm/eval'd sequentially on the prior state.
+    ;; After (shadow-test 99) the env retains {x → 99} from the call frame,
+    ;; so the subsequent lookup of x finds 99 (the param) instead of 42 (the store).
+    (doseq [[vm-type create-vm] {:ast-walker ast-walker/create-vm
+                                 :semantic   semantic/create-vm
+                                 :stack      stack/create-vm
+                                 :register   register/create-vm}]
+      (let [vm0 (create-vm)
+            vm1 (vm/eval vm0 (yang/compile '(def x 42)))
+            vm2 (vm/eval vm1 (yang/compile '(defn shadow-test
+                                              [x]
+                                              (+ x 1))))
+            vm3 (vm/eval vm2 (yang/compile '(shadow-test 99)))
+            vm4 (vm/eval vm3 (yang/compile 'x))]
+        (is (= 42 (vm/value vm4))
+            (str vm-type ": x should still be 42 after shadow-test returns, not the parameter value"))))))

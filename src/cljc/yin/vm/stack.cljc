@@ -1464,12 +1464,18 @@
    canonical {:node :datoms} path.
    When nil, resumes from current state."
   [^StackVM vm ast]
-  (if ast
-    (let [datoms (vec (vm/ast->datoms ast))]
-      (-> vm
-          (stack-vm-load-program datoms)
-          (vm/run)))
-    (vm/run vm)))
+  (let [initial-env (:env vm)]
+    (let [res (if ast
+                (let [datoms (vec (vm/ast->datoms ast))]
+                  (-> vm
+                      (stack-vm-load-program datoms)
+                      (vm/run)))
+                (vm/run vm))]
+      ;; Only restore env when the computation completes — not when blocked or parked,
+      ;; since those states need the active lexical env for resumption.
+      (if (vm/halted? res)
+        (assoc res :env initial-env)
+        res))))
 
 
 (defn- stack-vm-run-on-stream

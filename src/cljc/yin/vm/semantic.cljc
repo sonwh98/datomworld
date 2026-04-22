@@ -1315,14 +1315,20 @@
   "Evaluate an AST. Owns the step loop with scheduler.
    When ast is non-nil, converts to datoms and loads. When nil, resumes."
   [^SemanticVM vm ast]
-  (if ast
-    (let [datoms (vm/ast->datoms ast {:id-start (:node-id-counter vm)})
-          min-id (apply min (map first datoms))
-          next-node-id (dec min-id)]
-      (-> (assoc vm :node-id-counter next-node-id)
-          (semantic-vm-load-program datoms)
-          (vm/run)))
-    (vm/run vm)))
+  (let [initial-env (:env vm)]
+    (let [res (if ast
+                (let [datoms (vm/ast->datoms ast {:id-start (:node-id-counter vm)})
+                      min-id (apply min (map first datoms))
+                      next-node-id (dec min-id)]
+                  (-> (assoc vm :node-id-counter next-node-id)
+                      (semantic-vm-load-program datoms)
+                      (vm/run)))
+                (vm/run vm))]
+      ;; Only restore env when the computation completes — not when blocked or parked,
+      ;; since those states need the active lexical env for resumption.
+      (if (vm/halted? res)
+        (assoc res :env initial-env)
+        res))))
 
 
 (defn- semantic-vm-run-on-stream
