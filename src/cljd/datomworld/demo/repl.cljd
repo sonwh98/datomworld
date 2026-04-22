@@ -1,0 +1,159 @@
+(ns datomworld.demo.repl
+  (:require
+    ["dart:async" :as async]
+    ["dart:core" :as core]
+    ["dart:io" :as io]
+    ["package:flutter/material.dart" :as m]
+    [clojure.string :as str]
+    [dao.repl :as repl]
+    [dao.stream :as ds]
+    [dao.stream.ws :as ws]))
+
+(def ^:private button-label (m/ValueNotifier "Click me!"))
+(def ^:private click-output (m/ValueNotifier ""))
+(def ^:private device-ip (m/ValueNotifier "..."))
+(def ^:private repl-state (atom nil))
+
+(defn- extra-primitives []
+  {'set-button-text!
+   (fn [text]
+     (set! (.-value ^m/ValueNotifier button-label) (str text))
+     text)
+   'button-handler
+   (fn []
+     "(define a handler via REPL: (def button-handler (fn [] \"result\")))")})
+
+(defn- load-device-ip! []
+  (.then ^async/Future
+         (io/NetworkInterface.list)
+         (fn [interfaces]
+           (let [found (atom nil)]
+             (doseq [iface (seq interfaces)]
+               (when-not @found
+                 (doseq [addr (seq (.-addresses ^io/NetworkInterface iface))]
+                   (let [a (.-address ^io/InternetAddress addr)]
+                     (when (and (= (.-type ^io/InternetAddress addr)
+                                  io/InternetAddressType.IPv4)
+                                (not (str/starts-with? a "127.")))
+                       (reset! found a))))))
+             (set! (.-value ^m/ValueNotifier device-ip) (or @found "localhost"))))))
+
+(defn- init-repl! []
+  (reset! repl-state
+          (-> (repl/create-state {:vm-type :semantic})
+              (update :vm update :primitives merge (extra-primitives)))))
+
+(defn- start-server! [port]
+  (let [stream (ws/listen! port)
+        running? (atom true)]
+    (letfn [(serve-loop [cursor]
+              (when @running?
+                (.then ^async/Future
+                       (repl/serve-once! repl-state stream stream cursor)
+                       (fn [result]
+                         (when (map? result)
+                           (swap! repl-state #(update % :vm update :primitives merge (extra-primitives))))
+                         (case result
+                           :blocked
+                           (.then ^async/Future
+                                  (async/Future.delayed (core/Duration .milliseconds 10))
+                                  (fn [_] (serve-loop cursor)))
+                           :end
+                           (.then ^async/Future
+                                  (async/Future.delayed (core/Duration .milliseconds 10))
+                                  (fn [_] (serve-loop cursor)))
+                           :daostream/gap
+                           (serve-loop {:position 0})
+                           (serve-loop (:cursor result)))))))]
+      (serve-loop {:position 0}))
+    {:stream stream :stop! (fn [] (reset! running? false) (ds/close! stream))}))
+
+(defn- on-press! []
+  (.then ^async/Future
+         (repl/eval-input @repl-state "(button-handler)")
+         (fn [[state' result]]
+           (reset! repl-state state')
+           (set! (.-value ^m/ValueNotifier click-output) (str result)))))
+
+(defn- mono
+  ([text] (mono text 12.0))
+  ([text size]
+   (m/Text text .style (m/TextStyle .fontFamily "monospace" .fontSize size))))
+
+(defn home-page []
+  (m/Scaffold
+    .appBar (m/AppBar .title (m/Text "Yin.VM Flutter REPL"))
+    .body (m/ListView
+            .padding (m/EdgeInsets.all 16.0)
+            .children
+            [(m/Card
+               .child (m/Padding
+                        .padding (m/EdgeInsets.all 12.0)
+                        .child (m/Column
+                                 .crossAxisAlignment m/CrossAxisAlignment.start
+                                 .children
+                                 [(m/Text "REPL Server Active"
+                                          .style (m/TextStyle .fontWeight m/FontWeight.bold))
+                                  (m/SizedBox .height 6.0)
+                                  (mono "ws://0.0.0.0:7777")
+                                  (m/SizedBox .height 2.0)
+                                  (m/ValueListenableBuilder
+                                    .valueListenable device-ip
+                                    .builder
+                                    (fn [_ ip _]
+                                      (mono (str "ws://" ip ":7777"))))])))
+             (m/SizedBox .height 32.0)
+             (m/ValueListenableBuilder
+               .valueListenable button-label
+               .builder
+               (fn [_ label _]
+                 (m/SizedBox
+                   .width double/infinity
+                   .child (m/ElevatedButton
+                            .onPressed on-press!
+                            .child (m/Padding
+                                     .padding (m/EdgeInsets.symmetric .vertical 14.0)
+                                     .child (m/Text label
+                                                    .style (m/TextStyle .fontSize 20.0)))))))
+             (m/SizedBox .height 16.0)
+             (m/Text "Last result:"
+                     .style (m/TextStyle .fontWeight m/FontWeight.bold))
+             (m/SizedBox .height 4.0)
+             (m/ValueListenableBuilder
+               .valueListenable click-output
+               .builder
+               (fn [_ out _]
+                 (m/Container
+                   .width double/infinity
+                   .padding (m/EdgeInsets.all 10.0)
+                   .decoration (m/BoxDecoration
+                                 .border (m/Border.all .color m.Colors/grey)
+                                 .borderRadius (m/BorderRadius.circular 4.0))
+                   .child (mono (if (str/blank? out) "(press the button)" out) 14.0))))
+             (m/SizedBox .height 32.0)
+             (m/Text "REPL Quick Reference"
+                     .style (m/TextStyle .fontWeight m/FontWeight.bold))
+             (m/SizedBox .height 8.0)
+             (mono "; Connect from desktop:")
+             (mono "dart run bin/dao_repl_main.dart")
+             (mono "(connect \"daostream:ws://<ip>:7777\")")
+             (m/SizedBox .height 12.0)
+             (mono "; Change button text:")
+             (mono "(set-button-text! \"Hello World\")")
+             (m/SizedBox .height 12.0)
+             (mono "; Change click handler:")
+             (mono "(def button-handler (fn [] \"Hi!\"))")
+             (mono "(def button-handler (fn [] (str \"Sum: \" (+ 1 2 3))))")
+             (m/SizedBox .height 12.0)
+             (mono "; Reset VM state:")
+             (mono "(reset)")])))
+
+(defn main []
+  (init-repl!)
+  (start-server! 7777)
+  (load-device-ip!)
+  (m/runApp
+    (m/MaterialApp
+      .title "Yin.VM Flutter REPL"
+      .theme (m/ThemeData .primarySwatch m.Colors/indigo)
+      .home (home-page))))
