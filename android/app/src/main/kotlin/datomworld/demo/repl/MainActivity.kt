@@ -1,4 +1,4 @@
-package com.example.cljd_datomworld
+package datomworld.demo.repl
 
 import io.flutter.embedding.android.FlutterActivity
 

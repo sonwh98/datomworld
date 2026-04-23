@@ -79,3 +79,5 @@ Once a REPL server is running, you can connect to it from another interactive JV
 | `(lang :lang)` | Switch input language (`:clojure`, `:python`, `:php`) |
 | `(telemetry)` | Enable/disable telemetry output |
 | `(quit)` | Exit the REPL |
+
+(connect "daostream:ws://10.153.137.250:7777")
