@@ -18,3 +18,9 @@ url = "https://storage.googleapis.com/flutter_infra_release/releases/stable/maco
 [windows-x64]
 url = "https://storage.googleapis.com/flutter_infra_release/releases/stable/windows/flutter_windows_{{ version }}-stable.zip"
 """, version_json_path = ".releases[?channel=stable].version", version_list_url = "https://storage.googleapis.com/flutter_infra_release/releases/releases_linux.json" }
+
+[env._]
+path = [
+  "{{env.HOME}}/.local/share/mise/installs/android-sdk/1.0/platform-tools",
+  "{{env.HOME}}/.local/share/mise/installs/android-sdk/1.0/emulator",
+]

@@ -37,8 +37,11 @@
     [_ val]
     (let [state @link-state-atom
           [state' msg] (link/local-put state val)]
-      (reset! link-state-atom state')
-      (when-let [send-fn @send-fn-atom] (send-fn (transit/encode msg)))
+      (if-let [send-fn @send-fn-atom]
+        (do (reset! link-state-atom (assoc state'
+                                           :local-sent-pos (:local-pos state')))
+            (send-fn (transit/encode msg)))
+        (reset! link-state-atom state'))
       {:result :ok, :woke []}))
 
 
@@ -67,7 +70,26 @@
 
 (defn- make-ws-stream
   [local]
-  (->WebSocketStream (atom (link/make-link-state local)) (atom nil)))
+  (->WebSocketStream (atom (assoc (link/make-link-state local)
+                                  :local-sent-pos 0))
+                     (atom nil)))
+
+
+(defn- stream->vec-from
+  [stream from-pos]
+  (loop [c {:position from-pos}
+         acc []]
+    (let [r (ds/next stream c)]
+      (if (map? r) (recur (:cursor r) (conj acc (:ok r))) acc))))
+
+
+(defn- unsent-local-put-msg
+  [state]
+  (let [from-pos (or (:local-sent-pos state) 0)
+        to-pos (:local-pos state)
+        datoms (when (< from-pos to-pos)
+                 (stream->vec-from (:local-stream state) from-pos))]
+    (when (seq datoms) (link/put-msg datoms from-pos))))
 
 
 (defn- on-open!
@@ -78,11 +100,15 @@
              (cond-> (assoc state :status :connecting)
                (ds/closed? remote-stream)
                (assoc :remote-stream
-                      (ringbuffer/make-ring-buffer-stream nil
-                                                          (:remote-pos state)))))))
+                      (ringbuffer/make-ring-buffer-stream nil (:remote-pos state)))))))
   (reset! (:send-fn-atom ws-stream) send-fn)
-  (let [msg (link/connect-msg @(:link-state-atom ws-stream))]
-    (send-fn (transit/encode msg))))
+  (let [state @(:link-state-atom ws-stream)]
+    (send-fn (transit/encode (link/connect-msg state)))
+    (when-let [msg (unsent-local-put-msg state)]
+      (send-fn (transit/encode msg))
+      (swap! (:link-state-atom ws-stream) assoc
+             :local-sent-pos
+             (:local-pos state)))))
 
 
 (defn- on-message!
@@ -115,118 +141,114 @@
      ([port] (listen! port nil))
      ([port opts]
       (let [conns (atom #{})
-            stop! (http-server/run-server
-                    (fn [req]
-                      (http-server/as-channel
-                        req
-                        (let [local (ds/open! {:type :ringbuffer, :capacity (:capacity opts)})
-                              stream (make-ws-stream local)]
-                          {:on-open (fn [ch]
-                                      (on-open! stream
-                                                (fn [msg]
-                                                  (http-server/send! ch msg)))
-                                      (swap! conns conj stream)
-                                      (when-let [oc (:on-connect opts)]
-                                        (oc stream)))
-                           :on-receive (fn [_ch raw] (on-message! stream raw))
-                           :on-close (fn [_ch _status]
-                                       (on-close! stream)
-                                       (swap! conns disj stream)
-                                       (when-let [od (:on-disconnect opts)]
-                                         (od stream)))})))
-                    {:port port})]
-        {:stop-fn stop!
-         :conns conns}))))
+            stop!
+            (http-server/run-server
+              (fn [req]
+                (http-server/as-channel
+                  req
+                  (let [local (ds/open! {:type :ringbuffer,
+                                         :capacity (:capacity opts)})
+                        stream (make-ws-stream local)]
+                    {:on-open
+                     (fn [ch]
+                       (on-open! stream
+                                 (fn [msg] (http-server/send! ch msg)))
+                       (swap! conns conj stream)
+                       (when-let [oc (:on-connect opts)] (oc stream))),
+                     :on-receive (fn [_ch raw] (on-message! stream raw)),
+                     :on-close (fn [_ch _status]
+                                 (on-close! stream)
+                                 (swap! conns disj stream)
+                                 (when-let [od (:on-disconnect opts)]
+                                   (od stream)))})))
+              {:port port})]
+        {:stop-fn stop!, :conns conns}))))
 
 
 ;; =============================================================================
 ;; CLJ: connect! (Java 11 built-in WebSocket client)
 ;; =============================================================================
 
-#?(:clj (defn connect!
-          "Connect to a WebSocket server at url. Returns WebSocketStream."
-          ([url] (connect! url nil))
-          ([url opts]
-           (let [local (ds/open! {:type :ringbuffer, :capacity (:capacity opts)})
-                 stream (make-ws-stream local)
-                 client (java.net.http.HttpClient/newHttpClient)
-                 ws-ref (atom nil)
-                 listener
-                 (reify
-                   java.net.http.WebSocket$Listener
-                   (onOpen
-                     [_ ws]
-                     (reset! ws-ref ws)
-                     (on-open! stream
-                               (fn [msg] (.sendText ws msg true) nil))
-                     (.request ws 1))
+#?(:clj
+   (defn connect!
+     "Connect to a WebSocket server at url. Returns WebSocketStream."
+     ([url] (connect! url nil))
+     ([url opts]
+      (let [local (ds/open! {:type :ringbuffer, :capacity (:capacity opts)})
+            stream (make-ws-stream local)
+            client (java.net.http.HttpClient/newHttpClient)
+            ws-ref (atom nil)
+            listener
+            (reify
+              java.net.http.WebSocket$Listener
+              (onOpen
+                [_ ws]
+                (reset! ws-ref ws)
+                (on-open! stream (fn [msg] (.sendText ws msg true) nil))
+                (.request ws 1))
 
-                   (onText
-                     [_ ws data _last?]
-                     (on-message! stream (str data))
-                     (.request ws 1)
-                     (java.util.concurrent.CompletableFuture/completedFuture
-                       nil))
+              (onText
+                [_ ws data _last?]
+                (on-message! stream (str data))
+                (.request ws 1)
+                (java.util.concurrent.CompletableFuture/completedFuture
+                  nil))
 
-                   (onClose
-                     [_ _ws _code _reason]
-                     (on-close! stream)
-                     (java.util.concurrent.CompletableFuture/completedFuture
-                       nil))
+              (onClose
+                [_ _ws _code _reason]
+                (on-close! stream)
+                (java.util.concurrent.CompletableFuture/completedFuture
+                  nil))
 
-                   (onError [_ _ws _err] (on-close! stream)))]
-             (.thenAccept (.buildAsync (.. client newWebSocketBuilder)
-                                       (java.net.URI/create url)
-                                       listener)
-                          (fn [_ws] nil))
-             stream))))
+              (onError [_ _ws _err] (on-close! stream)))]
+        (.thenAccept (.buildAsync (.. client newWebSocketBuilder)
+                                  (java.net.URI/create url)
+                                  listener)
+                     (fn [_ws] nil))
+        stream))))
 
 
 ;; =============================================================================
 ;; CLJS: connect! (browser WebSocket)
 ;; =============================================================================
 
-#?(:cljs (defn connect!
-           "Connect to a WebSocket server at url. Returns WebSocketStream."
-           ([url] (connect! url nil))
-           ([url opts]
-            (let [local (ds/open! {:type :ringbuffer, :capacity (:capacity opts)})
-                  stream (make-ws-stream local)
-                  ws (js/WebSocket. url)]
-              (set! (.-onopen ws)
-                    #(do
-                       (on-open! stream (fn [msg] (.send ws msg)))
-                       (when-let [callback (:on-open opts)]
-                         (callback stream %))))
-              (set! (.-onmessage ws)
-                    #(do
-                       (on-message! stream (.-data %))
-                       (when-let [callback (:on-message opts)]
-                         (callback stream %))))
-              (set! (.-onerror ws)
-                    #(when-let [callback (:on-error opts)]
-                       (callback stream %)))
-              (set! (.-onclose ws)
-                    #(do
-                       (on-close! stream)
-                       (when-let [callback (:on-close opts)]
-                         (callback stream %))))
-              stream))))
+#?(:cljs
+   (defn connect!
+     "Connect to a WebSocket server at url. Returns WebSocketStream."
+     ([url] (connect! url nil))
+     ([url opts]
+      (let [local (ds/open! {:type :ringbuffer, :capacity (:capacity opts)})
+            stream (make-ws-stream local)
+            ws (js/WebSocket. url)]
+        (set! (.-onopen ws)
+              #(do (on-open! stream (fn [msg] (.send ws msg)))
+                   (when-let [callback (:on-open opts)] (callback stream %))))
+        (set! (.-onmessage ws)
+              #(do (on-message! stream (.-data %))
+                   (when-let [callback (:on-message opts)]
+                     (callback stream %))))
+        (set! (.-onerror ws)
+              #(when-let [callback (:on-error opts)] (callback stream %)))
+        (set! (.-onclose ws)
+              #(do (on-close! stream)
+                   (when-let [callback (:on-close opts)]
+                     (callback stream %))))
+        stream))))
 
 
 ;; =============================================================================
 ;; Descriptor-based open! integration
 ;; =============================================================================
 
-#?(:clj
-   (defmethod ds/open! :websocket
-     [descriptor]
-     (let [{:keys [mode url port capacity] :as opts} descriptor]
-       (case mode
-         :listen  (listen! port opts)
-         :connect (connect! url {:capacity capacity})
-         (throw (ex-info "websocket transport mode must be :listen or :connect"
-                         {:descriptor descriptor, :mode mode}))))))
+#?(:clj (defmethod ds/open! :websocket
+          [descriptor]
+          (let [{:keys [mode url port capacity], :as opts} descriptor]
+            (case mode
+              :listen (listen! port opts)
+              :connect (connect! url {:capacity capacity})
+              (throw (ex-info
+                       "websocket transport mode must be :listen or :connect"
+                       {:descriptor descriptor, :mode mode}))))))
 
 
 #?(:cljs
@@ -238,33 +260,34 @@
       (let [WebSocket (js/require "ws")
             wss (new (.-Server WebSocket) #js {:port port})
             conns (atom #{})]
-        (.on ^js wss "connection"
+        (.on ^js wss
+             "connection"
              (fn [ws]
-               (let [local (ds/open! {:type :ringbuffer, :capacity (:capacity opts)})
+               (let [local (ds/open! {:type :ringbuffer,
+                                      :capacity (:capacity opts)})
                      stream (make-ws-stream local)]
                  (on-open! stream (fn [msg] (.send ^js ws msg)))
                  (swap! conns conj stream)
-                 (when-let [oc (:on-connect opts)]
-                   (oc stream))
+                 (when-let [oc (:on-connect opts)] (oc stream))
                  (.on ^js ws "message" (fn [raw] (on-message! stream raw)))
-                 (.on ^js ws "close" (fn []
-                                       (on-close! stream)
-                                       (swap! conns disj stream)
-                                       (when-let [od (:on-disconnect opts)]
-                                         (od stream)))))))
-        {:stop-fn #(.close ^js wss)
-         :conns conns}))))
+                 (.on ^js ws
+                      "close"
+                      (fn []
+                        (on-close! stream)
+                        (swap! conns disj stream)
+                        (when-let [od (:on-disconnect opts)] (od stream)))))))
+        {:stop-fn #(.close ^js wss), :conns conns}))))
 
 
-#?(:cljs
-   (defmethod ds/open! :websocket
-     [descriptor]
-     (let [{:keys [mode url port capacity] :as opts} descriptor]
-       (case mode
-         :listen  (listen! port opts)
-         :connect (connect! url {:capacity capacity})
-         (throw (ex-info "websocket transport mode must be :listen or :connect"
-                         {:descriptor descriptor, :mode mode}))))))
+#?(:cljs (defmethod ds/open! :websocket
+           [descriptor]
+           (let [{:keys [mode url port capacity], :as opts} descriptor]
+             (case mode
+               :listen (listen! port opts)
+               :connect (connect! url {:capacity capacity})
+               (throw (ex-info
+                        "websocket transport mode must be :listen or :connect"
+                        {:descriptor descriptor, :mode mode}))))))
 
 
 #?(:cljd
@@ -275,41 +298,50 @@
      ([port opts]
       (let [conns (atom #{})
             server-ref (atom nil)]
-        (-> (io/HttpServer.bind "0.0.0.0" port)
-            (.then (fn [server]
-                     (let [server ^io/HttpServer server]
-                       (reset! server-ref server)
-                       (.listen server
-                                (fn [request]
-                                  (let [request ^io/HttpRequest request]
-                                    (when (io/WebSocketTransformer.isUpgradeRequest request)
-                                      (-> (io/WebSocketTransformer.upgrade request)
-                                          (.then (fn [ws]
-                                                   (let [ws ^io/WebSocket ws
-                                                         local (ds/open! {:type :ringbuffer, :capacity (:capacity opts)})
-                                                         stream (make-ws-stream local)]
-                                                     (on-open! stream (fn [msg] (.add ws msg)))
-                                                     (swap! conns conj stream)
-                                                     (when-let [oc (:on-connect opts)]
-                                                       (oc stream))
-                                                     (.listen ws
-                                                              (fn [raw] (on-message! stream raw))
-                                                              :onDone (fn []
-                                                                        (on-close! stream)
-                                                                        (swap! conns disj stream)
-                                                                        (when-let [od (:on-disconnect opts)]
-                                                                          (od stream))))))))))))))))
-        {:stop-fn #(when-let [srv @server-ref] (.close ^io/HttpServer srv))
+        (->
+          (io/HttpServer.bind "0.0.0.0" port)
+          (.then
+            (fn [server]
+              (let [server ^io/HttpServer server]
+                (reset! server-ref server)
+                (.listen
+                  server
+                  (fn [request]
+                    (let [request ^io/HttpRequest request]
+                      (when (io/WebSocketTransformer.isUpgradeRequest request)
+                        (-> (io/WebSocketTransformer.upgrade request)
+                            (.then
+                              (fn [ws]
+                                (let [ws ^io/WebSocket ws
+                                      local (ds/open! {:type :ringbuffer,
+                                                       :capacity (:capacity
+                                                                   opts)})
+                                      stream (make-ws-stream local)]
+                                  (on-open! stream (fn [msg] (.add ws msg)))
+                                  (swap! conns conj stream)
+                                  (when-let [oc (:on-connect opts)]
+                                    (oc stream))
+                                  (.listen ws
+                                           (fn [raw] (on-message! stream raw))
+                                           :onDone
+                                           (fn []
+                                             (on-close! stream)
+                                             (swap! conns disj stream)
+                                             (when-let [od (:on-disconnect
+                                                             opts)]
+                                               (od stream))))))))))))))))
+        {:stop-fn #(when-let [srv @server-ref] (.close ^io/HttpServer srv)),
          :conns conns}))))
 
 
-#?(:cljd
-   (defmethod ds/open! :websocket
-     [descriptor]
-     (let [{:keys [mode url port capacity] :as opts} descriptor]
-       (case mode
-         :listen  (listen! port opts)
-         :connect (throw (ex-info "websocket mode :connect not supported in CLJD"
-                                  {:descriptor descriptor}))
-         (throw (ex-info "websocket transport mode must be :listen or :connect"
-                         {:descriptor descriptor, :mode mode}))))))
+#?(:cljd (defmethod ds/open! :websocket
+           [descriptor]
+           (let [{:keys [mode url port capacity], :as opts} descriptor]
+             (case mode
+               :listen (listen! port opts)
+               :connect (throw (ex-info
+                                 "websocket mode :connect not supported in CLJD"
+                                 {:descriptor descriptor}))
+               (throw (ex-info
+                        "websocket transport mode must be :listen or :connect"
+                        {:descriptor descriptor, :mode mode}))))))

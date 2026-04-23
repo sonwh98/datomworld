@@ -1,6 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application
-        android:label="cljd_datomworld"
+        android:label="datomworld.demo.repl"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

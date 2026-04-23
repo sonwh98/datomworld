@@ -1,63 +1,74 @@
 (ns dao.repl-main.cljd
-  (:require
-    ["dart:io" :as io :refer [stdout]]
-    ["dart:async" :as async]
-    [clojure.string :as str]
-    [clojure.edn :as edn]
-    [dao.repl :as repl]
-    [dao.repl-args :as repl-args]))
+  (:require ["dart:io" :as io :refer [stdout]]
+            ["dart:async" :as async]
+            ["dart:convert" :as convert]
+            [clojure.string :as str]
+            [dao.repl :as repl]
+            [dao.repl-args :as repl-args]))
 
 
-(defn- write-out!
-  [message]
-  (print message))
+(defn- write-out! [message] (print message))
 
 
-(defn- write-err!
-  [message]
-  (binding [*out* *err*]
-    (println message)))
+(defn- write-err! [message] (binding [*out* *err*] (println message)))
 
 
-(defn- print-prompt!
-  []
-  (.write stdout "dao> ")
-  (.flush stdout))
+(defn- print-prompt! [] (.write stdout "dao> ") (.flush stdout))
 
 
-(defn- print-continuation-prompt!
-  []
-  (.write stdout "dao.. ")
-  (.flush stdout))
+(defn- print-continuation-prompt! [] (.write stdout "dao.. ") (.flush stdout))
 
 
 (defn- clean-cljd-input
   "Works around a CLJD bug where spaces before closing delimiters cause reader errors."
   [s]
-  (let [res (reduce
-              (fn [{:keys [state result] :as acc} char]
-                (case state
-                  :normal (case char
-                            \" (-> acc (update :result conj char) (assoc :state :string))
-                            \; (-> acc (update :result conj char) (assoc :state :comment))
-                            (\space \tab \newline \return) (assoc acc :state :whitespace)
-                            (update acc :result conj char))
-                  :string (if (= char \")
-                            (-> acc (update :result conj char) (assoc :state :normal))
-                            (if (= char \\)
-                              (-> acc (update :result conj char) (assoc :state :string-escape))
-                              (update acc :result conj char)))
-                  :string-escape (-> acc (update :result conj char) (assoc :state :string))
-                  :comment (if (= char \newline)
-                             (-> acc (update :result conj char) (assoc :state :normal))
-                             (update acc :result conj char))
-                  :whitespace (case char
-                                (\] \} \)) (-> acc (update :result conj char) (assoc :state :normal))
-                                (\space \tab \newline \return) acc
-                                \" (-> acc (update :result conj \space) (update :result conj char) (assoc :state :string))
-                                \; (-> acc (update :result conj \space) (update :result conj char) (assoc :state :comment))
-                                (-> acc (update :result conj \space) (update :result conj char) (assoc :state :normal)))))
-              {:state :normal :result []}
+  (let [res (reduce (fn [{:keys [state], :as acc} char]
+                      (case state
+                        :normal (case char
+                                  \" (-> acc
+                                         (update :result conj char)
+                                         (assoc :state :string))
+                                  \; (-> acc
+                                         (update :result conj char)
+                                         (assoc :state :comment))
+                                  (\space \tab \newline \return)
+                                    (assoc acc :state :whitespace)
+                                  (update acc :result conj char))
+                        :string (if (= char \")
+                                  (-> acc
+                                      (update :result conj char)
+                                      (assoc :state :normal))
+                                  (if (= char \\)
+                                    (-> acc
+                                        (update :result conj char)
+                                        (assoc :state :string-escape))
+                                    (update acc :result conj char)))
+                        :string-escape (-> acc
+                                           (update :result conj char)
+                                           (assoc :state :string))
+                        :comment (if (= char \newline)
+                                   (-> acc
+                                       (update :result conj char)
+                                       (assoc :state :normal))
+                                   (update acc :result conj char))
+                        :whitespace (case char
+                                      (\] \} \)) (-> acc
+                                                     (update :result conj char)
+                                                     (assoc :state :normal))
+                                      (\space \tab \newline \return) acc
+                                      \" (-> acc
+                                             (update :result conj \space)
+                                             (update :result conj char)
+                                             (assoc :state :string))
+                                      \; (-> acc
+                                             (update :result conj \space)
+                                             (update :result conj char)
+                                             (assoc :state :comment))
+                                      (-> acc
+                                          (update :result conj \space)
+                                          (update :result conj char)
+                                          (assoc :state :normal)))))
+              {:state :normal, :result []}
               s)]
     (apply str (:result res))))
 
@@ -73,8 +84,8 @@
                            \{ (update counts :brace inc)
                            \} (update counts :brace dec)
                            counts))
-                       {:paren 0 :bracket 0 :brace 0}
-                       s)]
+                 {:paren 0, :bracket 0, :brace 0}
+                 s)]
     (every? (fn [v] (<= v 0)) (vals counts))))
 
 
@@ -88,68 +99,68 @@
 
 (defn- configure-state
   [state opts]
-  (let [p (cond
-            (:telemetry-stream opts)
-            (repl/eval-input state
-                             (str "(telemetry "
-                                  (pr-str (:telemetry-stream opts))
-                                  ")"))
-
-            (:telemetry? opts)
-            (repl/eval-input state "(telemetry)")
-
-            :else
-            (async/Future.value [state nil]))]
-    (.then ^async/Future p (fn [[state telemetry-msg]]
-               (when telemetry-msg
-                 (write-out! telemetry-msg))
-               state))))
+  (let [p (cond (:telemetry-stream opts)
+                  (repl/eval-input
+                    state
+                    (str "(telemetry " (pr-str (:telemetry-stream opts)) ")"))
+                (:telemetry? opts) (repl/eval-input state "(telemetry)")
+                :else (async/Future.value [state nil]))]
+    (.then ^async/Future p
+           (fn [[state telemetry-msg]]
+             (when telemetry-msg (write-out! telemetry-msg))
+             state))))
 
 
 (defn- run-cli!
   [state-atom]
-  (letfn [(prompt-and-read [acc]
-            (-> ^async/Future (if (empty? acc)
-                                (print-prompt!)
-                                (print-continuation-prompt!))
-                (.then (fn [_]
-                         (let [line (.readLineSync io/stdin)]
-                           (if line
-                             (let [new-acc (str acc "\n" line)]
-                               (if (complete-form? new-acc)
-                                 (if (str/blank? (str/trim new-acc))
-                                   (prompt-and-read "")
-                                   (let [cleaned (clean-cljd-input new-acc)]
-                                     (-> ^async/Future (repl/eval-input @state-atom cleaned)
-                                         (.then (fn [[state result]]
-                                                  (reset! state-atom state)
-                                                  (when (some? result)
-                                                    (write-out! result)
-                                                    (println))
-                                                  (prompt-and-read ""))))))
-                                 (prompt-and-read new-acc)))
-                             ;; EOF
-                             (when (:running? @state-atom)
-                               (println)
-                               (reset! state-atom (assoc @state-atom :running? false)))))))
-                (.catchError (fn [e]
-                               (write-err! (str "Error: " e))
-                               (when (:running? @state-atom)
-                                 (prompt-and-read ""))))))]
-    (prompt-and-read "")))
+  (let [acc (atom "")]
+    (letfn
+      [(show-prompt! []
+         (if (empty? @acc) (print-prompt!) (print-continuation-prompt!)))
+       (handle-line! [line]
+         (let [new-acc (str @acc "\n" line)]
+           (if (complete-form? new-acc)
+             (if (str/blank? (str/trim new-acc))
+               (do (reset! acc "") (show-prompt!))
+               (let [cleaned (clean-cljd-input new-acc)]
+                 (reset! acc "")
+                 (-> ^async/Future (repl/eval-input @state-atom cleaned)
+                     (.then
+                       (fn [[state result]]
+                         (reset! state-atom state)
+                         (when (some? result) (write-out! result) (println))
+                         (when (:running? @state-atom) (show-prompt!))))
+                     (.catchError (fn [e]
+                                    (write-err! (str "Error: " e))
+                                    (when (:running? @state-atom)
+                                      (show-prompt!)))))))
+             (do (reset! acc new-acc) (show-prompt!)))))]
+      (show-prompt!) (-> io/stdin
+                         (.transform (.-decoder convert/utf8))
+                         (.transform (convert/LineSplitter.))
+                         (.listen handle-line!
+                                  .onDone
+                                  (fn []
+                                    (when (:running? @state-atom)
+                                      (println)
+                                      (reset! state-atom (assoc @state-atom
+                                                           :running?
+                                                             false)))))))))
 
 
 (defn run-main
   [args]
   (let [opts (repl-args/parse-args args)]
     (-> ^async/Future (configure-state (repl/create-state) opts)
-        (.then (fn [state]
-                 (let [state-atom (atom state)
-                       server (when-let [port (:port opts)]
-                                (write-out! (str "Dao REPL server listening on ws://localhost:" port))
-                                (repl/serve! state-atom port))]
-                   (if (and (:headless? opts) (not server))
-                     (do (write-err! "Error: --headless requires --port")
-                         (throw (ex-info "Error: --headless requires --port" {})))
-                     (when-not (:headless? opts)
-                       (run-cli! state-atom)))))))))
+        (.then
+          (fn [state]
+            (let [state-atom (atom state)
+                  server (when-let [port (:port opts)]
+                           (write-out!
+                             (str "Dao REPL server listening on ws://localhost:"
+                                  port))
+                           (repl/serve! state-atom port))]
+              (if (and (:headless? opts) (not server))
+                (do (write-err! "Error: --headless requires --port")
+                    (throw (ex-info "Error: --headless requires --port" {})))
+                (when-not (:headless? opts) (run-cli! state-atom)))))))))
