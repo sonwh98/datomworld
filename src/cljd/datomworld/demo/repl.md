@@ -21,6 +21,14 @@ Install the managed toolchain from the repo root:
 mise install
 ```
 
+If you are in China and `mise install` cannot download Flutter, install Flutter from the mirror first:
+
+```bash
+bin/download-flutter-mirror.sh
+```
+
+This script resolves the exact Flutter release from the China mirror, downloads it with a visible `curl` progress bar, unpacks it, and registers it with `mise`.
+
 You can either activate `mise` in your shell, or run commands through `mise exec -- ...`.
 The examples below use `mise exec --` so they work even if your shell is not activated.
 
@@ -40,6 +48,41 @@ mise exec -- flutter run
 ```
 
 The app should show the REPL demo screen with `status: listening`.
+
+### Running Flutter in China
+
+If `flutter run` stalls during Android build with output like:
+
+```text
+Running Gradle task 'assembleDebug'...
+[        ] Downloading https://storage.googleapis.com/download.flutter.io/...
+```
+
+the blocker is usually not your app code. The Android build is trying to fetch Flutter engine artifacts from Google storage.
+
+`mise.toml` can point `mise` at the China mirror for the initial Flutter SDK download, but Android Gradle still needs the mirror environment variables in the process that runs `flutter`.
+
+Run Flutter with the China mirror exported explicitly:
+
+```bash
+FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn \
+PUB_HOSTED_URL=https://pub.flutter-io.cn \
+mise exec -- flutter run
+```
+
+Use the same pattern for other Flutter commands:
+
+```bash
+FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn \
+PUB_HOSTED_URL=https://pub.flutter-io.cn \
+mise exec -- flutter clean
+```
+
+Why this is necessary:
+
+- `PUB_HOSTED_URL` redirects Dart and Flutter package downloads to the China mirror
+- `FLUTTER_STORAGE_BASE_URL` redirects Flutter engine and artifact downloads away from Google storage
+- without these variables, Gradle may still try to fetch Android Flutter artifacts from `storage.googleapis.com`, which is often slow or unreachable in China
 
 ## 3. Forward the REPL port over USB
 
@@ -114,3 +157,22 @@ If the desktop REPL says `Connected...` but evaluation times out:
    ```
 
 Do not rely on hot reload for REPL server changes. Restart the app after recompiling CLJD.
+
+If `mise exec -- flutter run` hangs at `Running Gradle task 'assembleDebug'...`:
+
+1. Rerun it with the China mirror variables exported:
+   ```bash
+   FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn \
+   PUB_HOSTED_URL=https://pub.flutter-io.cn \
+   mise exec -- flutter run -v
+   ```
+2. If Flutter itself is missing or `mise` reports the configured Flutter version as missing, reinstall it from the mirror:
+   ```bash
+   bin/download-flutter-mirror.sh
+   ```
+3. If needed, verify that the mirror variables are visible inside `mise`:
+   ```bash
+   FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn \
+   PUB_HOSTED_URL=https://pub.flutter-io.cn \
+   mise exec -- env | rg 'FLUTTER_STORAGE_BASE_URL|PUB_HOSTED_URL'
+   ```

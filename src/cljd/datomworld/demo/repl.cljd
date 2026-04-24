@@ -8,6 +8,7 @@
 (def ^:private button-label (m/ValueNotifier "Click me!"))
 (def ^:private click-output (m/ValueNotifier ""))
 (def ^:private device-ip (m/ValueNotifier "..."))
+(def ^:private interface-addresses (m/ValueNotifier []))
 (def ^:private server-status (m/ValueNotifier "starting"))
 (def ^:private repl-state (atom nil))
 (def ^:private repl-server (atom nil))
@@ -22,19 +23,24 @@
 
 (defn- load-device-ip!
   []
-  (.then ^async/Future (io/NetworkInterface.list)
-         (fn [interfaces]
-           (let [found (atom nil)]
-             (doseq [iface (seq interfaces)]
-               (when-not @found
-                 (doseq [addr (seq (.-addresses ^io/NetworkInterface iface))]
-                   (let [a (.-address ^io/InternetAddress addr)]
-                     (when (and (= (.-type ^io/InternetAddress addr)
-                                   io/InternetAddressType.IPv4)
-                                (not (str/starts-with? a "127.")))
-                       (reset! found a))))))
-             (set! (.-value ^m/ValueNotifier device-ip)
-                   (or @found "localhost"))))))
+  (.then
+    ^async/Future (io/NetworkInterface.list)
+    (fn [interfaces]
+      (let [found (atom nil)
+            rows (atom [])]
+        (doseq [iface (seq interfaces)]
+          (let [ips (keep (fn [addr]
+                            (let [a (.-address ^io/InternetAddress addr)]
+                              (when (str/includes? a ".")
+                                (when (and (nil? @found)
+                                           (not (str/starts-with? a "127.")))
+                                  (reset! found a))
+                                a)))
+                          (seq (.-addresses ^io/NetworkInterface iface)))]
+            (when (seq ips)
+              (swap! rows conj [(.-name ^io/NetworkInterface iface) ips]))))
+        (set! (.-value ^m/ValueNotifier device-ip) (or @found "localhost"))
+        (set! (.-value ^m/ValueNotifier interface-addresses) @rows)))))
 
 (defn- init-repl!
   []
@@ -75,31 +81,50 @@
       .padding
       (m/EdgeInsets.all 16.0)
       .children
-      [(m/Card .child
-               (m/Padding
-                 .padding
-                 (m/EdgeInsets.all 12.0)
-                 .child
-                 (m/Column .crossAxisAlignment
-                           m/CrossAxisAlignment.start
-                           .children
-                           [(m/Text "REPL Server Active"
-                                    .style
-                                    (m/TextStyle .fontWeight m/FontWeight.bold))
-                            (m/SizedBox .height 6.0) (mono "ws://0.0.0.0:7777")
-                            (m/SizedBox .height 2.0)
-                            (m/ValueListenableBuilder
-                              .valueListenable
-                              device-ip
-                              .builder
-                              (fn [_ ip _] (mono (str "ws://" ip ":7777"))))
-                            (m/SizedBox .height 6.0)
-                            (m/ValueListenableBuilder
-                              .valueListenable
-                              server-status
-                              .builder
-                              (fn [_ status _]
-                                (mono (str "status: " status))))])))
+      [(m/Card
+         .child
+         (m/Padding
+           .padding
+           (m/EdgeInsets.all 12.0)
+           .child
+           (m/Column
+             .crossAxisAlignment
+             m/CrossAxisAlignment.start
+             .children
+             [(m/Text "REPL Server Active"
+                      .style
+                      (m/TextStyle .fontWeight m/FontWeight.bold))
+              (m/SizedBox .height 6.0) (mono "ws://0.0.0.0:7777")
+              (m/SizedBox .height 2.0)
+              (m/ValueListenableBuilder .valueListenable
+                                        device-ip
+                                        .builder
+                                        (fn [_ ip _]
+                                          (mono (str "ws://" ip ":7777"))))
+              (m/SizedBox .height 10.0)
+              (m/Text "Interface IPs"
+                      .style
+                      (m/TextStyle .fontWeight m/FontWeight.bold))
+              (m/SizedBox .height 4.0)
+              (m/ValueListenableBuilder
+                .valueListenable
+                interface-addresses
+                .builder
+                (fn [_ rows _]
+                  (m/Column .crossAxisAlignment
+                            m/CrossAxisAlignment.start
+                            .children
+                            (if (seq rows)
+                              (mapv (fn [[iface ips]]
+                                      (mono
+                                        (str iface ": " (str/join ", " ips))))
+                                rows)
+                              [(mono "loading...")])))) (m/SizedBox .height 6.0)
+              (m/ValueListenableBuilder .valueListenable
+                                        server-status
+                                        .builder
+                                        (fn [_ status _]
+                                          (mono (str "status: " status))))])))
        (m/SizedBox .height 32.0)
        (m/ValueListenableBuilder
          .valueListenable
