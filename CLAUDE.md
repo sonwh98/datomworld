@@ -41,6 +41,7 @@ Agents are functions, closures, or continuations in Yin.VM that communicate with
 world through DaoStream. Agent behavior is specified entirely through stream effects.
 
 Architecture overview and advanced topics: docs/agents/architecture.md
+Stream-composed GPU workflow (dao.flow): docs/agents/flow-spec.md
 
 # BUILD & TEST
 

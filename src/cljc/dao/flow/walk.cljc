@@ -20,18 +20,26 @@
   (if-not camera-eid
     t/identity-mat4
     (let [ent (db/entity db camera-eid)
-          kind (:camera/kind ent)]
-      (if (= kind :perspective)
-        (t/perspective-mat4 (or (:camera/fov ent) 60.0)
-                            (or (:camera/aspect ent) 1.0)
-                            (or (:camera/near ent) 0.1)
-                            (or (:camera/far ent) 100.0))
-        (t/orthographic-mat4 (or (:camera/left ent) -1.0)
-                             (or (:camera/right ent) 1.0)
-                             (or (:camera/bottom ent) -1.0)
-                             (or (:camera/top ent) 1.0)
-                             (or (:camera/near ent) -1.0)
-                             (or (:camera/far ent) 1.0))))))
+          kind (:camera/kind ent)
+          proj (if (= kind :perspective)
+                 (t/perspective-mat4 (or (:camera/fov ent) 60.0)
+                                     (or (:camera/aspect ent) 1.0)
+                                     (or (:camera/near ent) 0.1)
+                                     (or (:camera/far ent) 100.0))
+                 (t/orthographic-mat4 (or (:camera/left ent) -1.0)
+                                      (or (:camera/right ent) 1.0)
+                                      (or (:camera/bottom ent) -1.0)
+                                      (or (:camera/top ent) 1.0)
+                                      (or (:camera/near ent) -1.0)
+                                      (or (:camera/far ent) 1.0)))
+          t-eid (:flow/transform ent)
+          view (if-not t-eid
+                 t/identity-mat4
+                 (let [t-ent (db/entity db t-eid)]
+                   (t/invert-trs (:transform/translate t-ent)
+                                 (:transform/rotate t-ent)
+                                 (:transform/scale t-ent))))]
+      (t/mul-mat4 proj view))))
 
 
 (defn- lights-of

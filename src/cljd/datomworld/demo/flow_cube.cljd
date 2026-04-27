@@ -1,7 +1,7 @@
 (ns datomworld.demo.flow-cube
   (:require ["package:flutter/material.dart" :as m]
-            ["dart:async" :as async]
             [dao.stream.ringbuffer :as ring]
+            [dao.stream :as ds]
             [dao.flow :as flow]
             [dao.flow.walk :as walk]
             [dao.flow.animate :as anim]
@@ -28,12 +28,9 @@
              :material {:color [0.2 0.6 0.95 1.0]}}]]
         datoms (hiccup/hiccup->datoms scene)
         tx-data (mapv (fn [[e a v]] [:db/add e a v]) datoms)
-        _ (dao.stream/put! intent-stream tx-data)
+        _ (ds/put! intent-stream tx-data)
         db-atom (atom db-with-schema)
         notifier (m/ValueNotifier. [])
-        ;; Fused pipeline background runner. Note: In Cljd, we could run
-        ;; stream-transduce in an async microtask loop. For simple demo, we
-        ;; drive it synchronously per tick
         t-eid (atom nil)
         ;; Initial sync transduct to get first frame and get t-eid
         _ (flow/stream-transduce (walk/walk-xf db-atom)
@@ -44,37 +41,49 @@
         _ (reset! t-eid (first (first (db/q '[:find ?t :where
                                               [?e :geom/kind :cube]
                                               [?e :flow/transform ?t]]
-                                            @db-atom))))]
-    (async/Timer.periodic
-      (Duration. .milliseconds 16)
-      (fn [^async/Timer timer]
-        (let [ticks (.-tick timer)
-              angle (* ticks 0.02)]
-          (anim/rotation-tick intent-stream @t-eid [(* angle 0.5) angle 0.0])
-          ;; drive one step of stream-transduce. Ideally stream-transduce
-          ;; is async, but we can just use ds/next. Actually we need to
-          ;; track cursor. For simplicity in demo we can just run walk-once
-          (let [mutations (first (dao.stream/next intent-stream
-                                                  {:position ticks}))]
-            (when-let [val (:ok mutations)]
-              (swap! db-atom #(get (db/transact % val) :db-after))
-              (let [frame (walk/walk-once @db-atom)]
-                (flutter/paint-rf notifier frame)))))))
+                                            @db-atom))))
+        angles (atom [0.0 0.0 0.0])
+        cursor (atom {:position 1})]
     (m/runApp
-      (m/MaterialApp. .home
-                      (m/Scaffold. .body
-                                   (m/Container. .color
-                                                 (m/Color. 0xFF0D0F17)
-                                                 .child
-                                                 (m/Center.
-                                                   .child
-                                                   (m/SizedBox.
-                                                     .width
-                                                     400.0
-                                                     .height
-                                                     400.0
-                                                     .child
-                                                     (m/CustomPaint.
-                                                       .painter
-                                                       (flutter/FlowPainter.
-                                                         notifier))))))))))
+      (m/MaterialApp.
+        .home
+        (m/Scaffold.
+          .body
+          (m/Container.
+            .color
+            (m/Color. 0xFF0D0F17)
+            .child
+            (m/Center.
+              .child
+              (m/GestureDetector.
+                .onPanUpdate
+                (fn [^m/DragUpdateDetails details]
+                  (let [dx (.-dx (.-delta details))
+                        dy (.-dy (.-delta details))]
+                    (swap! angles (fn [[rx ry rz]] [(+ rx (* dy 0.01))
+                                                    (+ ry (* dx 0.01)) rz]))
+                    (anim/rotation-tick intent-stream @t-eid @angles)
+                    (loop []
+                      (let [res (ds/next intent-stream @cursor)]
+                        (when (map? res)
+                          (reset! cursor (:cursor res))
+                          (swap! db-atom #(get (db/transact % (:ok res))
+                                               :db-after))
+                          (ds/drain-one! intent-stream)
+                          (recur))))
+                    (let [frame (walk/walk-once @db-atom)]
+                      (flutter/paint-rf notifier frame))))
+                .child
+                (m/SizedBox. .width
+                             400.0
+                             .height
+                             400.0
+                             .child
+                             (m/ValueListenableBuilder.
+                               .valueListenable
+                               notifier
+                               .builder
+                               (fn [context frame child]
+                                 (m/CustomPaint. .painter
+                                                 (flutter/FlowPainter.
+                                                   notifier)))))))))))))

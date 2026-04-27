@@ -112,6 +112,30 @@
     (mul-mat4 tm (mul-mat4 rm sm))))
 
 
+(defn invert-trs
+  [t r s]
+  (let [tx (if t (- (double (nth t 0 0.0))) 0.0)
+        ty (if t (- (double (nth t 1 0.0))) 0.0)
+        tz (if t (- (double (nth t 2 0.0))) 0.0)
+        tm (translate-mat4 [tx ty tz])
+        rx (if r (- (double (nth r 0 0.0))) 0.0)
+        ry (if r (- (double (nth r 1 0.0))) 0.0)
+        rz (if r (- (double (nth r 2 0.0))) 0.0)
+        rm (mul-mat4 (mul-mat4 (rotate-x-mat4 rx) (rotate-y-mat4 ry))
+                     (rotate-z-mat4 rz))
+        sx (if (and s (not (zero? (nth s 0 1.0))))
+             (/ 1.0 (double (nth s 0 1.0)))
+             1.0)
+        sy (if (and s (not (zero? (nth s 1 1.0))))
+             (/ 1.0 (double (nth s 1 1.0)))
+             1.0)
+        sz (if (and s (not (zero? (nth s 2 1.0))))
+             (/ 1.0 (double (nth s 2 1.0)))
+             1.0)
+        sm (scale-mat4 [sx sy sz])]
+    (mul-mat4 sm (mul-mat4 rm tm))))
+
+
 (defn perspective-mat4
   [fov-deg aspect near far]
   (let [f (/ 1.0

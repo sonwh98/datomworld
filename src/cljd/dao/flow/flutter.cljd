@@ -70,6 +70,7 @@
       (doseq [[i j] edges] (.drawLine canvas (nth pts i) (nth pts j) paint)))))
 
 (deftype FlowPainter [^m/ValueNotifier notifier]
+  :extends
   m/CustomPainter
     (paint [this ^ui/Canvas canvas ^ui/Size size]
       (let [frame (.-value notifier)]
