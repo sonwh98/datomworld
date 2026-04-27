@@ -1,0 +1,80 @@
+(ns datomworld.demo.flow-cube
+  (:require ["package:flutter/material.dart" :as m]
+            ["dart:async" :as async]
+            [dao.stream.ringbuffer :as ring]
+            [dao.flow :as flow]
+            [dao.flow.walk :as walk]
+            [dao.flow.animate :as anim]
+            [dao.flow.hiccup :as hiccup]
+            [dao.flow.flutter :as flutter]
+            [dao.db :as db]
+            [dao.db.in-memory :as in-m]))
+
+(defn main
+  []
+  (let [schema [{:db/ident :flow/parent, :db/valueType :db.type/ref}
+                {:db/ident :flow/transform, :db/valueType :db.type/ref}
+                {:db/ident :flow/material, :db/valueType :db.type/ref}
+                {:db/ident :camera, :db/valueType :db.type/ref}]
+        db-with-schema (:db-after (db/transact (in-m/empty-db) schema))
+        intent-stream (ring/make-ring-buffer-stream 100)
+        scene
+          [:flow/scene {:flow/clear-color [0.05 0.06 0.09 1.0]}
+           [:camera/perspective
+            {:fov 60.0, :near 0.1, :far 100.0, :transform {:translate [0 0 5]}}]
+           [:geom/cube
+            {:flow/id :spinner,
+             :transform {:rotate [0.0 0.0 0.0]},
+             :material {:color [0.2 0.6 0.95 1.0]}}]]
+        datoms (hiccup/hiccup->datoms scene)
+        tx-data (mapv (fn [[e a v]] [:db/add e a v]) datoms)
+        _ (dao.stream/put! intent-stream tx-data)
+        db-atom (atom db-with-schema)
+        notifier (m/ValueNotifier. [])
+        ;; Fused pipeline background runner. Note: In Cljd, we could run
+        ;; stream-transduce in an async microtask loop. For simple demo, we
+        ;; drive it synchronously per tick
+        t-eid (atom nil)
+        ;; Initial sync transduct to get first frame and get t-eid
+        _ (flow/stream-transduce (walk/walk-xf db-atom)
+                                 flutter/paint-rf
+                                 notifier
+                                 intent-stream
+                                 {:position 0})
+        _ (reset! t-eid (first (first (db/q '[:find ?t :where
+                                              [?e :geom/kind :cube]
+                                              [?e :flow/transform ?t]]
+                                            @db-atom))))]
+    (async/Timer.periodic
+      (Duration. .milliseconds 16)
+      (fn [^async/Timer timer]
+        (let [ticks (.-tick timer)
+              angle (* ticks 0.02)]
+          (anim/rotation-tick intent-stream @t-eid [(* angle 0.5) angle 0.0])
+          ;; drive one step of stream-transduce. Ideally stream-transduce
+          ;; is async, but we can just use ds/next. Actually we need to
+          ;; track cursor. For simplicity in demo we can just run walk-once
+          (let [mutations (first (dao.stream/next intent-stream
+                                                  {:position ticks}))]
+            (when-let [val (:ok mutations)]
+              (swap! db-atom #(get (db/transact % val) :db-after))
+              (let [frame (walk/walk-once @db-atom)]
+                (flutter/paint-rf notifier frame)))))))
+    (m/runApp
+      (m/MaterialApp. .home
+                      (m/Scaffold. .body
+                                   (m/Container. .color
+                                                 (m/Color. 0xFF0D0F17)
+                                                 .child
+                                                 (m/Center.
+                                                   .child
+                                                   (m/SizedBox.
+                                                     .width
+                                                     400.0
+                                                     .height
+                                                     400.0
+                                                     .child
+                                                     (m/CustomPaint.
+                                                       .painter
+                                                       (flutter/FlowPainter.
+                                                         notifier))))))))))

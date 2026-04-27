@@ -1,0 +1,83 @@
+(ns dao.flow.flutter
+  (:require ["package:flutter/material.dart" :as m]
+            ["dart:ui" :as ui]
+            ["dart:async" :as async]
+            [dao.flow :as flow]
+            [dao.flow.transform :as t]))
+
+(defn paint-rf
+  "Stage 2 terminal. acc is the painter handle (ValueNotifier); input is one op-frame."
+  ([] nil)
+  ([notifier] notifier)
+  ([^m/ValueNotifier notifier op-frame]
+   (set! (.-value notifier) op-frame)
+   notifier))
+
+(defn- apply-mat4
+  [mat [x y z w]]
+  (let [x' (+ (* (nth mat 0) x)
+              (* (nth mat 4) y)
+              (* (nth mat 8) z)
+              (* (nth mat 12) w))
+        y' (+ (* (nth mat 1) x)
+              (* (nth mat 5) y)
+              (* (nth mat 9) z)
+              (* (nth mat 13) w))
+        z' (+ (* (nth mat 2) x)
+              (* (nth mat 6) y)
+              (* (nth mat 10) z)
+              (* (nth mat 14) w))
+        w' (+ (* (nth mat 3) x)
+              (* (nth mat 7) y)
+              (* (nth mat 11) z)
+              (* (nth mat 15) w))]
+    [x' y' z' w']))
+
+(defn- draw-cube
+  [^ui/Canvas canvas op size]
+  (let [w (:op/world op)
+        p (:op/projected op)
+        clip (t/mul-mat4 p w)
+        ;; 8 corners of a cube from -0.5 to 0.5
+        corners [[-0.5 -0.5 -0.5 1.0] [0.5 -0.5 -0.5 1.0] [0.5 0.5 -0.5 1.0]
+                 [-0.5 0.5 -0.5 1.0] [-0.5 -0.5 0.5 1.0] [0.5 -0.5 0.5 1.0]
+                 [0.5 0.5 0.5 1.0] [-0.5 0.5 0.5 1.0]]
+        projected (map (fn [p]
+                         (let [[cx cy cz cw] (apply-mat4 clip p)
+                               cx (/ cx cw)
+                               cy (/ cy cw)
+                               ;; map NDC to screen [0 size]
+                               ;; CustomPainter is y-down, walk clip is
+                               ;; y-up. So cy -> -cy
+                               sx (* (+ (* cx 0.5) 0.5) (.-width size))
+                               sy (* (+ (* (- cy) 0.5) 0.5) (.-height size))]
+                           (ui/Offset. sx sy)))
+                    corners)
+        pts (vec projected)
+        paint (let [p (ui/Paint.)]
+                (set! (.-style p) ui/PaintingStyle.stroke)
+                (set! (.-strokeWidth p) 2.0)
+                (set! (.-color p)
+                      (let [[r g b a] (or (:color op) [1.0 1.0 1.0 1.0])]
+                        (ui/Color.fromARGB (int (* a 255))
+                                           (int (* r 255))
+                                           (int (* g 255))
+                                           (int (* b 255)))))
+                p)]
+    ;; draw 12 lines
+    (let [edges [[0 1] [1 2] [2 3] [3 0] [4 5] [5 6] [6 7] [7 4] [0 4] [1 5]
+                 [2 6] [3 7]]]
+      (doseq [[i j] edges] (.drawLine canvas (nth pts i) (nth pts j) paint)))))
+
+(deftype FlowPainter [^m/ValueNotifier notifier]
+  m/CustomPainter
+    (paint [this ^ui/Canvas canvas ^ui/Size size]
+      (let [frame (.-value notifier)]
+        (doseq [op frame]
+          (case (:op/kind op)
+            :cube (draw-cube canvas op size)
+            ;; other primitives not fully implemented for v1 smoke yet
+            nil))))
+    (shouldRepaint [this old-delegate]
+      ;; repaint whenever notified
+      true))
