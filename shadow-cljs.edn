@@ -26,9 +26,9 @@
                   :main dao.stream-bench/-main
                   :output-to "target/bench.js"}
 
-          :dao-repl {:target :node-script
-                     :main dao.repl-main.node/-main
-                     :output-to "target/dao-repl.js"}
+          :yin-repl {:target :node-script
+                     :main yin.repl-main.node/-main
+                     :output-to "target/yin-repl.js"}
 
           :ws-client-demo {:target :node-script
                            :main datomworld.ws-client-demo/-main

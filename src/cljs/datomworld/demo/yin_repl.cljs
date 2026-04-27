@@ -1,4 +1,4 @@
-(ns datomworld.demo.dao-repl
+(ns datomworld.demo.yin-repl
   (:require
     ["@codemirror/state" :refer [EditorState]]
     ["@codemirror/theme-one-dark" :refer [oneDark]]
@@ -91,7 +91,7 @@
   (let [view-ref (r/atom nil)
         el-ref (atom nil)]
     (r/create-class
-      {:display-name "dao-repl-codemirror-editor"
+      {:display-name "yin-repl-codemirror-editor"
        :component-did-mount
        (fn [_]
          (when-let [node @el-ref]
@@ -228,7 +228,7 @@
         (> attempts 500)
         (swap! app-state
                #(-> %
-                    (resolve-request request-id :error "Timed out waiting for remote Dao REPL")
+                    (resolve-request request-id :error "Timed out waiting for remote Yin REPL")
                     (assoc :status :error
                            :error-msg "Timed out waiting for response")))
 
@@ -273,10 +273,10 @@
       nil
 
       (not= status :connected)
-      (swap! app-state assoc :error-msg "Connect to a remote Dao REPL first")
+      (swap! app-state assoc :error-msg "Connect to a remote Yin REPL first")
 
       (nil? stream)
-      (swap! app-state assoc :error-msg "Connect to a remote Dao REPL first")
+      (swap! app-state assoc :error-msg "Connect to a remote Yin REPL first")
 
       :else
       (let [[state request-id] (queue-request @app-state editor-source)]
@@ -385,17 +385,17 @@
                        :letter-spacing "0.12em"
                        :text-transform "uppercase"
                        :margin-bottom "10px"}}
-         "Browser Dao REPL"]
+         "Browser Yin REPL"]
         [:h1 {:style {:margin "0 0 10px"
                       :font-size "clamp(2rem, 4vw, 3.5rem)"
                       :line-height "1.05"}}
-         "CodeMirror speaks Clojure, dao.repl stays remote"]
+         "CodeMirror speaks Clojure, yin.repl stays remote"]
         [:p {:style {:margin 0
                      :color "#b7c7e6"
                      :font-size "16px"
                      :line-height "1.6"}}
          "This browser demo opens a websocket client to a remote "
-         [:code "dao.repl"]
+         [:code "yin.repl"]
          " server and sends explicit "
          [:code ":op/eval"]
          " request datoms. The browser owns the editor, the remote runtime owns evaluation."]]
@@ -420,7 +420,7 @@
                         :font-size "12px"
                         :line-height "1.5"
                         :color "#dce7ff"}}
-         "clj -M:dao-repl --port 8080 --headless"]
+         "clj -M:yin-repl --port 8080 --headless"]
         [:div {:style {:font-size "13px"
                        :color "#b7c7e6"
                        :line-height "1.5"}}
@@ -504,7 +504,7 @@
            "Editor"]
           [:div {:style {:color "#b7c7e6"
                          :font-size "14px"}}
-           "Send any Dao REPL form or command to the remote runtime."]]
+           "Send any Yin REPL form or command to the remote runtime."]]
          [:button
           {:on-click eval!
            :disabled (or active-request (not= status :connected))
@@ -574,4 +574,4 @@
                      :border-radius "12px"
                      :padding "18px"
                      :color "#8b9ab8"}}
-            "No requests yet. Connect to a remote Dao REPL and evaluate the editor buffer."])]]]]]))
+            "No requests yet. Connect to a remote Yin REPL and evaluate the editor buffer."])]]]]]))

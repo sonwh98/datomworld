@@ -1,8 +1,8 @@
-# Dao REPL Design
+# Yin REPL Design
 
 ## Overview
 
-The **Dao REPL** is an interactive command-line shell for the Yin VM ecosystem. It operates at the **datom level**, treating everything as data. Users can:
+The **Yin REPL** is an interactive command-line shell for the Yin VM ecosystem. It operates at the **datom level**, treating everything as data. Users can:
 
 1. Submit raw datom streams `[[e a v t m] ...]` directly to a VM for execution
 2. Submit AST maps `{:type :application ...}` directly
@@ -29,15 +29,14 @@ The Yang compiler is a **tool within the shell**, not the shell itself. Users ch
 ## Architecture
 
 ```
-src/cljc/dao/repl.cljc           — Portable core (all business logic)
-src/clj/dao/repl_main.clj        — JVM entry point (stdin I/O)
-src/cljs/dao/repl_main.cljs      — Node.js entry point (readline I/O)
-src/cljd/dao/repl_main.cljd      — ClojureDart entry point (dart:io)
-test/dao/repl_test.cljc          — Portable test suite
-docs/design/dao-shell-design.md  — This document
+src/cljc/yin/repl.cljc           — Portable core (all business logic)
+src/clj/yin/repl_main.clj        — JVM entry point (stdin I/O)
+src/cljs/yin/repl_main.cljs      — Node.js entry point (readline I/O)
+src/cljd/yin/repl_main.cljd      — ClojureDart entry point (dart:io)
+test/yin/repl_test.cljc          — Portable test suite
 ```
 
-The **portable core** (`src/cljc/dao/repl.cljc`) contains all shell logic:
+The **portable core** (`src/cljc/yin/repl.cljc`) contains all shell logic:
 - Input parsing and dispatch
 - VM lifecycle management
 - Datom/AST/source evaluation
@@ -153,11 +152,11 @@ Expose the shell as a WebSocket server. Accept remote clients and dispatch `:op/
 Switch to a different VM backend. Warns that `:store` state is lost and creates a fresh VM.
 
 ```clojure
-dao> (vm :register)
+yin> (vm :register)
 Switched to RegisterVM (store cleared)
-dao> (def x 10)
+yin> (def x 10)
 nil
-dao> x
+yin> x
 10
 ```
 
@@ -166,9 +165,9 @@ dao> x
 Switch the input language for source code compilation. Does not affect the current VM.
 
 ```clojure
-dao> (lang :python)
+yin> (lang :python)
 Switched to Python
-dao> 1 + 2
+yin> 1 + 2
 3
 ```
 
@@ -177,7 +176,7 @@ dao> 1 + 2
 Compile an expression to AST and datoms without executing. Useful for inspecting what the compiler generates.
 
 ```clojure
-dao> (compile (+ 1 2))
+yin> (compile (+ 1 2))
 AST:
 {:type :application
  :operator {:type :variable :name +}
@@ -201,26 +200,26 @@ Datoms:
 Reset the current VM to a fresh state.
 
 ```clojure
-dao> (def x 42)
+yin> (def x 42)
 nil
-dao> x
+yin> x
 42
-dao> (reset)
+yin> (reset)
 SemanticVM reset
-dao> x
+yin> x
 ; Unbound variable: x
 ```
 
 ### `(connect "daostream:ws://remote-host:port")`
 
-Connect to a remote Dao Shell via WebSocket. All subsequent evals are forwarded to the remote.
+Connect to a remote Yin REPL via WebSocket. All subsequent evals are forwarded to the remote.
 
 ```clojure
-dao> (connect "daostream:ws://localhost:7777")
+yin> (connect "daostream:ws://localhost:7777")
 Connected to ws://localhost:7777
-dao> (+ 1 2)
+yin> (+ 1 2)
 3
-dao> (def x 100)
+yin> (def x 100)
 nil
 ; x is defined on remote shell, not locally
 ```
@@ -230,9 +229,9 @@ nil
 Close the remote connection and resume local evaluation.
 
 ```clojure
-dao> (disconnect)
+yin> (disconnect)
 Disconnected from remote shell
-dao> x
+yin> x
 ; x is unbound locally (only defined on remote)
 ```
 
@@ -241,9 +240,9 @@ dao> x
 Enable or disable VM telemetry. Telemetry emits `[e a v t m]` datom snapshots of the VM's CESK state at each step, park, resume, halt, and effect.
 
 ```clojure
-dao> (telemetry)
+yin> (telemetry)
 Telemetry enabled (stderr)
-dao> (+ 1 2)
+yin> (+ 1 2)
 3
 ; Stderr receives datom snapshots from the eval
 [root-id :vm/type :vm/snapshot 0 0]
@@ -251,7 +250,7 @@ dao> (+ 1 2)
 [root-id :vm/phase :step 0 0]
 ...
 
-dao> (telemetry "daostream:ws://monitor:9000")
+yin> (telemetry "daostream:ws://monitor:9000")
 Telemetry routed to ws://monitor:9000
 ```
 
@@ -270,11 +269,11 @@ Exit the shell.
 ### 1. Clojure Source Code (Default)
 
 ```clojure
-dao> (+ 1 2)
+yin> (+ 1 2)
 3
-dao> (def fib (fn [n] (if (< n 2) n (+ (fib (- n 1)) (fib (- n 2))))))
+yin> (def fib (fn [n] (if (< n 2) n (+ (fib (- n 1)) (fib (- n 2))))))
 nil
-dao> (fib 10)
+yin> (fib 10)
 55
 ```
 
@@ -283,9 +282,9 @@ dao> (fib 10)
 Submit a universal AST map directly:
 
 ```clojure
-dao> {:type :literal :value 42}
+yin> {:type :literal :value 42}
 42
-dao> {:type :application
+yin> {:type :application
       :operator {:type :variable :name +}
       :operands [{:type :literal :value 1} {:type :literal :value 2}]}
 3
@@ -296,7 +295,7 @@ dao> {:type :application
 Submit raw `[e a v t m]` tuples:
 
 ```clojure
-dao> [[-1 :yin/type :literal 0 0]
+yin> [[-1 :yin/type :literal 0 0]
       [-1 :yin/value 99 0 0]]
 99
 ```
@@ -306,19 +305,19 @@ dao> [[-1 :yin/type :literal 0 0]
 Switch language and write source:
 
 ```clojure
-dao> (lang :python)
+yin> (lang :python)
 Switched to Python
-dao> 1 + 2
+yin> 1 + 2
 3
-dao> for i in range(3):
+yin> for i in range(3):
       print(i)
 0
 1
 2
 
-dao> (lang :php)
+yin> (lang :php)
 Switched to PHP
-dao> 1 + 2
+yin> 1 + 2
 3
 ```
 
@@ -418,7 +417,7 @@ Flags:
 ### Node.js
 
 ```bash
-npx shadow-cljs run dao.repl-main.node/-main [FLAGS]
+npx shadow-cljs run yin.repl-main.node/-main [FLAGS]
 
 (Same flags as JVM)
 ```
@@ -427,7 +426,7 @@ npx shadow-cljs run dao.repl-main.node/-main [FLAGS]
 
 ```bash
 clj -M:cljd compile      # Compile to Dart
-dart run bin/dao_repl_main.dart [FLAGS]
+dart run bin/yin_repl_main.dart [FLAGS]
 
 (Same flags as JVM)
 ```
@@ -439,7 +438,7 @@ dart run bin/dao_repl_main.dart [FLAGS]
 All shell logic is tested in portable `.cljc` tests:
 
 ```bash
-clj -M:test -n dao.repl-test
+clj -M:test -n yin.repl-test
 ```
 
 Tests cover:

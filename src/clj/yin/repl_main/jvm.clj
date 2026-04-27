@@ -1,8 +1,8 @@
-(ns dao.repl-main.jvm
+(ns yin.repl-main.jvm
   (:require
     [clojure.string :as str]
-    [dao.repl :as repl]
-    [dao.repl-args :as repl-args]))
+    [yin.repl :as repl]
+    [yin.repl-args :as repl-args]))
 
 
 (defn- configure-state
@@ -24,7 +24,7 @@
 
 (defn- print-prompt!
   []
-  (print "dao> ")
+  (print "yin> ")
   (flush))
 
 
@@ -47,7 +47,7 @@
   (let [opts (repl-args/parse-args args)
         state-atom (atom (configure-state (repl/create-state) opts))
         server (when-let [port (:port opts)]
-                 (println (str "Dao REPL server listening on ws://localhost:" port))
+                 (println (str "Yin REPL server listening on ws://localhost:" port))
                  (repl/serve! state-atom port))]
     (try
       (if (:headless? opts)

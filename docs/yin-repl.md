@@ -1,6 +1,6 @@
-# Dao REPL Usage Guide
+# Yin REPL Usage Guide
 
-The Dao REPL can operate as both a local interactive shell and a WebSocket server, allowing remote connections for evaluation.
+The Yin REPL can operate as both a local interactive shell and a WebSocket server, allowing remote connections for evaluation.
 
 ## Starting the REPL Server
 
@@ -9,34 +9,34 @@ You can start a REPL server on a specific port using the `--port` flag. This is 
 ### Clojure (JVM)
 To run the JVM REPL server with a local prompt:
 ```bash
-clj -M:dao-repl --port 8080
+clj -M:yin-repl --port 8080
 ```
 
 To run the JVM REPL server in **headless** mode:
 ```bash
-clj -M:dao-repl --port 8080 --headless
+clj -M:yin-repl --port 8080 --headless
 ```
 
 ### ClojureDart (Dart VM)
 To compile the Dart REPL entrypoint:
 ```bash
-clj -M:cljd compile dao.repl-main.cljd
+clj -M:cljd compile yin.repl-main.cljd
 ```
 
 To run the Dart REPL server:
 ```bash
-dart bin/dao_repl_main.dart --port 8080
+dart bin/yin_repl_main.dart --port 8080
 ```
 
 ### Node.js (ClojureScript)
 To compile the Node.js REPL entrypoint:
 ```bash
-clj -M:cljs -m shadow.cljs.devtools.cli compile dao-repl
+clj -M:cljs -m shadow.cljs.devtools.cli compile yin-repl
 ```
 
 To run the Node.js REPL server:
 ```bash
-node target/dao-repl.js --port 8080
+node target/yin-repl.js --port 8080
 ```
 
 ## Connecting to a Remote REPL
@@ -45,25 +45,25 @@ Once a REPL server is running, you can connect to it from another interactive JV
 
 1. Start a local REPL:
    ```bash
-   clj -M:dao-repl
+   clj -M:yin-repl
    ```
 
 2. Connect to the remote server:
    ```clojure
-   dao> (connect "daostream:ws://localhost:8080")
+   yin> (connect "daostream:ws://localhost:8080")
    Connected to ws://localhost:8080
    ```
 
 3. Evaluate expressions remotely:
    All subsequent inputs (except local-only commands) will be sent to the remote REPL for evaluation.
    ```clojure
-   dao> (+ 1 2)
+   yin> (+ 1 2)
    3
    ```
 
 4. Disconnect to return to local evaluation:
    ```clojure
-   dao> (disconnect)
+   yin> (disconnect)
    Disconnected from remote shell
    ```
 

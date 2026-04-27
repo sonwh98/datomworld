@@ -2,7 +2,7 @@
   (:require ["dart:async" :as async]
             ["package:flutter/material.dart" :as m]
             [clojure.string :as str]
-            [dao.repl.flutter :as flutter-repl]))
+            [yin.repl.flutter :as flutter-repl]))
 
 (def ^:private button-label (m/ValueNotifier "Click me!"))
 (def ^:private click-output (m/ValueNotifier ""))
@@ -81,7 +81,7 @@
                .style
                (m/TextStyle .fontWeight m/FontWeight.bold))
        (m/SizedBox .height 8.0) (mono "; Connect from desktop:")
-       (mono "dart run bin/dao_repl_main.dart")
+       (mono "dart run bin/yin_repl_main.dart")
        (mono "(connect \"daostream:ws://<ip>:7777\")") (m/SizedBox .height 12.0)
        (mono "; Change button text:")
        (mono "(set-button-text! \"Hello World\")") (m/SizedBox .height 12.0)

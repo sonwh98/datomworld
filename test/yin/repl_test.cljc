@@ -1,4 +1,4 @@
-(ns dao.repl-test
+(ns yin.repl-test
   (:require
     #?(:cljs [cljs.test :refer-macros [async]])
     #?(:clj [clojure.edn :as edn]
@@ -6,7 +6,7 @@
        :cljd [clojure.edn :as edn])
     [clojure.string :as str]
     [clojure.test :refer [deftest is testing]]
-    [dao.repl :as repl]
+    [yin.repl :as repl]
     [dao.stream :as ds]
     [dao.stream.apply :as dao-apply]
     [dao.stream.ringbuffer :as ringbuffer]))
@@ -339,7 +339,7 @@
        (with-redefs [dao.stream.apply/put-request!
                      (fn [_request-stream _request-id _op _args]
                        {:result :ok})
-                     dao.repl/wait-for-response
+                     yin.repl/wait-for-response
                      (fn [state request-id]
                        [state (dao-apply/response request-id "3")])]
          (let [state (assoc (repl/create-state)
@@ -358,11 +358,11 @@
      (testing "reconnecting to a persistent remote endpoint does not reuse stale response ids"
        (let [request-stream (make-stream)
              response-stream (make-stream)
-             stale-id :dao.repl/request-0
+             stale-id :yin.repl/request-0
              endpoint {:request-stream request-stream
                        :response-stream response-stream}]
          (dao-apply/put-response! response-stream stale-id "STALE")
-         (with-redefs [dao.repl/open-remote-endpoint
+         (with-redefs [yin.repl/open-remote-endpoint
                        (fn [_url] endpoint)
                        dao.stream.apply/put-request!
                        (fn [_request-stream request-id _op _args]
@@ -379,7 +379,7 @@
 (deftest repl-state-stays-local-while-remote-connected-test
   #?(:clj
      (testing "repl-state reports the local shell even when a remote endpoint is attached"
-       (with-redefs [dao.repl/eval-remote-input
+       (with-redefs [yin.repl/eval-remote-input
                      (fn [state _input-str]
                        (let [p (promise)]
                          (deliver p [state "REMOTE"])
@@ -410,7 +410,7 @@
                          :response-stream ::response-1}
              endpoint-2 {:request-stream ::request-2
                          :response-stream ::response-2}]
-         (with-redefs [dao.repl/open-remote-endpoint
+         (with-redefs [yin.repl/open-remote-endpoint
                        (fn [url]
                          (case url
                            "ws://one" endpoint-1
@@ -444,7 +444,7 @@
                              {:stop-fn (constantly nil)
                               :conns (atom #{stream})})
                            stream))
-                       dao.repl/serve-once!
+                       yin.repl/serve-once!
                        (fn [_state-atom _request-stream _response-stream cursor]
                          (swap! calls conj cursor)
                          (let [result (or (first @results) :blocked)
@@ -471,7 +471,7 @@
              telemetry-stream ::telemetry
              old-sink ::old-sink
              new-sink ::new-sink]
-         (with-redefs [dao.repl/open-telemetry-sink
+         (with-redefs [yin.repl/open-telemetry-sink
                        (fn [_url] new-sink)
                        dao.stream/close!
                        (fn [stream]

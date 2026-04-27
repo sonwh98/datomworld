@@ -1,10 +1,10 @@
-(ns dao.repl.flutter
+(ns yin.repl.flutter
   "A reusable Flutter component to easily embed a Yin.VM REPL server inside any application."
   (:require ["dart:async" :as async]
             ["dart:io" :as io]
             ["package:flutter/material.dart" :as m]
             [clojure.string :as str]
-            [dao.repl :as repl]))
+            [yin.repl :as repl]))
 
 (def device-ip (m/ValueNotifier "..."))
 (def interface-addresses (m/ValueNotifier []))

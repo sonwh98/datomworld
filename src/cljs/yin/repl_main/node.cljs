@@ -1,8 +1,8 @@
-(ns dao.repl-main.node
+(ns yin.repl-main.node
   (:require
     [clojure.string :as str]
-    [dao.repl :as repl]
-    [dao.repl-args :as repl-args]))
+    [yin.repl :as repl]
+    [yin.repl-args :as repl-args]))
 
 
 (defn- configure-state
@@ -28,7 +28,7 @@
         rl (.createInterface readline
                              #js {:input (.-stdin js/process)
                                   :output (.-stdout js/process)
-                                  :prompt "dao> "})]
+                                  :prompt "yin> "})]
     (.prompt rl)
     (.on rl
          "line"
@@ -52,7 +52,7 @@
         (.then (fn [state]
                  (let [state-atom (atom state)
                        server (when-let [port (:port opts)]
-                                (js/console.log (str "Dao REPL server listening on ws://localhost:" port))
+                                (js/console.log (str "Yin REPL server listening on ws://localhost:" port))
                                 (repl/serve! state-atom port))]
                    (when (and (:headless? opts) (not server))
                      (js/console.error "Error: --headless requires --port")

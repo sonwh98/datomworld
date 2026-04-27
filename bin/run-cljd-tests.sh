@@ -10,7 +10,7 @@ clj -M:cljd compile \
     yin.vm.parity-test \
     dao.db-test \
     dao.db.in-memory-test \
-    dao.repl-test \
+    yin.repl-test \
     dao.stream.apply-test \
     dao.stream.transit-test \
     yin.vm.ast-walker-test \

@@ -1,4 +1,4 @@
-(ns dao.repl
+(ns yin.repl
   (:require
     #?(:cljd ["dart:async" :as async])
     #?(:cljd ["dart:core" :as core])
@@ -125,7 +125,7 @@
 (defn- telemetry-config
   [vm-type stream]
   (when stream
-    {:stream stream, :vm-id (keyword (str "dao.repl/" (name vm-type)))}))
+    {:stream stream, :vm-id (keyword (str "yin.repl/" (name vm-type)))}))
 
 
 (defn- make-request-scope
@@ -154,7 +154,7 @@
   ([vm-type telemetry-stream] (make-vm vm-type telemetry-stream nil))
   ([vm-type telemetry-stream output-stream]
    (when-not (contains? vm-constructors vm-type)
-     (throw (ex-info "Unknown Dao REPL VM type"
+     (throw (ex-info "Unknown Yin REPL VM type"
                      {:vm-type vm-type,
                       :supported (vec (keys vm-constructors))})))
    (let [constructor (get vm-constructors vm-type)
@@ -488,7 +488,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
     :clojure (compile-clojure-forms (read-clojure-forms input-str))
     :python (yang.python/compile input-str)
     :php (yang.php/compile input-str)
-    (throw (ex-info "Unsupported Dao REPL language" {:lang lang}))))
+    (throw (ex-info "Unsupported Yin REPL language" {:lang lang}))))
 
 
 (defn- eval-clojure-forms
@@ -515,7 +515,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
            (compile-source :php arg)
            (throw (ex-info "PHP compile command expects a source string"
                            {:arg arg})))
-    (throw (ex-info "Unsupported Dao REPL language" {:lang (:lang state)}))))
+    (throw (ex-info "Unsupported Yin REPL language" {:lang (:lang state)}))))
 
 
 (defn- render-compile-output
@@ -543,7 +543,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
       [(poll
          [cursor attempts]
          (if (> attempts 500)
-           (let [err (ex-info "Remote Dao REPL request timed out"
+           (let [err (ex-info "Remote Yin REPL request timed out"
                               {:request-id request-id})]
              #?(:clj (throw err)
                 :cljs (@p-resolve [state (format-error err)])
@@ -573,7 +573,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                (let
                  [err
                   (ex-info
-                    "Remote Dao REPL stream closed before a response arrived"
+                    "Remote Yin REPL stream closed before a response arrived"
                     {:request-id request-id, :result result})]
                  #?(:clj (throw err)
                     :cljs (@p-resolve [state (format-error err)])
@@ -587,7 +587,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
 
 (defn- eval-remote-input
   [state input-str]
-  (let [request-id (str "dao.repl/request/" (:request-scope state)
+  (let [request-id (str "yin.repl/request/" (:request-scope state)
                         "/" (:request-id state))
         endpoint (:remote-endpoint state)
         _ (dao-apply/put-request! (:request-stream endpoint)
@@ -619,7 +619,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
     (case command
       vm (let [vm-type (first args)]
            (when-not (contains? vm-constructors vm-type)
-             (throw (ex-info "Unknown Dao REPL VM type"
+             (throw (ex-info "Unknown Yin REPL VM type"
                              {:vm-type vm-type,
                               :supported (vec (keys vm-constructors))})))
            [(assoc state
@@ -630,7 +630,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
             (str "Switched to " (get vm-labels vm-type) " (store cleared)")])
       lang (let [lang (first args)]
              (when-not (contains? lang-labels lang)
-               (throw (ex-info "Unknown Dao REPL language" {:lang lang})))
+               (throw (ex-info "Unknown Yin REPL language" {:lang lang})))
              [(assoc state :lang lang)
               (str "Switched to " (get lang-labels lang))])
       compile (let [ast (compile-command-ast state (first args))]
@@ -649,7 +649,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
          :cljs
          (throw
            (ex-info
-             "Remote Dao REPL connections are not yet supported on Node.js"
+             "Remote Yin REPL connections are not yet supported on Node.js"
              {:url (first args)}))
          :cljd (let [endpoint (open-remote-endpoint (first args))
                      state (detach-remote-endpoint state)]
@@ -681,7 +681,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
       help [state help-text]
       repl-state [state (format-value (repl-state state))]
       quit [(assoc state :running? false) "Bye"]
-      (throw (ex-info "Unknown Dao REPL command" {:command command})))))
+      (throw (ex-info "Unknown Yin REPL command" {:command command})))))
 
 
 (defn- bracket-balance
@@ -773,7 +773,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                 :op/reset (deliver-result (handle-command state '(reset)))
                 :op/help (deliver-result [state help-text])
                 (deliver-result
-                  [state (str "Error: Unsupported Dao REPL request op " op)]))]
+                  [state (str "Error: Unsupported Yin REPL request op " op)]))]
     #?(:clj (deliver-result (let [[state' result] @res-p]
                               [state' (dao-apply/response request-id result)]))
        :cljs (.then res-p
@@ -856,7 +856,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                :on-connect
                (fn [stream]
                  (log-repl!
-                   (str "Dao REPL client connected on ws://localhost:"
+                   (str "Yin REPL client connected on ws://localhost:"
                         port))
                  (when-let [on-connect (:on-connect opts)]
                    (on-connect stream))
@@ -878,7 +878,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                                  (recur (:cursor result)))))))]
                    (swap! workers conj worker)))})
             _ (swap! state-atom expose-repl-server port server-handle)]
-        (log-repl! (str "Dao REPL server listening on ws://localhost:" port))
+        (log-repl! (str "Yin REPL server listening on ws://localhost:" port))
         {:port port,
          :server server-handle,
          :workers workers,
@@ -903,7 +903,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                :on-connect
                (fn [stream]
                  (log-repl!
-                   (str "Dao REPL client connected on ws://localhost:"
+                   (str "Yin REPL client connected on ws://localhost:"
                         port))
                  (when-let [on-connect (:on-connect opts)]
                    (on-connect stream))
@@ -927,7 +927,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                                  (loop-fn (:cursor result)))))))]
                    (worker {:position 0})))})
             _ (swap! state-atom expose-repl-server port server-handle)]
-        (log-repl! (str "Dao REPL server listening on ws://localhost:" port))
+        (log-repl! (str "Yin REPL server listening on ws://localhost:" port))
         {:port port,
          :server server-handle,
          :stop! (fn []
@@ -949,7 +949,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                :on-connect
                (fn [stream]
                  (log-repl!
-                   (str "Dao REPL client connected on ws://localhost:"
+                   (str "Yin REPL client connected on ws://localhost:"
                         port))
                  (when-let [on-connect (:on-connect opts)]
                    (on-connect stream))
@@ -985,7 +985,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                                  (loop-fn (:cursor result)))))))]
                    (worker {:position 0})))})
             _ (swap! state-atom expose-repl-server port server-handle)]
-        (log-repl! (str "Dao REPL server listening on ws://localhost:" port))
+        (log-repl! (str "Yin REPL server listening on ws://localhost:" port))
         {:port port,
          :server server-handle,
          :stop! (fn []

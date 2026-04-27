@@ -1,7 +1,7 @@
 # Flutter REPL Demo: Local Run Guide
 
-This demo starts a Dao REPL server inside the Flutter app on port `7777`.
-It demonstrates dynamically calling CLJD functions from a remote Dao REPL to change the Flutter UI at runtime.
+This demo starts a Yin REPL server inside the Flutter app on port `7777`.
+It demonstrates dynamically calling CLJD functions from a remote Yin REPL to change the Flutter UI at runtime.
 
 ## Prerequisites
 
@@ -37,7 +37,7 @@ The examples below use `mise exec --` so they work even if your shell is not act
 The Flutter app runs generated Dart from `lib/cljd-out`, so compile CLJD before starting the app:
 
 ```bash
-mise exec -- clj -M:cljd compile dao.stream.ws dao.repl datomworld.demo.repl datomworld.main
+mise exec -- clj -M:cljd compile dao.stream.ws yin.repl datomworld.demo.repl datomworld.main
 ```
 
 ## 2. Clean and run the app
@@ -94,12 +94,12 @@ mise exec -- adb forward tcp:7777 tcp:7777
 
 This makes the Android app's port `7777` reachable from your laptop as `localhost:7777`.
 
-## 4. Connect from the desktop Dao REPL
+## 4. Connect from the desktop Yin REPL
 
-Start a JVM Dao REPL:
+Start a JVM Yin REPL:
 
 ```bash
-mise exec -- clj -M:dao-repl
+mise exec -- clj -M:yin-repl
 ```
 
 Connect to the Flutter app:
@@ -151,7 +151,7 @@ If the desktop REPL says `Connected...` but evaluation times out:
    ```
 3. Recompile CLJD and fully restart the app:
    ```bash
-   mise exec -- clj -M:cljd compile dao.stream.ws dao.repl datomworld.demo.repl datomworld.main
+   mise exec -- clj -M:cljd compile dao.stream.ws yin.repl datomworld.demo.repl datomworld.main
    mise exec -- flutter clean
    mise exec -- flutter run
    ```

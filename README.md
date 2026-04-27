@@ -66,13 +66,13 @@ Compile and run the tests for the frontend/CLJS logic using the Clojure CLI:
 clj -M:cljs -m shadow.cljs.devtools.cli compile test && node target/node-tests.js
 ```
 
-## Dao REPL
+## Yin REPL
 
-Launch the interactive Dao REPL to experiment with the Yin VM and manipulate datoms directly.
+Launch the interactive Yin REPL to experiment with the Yin VM and manipulate datoms directly.
 
 ### Clojure (JVM)
 ```bash
-clj -M:dao-repl
+clj -M:yin-repl
 ```
 
 ### ClojureScript (Node.js)
@@ -80,26 +80,26 @@ clj -M:dao-repl
 First, compile the ClojureScript source to a Node.js script:
 
 ```bash
-clj -M:cljs -m shadow.cljs.devtools.cli compile dao-repl
+clj -M:cljs -m shadow.cljs.devtools.cli compile yin-repl
 ```
 
 Then, run the compiled script:
 
 ```bash
-node target/dao-repl.js
+node target/yin-repl.js
 ```
 
 ### ClojureDart (cljd)
-The ClojureDart source for the Dao REPL is located in `src/cljd/dao/repl_main/cljd.cljd`.
+The ClojureDart source for the Yin REPL is located in `src/cljd/yin/repl_main/cljd.cljd`.
 
 Compile the ClojureDart namespace to Dart:
 
 ```bash
-clj -M:cljd compile dao.repl-main.cljd
+clj -M:cljd compile yin.repl-main.cljd
 ```
 
 Then run the generated Dart entry point:
 
 ```bash
-dart run bin/dao_repl_main.dart
+dart run bin/yin_repl_main.dart
 ```

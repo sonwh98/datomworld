@@ -2,7 +2,7 @@
 
 ## Overview
 
-A Reagent browser app that connects to a running `dao.repl` server via WebSockets to display:
+A Reagent browser app that connects to a running `yin.repl` server via WebSockets to display:
 - Live telemetry datoms from the VM's execution
 - Parsed VM snapshots (control, environment, store, continuation)
 - REPL interaction (eval Clojure, view results)
@@ -13,7 +13,7 @@ A Reagent browser app that connects to a running `dao.repl` server via WebSocket
 The app uses two bidirectional WebSocket channels:
 
 ```
-Browser (Reagent)                          Node.js Server (dao.repl)
+Browser (Reagent)                          Node.js Server (yin.repl)
 ├── REPL Channel (8090)                    ← ws/listen! (accepting REPL clients)
 │   └── dao.stream.apply req/resp           ↓ repl/serve!
 │       (eval commands + results)
