@@ -4,5 +4,6 @@
 
 (defn main
   []
-  ;; (repl-demo/main)
-  (flow-cube-demo/main))
+  (repl-demo/main)
+  ;;(flow-cube-demo/main)
+)

@@ -1,17 +1,11 @@
 (ns datomworld.demo.repl
   (:require ["dart:async" :as async]
-            ["dart:io" :as io]
             ["package:flutter/material.dart" :as m]
             [clojure.string :as str]
-            [dao.repl :as repl]))
+            [dao.repl.flutter :as flutter-repl]))
 
 (def ^:private button-label (m/ValueNotifier "Click me!"))
 (def ^:private click-output (m/ValueNotifier ""))
-(def ^:private device-ip (m/ValueNotifier "..."))
-(def ^:private interface-addresses (m/ValueNotifier []))
-(def ^:private server-status (m/ValueNotifier "starting"))
-(def ^:private repl-state (atom nil))
-(def ^:private repl-server (atom nil))
 
 (defn- extra-primitives
   []
@@ -21,49 +15,10 @@
      (fn []
        "(define a handler via REPL: (def button-handler (fn [] \"result\")))")})
 
-(defn- load-device-ip!
-  []
-  (.then
-    ^async/Future (io/NetworkInterface.list)
-    (fn [interfaces]
-      (let [found (atom nil)
-            rows (atom [])]
-        (doseq [iface (seq interfaces)]
-          (let [ips (keep (fn [addr]
-                            (let [a (.-address ^io/InternetAddress addr)]
-                              (when (str/includes? a ".")
-                                (when (and (nil? @found)
-                                           (not (str/starts-with? a "127.")))
-                                  (reset! found a))
-                                a)))
-                          (seq (.-addresses ^io/NetworkInterface iface)))]
-            (when (seq ips)
-              (swap! rows conj [(.-name ^io/NetworkInterface iface) ips]))))
-        (set! (.-value ^m/ValueNotifier device-ip) (or @found "localhost"))
-        (set! (.-value ^m/ValueNotifier interface-addresses) @rows)))))
-
-(defn- init-repl!
-  []
-  (reset! repl-state
-    (-> (repl/create-state {:vm-type :semantic})
-        (update :vm update :primitives merge (extra-primitives)))))
-
-(defn- start-server!
-  [port]
-  (reset! repl-server (repl/serve! repl-state
-                                   port
-                                   {:on-connect (fn [_stream]
-                                                  (set! (.-value
-                                                          ^m/ValueNotifier
-                                                          server-status)
-                                                        "client connected"))}))
-  (set! (.-value ^m/ValueNotifier server-status) "listening"))
-
 (defn- on-press!
   []
-  (.then ^async/Future (repl/eval-input @repl-state "(button-handler)")
-         (fn [[state' result]]
-           (reset! repl-state state')
+  (.then ^async/Future (flutter-repl/eval-input! "(button-handler)")
+         (fn [result]
            (set! (.-value ^m/ValueNotifier click-output) (str result)))))
 
 (defn- mono
@@ -81,51 +36,7 @@
       .padding
       (m/EdgeInsets.all 16.0)
       .children
-      [(m/Card
-         .child
-         (m/Padding
-           .padding
-           (m/EdgeInsets.all 12.0)
-           .child
-           (m/Column
-             .crossAxisAlignment
-             m/CrossAxisAlignment.start
-             .children
-             [(m/Text "REPL Server Active"
-                      .style
-                      (m/TextStyle .fontWeight m/FontWeight.bold))
-              (m/SizedBox .height 6.0) (mono "ws://0.0.0.0:7777")
-              (m/SizedBox .height 2.0)
-              (m/ValueListenableBuilder .valueListenable
-                                        device-ip
-                                        .builder
-                                        (fn [_ ip _]
-                                          (mono (str "ws://" ip ":7777"))))
-              (m/SizedBox .height 10.0)
-              (m/Text "Interface IPs"
-                      .style
-                      (m/TextStyle .fontWeight m/FontWeight.bold))
-              (m/SizedBox .height 4.0)
-              (m/ValueListenableBuilder
-                .valueListenable
-                interface-addresses
-                .builder
-                (fn [_ rows _]
-                  (m/Column .crossAxisAlignment
-                            m/CrossAxisAlignment.start
-                            .children
-                            (if (seq rows)
-                              (mapv (fn [[iface ips]]
-                                      (mono
-                                        (str iface ": " (str/join ", " ips))))
-                                rows)
-                              [(mono "loading...")])))) (m/SizedBox .height 6.0)
-              (m/ValueListenableBuilder .valueListenable
-                                        server-status
-                                        .builder
-                                        (fn [_ status _]
-                                          (mono (str "status: " status))))])))
-       (m/SizedBox .height 32.0)
+      [(flutter-repl/info-card {:port 7777}) (m/SizedBox .height 32.0)
        (m/ValueListenableBuilder
          .valueListenable
          button-label
@@ -181,9 +92,8 @@
 
 (defn main
   []
-  (init-repl!)
-  (start-server! 7777)
-  (load-device-ip!)
+  (flutter-repl/start-server! {:port 7777,
+                               :extra-primitives (extra-primitives)})
   (m/runApp (m/MaterialApp .title
                            "Yin.VM Flutter REPL"
                            .theme

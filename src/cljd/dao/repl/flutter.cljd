@@ -1,0 +1,109 @@
+(ns dao.repl.flutter
+  "A reusable Flutter component to easily embed a Yin.VM REPL server inside any application."
+  (:require ["dart:async" :as async]
+            ["dart:io" :as io]
+            ["package:flutter/material.dart" :as m]
+            [clojure.string :as str]
+            [dao.repl :as repl]))
+
+(def device-ip (m/ValueNotifier "..."))
+(def interface-addresses (m/ValueNotifier []))
+(def server-status (m/ValueNotifier "starting"))
+(def repl-state (atom nil))
+(def repl-server (atom nil))
+
+(defn load-device-ip!
+  "Asynchronously loads the local network interfaces and populates the device-ip and interface-addresses notifiers."
+  []
+  (.then
+    ^async/Future (io/NetworkInterface.list)
+    (fn [interfaces]
+      (let [found (atom nil)
+            rows (atom [])]
+        (doseq [iface (seq interfaces)]
+          (let [ips (keep (fn [addr]
+                            (let [a (.-address ^io/InternetAddress addr)]
+                              (when (str/includes? a ".")
+                                (when (and (nil? @found)
+                                           (not (str/starts-with? a "127.")))
+                                  (reset! found a))
+                                a)))
+                          (seq (.-addresses ^io/NetworkInterface iface)))]
+            (when (seq ips)
+              (swap! rows conj [(.-name ^io/NetworkInterface iface) ips]))))
+        (set! (.-value ^m/ValueNotifier device-ip) (or @found "localhost"))
+        (set! (.-value ^m/ValueNotifier interface-addresses) @rows)))))
+
+(defn start-server!
+  "Starts the REPL server on the specified port (default 7777) and populates the device-ip and server-status notifiers."
+  [{:keys [port extra-primitives], :or {port 7777}}]
+  (reset! repl-state
+    (-> (repl/create-state {:vm-type :semantic})
+        (update :vm update :primitives merge (or extra-primitives {}))))
+  (reset! repl-server (repl/serve! repl-state
+                                   port
+                                   {:on-connect (fn [_stream]
+                                                  (set! (.-value
+                                                          ^m/ValueNotifier
+                                                          server-status)
+                                                        "client connected"))}))
+  (set! (.-value ^m/ValueNotifier server-status) "listening")
+  (load-device-ip!))
+
+(defn eval-input!
+  "Evaluates code in the active REPL state, updates the state, and returns a future with the result string."
+  [code]
+  (.then ^async/Future (repl/eval-input @repl-state code)
+         (fn [[state' result]] (reset! repl-state state') result)))
+
+(defn- mono
+  ([text] (mono text 12.0))
+  ([text size]
+   (m/Text text .style (m/TextStyle .fontFamily "monospace" .fontSize size))))
+
+(defn info-card
+  "A Flutter Widget that displays the REPL server status and device IPs."
+  [{:keys [port], :or {port 7777}}]
+  (m/Card
+    .child
+    (m/Padding .padding
+               (m/EdgeInsets.all 12.0)
+               .child
+               (m/Column
+                 .crossAxisAlignment
+                 m/CrossAxisAlignment.start
+                 .children
+                 [(m/Text "REPL Server Active"
+                          .style
+                          (m/TextStyle .fontWeight m/FontWeight.bold))
+                  (m/SizedBox .height 6.0) (mono (str "ws://0.0.0.0:" port))
+                  (m/SizedBox .height 2.0)
+                  (m/ValueListenableBuilder .valueListenable
+                                            device-ip
+                                            .builder
+                                            (fn [_ ip _]
+                                              (mono (str "ws://" ip ":" port))))
+                  (m/SizedBox .height 10.0)
+                  (m/Text "Interface IPs"
+                          .style
+                          (m/TextStyle .fontWeight m/FontWeight.bold))
+                  (m/SizedBox .height 4.0)
+                  (m/ValueListenableBuilder
+                    .valueListenable
+                    interface-addresses
+                    .builder
+                    (fn [_ rows _]
+                      (m/Column
+                        .crossAxisAlignment
+                        m/CrossAxisAlignment.start
+                        .children
+                        (if (seq rows)
+                          (mapv (fn [[iface ips]]
+                                  (mono (str iface ": " (str/join ", " ips))))
+                            rows)
+                          [(mono "loading...")])))) (m/SizedBox .height 6.0)
+                  (m/ValueListenableBuilder
+                    .valueListenable
+                    server-status
+                    .builder
+                    (fn [_ status _] (mono (str "status: " status))))]))))
