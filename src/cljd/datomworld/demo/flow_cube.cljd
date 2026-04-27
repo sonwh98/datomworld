@@ -1,89 +1,80 @@
 (ns datomworld.demo.flow-cube
-  (:require ["package:flutter/material.dart" :as m]
-            [dao.stream.ringbuffer :as ring]
-            [dao.stream :as ds]
-            [dao.flow :as flow]
-            [dao.flow.walk :as walk]
-            [dao.flow.animate :as anim]
-            [dao.flow.hiccup :as hiccup]
+  (:require ["dart:async" :as async]
+            ["dart:core" :as core]
+            ["package:flutter/material.dart" :as m]
             [dao.flow.flutter :as flutter]
-            [dao.db :as db]
-            [dao.db.in-memory :as in-m]))
+            [datomworld.demo.flow-cube-state :as cube]
+            [yin.repl.flutter :as flutter-repl]))
+
+
+(defn- mono
+  ([text] (mono text 12.0))
+  ([text size]
+   (m/Text text .style (m/TextStyle .fontFamily "monospace" .fontSize size))))
 
 (defn main
   []
-  (let [schema [{:db/ident :flow/parent, :db/valueType :db.type/ref}
-                {:db/ident :flow/transform, :db/valueType :db.type/ref}
-                {:db/ident :flow/material, :db/valueType :db.type/ref}
-                {:db/ident :camera, :db/valueType :db.type/ref}]
-        db-with-schema (:db-after (db/transact (in-m/empty-db) schema))
-        intent-stream (ring/make-ring-buffer-stream 100)
-        scene
-          [:flow/scene {:flow/clear-color [0.05 0.06 0.09 1.0]}
-           [:camera/perspective
-            {:fov 60.0, :near 0.1, :far 100.0, :transform {:translate [0 0 5]}}]
-           [:geom/cube
-            {:flow/id :spinner,
-             :transform {:rotate [0.0 0.0 0.0]},
-             :material {:color [0.2 0.6 0.95 1.0]}}]]
-        datoms (hiccup/hiccup->datoms scene)
-        tx-data (mapv (fn [[e a v]] [:db/add e a v]) datoms)
-        _ (ds/put! intent-stream tx-data)
-        db-atom (atom db-with-schema)
+  (let [port 7777
         notifier (m/ValueNotifier. [])
-        t-eid (atom nil)
-        ;; Initial sync transduct to get first frame and get t-eid
-        _ (flow/stream-transduce (walk/walk-xf db-atom)
-                                 flutter/paint-rf
-                                 notifier
-                                 intent-stream
-                                 {:position 0})
-        _ (reset! t-eid (first (first (db/q '[:find ?t :where
-                                              [?e :geom/kind :cube]
-                                              [?e :flow/transform ?t]]
-                                            @db-atom))))
-        angles (atom [0.0 0.0 0.0])
-        cursor (atom {:position 1})]
+        cube-state (cube/create-demo-state
+                     (fn [frame] (flutter/paint-rf notifier frame))
+                     {:schedule-every!
+                        (fn [period-ms tick!]
+                          (let [timer (async/Timer.periodic
+                                        (core/Duration .milliseconds period-ms)
+                                        (fn [_timer] (tick!)))]
+                            (fn [] (.cancel ^async/Timer timer))))})
+        _ (flutter-repl/start-server!
+            {:port port, :extra-primitives (cube/repl-primitives cube-state)})]
     (m/runApp
       (m/MaterialApp.
+        .title
+        "dao.flow cube REPL"
         .home
         (m/Scaffold.
+          .appBar
+          (m/AppBar .title (m/Text "dao.flow cube REPL"))
           .body
-          (m/Container.
-            .color
-            (m/Color. 0xFF0D0F17)
-            .child
-            (m/Center.
-              .child
-              (m/GestureDetector.
-                .onPanUpdate
-                (fn [^m/DragUpdateDetails details]
-                  (let [dx (.-dx (.-delta details))
-                        dy (.-dy (.-delta details))]
-                    (swap! angles (fn [[rx ry rz]] [(+ rx (* dy 0.01))
-                                                    (+ ry (* dx 0.01)) rz]))
-                    (anim/rotation-tick intent-stream @t-eid @angles)
-                    (loop []
-                      (let [res (ds/next intent-stream @cursor)]
-                        (when (map? res)
-                          (reset! cursor (:cursor res))
-                          (swap! db-atom #(get (db/transact % (:ok res))
-                                               :db-after))
-                          (ds/drain-one! intent-stream)
-                          (recur))))
-                    (let [frame (walk/walk-once @db-atom)]
-                      (flutter/paint-rf notifier frame))))
-                .child
-                (m/SizedBox. .width
-                             400.0
-                             .height
-                             400.0
-                             .child
-                             (m/ValueListenableBuilder.
-                               .valueListenable
-                               notifier
-                               .builder
-                               (fn [context frame child]
-                                 (m/CustomPaint. .painter
-                                                 (flutter/FlowPainter.
-                                                   notifier)))))))))))))
+          (m/ListView
+            .padding
+            (m/EdgeInsets.all 16.0)
+            .children
+            [(flutter-repl/info-card {:port port}) (m/SizedBox .height 16.0)
+             (m/Text "Remote control"
+                     .style
+                     (m/TextStyle .fontWeight m/FontWeight.bold))
+             (m/SizedBox .height 8.0)
+             (mono "(connect \"daostream:ws://<ip>:7777\")")
+             (mono "(cube-rotation)") (mono "(set-cube-rotation! 0 1.5 0)")
+             (mono "(rotate-cube! 0 0.2 0)") (mono "(reset-cube-rotation!)")
+             (mono "(animate!)") (mono "(animate! 0 0.05 0)")
+             (mono "(stop-animation!)") (m/SizedBox .height 16.0)
+             (m/Text "Touch control"
+                     .style
+                     (m/TextStyle .fontWeight m/FontWeight.bold))
+             (m/SizedBox .height 8.0)
+             (mono "Drag on the cube to emit the same rotation datoms locally.")
+             (m/SizedBox .height 24.0)
+             (m/Center .child
+                       (m/GestureDetector.
+                         .onPanUpdate
+                         (fn [^m/DragUpdateDetails details]
+                           (let [dx (.-dx (.-delta details))
+                                 dy (.-dy (.-delta details))]
+                             (cube/rotate-by! cube-state
+                                              [(* dy 0.01) (* dx 0.01) 0.0])))
+                         .child
+                         (m/SizedBox .width
+                                     400.0
+                                     .height
+                                     400.0
+                                     .child
+                                     (m/ValueListenableBuilder.
+                                       .valueListenable
+                                       notifier
+                                       .builder
+                                       (fn [_ _frame _child]
+                                         (m/CustomPaint.
+                                           .painter
+                                           (flutter/FlowPainter.
+                                             notifier)))))))]))))))
