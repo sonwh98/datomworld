@@ -18,8 +18,7 @@
   (if (:in-stream vm-state)
     vm-state
     (assoc vm-state
-           :in-stream (ds/open! {:type :ringbuffer
-                                 :capacity nil})
+           :in-stream (ds/open! {:type :ringbuffer, :capacity nil})
            :in-cursor {:position 0})))
 
 
@@ -38,20 +37,23 @@
 (defn- bridge-step
   [vm handlers cursor]
   (let [call-in (get (vm/store vm) vm/call-in-stream-key)
-        {:keys [ok] :as next-result} (ds/next call-in cursor)
+        {:keys [ok], :as next-result} (ds/next call-in cursor)
         cursor' (:cursor next-result)]
     (if ok
-      (let [{request-id :dao.stream.apply/id
-             request-op :dao.stream.apply/op
-             request-args :dao.stream.apply/args} ok
+      (let [{request-id :dao.stream.apply/id,
+             request-op :dao.stream.apply/op,
+             request-args :dao.stream.apply/args}
+            ok
             result (apply (get handlers request-op) (or request-args []))
             call-out (get (vm/store vm) vm/call-out-stream-key)
             ;; ds/put! on RingBufferStream returns woken entries
-            put-result (ds/put! call-out (dao.stream.apply/response request-id result))
+            put-result (ds/put! call-out
+                                (dao.stream.apply/response request-id result))
             woke (:woke put-result)
-            ;; Use engine helper to transform woken entries into run-queue entries
+            ;; Use engine helper to transform woken entries into run-queue
+            ;; entries
             entries (engine/make-woken-run-queue-entries vm woke)
-            vm' (update vm :run-queue (fnil into []) entries)]
+            vm' (update vm :ready-queue (fnil into []) entries)]
         [vm' cursor'])
       [vm cursor])))
 
@@ -81,19 +83,14 @@
   [vm-state]
   (loop [v vm-state
          ticks 0]
-    (cond
-      (vm/halted? v) v
-      (> ticks 2000) (throw (ex-info "Step limit exceeded" {:ticks ticks}))
-      :else (recur (vm/step v) (inc ticks)))))
+    (cond (vm/halted? v) v
+          (> ticks 2000) (throw (ex-info "Step limit exceeded" {:ticks ticks}))
+          :else (recur (vm/step v) (inc ticks)))))
 
 
 (defn- linked-depth
   [frame]
-  (loop [k frame
-         depth 0]
-    (if (map? k)
-      (recur (:next k) (inc depth))
-      depth)))
+  (loop [k frame depth 0] (if (map? k) (recur (:next k) (inc depth)) depth)))
 
 
 (deftest cesk-state-test
@@ -129,8 +126,7 @@
 
 (deftest eval-literal-test
   (testing "vm/eval evaluates a literal AST directly"
-    (let [result (vm/eval (stack/create-vm)
-                          {:type :literal, :value 42})]
+    (let [result (vm/eval (stack/create-vm) {:type :literal, :value 42})]
       (is (vm/halted? result))
       (is (= 42 (vm/value result))))))
 
@@ -161,7 +157,8 @@
 
 
 (deftest dao-call-asm-shape-test
-  (testing ":dao.stream.apply/call compiles to [:dao.stream.apply/call op argc] in stack asm"
+  (testing
+    ":dao.stream.apply/call compiles to [:dao.stream.apply/call op argc] in stack asm"
     (let [ast {:type :dao.stream.apply/call,
                :op :op/echo,
                :operands [{:type :literal, :value 42}]}
@@ -171,14 +168,16 @@
 
 
 (deftest dao-call-eval-test
-  (testing "Stack VM executes dao.stream.apply/call via dao.stream.apply streams"
+  (testing
+    "Stack VM executes dao.stream.apply/call via dao.stream.apply streams"
     (let [ast {:type :dao.stream.apply/call,
                :op :op/echo,
                :operands [{:type :literal, :value 42}]}
           vm (stack/create-vm)
           result-parked (vm/eval vm ast)]
       (is (vm/blocked? result-parked))
-      (let [[vm' _cursor'] (bridge-step result-parked {:op/echo identity} {:position 0})
+      (let [[vm' _cursor']
+            (bridge-step result-parked {:op/echo identity} {:position 0})
             result (vm/eval vm' nil)]
         (is (vm/halted? result))
         (is (= 42 (vm/value result)))))))
@@ -254,7 +253,8 @@
 
 
 (deftest continuation-linked-list-projection-test
-  (testing "Active non-tail calls use linked frames internally and a vector externally"
+  (testing
+    "Active non-tail calls use linked frames internally and a vector externally"
     (let [self-fn
           {:type :lambda,
            :params ['self 'n],
@@ -281,7 +281,8 @@
                                 {:type :application,
                                  :operator {:type :variable, :name '-},
                                  :operands [{:type :variable, :name 'n}
-                                            {:type :literal, :value 2}]}]}]}}}
+                                            {:type :literal,
+                                             :value 2}]}]}]}}}
           ast {:type :application,
                :operator self-fn,
                :operands [self-fn {:type :literal, :value 6}]}
@@ -291,7 +292,6 @@
         (cond
           (> ticks 400)
           (is false "Expected to observe a linked continuation before halt")
-
           (>= (linked-depth (:k v)) 2)
           (let [head (:k v)
                 projected (vm/continuation v)]
@@ -302,12 +302,11 @@
             (is (= (linked-depth head) (count projected)))
             (is (= head (first projected)))
             (is (= (:next head) (second projected))))
-
           (vm/halted? v)
-          (is false "Program halted before a nested continuation frame was observed")
-
-          :else
-          (recur (vm/step v) (inc ticks)))))))
+          (is
+            false
+            "Program halted before a nested continuation frame was observed")
+          :else (recur (vm/step v) (inc ticks)))))))
 
 
 (deftest multi-param-lambda-test
@@ -401,7 +400,8 @@
 
 
 (deftest boundary-recompile-test
-  (testing "In-flight execution completes on old artifact; reload runs new version"
+  (testing
+    "In-flight execution completes on old artifact; reload runs new version"
     (let [program-v1 (ast->program {:type :application,
                                     :operator {:type :variable, :name '+},
                                     :operands [{:type :literal, :value 1}
@@ -414,8 +414,9 @@
                                            (:datoms program-v2)
                                            (:node program-v2))
           vm2 (step-until-halt vm1)
-          vm3 (queue-program! vm2 {:node (:program-root-eid vm2),
-                                   :datoms (:datoms vm2)})
+          vm3 (queue-program! vm2
+                              {:node (:program-root-eid vm2),
+                               :datoms (:datoms vm2)})
           vm4 (vm/run vm3)]
       (is (= 3 (vm/value vm2)))
       (is (= 2 (:program-version vm2)))
@@ -432,16 +433,18 @@
           vm1 (-> (queue-program! vm0 program-v1)
                   (vm/step))
           ;; Pin version 1 through a runnable continuation entry.
-          vm1 (assoc vm1 :run-queue [{:type :call-frame, :compiled-version 1}])
-          vm2 (stack/maybe-recompile-at-boundary
-                (stack/append-program-datoms vm1
-                                             (:datoms program-v2)
-                                             (:node program-v2)))
-          vm3 (stack/maybe-recompile-at-boundary
-                (stack/append-program-datoms vm2
-                                             (:datoms program-v3)
-                                             (:node program-v3)))]      (is (= #{1 2} (set (keys (:compiled-by-version vm2)))))
-         (is (= #{1 3} (set (keys (:compiled-by-version vm3))))))))
+          vm1 (assoc vm1
+                     :ready-queue [{:type :call-frame, :compiled-version 1}])
+          vm2 (stack/maybe-recompile-at-boundary (stack/append-program-datoms
+                                                   vm1
+                                                   (:datoms program-v2)
+                                                   (:node program-v2)))
+          vm3 (stack/maybe-recompile-at-boundary (stack/append-program-datoms
+                                                   vm2
+                                                   (:datoms program-v3)
+                                                   (:node program-v3)))]
+      (is (= #{1 2} (set (keys (:compiled-by-version vm2)))))
+      (is (= #{1 3} (set (keys (:compiled-by-version vm3))))))))
 
 
 ;; =============================================================================
@@ -467,9 +470,10 @@
           stream (get (vm/store vm) stream-id)]
       (is (some? stream))
       (is
-        (= 1024 (.-capacity #?(:cljs ^dao.stream.ringbuffer/RingBufferStream stream
-                               :cljd ^dao.stream.ringbuffer/RingBufferStream stream
-                               :default stream)))
+        (= 1024
+           (.-capacity #?(:cljs ^dao.stream.ringbuffer/RingBufferStream stream
+                          :cljd ^dao.stream.ringbuffer/RingBufferStream stream
+                          :default stream)))
         "Default buffer is 1024 when not specified (via datom compilation)"))))
 
 
@@ -656,7 +660,10 @@
           vm1 (vm/eval vm0 {:type :vm/park})
           parked-cont (vm/value vm1)
           parked-id (:id parked-cont)
-          vm2 (vm/eval vm1 {:type :vm/resume, :parked-id parked-id, :val {:type :literal, :value 42}})]
+          vm2 (vm/eval vm1
+                       {:type :vm/resume,
+                        :parked-id parked-id,
+                        :val {:type :literal, :value 42}})]
       (is (= :parked-continuation (:type parked-cont)))
       (is (= 42 (vm/value vm2)))
       (is (nil? (get-in vm2 [:parked parked-id]))))))

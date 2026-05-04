@@ -33,6 +33,9 @@
        [yin.vm :refer [opcase]])))
 
 
+(declare restore-frame)
+
+
 ;; =============================================================================
 ;; Stack VM
 ;; =============================================================================
@@ -43,36 +46,39 @@
 ;; =============================================================================
 
 (defrecord StackVM
-  [blocked?   ; true if blocked
-   in-stream  ; ingress DaoStream carrying canonical datom programs
-   in-cursor  ; ingress cursor position
-   bytecode   ; bytecode vector
-   k          ; continuation (call frame stack)
+  [blocked?  ; true if blocked
+   in-stream ; ingress DaoStream carrying canonical datom programs
+   in-cursor ; ingress cursor position
+   bytecode  ; bytecode vector
+   k         ; continuation (call frame stack)
    compiled-by-version ; {program-version -> compiled artifact}
    compiled-cache-limit ; max retained compiled artifacts
-   active-compiled-version ; compiled program version for new control transfers
+   active-compiled-version ; compiled program version for new control
+   ;; transfers
    compile-dirty? ; canonical datom stream changed since last compile
    env        ; lexical environment (E in CESK)
    halted?    ; true if execution completed
    id-counter ; unique ID counter
-   macro-registry ; {macro-lambda-eid -> (fn [ctx] {:datoms [...] :root-eid eid})}
-   parked     ; parked continuations
-   control    ; program counter (C in CESK)
-   pool       ; constant pool
-   datoms     ; canonical bounded datom stream snapshot
+   macro-registry ; {macro-lambda-eid -> (fn [ctx] {:datoms [...] :root-eid
+   ;; eid})}
+   parked  ; parked continuations
+   control ; program counter (C in CESK)
+   pool    ; constant pool
+   datoms  ; canonical bounded datom stream snapshot
    datom-index ; derived datom index for compilation
    program-root-eid ; root entity id of canonical program
-   program-version ; monotonic program version for append/recompile lifecycle
+   program-version ; monotonic program version for append/recompile
+   ;; lifecycle
    primitives ; primitive operations
-   run-queue  ; vector of runnable continuations
-   stack      ; operand stack
-   store      ; heap memory (S in CESK)
-   value      ; final result value
-   wait-set   ; vector of parked continuations waiting on streams
-   telemetry    ; optional telemetry config
+   ready-queue ; vector of runnable continuations
+   stack    ; operand stack
+   store    ; heap memory (S in CESK)
+   value    ; final result value
+   wait-set ; vector of parked continuations waiting on streams
+   telemetry ; optional telemetry config
    telemetry-step ; telemetry snapshot counter
-   telemetry-t  ; telemetry transaction counter
-   vm-model     ; telemetry model keyword
+   telemetry-t ; telemetry transaction counter
+   vm-model    ; telemetry model keyword
    ])
 
 
@@ -325,7 +331,8 @@
             :stream-close (do (emit-byte! (vm/opcode-table :stream-close))
                               (swap! emit-offset + 1))
             :dao.stream.apply/call (let [idx (add-constant arg1)]
-                                     (emit-byte! (vm/opcode-table :dao.stream.apply/call))
+                                     (emit-byte! (vm/opcode-table
+                                                   :dao.stream.apply/call))
                                      (emit-byte! idx)
                                      (emit-byte! arg2)
                                      (swap! emit-offset + 3))
@@ -340,9 +347,7 @@
 
 (defn- canonical-program?
   [program]
-  (and (map? program)
-       (contains? program :node)
-       (contains? program :datoms)))
+  (and (map? program) (contains? program :node) (contains? program :datoms)))
 
 
 (defn- build-program-index
@@ -352,9 +357,7 @@
 
 (defn- executable-program-datom?
   [[_e a _v _t m]]
-  (and (keyword? a)
-       (= "yin" (namespace a))
-       (not= m derived-metadata-eid)))
+  (and (keyword? a) (= "yin" (namespace a)) (not= m derived-metadata-eid)))
 
 
 (declare collect-frame-versions)
@@ -364,8 +367,8 @@
   [frame]
   (if (map? frame)
     (let [self (cond-> #{}
-                 (some? (:compiled-version frame))
-                 (conj (:compiled-version frame)))]
+                 (some? (:compiled-version frame)) (conj (:compiled-version
+                                                           frame)))]
       (into self (frame-versions (:next frame))))
     #{}))
 
@@ -380,7 +383,7 @@
 (defn- pinned-compiled-versions
   [vm]
   (let [parked-frames (vals (or (:parked vm) {}))
-        run-entries (or (:run-queue vm) [])
+        run-entries (or (:ready-queue vm) [])
         wait-entries (or (:wait-set vm) [])]
     (-> #{}
         (cond-> (some? (:active-compiled-version vm))
@@ -395,26 +398,24 @@
 (defn- trim-compiled-cache
   [vm]
   (let [compiled (or (:compiled-by-version vm) {})
-        limit (max 1 (or (:compiled-cache-limit vm) default-compiled-cache-limit))
+        limit (max 1
+                   (or (:compiled-cache-limit vm) default-compiled-cache-limit))
         versions (sort (keys compiled))
         keep-newest (set (take-last limit versions))
         keep (into keep-newest (pinned-compiled-versions vm))]
     (assoc vm
            :compiled-by-version
            (reduce-kv (fn [m version artifact]
-                        (if (contains? keep version)
-                          (assoc m version artifact)
-                          m))
+                        (if (contains? keep version) (assoc m version artifact) m))
                       {}
                       compiled))))
 
 
 (defn- compile-stack-artifact
   [program-root-eid program-datoms program-index]
-  (assemble
-    (ast-datoms->asm program-datoms
-                     {:root-id program-root-eid,
-                      :by-entity program-index})))
+  (assemble (ast-datoms->asm program-datoms
+                             {:root-id program-root-eid,
+                              :by-entity program-index})))
 
 
 (defn- cache-compiled-artifact
@@ -464,8 +465,7 @@
   ([vm datoms] (append-program-datoms vm datoms nil))
   ([vm datoms new-root-eid]
    (when-not (some? (:program-root-eid vm))
-     (throw (ex-info "append-program-datoms requires a canonical program"
-                     {})))
+     (throw (ex-info "append-program-datoms requires a canonical program" {})))
    (let [appended (vec datoms)]
      (if (and (empty? appended) (nil? new-root-eid))
        vm
@@ -475,12 +475,9 @@
          (-> vm
              (update :datoms into appended)
              (assoc :program-version version
-                    :program-root-eid (or new-root-eid
-                                          (:program-root-eid vm))
+                    :program-root-eid (or new-root-eid (:program-root-eid vm))
                     :compile-dirty? (or (:compile-dirty? vm) executable?)
-                    :datom-index (if executable?
-                                   nil
-                                   (:datom-index vm)))))))))
+                    :datom-index (if executable? nil (:datom-index vm)))))))))
 
 
 (defn- activate-compiled-artifact
@@ -516,9 +513,7 @@
   #?(:clj (object-array (int n))
      :cljs (let [arr (js/Array. n)]
              (loop [i 0]
-               (if (< i n)
-                 (do (aset arr i nil) (recur (inc i)))
-                 arr)))
+               (if (< i n) (do (aset arr i nil) (recur (inc i))) arr)))
      :cljd (object-array (int n))))
 
 
@@ -547,17 +542,13 @@
   [arr min-capacity]
   (let [old-len (stack-array-length arr)
         new-len (loop [len (max 1 old-len)]
-                  (if (< len min-capacity)
-                    (recur (* 2 len))
-                    len))
+                  (if (< len min-capacity) (recur (* 2 len)) len))
         new-arr (make-stack-array new-len)]
     #?(:clj (System/arraycopy arr 0 new-arr 0 old-len)
-       :cljs (loop [i 0]
-               (when (< i old-len)
-                 (aset new-arr i (aget arr i))
-                 (recur (inc i))))
-       :cljd (dotimes [i old-len]
-               (aset new-arr i (aget arr i))))
+       :cljs
+       (loop [i 0]
+         (when (< i old-len) (aset new-arr i (aget arr i)) (recur (inc i))))
+       :cljd (dotimes [i old-len] (aset new-arr i (aget arr i))))
     new-arr))
 
 
@@ -578,9 +569,7 @@
         cap (max initial-stack-capacity n)
         arr (make-stack-array cap)]
     (loop [i 0]
-      (when (< i n)
-        (stack-array-set! arr i (nth stack i))
-        (recur (inc i))))
+      (when (< i n) (stack-array-set! arr i (nth stack i)) (recur (inc i))))
     [arr (dec n)]))
 
 
@@ -599,8 +588,7 @@
   (loop [i 0
          out (transient [])]
     (if (< i argc)
-      (recur (inc i)
-             (conj! out (stack-array-get stack-arr (+ fn-pos 1 i))))
+      (recur (inc i) (conj! out (stack-array-get stack-arr (+ fn-pos 1 i))))
       (persistent! out))))
 
 
@@ -637,10 +625,13 @@
   "Handle result of calling a native fn. Routes effects through handle-effect."
   [state result stack-rest next-control park-entry-fns]
   (if (module/effect? result)
-    (let [{:keys [state value blocked?]} (engine/handle-effect
-                                           state
-                                           result
-                                           {:park-entry-fns park-entry-fns})]
+    (let [{:keys [state value blocked?]}
+          (engine/handle-effect state
+                                result
+                                {:park-entry-fns park-entry-fns,
+                                 :restore-fn
+                                 (fn [base entry val]
+                                   (restore-frame base entry val))})]
       (if blocked?
         state
         (assoc state
@@ -696,10 +687,11 @@
                                      :stream-id (:stream-id r),
                                      :datom (:val res)})),
                :stream/next (fn [_s _e r]
-                              (merge (snap-frame state stack-rest next-control)
-                                     {:reason :next,
-                                      :cursor-ref (:cursor-ref r),
-                                      :stream-id (:stream-id r)}))}))
+                              (merge
+                                (snap-frame state stack-rest next-control)
+                                {:reason :next,
+                                 :cursor-ref (:cursor-ref r),
+                                 :stream-id (:stream-id r)}))}))
           (= :closure (:type fn-val))
           (let [{clo-params :params,
                  clo-bytecode :bytecode,
@@ -747,8 +739,7 @@
                            (= op0 (vm/opcode-table :tailcall))))
                 (maybe-recompile-at-boundary state)
                 state)
-        {:keys [control bytecode stack env k pool store primitives
-                _id-counter]}
+        {:keys [control bytecode stack env k pool store primitives _id-counter]}
         state]
     (if (>= control (count bytecode))
       ;; End of bytes: return top of stack or pop frame
@@ -853,12 +844,13 @@
                   state
                   effect
                   {:park-entry-fns
-                   {:stream/put
-                    (fn [_s _e r]
-                      (merge (snap-frame state (conj stack-rest val) (+ control 1))
-                             {:reason :put,
-                              :stream-id (:stream-id r),
-                              :datom val}))}})]
+                   {:stream/put (fn [_s _e r]
+                                  (merge (snap-frame state
+                                                     (conj stack-rest val)
+                                                     (+ control 1))
+                                         {:reason :put,
+                                          :stream-id (:stream-id r),
+                                          :datom val}))}})]
             (if blocked?
               state
               (assoc state
@@ -911,20 +903,20 @@
                 park-snapshot (snap-frame state stack-rest next-control)
                 parked (engine/park-continuation state park-snapshot)
                 parked-id (get-in parked [:value :id])
-
                 ;; Register reader-waiter on call-out response stream
                 call-out (get-in parked [:store vm/call-out-stream-key])
                 cursor-data (get-in parked [:store vm/call-out-cursor-key])
                 cursor-pos (:position cursor-data)
                 waiter-entry (assoc park-snapshot
                                     :type :dao.stream.apply/resumer
-                                    :cursor-ref {:type :cursor-ref
+                                    :cursor-ref {:type :cursor-ref,
                                                  :id vm/call-out-cursor-key}
                                     :reason :next
                                     :stream-id vm/call-out-stream-key)
                 _ (when (satisfies? ds/IDaoStreamWaitable call-out)
-                    (ds/register-reader-waiter! call-out cursor-pos waiter-entry))
-
+                    (ds/register-reader-waiter! call-out
+                                                cursor-pos
+                                                waiter-entry))
                 ;; Emit request to call-in stream
                 call-in (get-in parked [:store vm/call-in-stream-key])
                 request (dao.stream.apply/request parked-id op-name args)
@@ -939,12 +931,13 @@
           (let [resume-val (peek stack)
                 stack1 (pop stack)
                 parked-id (peek stack1)]
-            (engine/resume-continuation state
-                                        parked-id
-                                        resume-val
-                                        (fn [new-state parked rv]
-                                          (let [resumed (restore-frame new-state parked rv)]
-                                            (assoc resumed :control (inc (:control parked)))))))
+            (engine/resume-continuation
+              state
+              parked-id
+              resume-val
+              (fn [new-state parked rv]
+                (let [resumed (restore-frame new-state parked rv)]
+                  (assoc resumed :control (inc (:control parked)))))))
           :current-cont
           (let [cont (assoc (snap-frame state stack control)
                             :type :reified-continuation)]
@@ -958,18 +951,21 @@
 ;; Scheduler
 ;; =============================================================================
 
+(defn- stack-vm-restore
+  ([base entry] (stack-vm-restore base entry (:value entry)))
+  ([base entry val]
+   (let [val' (if (= :dao.stream.apply/resumer (:type entry))
+                (:dao.stream.apply/value val)
+                val)]
+     (-> (restore-frame base entry val')
+         maybe-recompile-at-boundary))))
+
+
 (defn- resume-from-run-queue
   "Pop first entry from run-queue and resume it as the active computation.
    Returns updated state or nil if queue is empty."
   [state]
-  (engine/resume-from-run-queue state
-                                (fn [base entry]
-                                  (let [val (:value entry)
-                                        val' (if (= :dao.stream.apply/resumer (:type entry))
-                                               (:dao.stream.apply/value val)
-                                               val)]
-                                    (-> (restore-frame base entry val')
-                                        maybe-recompile-at-boundary)))))
+  (engine/resume-from-run-queue state stack-vm-restore))
 
 
 (defn- stack-vm-run-scheduler
@@ -981,7 +977,8 @@
                      (fn [state]
                        (telemetry/emit-snapshot (stack-step state) :step))
                      stack-step)
-                   resume-from-run-queue))
+                   resume-from-run-queue
+                   stack-vm-restore))
 
 
 (defn- materialize-fast-state
@@ -1031,18 +1028,17 @@
            k (:k vm)
            store (:store vm)
            id-counter (:id-counter vm)]
-      (let [fallback #(stack-vm-run-scheduler
-                        (materialize-fast-state
-                          vm
-                          control
-                          bytecode
-                          pool
-                          stack-arr
-                          sp
-                          env
-                          k
-                          store
-                          id-counter))]
+      (let [fallback #(stack-vm-run-scheduler (materialize-fast-state
+                                                vm
+                                                control
+                                                bytecode
+                                                pool
+                                                stack-arr
+                                                sp
+                                                env
+                                                k
+                                                store
+                                                id-counter))]
         (if (>= control (count bytecode))
           (let [result (when-not (neg? sp) (stack-array-get stack-arr sp))]
             (if (nil? k)
@@ -1060,9 +1056,8 @@
               (let [frame k
                     [restored-arr restored-sp0] (stack-vector->array+sp
                                                   (:stack frame))
-                    [restored-arr restored-sp] (stack-push restored-arr
-                                                           restored-sp0
-                                                           result)]
+                    [restored-arr restored-sp]
+                    (stack-push restored-arr restored-sp0 result)]
                 (recur (:control frame)
                        (:bytecode frame)
                        (or (:pool frame) pool)
@@ -1133,7 +1128,8 @@
                     next-control (+ control 2)]
                 (cond
                   (fn? fn-val)
-                  (let [result (invoke-native-fast fn-val stack-arr fn-pos argc)]
+                  (let [result
+                        (invoke-native-fast fn-val stack-arr fn-pos argc)]
                     (if (module/effect? result)
                       (let [state' (materialize-fast-state
                                      vm
@@ -1148,26 +1144,27 @@
                                      id-counter)
                             stack-rest (stack-array->vector stack-arr
                                                             stack-rest-sp)]
-                        (-> (handle-native-result
-                              state'
-                              result
-                              stack-rest
-                              next-control
-                              {:stream/put
-                               (fn [_s _e r]
-                                 (merge
-                                   (snap-frame state' stack-rest next-control)
-                                   {:reason :put,
-                                    :stream-id (:stream-id r),
-                                    :datom (:val result)})),
-                               :stream/next
-                               (fn [_s _e r]
-                                 (merge
-                                   (snap-frame state' stack-rest next-control)
-                                   {:reason :next,
-                                    :cursor-ref (:cursor-ref r),
-                                    :stream-id (:stream-id r)}))})
-                            stack-vm-run-scheduler))
+                        (->
+                          (handle-native-result
+                            state'
+                            result
+                            stack-rest
+                            next-control
+                            {:stream/put (fn [_s _e r]
+                                           (merge (snap-frame state'
+                                                              stack-rest
+                                                              next-control)
+                                                  {:reason :put,
+                                                   :stream-id (:stream-id r),
+                                                   :datom (:val result)})),
+                             :stream/next
+                             (fn [_s _e r]
+                               (merge
+                                 (snap-frame state' stack-rest next-control)
+                                 {:reason :next,
+                                  :cursor-ref (:cursor-ref r),
+                                  :stream-id (:stream-id r)}))})
+                          stack-vm-run-scheduler))
                       (let [arr1 stack-arr
                             sp1 stack-rest-sp
                             [next-arr next-sp] (stack-push arr1 sp1 result)]
@@ -1192,17 +1189,14 @@
                         target-control (or clo-body-start 0)
                         new-env (merge clo-env
                                        (zipmap clo-params
-                                               (stack-args->vector
-                                                 stack-arr
-                                                 fn-pos
-                                                 argc)))
-                        frame (snap-frame {:bytecode bytecode,
-                                           :env env,
-                                           :k k,
-                                           :pool pool}
-                                          (stack-array->vector stack-arr
-                                                               stack-rest-sp)
-                                          next-control)]
+                                               (stack-args->vector stack-arr
+                                                                   fn-pos
+                                                                   argc)))
+                        frame
+                        (snap-frame
+                          {:bytecode bytecode, :env env, :k k, :pool pool}
+                          (stack-array->vector stack-arr stack-rest-sp)
+                          next-control)]
                     (recur target-control
                            target-bytecode
                            (or clo-pool pool)
@@ -1212,8 +1206,8 @@
                            frame
                            store
                            id-counter))
-                  :else
-                  (throw (ex-info "Cannot apply non-function" {:fn fn-val}))))
+                  :else (throw (ex-info "Cannot apply non-function"
+                                        {:fn fn-val}))))
               :tailcall
               (let [argc (nth bytecode (inc control))
                     fn-pos (- sp argc)
@@ -1222,7 +1216,8 @@
                     next-control (+ control 2)]
                 (cond
                   (fn? fn-val)
-                  (let [result (invoke-native-fast fn-val stack-arr fn-pos argc)]
+                  (let [result
+                        (invoke-native-fast fn-val stack-arr fn-pos argc)]
                     (if (module/effect? result)
                       (let [state' (materialize-fast-state
                                      vm
@@ -1237,26 +1232,27 @@
                                      id-counter)
                             stack-rest (stack-array->vector stack-arr
                                                             stack-rest-sp)]
-                        (-> (handle-native-result
-                              state'
-                              result
-                              stack-rest
-                              next-control
-                              {:stream/put
-                               (fn [_s _e r]
-                                 (merge
-                                   (snap-frame state' stack-rest next-control)
-                                   {:reason :put,
-                                    :stream-id (:stream-id r),
-                                    :datom (:val result)})),
-                               :stream/next
-                               (fn [_s _e r]
-                                 (merge
-                                   (snap-frame state' stack-rest next-control)
-                                   {:reason :next,
-                                    :cursor-ref (:cursor-ref r),
-                                    :stream-id (:stream-id r)}))})
-                            stack-vm-run-scheduler))
+                        (->
+                          (handle-native-result
+                            state'
+                            result
+                            stack-rest
+                            next-control
+                            {:stream/put (fn [_s _e r]
+                                           (merge (snap-frame state'
+                                                              stack-rest
+                                                              next-control)
+                                                  {:reason :put,
+                                                   :stream-id (:stream-id r),
+                                                   :datom (:val result)})),
+                             :stream/next
+                             (fn [_s _e r]
+                               (merge
+                                 (snap-frame state' stack-rest next-control)
+                                 {:reason :next,
+                                  :cursor-ref (:cursor-ref r),
+                                  :stream-id (:stream-id r)}))})
+                          stack-vm-run-scheduler))
                       (let [arr1 stack-arr
                             sp1 stack-rest-sp
                             [next-arr next-sp] (stack-push arr1 sp1 result)]
@@ -1281,10 +1277,9 @@
                         target-control (or clo-body-start 0)
                         new-env (merge clo-env
                                        (zipmap clo-params
-                                               (stack-args->vector
-                                                 stack-arr
-                                                 fn-pos
-                                                 argc)))]
+                                               (stack-args->vector stack-arr
+                                                                   fn-pos
+                                                                   argc)))]
                     (recur target-control
                            target-bytecode
                            (or clo-pool pool)
@@ -1294,8 +1289,8 @@
                            k
                            store
                            id-counter))
-                  :else
-                  (throw (ex-info "Cannot apply non-function" {:fn fn-val}))))
+                  :else (throw (ex-info "Cannot apply non-function"
+                                        {:fn fn-val}))))
               :branch
               (let [offset (fetch-short-signed bytecode (inc control))
                     condition (stack-array-get stack-arr sp)]
@@ -1334,8 +1329,8 @@
                                    id-counter
                                    result)
                   (let [frame k
-                        [restored-arr restored-sp0]
-                        (stack-vector->array+sp (:stack frame))
+                        [restored-arr restored-sp0] (stack-vector->array+sp
+                                                      (:stack frame))
                         [restored-arr restored-sp]
                         (stack-push restored-arr restored-sp0 result)]
                     (recur (:control frame)
@@ -1416,8 +1411,8 @@
 (defn- stack-vm-reset
   "Reset StackVM execution state to initial baseline, preserving loaded program."
   [^StackVM vm]
-  (if-let [artifact (get-in vm [:compiled-by-version
-                                (:active-compiled-version vm)])]
+  (if-let [artifact
+           (get-in vm [:compiled-by-version (:active-compiled-version vm)])]
     (activate-compiled-artifact vm artifact)
     (assoc vm
            :stack []
@@ -1435,10 +1430,12 @@
   (let [registry (or (:macro-registry vm) {})
         d (vec datoms)
         {:keys [datoms root-eid]}
-        (macro/expand-all d node registry
-                          {:invoke-lambda
-                           (fn [lambda-eid ctx]
-                             (semantic/invoke-macro-lambda lambda-eid ctx d))})
+        (macro/expand-all
+          d
+          node
+          registry
+          {:invoke-lambda (fn [lambda-eid ctx]
+                            (semantic/invoke-macro-lambda lambda-eid ctx d))})
         program-version (inc (or (:program-version vm) 0))
         vm' (assoc vm
                    :program-root-eid root-eid
@@ -1455,7 +1452,7 @@
   [^StackVM vm datoms]
   (let [d (vec datoms)
         root-id (:root-id (vm/index-datoms d))]
-    (stack-vm-load-canonical-program vm {:node root-id :datoms d})))
+    (stack-vm-load-canonical-program vm {:node root-id, :datoms d})))
 
 
 (defn- stack-vm-eval
@@ -1483,15 +1480,18 @@
                           (fn [state]
                             (telemetry/emit-snapshot (stack-step state) :step))
                           stack-step)
-                        resume-from-run-queue))
+                        resume-from-run-queue
+                        stack-vm-restore))
 
 
 (extend-type StackVM
   vm/IVM
   (step [vm]
-    (telemetry/emit-snapshot
-      (engine/step-on-stream vm (:in-stream vm) stack-vm-load-program stack-step)
-      :step))
+    (telemetry/emit-snapshot (engine/step-on-stream vm
+                                                    (:in-stream vm)
+                                                    stack-vm-load-program
+                                                    stack-step)
+                             :step))
   (run [vm] (host-ffi/maybe-run vm stack-vm-run-on-stream))
   (eval [vm ast] (stack-vm-eval vm ast))
   (reset [vm] (stack-vm-reset vm))
@@ -1506,9 +1506,7 @@
     (when-let [k-head (:k vm)]
       (loop [k k-head
              acc []]
-        (if (nil? k)
-          acc
-          (recur (:next k) (conj acc k)))))))
+        (if (nil? k) acc (recur (:next k) (conj acc k)))))))
 
 
 (defn create-vm
@@ -1519,32 +1517,32 @@
    (let [env (or (:env opts) {})
          bridge-state (host-ffi/bridge-from-opts opts)
          in-stream (:in-stream opts)
-         base (vm/empty-state {:primitives (:primitives opts)
-                               :telemetry (:telemetry opts)
+         base (vm/empty-state {:primitives (:primitives opts),
+                               :telemetry (:telemetry opts),
                                :vm-model :stack})]
-     (-> (map->StackVM (merge base
-                              {:in-stream in-stream,
-                               :in-cursor {:position 0},
-                               :control nil,
-                               :bytecode [],
-                               :stack [],
-                               :env env,
-                               :k nil,
-                               :pool [],
-                               :compiled-by-version {},
-                               :compiled-cache-limit (or (:compiled-cache-limit opts)
-                                                         default-compiled-cache-limit),
-                               :active-compiled-version nil,
-                               :compile-dirty? false,
-                               :macro-registry (or (:macro-registry opts) {}),
-                               :program-root-eid nil,
-                               :datoms [],
-                               :program-version 0,
-                               :datom-index nil,
-                               :halted? true,
-                               :value nil,
-                               :blocked? false}
-                              (when bridge-state
-                                {:bridge bridge-state})))
+     (-> (map->StackVM
+           (merge base
+                  {:in-stream in-stream,
+                   :in-cursor {:position 0},
+                   :control nil,
+                   :bytecode [],
+                   :stack [],
+                   :env env,
+                   :k nil,
+                   :pool [],
+                   :compiled-by-version {},
+                   :compiled-cache-limit (or (:compiled-cache-limit opts)
+                                             default-compiled-cache-limit),
+                   :active-compiled-version nil,
+                   :compile-dirty? false,
+                   :macro-registry (or (:macro-registry opts) {}),
+                   :program-root-eid nil,
+                   :datoms [],
+                   :program-version 0,
+                   :datom-index nil,
+                   :halted? true,
+                   :value nil,
+                   :blocked? false}
+                  (when bridge-state {:bridge bridge-state})))
          (telemetry/install :stack)
          (telemetry/emit-snapshot :init)))))

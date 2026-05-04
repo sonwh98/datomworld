@@ -25,21 +25,17 @@
    - explicit bridge map {:handlers {...} :cursor {:position n}}"
   [bridge]
   (cond
-    (nil? bridge)
-    nil
-
+    (nil? bridge) nil
     (and (map? bridge) (contains? bridge :handlers))
     (-> bridge
         (update :handlers #(or % {}))
         (update :cursor #(or % {:position 0})))
-
-    (map? bridge)
-    {:handlers bridge
-     :cursor {:position 0}}
-
+    (map? bridge) {:handlers bridge, :cursor {:position 0}}
     :else
-    (throw (ex-info "Bridge must be nil, a handler map, or {:handlers ... :cursor ...}"
-                    {:bridge bridge}))))
+    (throw
+      (ex-info
+        "Bridge must be nil, a handler map, or {:handlers ... :cursor ...}"
+        {:bridge bridge}))))
 
 
 (defn bridge-from-opts
@@ -69,8 +65,7 @@
   (let [handler (get handlers call-op)]
     (when-not handler
       (throw (ex-info "No bridge handler for dao.stream.apply op"
-                      {:op call-op
-                       :available (vec (keys handlers))})))
+                      {:op call-op, :available (vec (keys handlers))})))
     (apply handler (or call-args []))))
 
 
@@ -80,14 +75,13 @@
         cursor-data (get-in vm [:store vm/call-out-cursor-key])]
     (when-not parked
       (throw (ex-info "Cannot synthesize dao.stream.apply resume entry"
-                      {:call-id call-id
+                      {:call-id call-id,
                        :parked-ids (vec (keys (:parked vm)))})))
     (assoc parked
            :type :dao.stream.apply/resumer
            :value response
-           :store-updates
-           {vm/call-out-cursor-key
-            (update cursor-data :position inc)})))
+           :store-updates {vm/call-out-cursor-key
+                           (update cursor-data :position inc)})))
 
 
 (defn bridge-step
@@ -107,9 +101,10 @@
         ok (:ok next-result)
         cursor' (:cursor next-result)]
     (if ok
-      (let [{request-id :dao.stream.apply/id
-             request-op :dao.stream.apply/op
-             request-args :dao.stream.apply/args} ok
+      (let [{request-id :dao.stream.apply/id,
+             request-op :dao.stream.apply/op,
+             request-args :dao.stream.apply/args}
+            ok
             result (dispatch-call handlers request-op request-args)
             call-out (get store-data vm/call-out-stream-key)
             response (dao.stream.apply/response request-id result)
@@ -120,18 +115,17 @@
                       [(synthesize-resume-entry vm request-id response)])
             vm' (-> vm
                     (assoc-in [:bridge :cursor] cursor')
-                    (update :run-queue (fnil into []) entries)
-                    (telemetry/emit-snapshot :bridge
-                                             {:bridge-op request-op
-                                              :arg-shape (mapv telemetry/type-tag request-args)}))]
-        {:handled? true
-         :vm vm'
-         :request ok
-         :wake-count (count woke)
+                    (update :ready-queue (fnil into []) entries)
+                    (telemetry/emit-snapshot
+                      :bridge
+                      {:bridge-op request-op,
+                       :arg-shape (mapv telemetry/type-tag request-args)}))]
+        {:handled? true,
+         :vm vm',
+         :request ok,
+         :wake-count (count woke),
          :entry-count (count entries)})
-      {:handled? false
-       :vm vm
-       :stream-result next-result})))
+      {:handled? false, :vm vm, :stream-result next-result})))
 
 
 (defn maybe-run
@@ -145,9 +139,7 @@
     (loop [v (run-fn vm)]
       (if (:blocked? v)
         (let [{:keys [handled? vm]} (bridge-step v)]
-          (if handled?
-            (recur (run-fn vm))
-            v))
+          (if handled? (recur (run-fn vm)) v))
         v))))
 
 

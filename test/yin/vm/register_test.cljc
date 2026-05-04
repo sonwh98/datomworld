@@ -19,8 +19,7 @@
   (if (:in-stream vm-state)
     vm-state
     (assoc vm-state
-           :in-stream (ds/open! {:type :ringbuffer
-                                 :capacity nil})
+           :in-stream (ds/open! {:type :ringbuffer, :capacity nil})
            :in-cursor {:position 0})))
 
 
@@ -39,20 +38,23 @@
 (defn- bridge-step
   [vm handlers cursor]
   (let [call-in (get (vm/store vm) vm/call-in-stream-key)
-        {:keys [ok] :as next-result} (ds/next call-in cursor)
+        {:keys [ok], :as next-result} (ds/next call-in cursor)
         cursor' (:cursor next-result)]
     (if ok
-      (let [{request-id :dao.stream.apply/id
-             request-op :dao.stream.apply/op
-             request-args :dao.stream.apply/args} ok
+      (let [{request-id :dao.stream.apply/id,
+             request-op :dao.stream.apply/op,
+             request-args :dao.stream.apply/args}
+            ok
             result (apply (get handlers request-op) (or request-args []))
             call-out (get (vm/store vm) vm/call-out-stream-key)
             ;; ds/put! on RingBufferStream returns woken entries
-            put-result (ds/put! call-out (dao.stream.apply/response request-id result))
+            put-result (ds/put! call-out
+                                (dao.stream.apply/response request-id result))
             woke (:woke put-result)
-            ;; Use engine helper to transform woken entries into run-queue entries
+            ;; Use engine helper to transform woken entries into run-queue
+            ;; entries
             entries (engine/make-woken-run-queue-entries vm woke)
-            vm' (update vm :run-queue (fnil into []) entries)]
+            vm' (update vm :ready-queue (fnil into []) entries)]
         [vm' cursor'])
       [vm cursor])))
 
@@ -82,10 +84,9 @@
   [vm-state]
   (loop [v vm-state
          ticks 0]
-    (cond
-      (vm/halted? v) v
-      (> ticks 2000) (throw (ex-info "Step limit exceeded" {:ticks ticks}))
-      :else (recur (vm/step v) (inc ticks)))))
+    (cond (vm/halted? v) v
+          (> ticks 2000) (throw (ex-info "Step limit exceeded" {:ticks ticks}))
+          :else (recur (vm/step v) (inc ticks)))))
 
 
 (deftest cesk-state-test
@@ -119,8 +120,7 @@
 
 (deftest eval-literal-test
   (testing "vm/eval evaluates a literal AST directly"
-    (let [result (vm/eval (register/create-vm)
-                          {:type :literal, :value 42})]
+    (let [result (vm/eval (register/create-vm) {:type :literal, :value 42})]
       (is (vm/halted? result))
       (is (= 42 (vm/value result))))))
 
@@ -152,7 +152,8 @@
 
 
 (deftest dao-call-asm-shape-test
-  (testing ":dao.stream.apply/call compiles to register :dao.stream.apply/call instruction"
+  (testing
+    ":dao.stream.apply/call compiles to register :dao.stream.apply/call instruction"
     (let [ast {:type :dao.stream.apply/call,
                :op :op/echo,
                :operands [{:type :literal, :value 42}]}
@@ -163,38 +164,41 @@
 
 
 (deftest dao-call-eval-test
-  (testing "Register VM executes dao.stream.apply/call via dao.stream.apply streams"
+  (testing
+    "Register VM executes dao.stream.apply/call via dao.stream.apply streams"
     (let [ast {:type :dao.stream.apply/call,
                :op :op/echo,
                :operands [{:type :literal, :value 42}]}
           vm (register/create-vm)
           result-parked (vm/eval vm ast)]
       (is (vm/blocked? result-parked))
-      (let [[vm' _cursor'] (bridge-step result-parked {:op/echo identity} {:position 0})
+      (let [[vm' _cursor']
+            (bridge-step result-parked {:op/echo identity} {:position 0})
             result (vm/eval vm' nil)]
         (is (vm/halted? result))
         (is (= 42 (vm/value result)))))))
 
 
 (deftest repeated-dao-call-program-test
-  (testing "Register VM halts after many sequential dao.stream.apply/call cycles via create-vm bridge"
-    (let [forms '[(defn plot-loop
-                    [i]
-                    (if (> i 199)
-                      nil
-                      (do
-                        (dao.stream.apply/call :plot/point i (* i i))
-                        (plot-loop (+ i 1)))))
-                  (plot-loop 0)]
-          ast (yang/compile-program forms)
-          program (ast->program ast)
-          calls (atom [])
-          handlers {:plot/point (fn [x y]
-                                  (swap! calls conj [x y])
-                                  nil)}
-          result (-> (register/create-vm {:bridge handlers})
-                     (queue-program! program)
-                     (vm/run))]
+  (testing
+    "Register VM halts after many sequential dao.stream.apply/call cycles via create-vm bridge"
+    (let
+      [forms
+       '[(defn plot-loop
+           [i]
+           (if
+             (> i 199)
+             nil
+             (do
+               (dao.stream.apply/call :plot/point i (* i i))
+               (plot-loop (+ i 1))))) (plot-loop 0)]
+       ast (yang/compile-program forms)
+       program (ast->program ast)
+       calls (atom [])
+       handlers {:plot/point (fn [x y] (swap! calls conj [x y]) nil)}
+       result (-> (register/create-vm {:bridge handlers})
+                  (queue-program! program)
+                  (vm/run))]
       (is (vm/halted? result))
       (is (nil? (vm/value result)))
       (is (= 200 (count @calls)))
@@ -496,7 +500,8 @@
 
 
 (deftest boundary-recompile-test
-  (testing "In-flight execution completes on old artifact; reset runs new version"
+  (testing
+    "In-flight execution completes on old artifact; reset runs new version"
     (let [program-v1 (ast->program {:type :application,
                                     :operator {:type :variable, :name '+},
                                     :operands [{:type :literal, :value 1}
@@ -526,7 +531,8 @@
           vm1 (-> (queue-program! vm0 program-v1)
                   (vm/step))
           ;; Pin version 1 through a runnable continuation entry.
-          vm1 (assoc vm1 :run-queue [{:type :call-frame, :compiled-version 1}])
+          vm1 (assoc vm1
+                     :ready-queue [{:type :call-frame, :compiled-version 1}])
           vm2 (register/maybe-recompile-at-boundary
                 (register/append-program-datoms vm1
                                                 (:datoms program-v2)
@@ -562,9 +568,10 @@
           stream (get (vm/store vm) stream-id)]
       (is (some? stream))
       (is
-        (= 1024 (.-capacity #?(:cljs ^dao.stream.ringbuffer/RingBufferStream stream
-                               :cljd ^dao.stream.ringbuffer/RingBufferStream stream
-                               :default stream)))
+        (= 1024
+           (.-capacity #?(:cljs ^dao.stream.ringbuffer/RingBufferStream stream
+                          :cljd ^dao.stream.ringbuffer/RingBufferStream stream
+                          :default stream)))
         "Default buffer is 1024 when not specified (via datom compilation)"))))
 
 
@@ -752,7 +759,10 @@
           vm1 (vm/eval vm0 {:type :vm/park})
           parked-cont (vm/value vm1)
           parked-id (:id parked-cont)
-          vm2 (vm/eval vm1 {:type :vm/resume, :parked-id parked-id, :val {:type :literal, :value 42}})]
+          vm2 (vm/eval vm1
+                       {:type :vm/resume,
+                        :parked-id parked-id,
+                        :val {:type :literal, :value 42}})]
       (is (= :parked-continuation (:type parked-cont)))
       (is (= 42 (vm/value vm2)))
       (is (nil? (get-in vm2 [:parked parked-id]))))))
@@ -909,9 +919,8 @@
           vm-inst (register/create-vm)
           vm-loaded (queue-program! vm-inst (ast->program ast))
           ;; Step through, collecting k depth at each step
-          k-depth
-          (fn [k]
-            (loop [k k d 0] (if (nil? k) d (recur (:k k) (inc d)))))
+          k-depth (fn [k]
+                    (loop [k k d 0] (if (nil? k) d (recur (:k k) (inc d)))))
           max-depth (loop [v vm-loaded
                            max-d 0]
                       (if (vm/halted? v)

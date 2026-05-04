@@ -1,0 +1,27 @@
+(ns dao.runtime.driver
+  (:require [dao.runtime :as rt]
+            ["dart:async" :as async]))
+
+
+(def current-rt (atom (rt/initial-state)))
+(def scheduled? (atom false))
+
+
+(defn- run-pending!
+  []
+  (reset! scheduled? false)
+  (let [rt @current-rt]
+    (when-let [next-rt (rt/run-once rt)]
+      (reset! current-rt next-rt)
+      (when (seq (:ready-queue next-rt))
+        (reset! scheduled? true)
+        (async/scheduleMicrotask run-pending!)))))
+
+
+(defn schedule-work!
+  "Schedule runtime tasks to run on the next Dart microtask."
+  [entries]
+  (swap! current-rt rt/enqueue-ready entries)
+  (when-not @scheduled?
+    (reset! scheduled? true)
+    (async/scheduleMicrotask run-pending!)))

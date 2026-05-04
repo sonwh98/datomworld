@@ -93,14 +93,16 @@
    'nil? nil?,
    'empty? empty?,
    'first first,
-   'rest (fn [a] (vec (rest a))),  ; clojure.core/rest returns a lazy seq; vec coerces to vector so conj appends rather than prepends
+   'rest (fn [a] (vec (rest a))), ; clojure.core/rest returns a lazy seq;
+   ;; vec coerces to vector so conj appends
+   ;; rather than prepends
    'conj conj,
    'assoc assoc,
    'get get,
    'vec vec,
-   'bytes->str #?(:clj  (fn
-                          ([b] (String. ^bytes b "UTF-8"))
-                          ([b enc] (String. ^bytes b ^String enc)))
+   'bytes->str #?(:clj (fn
+                         ([b] (String. ^bytes b "UTF-8"))
+                         ([b enc] (String. ^bytes b ^String enc)))
                   :cljs (fn [b] (.apply js/String.fromCharCode nil b))
                   :cljd (fn [b] (dart:core/String.fromCharCodes b))),
    ;; Definition primitive - returns an effect
@@ -108,7 +110,7 @@
    ;; Module loading primitive - returns an effect dispatched to the host
    'require (fn [spec]
               (let [ns-sym (if (vector? spec) (first spec) spec)]
-                {:effect :module/require :module ns-sym}))})
+                {:effect :module/require, :module ns-sym}))})
 
 
 (def call-in-stream-key
@@ -135,9 +137,7 @@
   "Create an in-process DaoStream for VM-local request/response plumbing."
   []
   #?(:cljd (ringbuffer/make-ring-buffer-stream nil)
-     :default (ds/open! {:type :ringbuffer
-                         :mode :create
-                         :capacity nil})))
+     :default (ds/open! {:type :ringbuffer, :mode :create, :capacity nil})))
 
 
 ;; =============================================================================
@@ -177,8 +177,9 @@
      (let [default (when (odd? (count clauses)) (last clauses))
            paired (if default (butlast clauses) clauses)
            pairs (partition 2 paired)
-           ;; Keep a local literal map so CLJD macro host compilation does not
-           ;; depend on resolving `opcode-table` as a host symbol.
+           ;; Keep a local literal map so CLJD macro host compilation
+           ;; does not depend on resolving `opcode-table` as a host
+           ;; symbol.
            opcodes {:literal 1,
                     :load-var 2,
                     :move 3,
@@ -218,29 +219,34 @@
    :yin/source {:db/valueType :db.type/ref},
    :yin/target {:db/valueType :db.type/ref},
    :yin/val-node {:db/valueType :db.type/ref},
-   ;; Ground-value attributes
-   ;; The data model uses Datomic-style schema definitions.
-   ;; value types are declared in comments for the data model.
-   :yin/type {},        ; keyword (:literal, :variable, :lambda, :yin/macro-expand, ...)
-   :yin/value {},       ; polymorphic (number, string, boolean, keyword, ...)
-   :yin/name {},        ; symbol
-   :yin/op {},          ; keyword (dao.stream.apply operation key)
-   :yin/params {},      ; vector of symbols
-   :yin/key {},         ; symbol
-   :yin/prefix {},      ; string
-   :yin/buffer {},      ; long
-   :yin/parked-id {},   ; keyword
-   :yin/tail? {},       ; boolean (tail-position flag)
+   ;; Ground-value attributes. The data model uses Datomic-style schema
+   ;; definitions. Value types are declared in comments for the data
+   ;; model.
+   :yin/type {},      ; keyword (:literal, :variable, :lambda,
+   ;; :yin/macro-expand, ...)
+   :yin/value {},     ; polymorphic (number, string, boolean, keyword, ...)
+   :yin/name {},      ; symbol
+   :yin/op {},        ; keyword (dao.stream.apply operation key)
+   :yin/params {},    ; vector of symbols
+   :yin/key {},       ; symbol
+   :yin/prefix {},    ; string
+   :yin/buffer {},    ; long
+   :yin/parked-id {}, ; keyword
+   :yin/tail? {},     ; boolean (tail-position flag)
    ;; Macro attributes
-   :yin/macro? {},          ; boolean — true if lambda is a macro
-   :yin/phase-policy {},    ; keyword — :compile | :runtime | :both
+   :yin/macro? {},       ; boolean — true if lambda is a macro
+   :yin/phase-policy {}, ; keyword — :compile | :runtime | :both
    ;; Macro expansion event attributes
-   :yin/source-call {:db/valueType :db.type/ref}, ; EID of the :yin/macro-expand call site
-   :yin/macro {:db/valueType :db.type/ref},        ; EID of the macro lambda entity
-   :yin/expansion-root {:db/valueType :db.type/ref}, ; EID of the top expansion node
-   :yin/phase {},      ; keyword — :compile or :runtime
-   :yin/error {},      ; structured error (optional)
-   :yin/capability {}  ; Shibi capability ref (optional)
+   :yin/source-call {:db/valueType :db.type/ref}, ; EID of the
+   ;; :yin/macro-expand call
+   ;; site
+   :yin/macro {:db/valueType :db.type/ref}, ; EID of the macro lambda
+   ;; entity
+   :yin/expansion-root {:db/valueType :db.type/ref}, ; EID of the top
+   ;; expansion node
+   :yin/phase {},     ; keyword — :compile or :runtime
+   :yin/error {},     ; structured error (optional)
+   :yin/capability {} ; Shibi capability ref (optional)
    })
 
 
@@ -288,18 +294,21 @@
          gen-id #(swap! id-counter dec)
          datoms (atom [])
          emit! (fn [e attr val] (swap! datoms conj [e attr val t m]))
-         ;; Track pre-assigned EIDs already emitted so that a shared lambda-ast
-         ;; (same :eid in definition operand and call-site operator) is processed
+         ;; Track pre-assigned EIDs already emitted so that a shared
+         ;; lambda-ast
+         ;; (same :eid in definition operand and call-site operator) is
+         ;; processed
          ;; exactly once; every reference resolves to the same EID.
          seen-eids (atom #{})]
      (letfn
        [(convert
           [node]
           (let [pre-eid (:eid node)
-                e       (or pre-eid (gen-id))
+                e (or pre-eid (gen-id))
                 {:keys [type tail?]} node]
             (if (and pre-eid (contains? @seen-eids pre-eid))
-              ;; Shared reference already emitted — return EID without re-emitting.
+              ;; Shared reference already emitted — return EID without
+              ;; re-emitting.
               e
               (do
                 (when pre-eid (swap! seen-eids conj pre-eid))
@@ -312,7 +321,9 @@
                   :lambda (do (emit! e :yin/type :lambda)
                               (when (:macro? node)
                                 (emit! e :yin/macro? true)
-                                (emit! e :yin/phase-policy (or (:phase-policy node) :compile)))
+                                (emit! e
+                                       :yin/phase-policy
+                                       (or (:phase-policy node) :compile)))
                               (emit! e :yin/params (:params node))
                               (let [body-id (convert (:body node))]
                                 (emit! e :yin/body body-id)))
@@ -322,10 +333,11 @@
                                                            (:operands node))]
                                      (emit! e :yin/operator op-id)
                                      (emit! e :yin/operands operand-ids)))
-                  :dao.stream.apply/call (do (emit! e :yin/type :dao.stream.apply/call)
-                                             (emit! e :yin/op (:op node))
-                                             (let [operand-ids (mapv convert (:operands node))]
-                                               (emit! e :yin/operands operand-ids)))
+                  :dao.stream.apply/call
+                  (do (emit! e :yin/type :dao.stream.apply/call)
+                      (emit! e :yin/op (:op node))
+                      (let [operand-ids (mapv convert (:operands node))]
+                        (emit! e :yin/operands operand-ids)))
                   :if (do (emit! e :yin/type :if)
                           (let [test-id (convert (:test node))
                                 cons-id (convert (:consequent node))
@@ -342,8 +354,9 @@
                                     (emit! e :yin/key (:key node))
                                     (emit! e :yin/value (:val node)))
                   ;; Stream operations
-                  :stream/make (do (emit! e :yin/type :stream/make)
-                                   (emit! e :yin/buffer (or (:buffer node) 1024)))
+                  :stream/make (do
+                                 (emit! e :yin/type :stream/make)
+                                 (emit! e :yin/buffer (or (:buffer node) 1024)))
                   :stream/put (do (emit! e :yin/type :stream/put)
                                   (let [target-id (convert (:target node))
                                         val-id (convert (:val node))]
@@ -366,27 +379,27 @@
                                    (emit! e :yin/val-node val-id)))
                   :vm/current-continuation
                   (emit! e :yin/type :vm/current-continuation)
-                  ;; Macro call site — operator is the macro lambda entity ref,
-                  ;; operands are unevaluated AST refs (not evaluated runtime values)
-                  :yin/macro-expand
-                  (do (emit! e :yin/type :yin/macro-expand)
-                      (let [op-id (convert (:operator node))
-                            operand-ids (mapv convert (:operands node))]
-                        (emit! e :yin/operator op-id)
-                        (emit! e :yin/operands operand-ids)))
+                  ;; Macro call site — operator is the macro lambda entity
+                  ;; ref,
+                  ;; operands are unevaluated AST refs (not evaluated
+                  ;; runtime values)
+                  :yin/macro-expand (do (emit! e :yin/type :yin/macro-expand)
+                                        (let [op-id (convert (:operator node))
+                                              operand-ids (mapv convert
+                                                                (:operands node))]
+                                          (emit! e :yin/operator op-id)
+                                          (emit! e :yin/operands operand-ids)))
                   ;; Default
                   (throw (ex-info "Unknown AST node type"
                                   {:type type, :node node})))
                 e))))]
-       (let [root-id (convert ast)]
-         [root-id @datoms])))))
+       (let [root-id (convert ast)] [root-id @datoms])))))
 
 
 (defn ast->datoms
   "Convert AST map into a vector of datoms. A datom is [e a v t m]."
   ([ast] (ast->datoms ast {}))
-  ([ast opts]
-   (second (ast->datoms-with-root ast opts))))
+  ([ast opts] (second (ast->datoms-with-root ast opts))))
 
 
 (declare index-datoms)
@@ -397,14 +410,14 @@
   ([datoms]
    (let [indexed (index-datoms datoms)
          root-id (:root-id indexed)]
-     (datoms->ast datoms {:indexed indexed :root-id root-id})))
+     (datoms->ast datoms {:indexed indexed, :root-id root-id})))
   ([datoms {:keys [indexed root-id]}]
    (let [{:keys [get-attr]} indexed
          node-type (get-attr root-id :yin/type)
          tail? (get-attr root-id :yin/tail?)
-         base (cond-> {:type node-type}
-                tail? (assoc :tail? true))
-         recur-ast (fn [eid] (datoms->ast datoms {:indexed indexed :root-id eid}))]
+         base (cond-> {:type node-type} tail? (assoc :tail? true))
+         recur-ast (fn [eid]
+                     (datoms->ast datoms {:indexed indexed, :root-id eid}))]
      (case node-type
        :literal (assoc base :value (get-attr root-id :yin/value))
        :variable (assoc base :name (get-attr root-id :yin/name))
@@ -413,15 +426,17 @@
                  (cond-> (assoc base
                                 :params (get-attr root-id :yin/params)
                                 :body (recur-ast body-eid))
-                   macro? (assoc :macro? true
-                                 :phase-policy (get-attr root-id :yin/phase-policy))))
+                   macro? (assoc :macro?
+                                 true :phase-policy
+                                 (get-attr root-id :yin/phase-policy))))
        :application (let [op-eid (get-attr root-id :yin/operator)
                           operand-eids (get-attr root-id :yin/operands)]
                       (assoc base
                              :operator (recur-ast op-eid)
                              :operands (mapv recur-ast operand-eids)))
        :dao.stream.apply/call (let [op (get-attr root-id :yin/op)
-                                    operand-eids (get-attr root-id :yin/operands)]
+                                    operand-eids (get-attr root-id
+                                                           :yin/operands)]
                                 (assoc base
                                        :op op
                                        :operands (mapv recur-ast operand-eids)))
@@ -443,9 +458,12 @@
                      (assoc base
                             :target (recur-ast target-eid)
                             :val (recur-ast val-eid)))
-       :stream/cursor (assoc base :source (recur-ast (get-attr root-id :yin/source)))
-       :stream/next (assoc base :source (recur-ast (get-attr root-id :yin/source)))
-       :stream/close (assoc base :source (recur-ast (get-attr root-id :yin/source)))
+       :stream/cursor (assoc base
+                             :source (recur-ast (get-attr root-id :yin/source)))
+       :stream/next (assoc base
+                           :source (recur-ast (get-attr root-id :yin/source)))
+       :stream/close (assoc base
+                            :source (recur-ast (get-attr root-id :yin/source)))
        :vm/park base
        :vm/resume (let [val-eid (get-attr root-id :yin/val-node)]
                     (assoc base
@@ -477,32 +495,41 @@
    (let [datoms (vec ast-as-datoms)
          by-entity (or by-entity (group-by first datoms))
          get-attr (fn [e attr]
-                    (let [matching (filter (fn [d] (= (nth d 1) attr)) (get by-entity e))]
+                    (let [matching (filter (fn [d] (= (nth d 1) attr))
+                                           (get by-entity e))]
                       (if (contains? many-attrs attr)
                         (vec (mapcat (fn [d]
                                        (let [v (nth d 2)]
                                          (if (vector? v) v [v])))
                                      matching))
-                        (when (seq matching)
-                          (nth (last matching) 2)))))
-         root-id (or root-id
-                     (when (seq by-entity)
-                       ;; Heuristic for finding the root:
-                       ;; 1. Find all eids that have a :yin/type
-                       ;; 2. Prefer the ones that are NOT used as structural children
-                       ;; 3. Return the LAST such eid (most recent addition)
-                       ;; 4. Fallback to max eid
-                       (let [type-eids (keep (fn [[e datoms]]
-                                               (when (some #(= :yin/type (nth % 1)) datoms)
-                                                 e))
-                                             by-entity)
-                             referenced-eids (set (mapcat (fn [[_ a v]]
-                                                            (when (contains? #{:yin/body :yin/operator :yin/operands :yin/target :yin/val-node} a)
-                                                              (if (vector? v) v [v])))
-                                                          datoms))
-                             unreferenced (filter (complement referenced-eids) type-eids)]
-                         (or (last (sort unreferenced))
-                             (apply max (keys by-entity))))))]
+                        (when (seq matching) (nth (last matching) 2)))))
+         root-id
+         (or root-id
+             (when (seq by-entity)
+               ;; Heuristic for finding the root:
+               ;; 1. Find all eids that have a :yin/type
+               ;; 2. Prefer the ones that are NOT used as structural
+               ;; children
+               ;; 3. Return the LAST such eid (most recent addition)
+               ;; 4. Fallback to max eid
+               (let [type-eids (keep (fn [[e datoms]]
+                                       (when (some #(= :yin/type (nth % 1))
+                                                   datoms)
+                                         e))
+                                     by-entity)
+                     referenced-eids
+                     (set (mapcat (fn [[_ a v]]
+                                    (when (contains?
+                                            #{:yin/body :yin/operator
+                                              :yin/operands :yin/target
+                                              :yin/val-node}
+                                            a)
+                                      (if (vector? v) v [v])))
+                                  datoms))
+                     unreferenced (filter (complement referenced-eids)
+                                          type-eids)]
+                 (or (last (sort unreferenced))
+                     (apply max (keys by-entity))))))]
      {:by-entity by-entity, :get-attr get-attr, :root-id root-id})))
 
 
@@ -521,20 +548,19 @@
   (if (satisfies? dao-db/IDaoStorage db)
     (let [active (set (dao-db/datoms db :eavt))
           entries (dao-db/read-segments db 0 (dao-db/basis-t db))]
-      (second
-        (reduce (fn [[seen acc] [_t added _retracted]]
-                  (reduce (fn [[seen acc] d]
-                            (if (or (contains? seen d)
-                                    (not (contains? active d))
-                                    (not (ast-dao-datom? d)))
-                              [seen acc]
-                              [(conj seen d) (conj acc (dao-datom->tuple d))]))
-                          [seen acc]
-                          added))
-                [#{} []]
-                entries)))
-    (mapv dao-datom->tuple
-          (filter ast-dao-datom? (dao-db/datoms db :eavt)))))
+      (second (reduce (fn [[seen acc] [_t added _retracted]]
+                        (reduce (fn [[seen acc] d]
+                                  (if (or (contains? seen d)
+                                          (not (contains? active d))
+                                          (not (ast-dao-datom? d)))
+                                    [seen acc]
+                                    [(conj seen d)
+                                     (conj acc (dao-datom->tuple d))]))
+                                [seen acc]
+                                added))
+                      [#{} []]
+                      entries)))
+    (mapv dao-datom->tuple (filter ast-dao-datom? (dao-db/datoms db :eavt)))))
 
 
 (defn index-datoms-with-db
@@ -542,26 +568,25 @@
    This keeps DaoDB as the source of truth while preserving the index-datoms
    contract used by macro expansion and analysis helpers."
   ([dao-db] (index-datoms-with-db dao-db {}))
-  ([dao-db opts]
-   (index-datoms (dao-db-ast-datoms dao-db) opts)))
+  ([dao-db opts] (index-datoms (dao-db-ast-datoms dao-db) opts)))
 
 
 (defn empty-state
   "Return an initial immutable VM state map.
    Contains: dao.stream.apply stream wiring in :store, :parked {}, :id-counter 0,
-   :primitives map, :run-queue [], :wait-set [], and shared telemetry counters."
+   :primitives map, :ready-queue [], :wait-set [], and shared telemetry counters."
   ([] (empty-state {}))
   ([opts]
    (let [call-in (or (:call-in opts) (open-local-stream))
          call-out (or (:call-out opts) (open-local-stream))]
-     {:store
-      {call-in-stream-key  call-in
-       call-in-cursor-key  {:stream-id call-in-stream-key, :position 0}
-       call-out-stream-key call-out
-       call-out-cursor-key {:stream-id call-out-stream-key, :position 0}},
+     {:store {call-in-stream-key call-in,
+              call-in-cursor-key {:stream-id call-in-stream-key, :position 0},
+              call-out-stream-key call-out,
+              call-out-cursor-key {:stream-id call-out-stream-key,
+                                   :position 0}},
       :parked {},
       :id-counter 0,
-      :run-queue [],
+      :ready-queue [],
       :wait-set [],
       :primitives (or (:primitives opts) primitives),
       :telemetry (:telemetry opts),

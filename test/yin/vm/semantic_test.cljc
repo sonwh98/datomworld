@@ -16,8 +16,7 @@
 
 (defn- queue-vm
   [vm-state datoms]
-  (let [in-stream (ds/open! {:type :ringbuffer
-                             :capacity nil})
+  (let [in-stream (ds/open! {:type :ringbuffer, :capacity nil})
         queued-vm (assoc vm-state
                          :in-stream in-stream
                          :in-cursor {:position 0}
@@ -29,20 +28,23 @@
 (defn- bridge-step
   [vm handlers cursor]
   (let [call-in (get (vm/store vm) vm/call-in-stream-key)
-        {:keys [ok] :as next-result} (ds/next call-in cursor)
+        {:keys [ok], :as next-result} (ds/next call-in cursor)
         cursor' (:cursor next-result)]
     (if ok
-      (let [{request-id :dao.stream.apply/id
-             request-op :dao.stream.apply/op
-             request-args :dao.stream.apply/args} ok
+      (let [{request-id :dao.stream.apply/id,
+             request-op :dao.stream.apply/op,
+             request-args :dao.stream.apply/args}
+            ok
             result (apply (get handlers request-op) (or request-args []))
             call-out (get (vm/store vm) vm/call-out-stream-key)
             ;; ds/put! on RingBufferStream returns woken entries
-            put-result (ds/put! call-out (dao.stream.apply/response request-id result))
+            put-result (ds/put! call-out
+                                (dao.stream.apply/response request-id result))
             woke (:woke put-result)
-            ;; Use engine helper to transform woken entries into run-queue entries
+            ;; Use engine helper to transform woken entries into run-queue
+            ;; entries
             entries (engine/make-woken-run-queue-entries vm woke)
-            vm' (update vm :run-queue (fnil into []) entries)]
+            vm' (update vm :ready-queue (fnil into []) entries)]
         [vm' cursor'])
       [vm cursor])))
 
@@ -88,30 +90,31 @@
 
 (deftest dao-backed-ast-test
   (testing "load-program transacts AST datoms into a queryable DaoDB"
-    (let [ast {:type :application
-               :operator {:type :variable, :name '+}
+    (let [ast {:type :application,
+               :operator {:type :variable, :name '+},
                :operands [{:type :literal, :value 1}
                           {:type :literal, :value 2}]}
           [_root-tempid datoms] (vm/ast->datoms-with-root ast)
           loaded (-> (queue-vm (semantic/create-vm) datoms)
                      (vm/run))
           ast-db (:db loaded)
-          root-eid (ffirst (dao-db/q '[:find ?e
-                                       :where [?e :yin/type :application]]
+          root-eid (ffirst (dao-db/q '[:find ?e :where
+                                       [?e :yin/type :application]]
                                      ast-db))]
       (is (satisfies? dao-db/IDaoDB ast-db))
       (is (= :application (:yin/type (dao-db/entity-attrs ast-db root-eid))))
       (is (= #{['+]}
-             (dao-db/q '[:find ?name
-                         :where [_ :yin/name ?name]]
-                       ast-db)))
-      (is (= 3 (-> loaded vm/run vm/value)))))
+             (dao-db/q '[:find ?name :where [_ :yin/name ?name]] ast-db)))
+      (is (= 3
+             (-> loaded
+                 vm/run
+                 vm/value)))))
   (testing "nil literal values remain explicit AST facts after DaoDB load"
-    (let [[_root-tempid datoms] (vm/ast->datoms-with-root {:type :literal, :value nil})
+    (let [[_root-tempid datoms] (vm/ast->datoms-with-root {:type :literal,
+                                                           :value nil})
           loaded (-> (queue-vm (semantic/create-vm) datoms)
                      (vm/run))
-          root-eid (ffirst (dao-db/q '[:find ?e
-                                       :where [?e :yin/type :literal]]
+          root-eid (ffirst (dao-db/q '[:find ?e :where [?e :yin/type :literal]]
                                      (:db loaded)))
           attrs (dao-db/entity-attrs (:db loaded) root-eid)
           result loaded]
@@ -126,8 +129,7 @@
 
 (deftest eval-literal-test
   (testing "vm/eval evaluates a literal AST directly"
-    (let [result (vm/eval (semantic/create-vm)
-                          {:type :literal, :value 42})]
+    (let [result (vm/eval (semantic/create-vm) {:type :literal, :value 42})]
       (is (vm/halted? result))
       (is (= 42 (vm/value result))))))
 
@@ -143,14 +145,16 @@
 
 
 (deftest eval-dao-call-test
-  (testing "Semantic VM executes dao.stream.apply/call via dao.stream.apply streams"
+  (testing
+    "Semantic VM executes dao.stream.apply/call via dao.stream.apply streams"
     (let [ast {:type :dao.stream.apply/call,
                :op :op/echo,
                :operands [{:type :literal, :value 42}]}
           vm (semantic/create-vm)
           result-parked (vm/eval vm ast)]
       (is (vm/blocked? result-parked))
-      (let [[vm' _cursor'] (bridge-step result-parked {:op/echo identity} {:position 0})
+      (let [[vm' _cursor']
+            (bridge-step result-parked {:op/echo identity} {:position 0})
             result (vm/eval vm' nil)]
         (is (vm/halted? result))
         (is (= 42 (vm/value result)))))))
@@ -338,9 +342,10 @@
           stream (get (vm/store vm) stream-id)]
       (is (some? stream))
       (is
-        (= 1024 (.-capacity #?(:cljs ^dao.stream.ringbuffer/RingBufferStream stream
-                               :cljd ^dao.stream.ringbuffer/RingBufferStream stream
-                               :default stream)))
+        (= 1024
+           (.-capacity #?(:cljs ^dao.stream.ringbuffer/RingBufferStream stream
+                          :cljd ^dao.stream.ringbuffer/RingBufferStream stream
+                          :default stream)))
         "Default buffer is 1024 when not specified (via datom compilation)"))))
 
 
@@ -527,7 +532,10 @@
           vm1 (vm/eval vm0 {:type :vm/park})
           parked-cont (vm/value vm1)
           parked-id (:id parked-cont)
-          vm2 (vm/eval vm1 {:type :vm/resume, :parked-id parked-id, :val {:type :literal, :value 42}})]
+          vm2 (vm/eval vm1
+                       {:type :vm/resume,
+                        :parked-id parked-id,
+                        :val {:type :literal, :value 42}})]
       (is (= :parked-continuation (:type parked-cont)))
       (is (= 42 (vm/value vm2)))
       (is (nil? (get-in vm2 [:parked parked-id]))))))
@@ -550,15 +558,16 @@
                          :operands [{:type :literal, :value 2}
                                     {:type :literal, :value 3}]})
           _ (is (= 5 (vm/value vm-3)))
-          ;; Verify that user AST nodes are preserved and resolved into DaoDB IDs.
+          ;; Verify that user AST nodes are preserved and resolved into
+          ;; DaoDB IDs.
           datoms (:datoms vm-3)
           node-ids (->> datoms
-                        (keep (fn [[e a _v _t _m]]
-                                (when (= :yin/type a) e)))
+                        (keep (fn [[e a _v _t _m]] (when (= :yin/type a) e)))
                         set)]
       (is (satisfies? dao-db/IDaoDB (:db vm-3)))
-      (is (every? #(and (integer? %) (pos? %)) node-ids)
-          "All accumulated AST node tempids should resolve to permanent DaoDB IDs")
+      (is
+        (every? #(and (integer? %) (pos? %)) node-ids)
+        "All accumulated AST node tempids should resolve to permanent DaoDB IDs")
       ;; Total nodes: 1 + 1 + 4 = 6 nodes.
       (is (= 6 (count node-ids))
           "Should have 6 unique node IDs across 3 loads"))))
