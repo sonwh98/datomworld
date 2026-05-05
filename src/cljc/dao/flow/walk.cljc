@@ -10,11 +10,21 @@
   (first (first (db/q '[:find ?e :where [?e :flow/scene-root true]] db))))
 
 
+(defn- children-sorted
+  [db parent-eid]
+  (->> (db/q '[:find ?e :in $ ?parent :where [?e :flow/parent ?parent]]
+             db
+             parent-eid)
+       (map first)
+       (sort-by (fn [e] (:flow/sort-key (db/entity db e) 0)))))
+
+
 (defn- find-active-camera
   [db scene-root]
   (let [rec (fn rec
               [eid parent-view]
-              (let [local-inv (let [t-eid (:flow/transform (db/entity db eid))]
+              (let [ent (db/entity db eid)
+                    local-inv (let [t-eid (:flow/transform ent)]
                                 (if-not t-eid
                                   t/identity-mat4
                                   (let [t-ent (db/entity db t-eid)]
@@ -22,28 +32,10 @@
                                                   (:transform/rotate t-ent)
                                                   (:transform/scale t-ent)))))
                     view (t/mul-mat4 local-inv parent-view)]
-                (or (when-let [cam-eid (some-> (db/q '[:find ?e :in $ ?p :where
-                                                       [?e :flow/parent ?p]
-                                                       [?e :camera/kind]]
-                                                     db
-                                                     eid)
-                                               ffirst)]
-                      (let [cam-inv (let [t-eid (:flow/transform
-                                                  (db/entity db cam-eid))]
-                                      (if-not t-eid
-                                        t/identity-mat4
-                                        (let [t-ent (db/entity db t-eid)]
-                                          (t/invert-trs
-                                            (:transform/translate t-ent)
-                                            (:transform/rotate t-ent)
-                                            (:transform/scale t-ent)))))]
-                        {:eid cam-eid, :view (t/mul-mat4 cam-inv view)}))
-                    (some #(rec % view)
-                          (map first
-                               (db/q '[:find ?e :in $ ?p :where
-                                       [?e :flow/parent ?p]]
-                                     db
-                                     eid))))))]
+                (if (:camera/kind ent)
+                  {:eid eid, :view view}
+                  (loop [[child & rest] (children-sorted db eid)]
+                    (if-not child nil (or (rec child view) (recur rest)))))))]
     (rec scene-root t/identity-mat4)))
 
 
@@ -72,11 +64,7 @@
   [db scene-root]
   (let [rec (fn rec
               [eid]
-              (let [children (map first
-                                  (db/q '[:find ?e :in $ ?p :where
-                                          [?e :flow/parent ?p]]
-                                        db
-                                        eid))
+              (let [children (children-sorted db eid)
                     local-lights (filter #(:light/kind (db/entity db %))
                                          children)]
                 (reduce (fn [acc child] (into acc (rec child)))
@@ -95,15 +83,6 @@
         (t/compose-trs (:transform/translate t-ent)
                        (:transform/rotate t-ent)
                        (:transform/scale t-ent))))))
-
-
-(defn- children-sorted
-  [db parent-eid]
-  (->> (db/q '[:find ?e :in $ ?parent :where [?e :flow/parent ?parent]]
-             db
-             parent-eid)
-       (map first)
-       (sort-by (fn [e] (:flow/sort-key (db/entity db e) 0)))))
 
 
 (defn- geometry-tag?

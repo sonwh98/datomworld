@@ -141,6 +141,30 @@
       (is (= expected-proj (:op/projected rect-op))))))
 
 
+(deftest walk-once-prefers-earlier-grouped-camera-over-later-sibling-camera
+  (testing
+    "camera selection follows scene traversal order, not direct-child preference"
+    (let [db (test-db [:flow/scene
+                       [:flow/group
+                        [:camera/orthographic
+                         {:left 0,
+                          :right 100,
+                          :top 0,
+                          :bottom 100,
+                          :near 0.1,
+                          :far 100}]]
+                       [:camera/perspective
+                        {:fov 45.0, :aspect 1.5, :near 0.5, :far 250.0}]
+                       [:geom/rect {:size [10 20]}]])
+          frame (walk/walk-once db)
+          rect-op (first frame)
+          expected-proj (t/orthographic-mat4 0 100 100 0 0.1 100)
+          later-camera-proj (t/perspective-mat4 45.0 1.5 0.5 250.0)]
+      (is (= :rect (:op/kind rect-op)))
+      (is (= expected-proj (:op/projected rect-op)))
+      (is (not= later-camera-proj (:op/projected rect-op))))))
+
+
 (deftest walk-once-emits-lights-nested-under-scene-group
   (testing "a light nested under a scene descendant group remains in the frame"
     (let [db
