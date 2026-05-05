@@ -7,22 +7,13 @@
     [dao.stream.ringbuffer]
     [yin.vm :as vm]
     [yin.vm.engine :as engine]
-    [yin.vm.semantic :as semantic]))
+    [yin.vm.semantic :as semantic]
+    [yin.vm.test-utils :as vtu]))
 
 
 ;; =============================================================================
 ;; Semantic VM tests (datom graph traversal via protocols)
 ;; =============================================================================
-
-(defn- queue-vm
-  [vm-state datoms]
-  (let [in-stream (ds/open! {:type :ringbuffer, :capacity nil})
-        queued-vm (assoc vm-state
-                         :in-stream in-stream
-                         :in-cursor {:position 0}
-                         :halted? false)]
-    (ds/put! in-stream (vec datoms))
-    queued-vm))
 
 
 (defn- bridge-step
@@ -52,14 +43,14 @@
 (defn compile-and-run
   [ast]
   (let [datoms (vm/ast->datoms ast)]
-    (-> (queue-vm (semantic/create-vm) datoms)
+    (-> (vtu/queue-vm (semantic/create-vm) datoms)
         (vm/run)
         (vm/value))))
 
 
 (defn- load-ast
   [ast]
-  (queue-vm (semantic/create-vm) (vm/ast->datoms ast)))
+  (vtu/queue-vm (semantic/create-vm) (vm/ast->datoms ast)))
 
 
 (deftest cesk-state-test
@@ -95,7 +86,7 @@
                :operands [{:type :literal, :value 1}
                           {:type :literal, :value 2}]}
           [_root-tempid datoms] (vm/ast->datoms-with-root ast)
-          loaded (-> (queue-vm (semantic/create-vm) datoms)
+          loaded (-> (vtu/queue-vm (semantic/create-vm) datoms)
                      (vm/run))
           ast-db (:db loaded)
           root-eid (ffirst (dao-db/q '[:find ?e :where
@@ -112,7 +103,7 @@
   (testing "nil literal values remain explicit AST facts after DaoDB load"
     (let [[_root-tempid datoms] (vm/ast->datoms-with-root {:type :literal,
                                                            :value nil})
-          loaded (-> (queue-vm (semantic/create-vm) datoms)
+          loaded (-> (vtu/queue-vm (semantic/create-vm) datoms)
                      (vm/run))
           root-eid (ffirst (dao-db/q '[:find ?e :where [?e :yin/type :literal]]
                                      (:db loaded)))

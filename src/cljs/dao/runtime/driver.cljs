@@ -10,13 +10,14 @@
 (defn- run-pending!
   []
   (reset! scheduled? false)
-  (let [rt @current-rt]
-    (when-let [next-rt (rt/run-once rt)]
-      (reset! current-rt next-rt)
-      ;; If there's more work, schedule it immediately
-      (when (seq (:ready-queue next-rt))
-        (reset! scheduled? true)
-        (js/queueMicrotask run-pending!)))))
+  (let [rt @current-rt
+        next-rt (rt/run-once rt)]
+    (when next-rt (reset! current-rt next-rt))
+    (let [final-rt (or next-rt rt)]
+      (cond (seq (:ready-queue final-rt)) (do (reset! scheduled? true)
+                                              (js/queueMicrotask run-pending!))
+            (seq (:wait-set final-rt)) (do (reset! scheduled? true)
+                                           (js/setTimeout run-pending! 20))))))
 
 
 (defn schedule-work!

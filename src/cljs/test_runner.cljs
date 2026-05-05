@@ -1,6 +1,7 @@
 (ns test-runner
   (:require
     [cljs.test :refer-macros [run-tests]]
+    [dao.runtime.driver-cljs-test]
     [dao.stream-test]
     [datomworld.continuation-transport-test]
     [datomworld.demo.continuation-handoff-test]
@@ -20,7 +21,8 @@
 
 (defn -main
   []
-  (run-tests 'datomworld.continuation-transport-test
+  (run-tests 'dao.runtime.driver-cljs-test
+             'datomworld.continuation-transport-test
              'datomworld.demo.yin-repl-test
              'datomworld.demo.continuation-handoff-test
              'datomworld.demo.vm-state-keys-test

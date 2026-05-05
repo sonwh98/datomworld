@@ -2,65 +2,52 @@
   (:require
     [clojure.test :refer [deftest is testing]]
     [dao.stream :as ds]
+    [dao.test-utils :as tu]
     [yin.vm :as vm]
     [yin.vm.ast-walker :as ast-walker]
     [yin.vm.engine :as engine]
     [yin.vm.register :as register]
     [yin.vm.semantic :as semantic]
-    [yin.vm.stack :as stack]))
+    [yin.vm.stack :as stack]
+    [yin.vm.test-utils :as vtu]))
 
 
-(defrecord NonWaitableStream
-  [state-atom]
-
-  ds/IDaoStreamReader
-
-  (next
-    [_this cursor]
-    (println "DEBUG STREAM: next called with cursor" cursor)
-    (let [s @state-atom
-          pos (:position cursor)]
-      (if (contains? (:buffer s) pos)
-        {:ok (get (:buffer s) pos), :cursor {:position (inc pos)}}
-        :blocked)))
-
-
-  ds/IDaoStreamWriter
-
-  (put!
-    [_this val]
-    (let [tail (:tail @state-atom)]
-      (swap! state-atom (fn [s]
-                          (-> s
-                              (assoc-in [:buffer tail] val)
-                              (update :tail inc))))
-      {:result :ok}))
-
-
-  ds/IDaoStreamBound
-
-  (close! [_this] (swap! state-atom assoc :closed true) {:woke []})
-
-
-  (closed? [_this] (:closed @state-atom)))
-
-
-(defn- vm-factories
-  []
-  {:ast-walker ast-walker/create-vm,
-   :semantic semantic/create-vm,
-   :register register/create-vm,
-   :stack stack/create-vm})
+(deftest waitable-stream-next-advances-cursor-when-retried-immediately-test
+  (testing
+    "waitable :stream/next advances the cursor when handle-read retries and succeeds immediately"
+    (doseq [[vm-type create-vm] (vtu/vm-factories)]
+      (let [stream-key :test-stream
+            cursor-key :test-cursor
+            stream (tu/make-waitable-retry-stream)
+            _ (swap! (:state-atom stream) assoc :buffer {0 :success})
+            block-next (fn [cursor] {:effect :stream/next, :cursor cursor})
+            vm0 (-> (create-vm {:env {'block-next block-next}})
+                    (assoc-in [:store stream-key] stream)
+                    (assoc-in [:store cursor-key]
+                              {:stream-id stream-key, :position 0}))
+            cursor-ref {:type :cursor-ref, :id cursor-key}
+            ast {:type :application,
+                 :operator {:type :variable, :name 'nil?},
+                 :operands [{:type :application,
+                             :operator {:type :variable, :name 'block-next},
+                             :operands [{:type :literal, :value cursor-ref}]}]}
+            resumed (vm/eval vm0 ast)]
+        (is (false? (vm/blocked? resumed))
+            (str vm-type " should not be blocked"))
+        (is (false? (vm/value resumed))
+            (str vm-type " should return false (from nil? :success)"))
+        (is (= {:stream-id stream-key, :position 1}
+               (get (vm/store resumed) cursor-key))
+            (str vm-type " should advance cursor after successful retry"))))))
 
 
 (deftest blocked-non-waitable-stream-next-advances-cursor-after-resume-test
   (testing
     "blocked stream/next on non-waitable transports resumes through the VM adapter and advances the cursor"
-    (doseq [[vm-type create-vm] (vm-factories)]
+    (doseq [[vm-type create-vm] (vtu/vm-factories)]
       (let [stream-key :test-stream
             cursor-key :test-cursor
-            stream (->NonWaitableStream (atom
-                                          {:buffer {}, :tail 0, :closed false}))
+            stream (tu/make-non-waitable-stream)
             block-next (fn [cursor] {:effect :stream/next, :cursor cursor})
             vm0 (-> (create-vm {:env {'block-next block-next}})
                     (assoc-in [:store stream-key] stream)
@@ -95,7 +82,7 @@
   waitable-stream-next-resumes-after-put-with-original-vm-continuation-test
   (testing
     "waitable stream wakeups resume through the original VM continuation instead of a re-wrapped runtime task"
-    (doseq [[vm-type create-vm] (vm-factories)]
+    (doseq [[vm-type create-vm] (vtu/vm-factories)]
       (let [stream-key :test-stream
             cursor-key :test-cursor
             stream (ds/open! {:type :ringbuffer, :capacity nil})
@@ -132,7 +119,7 @@
   close-wakes-waitable-stream-next-without-double-wrapping-runtime-tasks-test
   (testing
     "closing a waitable stream while a VM continuation is parked on stream/next resumes through the original VM restore path"
-    (doseq [[vm-type create-vm] (vm-factories)]
+    (doseq [[vm-type create-vm] (vtu/vm-factories)]
       (let [stream-key :test-stream
             cursor-key :test-cursor
             stream (ds/open! {:type :ringbuffer, :capacity nil})

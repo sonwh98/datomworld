@@ -3,41 +3,8 @@
     [clojure.test :refer [deftest is testing]]
     [dao.runtime :as rt]
     [dao.runtime.driver :as driver]
-    [dao.stream :as ds]))
-
-
-(defrecord NonWaitableStream
-  [state-atom]
-
-  ds/IDaoStreamReader
-
-  (next
-    [_this cursor]
-    (let [s @state-atom
-          pos (:position cursor)]
-      (if (contains? (:buffer s) pos)
-        {:ok (get (:buffer s) pos), :cursor {:position (inc pos)}}
-        :blocked)))
-
-
-  ds/IDaoStreamWriter
-
-  (put!
-    [_this val]
-    (let [tail (:tail @state-atom)]
-      (swap! state-atom (fn [s]
-                          (-> s
-                              (assoc-in [:buffer tail] val)
-                              (update :tail inc))))
-      {:result :ok}))
-
-
-  ds/IDaoStreamBound
-
-  (close! [_this] (swap! state-atom assoc :closed true) {:woke []})
-
-
-  (closed? [_this] (:closed @state-atom)))
+    [dao.stream :as ds]
+    [dao.test-utils :as tu]))
 
 
 (deftest blocking-driver-drains-internally-enqueued-ready-work-test
@@ -59,8 +26,7 @@
   (testing
     "run-loop! should continue polling the runtime when work is parked in the wait-set"
     (let [seen (atom [])
-          stream (->NonWaitableStream (atom
-                                        {:buffer {}, :tail 0, :closed false}))
+          stream (tu/make-non-waitable-stream)
           task {:resume (fn [rt _entry value] (swap! seen conj value) rt)}
           driver-state (assoc (driver/make-blocking-driver)
                               :wait-set [{:task task,

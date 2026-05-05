@@ -11,12 +11,23 @@
 
 
 (defn- rt-result->vm-result
-  [rt-result]
-  {:state (:state rt-result),
-   :value (if (= :blocked (:result rt-result)) :yin/blocked (:value rt-result)),
-   :blocked? (or (= :blocked (:result rt-result))
-                 (= :full (:result rt-result))
-                 (= :empty (:result rt-result)))})
+  ([rt-result] (rt-result->vm-result rt-result nil))
+  ([rt-result effect]
+   (let [base {:state (:state rt-result),
+               :value (if (= :blocked (:result rt-result))
+                        :yin/blocked
+                        (:value rt-result)),
+               :blocked? (or (= :blocked (:result rt-result))
+                             (= :full (:result rt-result))
+                             (= :empty (:result rt-result)))}]
+     (if-let [new-cursor (:cursor rt-result)]
+       (let [cursor-id (:id (:cursor effect))
+             state (:state base)
+             new-store (assoc (:store state)
+                              cursor-id (assoc (get (:store state) cursor-id)
+                                               :position (:position new-cursor)))]
+         (assoc base :state (assoc state :store new-store)))
+       base))))
 
 
 (defn resolve-var
@@ -429,7 +440,8 @@
                 (if (satisfies? ds/IDaoStreamWaitable stream)
                   (if task
                     (rt-result->vm-result
-                      (rt/handle-write state stream (:val effect) task))
+                      (rt/handle-write state stream (:val effect) task)
+                      effect)
                     (do (ds/register-writer-waiter! stream built-entry)
                         {:state (assoc (:state result)
                                        :blocked? true
@@ -473,7 +485,8 @@
                                                           stream
                                                           {:position
                                                            position}
-                                                          task))
+                                                          task)
+                                          effect)
                     (do (ds/register-reader-waiter! stream
                                                     position
                                                     built-entry)

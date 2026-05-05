@@ -5,6 +5,7 @@
     [dao.stream.apply :as dao.stream.apply]
     [dao.stream.ringbuffer]
     [dao.stream.ringbuffer :as stream]
+    [dao.test-utils :as tu]
     [yin.vm :as vm]
     [yin.vm.engine :as engine]))
 
@@ -71,16 +72,6 @@
   (ds/open! {:type :ringbuffer, :capacity nil}))
 
 
-(defn- stream-values
-  [stream]
-  (vec (ds/->seq nil stream)))
-
-
-(defn- fact?
-  [datoms attr value]
-  (boolean (some #(and (= attr (nth % 1)) (= value (nth % 2))) datoms)))
-
-
 (deftest handle-effect-emits-telemetry-snapshot-test
   (testing "handle-effect emits :effect snapshots when telemetry is enabled"
     (let [telemetry-stream (make-stream)
@@ -98,11 +89,11 @@
                    state
                    {:effect :vm/store-put, :key :answer, :val 42}
                    {})
-          datoms (stream-values telemetry-stream)]
+          datoms (tu/stream-values telemetry-stream)]
       (is (= 42 (get-in result [:state :store :answer])))
-      (is (fact? datoms :vm/phase :effect))
-      (is (fact? datoms :vm/effect-type :vm/store-put))
-      (is (fact? datoms :vm/value 42)))))
+      (is (tu/fact? datoms :vm/phase :effect))
+      (is (tu/fact? datoms :vm/effect-type :vm/store-put))
+      (is (tu/fact? datoms :vm/value 42)))))
 
 
 (deftest park-and-resume-emit-telemetry-snapshots-test
@@ -132,11 +123,11 @@
                                                              :value resume-val
                                                              :halted? true
                                                              :blocked? false)))
-          datoms (stream-values telemetry-stream)]
+          datoms (tu/stream-values telemetry-stream)]
       (is (= :resumed (:value resumed-state)))
-      (is (fact? datoms :vm/phase :park))
-      (is (fact? datoms :vm/phase :resume))
-      (is (fact? datoms :vm/parked-id parked-id)))))
+      (is (tu/fact? datoms :vm/phase :park))
+      (is (tu/fact? datoms :vm/phase :resume))
+      (is (tu/fact? datoms :vm/parked-id parked-id)))))
 
 
 (deftest run-loop-emits-terminal-telemetry-test
@@ -153,8 +144,8 @@
                  :telemetry-t 0,
                  :vm-model :engine/test}
           _ (engine/run-loop state (fn [_] false) identity (fn [_] nil) nil)
-          datoms (stream-values telemetry-stream)]
-      (is (fact? datoms :vm/phase :blocked))))
+          datoms (tu/stream-values telemetry-stream)]
+      (is (tu/fact? datoms :vm/phase :blocked))))
   (testing "run-loop emits :halt terminal snapshots"
     (let [telemetry-stream (make-stream)
           state {:blocked? false,
@@ -168,47 +159,13 @@
                  :telemetry-t 0,
                  :vm-model :engine/test}
           _ (engine/run-loop state (fn [_] false) identity (fn [_] nil) nil)
-          datoms (stream-values telemetry-stream)]
-      (is (fact? datoms :vm/phase :halt)))))
+          datoms (tu/stream-values telemetry-stream)]
+      (is (tu/fact? datoms :vm/phase :halt)))))
 
 
 ;; =============================================================================
 ;; Fallback Scheduler Tests (Non-waitable streams)
 ;; =============================================================================
-
-(defrecord NonWaitableStream
-  [state-atom]
-
-  ds/IDaoStreamReader
-
-  (next
-    [_this cursor]
-    (let [s @state-atom
-          pos (:position cursor)]
-      (if (contains? (:buffer s) pos)
-        {:ok (get (:buffer s) pos), :cursor {:position (inc pos)}}
-        :blocked)))
-
-
-  ds/IDaoStreamWriter
-
-  (put!
-    [_this val]
-    (let [s @state-atom
-          tail (:tail s)]
-      (swap! state-atom (fn [s]
-                          (-> s
-                              (assoc-in [:buffer tail] val)
-                              (update :tail inc))))
-      {:result :ok}))
-
-
-  ds/IDaoStreamBound
-
-  (close! [_this] (swap! state-atom assoc :closed true) {:woke []})
-
-
-  (closed? [_this] (:closed @state-atom)))
 
 
 #?(:cljd (deftest check-wait-set-fallback-test
@@ -219,8 +176,7 @@
    (deftest check-wait-set-fallback-test
      (testing
        "check-wait-set still polls non-waitable streams in the scheduler"
-       (let [state-atom (atom {:buffer {}, :tail 0, :closed false})
-             stream (->NonWaitableStream state-atom)
+       (let [stream (tu/make-non-waitable-stream)
              state {:store {:s1 stream, :c1 {:stream-id :s1, :position 0}},
                     :id-counter 0}
              ;; 1. Park reader (not waitable, so it goes to wait-set)
@@ -246,8 +202,7 @@
              (is true)))
    :default (deftest check-wait-set-put-fallback-test
               (testing "check-wait-set still polls :put on non-waitable streams"
-                (let [state-atom (atom {:buffer {}, :tail 0, :closed false})
-                      stream (->NonWaitableStream state-atom)
+                (let [stream (tu/make-non-waitable-stream)
                       state {:store {:s1 stream}, :id-counter 0}
                       ;; Park writer
                       writer-entry {:reason :put, :stream-id :s1, :datom :val}
@@ -257,7 +212,7 @@
                       state-runnable (#'yin.vm.engine/check-wait-set state)]
                   (is (empty? (:wait-set state-runnable)))
                   (is (= 1 (count (:ready-queue state-runnable))))
-                  (is (= :val (get-in @state-atom [:buffer 0]))
+                  (is (= :val (get-in @(:state-atom stream) [:buffer 0]))
                       "Datom should be written")))))
 
 
@@ -269,8 +224,7 @@
    (deftest check-wait-set-resumes-closed-put-fallback-test
      (testing
        "check-wait-set resumes closed non-waitable :put waiters with nil"
-       (let [state-atom (atom {:buffer {}, :tail 0, :closed false})
-             stream (->NonWaitableStream state-atom)
+       (let [stream (tu/make-non-waitable-stream)
              state {:store {:s1 stream}, :id-counter 0}
              writer-entry {:reason :put, :stream-id :s1, :datom :val}
              state (assoc state :wait-set [writer-entry])
@@ -280,8 +234,8 @@
          (is (= 1 (count (:ready-queue checked))))
          (is (nil? (:value (first (:ready-queue checked)))))
          (is (true? (ds/closed? stream)))
-         (is (empty? (:buffer @state-atom)))
-         (is (= 0 (:tail @state-atom)))))))
+         (is (empty? (:buffer @(:state-atom stream))))
+         (is (= 0 (:tail @(:state-atom stream))))))))
 
 
 (defrecord NonWaitableRingBufferStream
@@ -323,11 +277,78 @@
   (closed? [_this] (:closed @state-atom)))
 
 
+(defrecord WaitableRetryStream
+  [state-atom]
+
+  ds/IDaoStreamReader
+
+  (next
+    [_this cursor]
+    (let [call-count (:next-calls (swap! state-atom update :next-calls inc))
+          pos (:position cursor)]
+      (if (= 1 call-count)
+        :blocked
+        {:ok (get-in @state-atom [:buffer pos]),
+         :cursor {:position (inc pos)}})))
+
+
+  ds/IDaoStreamWaitable
+
+  (register-reader-waiter!
+    [_this position entry]
+    (swap! state-atom update :reader-waiters conj [position entry]))
+
+
+  (register-writer-waiter!
+    [_this entry]
+    (swap! state-atom update :writer-waiters conj entry))
+
+
+  ds/IDaoStreamBound
+
+  (close! [_this] (swap! state-atom assoc :closed true) {:woke []})
+
+
+  (closed? [_this] (:closed @state-atom)))
+
+
 (defn- ringbuffer-state-atom
   [stream]
   #?(:clj (.-state-atom ^dao.stream.ringbuffer.RingBufferStream stream)
      :cljs (.-state-atom ^dao.stream.ringbuffer/RingBufferStream stream)
      :cljd (.-state-atom ^dao.stream.ringbuffer/RingBufferStream stream)))
+
+
+(deftest waitable-stream-next-retry-preserves-cursor-advance-test
+  (testing
+    "waitable stream/next should advance the VM cursor when the runtime retry succeeds immediately"
+    (let [state-atom (atom {:buffer {0 :payload},
+                            :next-calls 0,
+                            :reader-waiters [],
+                            :writer-waiters [],
+                            :closed false})
+          stream (->WaitableRetryStream state-atom)
+          state {:store {:s1 stream, :c1 {:stream-id :s1, :position 0}},
+                 :id-counter 0}
+          result (engine/handle-effect
+                   state
+                   {:effect :stream/next, :cursor {:type :cursor-ref, :id :c1}}
+                   {:park-entry-fns {:stream/next (fn [_s _e r]
+                                                    {:reason :next,
+                                                     :cursor-ref (:cursor-ref
+                                                                   r),
+                                                     :stream-id (:stream-id r),
+                                                     :k {:id :reader}})},
+                    :restore-fn (fn [base _entry value]
+                                  (assoc base
+                                         :value value
+                                         :blocked? false
+                                         :halted? false))})]
+      (is (= :payload (:value result)))
+      (is (false? (:blocked? result)))
+      (is (= {:stream-id :s1, :position 1} (get-in result [:state :store :c1])))
+      (is (= 2 (:next-calls @state-atom)))
+      (is (empty? (:reader-waiters @state-atom))))))
 
 
 #?(:cljd (deftest check-wait-set-put-fallback-after-capacity-freed-test
