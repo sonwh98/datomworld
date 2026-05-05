@@ -6,11 +6,13 @@
 
 (def current-rt (atom (rt/initial-state)))
 (def scheduled? (atom false))
+(def polling? (atom false))
 
 
 (defn- run-pending!
   []
   (reset! scheduled? false)
+  (reset! polling? false)
   (let [rt @current-rt
         next-rt (rt/run-once rt)]
     (when next-rt (reset! current-rt next-rt))
@@ -19,6 +21,7 @@
                                               (async/scheduleMicrotask
                                                 run-pending!))
             (seq (:wait-set final-rt)) (do (reset! scheduled? true)
+                                           (reset! polling? true)
                                            (async/Timer.
                                              (core/Duration .milliseconds 20)
                                              run-pending!))))))
@@ -28,6 +31,7 @@
   "Schedule runtime tasks to run on the next Dart microtask."
   [entries]
   (swap! current-rt rt/enqueue-ready entries)
-  (when-not @scheduled?
+  (when (or (not @scheduled?) @polling?)
     (reset! scheduled? true)
+    (reset! polling? false)
     (async/scheduleMicrotask run-pending!)))

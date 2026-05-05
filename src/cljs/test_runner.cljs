@@ -1,6 +1,6 @@
 (ns test-runner
   (:require
-    [cljs.test :refer-macros [run-tests]]
+    [cljs.test :as t :refer-macros [run-tests]]
     [dao.runtime.driver-cljs-test]
     [dao.stream-test]
     [datomworld.continuation-transport-test]
@@ -17,6 +17,12 @@
     [yin.vm.stack-test]
     [yin.vm.telemetry-viewer-test]
     [yin.vm.wasm-test]))
+
+
+(defmethod t/report :end-run-tests
+  [m]
+  (let [{:keys [fail error]} m]
+    (if (pos? (+ fail error)) (js/process.exit 1) (js/process.exit 0))))
 
 
 (defn -main
