@@ -120,6 +120,27 @@
       (is (= expected-proj (:op/projected rect-op))))))
 
 
+(deftest walk-once-applies-ancestor-transforms-to-nested-camera
+  (testing
+    "a nested camera inherits ancestor transforms when building clip-from-world"
+    (let [db (test-db [:flow/scene
+                       [:flow/group {:transform {:translate [10 0 0]}}
+                        [:camera/orthographic
+                         {:left 0,
+                          :right 100,
+                          :top 0,
+                          :bottom 100,
+                          :near 0.1,
+                          :far 100}]] [:geom/rect {:size [10 20]}]])
+          frame (walk/walk-once db)
+          rect-op (first frame)
+          proj (t/orthographic-mat4 0 100 100 0 0.1 100)
+          view (t/invert-trs [10 0 0] nil nil)
+          expected-proj (t/mul-mat4 proj view)]
+      (is (= :rect (:op/kind rect-op)))
+      (is (= expected-proj (:op/projected rect-op))))))
+
+
 (deftest walk-once-emits-lights-nested-under-scene-group
   (testing "a light nested under a scene descendant group remains in the frame"
     (let [db

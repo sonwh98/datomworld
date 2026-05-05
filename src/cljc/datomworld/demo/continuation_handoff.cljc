@@ -29,5 +29,5 @@
 (defn handoff->vm-state
   [vm-key payload]
   (let [base (if (stack-vm? vm-key) (stack/create-vm) (register/create-vm))
-        resumed (reduce-kv (fn [acc k v] (assoc acc k v)) base payload)]
+        resumed (merge base payload)]
     (assoc resumed :primitives vm/primitives)))

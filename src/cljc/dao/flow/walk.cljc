@@ -13,25 +13,46 @@
 (defn- find-active-camera
   [db scene-root]
   (let [rec (fn rec
-              [eid]
-              (or (some-> (db/q '[:find ?e :in $ ?p :where [?e :flow/parent ?p]
-                                  [?e :camera/kind]]
-                                db
-                                eid)
-                          ffirst)
-                  (some rec
-                        (map first
-                             (db/q '[:find ?e :in $ ?p :where [?e :flow/parent ?p]]
-                                   db
-                                   eid)))))]
-    (rec scene-root)))
+              [eid parent-view]
+              (let [local-inv (let [t-eid (:flow/transform (db/entity db eid))]
+                                (if-not t-eid
+                                  t/identity-mat4
+                                  (let [t-ent (db/entity db t-eid)]
+                                    (t/invert-trs (:transform/translate t-ent)
+                                                  (:transform/rotate t-ent)
+                                                  (:transform/scale t-ent)))))
+                    view (t/mul-mat4 local-inv parent-view)]
+                (or (when-let [cam-eid (some-> (db/q '[:find ?e :in $ ?p :where
+                                                       [?e :flow/parent ?p]
+                                                       [?e :camera/kind]]
+                                                     db
+                                                     eid)
+                                               ffirst)]
+                      (let [cam-inv (let [t-eid (:flow/transform
+                                                  (db/entity db cam-eid))]
+                                      (if-not t-eid
+                                        t/identity-mat4
+                                        (let [t-ent (db/entity db t-eid)]
+                                          (t/invert-trs
+                                            (:transform/translate t-ent)
+                                            (:transform/rotate t-ent)
+                                            (:transform/scale t-ent)))))]
+                        {:eid cam-eid, :view (t/mul-mat4 cam-inv view)}))
+                    (some #(rec % view)
+                          (map first
+                               (db/q '[:find ?e :in $ ?p :where
+                                       [?e :flow/parent ?p]]
+                                     db
+                                     eid))))))]
+    (rec scene-root t/identity-mat4)))
 
 
 (defn- camera->clip-from-world
-  [db camera-eid]
-  (if-not camera-eid
+  [db camera-info]
+  (if-not camera-info
     t/identity-mat4
-    (let [ent (db/entity db camera-eid)
+    (let [{:keys [eid view]} camera-info
+          ent (db/entity db eid)
           kind (:camera/kind ent)
           proj (if (= kind :perspective)
                  (t/perspective-mat4 (or (:camera/fov ent) 60.0)
@@ -43,14 +64,7 @@
                                       (or (:camera/bottom ent) -1.0)
                                       (or (:camera/top ent) 1.0)
                                       (or (:camera/near ent) -1.0)
-                                      (or (:camera/far ent) 1.0)))
-          t-eid (:flow/transform ent)
-          view (if-not t-eid
-                 t/identity-mat4
-                 (let [t-ent (db/entity db t-eid)]
-                   (t/invert-trs (:transform/translate t-ent)
-                                 (:transform/rotate t-ent)
-                                 (:transform/scale t-ent))))]
+                                      (or (:camera/far ent) 1.0)))]
       (t/mul-mat4 proj view))))
 
 
