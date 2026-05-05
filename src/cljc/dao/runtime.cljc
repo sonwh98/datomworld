@@ -129,24 +129,25 @@
    Returns {:state updated-rt :result result-tag :value v}."
   [rt stream cursor task]
   (let [result (ds/next stream cursor)]
-    (cond (map? result) {:state rt,
-                         :result :ok,
-                         :value (:ok result),
-                         :cursor (:cursor result)}
-          (= :blocked result)
-          (let [entry {:task task,
-                       :resume (:resume task),
-                       :reason :next,
-                       :stream stream,
-                       :cursor cursor}]
-            (if (satisfies? ds/IDaoStreamWaitable stream)
-              (do (ds/register-reader-waiter! stream (:position cursor) entry)
-                  {:state (assoc rt :blocked? true), :result :blocked})
-              {:state (-> rt
-                          (park-task entry)
-                          (assoc :blocked? true)),
-               :result :blocked}))
-          :else {:state rt, :result result, :value nil})))
+    (cond
+      (map? result)
+      {:state rt, :result :ok, :value (:ok result), :cursor (:cursor result)}
+      (= :blocked result)
+      (if task
+        (let [entry {:task task,
+                     :resume (:resume task),
+                     :reason :next,
+                     :stream stream,
+                     :cursor cursor}]
+          (if (satisfies? ds/IDaoStreamWaitable stream)
+            (do (ds/register-reader-waiter! stream (:position cursor) entry)
+                {:state (assoc rt :blocked? true), :result :blocked})
+            {:state (-> rt
+                        (park-task entry)
+                        (assoc :blocked? true)),
+             :result :blocked}))
+        {:state (assoc rt :blocked? true), :result :blocked})
+      :else {:state rt, :result result, :value nil})))
 
 
 (defn handle-write
@@ -169,8 +170,7 @@
                          (park-task entry)
                          (assoc :blocked? true)),
               :result :full}))
-         (throw (ex-info "handle-write: task required for blocking put"
-                         {:stream stream, :val val})))
+         {:state (assoc rt :blocked? true), :result :full})
        (let [woken (make-ready-entries (:woke result))]
          {:state (enqueue-ready rt woken), :result :ok, :value val})))))
 
