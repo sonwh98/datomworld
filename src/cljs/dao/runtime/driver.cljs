@@ -6,12 +6,16 @@
 (defonce ^:private current-rt (atom (rt/initial-state)))
 (defonce ^:private scheduled? (atom false))
 (defonce ^:private polling? (atom false))
+(defonce ^:private active-timer (atom nil))
 
 
 (defn- run-pending!
   []
   (reset! scheduled? false)
   (reset! polling? false)
+  (when-let [timer @active-timer]
+    (js/clearTimeout timer)
+    (reset! active-timer nil))
   (let [rt @current-rt
         next-rt (rt/run-once rt)]
     (when next-rt (reset! current-rt next-rt))
@@ -22,6 +26,7 @@
             (do (reset! scheduled? true)
                 (reset! polling? true)
                 (let [timer (js/setTimeout run-pending! 20)]
+                  (reset! active-timer timer)
                   (when (and (exists? js/process) (.-unref timer))
                     (.unref timer))))))))
 
@@ -31,6 +36,10 @@
   [entries]
   (swap! current-rt rt/enqueue-ready entries)
   (when (or (not @scheduled?) @polling?)
+    (when @polling?
+      (when-let [timer @active-timer]
+        (js/clearTimeout timer)
+        (reset! active-timer nil)))
     (reset! scheduled? true)
     (reset! polling? false)
     (js/queueMicrotask run-pending!)))
