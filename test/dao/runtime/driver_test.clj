@@ -18,7 +18,14 @@
                                 (rt/enqueue-ready rt [second-task]))}
           rt-atom (atom (driver/make-blocking-driver))]
       (driver/enqueue-ready! rt-atom [first-task])
-      (driver/run-loop! rt-atom)
+      ;; Use a future to run the loop and stop! it after work is done
+      (let [runner (future (driver/run-loop! rt-atom))]
+        (loop [i 0]
+          (if (or (= 2 (count @seen)) (> i 50))
+            nil
+            (do (Thread/sleep 20) (recur (inc i)))))
+        (driver/stop! rt-atom)
+        @runner)
       (is (= [:first :second] @seen)))))
 
 
@@ -38,5 +45,29 @@
           runner (future (driver/run-loop! rt-atom))]
       (Thread/sleep 20)
       (ds/put! stream :payload)
+      ;; Wait for task to be processed
+      (loop [i 0]
+        (if (or (seq @seen) (> i 50))
+          nil
+          (do (Thread/sleep 20) (recur (inc i)))))
+      (driver/stop! rt-atom)
       @runner
       (is (= [:payload] @seen)))))
+
+
+(deftest blocking-driver-stays-alive-when-started-idle-test
+  (testing
+    "starting the driver before any work arrives should keep a runner alive for future enqueue-ready! calls"
+    (let [seen (atom [])
+          rt-atom (atom (driver/make-blocking-driver))
+          task {:resume (fn [rt _entry _value] (swap! seen conj :ran) rt)}
+          runner (future (driver/run-loop! rt-atom))]
+      (try (Thread/sleep 100)
+           (is (not (realized? runner)))
+           (driver/enqueue-ready! rt-atom [task])
+           (loop [i 0]
+             (if (or (seq @seen) (> i 50))
+               nil
+               (do (Thread/sleep 20) (recur (inc i)))))
+           (is (= [:ran] @seen))
+           (finally (driver/stop! rt-atom) @runner)))))

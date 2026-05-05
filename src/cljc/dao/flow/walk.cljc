@@ -12,7 +12,10 @@
 
 (defn- find-active-camera
   [db scene-root]
-  (first (first (db/q '[:find ?e :where [?e :camera/kind]] db))))
+  (first (first (db/q '[:find ?e :in $ ?parent :where [?e :flow/parent ?parent]
+                        [?e :camera/kind]]
+                      db
+                      scene-root))))
 
 
 (defn- camera->clip-from-world
@@ -44,7 +47,11 @@
 
 (defn- lights-of
   [db scene-root]
-  (map first (db/q '[:find ?e :where [?e :light/kind]] db)))
+  (map first
+       (db/q '[:find ?e :in $ ?parent :where [?e :flow/parent ?parent]
+               [?e :light/kind]]
+             db
+             scene-root)))
 
 
 (defn- entity-local-trs

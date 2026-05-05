@@ -4,7 +4,7 @@
     [dao.db :as db]
     [dao.db.in-memory :as in-m]
     [dao.flow.hiccup :as hiccup]
-    [dao.flow.ops :as ops]
+    [dao.flow.transform :as t]
     [dao.flow.walk :as walk]))
 
 
@@ -47,8 +47,8 @@
           rect-op (first frame)]
       (is (= :rect (:op/kind rect-op)))
       ;; x translation is the 12th element of a column-major 4x4, or since
-      ;; we use [x y z 1] in translation mat,
-      ;; let's just assert the tx component of the world matrix is 15.0
+      ;; we use [x y z 1] in translation mat, let's just assert the tx
+      ;; component of the world matrix is 15.0
       (let [world (:op/world rect-op) tx (nth world 12)] (is (= 15.0 tx))))))
 
 
@@ -74,3 +74,28 @@
       ;; ensure there are two cubes and an end-frame.
       (is (= 3 (count frame)))
       (is (every? #(= :cube (:op/kind %)) ops)))))
+
+
+(deftest walk-once-ignores-cameras-outside-the-active-scene
+  (testing "an unrelated camera in the db must not replace the scene camera"
+    (let [db
+          (test-db
+            [:flow/scene
+             [:camera/orthographic
+              {:left 0, :right 100, :top 0, :bottom 100, :near 0.1, :far 100}]
+             [:geom/rect {:size [10 20]}]])
+          ;; Insert an auxiliary camera that is not attached to the scene
+          ;; root. The walker should still use the camera under the active
+          ;; scene.
+          db-with-extra-camera
+          (:db-after (db/transact db
+                                  [[:db/add 100 :camera/kind :perspective]
+                                   [:db/add 100 :camera/fov 45.0]
+                                   [:db/add 100 :camera/aspect 1.5]
+                                   [:db/add 100 :camera/near 0.5]
+                                   [:db/add 100 :camera/far 250.0]]))
+          frame (walk/walk-once db-with-extra-camera)
+          rect-op (first frame)
+          expected-proj (t/orthographic-mat4 0 100 100 0 0.1 100)]
+      (is (= :rect (:op/kind rect-op)))
+      (is (= expected-proj (:op/projected rect-op))))))
