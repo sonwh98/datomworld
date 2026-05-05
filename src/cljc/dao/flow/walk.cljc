@@ -12,10 +12,19 @@
 
 (defn- find-active-camera
   [db scene-root]
-  (first (first (db/q '[:find ?e :in $ ?parent :where [?e :flow/parent ?parent]
-                        [?e :camera/kind]]
-                      db
-                      scene-root))))
+  (let [rec (fn rec
+              [eid]
+              (or (some-> (db/q '[:find ?e :in $ ?p :where [?e :flow/parent ?p]
+                                  [?e :camera/kind]]
+                                db
+                                eid)
+                          ffirst)
+                  (some rec
+                        (map first
+                             (db/q '[:find ?e :in $ ?p :where [?e :flow/parent ?p]]
+                                   db
+                                   eid)))))]
+    (rec scene-root)))
 
 
 (defn- camera->clip-from-world
@@ -47,11 +56,19 @@
 
 (defn- lights-of
   [db scene-root]
-  (map first
-       (db/q '[:find ?e :in $ ?parent :where [?e :flow/parent ?parent]
-               [?e :light/kind]]
-             db
-             scene-root)))
+  (let [rec (fn rec
+              [eid]
+              (let [children (map first
+                                  (db/q '[:find ?e :in $ ?p :where
+                                          [?e :flow/parent ?p]]
+                                        db
+                                        eid))
+                    local-lights (filter #(:light/kind (db/entity db %))
+                                         children)]
+                (reduce (fn [acc child] (into acc (rec child)))
+                        (vec local-lights)
+                        children)))]
+    (rec scene-root)))
 
 
 (defn- entity-local-trs
@@ -132,7 +149,11 @@
                   (conj! out (geom->op* db eid tag world cam-mat)))
                 (doseq [child (children-sorted db eid)] (rec child world))))]
     (when scene-root (rec scene-root t/identity-mat4))
-    (conj (vec (sort-by :op/depth > (persistent! out))) (ops/op-end-frame))))
+    (let [all-ops (persistent! out)
+          {geoms true, env-ops false} (group-by #(contains? % :op/depth)
+                                                all-ops)]
+      (conj (vec (concat env-ops (sort-by :op/depth > geoms)))
+            (ops/op-end-frame)))))
 
 
 (defn walk-xf

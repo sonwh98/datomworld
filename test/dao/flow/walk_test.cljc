@@ -99,3 +99,45 @@
           expected-proj (t/orthographic-mat4 0 100 100 0 0.1 100)]
       (is (= :rect (:op/kind rect-op)))
       (is (= expected-proj (:op/projected rect-op))))))
+
+
+(deftest walk-once-finds-camera-nested-under-scene-group
+  (testing
+    "a camera nested under a scene descendant group still drives projection"
+    (let [db (test-db [:flow/scene
+                       [:flow/group
+                        [:camera/orthographic
+                         {:left 0,
+                          :right 100,
+                          :top 0,
+                          :bottom 100,
+                          :near 0.1,
+                          :far 100}]] [:geom/rect {:size [10 20]}]])
+          frame (walk/walk-once db)
+          rect-op (first frame)
+          expected-proj (t/orthographic-mat4 0 100 100 0 0.1 100)]
+      (is (= :rect (:op/kind rect-op)))
+      (is (= expected-proj (:op/projected rect-op))))))
+
+
+(deftest walk-once-emits-lights-nested-under-scene-group
+  (testing "a light nested under a scene descendant group remains in the frame"
+    (let [db
+          (test-db
+            [:flow/scene
+             [:camera/orthographic
+              {:left 0, :right 100, :top 0, :bottom 100, :near 0.1, :far 100}]
+             [:flow/group
+              [:light/directional
+               {:color [1 1 1 1], :intensity 0.75, :direction [0 -1 0]}]]
+             [:geom/rect {:size [10 20]}]])
+          frame (walk/walk-once db)
+          [light-op rect-op end-op] frame]
+      (is (= 3 (count frame)))
+      (is (= :light (:op/kind light-op)))
+      (is (= :directional (:op/light-kind light-op)))
+      (is (= [1 1 1 1] (:op/color light-op)))
+      (is (= 0.75 (:op/intensity light-op)))
+      (is (= [0 -1 0] (:op/direction light-op)))
+      (is (= :rect (:op/kind rect-op)))
+      (is (= :end-frame (:op/kind end-op))))))
