@@ -9,6 +9,7 @@
     [dao.stream :as ds]
     [dao.stream.apply :as dao-apply]
     [dao.stream.ringbuffer :as ringbuffer]
+    [dao.stream.ws]
     [yin.repl :as repl]))
 
 
@@ -412,6 +413,8 @@
                        :response-stream response-stream}]
          (dao-apply/put-response! response-stream stale-id "STALE")
          (with-redefs [yin.repl/open-remote-endpoint (fn [_url] endpoint)
+                       dao.stream.ws/connection-status (fn [_stream]
+                                                         :connected)
                        dao.stream.apply/put-request!
                        (fn [_request-stream request-id _op _args]
                          (dao-apply/put-response! response-stream
@@ -465,6 +468,8 @@
                                                          "ws://one" endpoint-1
                                                          "ws://two"
                                                          endpoint-2))
+                       dao.stream.ws/connection-status (fn [_stream]
+                                                         :connected)
                        dao.stream/close! (fn [stream]
                                            (swap! closed-streams conj stream)
                                            {:woke []})]
@@ -475,6 +480,37 @@
              (is (= endpoint-2 (:remote-endpoint state-2)))
              (is (= [::request-1 ::response-1] @closed-streams))))))
      :default (is true)))
+
+
+(deftest connect-waits-for-transport-readiness-test
+  #?(:clj
+     (testing
+       "connect waits until the remote websocket link reaches :connected"
+       (let [statuses (atom [:connecting :connecting :connected])
+             stream (Object.)]
+         (with-redefs [yin.repl/open-remote-endpoint
+                       (fn [_url]
+                         {:request-stream stream, :response-stream stream})
+                       dao.stream.ws/connection-status
+                       (fn [_stream]
+                         (let [status (or (first @statuses) :connected)]
+                           (swap! statuses #(if (seq %) (vec (rest %)) %))
+                           status))]
+           (let [[state result] @(repl/eval-input
+                                   (repl/create-state)
+                                   "(connect \"ws://remote\")")]
+             (is (= "Connected to ws://remote" result))
+             (is (= {:request-stream stream, :response-stream stream}
+                    (:remote-endpoint state)))))))
+     :default (is true)))
+
+
+(deftest connection-status-text-test
+  (testing "server status reflects whether any REPL clients are connected"
+    (is (= "listening" (repl/connection-status-text 0)))
+    (is (= "listening" (repl/connection-status-text -1)))
+    (is (= "client connected" (repl/connection-status-text 1)))
+    (is (= "client connected" (repl/connection-status-text 2)))))
 
 
 (deftest repl-server-worker-retries-after-stream-end-test

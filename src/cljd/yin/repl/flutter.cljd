@@ -9,6 +9,7 @@
 (def device-ip (m/ValueNotifier "..."))
 (def interface-addresses (m/ValueNotifier []))
 (def server-status (m/ValueNotifier "starting"))
+(def active-clients (atom 0))
 (def repl-state (atom nil))
 (def repl-server (atom nil))
 
@@ -37,17 +38,26 @@
 (defn start-server!
   "Starts the REPL server on the specified port (default 7777) and populates the device-ip and server-status notifiers."
   [{:keys [port extra-primitives], :or {port 7777}}]
+  (when-let [stop! (:stop! @repl-server)] (stop!))
+  (reset! active-clients 0)
   (reset! repl-state
     (-> (repl/create-state {:vm-type :semantic})
         (update :vm update :primitives merge (or extra-primitives {}))))
-  (reset! repl-server (repl/serve! repl-state
-                                   port
-                                   {:on-connect (fn [_stream]
-                                                  (set! (.-value
-                                                          ^m/ValueNotifier
-                                                          server-status)
-                                                        "client connected"))}))
-  (set! (.-value ^m/ValueNotifier server-status) "listening")
+  (reset! repl-server
+    (repl/serve!
+      repl-state
+      port
+      {:on-connect (fn [_stream]
+                     (let [client-count (swap! active-clients inc)]
+                       (set! (.-value ^m/ValueNotifier server-status)
+                             (repl/connection-status-text client-count)))),
+       :on-disconnect (fn [_stream]
+                        (let [client-count (swap! active-clients
+                                             (fn [n] (max 0 (dec n))))]
+                          (set! (.-value ^m/ValueNotifier server-status)
+                                (repl/connection-status-text client-count))))}))
+  (set! (.-value ^m/ValueNotifier server-status)
+        (repl/connection-status-text @active-clients))
   (load-device-ip!))
 
 (defn eval-input!

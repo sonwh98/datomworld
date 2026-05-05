@@ -130,6 +130,13 @@
   (swap! (:link-state-atom ws-stream) assoc :status :closed))
 
 
+(defn connection-status
+  "Return the current link status for a WebSocketStream, or nil for other streams."
+  [stream]
+  (when (instance? WebSocketStream stream)
+    (:status @(:link-state-atom stream))))
+
+
 ;; =============================================================================
 ;; CLJ: listen! (http-kit)
 ;; =============================================================================
@@ -184,7 +191,12 @@
               (onOpen
                 [_ ws]
                 (reset! ws-ref ws)
-                (on-open! stream (fn [msg] (.sendText ws msg true) nil))
+                ;; Java's WebSocket client sends text frames
+                ;; asynchronously. Block each send until it is
+                ;; accepted so the initial sync-request and the first
+                ;; REPL request cannot race.
+                (on-open! stream
+                          (fn [msg] (.join (.sendText ws msg true)) nil))
                 (.request ws 1))
 
               (onText

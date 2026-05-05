@@ -45,6 +45,12 @@
 (def ^:private lang-labels {:clojure "Clojure", :python "Python", :php "PHP"})
 
 
+(defn connection-status-text
+  "Return a human-readable status text for a REPL server based on the number of active clients."
+  [client-count]
+  (if (pos? client-count) "client connected" "listening"))
+
+
 (defn- log-repl!
   [message]
   #?(:cljs (js/console.log message)
@@ -345,6 +351,23 @@
     {:request-stream stream, :response-stream stream}))
 
 
+#?(:clj
+   (defn- await-remote-connection!
+     [stream]
+     (loop [attempts 500]
+       (let [status (ws/connection-status stream)]
+         (cond (= status :connected) stream
+               (= status :closed)
+               (throw (ex-info
+                        "Remote Yin REPL connection closed during handshake"
+                        {:status status}))
+               (zero? attempts)
+               (throw (ex-info
+                        "Timed out waiting for remote Yin REPL connection"
+                        {:status status}))
+               :else (do (Thread/sleep 10) (recur (dec attempts))))))))
+
+
 (defn- attach-remote-endpoint
   [state endpoint]
   (assoc state
@@ -642,6 +665,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
              (str (get vm-labels (:vm-type state)) " reset")]
       connect
       #?(:clj (let [endpoint (open-remote-endpoint (first args))
+                    _ (await-remote-connection! (:request-stream endpoint))
                     state (detach-remote-endpoint state)]
                 [(attach-remote-endpoint state endpoint)
                  (str "Connected to "
@@ -853,6 +877,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
               {:type :websocket,
                :mode :listen,
                :port port,
+               :on-disconnect (:on-disconnect opts),
                :on-connect
                (fn [stream]
                  (log-repl!
@@ -900,6 +925,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
               {:type :websocket,
                :mode :listen,
                :port port,
+               :on-disconnect (:on-disconnect opts),
                :on-connect
                (fn [stream]
                  (log-repl!
@@ -946,6 +972,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
               {:type :websocket,
                :mode :listen,
                :port port,
+               :on-disconnect (:on-disconnect opts),
                :on-connect
                (fn [stream]
                  (log-repl!
