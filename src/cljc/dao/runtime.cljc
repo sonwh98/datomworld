@@ -44,12 +44,14 @@
 
 (defn- make-ready-entries
   "Transform transport-level woken entries into runtime ready entries."
-  [woken]
-  (mapv (fn [{:keys [entry value position]}]
-          (assoc entry
-                 :value value
-                 :position position))
-        woken))
+  ([woken] (make-ready-entries woken :ok))
+  ([woken status]
+   (mapv (fn [{:keys [entry value position]}]
+           (assoc entry
+                  :value value
+                  :status status
+                  :position position))
+         woken)))
 
 
 (defn check-wait-set
@@ -76,6 +78,7 @@
                                            (conj new-ready
                                                  (assoc entry
                                                         :value (:ok result)
+                                                        :status :ok
                                                         :cursor (:cursor result)
                                                         :position (:position
                                                                     (:cursor
@@ -85,36 +88,48 @@
                       :else ; :end or :daostream/gap
                       (recur rest-entries
                              new-wait
-                             (conj new-ready (assoc entry :value nil)))))
+                             (conj new-ready
+                                   (assoc entry
+                                          :value (if (= result :end) nil result)
+                                          :status result)))))
               :take (let [result (ds/drain-one! (:stream entry))]
                       (cond
                         (map? result)
-                        (let [woken (make-ready-entries (:woke result))]
+                        (let [woken (make-ready-entries (:woke result) :ok)]
                           (recur rest-entries
                                  new-wait
                                  (into new-ready
-                                       (cons (assoc entry :value (:ok result))
+                                       (cons (assoc entry
+                                                    :value (:ok result)
+                                                    :status :ok)
                                              woken))))
                         (= :empty result)
                         (recur rest-entries (conj new-wait entry) new-ready)
                         :else ; :end
                         (recur rest-entries
                                new-wait
-                               (conj new-ready (assoc entry :value nil)))))
+                               (conj new-ready
+                                     (assoc entry
+                                            :value (if (= result :end) nil result)
+                                            :status result)))))
               :put (let [stream (:stream entry)]
                      (if (ds/closed? stream)
                        (recur rest-entries
                               new-wait
-                              (conj new-ready (assoc entry :value nil)))
+                              (conj new-ready
+                                    (assoc entry
+                                           :value nil
+                                           :status :end)))
                        (let [result (ds/put! stream (:datom entry))]
                          (if (= :full (:result result))
                            (recur rest-entries (conj new-wait entry) new-ready)
-                           (let [woken (make-ready-entries (:woke result))]
+                           (let [woken (make-ready-entries (:woke result) :ok)]
                              (recur rest-entries
                                     new-wait
                                     (into new-ready
                                           (cons (assoc entry
-                                                       :value (:datom entry))
+                                                       :value (:datom entry)
+                                                       :status :ok)
                                                 woken))))))))
               ;; Unknown reason, keep waiting
               (recur rest-entries (conj new-wait entry) new-ready))))))))
@@ -147,7 +162,8 @@
                         (assoc :blocked? true)),
              :result :blocked}))
         {:state (assoc rt :blocked? true), :result :blocked})
-      :else {:state rt, :result result, :value nil})))
+      :else
+      {:state rt, :result result, :value (if (= result :end) nil result)})))
 
 
 (defn handle-write
@@ -171,7 +187,7 @@
                          (assoc :blocked? true)),
               :result :full}))
          {:state (assoc rt :blocked? true), :result :full})
-       (let [woken (make-ready-entries (:woke result))]
+       (let [woken (make-ready-entries (:woke result) :ok)]
          {:state (enqueue-ready rt woken), :result :ok, :value val})))))
 
 
@@ -180,7 +196,7 @@
    Returns {:state updated-rt :result result-tag :value v}."
   [rt stream task]
   (let [result (ds/drain-one! stream)]
-    (cond (map? result) (let [woken (make-ready-entries (:woke result))]
+    (cond (map? result) (let [woken (make-ready-entries (:woke result) :ok)]
                           {:state (enqueue-ready rt woken),
                            :result :ok,
                            :value (:ok result)})
@@ -192,7 +208,9 @@
                                           (park-task entry)
                                           (assoc :blocked? true)),
                                :result :empty})
-          :else {:state rt, :result result, :value nil})))
+          :else {:state rt,
+                 :result result,
+                 :value (if (= result :end) nil result)})))
 
 
 (defn handle-close
@@ -200,7 +218,7 @@
    Returns {:state updated-rt :result :ok}."
   [rt stream]
   (let [{:keys [woke]} (ds/close! stream)
-        woken (make-ready-entries woke)]
+        woken (make-ready-entries woke :end)]
     {:state (enqueue-ready rt woken), :result :ok}))
 
 

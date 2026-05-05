@@ -16,23 +16,25 @@
   [rt task-entry value]
   (let [task (or (:task task-entry) task-entry)
         {:keys [step acc-atom stream]} task
-        acc @acc-atom]
+        acc @acc-atom
+        status (or (:status task-entry) :ok)]
     (if (contains? task-entry :value)
-      (let [[status next-acc]
-            (cond (nil? value) [:end (step acc)]
-                  (= value :daostream/gap)
+      (let [[out-status next-acc]
+            (cond (= status :end) [:end (step acc)]
+                  (= status :daostream/gap)
                   (throw (ex-info "Stream gap encountered"
                                   {:cursor (:cursor task-entry)}))
                   :else (let [res (step acc value)]
                           (if (reduced? res) [:end (step @res)] [:ok res])))]
         (reset! acc-atom next-acc)
-        (if (= status :end)
+        (if (= out-status :end)
           (assoc rt :result next-acc)
           (let [res (rt/handle-read rt stream (:cursor task-entry) task)]
             (cond (= (:result res) :ok) (recur (:state res)
                                                {:task task,
                                                 :cursor (:cursor res),
                                                 :value (:value res),
+                                                :status :ok,
                                                 :resume transduce-task-resume}
                                                (:value res))
                   (= (:result res) :end) (assoc (:state res)
@@ -44,6 +46,7 @@
                                            {:task task,
                                             :cursor (:cursor res),
                                             :value (:value res),
+                                            :status :ok,
                                             :resume transduce-task-resume}
                                            (:value res))
               (= (:result res) :end) (assoc (:state res) :result (step acc))
@@ -65,4 +68,4 @@
         rt (rt/initial-state)
         rt' (rt/enqueue-ready rt [task])
         rt-final (rt/run-loop rt')]
-    (or (:result rt-final) @acc-atom)))
+    (if (contains? rt-final :result) (:result rt-final) @acc-atom)))
