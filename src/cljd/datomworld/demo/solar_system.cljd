@@ -1,4 +1,4 @@
-(ns datomworld.demo.flow-scene
+(ns datomworld.demo.solar-system
   (:require ["dart:async" :as async]
             ["dart:core" :as core]
             ["dart:math" :as math]
@@ -56,6 +56,7 @@
   (orbit! state :venus 8.0 0.035)
   (orbit! state :earth 11.0 0.022)
   (orbit! state :mars 14.5 0.012)
+  (spin! state :moon-pivot 0.0 0.08 0.0)
   (spin! state :sun 0.0 0.015 0.0)
   :animating)
 
@@ -72,6 +73,8 @@
                                          (core/Duration .milliseconds period-ms)
                                          (fn [_timer] (tick!)))]
                              (fn [] (.cancel ^async/Timer timer))))})
+        _ (spin! scene-state :sun 0.0 0.015 0.0)
+        _ (spin! scene-state :moon-pivot 0.0 0.08 0.0)
         extra-prims (merge (scene/repl-primitives scene-state)
                            {'orbit! (fn [id radius speed]
                                       (orbit! scene-state
@@ -91,13 +94,13 @@
     (m/runApp
       (m/MaterialApp.
         .title
-        "dao.flow scene REPL"
+        "dao.flow solar system"
         .theme
         (m/ThemeData. .colorScheme (m/ColorScheme.dark))
         .home
         (m/Scaffold.
           .appBar
-          (m/AppBar .title (m/Text "dao.flow scene REPL"))
+          (m/AppBar .title (m/Text "dao.flow solar system"))
           .body
           (m/ListView.
             .padding
@@ -108,7 +111,7 @@
                      .style
                      (m/TextStyle .fontWeight m/FontWeight.bold .fontSize 13.0))
              (m/SizedBox .height 6.0)
-             (mono "(connect \"daostream:ws://<ip>:7778\")")
+             (mono "(connect \"daostream:ws://<ip>:7777\")")
              (m/SizedBox .height 4.0) (mono "(bodies)")
              (mono "(translate! :earth 11 2 0)")
              (mono "(color! :venus 0.3 0.9 0.5)") (mono "(scale! :mars 2.0)")

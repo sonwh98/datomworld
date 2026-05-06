@@ -1,5 +1,6 @@
 (ns dao.flow.flutter
   (:require ["package:flutter/material.dart" :as m]
+            ["dart:math" :as math]
             ["dart:ui" :as ui]
             ["dart:async" :as async]
             [dao.flow :as flow]
@@ -69,6 +70,57 @@
                  [2 6] [3 7]]]
       (doseq [[i j] edges] (.drawLine canvas (nth pts i) (nth pts j) paint)))))
 
+(defn- draw-sphere
+  [^ui/Canvas canvas op size]
+  (let [w (:op/world op)
+        p (:op/projected op)
+        clip (t/mul-mat4 p w)
+        [cr cg cb ca] (or (:color op) [1.0 1.0 1.0 1.0])
+        paint (let [p (ui/Paint.)]
+                (set! (.-style p) ui/PaintingStyle.stroke)
+                (set! (.-strokeWidth p) 1.5)
+                (set! (.-color p)
+                      (ui/Color.fromARGB (int (* ca 255))
+                                         (int (* cr 255))
+                                         (int (* cg 255))
+                                         (int (* cb 255))))
+                p)
+        n 48
+        step (/ (* 2.0 math/pi) n)
+        project (fn [[lx ly lz]]
+                  (let [[px py _ pw] (apply-mat4 clip [lx ly lz 1.0])
+                        sx (* (+ (* (/ px pw) 0.5) 0.5) (.-width size))
+                        sy (* (+ (* (- (/ py pw)) 0.5) 0.5) (.-height size))]
+                    (ui/Offset. sx sy)))
+        draw-circle
+          (fn [pts]
+            (let [pv (mapv project pts)]
+              (doseq [i (range n)]
+                (.drawLine canvas (nth pv i) (nth pv (mod (inc i) n)) paint))))
+        equator (mapv (fn [i] [(* 0.5 (math/cos (* i step))) 0.0
+                               (* 0.5 (math/sin (* i step)))])
+                  (range n))
+        meridians (mapv (fn [phi]
+                          (mapv (fn [i]
+                                  (let [t (* i step)]
+                                    [(* 0.5 (math/cos phi) (math/cos t))
+                                     (* 0.5 (math/sin t))
+                                     (* 0.5 (math/sin phi) (math/cos t))]))
+                            (range n)))
+                    (mapv #(* % (/ math/pi 6.0)) (range 6)))
+        lat-circles (mapv (fn [lat]
+                            (mapv (fn [i]
+                                    (let [t (* i step)]
+                                      [(* 0.5 (math/cos lat) (math/cos t))
+                                       (* 0.5 (math/sin lat))
+                                       (* 0.5 (math/cos lat) (math/sin t))]))
+                              (range n)))
+                      (mapv #(* % (/ math/pi 6.0)) [-2 -1 1 2]))]
+    (draw-circle equator)
+    (doseq [m meridians] (draw-circle m))
+    (doseq [l lat-circles] (draw-circle l))))
+
+
 (deftype FlowPainter [^m/ValueNotifier notifier]
   :extends
   m/CustomPainter
@@ -77,7 +129,7 @@
         (doseq [op frame]
           (case (:op/kind op)
             :cube (draw-cube canvas op size)
-            ;; other primitives not fully implemented for v1 smoke yet
+            :sphere (draw-sphere canvas op size)
             nil))))
     (shouldRepaint [this old-delegate]
       ;; repaint whenever notified

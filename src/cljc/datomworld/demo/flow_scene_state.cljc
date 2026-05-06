@@ -23,7 +23,7 @@
      :near 0.1,
      :far 200.0,
      :transform {:translate [0 16 34], :rotate [-0.44 0 0]}}]
-   [:geom/cube
+   [:geom/sphere
     {:flow/id :sun,
      :transform {:scale [3.0 3.0 3.0]},
      :material {:color [1.0 0.75 0.1 1.0]}}]
@@ -38,7 +38,12 @@
    [:geom/cube
     {:flow/id :earth,
      :transform {:translate [11.0 0.0 0.0], :scale [0.7 0.7 0.7]},
-     :material {:color [0.2 0.5 0.9 1.0]}}]
+     :material {:color [0.2 0.5 0.9 1.0]}}
+    [:flow/group {:flow/id :moon-pivot, :transform {:rotate [0.0 0.0 0.0]}}
+     [:geom/cube
+      {:flow/id :moon,
+       :transform {:translate [1.5 0.0 0.0], :scale [0.25 0.25 0.25]},
+       :material {:color [0.75 0.75 0.78 1.0]}}]]]
    [:geom/cube
     {:flow/id :mars,
      :transform {:translate [14.5 0.0 0.0], :scale [0.5 0.5 0.5]},

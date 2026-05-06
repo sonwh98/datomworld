@@ -10,7 +10,7 @@
         criterium/criterium {:mvn/version "0.4.6"}
         stigmergy/chp {:mvn/version "0.1.0-SNAPSHOT"
                        :exclusions [refactor-nrepl/refactor-nrepl]}}
- :cljd/opts {:kind :flutter :main datomworld.main}
+ :cljd/opts {:kind :flutter :main datomworld.demo.main}
  :paths ["src/clj" "src/cljc" "src/cljs" "src/cljd"]
  :aliases {:clean {:extra-paths ["src/dev"]
                    :exec-fn clean/clean}
