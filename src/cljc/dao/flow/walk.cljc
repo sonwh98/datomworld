@@ -7,7 +7,7 @@
 
 (defn- find-scene-root
   [db]
-  (first (first (db/q '[:find ?e :where [?e :flow/scene-root true]] db))))
+  (first (sort (db/find-eids-by-av db :flow/scene-root true))))
 
 
 (defn- children-sorted
@@ -16,7 +16,8 @@
              db
              parent-eid)
        (map first)
-       (sort-by (fn [e] (:flow/sort-key (db/entity db e) 0)))))
+       ;; A tied :flow/sort-key must not inherit db/q result order.
+       (sort-by (fn [e] [(:flow/sort-key (db/entity db e) 0) e]))))
 
 
 (defn- find-active-camera
@@ -91,7 +92,7 @@
 
 
 (defn- geom->op*
-  [db eid tag world cam-mat]
+  [db eid _tag world cam-mat]
   (let [ent (db/entity db eid)
         kind (:geom/kind ent)
         clip (t/mul-mat4 cam-mat world)
@@ -131,8 +132,6 @@
         camera (find-active-camera db scene-root)
         cam-mat (camera->clip-from-world db camera)
         out (transient [])
-        _ (doseq [l-eid (lights-of db scene-root)]
-            (conj! out (ops/op-light (db/entity db l-eid))))
         rec (fn rec
               [eid parent-world]
               (let [local (entity-local-trs db eid)
@@ -141,6 +140,8 @@
                 (when (geometry-tag? tag)
                   (conj! out (geom->op* db eid tag world cam-mat)))
                 (doseq [child (children-sorted db eid)] (rec child world))))]
+    (run! (fn [l-eid] (conj! out (ops/op-light (db/entity db l-eid))))
+          (lights-of db scene-root))
     (when scene-root (rec scene-root t/identity-mat4))
     (let [all-ops (persistent! out)
           {geoms true, env-ops false} (group-by #(contains? % :op/depth)
