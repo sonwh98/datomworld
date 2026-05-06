@@ -1,0 +1,133 @@
+(ns datomworld.demo.flow-scene
+  (:require ["dart:async" :as async]
+            ["dart:core" :as core]
+            ["dart:math" :as math]
+            ["package:flutter/material.dart" :as m]
+            [dao.flow.flutter :as flutter]
+            [datomworld.demo.flow-scene-state :as scene]
+            [yin.repl.flutter :as flutter-repl]))
+
+
+(defn- mono
+  ([text] (mono text 11.0))
+  ([text size]
+   (m/Text text .style (m/TextStyle .fontFamily "monospace" .fontSize size))))
+
+
+(defn- orbit!
+  [{:keys [schedule-every! animations-atom], :as state} id radius speed]
+  (let [anim-key (keyword (str (name id) "-orbit"))
+        _ (when-let [stop-fn (get @animations-atom anim-key)] (stop-fn))
+        angle-atom (atom 0.0)
+        stop-fn (schedule-every! 16
+                                 (fn []
+                                   (let [a @angle-atom
+                                         x (* radius (math/cos a))
+                                         z (* radius (math/sin a))]
+                                     (swap! angle-atom + speed)
+                                     (scene/translate! state id x 0.0 z))))]
+    (swap! animations-atom assoc anim-key stop-fn)
+    :orbiting))
+
+
+(defn- spin!
+  [{:keys [schedule-every! animations-atom], :as state} id drx dry drz]
+  (let [anim-key (keyword (str (name id) "-spin"))
+        _ (when-let [stop-fn (get @animations-atom anim-key)] (stop-fn))
+        rot-atom (atom [0.0 0.0 0.0])
+        stop-fn (schedule-every! 16
+                                 (fn []
+                                   (let [[rx ry rz] @rot-atom
+                                         next-rot [(+ rx drx) (+ ry dry)
+                                                   (+ rz drz)]]
+                                     (reset! rot-atom next-rot)
+                                     (scene/rotate-body! state
+                                                         id
+                                                         (nth next-rot 0)
+                                                         (nth next-rot 1)
+                                                         (nth next-rot 2)))))]
+    (swap! animations-atom assoc anim-key stop-fn)
+    :spinning))
+
+
+(defn- animate-all!
+  [state]
+  (orbit! state :mercury 5.5 0.055)
+  (orbit! state :venus 8.0 0.035)
+  (orbit! state :earth 11.0 0.022)
+  (orbit! state :mars 14.5 0.012)
+  (spin! state :sun 0.0 0.015 0.0)
+  :animating)
+
+
+(defn main
+  []
+  (let [port 7777
+        notifier (m/ValueNotifier. [])
+        scene-state (scene/create-demo-state
+                      (fn [frame] (flutter/paint-rf notifier frame))
+                      {:schedule-every!
+                         (fn [period-ms tick!]
+                           (let [timer (async/Timer.periodic
+                                         (core/Duration .milliseconds period-ms)
+                                         (fn [_timer] (tick!)))]
+                             (fn [] (.cancel ^async/Timer timer))))})
+        extra-prims (merge (scene/repl-primitives scene-state)
+                           {'orbit! (fn [id radius speed]
+                                      (orbit! scene-state
+                                              (keyword id)
+                                              (double radius)
+                                              (double speed))),
+                            'spin! (fn [id drx dry drz]
+                                     (spin! scene-state
+                                            (keyword id)
+                                            (double drx)
+                                            (double dry)
+                                            (double drz))),
+                            'animate! (fn [] (animate-all! scene-state)),
+                            'stop-animation! (fn []
+                                               (scene/stop-all! scene-state))})]
+    (flutter-repl/start-server! {:port port, :extra-primitives extra-prims})
+    (m/runApp
+      (m/MaterialApp.
+        .title
+        "dao.flow scene REPL"
+        .theme
+        (m/ThemeData. .colorScheme (m/ColorScheme.dark))
+        .home
+        (m/Scaffold.
+          .appBar
+          (m/AppBar .title (m/Text "dao.flow scene REPL"))
+          .body
+          (m/ListView.
+            .padding
+            (m/EdgeInsets.all 16.0)
+            .children
+            [(flutter-repl/info-card {:port port}) (m/SizedBox .height 12.0)
+             (m/Text "REPL commands"
+                     .style
+                     (m/TextStyle .fontWeight m/FontWeight.bold .fontSize 13.0))
+             (m/SizedBox .height 6.0)
+             (mono "(connect \"daostream:ws://<ip>:7778\")")
+             (m/SizedBox .height 4.0) (mono "(bodies)")
+             (mono "(translate! :earth 11 2 0)")
+             (mono "(color! :venus 0.3 0.9 0.5)") (mono "(scale! :mars 2.0)")
+             (mono "(add-body! :asteroid 7 3 0 0.6 0.6 0.6)")
+             (mono "(camera! 0 20 38)") (mono "(orbit! :mercury 5.5 0.04)")
+             (mono "(orbit! :earth 11 0.02)") (mono "(spin! :sun 0 0.03 0)")
+             (mono "(animate!)") (mono "(stop-animation!)") (mono "(stop!)")
+             (mono "(reset!)") (m/SizedBox .height 16.0)
+             (m/Center .child
+                       (m/SizedBox. .width
+                                    500.0
+                                    .height
+                                    500.0
+                                    .child
+                                    (m/ValueListenableBuilder.
+                                      .valueListenable
+                                      notifier
+                                      .builder
+                                      (fn [_ _frame _child]
+                                        (m/CustomPaint. .painter
+                                                        (flutter/FlowPainter.
+                                                          notifier))))))]))))))
