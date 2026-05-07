@@ -1,15 +1,6 @@
 (ns dao.flow
   (:require
-    [dao.flow.hiccup :as hiccup]
-    [dao.flow.walk :as walk]
-    [dao.runtime :as rt]
-    [dao.stream :as ds]))
-
-
-(def hiccup->datoms hiccup/hiccup->datoms)
-(def datoms->hiccup hiccup/datoms->hiccup)
-(def walk-xf walk/walk-xf)
-(def walk-once walk/walk-once)
+    [dao.runtime :as rt]))
 
 
 (defn- transduce-task-resume

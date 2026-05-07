@@ -1,173 +1,165 @@
 (ns datomworld.demo.flow-scene-state
   (:require
-    [dao.db :as db]
-    [dao.db.in-memory :as in-m]
-    [dao.flow :as flow]
-    [dao.flow.hiccup :as hiccup]
-    [dao.flow.walk :as walk]
-    [dao.stream :as ds]
+    [dao.flow.transform :as t]
+    [dao.runtime :as rt]
     [dao.stream.ringbuffer :as ring]))
 
 
-(def schema
-  [{:db/ident :flow/parent, :db/valueType :db.type/ref}
-   {:db/ident :flow/transform, :db/valueType :db.type/ref}
-   {:db/ident :flow/material, :db/valueType :db.type/ref}
-   {:db/ident :camera, :db/valueType :db.type/ref}])
+;; =============================================================================
+;; State
+;; =============================================================================
+
+(def initial-state
+  {:camera {:fov 55.0,
+            :near 0.1,
+            :far 200.0,
+            :translate [0 16 34],
+            :rotate [-0.44 0 0]},
+   :bodies {:sun {:kind :sphere,
+                  :translate [0 0 0],
+                  :rotate [0 0 0],
+                  :scale [3 3 3],
+                  :color [1.0 0.75 0.1 1.0]},
+            :mercury {:kind :cube,
+                      :translate [5.5 0 0],
+                      :scale [0.35 0.35 0.35],
+                      :color [0.55 0.55 0.55 1.0]},
+            :venus {:kind :cube,
+                    :translate [8.0 0 0],
+                    :scale [0.65 0.65 0.65],
+                    :color [0.9 0.75 0.4 1.0]},
+            :earth {:kind :cube,
+                    :translate [11.0 0 0],
+                    :scale [0.7 0.7 0.7],
+                    :color [0.2 0.5 0.9 1.0]},
+            :moon-pivot {:kind :group, :parent :earth, :rotate [0 0 0]},
+            :moon {:kind :cube,
+                   :parent :moon-pivot,
+                   :translate [1.5 0 0],
+                   :scale [0.25 0.25 0.25],
+                   :color [0.75 0.75 0.78 1.0]},
+            :mars {:kind :cube,
+                   :translate [14.5 0 0],
+                   :scale [0.5 0.5 0.5],
+                   :color [0.75 0.25 0.1 1.0]}}})
 
 
-(def initial-scene
-  [:flow/scene {:flow/clear-color [0.02 0.02 0.06 1.0]}
-   [:camera/perspective
-    {:fov 55.0,
-     :near 0.1,
-     :far 200.0,
-     :transform {:translate [0 16 34], :rotate [-0.44 0 0]}}]
-   [:geom/sphere
-    {:flow/id :sun,
-     :transform {:scale [3.0 3.0 3.0]},
-     :material {:color [1.0 0.75 0.1 1.0]}}]
-   [:geom/cube
-    {:flow/id :mercury,
-     :transform {:translate [5.5 0.0 0.0], :scale [0.35 0.35 0.35]},
-     :material {:color [0.55 0.55 0.55 1.0]}}]
-   [:geom/cube
-    {:flow/id :venus,
-     :transform {:translate [8.0 0.0 0.0], :scale [0.65 0.65 0.65]},
-     :material {:color [0.9 0.75 0.4 1.0]}}]
-   [:geom/cube
-    {:flow/id :earth,
-     :transform {:translate [11.0 0.0 0.0], :scale [0.7 0.7 0.7]},
-     :material {:color [0.2 0.5 0.9 1.0]}}
-    [:flow/group {:flow/id :moon-pivot, :transform {:rotate [0.0 0.0 0.0]}}
-     [:geom/cube
-      {:flow/id :moon,
-       :transform {:translate [1.5 0.0 0.0], :scale [0.25 0.25 0.25]},
-       :material {:color [0.75 0.75 0.78 1.0]}}]]]
-   [:geom/cube
-    {:flow/id :mars,
-     :transform {:translate [14.5 0.0 0.0], :scale [0.5 0.5 0.5]},
-     :material {:color [0.75 0.25 0.1 1.0]}}]])
+;; =============================================================================
+;; Command Interpreter
+;; =============================================================================
+
+(defn- apply-command
+  [state [op id arg]]
+  (case op
+    :body/translate (assoc-in state [:bodies id :translate] arg)
+    :body/rotate (assoc-in state [:bodies id :rotate] arg)
+    :body/color (assoc-in state [:bodies id :color] arg)
+    :body/scale (assoc-in state [:bodies id :scale] arg)
+    :camera/translate (assoc-in state [:camera :translate] id) ; scene cmd:
+    ;; value in slot
+    ;; 1
+    :scene/add-body (assoc-in state [:bodies id] arg)
+    :scene/reset initial-state
+    :scene/render state
+    state))
 
 
-(defn- last-rf
-  "Reducing function that keeps the last value."
-  ([] nil)
-  ([acc] acc)
-  ([_ v] v))
+;; =============================================================================
+;; Render
+;; =============================================================================
+
+(defn- compose-world
+  [bodies id]
+  (let [body (get bodies id)
+        local (t/compose-trs (:translate body) (:rotate body) (:scale body))]
+    (if-let [parent-id (:parent body)]
+      (t/mul-mat4 (compose-world bodies parent-id) local)
+      local)))
 
 
-(defn- transact-via-stream!
-  "Drive tx-data through walk-xf + stream-transduce on a closed finite stream.
-   Returns the final rendered frame, or nil if the stream was empty."
-  [db-atom tx-data]
-  (let [stream (ring/make-ring-buffer-stream 2)]
-    (ds/put! stream tx-data)
-    (ds/close! stream)
-    (flow/stream-transduce (walk/walk-xf db-atom)
-                           last-rf
-                           nil
-                           stream
-                           {:position 0})))
+(defn- render
+  [{:keys [camera bodies]}]
+  (let [view (t/invert-trs (:translate camera) (:rotate camera) nil)
+        proj (t/perspective-mat4 (:fov camera) 1.0 (:near camera) (:far camera))
+        cam-mat (t/mul-mat4 proj view)
+        ops (for [[id body] bodies
+                  :when (not= (:kind body) :group)]
+              (let [world (compose-world bodies id)
+                    clip (t/mul-mat4 cam-mat world)
+                    z (nth clip 14)
+                    w (nth clip 15)
+                    depth (if (zero? w) z (/ z w))]
+                {:op/kind (:kind body),
+                 :op/world world,
+                 :op/projected cam-mat,
+                 :op/depth depth,
+                 :color (:color body)}))]
+    (conj (vec (sort-by :op/depth > ops)) {:op/kind :end-frame})))
 
 
-(defn- emit!
-  [{:keys [db-atom notifier-frame!]} tx-data]
-  (when-let [frame (transact-via-stream! db-atom tx-data)]
-    (notifier-frame! frame)))
+;; =============================================================================
+;; Scene Interpreter Task
+;; =============================================================================
+
+(defn- make-scene-interpreter
+  [state-atom primitive-stream]
+  (letfn [(resume
+            [rt entry cmd]
+            (swap! state-atom apply-command cmd)
+            (let [frame (render @state-atom)
+                  {rt' :state} (rt/handle-write rt primitive-stream frame nil)
+                  next-cursor (update (:cursor entry) :position inc)
+                  {rt'' :state} (rt/handle-read rt'
+                                                (:stream entry)
+                                                next-cursor
+                                                {:resume resume})]
+              rt''))]
+    {:resume resume}))
 
 
-(defn- transform-eid-of
-  [db target-id]
-  (some (fn [[i t]] (when (= i target-id) t))
-        (db/run-q db
-                  '[:find ?i ?t :where [?e :flow/id ?i] [?e :flow/transform ?t]]
-                  [])))
+(defn- put-command!
+  [{:keys [tx-stream]} cmd]
+  (let [{rt' :state} (rt/handle-write (rt/initial-state) tx-stream cmd nil)]
+    (rt/run-loop rt')))
 
 
-(defn- material-eid-of
-  [db target-id]
-  (some (fn [[i m]] (when (= i target-id) m))
-        (db/run-q db
-                  '[:find ?i ?m :where [?e :flow/id ?i] [?e :flow/material ?m]]
-                  [])))
-
-
-(defn- camera-transform-eid
-  [db]
-  (ffirst (db/run-q db
-                    '[:find ?t :where [?e :camera/kind ?k]
-                      [?e :flow/transform ?t]]
-                    [])))
-
-
-(defn- scene-root-eid
-  [db]
-  (ffirst (db/run-q db '[:find ?e :where [?e :flow/scene-root true]] [])))
-
+;; =============================================================================
+;; Public API
+;; =============================================================================
 
 (defn translate!
   [state id x y z]
-  (when-let [t-eid (transform-eid-of @(:db-atom state) id)]
-    (emit! state
-           [[:db/add t-eid :transform/translate
-             [(double x) (double y) (double z)]]])))
+  (put-command! state [:body/translate id [(double x) (double y) (double z)]]))
 
 
 (defn rotate-body!
   [state id rx ry rz]
-  (when-let [t-eid (transform-eid-of @(:db-atom state) id)]
-    (emit! state
-           [[:db/add t-eid :transform/rotate
-             [(double rx) (double ry) (double rz)]]])))
+  (put-command! state [:body/rotate id [(double rx) (double ry) (double rz)]]))
 
 
 (defn color!
   [state id r g b]
-  (when-let [m-eid (material-eid-of @(:db-atom state) id)]
-    (emit! state
-           [[:db/add m-eid :material/color
-             [(double r) (double g) (double b) 1.0]]])))
+  (put-command! state [:body/color id [(double r) (double g) (double b) 1.0]]))
 
 
 (defn scale!
   [state id s]
-  (when-let [t-eid (transform-eid-of @(:db-atom state) id)]
-    (emit! state
-           [[:db/add t-eid :transform/scale
-             [(double s) (double s) (double s)]]])))
+  (put-command! state [:body/scale id [(double s) (double s) (double s)]]))
 
 
 (defn camera-translate!
   [state x y z]
-  (when-let [t-eid (camera-transform-eid @(:db-atom state))]
-    (emit! state
-           [[:db/add t-eid :transform/translate
-             [(double x) (double y) (double z)]]])))
+  (put-command! state [:camera/translate [(double x) (double y) (double z)]]))
 
 
 (defn add-body!
   [state id x y z r g b]
-  (let [db @(:db-atom state)
-        root-eid (scene-root-eid db)
-        e -1
-        t-e -2
-        m-e -3]
-    (emit! state
-           [[:db/add e :flow/tag :geom/cube] [:db/add e :geom/kind :cube]
-            [:db/add e :flow/id id] [:db/add e :flow/parent root-eid]
-            [:db/add t-e :transform/translate
-             [(double x) (double y) (double z)]] [:db/add e :flow/transform t-e]
-            [:db/add m-e :material/color [(double r) (double g) (double b) 1.0]]
-            [:db/add e :flow/material m-e]])))
-
-
-(defn bodies
-  [{:keys [db-atom]}]
-  (->> (db/run-q @db-atom '[:find ?e ?i :where [?e :flow/id ?i]] [])
-       (map second)
-       sort
-       vec))
+  (put-command! state
+                [:scene/add-body id
+                 {:kind :cube,
+                  :translate [(double x) (double y) (double z)],
+                  :scale [0.5 0.5 0.5],
+                  :color [(double r) (double g) (double b) 1.0]}]))
 
 
 (defn stop-all!
@@ -177,16 +169,25 @@
   :stopped)
 
 
+(defn init-scene!
+  [state]
+  (put-command! state [:scene/render]))
+
+
 (defn reset-scene!
-  [{:keys [db-atom notifier-frame!], :as state}]
+  [state]
   (stop-all! state)
-  (let [fresh-db (:db-after (db/transact (in-m/empty-db) schema))
-        _ (reset! db-atom fresh-db)
-        init-tx (mapv (fn [[e a v]] [:db/add e a v])
-                      (hiccup/hiccup->datoms initial-scene))
-        frame (transact-via-stream! db-atom init-tx)]
-    (when frame (notifier-frame! frame))
-    :reset))
+  (put-command! state [:scene/reset])
+  :reset)
+
+
+(defn bodies
+  [{:keys [state-atom]}]
+  (->> (:bodies @state-atom)
+       (remove (fn [[_ v]] (= (:kind v) :group)))
+       (map first)
+       sort
+       vec))
 
 
 (defn repl-primitives
@@ -202,15 +203,16 @@
 
 
 (defn create-demo-state
-  [notifier-frame! {:keys [schedule-every!]}]
-  (let [fresh-db (:db-after (db/transact (in-m/empty-db) schema))
-        db-atom (atom fresh-db)
-        init-tx (mapv (fn [[e a v]] [:db/add e a v])
-                      (hiccup/hiccup->datoms initial-scene))
-        state {:db-atom db-atom,
-               :animations-atom (atom {}),
-               :schedule-every! schedule-every!,
-               :notifier-frame! notifier-frame!}
-        initial-frame (transact-via-stream! db-atom init-tx)]
-    (when initial-frame (notifier-frame! initial-frame))
-    state))
+  [primitive-stream {:keys [schedule-every!]}]
+  (let [state-atom (atom initial-state)
+        tx-stream (ring/make-ring-buffer-stream nil)
+        interp-task (make-scene-interpreter state-atom primitive-stream)
+        _ (rt/handle-read (rt/initial-state)
+                          tx-stream
+                          {:position 0}
+                          interp-task)]
+    {:state-atom state-atom,
+     :tx-stream tx-stream,
+     :primitive-stream primitive-stream,
+     :animations-atom (atom {}),
+     :schedule-every! schedule-every!}))

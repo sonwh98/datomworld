@@ -1,10 +1,8 @@
 (ns datomworld.demo.main
   (:require [datomworld.demo.repl :as repl-demo]
-            [datomworld.demo.flow-cube :as flow-cube-demo]
             [datomworld.demo.solar-system :as solar-system-demo]))
 
 (defn main
   []
   ;;(repl-demo/main)
-  ;;(flow-cube-demo/main)
   (solar-system-demo/main))

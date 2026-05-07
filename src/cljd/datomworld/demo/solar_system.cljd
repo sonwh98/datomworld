@@ -4,6 +4,7 @@
             ["dart:math" :as math]
             ["package:flutter/material.dart" :as m]
             [dao.flow.flutter :as flutter]
+            [dao.stream.ringbuffer :as ring]
             [datomworld.demo.flow-scene-state :as scene]
             [yin.repl.flutter :as flutter-repl]))
 
@@ -99,15 +100,18 @@
 (defn main
   []
   (let [port 7777
+        primitive-stream (ring/make-ring-buffer-stream nil)
         notifier (m/ValueNotifier. [])
         scene-state (scene/create-demo-state
-                      (fn [frame] (flutter/paint-rf notifier frame))
+                      primitive-stream
                       {:schedule-every!
                          (fn [period-ms tick!]
                            (let [timer (async/Timer.periodic
                                          (core/Duration .milliseconds period-ms)
                                          (fn [_timer] (tick!)))]
                              (fn [] (.cancel ^async/Timer timer))))})
+        _ (flutter/register-painter-task! primitive-stream notifier)
+        _ (scene/init-scene! scene-state)
         _ (spin! scene-state :sun 0.0 0.015 0.0)
         _ (spin! scene-state :moon-pivot 0.0 0.08 0.0)
         extra-prims (merge (scene/repl-primitives scene-state)
