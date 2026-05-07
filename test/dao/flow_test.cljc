@@ -2,8 +2,18 @@
   (:require
     [clojure.test :refer [deftest is testing]]
     [dao.flow :as flow]
+    [dao.runtime :as rt]
     [dao.stream :as ds]
     [dao.stream.ringbuffer :as ring]))
+
+
+(deftest stream-put-wakes-reader
+  (let [buf (ring/make-ring-buffer-stream nil)
+        received (atom nil)
+        task {:resume (fn [rt entry val] (reset! received val) rt)}
+        _ (rt/handle-read (rt/initial-state) buf {:position 0} task)]
+    (flow/stream-put! buf :hello)
+    (is (= :hello @received))))
 
 
 (deftest stream-transduce-preserves-nil-payloads

@@ -44,6 +44,14 @@
               :else (:state res))))))
 
 
+(defn stream-put!
+  "Write `val` to `stream` from outside the runtime and run all tasks
+   that become ready as a result. The symmetric entry-point to stream-transduce."
+  [stream val]
+  (let [{rt' :state} (rt/handle-write (rt/initial-state) stream val nil)]
+    (rt/run-loop rt')))
+
+
 (defn stream-transduce
   "Bridging dao.stream to standard Clojure transducer machinery.
    Reads inputs from `stream` at the given `cursor` and drives the composed

@@ -1,4 +1,9 @@
 (ns dao.flow.transform
+  "Pure matrix math for 3D graphics: construction, composition, and projection.
+
+  All functions operate on flat 16-element column-major vectors of doubles —
+  no host types, no side effects. Used by dao.flow.graphics (scene graph) and
+  dao.flow.flutter (vertex projection) independently."
   #?(:cljd
      (:require
        ["dart:math" :as math])

@@ -4,9 +4,44 @@
             ["dart:math" :as math]
             ["package:flutter/material.dart" :as m]
             [dao.flow.flutter :as flutter]
+            [dao.flow.graphics :as graphics]
             [dao.stream.ringbuffer :as ring]
-            [datomworld.demo.flow-scene-state :as scene]
             [yin.repl.flutter :as flutter-repl]))
+
+
+(def initial-state
+  {:camera {:fov 55.0,
+            :near 0.1,
+            :far 200.0,
+            :translate [0 16 34],
+            :rotate [-0.44 0 0]},
+   :bodies {:sun {:kind :sphere,
+                  :translate [0 0 0],
+                  :rotate [0 0 0],
+                  :scale [3 3 3],
+                  :color [1.0 0.75 0.1 1.0]},
+            :mercury {:kind :cube,
+                      :translate [5.5 0 0],
+                      :scale [0.35 0.35 0.35],
+                      :color [0.55 0.55 0.55 1.0]},
+            :venus {:kind :cube,
+                    :translate [8.0 0 0],
+                    :scale [0.65 0.65 0.65],
+                    :color [0.9 0.75 0.4 1.0]},
+            :earth {:kind :cube,
+                    :translate [11.0 0 0],
+                    :scale [0.7 0.7 0.7],
+                    :color [0.2 0.5 0.9 1.0]},
+            :moon-pivot {:kind :group, :parent :earth, :rotate [0 0 0]},
+            :moon {:kind :cube,
+                   :parent :moon-pivot,
+                   :translate [1.5 0 0],
+                   :scale [0.25 0.25 0.25],
+                   :color [0.75 0.75 0.78 1.0]},
+            :mars {:kind :cube,
+                   :translate [14.5 0 0],
+                   :scale [0.5 0.5 0.5],
+                   :color [0.75 0.25 0.1 1.0]}}})
 
 
 (defn- mono
@@ -33,7 +68,7 @@
                            z (* radius (math/sin a) (math/cos tilt))]
                        (swap! angle-atom + speed)
                        (swap! tilt-atom + tilt-speed)
-                       (scene/translate! state id x y z))))]
+                       (graphics/translate! state id x y z))))]
      (swap! animations-atom assoc anim-key stop-fn)
      :orbiting)))
 
@@ -43,17 +78,17 @@
   (let [anim-key (keyword (str (name id) "-spin"))
         _ (when-let [stop-fn (get @animations-atom anim-key)] (stop-fn))
         rot-atom (atom [0.0 0.0 0.0])
-        stop-fn (schedule-every! 16
-                                 (fn []
-                                   (let [[rx ry rz] @rot-atom
-                                         next-rot [(+ rx drx) (+ ry dry)
-                                                   (+ rz drz)]]
-                                     (reset! rot-atom next-rot)
-                                     (scene/rotate-body! state
-                                                         id
-                                                         (nth next-rot 0)
-                                                         (nth next-rot 1)
-                                                         (nth next-rot 2)))))]
+        stop-fn (schedule-every!
+                  16
+                  (fn []
+                    (let [[rx ry rz] @rot-atom
+                          next-rot [(+ rx drx) (+ ry dry) (+ rz drz)]]
+                      (reset! rot-atom next-rot)
+                      (graphics/rotate-body! state
+                                             id
+                                             (nth next-rot 0)
+                                             (nth next-rot 1)
+                                             (nth next-rot 2)))))]
     (swap! animations-atom assoc anim-key stop-fn)
     :spinning))
 
@@ -102,7 +137,8 @@
   (let [port 7777
         primitive-stream (ring/make-ring-buffer-stream nil)
         notifier (m/ValueNotifier. [])
-        scene-state (scene/create-demo-state
+        scene-state (graphics/create-scene
+                      initial-state
                       primitive-stream
                       {:schedule-every!
                          (fn [period-ms tick!]
@@ -111,10 +147,10 @@
                                          (fn [_timer] (tick!)))]
                              (fn [] (.cancel ^async/Timer timer))))})
         _ (flutter/register-painter-task! primitive-stream notifier)
-        _ (scene/init-scene! scene-state)
+        _ (graphics/init-scene! scene-state)
         _ (spin! scene-state :sun 0.0 0.015 0.0)
         _ (spin! scene-state :moon-pivot 0.0 0.08 0.0)
-        extra-prims (merge (scene/repl-primitives scene-state)
+        extra-prims (merge (graphics/repl-primitives scene-state)
                            {'orbit! (fn [id radius speed]
                                       (orbit! scene-state
                                               (keyword id)
@@ -127,8 +163,8 @@
                                             (double dry)
                                             (double drz))),
                             'animate! (fn [] (animate-all! scene-state)),
-                            'stop-animation! (fn []
-                                               (scene/stop-all! scene-state))})]
+                            'stop-animation!
+                              (fn [] (graphics/stop-all! scene-state))})]
     (flutter-repl/start-server! {:port port, :extra-primitives extra-prims})
     (m/runApp
       (w [:MaterialApp

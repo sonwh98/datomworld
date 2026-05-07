@@ -1,4 +1,14 @@
-(ns dao.flow.ops)
+(ns dao.flow.frame
+  "Vocabulary of datoms that compose a rendered frame.
+
+  A frame is a vector of op-datoms put onto the primitive-stream by a graphics
+  producer and consumed by a renderer backend (Flutter, WebGPU, SVG, etc.).
+  Each op-datom carries an :op/kind keyword that the backend dispatches on.
+  Every frame ends with an :end-frame sentinel.
+
+  Producers (dao.flow.graphics) build frames from these constructors.
+  Consumers (dao.flow.flutter, future GPU backends) read :op/kind and
+  interpret the remaining keys.")
 
 
 (defn op-end-frame
