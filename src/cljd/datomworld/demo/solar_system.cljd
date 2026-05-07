@@ -15,19 +15,26 @@
 
 
 (defn- orbit!
-  [{:keys [schedule-every! animations-atom], :as state} id radius speed]
-  (let [anim-key (keyword (str (name id) "-orbit"))
-        _ (when-let [stop-fn (get @animations-atom anim-key)] (stop-fn))
-        angle-atom (atom 0.0)
-        stop-fn (schedule-every! 16
-                                 (fn []
-                                   (let [a @angle-atom
-                                         x (* radius (math/cos a))
-                                         z (* radius (math/sin a))]
-                                     (swap! angle-atom + speed)
-                                     (scene/translate! state id x 0.0 z))))]
-    (swap! animations-atom assoc anim-key stop-fn)
-    :orbiting))
+  ([state id radius speed] (orbit! state id radius speed 0.0))
+  ([{:keys [schedule-every! animations-atom], :as state} id radius speed
+    tilt-speed]
+   (let [anim-key (keyword (str (name id) "-orbit"))
+         _ (when-let [stop-fn (get @animations-atom anim-key)] (stop-fn))
+         angle-atom (atom 0.0)
+         tilt-atom (atom 0.0)
+         stop-fn (schedule-every!
+                   16
+                   (fn []
+                     (let [a @angle-atom
+                           tilt @tilt-atom
+                           x (* radius (math/cos a))
+                           y (* radius (math/sin a) (math/sin tilt))
+                           z (* radius (math/sin a) (math/cos tilt))]
+                       (swap! angle-atom + speed)
+                       (swap! tilt-atom + tilt-speed)
+                       (scene/translate! state id x y z))))]
+     (swap! animations-atom assoc anim-key stop-fn)
+     :orbiting)))
 
 
 (defn- spin!
@@ -79,13 +86,14 @@
 
 (defn- animate-all!
   [state]
-  (orbit! state :mercury 5.5 0.055)
-  (orbit! state :venus 8.0 0.035)
-  (orbit! state :earth 11.0 0.022)
-  (orbit! state :mars 14.5 0.012)
-  (spin! state :moon-pivot 0.0 0.08 0.0)
-  (spin! state :sun 0.0 0.015 0.0)
-  :animating)
+  (let [drx 0.01]
+    (orbit! state :mercury 5.5 0.055 drx)
+    (orbit! state :venus 8.0 0.035 drx)
+    (orbit! state :earth 11.0 0.022 drx)
+    (orbit! state :mars 14.5 0.012 drx)
+    (spin! state :moon-pivot 0.0 0.08 0.0)
+    (spin! state :sun drx 0.015 0.0)
+    :animating))
 
 
 (defn main
