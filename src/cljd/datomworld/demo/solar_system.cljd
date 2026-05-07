@@ -51,45 +51,47 @@
 
 
 (defn- orbit!
-  ([state id radius speed] (orbit! state id radius speed 0.0))
-  ([{:keys [schedule-every! animations-atom], :as state} id radius speed
-    tilt-speed]
+  ([scene anims sched id radius speed]
+   (orbit! scene anims sched id radius speed 0.0))
+  ([scene anims sched id radius speed tilt-speed]
    (let [anim-key (keyword (str (name id) "-orbit"))
-         _ (when-let [stop-fn (get @animations-atom anim-key)] (stop-fn))
-         angle-atom (atom 0.0)
-         tilt-atom (atom 0.0)
-         stop-fn (schedule-every!
-                   16
-                   (fn []
-                     (let [a @angle-atom
-                           tilt @tilt-atom
-                           x (* radius (math/cos a))
-                           y (* radius (math/sin a) (math/sin tilt))
-                           z (* radius (math/sin a) (math/cos tilt))]
-                       (swap! angle-atom + speed)
-                       (swap! tilt-atom + tilt-speed)
-                       (graphics/translate! state id x y z))))]
-     (swap! animations-atom assoc anim-key stop-fn)
+         entry (get @anims anim-key)
+         _ (when-let [sf (:stop-fn entry)] (sf))
+         angle-atom (or (:angle-atom entry) (atom 0.0))
+         tilt-atom (or (:tilt-atom entry) (atom 0.0))
+         stop-fn (sched 16
+                        (fn []
+                          (let [a @angle-atom
+                                tilt @tilt-atom
+                                x (* radius (math/cos a))
+                                y (* radius (math/sin a) (math/sin tilt))
+                                z (* radius (math/sin a) (math/cos tilt))]
+                            (swap! angle-atom + speed)
+                            (swap! tilt-atom + tilt-speed)
+                            (graphics/translate! scene id x y z))))]
+     (swap! anims assoc
+       anim-key
+       {:stop-fn stop-fn, :angle-atom angle-atom, :tilt-atom tilt-atom})
      :orbiting)))
 
 
 (defn- spin!
-  [{:keys [schedule-every! animations-atom], :as state} id drx dry drz]
+  [scene anims sched id drx dry drz]
   (let [anim-key (keyword (str (name id) "-spin"))
-        _ (when-let [stop-fn (get @animations-atom anim-key)] (stop-fn))
-        rot-atom (atom [0.0 0.0 0.0])
-        stop-fn (schedule-every!
-                  16
-                  (fn []
-                    (let [[rx ry rz] @rot-atom
-                          next-rot [(+ rx drx) (+ ry dry) (+ rz drz)]]
-                      (reset! rot-atom next-rot)
-                      (graphics/rotate-body! state
-                                             id
-                                             (nth next-rot 0)
-                                             (nth next-rot 1)
-                                             (nth next-rot 2)))))]
-    (swap! animations-atom assoc anim-key stop-fn)
+        entry (get @anims anim-key)
+        _ (when-let [sf (:stop-fn entry)] (sf))
+        rot-atom (or (:rot-atom entry) (atom [0.0 0.0 0.0]))
+        stop-fn (sched 16
+                       (fn []
+                         (let [[rx ry rz] @rot-atom
+                               next-rot [(+ rx drx) (+ ry dry) (+ rz drz)]]
+                           (reset! rot-atom next-rot)
+                           (graphics/rotate-body! scene
+                                                  id
+                                                  (nth next-rot 0)
+                                                  (nth next-rot 1)
+                                                  (nth next-rot 2)))))]
+    (swap! anims assoc anim-key {:stop-fn stop-fn, :rot-atom rot-atom})
     :spinning))
 
 
@@ -121,14 +123,14 @@
 
 
 (defn- animate-all!
-  [state]
+  [scene anims sched]
   (let [drx 0.01]
-    (orbit! state :mercury 5.5 0.055 drx)
-    (orbit! state :venus 8.0 0.035 drx)
-    (orbit! state :earth 11.0 0.022 drx)
-    (orbit! state :mars 14.5 0.012 drx)
-    (spin! state :moon-pivot 0.0 0.08 0.0)
-    (spin! state :sun drx 0.015 0.0)
+    (orbit! scene anims sched :mercury 5.5 0.055 drx)
+    (orbit! scene anims sched :venus 8.0 0.035 drx)
+    (orbit! scene anims sched :earth 11.0 0.022 drx)
+    (orbit! scene anims sched :mars 14.5 0.012 drx)
+    (spin! scene anims sched :moon-pivot 0.0 0.08 0.0)
+    (spin! scene anims sched :sun drx 0.015 0.0)
     :animating))
 
 
@@ -139,66 +141,79 @@
                                     :capacity 1024,
                                     :eviction-policy :evict-oldest})
         notifier (m/ValueNotifier. [])
-        scene-state (graphics/create-scene
-                      initial-state
-                      primitive-stream
-                      {:schedule-every!
-                         (fn [period-ms tick!]
-                           (let [timer (async/Timer.periodic
-                                         (core/Duration .milliseconds period-ms)
-                                         (fn [_timer] (tick!)))]
-                             (fn [] (.cancel ^async/Timer timer))))})
+        scene-state (graphics/create-scene initial-state primitive-stream)
+        anims (atom {})
+        sched (fn [period-ms tick!]
+                (let [timer (async/Timer.periodic (core/Duration .milliseconds
+                                                                 period-ms)
+                                                  (fn [_timer] (tick!)))]
+                  (fn [] (.cancel ^async/Timer timer))))
+        stop-all! (fn []
+                    (doseq [[_ {:keys [stop-fn]}] @anims]
+                      (when stop-fn (stop-fn)))
+                    (swap! anims
+                      (fn [m]
+                        (into {} (map (fn [[k v]] [k (dissoc v :stop-fn)]) m))))
+                    :stopped)
         _ (flutter/register-painter-task! primitive-stream notifier)
         _ (graphics/init-scene! scene-state)
-        _ (spin! scene-state :sun 0.0 0.015 0.0)
-        _ (spin! scene-state :moon-pivot 0.0 0.08 0.0)
+        _ (spin! scene-state anims sched :sun 0.0 0.015 0.0)
+        _ (spin! scene-state anims sched :moon-pivot 0.0 0.08 0.0)
         extra-prims (merge (graphics/repl-primitives scene-state)
                            {'orbit! (fn [id radius speed]
                                       (orbit! scene-state
+                                              anims
+                                              sched
                                               (keyword id)
                                               (double radius)
                                               (double speed))),
                             'spin! (fn [id drx dry drz]
                                      (spin! scene-state
+                                            anims
+                                            sched
                                             (keyword id)
                                             (double drx)
                                             (double dry)
                                             (double drz))),
-                            'animate! (fn [] (animate-all! scene-state)),
-                            'stop-animation!
-                              (fn [] (graphics/stop-all! scene-state))})]
+                            'animate! (fn []
+                                        (animate-all! scene-state anims sched)),
+                            'stop! stop-all!,
+                            'reset! (fn []
+                                      (doseq [[_ {:keys [stop-fn]}] @anims]
+                                        (when stop-fn (stop-fn)))
+                                      (reset! anims {})
+                                      (graphics/reset-scene! scene-state))})]
     (flutter-repl/start-server! {:port port, :extra-primitives extra-prims})
     (m/runApp
       (w [:MaterialApp
           {:title "dao.flow solar system",
            :theme [:ThemeData {:colorScheme (m/ColorScheme.dark)}],
-           :home [:Scaffold
-                  {:appBar [:AppBar {:title [:Text "dao.flow solar system"]}],
-                   :body
-                     [:ListView {:padding (m/EdgeInsets.all 16.0)}
-                      (flutter-repl/info-card {:port port})
-                      [:SizedBox {:height 12.0}]
-                      [:Text "REPL commands"
-                       {:style [:TextStyle
-                                {:fontWeight m/FontWeight.bold,
-                                 :fontSize 13.0}]}] [:SizedBox {:height 6.0}]
-                      (mono "(connect \"daostream:ws://<ip>:7777\")")
-                      [:SizedBox {:height 4.0}] (mono "(bodies)")
-                      (mono "(translate! :earth 11 2 0)")
-                      (mono "(color! :venus 0.3 0.9 0.5)")
-                      (mono "(scale! :mars 2.0)")
-                      (mono "(add-body! :asteroid 7 3 0 0.6 0.6 0.6)")
-                      (mono "(camera! 0 20 38)")
-                      (mono "(orbit! :mercury 5.5 0.04)")
-                      (mono "(orbit! :earth 11 0.02)")
-                      (mono "(spin! :sun 0 0.03 0)") (mono "(animate!)")
-                      (mono "(stop-animation!)") (mono "(stop!)")
-                      (mono "(reset!)") [:SizedBox {:height 16.0}]
-                      [:Center
-                       [:SizedBox {:width 500.0, :height 500.0}
-                        [:ValueListenableBuilder
-                         {:valueListenable notifier,
-                          :builder (fn [_ _frame _child]
-                                     (m/CustomPaint. .painter
-                                                     (flutter/FlowPainter.
-                                                       notifier)))}]]]]}]}]))))
+           :home
+             [:Scaffold
+              {:appBar [:AppBar {:title [:Text "dao.flow solar system"]}],
+               :body
+                 [:ListView {:padding (m/EdgeInsets.all 16.0)}
+                  (flutter-repl/info-card {:port port})
+                  [:SizedBox {:height 12.0}]
+                  [:Text "REPL commands"
+                   {:style [:TextStyle
+                            {:fontWeight m/FontWeight.bold, :fontSize 13.0}]}]
+                  [:SizedBox {:height 6.0}]
+                  (mono "(connect \"daostream:ws://<ip>:7777\")")
+                  [:SizedBox {:height 4.0}] (mono "(bodies)")
+                  (mono "(translate! :earth 11 2 0)")
+                  (mono "(color! :venus 0.3 0.9 0.5)")
+                  (mono "(scale! :mars 2.0)")
+                  (mono "(add-body! :asteroid 7 3 0 0.6 0.6 0.6)")
+                  (mono "(camera! 0 20 38)") (mono "(orbit! :mercury 5.5 0.04)")
+                  (mono "(orbit! :earth 11 0.02)")
+                  (mono "(spin! :sun 0 0.03 0)") (mono "(animate!)")
+                  (mono "(stop!)") (mono "(reset!)") [:SizedBox {:height 16.0}]
+                  [:Center
+                   [:SizedBox {:width 500.0, :height 500.0}
+                    [:ValueListenableBuilder
+                     {:valueListenable notifier,
+                      :builder (fn [_ _frame _child]
+                                 (m/CustomPaint. .painter
+                                                 (flutter/FlowPainter.
+                                                   notifier)))}]]]]}]}]))))

@@ -26,7 +26,7 @@
 
 (defn- make-scene
   []
-  (graphics/create-scene initial-state (ring/make-ring-buffer-stream nil) {}))
+  (graphics/create-scene initial-state (ring/make-ring-buffer-stream nil)))
 
 
 (defn- init-frame!
@@ -41,7 +41,7 @@
 (deftest init-scene-puts-frame-on-primitive-stream
   (testing "init-scene! produces a frame at position 0"
     (let [prim (ring/make-ring-buffer-stream nil)
-          s (graphics/create-scene initial-state prim {})]
+          s (graphics/create-scene initial-state prim)]
       (graphics/init-scene! s)
       (is (map? (ds/next prim {:position 0}))))))
 
@@ -49,7 +49,7 @@
 (deftest translate-puts-second-frame
   (testing "translate! after init produces a second frame"
     (let [prim (ring/make-ring-buffer-stream nil)
-          s (graphics/create-scene initial-state prim {})]
+          s (graphics/create-scene initial-state prim)]
       (graphics/init-scene! s)
       (graphics/translate! s :earth 5.0 0.0 0.0)
       (is (map? (ds/next prim {:position 1}))))))
@@ -59,7 +59,7 @@
   (testing
     "create-scene drains its internal tx stream while interpreting commands"
     (let [prim (ring/make-ring-buffer-stream 0)
-          s (graphics/create-scene initial-state prim {})]
+          s (graphics/create-scene initial-state prim)]
       (dotimes [_ 1024] (graphics/init-scene! s))
       (is (= 0 (count (:tx-stream s))))
       (graphics/init-scene! s)
@@ -77,7 +77,7 @@
 (deftest frame-has-geometry-and-end-frame
   (testing "rendered frame contains geometry ops and a trailing :end-frame"
     (let [prim (ring/make-ring-buffer-stream nil)
-          s (graphics/create-scene initial-state prim {})]
+          s (graphics/create-scene initial-state prim)]
       (graphics/init-scene! s)
       (let [frame (:ok (ds/next prim {:position 0}))]
         (is (some #(#{:cube :sphere} (:op/kind %)) frame))
@@ -134,7 +134,7 @@
 
 (deftest body-visible-false-excludes-from-frame
   (let [prim (ring/make-ring-buffer-stream nil)
-        s (graphics/create-scene initial-state prim {})]
+        s (graphics/create-scene initial-state prim)]
     (graphics/body-visible! s :sun false)
     (let [frame (init-frame! s prim)]
       (is (not (some #(= :sphere (:op/kind %)) frame))))))
@@ -191,7 +191,7 @@
 
 (deftest rect-appears-in-frame
   (let [prim (ring/make-ring-buffer-stream nil)
-        s (graphics/create-scene initial-state prim {})]
+        s (graphics/create-scene initial-state prim)]
     (graphics/add-rect! s :panel 0 0 100 50 0.5 0.5 0.5)
     (let [frame (init-frame! s prim)]
       (is (some #(= :rect (:op/kind %)) frame)))))
@@ -199,7 +199,7 @@
 
 (deftest rect-op-carries-width-and-height
   (let [prim (ring/make-ring-buffer-stream nil)
-        s (graphics/create-scene initial-state prim {})]
+        s (graphics/create-scene initial-state prim)]
     (graphics/add-rect! s :panel 0 0 100 50 0.5 0.5 0.5)
     (let [frame (init-frame! s prim)
           rect-op (first (filter #(= :rect (:op/kind %)) frame))]
@@ -225,7 +225,7 @@
 
 (deftest frame-contains-light-ops-when-lights-present
   (let [prim (ring/make-ring-buffer-stream nil)
-        s (graphics/create-scene initial-state prim {})]
+        s (graphics/create-scene initial-state prim)]
     (graphics/add-light! s :key :directional [1 1 1 1] 1.0 [0 -1 0])
     (let [frame (init-frame! s prim)]
       (is (some #(= :light (:op/kind %)) frame)))))

@@ -293,13 +293,6 @@
 ;; Public API — scene lifecycle
 ;; =============================================================================
 
-(defn stop-all!
-  [{:keys [animations-atom]}]
-  (doseq [[_ stop-fn] @animations-atom] (stop-fn))
-  (reset! animations-atom {})
-  :stopped)
-
-
 (defn init-scene!
   [state]
   (put-command! state [:scene/render]))
@@ -307,9 +300,7 @@
 
 (defn reset-scene!
   [state]
-  (stop-all! state)
-  (put-command! state [:scene/reset])
-  :reset)
+  (put-command! state [:scene/reset]) :reset)
 
 
 (defn bodies
@@ -353,7 +344,6 @@
                              intensity
                              [0.0 -1.0 0.0])),
    'remove-light! (fn [id] (remove-light! state (keyword id))),
-   'stop! (fn [] (stop-all! state)),
    'reset! (fn [] (reset-scene! state))})
 
 
@@ -362,7 +352,7 @@
 ;; =============================================================================
 
 (defn create-scene
-  [initial-state primitive-stream {:keys [schedule-every!]}]
+  [initial-state primitive-stream]
   (let [state-atom (atom initial-state)
         tx-stream (ds/open! {:type :ringbuffer,
                              :capacity 1024,
@@ -375,6 +365,4 @@
                           interp-task)]
     {:state-atom state-atom,
      :tx-stream tx-stream,
-     :primitive-stream primitive-stream,
-     :animations-atom (atom {}),
-     :schedule-every! schedule-every!}))
+     :primitive-stream primitive-stream}))
