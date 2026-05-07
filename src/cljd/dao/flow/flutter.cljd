@@ -3,27 +3,32 @@
             ["dart:math" :as math]
             ["dart:ui" :as ui]
             [dao.flow.transform :as t]
-            [dao.runtime :as rt]
             [dao.stream :as ds]))
 
 
 (defn register-painter-task!
   [primitive-stream ^m/ValueNotifier notifier]
-  (letfn [(resume [rt entry value]
-            (when (some? value)
-              (set! (.-value notifier) value)
-              (let [next-cursor (update (:cursor entry) :position inc)
-                    {rt' :state} (rt/handle-read rt
-                                                 primitive-stream
-                                                 next-cursor
-                                                 {:resume resume})]
-                rt')))]
-    (ds/register-reader-waiter! primitive-stream
-                                0
-                                {:resume resume,
-                                 :reason :next,
-                                 :stream primitive-stream,
-                                 :cursor {:position 0}})))
+  (letfn
+    [(await-next! [cursor]
+       (let [result (ds/next primitive-stream cursor)]
+         (cond (map? result) (do (set! (.-value notifier) (:ok result))
+                                 (ds/drain-one! primitive-stream)
+                                 (recur (:cursor result)))
+               (= :blocked result) (ds/register-reader-waiter!
+                                     primitive-stream
+                                     (:position cursor)
+                                     {:resume resume,
+                                      :reason :next,
+                                      :stream primitive-stream,
+                                      :cursor cursor})
+               :else nil)))
+     (resume [rt entry value]
+       (when (some? value)
+         (set! (.-value notifier) value)
+         (ds/drain-one! primitive-stream)
+         (await-next! (update (:cursor entry) :position inc)))
+       rt)]
+    (await-next! {:position 0})))
 
 (defn- apply-mat4
   [mat [x y z w]]

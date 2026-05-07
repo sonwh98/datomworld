@@ -20,7 +20,9 @@
     (register-writer-waiter! [stream entry])
 
   Descriptor (serializable):
-    {:type :ringbuffer :capacity nil-or-int}
+    {:type :ringbuffer
+     :capacity nil-or-int
+     :eviction-policy nil-or-:reject-or-:evict-oldest}
 
   Cursor (plain map, constructed inline by caller):
     {:position n}"
@@ -113,7 +115,8 @@
   [stream]
   (if (satisfies? IDaoStreamDrainable stream)
     (-drain-one! stream)
-    (throw (ex-info "drain-one! not supported for this stream transport" {:stream stream}))))
+    (throw (ex-info "drain-one! not supported for this stream transport"
+                    {:stream stream}))))
 
 
 (defn ->seq

@@ -122,7 +122,8 @@
       (.then (io/WebSocketTransformer.upgrade request)
              (fn [ws]
                (let [local (ds/open! {:type :ringbuffer,
-                                      :capacity (:capacity opts)})
+                                      :capacity (:capacity opts),
+                                      :eviction-policy (:eviction-policy opts)})
                      stream (make-ws-stream local)]
                  (attach-websocket! stream ws opts conns)))))))
 
@@ -151,7 +152,9 @@
   "Connect to a WebSocket server at url. Returns WebSocketStream."
   ([url] (connect! url nil))
   ([url opts]
-   (let [local (ds/open! {:type :ringbuffer, :capacity (:capacity opts)})
+   (let [local (ds/open! {:type :ringbuffer,
+                          :capacity (:capacity opts),
+                          :eviction-policy (:eviction-policy opts)})
          stream (make-ws-stream local)]
      (.then (io/WebSocket.connect url) (fn [ws] (attach-websocket! stream ws)))
      stream)))
@@ -162,17 +165,19 @@
   true
   cljd.core/IFn
     (-invoke [_ ^dynamic table]
-      (assoc! table
-              :websocket
-              (fn [descriptor]
-                (let [{:keys [mode url port capacity]} descriptor]
-                  (case mode
-                    :listen (listen! port descriptor)
-                    :connect (connect! url {:capacity capacity})
-                    (throw
-                      (ex-info
-                        "websocket transport mode must be :listen or :connect"
-                        {:descriptor descriptor, :mode mode}))))))))
+      (assoc!
+        table
+        :websocket
+        (fn [descriptor]
+          (let [{:keys [mode url port capacity eviction-policy]} descriptor]
+            (case mode
+              :listen (listen! port descriptor)
+              :connect (connect! url
+                                 {:capacity capacity,
+                                  :eviction-policy eviction-policy})
+              (throw (ex-info
+                       "websocket transport mode must be :listen or :connect"
+                       {:descriptor descriptor, :mode mode}))))))))
 
 
 (contribute* :multi-method

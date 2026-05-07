@@ -16,7 +16,7 @@
     [dao.flow.frame :as frame]
     [dao.flow.transform :as t]
     [dao.runtime :as rt]
-    [dao.stream.ringbuffer :as ring]))
+    [dao.stream :as ds]))
 
 
 ;; =============================================================================
@@ -112,6 +112,7 @@
             (swap! state-atom (partial apply-command initial-state) cmd)
             (let [frame (render @state-atom)
                   {rt' :state} (rt/handle-write rt primitive-stream frame nil)
+                  _ (ds/drain-one! (:stream entry))
                   next-cursor (update (:cursor entry) :position inc)
                   {rt'' :state} (rt/handle-read rt'
                                                 (:stream entry)
@@ -363,7 +364,9 @@
 (defn create-scene
   [initial-state primitive-stream {:keys [schedule-every!]}]
   (let [state-atom (atom initial-state)
-        tx-stream (ring/make-ring-buffer-stream 1024)
+        tx-stream (ds/open! {:type :ringbuffer,
+                             :capacity 1024,
+                             :eviction-policy :evict-oldest})
         interp-task
         (make-scene-interpreter initial-state state-atom primitive-stream)
         _ (rt/handle-read (rt/initial-state)

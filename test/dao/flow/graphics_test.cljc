@@ -56,12 +56,14 @@
 
 
 (deftest create-scene-uses-a-bounded-tx-stream
-  (testing "create-scene uses a fixed 1024-slot tx stream"
+  (testing
+    "create-scene drains its internal tx stream while interpreting commands"
     (let [prim (ring/make-ring-buffer-stream 0)
           s (graphics/create-scene initial-state prim {})]
-      (dotimes [_ 1024]
-        (is (= :ok (:result (ds/put! (:tx-stream s) [:scene/render])))))
-      (is (= :full (:result (ds/put! (:tx-stream s) [:scene/render])))))))
+      (dotimes [_ 1024] (graphics/init-scene! s))
+      (is (= 0 (count (:tx-stream s))))
+      (graphics/init-scene! s)
+      (is (= 0 (count (:tx-stream s)))))))
 
 
 (deftest translate-updates-state-atom
