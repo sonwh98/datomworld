@@ -50,6 +50,33 @@
     :spinning))
 
 
+(defmacro w
+  "Expand [:WidgetName pos-str? attrs? children...] into a Flutter constructor call.
+   pos-str? optional leading string becomes a positional arg (e.g. for Text).
+   attrs map keys become .namedParam pairs; hiccup values are expanded recursively.
+   0 children → nothing  1 child → .child  N children → .children [...]
+   Non-vector forms pass through unchanged."
+  [form]
+  (if (and (vector? form) (keyword? (first form)))
+    (let [[tag & rst] form
+          ctor (symbol "m" (str (name tag) "."))
+          pos? (string? (first rst))
+          pos-arg (when pos? (first rst))
+          after-pos (if pos? (next rst) rst)
+          has-attrs? (and (seq after-pos) (map? (first after-pos)))
+          attrs (if has-attrs? (first after-pos) {})
+          children (if has-attrs? (next after-pos) after-pos)
+          expand (fn [x] (if (and (vector? x) (keyword? (first x))) `(w ~x) x))
+          attr-forms
+            (mapcat (fn [[k v]] [(symbol (str "." (name k))) (expand v)]) attrs)
+          child-forms (case (count children)
+                        0 []
+                        1 ['.child (expand (first children))]
+                        ['.children (mapv expand children)])]
+      `(~ctor ~@(when pos? [pos-arg]) ~@attr-forms ~@child-forms))
+    form))
+
+
 (defn- animate-all!
   [state]
   (orbit! state :mercury 5.5 0.055)
@@ -92,45 +119,36 @@
                                                (scene/stop-all! scene-state))})]
     (flutter-repl/start-server! {:port port, :extra-primitives extra-prims})
     (m/runApp
-      (m/MaterialApp.
-        .title
-        "dao.flow solar system"
-        .theme
-        (m/ThemeData. .colorScheme (m/ColorScheme.dark))
-        .home
-        (m/Scaffold.
-          .appBar
-          (m/AppBar .title (m/Text "dao.flow solar system"))
-          .body
-          (m/ListView.
-            .padding
-            (m/EdgeInsets.all 16.0)
-            .children
-            [(flutter-repl/info-card {:port port}) (m/SizedBox .height 12.0)
-             (m/Text "REPL commands"
-                     .style
-                     (m/TextStyle .fontWeight m/FontWeight.bold .fontSize 13.0))
-             (m/SizedBox .height 6.0)
-             (mono "(connect \"daostream:ws://<ip>:7777\")")
-             (m/SizedBox .height 4.0) (mono "(bodies)")
-             (mono "(translate! :earth 11 2 0)")
-             (mono "(color! :venus 0.3 0.9 0.5)") (mono "(scale! :mars 2.0)")
-             (mono "(add-body! :asteroid 7 3 0 0.6 0.6 0.6)")
-             (mono "(camera! 0 20 38)") (mono "(orbit! :mercury 5.5 0.04)")
-             (mono "(orbit! :earth 11 0.02)") (mono "(spin! :sun 0 0.03 0)")
-             (mono "(animate!)") (mono "(stop-animation!)") (mono "(stop!)")
-             (mono "(reset!)") (m/SizedBox .height 16.0)
-             (m/Center .child
-                       (m/SizedBox. .width
-                                    500.0
-                                    .height
-                                    500.0
-                                    .child
-                                    (m/ValueListenableBuilder.
-                                      .valueListenable
-                                      notifier
-                                      .builder
-                                      (fn [_ _frame _child]
-                                        (m/CustomPaint. .painter
-                                                        (flutter/FlowPainter.
-                                                          notifier))))))]))))))
+      (w [:MaterialApp
+          {:title "dao.flow solar system",
+           :theme [:ThemeData {:colorScheme (m/ColorScheme.dark)}],
+           :home [:Scaffold
+                  {:appBar [:AppBar {:title [:Text "dao.flow solar system"]}],
+                   :body
+                     [:ListView {:padding (m/EdgeInsets.all 16.0)}
+                      (flutter-repl/info-card {:port port})
+                      [:SizedBox {:height 12.0}]
+                      [:Text "REPL commands"
+                       {:style [:TextStyle
+                                {:fontWeight m/FontWeight.bold,
+                                 :fontSize 13.0}]}] [:SizedBox {:height 6.0}]
+                      (mono "(connect \"daostream:ws://<ip>:7777\")")
+                      [:SizedBox {:height 4.0}] (mono "(bodies)")
+                      (mono "(translate! :earth 11 2 0)")
+                      (mono "(color! :venus 0.3 0.9 0.5)")
+                      (mono "(scale! :mars 2.0)")
+                      (mono "(add-body! :asteroid 7 3 0 0.6 0.6 0.6)")
+                      (mono "(camera! 0 20 38)")
+                      (mono "(orbit! :mercury 5.5 0.04)")
+                      (mono "(orbit! :earth 11 0.02)")
+                      (mono "(spin! :sun 0 0.03 0)") (mono "(animate!)")
+                      (mono "(stop-animation!)") (mono "(stop!)")
+                      (mono "(reset!)") [:SizedBox {:height 16.0}]
+                      [:Center
+                       [:SizedBox {:width 500.0, :height 500.0}
+                        [:ValueListenableBuilder
+                         {:valueListenable notifier,
+                          :builder (fn [_ _frame _child]
+                                     (m/CustomPaint. .painter
+                                                     (flutter/FlowPainter.
+                                                       notifier)))}]]]]}]}]))))
