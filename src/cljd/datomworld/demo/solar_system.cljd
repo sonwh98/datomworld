@@ -135,7 +135,7 @@
 (defn main
   []
   (let [port 7777
-        primitive-stream (ring/make-ring-buffer-stream nil)
+        primitive-stream (ring/make-ring-buffer-stream 1024)
         notifier (m/ValueNotifier. [])
         scene-state (graphics/create-scene
                       initial-state

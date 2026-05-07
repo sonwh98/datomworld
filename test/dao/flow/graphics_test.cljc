@@ -55,6 +55,15 @@
       (is (map? (ds/next prim {:position 1}))))))
 
 
+(deftest create-scene-uses-a-bounded-tx-stream
+  (testing "create-scene uses a fixed 1024-slot tx stream"
+    (let [prim (ring/make-ring-buffer-stream 0)
+          s (graphics/create-scene initial-state prim {})]
+      (dotimes [_ 1024]
+        (is (= :ok (:result (ds/put! (:tx-stream s) [:scene/render])))))
+      (is (= :full (:result (ds/put! (:tx-stream s) [:scene/render])))))))
+
+
 (deftest translate-updates-state-atom
   (testing "translate! mutates the state atom via the interpreter"
     (let [s (make-scene)]

@@ -363,7 +363,7 @@
 (defn create-scene
   [initial-state primitive-stream {:keys [schedule-every!]}]
   (let [state-atom (atom initial-state)
-        tx-stream (ring/make-ring-buffer-stream nil)
+        tx-stream (ring/make-ring-buffer-stream 1024)
         interp-task
         (make-scene-interpreter initial-state state-atom primitive-stream)
         _ (rt/handle-read (rt/initial-state)
