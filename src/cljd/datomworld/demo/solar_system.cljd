@@ -185,35 +185,70 @@
                                       (graphics/reset-scene! scene-state))})]
     (flutter-repl/start-server! {:port port, :extra-primitives extra-prims})
     (m/runApp
-      (w [:MaterialApp
-          {:title "dao.flow solar system",
-           :theme [:ThemeData {:colorScheme (m/ColorScheme.dark)}],
-           :home
-             [:Scaffold
-              {:appBar [:AppBar {:title [:Text "dao.flow solar system"]}],
-               :body
-                 [:ListView {:padding (m/EdgeInsets.all 16.0)}
-                  (flutter-repl/info-card {:port port})
-                  [:SizedBox {:height 12.0}]
-                  [:Text "REPL commands"
-                   {:style [:TextStyle
-                            {:fontWeight m/FontWeight.bold, :fontSize 13.0}]}]
-                  [:SizedBox {:height 6.0}]
-                  (mono "(connect \"daostream:ws://<ip>:7777\")")
-                  [:SizedBox {:height 4.0}] (mono "(bodies)")
-                  (mono "(translate! :earth 11 2 0)")
-                  (mono "(color! :venus 0.3 0.9 0.5)")
-                  (mono "(scale! :mars 2.0)")
-                  (mono "(add-body! :asteroid 7 3 0 0.6 0.6 0.6)")
-                  (mono "(camera! 0 20 38)") (mono "(orbit! :mercury 5.5 0.04)")
-                  (mono "(orbit! :earth 11 0.02)")
-                  (mono "(spin! :sun 0 0.03 0)") (mono "(animate!)")
-                  (mono "(stop!)") (mono "(reset!)") [:SizedBox {:height 16.0}]
-                  [:Center
-                   [:SizedBox {:width 500.0, :height 500.0}
-                    [:ValueListenableBuilder
-                     {:valueListenable notifier,
-                      :builder (fn [_ _frame _child]
-                                 (m/CustomPaint. .painter
-                                                 (flutter/FlowPainter.
-                                                   notifier)))}]]]]}]}]))))
+      (w
+        [:MaterialApp
+         {:title "dao.flow solar system",
+          :theme [:ThemeData {:colorScheme (m/ColorScheme.dark)}],
+          :home
+            [:Scaffold
+             {:appBar [:AppBar {:title [:Text "dao.flow solar system"]}],
+              :body
+                [:ListView {:padding (m/EdgeInsets.all 16.0)}
+                 [:Builder
+                  {:builder
+                     (fn [ctx]
+                       (m/OutlinedButton.
+                         .onPressed
+                         (fn []
+                           (do
+                             (m/showDialog
+                               .context
+                               ctx
+                               .builder
+                               (fn [_]
+                                 (m/AlertDialog.
+                                   .title
+                                   (m/Text. "REPL")
+                                   .content
+                                   (m/SingleChildScrollView.
+                                     .child
+                                     (m/Column.
+                                       .crossAxisAlignment
+                                       m/CrossAxisAlignment.start
+                                       .mainAxisSize
+                                       m/MainAxisSize.min
+                                       .children
+                                       [(flutter-repl/info-card {:port port})
+                                        (m/SizedBox. .height 8.0)
+                                        (mono
+                                          "(connect \"daostream:ws://<ip>:7777\")")
+                                        (mono "(bodies)")
+                                        (mono "(translate! :earth 11 2 0)")
+                                        (mono "(color! :venus 0.3 0.9 0.5)")
+                                        (mono "(scale! :mars 2.0)")
+                                        (mono
+                                          "(add-body! :asteroid 7 3 0 0.6 0.6 0.6)")
+                                        (mono "(camera! 0 20 38)")
+                                        (mono "(orbit! :mercury 5.5 0.04)")
+                                        (mono "(orbit! :earth 11 0.02)")
+                                        (mono "(spin! :sun 0 0.03 0)")
+                                        (mono "(animate!)") (mono "(stop!)")
+                                        (mono "(reset!)")]))
+                                   .actions
+                                   [(m/TextButton.
+                                      .onPressed
+                                      (fn []
+                                        (do (.pop (m/Navigator.of ctx)) nil))
+                                      .child
+                                      (m/Text. "Close"))])))
+                             nil))
+                         .child
+                         (m/Text. "REPL Info")))}] [:SizedBox {:height 8.0}]
+                 [:Center
+                  [:SizedBox {:width 500.0, :height 500.0}
+                   [:ValueListenableBuilder
+                    {:valueListenable notifier,
+                     :builder (fn [_ _frame _child]
+                                (m/CustomPaint. .painter
+                                                (flutter/FlowPainter.
+                                                  notifier)))}]]]]}]}]))))
