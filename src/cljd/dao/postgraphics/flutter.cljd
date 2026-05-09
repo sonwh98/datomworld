@@ -1,0 +1,245 @@
+(ns dao.postgraphics.flutter
+  (:require ["package:flutter/material.dart" :as m]
+            ["dart:ui" :as ui]
+            [dao.stream :as ds]))
+
+;; --- color and paint helpers ---
+
+(defn- ->flutter-color
+  [[r g b a]]
+  (ui/Color.fromARGB (int (* (or a 1.0) 255))
+                     (int (* (or r 0.0) 255))
+                     (int (* (or g 0.0) 255))
+                     (int (* (or b 0.0) 255))))
+
+(defn- fill-paint
+  [color]
+  (let [p (ui/Paint.)]
+    (set! (.-style p) ui/PaintingStyle.fill)
+    (set! (.-color p) (->flutter-color color))
+    p))
+
+(defn- stroke-paint
+  [color stroke-width]
+  (let [p (ui/Paint.)]
+    (set! (.-style p) ui/PaintingStyle.stroke)
+    (set! (.-color p) (->flutter-color color))
+    (set! (.-strokeWidth p) (double (or stroke-width 1.0)))
+    p))
+
+;; --- path builder ---
+
+(defn- build-path
+  [segments]
+  (let [path (ui/Path.)]
+    (doseq [seg segments]
+      (case (first seg)
+        :move-to (let [[_ x y] seg] (.moveTo path (double x) (double y)))
+        :line-to (let [[_ x y] seg] (.lineTo path (double x) (double y)))
+        :quad-to (let [[_ cx cy x y] seg]
+                   (.quadraticBezierTo path
+                                       (double cx)
+                                       (double cy)
+                                       (double x)
+                                       (double y)))
+        :cubic-to (let [[_ cx1 cy1 cx2 cy2 x y] seg]
+                    (.cubicTo path
+                              (double cx1)
+                              (double cy1)
+                              (double cx2)
+                              (double cy2)
+                              (double x)
+                              (double y)))
+        :close (.close path)
+        nil))
+    path))
+
+;; --- text drawing ---
+;; Text glyphs are y-down; we flip the canvas back locally so they appear
+;; upright
+;; in the Cartesian (y-up) frame established by the base viewport transform.
+
+(defn- draw-text
+  [^ui/Canvas canvas op]
+  (let [text (:text op)
+        [px py] (:position op)
+        color (->flutter-color (get op :color [1.0 1.0 1.0 1.0]))
+        size (double (get op :font-size 14.0))
+        family (:font-family op)
+        align (case (get op :align :start)
+                :start ui/TextAlign.start
+                :center ui/TextAlign.center
+                :end ui/TextAlign.end
+                ui/TextAlign.start)
+        ts (if family
+             (ui/TextStyle. .color color .fontSize size .fontFamily family)
+             (ui/TextStyle. .color color .fontSize size))
+        style (ui/ParagraphStyle. .textDirection
+                                  ui/TextDirection.ltr
+                                  .textAlign
+                                  align
+                                  .fontSize
+                                  size)
+        builder (ui/ParagraphBuilder. style)
+        _ (.pushStyle builder ts)
+        _ (.addText builder text)
+        para (.build builder)
+        _ (.layout para (ui/ParagraphConstraints. .width 10000.0))
+        w (.-maxIntrinsicWidth para)
+        x-off (case (get op :align :start)
+                :start 0.0
+                :center (- (/ w 2.0))
+                :end (- w)
+                0.0)
+        ; ascent ≈ 85% of font size; negative so bounding box top is above
+        ; baseline
+        y-off (- (* 0.85 size))]
+    (.save canvas)
+    (.translate canvas (double px) (double py))
+    ; flip y back so text glyphs render upright
+    (.scale canvas 1.0 -1.0)
+    (.drawParagraph canvas para (ui/Offset. x-off y-off))
+    (.restore canvas)))
+
+;; --- op dispatcher ---
+
+(defn- exec-op
+  [^ui/Canvas canvas op]
+  (case (:op/kind op)
+    :frame/clear (.drawPaint canvas
+                             (fill-paint (get op :color [0.0 0.0 0.0 1.0])))
+    ;; Canvas save/restore tracks both clip and transform state together.
+    ;; Each push saves; each pop restores. The two stacks are mirrored by
+    ;; the Flutter canvas save stack, so interleaved push/pop sequences
+    ;; remain balanced as long as bytecode is valid.
+    :transform/push (do (.save canvas)
+                        ;; Apply in order: translate → rotate → scale so
+                        ;; that the combined local transform is T*R*S
+                        ;; (point is scaled first, then rotated, then
+                        ;; translated), matching the spec's "scale, rotate,
+                        ;; translate" semantics.
+                        (when-let [[tx ty] (:translate op)]
+                          (.translate canvas (double tx) (double ty)))
+                        (when-let [θ (:rotate op)] (.rotate canvas (double θ)))
+                        (when-let [[sx sy] (:scale op)]
+                          (.scale canvas (double sx) (double sy))))
+    :transform/pop (.restore canvas)
+    :clip/push-rect
+      (let [[x y w h] (:rect op)]
+        (.save canvas)
+        (.clipRect
+          canvas
+          (ui/Rect.fromLTWH (double x) (double y) (double w) (double h))))
+    :clip/pop (.restore canvas)
+    :draw/fill-rect
+      (let [[x y w h] (:rect op)]
+        (.drawRect
+          canvas
+          (ui/Rect.fromLTWH (double x) (double y) (double w) (double h))
+          (fill-paint (get op :color [1.0 1.0 1.0 1.0]))))
+    :draw/stroke-rect
+      (let [[x y w h] (:rect op)]
+        (.drawRect
+          canvas
+          (ui/Rect.fromLTWH (double x) (double y) (double w) (double h))
+          (stroke-paint (get op :color [1.0 1.0 1.0 1.0])
+                        (get op :stroke-width 1.0))))
+    :draw/fill-circle (let [[cx cy] (:center op)]
+                        (.drawCircle canvas
+                                     (ui/Offset. (double cx) (double cy))
+                                     (double (:radius op))
+                                     (fill-paint
+                                       (get op :color [1.0 1.0 1.0 1.0]))))
+    :draw/stroke-circle (let [[cx cy] (:center op)]
+                          (.drawCircle canvas
+                                       (ui/Offset. (double cx) (double cy))
+                                       (double (:radius op))
+                                       (stroke-paint
+                                         (get op :color [1.0 1.0 1.0 1.0])
+                                         (get op :stroke-width 1.0))))
+    :draw/text (draw-text canvas op)
+    :draw/path (let [path (build-path (:segments op))
+                     fill (:fill op)
+                     stroke (:stroke op)
+                     sw (get op :stroke-width 1.0)]
+                 (when fill (.drawPath canvas path (fill-paint fill)))
+                 (when stroke (.drawPath canvas path (stroke-paint stroke sw))))
+    :draw/image nil ; v1 stub: async image loading not yet wired
+    nil))
+
+;; --- painter ---
+
+(deftype PostgraphicsPainter [^m/ValueNotifier notifier]
+  :extends
+  m/CustomPainter
+    (paint [_this ^ui/Canvas canvas ^ui/Size size]
+      (let [frame (.-value notifier)]
+        (when (seq frame)
+          (.save canvas)
+          (.translate canvas 0.0 (.-height size))
+          (.scale canvas 1.0 -1.0)
+          (doseq [op frame] (exec-op canvas op))
+          (.restore canvas))))
+    (shouldRepaint [_this _old] true))
+
+;; --- stream wiring ---
+
+(defn register-frame-task!
+  "Connects a dao.stream of dao.postgraphics frame programs to a ValueNotifier.
+  Each frame program (a vector of op maps) emitted on frame-stream replaces
+  the previous value in notifier, triggering a repaint."
+  [frame-stream ^m/ValueNotifier notifier]
+  (letfn
+    [(await-next! [cursor]
+       (let [result (ds/next frame-stream cursor)]
+         (cond (map? result) (do (set! (.-value notifier) (:ok result))
+                                 (ds/drain-one! frame-stream)
+                                 (recur (:cursor result)))
+               (= :blocked result) (ds/register-reader-waiter!
+                                     frame-stream
+                                     (:position cursor)
+                                     {:resume resume,
+                                      :reason :next,
+                                      :stream frame-stream,
+                                      :cursor cursor})
+               :else nil)))
+     (resume [rt entry value]
+       (when (some? value)
+         (set! (.-value notifier) value)
+         (ds/drain-one! frame-stream)
+         (await-next! (update (:cursor entry) :position inc)))
+       rt)]
+    (await-next! {:position 0})))
+
+(defn put-frame!
+  "Emit one frame program onto frame-stream and wake any registered reader.
+  Safe to call from a Dart Timer or any synchronous context. Returns :ok or
+  :full if the stream is at capacity with :eviction-policy :reject."
+  [frame-stream frame]
+  (let [{:keys [result woke]} (ds/put! frame-stream frame)]
+    (doseq [{:keys [entry value position]} woke]
+      (let [ready (assoc entry
+                    :value value
+                    :status :ok
+                    :position position)]
+        ((:resume ready) nil ready value)))
+    result))
+
+(defn frame-widget
+  "Returns a Flutter widget that renders dao.postgraphics frames from notifier.
+  Use alongside register-frame-task! when explicit lifecycle control is needed."
+  [^m/ValueNotifier notifier]
+  (m/ValueListenableBuilder.
+    .valueListenable
+    notifier
+    .builder
+    (fn [_ _ _] (m/CustomPaint. .painter (PostgraphicsPainter. notifier)))))
+
+(defn postgraphics-widget
+  "Returns a Flutter widget that renders dao.postgraphics frame programs from
+  frame-stream. The widget fills its parent. Callers are responsible for
+  sizing the parent (e.g. with SizedBox or Expanded)."
+  [frame-stream]
+  (let [notifier (m/ValueNotifier. [])]
+    (register-frame-task! frame-stream notifier)
+    (frame-widget notifier)))
