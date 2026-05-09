@@ -209,9 +209,14 @@ Rules:
 - origin is `[0 0]`
 - `x` increases to the right
 - `y` increases upward
-- rects are `[x y width height]` where `[x y]` is the lower-left corner in the
-  current transform space
-- points are `[x y]` in the current transform space
+- draw rects (e.g. on `:draw/fill-rect`, `:draw/stroke-rect`, `:draw/image`) are
+  `[x y width height]` where `[x y]` is the lower-left corner in the current
+  transform space
+- points (e.g. `:position`, `:center`) are `[x y]` in the current transform space
+- clip rects on `:clip/push-rect` are an exception: they are always in
+  screen-space (viewport pixel) coordinates, applied after the viewport
+  transform, and not affected by the current transform stack — this matches
+  the standard scissor-rect behavior of graphics APIs
 - z-order is represented by op order
 
 Backend-specific graphics VMs are responsible for the final viewport transform.
@@ -230,7 +235,9 @@ ops are interpreted relative to the current transform.
 Shared conventions:
 
 - colors are `[r g b a]` with each channel in `[0.0, 1.0]`
-- stroke widths are non-negative numbers
+- stroke widths are non-negative numbers measured in screen pixels, applied
+  after the viewport transform; a stroke width of `1.0` is one pixel wide on
+  screen regardless of the current transform
 - image rects are `[x y width height]`
 - omitted optional fields fall back to VM defaults
 
@@ -613,8 +620,9 @@ hands it frame programs directly.
   :position [16 24]
   :color [1.0 1.0 1.0 1.0]
   :font-size 20}
+ ;; clip rect is in screen-space pixels (not affected by the :translate above)
  {:op/kind :clip/push-rect
-  :rect [8 56 304 168]}
+  :rect [24 72 304 168]}
  {:op/kind :draw/text
   :text "Potion"
   :position [16 80]}
