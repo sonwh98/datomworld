@@ -26,6 +26,18 @@ same frame.
 - `z` points toward the viewer (out of screen)
 - origin is `[0 0 0]`
 
+Camera convention:
+
+- view space is right-handed
+- camera forward is along the **negative z-axis**
+- camera up is along the **positive y-axis**
+
+Projection convention:
+
+- NDC (Normalized Device Coordinate) space is `[-1, 1]` for x and y
+- NDC `z` is `[0, 1]` where 0 is the near plane and 1 is the far plane
+- depth testing (when enabled) uses this `[0, 1]` range
+
 4x4 matrices are 16-element vectors in column-major order (first 4 elements are
 the first column).
 
@@ -39,12 +51,26 @@ piece of state during frame execution:
 
 - **camera matrix** — the combined projection × view matrix, initially nil; set
   by `:camera3d/set`
+- **depth-test** — boolean; whether to perform depth testing; default `false`
+- **depth-write** — boolean; whether to write to the depth buffer; default `false`
 
 The model transform stack (governed by `:transform/push` / `:transform/pop`) is
 the same stack used for 2D. In v2 the stack holds 4x4 column-major matrices
-rather than 3x3. 2D draw ops read x,y from the current stack top. 3D draw ops
-read the full 4x4 stack top and combine it with the camera matrix to compute
-`MVP = camera_matrix × model_matrix`.
+rather than 3x3.
+
+Draw op projection rules:
+
+- **3D ops** (`:draw3d/*`) project vertices through `MVP = camera_matrix × stack_top`.
+- **2D ops** (`:draw/*`) ignore the camera matrix. They are rendered into the
+  2D orthographic overlay established by the viewport. They use the current
+  stack top as an affine transform: `(x, y, 0, 1)` is transformed by the 4x4
+  matrix, and the resulting `x, y` are used as the 2D position. Rotation and
+  scaling are extracted from the 3x3 basis of the 4x4 matrix. If the 4x4 matrix
+  contains non-planar components, the 2D op projection is ill-defined and the
+  VM may skip the op.
+
+3D draw ops combine the 4x4 stack top with the camera matrix to compute the
+final vertex positions.
 
 ## Extended `:transform/push`
 
@@ -81,6 +107,8 @@ TRS composition order (when no `:matrix`): `T × R × S`.
 New op kinds in v2:
 
 - `:camera3d/set`
+- `:state/depth-test`
+- `:state/depth-write`
 - `:draw3d/lines`
 - `:draw3d/triangles`
 
@@ -134,6 +162,24 @@ Example:
  :camera3d/position [0.0 16.0 34.0]
  :camera3d/rotation [-0.44 0.0 0.0]}
 ```
+
+### `:state/depth-test`
+
+Enables or disables depth testing for subsequent draw ops.
+
+Required fields:
+
+- `:op/kind`
+- `:enabled` — boolean
+
+### `:state/depth-write`
+
+Enables or disables writing to the depth buffer for subsequent draw ops.
+
+Required fields:
+
+- `:op/kind`
+- `:enabled` — boolean
 
 ### `:draw3d/lines`
 
@@ -201,9 +247,15 @@ Example:
 
 ## Depth and Paint Order
 
-3D frame ops execute in order; later ops paint over earlier ones. The producer
-is responsible for emitting `:draw3d/` ops in painter's order (farthest first).
-There is no implicit depth buffer in v2.
+By default, 3D frame ops execute in order; later ops paint over earlier ones.
+The producer is responsible for emitting `:draw3d/` ops in painter's order
+(farthest first) when depth testing is disabled.
+
+When `:state/depth-test` is enabled, the VM uses the depth buffer to determine
+visibility based on the projected NDC `z` value `[0, 1]`. The producer may still
+prefer to sort for performance (to reduce overdraw) or to handle transparency,
+but the depth buffer handles visibility for opaque geometry including
+intersecting triangles and cyclic overlaps.
 
 An optional `:draw3d/depth` float may annotate any `:draw3d/` op for validation
 or debug tooling. It has no effect on rendering order.
@@ -216,6 +268,7 @@ Additional failure conditions beyond v1:
 - `:camera3d/set` specifies `:perspective` but `:camera3d/fov`, `:camera3d/near`,
   or `:camera3d/far` is missing
 - `:camera3d/near` is not positive, or `:camera3d/far` ≤ `:camera3d/near`
+- `:state/depth-test` or `:state/depth-write` is missing the `:enabled` field
 - `:draw3d/lines` is missing `:vertices`, or a vertex is not a three-element vector
 - `:draw3d/triangles` is missing `:vertices` or `:indices`
 - the frame ends with a non-empty transform stack (v1 rule; applies to 4x4 stack)
@@ -248,6 +301,9 @@ longitude circles passed as polylines.
   :camera3d/far 200.0
   :camera3d/position [0.0 16.0 34.0]
   :camera3d/rotation [-0.44 0.0 0.0]}
+
+ {:op/kind :state/depth-test :enabled true}
+ {:op/kind :state/depth-write :enabled true}
 
  ;; sun — wireframe sphere (producer pre-computes circle vertices)
  {:op/kind :transform/push
@@ -296,4 +352,5 @@ These choices are fixed for v2:
 - the camera matrix is separate VM state, not part of the model transform stack
 - 3D coordinate system is right-handed, y-up, z toward the viewer
 - 3D rendering is immediate mode; no retained scene state in the VM
-- depth sorting in 3D is the producer's responsibility; no implicit depth buffer
+- depth testing is optional; default is painter's algorithm
+- 2D ops are rendered in a screen-space overlay and ignore the 3D camera
