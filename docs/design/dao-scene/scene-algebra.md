@@ -60,6 +60,9 @@ O = { o | o is a valid graphics bytecode frame }
 
 Lowering maps scene values into `O`.
 
+See [dao.postgraphics.md](../dao.postgraphics.md) for the concrete terminal
+bytecode vocabulary used in v1.
+
 ## V1 Representation Decision
 
 V1 uses scene maps, not scene datoms, as the primary representation for `F` and

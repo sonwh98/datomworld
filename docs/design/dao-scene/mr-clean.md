@@ -22,7 +22,7 @@ The intended pipeline is:
 
 ```text
 mr-clean
--> scene.ui fragments
+-> dao.scene fragments
 -> assembled scene
 -> graphics bytecode
 -> Flutter terminal
@@ -84,7 +84,7 @@ This means `mr-clean` should target:
 
 - [scene-algebra.md](scene-algebra.md)
 - [scene-vocabulary.md](scene-vocabulary.md)
-- [scene-ui.md](scene-ui.md)
+- [dao.scene.md](dao.scene.md)
 
 not graphics bytecode directly as its primary semantic contract.
 
@@ -104,7 +104,7 @@ main stable contract.
 
 ## Relationship to Scene UI
 
-For v1, `mr-clean` should primarily target `scene.ui`.
+For v1, `mr-clean` should primarily target `dao.scene`.
 
 That means its authored forms should be able to express:
 
@@ -176,6 +176,6 @@ These choices are fixed for v1:
 - `mr-clean` is inspired by Reagent
 - `mr-clean` compiles Reagent-like component models into `scene-algebra`
 - `mr-clean` is not the Flutter renderer
-- `mr-clean` produces `scene.ui` fragments and scenes
+- `mr-clean` produces `dao.scene` fragments and scenes
 - graphics bytecode is derived downstream
 - Flutter terminal rendering is a separate concern

@@ -10,7 +10,7 @@ The intended architecture is:
 ```text
 authoring
 -> scene.core
--> scene.ui / scene.world / scene.xr
+-> dao.scene / scene.world / scene.xr
 -> graphics bytecode
 -> terminal renderer
 ```
@@ -45,9 +45,9 @@ simulation.
 
 See [scene-algebra.md](scene-algebra.md).
 
-### `scene.ui`
+### `dao.scene`
 
-`scene.ui` extends `scene.core` for productivity apps and general application
+`dao.scene` extends `scene.core` for productivity apps and general application
 UI.
 
 It should define semantics for:
@@ -64,11 +64,14 @@ It should define semantics for:
 - overlays and popups
 - accessibility roles and labels
 
-`scene.ui` answers:
+`dao.scene` answers:
 
 - how does application UI behave semantically before terminal rendering?
 
-See [scene-ui.md](scene-ui.md).
+See [dao.scene.md](dao.scene.md).
+
+See [dao.postgraphics.md](../dao.postgraphics.md) for the terminal bytecode
+contract that `dao.scene` lowers into.
 
 ### `scene.world`
 
@@ -93,7 +96,7 @@ It should define semantics for:
 
 ### `scene.xr`
 
-`scene.xr` extends `scene.world` and, where needed, `scene.ui` for immersive
+`scene.xr` extends `scene.world` and, where needed, `dao.scene` for immersive
 XR semantics.
 
 It should define semantics for:
@@ -148,7 +151,7 @@ Domain scene values lower into terminal graphics bytecode.
 
 Examples:
 
-- `scene.ui -> ui graphics bytecode`
+- `dao.scene -> ui graphics bytecode`
 - `scene.world -> world graphics bytecode`
 - `scene.xr -> xr graphics bytecode`
 
@@ -161,13 +164,13 @@ The terminal renderer should consume graphics bytecode, not scene values.
 V1 should focus on:
 
 - `scene.core`
-- `scene.ui` as the first concrete domain layer
+- `dao.scene` as the first concrete domain layer
 
 Recommended order:
 
 1. stabilize `scene.core`
-2. define `scene.ui` as the first domain extension for 2D apps and games
-3. define the UI graphics bytecode for `scene.ui`
+2. define `dao.scene` as the first domain extension for 2D apps and games
+3. define the UI graphics bytecode for `dao.scene`
 4. keep `scene.world` and `scene.xr` as later extensions
 
 ## Design Rules
@@ -186,8 +189,10 @@ The intended document split is:
 
 - [scene-algebra.md](scene-algebra.md)
   - fragment algebra and common structure
-- [scene-ui.md](scene-ui.md)
+- [dao.scene.md](dao.scene.md)
   - productivity and app UI semantics
+- [dao.postgraphics.md](../dao.postgraphics.md)
+  - terminal rendering bytecode contract
 - future `scene-world.md`
   - 3D world semantics
 - future `scene-xr.md`
@@ -198,7 +203,7 @@ The intended document split is:
 These choices are fixed unless replaced by a more specific design:
 
 - `scene.core` is the shared algebraic substrate
-- domain semantics belong in `scene.ui`, `scene.world`, or `scene.xr`
+- domain semantics belong in `dao.scene`, `scene.world`, or `scene.xr`
 - graphics bytecode is derived from domain scene values
 - the terminal renderer consumes graphics bytecode only
 - one shared composition algebra is preferred over one giant universal scene

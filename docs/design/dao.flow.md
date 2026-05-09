@@ -16,16 +16,21 @@ continuations carried as values.
 A workflow is a composed path of interpretation from input values to downstream
 values or terminal effects.
 
-In `dao.flow`, workflows are explicit DAG-like arrangements of:
+In `dao.flow`, workflows are explicit acyclic arrangements of:
 
 - input streams
 - interpreter stages
 - optional intermediate boundaries
 - downstream streams or terminal stages
 
-UI, graphics, compute, text, audio, logging, and other domains can all be
-modeled on top of this substrate. Those domains are examples, not the
-definition of `dao.flow`.
+`dao.flow` is domain-agnostic infrastructure. It can be used by:
+
+- `yin.vm`
+- `dao.postgraphics`
+- `dao.gpu.compute`
+- UI, text, audio, telemetry, logging, and other workflow domains
+
+Those clients are examples, not the definition of `dao.flow`.
 
 Short distinction:
 
@@ -66,7 +71,7 @@ Conceptually:
 stream -> interpreter -> stream -> interpreter -> terminal
 ```
 
-More generally, a workflow may branch and merge into a DAG-like topology:
+More generally, a workflow may branch and merge into a DAG topology:
 
 ```text
            -> interpreter-b -> stream-b ->
@@ -76,6 +81,11 @@ stream-a ->                               -> terminal
 
 The point is not graph theory for its own sake. The point is explicit causality
 and explicit boundaries between stages.
+
+Cycles are not part of the v1 algebra. `dao.flow` workflow topologies are
+finite directed acyclic graphs. Feedback loops, if needed later, should be
+modeled as explicit higher-level constructions rather than implicit cycles in
+the core composition model.
 
 ## Flow Algebra
 
@@ -102,6 +112,13 @@ The main compositional carrier is `F`, not raw streams alone.
 `V` is intentionally broad. It may include suspended computations represented
 as continuations, not only inert data.
 
+This document treats continuation-bearing values as valid payloads, but does
+not fully specify their replay or branching semantics. At the algebra level,
+the invariant is only that continuations must not introduce hidden control flow
+outside explicit stream boundaries. Domains and runners that branch, replay, or
+materialize continuations must define whether they are replaying captured
+results, replaying executable continuations, or forbidding such operations.
+
 A workflow fragment is a partially connected arrangement of:
 
 - input stream boundaries
@@ -111,6 +128,11 @@ A workflow fragment is a partially connected arrangement of:
 
 Composition is valid only when connected boundaries have compatible
 vocabularies.
+
+Vocabulary compatibility is not a universal built-in type system in `dao.flow`.
+It is declared by domains as metadata or contracts on interpreter and terminal
+boundaries. `dao.flow` is responsible for respecting those declarations at
+composition time, not for defining one global vocabulary catalog.
 
 ### Core Intuition
 
@@ -161,8 +183,8 @@ singleton-terminal : T -> F
 
 ### `compose`
 
-Connect the output boundary of one workflow fragment to the input boundary of
-another.
+Connect one exposed output boundary of one workflow fragment to one exposed
+input boundary of another.
 
 ```text
 compose : F × F -> F
@@ -197,6 +219,9 @@ algebra must be able to represent the topology.
 does not declare a compatible multi-input boundary or merge strategy, the
 workflow fragment is invalid and merge construction fails explicitly.
 
+That declaration lives with the downstream domain stage contract, not in a
+universal `dao.flow` opcode or schema registry.
+
 ## Algebraic Laws
 
 ### Closure
@@ -206,8 +231,8 @@ explicit error.
 
 ### Identity
 
-`empty-flow` is the neutral construction starting point when vocabularies are
-compatible.
+`empty-flow` is the neutral construction starting point when boundary
+vocabularies are compatible.
 
 Conceptually:
 
@@ -323,6 +348,24 @@ They must not differ in result.
 This is a core invariant of `dao.flow`: fusion is an execution strategy, not a
 semantic rewrite.
 
+## Runner
+
+A runner is the execution component that advances a composed workflow.
+
+It is not part of the core algebra itself. It belongs to the execution layer
+above the algebra and is responsible for:
+
+- attaching input boundaries
+- advancing ready stages
+- choosing scheduling policy
+- choosing materialized or fused execution strategy
+- surfacing terminal effects and failures
+
+`dao.flow` includes both:
+
+- an algebra of workflow composition
+- runner-oriented execution contracts for realizing those workflows
+
 ## Interpreters
 
 An interpreter in `dao.flow` is a component that gives operational meaning to
@@ -337,6 +380,8 @@ An interpreter may:
 
 Examples include:
 
+- AST-lowering interpreter
+- bytecode-lowering interpreter
 - layout interpreter
 - geometry interpreter
 - dispatch-planning interpreter
@@ -392,7 +437,8 @@ Failure handling must be explicit:
   but it must be explicit rather than implicit or silent
 
 Reduced termination is the case where a reducing or terminal stage explicitly
-signals early completion. The runner should stop that path cleanly without
+signals early completion, for example by returning a `reduced`-style sentinel
+in a fused reducing path. The runner should stop that path cleanly without
 inventing additional downstream values.
 
 ## Scheduling
@@ -416,6 +462,9 @@ explicitly outside the semantic contract.
 
 Example domains that can live on top of it:
 
+- `yin.vm` compilation and execution workflows
+- `dao.postgraphics` workflows
+- `dao.gpu.compute` workflows
 - UI workflows
 - graphics workflows
 - compute workflows
@@ -424,15 +473,21 @@ Example domains that can live on top of it:
 - telemetry workflows
 - logging workflows
 
-Examples:
+Examples of complete workflows:
 
-UI workflow:
+Yin compilation workflow:
+
+```text
+AST stream -> lowering interpreters -> bytecode stream -> VM machine
+```
+
+Graphics workflow:
 
 ```text
 scene stream -> layout interpreters -> graphics bytecode -> Flutter terminal
 ```
 
-Compute workflow:
+GPU compute workflow:
 
 ```text
 compute intent stream -> planning interpreters -> execution terminal -> buffers/results
@@ -450,9 +505,10 @@ Audio workflow:
 audio event stream -> mixing interpreters -> audio terminal -> samples
 ```
 
-The important point is that these are all `dao.flow` workflows. They differ in
-payload vocabulary and terminal realization, not in the underlying composition
-model.
+The important point is that these are all completed `dao.flow` workflows. They
+differ in payload vocabulary and terminal realization, not in the underlying
+composition model. Workflow fragments are the same kinds of structures before
+all exposed boundaries have been connected.
 
 ## Public Surface
 
@@ -464,6 +520,13 @@ Appropriate responsibilities include:
 - connecting interpreters across materialized boundaries
 - preserving semantic equivalence between fused and materialized workflows
 - supplying generic terminal adaptation helpers where useful
+- exposing runner contracts for lifecycle, scheduling, and failure handling
+
+It may therefore serve as shared infrastructure for:
+
+- `yin.vm` compilation pipelines
+- `dao.postgraphics` lowering and rendering pipelines
+- `dao.gpu.compute` planning and execution pipelines
 
 It should not define one domain's stage vocabulary as if it were universal.
 
@@ -473,9 +536,10 @@ Domain namespaces own their own payload vocabularies and interpreters.
 
 Examples:
 
+- `yin.vm` may define AST-to-bytecode lowering interpreters and VM terminals
 - UI namespaces may define scene or layout vocabularies
-- graphics namespaces may define geometry or bytecode vocabularies
-- compute namespaces may define intent-to-dispatch transformations
+- `dao.postgraphics` may define scene-to-bytecode and render-oriented vocabularies
+- `dao.gpu.compute` may define intent-to-dispatch transformations
 - audio namespaces may define event-to-mix transformations
 - backend namespaces may define terminal realizations for Flutter, GPU APIs,
   TUI runtimes, audio devices, logs, or files
@@ -485,10 +549,11 @@ does not absorb their semantics.
 
 ## Relationship to Specific Designs
 
-Scene-graph walking, camera semantics, graphics bytecode schemas, layout
-semantics, dispatch vocabularies, painter details, and similar domain concerns
-belong to domain-specific design documents and namespaces. They may be good
-users of `dao.flow`, but they are not the definition of `dao.flow`.
+Scene-graph walking, AST lowering, camera semantics, graphics bytecode
+schemas, layout semantics, compute dispatch vocabularies, painter details, and
+similar domain concerns belong to domain-specific design documents and
+namespaces. They may be good users of `dao.flow`, but they are not the
+definition of `dao.flow`.
 
 This separation keeps the flow layer stable while allowing multiple producer
 and interpreter ecosystems to emerge on top of it.
@@ -496,7 +561,7 @@ and interpreter ecosystems to emerge on top of it.
 ## Comparison Intuition
 
 `dao.flow` is closer to a stream-composed workflow or DAG substrate than to a
-UI-only or GPU-only layer.
+UI-only, GPU-only, or VM-only layer.
 
 At small scale, the most useful intuition is Unix pipelines:
 
@@ -522,6 +587,7 @@ So the right mental model is:
 
 - a workflow/DAG composition layer over `dao.stream`
 - not merely a rendering subsystem
+- not merely a VM compilation subsystem
 
 ## Non-Goals
 
@@ -542,7 +608,7 @@ workflow model they use.
 ## Test Contracts
 
 Tests for `dao.flow` should verify workflow behavior, not one particular
-graphics, compute, UI, or audio domain.
+`yin.vm`, graphics, compute, UI, or audio domain.
 
 Examples:
 

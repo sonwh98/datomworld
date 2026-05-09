@@ -1,11 +1,11 @@
-# Design: Scene UI
+# Design: `dao.scene`
 
 ## Summary
 
-This document defines `scene.ui`, the first concrete domain vocabulary built on
+This document defines `dao.scene`, the first concrete domain vocabulary built on
 top of [scene-algebra.md](scene-algebra.md).
 
-`scene.ui` is scoped to:
+`dao.scene` is scoped to:
 
 - 2D productivity applications
 - 2D game UI
@@ -18,7 +18,7 @@ The intended pipeline is:
 
 ```text
 hiccup/components/atoms
--> scene.ui fragments
+-> dao.scene fragments
 -> assembled scene
 -> ui graphics bytecode
 -> terminal renderer
@@ -26,7 +26,7 @@ hiccup/components/atoms
 
 ## Relationship to `scene.core`
 
-`scene.ui` extends `scene.core`.
+`dao.scene` extends `scene.core`.
 
 `scene.core` defines:
 
@@ -36,7 +36,7 @@ hiccup/components/atoms
 - style shell
 - generic container, group, and viewport semantics
 
-`scene.ui` adds UI-domain semantics such as:
+`dao.scene` adds UI-domain semantics such as:
 
 - text layout intent
 - text input semantics
@@ -47,12 +47,12 @@ hiccup/components/atoms
 - buttons and overlays
 - accessibility metadata
 
-`scene.ui` must not redefine fragment composition. It uses the algebra from
+`dao.scene` must not redefine fragment composition. It uses the algebra from
 `scene.core`.
 
 ## Scope
 
-`scene.ui` is intended to cover:
+`dao.scene` is intended to cover:
 
 - panels
 - text labels
@@ -77,7 +77,7 @@ Not in v1:
 
 ## UI Node Kinds
 
-`scene.ui` extends the `scene.core` kinds with these UI-specific kinds in v1:
+`dao.scene` extends the `scene.core` kinds with these UI-specific kinds in v1:
 
 - `:ui/text-block`
 - `:ui/text-input`
@@ -100,7 +100,7 @@ It also reuses these `scene.core` kinds:
 
 ## Common UI Fields
 
-Any `scene.ui` node may additionally carry:
+Any `dao.scene` node may additionally carry:
 
 - `:ui/id`
   - opaque semantic identifier
@@ -172,7 +172,7 @@ Optional fields:
 - `:ui/enabled`
   - default: `true`
 
-`scene.ui` records text editing semantics as data. It does not define the event
+`dao.scene` records text editing semantics as data. It does not define the event
 system that mutates them.
 
 ## Scroll and Viewport Semantics
@@ -319,7 +319,7 @@ Optional fields:
 
 ## Focus and Accessibility
 
-`scene.ui` should preserve semantic metadata needed by later input and
+`dao.scene` should preserve semantic metadata needed by later input and
 accessibility systems.
 
 V1 semantic fields:
@@ -340,7 +340,7 @@ semantic hooks.
 
 ## Lowering Expectations
 
-Lowering from `scene.ui` to graphics bytecode must:
+Lowering from `dao.scene` to graphics bytecode must:
 
 - preserve child order
 - preserve visibility semantics
@@ -349,7 +349,10 @@ Lowering from `scene.ui` to graphics bytecode must:
 - lower controls into visible geometry and text ops
 - preserve overlay ordering
 
-Lowering from `scene.ui` must not:
+See [dao.postgraphics.md](../dao.postgraphics.md) for the concrete v1 bytecode
+schema that this lowering must target.
+
+Lowering from `dao.scene` must not:
 
 - emit browser-specific semantics
 - require a DOM
@@ -412,7 +415,7 @@ Lowering from `scene.ui` must not:
 
 These choices are fixed for v1:
 
-- `scene.ui` is the first concrete domain extension
+- `dao.scene` is the first concrete domain extension
 - it targets 2D apps and 2D game UI
 - it extends `scene.core` rather than redefining composition
 - it preserves UI semantics as data before terminal lowering
