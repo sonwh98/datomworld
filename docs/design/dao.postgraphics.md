@@ -251,6 +251,76 @@ V1 VM defaults:
 - transform stack: identity
 - clip stack: empty
 
+## Rendering Conventions
+
+These conventions apply to all draw ops in v1 and to both 2D and 3D draw ops in
+v2. They define the contract that two compliant VMs must agree on for the same
+input frame.
+
+### Color Space
+
+Color components in `[r g b a]` tuples are interpreted as **sRGB-encoded
+values** in `[0.0, 1.0]`. The alpha component is linear (not gamma-encoded).
+
+Blending is performed in **sRGB space**: the source-over formula below operates
+on sRGB color components directly without linearization. This matches the
+default behavior of common 2D graphics backends including Flutter Canvas and
+HTML Canvas. A future version may add a state op to opt into linear-space
+blending; v1 does not.
+
+### Alpha Convention
+
+Color values use **straight (non-pre-multiplied) alpha**. The producer specifies
+RGB and A independently; `[1 1 1 0.5]` is half-transparent white, not "white at
+half intensity." The VM performs pre-multiplication internally if its backend
+requires it.
+
+The `:opacity` field on `:draw/image` multiplies the image's per-pixel alpha
+before blending. It composes with any alpha already in the image source.
+
+### Blending
+
+The default and only blend mode is **source-over** with straight alpha:
+
+```
+result.rgb = src.rgb × src.a + dst.rgb × (1 − src.a)
+result.a   = src.a + dst.a × (1 − src.a)
+```
+
+The destination is the current frame buffer contents at the pixel. The source
+is the draw op's color (or sampled image color) at the pixel, including any
+alpha modulation from anti-aliasing coverage.
+
+Blending is applied after rasterization and (in v2) after the depth test. It
+applies uniformly to 2D and 3D draw ops.
+
+There is no blend-mode state op in v1 or v2. All draws use source-over.
+
+### Anti-Aliasing
+
+Edges of 2D primitives (rectangles, circles, paths, lines, text) are
+anti-aliased using **analytical coverage**: a pixel partially covered by a
+primitive's edge contributes its color modulated by the coverage fraction —
+equivalently, the effective source alpha for that pixel is
+`src.a × coverage_fraction` under the source-over rule above. Pixel centers
+fully inside a primitive have coverage `1.0`; pixel centers fully outside have
+coverage `0.0`.
+
+For 3D primitives (`:draw3d/lines`, `:draw3d/triangles` in v2), edges should be
+anti-aliased where the host backend supports it (typically via MSAA, supersampling,
+or analytical coverage). VMs without anti-aliased 3D rasterization may produce
+aliased 3D edges; this is the only host-specific quality concession in the
+contract.
+
+Anti-aliasing cannot be disabled. There is no aliased-rendering mode in v1 or v2.
+
+The top-left fill rule (defined in v2 for 3D triangles) determines pixel
+*ownership* at shared edges; analytical coverage determines partial-pixel alpha
+at the *outer* edges of each primitive. The two rules compose: a pixel exactly
+on a top or left edge is owned by that triangle (coverage `1.0`); a pixel
+exactly on a right or bottom edge is owned by the adjacent triangle (coverage
+`0.0` for this triangle).
+
 ## V1 Bytecode Vocabulary
 
 V1 `dao.postgraphics` supports exactly these op kinds:

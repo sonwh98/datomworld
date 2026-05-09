@@ -615,15 +615,42 @@ longitude circles passed as polylines.
 
 ## Accepted Defaults
 
-These choices are fixed for v2:
+V2 preserves most of v1 verbatim, redefines a few points, and extends a few
+others. This section makes the relationship explicit.
 
-- all v1 accepted defaults hold
-- the VM has one transform stack; 2D and 3D ops share it
-- the transform stack holds 4x4 column-major matrices
+### Preserved from v1 (unchanged)
+
+- frame programs are vectors of op maps; one frame program is one complete frame
+- op order defines paint order
+- v1 Rendering Conventions for **2D** draws: sRGB color space, straight alpha,
+  source-over blending, analytical-coverage anti-aliasing for 2D primitive edges
+- v1 op kinds and their fields, including `:clip/push-rect` rect coordinate
+  space (screen-space pixels)
+- Flutter is one graphics VM host, not the definition of the layer
+
+### Redefined by v2
+
+- the transform stack representation: v1 implicitly uses 3x3 affine matrices;
+  v2 redefines the same stack to hold 4x4 column-major matrices. 2D fields on
+  `:transform/push` are promoted to 4x4 by the VM. Externally observable
+  behavior for pure 2D programs is unchanged, but the underlying execution
+  state is different
+- v2 adds a new validity rule for v1 2D draw ops: a `:draw/*` op is invalid if
+  the current stack top fails the 2D-affine check. This rule has no effect on
+  pure-2D programs (where it is trivially satisfied) but constrains mixed
+  programs
+
+### Added by v2
+
 - the camera matrix is separate VM state, not part of the model transform stack
 - 3D coordinate system is right-handed, y-up, z toward the viewer
 - 3D rendering is immediate mode; no retained scene state in the VM
 - depth testing is optional; default is painter's algorithm
+- v1 Rendering Conventions extended to **3D** draws with one concession:
+  source-over blending and sRGB color space apply uniformly, but anti-aliasing
+  on 3D primitive edges is host-best-effort (analytical coverage when the
+  backend supports it, MSAA where available, or aliased edges where neither is
+  supported)
 - 2D ops remain in 2D Cartesian space, ignore the 3D camera, and do not
   participate in depth testing; 2D and 3D ops are not reordered — they execute
   in strict frame-program order
