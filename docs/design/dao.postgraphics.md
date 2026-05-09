@@ -261,8 +261,9 @@ V1 `dao.postgraphics` supports exactly these op kinds:
 - `:draw/path`
 - `:draw/image`
 
-These v1 ops are intentionally 2D-first, but they now include local transform
-support so sub-drawings do not need to be fully flattened upstream.
+These v1 ops are intentionally 2D-first, but the architecture is intended to
+cover both 2D and 3D rendering. See `dao.postgraphics.v2.md` for the 3D
+extension.
 
 Later versions should extend the graphics bytecode and graphics VM with 3D
 rendering concerns such as:
