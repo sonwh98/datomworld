@@ -8,43 +8,29 @@
     [yin.vm.ast-walker :as ast-walker]
     [yin.vm.register :as register]
     [yin.vm.semantic :as semantic]
-    [yin.vm.stack :as stack]))
+    [yin.vm.stack :as stack]
+    [yin.vm.test-utils :as vtu]))
 
 
 (defn- stream-capacity
   [vm-state]
   (let [stream-ref (vm/value vm-state)
         stream-id (:id stream-ref)
-        stream #?(:cljs ^dao.stream.ringbuffer/RingBufferStream (get (vm/store vm-state) stream-id)
-                  :cljd ^dao.stream.ringbuffer/RingBufferStream (get (vm/store vm-state) stream-id)
+        stream #?(:cljs ^dao.stream.ringbuffer/RingBufferStream
+                  (get (vm/store vm-state) stream-id)
+                  :cljd ^dao.stream.ringbuffer/RingBufferStream
+                  (get (vm/store vm-state) stream-id)
                   :default (get (vm/store vm-state) stream-id))]
     (.-capacity stream)))
-
-
-(defn- queue-vm
-  [vm-state datoms]
-  (let [in-stream (ds/open! {:type :ringbuffer
-                             :capacity nil})
-        queued-vm (assoc vm-state
-                         :in-stream in-stream
-                         :in-cursor {:position 0}
-                         :halted? false)]
-    (ds/put! in-stream (vec datoms))
-    queued-vm))
-
-
-(defn- queue-ast
-  [vm-state ast]
-  (queue-vm vm-state (vm/ast->datoms ast)))
 
 
 (deftest queue-vm-clears-halted-state-parity-test
   (testing "queueing a datom program marks every VM backend as runnable"
     (let [datoms (vm/ast->datoms {:type :literal, :value 42})
-          states [(queue-vm (ast-walker/create-vm) datoms)
-                  (queue-vm (stack/create-vm) datoms)
-                  (queue-vm (semantic/create-vm) datoms)
-                  (queue-vm (register/create-vm) datoms)]]
+          states [(vtu/queue-vm (ast-walker/create-vm) datoms)
+                  (vtu/queue-vm (stack/create-vm) datoms)
+                  (vtu/queue-vm (semantic/create-vm) datoms)
+                  (vtu/queue-vm (register/create-vm) datoms)]]
       (doseq [state states]
         (is (= {:position 0} (:in-cursor state)))
         (is (false? (:halted? state)))
@@ -54,7 +40,7 @@
 (defn- ast-walker-stream-make-default-vm
   []
   (-> (ast-walker/create-vm)
-      (queue-ast {:type :stream/make})
+      (vtu/queue-ast {:type :stream/make})
       (vm/run)))
 
 
@@ -88,16 +74,6 @@
       (is (= expected-capacity (stream-capacity register-vm))))))
 
 
-(defn- run-all-vms
-  "Evaluate an AST across all VM backends and return their final values."
-  [ast]
-  {:ast-walker (vm/value (vm/eval (ast-walker/create-vm) ast)),
-   :stack (vm/value (vm/eval (stack/create-vm) ast)),
-   :semantic (vm/value (vm/eval (semantic/create-vm) ast)),
-   :register (vm/value (vm/eval (register/create-vm)
-                                ast))})
-
-
 (deftest canonical-datom-program-parity-test
   (testing "Semantic/Register/Stack agree when loading the same datom program"
     (let [ast {:type :application,
@@ -105,13 +81,13 @@
                :operands [{:type :literal, :value 20}
                           {:type :literal, :value 22}]}
           datoms (vec (vm/ast->datoms ast))
-          semantic-value (-> (queue-vm (semantic/create-vm) datoms)
+          semantic-value (-> (vtu/queue-vm (semantic/create-vm) datoms)
                              (vm/run)
                              (vm/value))
-          register-value (-> (queue-vm (register/create-vm) datoms)
+          register-value (-> (vtu/queue-vm (register/create-vm) datoms)
                              (vm/run)
                              (vm/value))
-          stack-value (-> (queue-vm (stack/create-vm) datoms)
+          stack-value (-> (vtu/queue-vm (stack/create-vm) datoms)
                           (vm/run)
                           (vm/value))]
       (is (= semantic-value register-value))
@@ -128,7 +104,7 @@
     (let [ast {:type :application,
                :operator {:type :lambda, :params ['x], :body {:type :vm/park}},
                :operands [{:type :vm/park}]}
-          results (run-all-vms ast)]
+          results (vtu/run-all-vms ast)]
       (doseq [[vm-type reified-arg] results]
         (is (= :parked-continuation (:type reified-arg))
             (str vm-type " should park in arg"))
@@ -173,7 +149,7 @@
                                  :operands [{:type :variable, :name 'x}
                                             {:type :vm/park}]}},
                :operands [{:type :literal, :value 10}]}
-          results (run-all-vms ast)]
+          results (vtu/run-all-vms ast)]
       (doseq [[vm-type reified] results]
         (is (= :parked-continuation (:type reified))
             (str vm-type " should park inside function")))
@@ -221,33 +197,27 @@
 
 (deftest n-ary-arithmetic-parity-test
   (testing "Arithmetic and comparison primitives accept n-ary args like Clojure"
-    (doseq [[ast expected]
-            [;; + : 0-ary, 1-ary, 3-ary, 5-ary
-             [(call-op '+) 0]
-             [(call-op '+ 7) 7]
-             [(call-op '+ 1 2 3) 6]
-             [(call-op '+ 1 2 3 4 5) 15]
-             ;; * : 0-ary, 1-ary, n-ary
-             [(call-op '*) 1]
-             [(call-op '* 5) 5]
-             [(call-op '* 2 3 4) 24]
-             ;; - : 1-ary negate, n-ary subtract
-             [(call-op '- 7) -7]
-             [(call-op '- 10 1 2 3) 4]
-             ;; / : 1-ary reciprocal, n-ary divide
-             [(call-op '/ 2) #?(:clj 1/2 :cljs 0.5 :cljd 0.5)]
-             [(call-op '/ 100 2 5) 10]
-             ;; = and !=
-             [(call-op '= 1 1 1) true]
-             [(call-op '= 1 1 2) false]
-             [(call-op '!= 1 2 3) true]
-             ;; ordered comparisons
-             [(call-op '< 1 2 3) true]
-             [(call-op '< 1 2 2) false]
-             [(call-op '<= 1 2 2) true]
-             [(call-op '> 3 2 1) true]
-             [(call-op '>= 3 3 2) true]]]
-      (let [{:keys [ast-walker semantic stack register]} (run-all-vms ast)]
+    (doseq [[ast expected] [;; + : 0-ary, 1-ary, 3-ary, 5-ary
+                            [(call-op '+) 0] [(call-op '+ 7) 7]
+                            [(call-op '+ 1 2 3) 6] [(call-op '+ 1 2 3 4 5) 15]
+                            ;; * : 0-ary, 1-ary, n-ary
+                            [(call-op '*) 1] [(call-op '* 5) 5]
+                            [(call-op '* 2 3 4) 24]
+                            ;; - : 1-ary negate, n-ary subtract
+                            [(call-op '- 7) -7] [(call-op '- 10 1 2 3) 4]
+                            ;; / : 1-ary reciprocal, n-ary divide
+                            [(call-op '/ 2)
+                             #?(:clj 1/2
+                                :cljs 0.5
+                                :cljd 0.5)] [(call-op '/ 100 2 5) 10]
+                            ;; = and !=
+                            [(call-op '= 1 1 1) true] [(call-op '= 1 1 2) false]
+                            [(call-op '!= 1 2 3) true]
+                            ;; ordered comparisons
+                            [(call-op '< 1 2 3) true] [(call-op '< 1 2 2) false]
+                            [(call-op '<= 1 2 2) true] [(call-op '> 3 2 1) true]
+                            [(call-op '>= 3 3 2) true]]]
+      (let [{:keys [ast-walker semantic stack register]} (vtu/run-all-vms ast)]
         (is (= expected ast-walker) (str "ast-walker: " (pr-str ast)))
         (is (= expected semantic) (str "semantic: " (pr-str ast)))
         (is (= expected stack) (str "stack: " (pr-str ast)))
@@ -281,8 +251,9 @@
                :tail? true}]
       (doseq [vm-type [:ast-walker :semantic :stack :register]]
         (let [vm (case vm-type
-                   :ast-walker (queue-ast (ast-walker/create-vm) ast)
-                   :semantic (queue-vm (semantic/create-vm) (vm/ast->datoms ast))
+                   :ast-walker (vtu/queue-ast (ast-walker/create-vm) ast)
+                   :semantic (vtu/queue-vm (semantic/create-vm)
+                                           (vm/ast->datoms ast))
                    :stack (-> (stack/create-vm)
                               (vm/eval ast))
                    :register (-> (register/create-vm)
@@ -301,16 +272,15 @@
 
 
 (deftest parameter-does-not-leak-into-store-parity-test
-  (testing "a function parameter with the same name as a global def
+  (testing
+    "a function parameter with the same name as a global def
             must not overwrite the global after the function returns
             — evaluated as separate REPL inputs to reproduce the env-leak bug"
-    ;; Bug: in the REPL each form is vm/eval'd sequentially on the prior state.
-    ;; After (shadow-test 99) the env retains {x → 99} from the call frame,
-    ;; so the subsequent lookup of x finds 99 (the param) instead of 42 (the store).
-    (doseq [[vm-type create-vm] {:ast-walker ast-walker/create-vm
-                                 :semantic   semantic/create-vm
-                                 :stack      stack/create-vm
-                                 :register   register/create-vm}]
+    ;; Bug: in the REPL each form is vm/eval'd sequentially on the prior
+    ;; state. After (shadow-test 99) the env retains {x → 99} from the call
+    ;; frame, so the subsequent lookup of x finds 99 (the param) instead of
+    ;; 42 (the store).
+    (doseq [[vm-type create-vm] (vtu/vm-factories)]
       (let [vm0 (create-vm)
             vm1 (vm/eval vm0 (yang/compile '(def x 42)))
             vm2 (vm/eval vm1 (yang/compile '(defn shadow-test
@@ -318,5 +288,8 @@
                                               (+ x 1))))
             vm3 (vm/eval vm2 (yang/compile '(shadow-test 99)))
             vm4 (vm/eval vm3 (yang/compile 'x))]
-        (is (= 42 (vm/value vm4))
-            (str vm-type ": x should still be 42 after shadow-test returns, not the parameter value"))))))
+        (is
+          (= 42 (vm/value vm4))
+          (str
+            vm-type
+            ": x should still be 42 after shadow-test returns, not the parameter value"))))))

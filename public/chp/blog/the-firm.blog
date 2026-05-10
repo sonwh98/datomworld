@@ -73,7 +73,7 @@
 
           [:h2 "The Governance of Fluids"]
           [:p "Managing these fluid structures requires a new kind of operating system. Traditional legal contracts are too slow. We need " [:strong "computational contracts"] " that live in the stream."]
-          [:p "This is the role of " [:a {:href "/dao-flow.chp"} "DaoFlow"] ". It provides the grammar for these ephemeral collaborations, defining the rules of engagement, value distribution, and dispute resolution in code that agents can understand and enforce."]
+          [:p "This is the joint role of " [:a {:href "/yin.chp"} "Yin"] " and " [:a {:href "/shibi.chp"} "Shibi"] ". Yin agents execute the terms; Shibi expresses value distribution and economic signals. Together they let ephemeral collaborations encode rules of engagement and dispute resolution in code that agents can read and enforce."]
 
           [:h2 "When Fluids Freeze: Failure Modes"]
           [:p "No system is immune to adversarial behavior. What happens when agent swarms collude, when computational contracts contain ambiguous clauses, or when bad actors exploit the speed of automated negotiation?"]

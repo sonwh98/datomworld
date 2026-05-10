@@ -52,7 +52,7 @@
            "—entities exist as points "
            "in attribute-space."]
 
-          [:h3 "Layer 2: DaoFlow Interprets as UI (3D)"]
+          [:h3 "Layer 2: PostGraphics Interprets as UI (3D)"]
           [:pre
            [:code
             {:class "language-clojure"}
@@ -63,7 +63,7 @@
             {:class "language-text"}
             "Dimensionality: 3 (entities × attributes × screen-position)\nNew dimensions: x, y coordinates"]]
 
-          [:p "DaoFlow adds " [:strong "visual space"] "—where entities appear on screen."]
+          [:p "PostGraphics adds " [:strong "visual space"] "—where entities appear on screen."]
 
           [:h3 "Layer 3: Yin Interprets as Computation (4D+)"]
           [:pre
@@ -131,7 +131,7 @@
              [:td "Entity-space"]]
             [:tr
              [:td "Entities (2D)"]
-             [:td "DaoFlow"]
+             [:td "PostGraphics"]
              [:td "UI (3D)"]
              [:td "Screen-space"]]
             [:tr
@@ -384,7 +384,7 @@
           [:pre
            [:code
             {:class "language-text"}
-            "Layer 0: Datom stream (1D)\n  ↓ DaoDB interpreter\nLayer 1: Entities (2D)\n  ↓ Query interpreter (Datalog)\nLayer 2: Results (2D)\n  ↓ DaoFlow interpreter\nLayer 3: UI (3D)\n\nOnly 3 gradient crossings!"]]
+            "Layer 0: Datom stream (1D)\n  ↓ DaoDB interpreter\nLayer 1: Entities (2D)\n  ↓ Query interpreter (Datalog)\nLayer 2: Results (2D)\n  ↓ PostGraphics interpreter\nLayer 3: UI (3D)\n\nOnly 3 gradient crossings!"]]
 
           [:p "Compare to traditional stack:"]
 

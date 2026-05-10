@@ -1,0 +1,46 @@
+(ns dao.runtime.driver
+  (:require [dao.runtime :as rt]
+            ["dart:async" :as async]
+            ["dart:core" :as core]))
+
+
+(def current-rt (atom (rt/initial-state)))
+(def scheduled? (atom false))
+(def polling? (atom false))
+(def active-timer (atom nil))
+
+
+(defn- run-pending!
+  []
+  (reset! scheduled? false)
+  (reset! polling? false)
+  (when-let [timer ^async/Timer @active-timer]
+    (.cancel timer)
+    (reset! active-timer nil))
+  (let [rt @current-rt
+        next-rt (rt/run-once rt)]
+    (when next-rt (reset! current-rt next-rt))
+    (let [final-rt (or next-rt rt)]
+      (cond (seq (:ready-queue final-rt)) (do (reset! scheduled? true)
+                                              (async/scheduleMicrotask
+                                                run-pending!))
+            (seq (:wait-set final-rt))
+              (do (reset! scheduled? true)
+                  (reset! polling? true)
+                  (let [timer (async/Timer. (core/Duration .milliseconds 20)
+                                            run-pending!)]
+                    (reset! active-timer timer)))))))
+
+
+(defn schedule-work!
+  "Schedule runtime tasks to run on the next Dart microtask."
+  [entries]
+  (swap! current-rt rt/enqueue-ready entries)
+  (when (or (not @scheduled?) @polling?)
+    (when @polling?
+      (when-let [timer ^async/Timer @active-timer]
+        (.cancel timer)
+        (reset! active-timer nil)))
+    (reset! scheduled? true)
+    (reset! polling? false)
+    (async/scheduleMicrotask run-pending!)))

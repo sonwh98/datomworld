@@ -32,42 +32,48 @@
        [yin.vm :refer [opcase]])))
 
 
+(declare register-vm-restore)
+
+
 ;; =============================================================================
 ;; RegisterVM Record
 ;; =============================================================================
 
 (defrecord RegisterVM
-  [blocked?   ; true if blocked
-   bridge     ; explicit host-side FFI bridge state
-   in-stream  ; ingress DaoStream carrying canonical datom programs
-   in-cursor  ; ingress cursor position
-   bytecode   ; numeric bytecode vector
+  [blocked?  ; true if blocked
+   bridge    ; explicit host-side FFI bridge state
+   in-stream ; ingress DaoStream carrying canonical datom programs
+   in-cursor ; ingress cursor position
+   bytecode  ; numeric bytecode vector
    compiled-by-version ; {program-version -> compiled artifact}
    compiled-cache-limit ; max retained compiled artifacts
-   active-compiled-version ; compiled program version for new control transfers
+   active-compiled-version ; compiled program version for new control
+   ;; transfers
    compile-dirty? ; canonical datom stream changed since last compile
    env        ; lexical environment (E in CESK)
    halted?    ; true if execution completed
    id-counter ; unique ID counter
    k          ; continuation (K in CESK)
-   macro-registry ; {macro-lambda-eid -> (fn [ctx] {:datoms [...] :root-eid eid})}
-   parked     ; parked continuations
-   control    ; program counter (C in CESK)
-   pool       ; constant pool
-   datoms     ; canonical bounded datom stream snapshot
+   macro-registry ; {macro-lambda-eid -> (fn [ctx] {:datoms [...] :root-eid
+   ;; eid})}
+   parked  ; parked continuations
+   control ; program counter (C in CESK)
+   pool    ; constant pool
+   datoms  ; canonical bounded datom stream snapshot
    datom-index ; derived datom index for compilation
    program-root-eid ; root entity id of canonical program
-   program-version ; monotonic program version for append/recompile lifecycle
+   program-version ; monotonic program version for append/recompile
+   ;; lifecycle
    primitives ; primitive operations
    regs       ; virtual registers vector (part of K in CESK)
-   run-queue  ; vector of runnable continuations
-   store      ; heap memory (S in CESK)
-   value      ; final result value
-   wait-set   ; vector of parked continuations waiting on streams
-   telemetry    ; optional telemetry config
+   ready-queue ; vector of runnable continuations
+   store    ; heap memory (S in CESK)
+   value    ; final result value
+   wait-set ; vector of parked continuations waiting on streams
+   telemetry ; optional telemetry config
    telemetry-step ; telemetry snapshot counter
-   telemetry-t  ; telemetry transaction counter
-   vm-model     ; telemetry model keyword
+   telemetry-t ; telemetry transaction counter
+   vm-model    ; telemetry model keyword
    ])
 
 
@@ -306,10 +312,12 @@
           :load-var (let [[rd name] args]
                       (emit! (vm/opcode-table :load-var) rd (intern! name)))
           :move (let [[rd rs] args] (emit! (vm/opcode-table :move) rd rs))
-          :lambda
-          (let [[rd params addr reg-count] args]
-            (emit! (vm/opcode-table :lambda) rd (intern! (vec params)) reg-count)
-            (emit-fixup! addr))
+          :lambda (let [[rd params addr reg-count] args]
+                    (emit! (vm/opcode-table :lambda)
+                           rd
+                           (intern! (vec params))
+                           reg-count)
+                    (emit-fixup! addr))
           :call (let [[rd rf arg-regs] args]
                   (emit! (vm/opcode-table :call) rd rf (count arg-regs))
                   (doseq [ar arg-regs] (emit! ar)))
@@ -317,7 +325,8 @@
                       (emit! (vm/opcode-table :tailcall) rd rf (count arg-regs))
                       (doseq [ar arg-regs] (emit! ar)))
           :dao.stream.apply/call (let [[rd op arg-regs] args]
-                                   (emit! (vm/opcode-table :dao.stream.apply/call)
+                                   (emit! (vm/opcode-table
+                                            :dao.stream.apply/call)
                                           rd
                                           (intern! op)
                                           (count arg-regs))
@@ -363,9 +372,7 @@
 
 (defn- canonical-program?
   [program]
-  (and (map? program)
-       (contains? program :node)
-       (contains? program :datoms)))
+  (and (map? program) (contains? program :node) (contains? program :datoms)))
 
 
 (defn- build-program-index
@@ -375,9 +382,7 @@
 
 (defn- executable-program-datom?
   [[_e a _v _t m]]
-  (and (keyword? a)
-       (= "yin" (namespace a))
-       (not= m derived-metadata-eid)))
+  (and (keyword? a) (= "yin" (namespace a)) (not= m derived-metadata-eid)))
 
 
 (defn- frame-versions
@@ -386,8 +391,7 @@
          acc #{}]
     (if (map? f)
       (let [acc (cond-> acc
-                  (some? (:compiled-version f))
-                  (conj (:compiled-version f)))]
+                  (some? (:compiled-version f)) (conj (:compiled-version f)))]
         (if-let [parent (:next f)]
           (recur parent acc)
           acc))
@@ -396,16 +400,14 @@
 
 (defn- collect-frame-versions
   [frames]
-  (reduce (fn [acc frame] (into acc (frame-versions frame)))
-          #{}
-          frames))
+  (reduce (fn [acc frame] (into acc (frame-versions frame))) #{} frames))
 
 
 (defn- pinned-compiled-versions
   [vm]
   (let [active-k (:k vm)
         parked-frames (vals (or (:parked vm) {}))
-        run-entries (or (:run-queue vm) [])
+        run-entries (or (:ready-queue vm) [])
         wait-entries (or (:wait-set vm) [])]
     (-> #{}
         (cond-> (some? (:active-compiled-version vm))
@@ -420,26 +422,24 @@
 (defn- trim-compiled-cache
   [vm]
   (let [compiled (or (:compiled-by-version vm) {})
-        limit (max 1 (or (:compiled-cache-limit vm) default-compiled-cache-limit))
+        limit (max 1
+                   (or (:compiled-cache-limit vm) default-compiled-cache-limit))
         versions (sort (keys compiled))
         keep-newest (set (take-last limit versions))
         keep (into keep-newest (pinned-compiled-versions vm))]
     (assoc vm
            :compiled-by-version
            (reduce-kv (fn [m version artifact]
-                        (if (contains? keep version)
-                          (assoc m version artifact)
-                          m))
+                        (if (contains? keep version) (assoc m version artifact) m))
                       {}
                       compiled))))
 
 
 (defn- compile-register-artifact
   [program-root-eid program-datoms program-index]
-  (let [{:keys [asm reg-count]}
-        (ast-datoms->asm program-datoms
-                         {:root-id program-root-eid,
-                          :by-entity program-index})]
+  (let [{:keys [asm reg-count]} (ast-datoms->asm program-datoms
+                                                 {:root-id program-root-eid,
+                                                  :by-entity program-index})]
     (assoc (assemble asm) :reg-count reg-count)))
 
 
@@ -490,8 +490,7 @@
   ([vm datoms] (append-program-datoms vm datoms nil))
   ([vm datoms new-root-eid]
    (when-not (some? (:program-root-eid vm))
-     (throw (ex-info "append-program-datoms requires a canonical program"
-                     {})))
+     (throw (ex-info "append-program-datoms requires a canonical program" {})))
    (let [appended (vec datoms)]
      (if (and (empty? appended) (nil? new-root-eid))
        vm
@@ -501,12 +500,9 @@
          (-> vm
              (update :datoms into appended)
              (assoc :program-version version
-                    :program-root-eid (or new-root-eid
-                                          (:program-root-eid vm))
+                    :program-root-eid (or new-root-eid (:program-root-eid vm))
                     :compile-dirty? (or (:compile-dirty? vm) executable?)
-                    :datom-index (if executable?
-                                   nil
-                                   (:datom-index vm)))))))))
+                    :datom-index (if executable? nil (:datom-index vm)))))))))
 
 
 (defn- activate-compiled-artifact
@@ -555,9 +551,7 @@
   #?(:clj (object-array (int n))
      :cljs (let [arr (js/Array. n)]
              (loop [i 0]
-               (if (< i n)
-                 (do (aset arr i nil) (recur (inc i)))
-                 arr)))
+               (if (< i n) (do (aset arr i nil) (recur (inc i))) arr)))
      :cljd (object-array (int n))))
 
 
@@ -577,18 +571,15 @@
 
 (defn- regs->vector
   [regs]
-  (cond
-    (reg-array? regs) (vec regs)
-    (vector? regs) regs
-    :else (vec regs)))
+  (cond (reg-array? regs) (vec regs)
+        (vector? regs) regs
+        :else (vec regs)))
 
 
 (defn- get-reg
   "Get value from register."
   [regs r]
-  (if (reg-array? regs)
-    (reg-array-get regs r)
-    (nth regs r)))
+  (if (reg-array? regs) (reg-array-get regs r) (nth regs r)))
 
 
 (defn- collect-call-args
@@ -629,32 +620,20 @@
       0 base-env
       1 (assoc base-env
                (nth params 0)
-               (if (< 0 argc)
-                 (get-reg regs (nth bytecode arg-base))
-                 nil))
-      2 (let [v0 (if (< 0 argc)
-                   (get-reg regs (nth bytecode arg-base))
-                   nil)
+               (if (< 0 argc) (get-reg regs (nth bytecode arg-base)) nil))
+      2 (let [v0 (if (< 0 argc) (get-reg regs (nth bytecode arg-base)) nil)
               v1 (if (< 1 argc)
                    (get-reg regs (nth bytecode (inc arg-base)))
                    nil)]
-          (assoc (assoc base-env (nth params 0) v0)
-                 (nth params 1)
-                 v1))
-      3 (let [v0 (if (< 0 argc)
-                   (get-reg regs (nth bytecode arg-base))
-                   nil)
-              v1 (if (< 1 argc)
-                   (get-reg regs (nth bytecode (inc arg-base)))
-                   nil)
+          (assoc (assoc base-env (nth params 0) v0) (nth params 1) v1))
+      3 (let [v0 (if (< 0 argc) (get-reg regs (nth bytecode arg-base)) nil)
+              v1
+              (if (< 1 argc) (get-reg regs (nth bytecode (inc arg-base))) nil)
               v2 (if (< 2 argc)
                    (get-reg regs (nth bytecode (+ arg-base 2)))
                    nil)]
-          (assoc (assoc (assoc base-env (nth params 0) v0)
-                        (nth params 1)
-                        v1)
-                 (nth params 2)
-                 v2))
+          (assoc (assoc (assoc base-env (nth params 0) v0) (nth params 1) v1)
+                 (nth params 2) v2))
       (loop [i 0
              tenv (transient base-env)]
         (if (< i pcount)
@@ -724,18 +703,22 @@
   "Handle result of calling a native fn. Routes effects through handle-effect."
   [{:keys [regs], :as state} result rd next-control]
   (if (module/effect? result)
-    (let [effect-opts (case (:effect result)
-                        :stream/put {:park-entry-fns
-                                     {:stream/put
-                                      (fn [s e r]
-                                        (native-park-entry s e r rd next-control))}}
-                        :stream/next {:park-entry-fns
-                                      {:stream/next
-                                       (fn [s e r]
-                                         (native-park-entry s e r rd next-control))}}
-                        {})
-          {:keys [state value blocked?]}
-          (engine/handle-effect state result effect-opts)]
+    (let [effect-opts
+          (case (:effect result)
+            :stream/put {:park-entry-fns
+                         {:stream/put
+                          (fn [s e r]
+                            (native-park-entry s e r rd next-control))}}
+            :stream/next {:park-entry-fns
+                          {:stream/next
+                           (fn [s e r]
+                             (native-park-entry s e r rd next-control))}}
+            {})
+          {:keys [state value blocked?]} (engine/handle-effect
+                                           state
+                                           result
+                                           (assoc effect-opts
+                                                  :restore-fn register-vm-restore))]
       (if blocked?
         state
         (assoc state
@@ -765,7 +748,8 @@
         {:keys [bytecode pool control regs env store k primitives]} state
         op (nth bytecode control nil)]
     (if (nil? op)
-      (throw (ex-info "Bytecode ended without return instruction" {:control control}))
+      (throw (ex-info "Bytecode ended without return instruction"
+                      {:control control}))
       (vm/opcase
         op
         :literal
@@ -813,7 +797,8 @@
               fn-val (get-reg regs rf)
               next-control (+ arg-base argc)]
           (cond (fn? fn-val)
-                (let [result (invoke-native fn-val regs bytecode arg-base argc)]
+                (let [result
+                      (invoke-native fn-val regs bytecode arg-base argc)]
                   (handle-native-result state result rd next-control))
                 (= :closure (:type fn-val))
                 (let [{clo-params :params,
@@ -822,7 +807,8 @@
                        clo-bytecode :bytecode,
                        clo-pool :pool,
                        clo-version :compiled-version,
-                       empty-regs :empty-regs} fn-val
+                       empty-regs :empty-regs}
+                      fn-val
                       next-regs (or empty-regs
                                     (vec (repeat (:reg-count fn-val) nil)))
                       new-frame {:type :call-frame,
@@ -832,23 +818,23 @@
                                  :env env,
                                  :bytecode bytecode,
                                  :pool pool,
-                                 :compiled-version (:active-compiled-version state),
+                                 :compiled-version (:active-compiled-version
+                                                     state),
                                  :next k}
-                      new-env (bind-closure-env
-                                clo-env
-                                clo-params
-                                regs
-                                bytecode
-                                arg-base
-                                argc)]
+                      new-env (bind-closure-env clo-env
+                                                clo-params
+                                                regs
+                                                bytecode
+                                                arg-base
+                                                argc)]
                   (assoc state
                          :regs next-regs
                          :k new-frame
                          :env new-env
                          :bytecode clo-bytecode
                          :pool clo-pool
-                         :active-compiled-version (or clo-version
-                                                      (:active-compiled-version state))
+                         :active-compiled-version
+                         (or clo-version (:active-compiled-version state))
                          :control body-addr))
                 :else (throw (ex-info "Cannot call non-function"
                                       {:fn fn-val}))))
@@ -860,7 +846,8 @@
               fn-val (get-reg regs rf)
               next-control (+ arg-base argc)]
           (cond (fn? fn-val)
-                (let [result (invoke-native fn-val regs bytecode arg-base argc)]
+                (let [result
+                      (invoke-native fn-val regs bytecode arg-base argc)]
                   (if (module/effect? result)
                     (case (:effect result)
                       :vm/store-put (assoc state
@@ -884,21 +871,20 @@
                       fn-val
                       next-regs (or empty-regs
                                     (vec (repeat (:reg-count fn-val) nil)))
-                      new-env (bind-closure-env
-                                clo-env
-                                clo-params
-                                regs
-                                bytecode
-                                arg-base
-                                argc)]
+                      new-env (bind-closure-env clo-env
+                                                clo-params
+                                                regs
+                                                bytecode
+                                                arg-base
+                                                argc)]
                   ;; TCO: reuse the current frame (k stays the same)
                   (assoc state
                          :regs next-regs
                          :env new-env
                          :bytecode clo-bytecode
                          :pool clo-pool
-                         :active-compiled-version (or clo-version
-                                                      (:active-compiled-version state))
+                         :active-compiled-version
+                         (or clo-version (:active-compiled-version state))
                          :control body-addr))
                 :else (throw (ex-info "Cannot call non-function"
                                       {:fn fn-val}))))
@@ -912,20 +898,18 @@
               park-snapshot (snap-frame state rd next-control)
               parked (engine/park-continuation state park-snapshot)
               parked-id (get-in parked [:value :id])
-
               ;; Register reader-waiter on call-out response stream
               call-out (get-in parked [:store vm/call-out-stream-key])
               cursor-data (get-in parked [:store vm/call-out-cursor-key])
               cursor-pos (:position cursor-data)
               waiter-entry (assoc park-snapshot
                                   :type :dao.stream.apply/resumer
-                                  :cursor-ref {:type :cursor-ref
+                                  :cursor-ref {:type :cursor-ref,
                                                :id vm/call-out-cursor-key}
                                   :reason :next
                                   :stream-id vm/call-out-stream-key)
               _ (when (satisfies? ds/IDaoStreamWaitable call-out)
                   (ds/register-reader-waiter! call-out cursor-pos waiter-entry))
-
               ;; Emit request to call-in stream
               call-in (get-in parked [:store vm/call-in-stream-key])
               request (dao.stream.apply/request parked-id op args)
@@ -975,7 +959,10 @@
         (let [rd (nth bytecode (inc control))
               buf (nth pool (nth bytecode (+ control 2)))
               effect {:effect :stream/make, :capacity buf}
-              {:keys [state value]} (engine/handle-effect state effect {})]
+              {:keys [state value]} (engine/handle-effect
+                                      state
+                                      effect
+                                      {:restore-fn register-vm-restore})]
           (assoc state
                  :regs (assoc regs rd value)
                  :control (+ control 3)))
@@ -989,16 +976,20 @@
               (engine/handle-effect
                 state
                 effect
-                {:park-entry-fns {:stream/put
-                                  (fn [s e r]
-                                    (native-park-entry s e r rs (+ control 3)))}})]
+                {:park-entry-fns
+                 {:stream/put
+                  (fn [s e r]
+                    (native-park-entry s e r rs (+ control 3)))}})]
           (if blocked? state (assoc state :control (+ control 3))))
         :stream-cursor
         (let [rd (nth bytecode (inc control))
               rs (nth bytecode (+ control 2))
               stream-ref (get-reg regs rs)
               effect {:effect :stream/cursor, :stream stream-ref}
-              {:keys [state value]} (engine/handle-effect state effect {})]
+              {:keys [state value]} (engine/handle-effect
+                                      state
+                                      effect
+                                      {:restore-fn register-vm-restore})]
           (assoc state
                  :regs (assoc regs rd value)
                  :control (+ control 3)))
@@ -1011,9 +1002,10 @@
               (engine/handle-effect
                 state
                 effect
-                {:park-entry-fns {:stream/next
-                                  (fn [s e r]
-                                    (native-park-entry s e r rd (+ control 3)))}})]
+                {:park-entry-fns
+                 {:stream/next
+                  (fn [s e r]
+                    (native-park-entry s e r rd (+ control 3)))}})]
           (if blocked?
             state
             (assoc state
@@ -1024,7 +1016,10 @@
               rs (nth bytecode (+ control 2))
               stream-ref (get-reg regs rs)
               effect {:effect :stream/close, :stream stream-ref}
-              {:keys [state value]} (engine/handle-effect state effect {})]
+              {:keys [state value]} (engine/handle-effect
+                                      state
+                                      effect
+                                      {:restore-fn register-vm-restore})]
           (assoc state
                  :regs (assoc regs rd value)
                  :control (+ control 3)))
@@ -1048,25 +1043,29 @@
             (assoc state
                    :regs (assoc regs rd cont)
                    :control (+ control 2))))
-        (throw (ex-info "Unknown bytecode opcode" {:op op, :control control}))))))
+        (throw (ex-info "Unknown bytecode opcode"
+                        {:op op, :control control}))))))
 
 
 ;; =============================================================================
 ;; Scheduler
 ;; =============================================================================
 
+(defn- register-vm-restore
+  ([base entry] (register-vm-restore base entry (:value entry)))
+  ([base entry val]
+   (let [val' (if (= :dao.stream.apply/resumer (:type entry))
+                (:dao.stream.apply/value val)
+                val)]
+     (-> (restore-frame base entry val')
+         maybe-recompile-at-boundary))))
+
+
 (defn- resume-from-run-queue
   "Pop first entry from run-queue and resume it as the active computation.
    Returns updated state or nil if queue is empty."
   [state]
-  (engine/resume-from-run-queue state
-                                (fn [base entry]
-                                  (let [val (:value entry)
-                                        val' (if (= :dao.stream.apply/resumer (:type entry))
-                                               (:dao.stream.apply/value val)
-                                               val)]
-                                    (-> (restore-frame base entry val')
-                                        maybe-recompile-at-boundary)))))
+  (engine/resume-from-run-queue state register-vm-restore))
 
 
 (defn- reg-vm-run-scheduler
@@ -1078,7 +1077,8 @@
                      (fn [state]
                        (telemetry/emit-snapshot (reg-vm-step state) :step))
                      reg-vm-step)
-                   resume-from-run-queue))
+                   resume-from-run-queue
+                   register-vm-restore))
 
 
 (declare fast-frame->map)
@@ -1139,19 +1139,19 @@
          pool (:pool vm)
          id-counter (:id-counter vm)]
     (let [op (nth bytecode control nil)
-          fallback #(reg-vm-run-scheduler
-                      (materialize-fast-state
-                        vm
-                        control
-                        regs
-                        env
-                        store
-                        k
-                        bytecode
-                        pool
-                        id-counter))]
+          fallback #(reg-vm-run-scheduler (materialize-fast-state
+                                            vm
+                                            control
+                                            regs
+                                            env
+                                            store
+                                            k
+                                            bytecode
+                                            pool
+                                            id-counter))]
       (if (nil? op)
-        (throw (ex-info "Bytecode ended without return instruction" {:control control}))
+        (throw (ex-info "Bytecode ended without return instruction"
+                        {:control control}))
         (vm/opcase
           op
           :literal
@@ -1194,70 +1194,66 @@
                 arg-base (+ control 4)
                 fn-val (get-reg regs rf)
                 next-control (+ arg-base argc)]
-            (cond (fn? fn-val)
-                  (let [result (invoke-native fn-val regs bytecode arg-base argc)]
-                    (if (module/effect? result)
-                      (-> (materialize-fast-state
-                            vm
-                            control
-                            regs
-                            env
-                            store
-                            k
-                            bytecode
-                            pool
-                            id-counter)
-                          (handle-native-result result rd next-control)
-                          reg-vm-run-scheduler)
-                      (do
-                        (reg-array-set! regs rd result)
-                        (recur next-control
-                               regs
-                               env
-                               store
-                               k
-                               bytecode
-                               pool
-                               id-counter))))
-                  (= :closure (:type fn-val))
-                  (let [{clo-params :params,
-                         body-addr :body-addr,
-                         clo-env :env,
-                         clo-bytecode :bytecode,
-                         clo-pool :pool,
-                         empty-regs :empty-regs,
-                         empty-regs-arr :empty-regs-arr}
-                        fn-val
-                        next-regs (reg-array-clone
-                                    (or empty-regs-arr
-                                        (some-> empty-regs regs->array)
-                                        (make-empty-regs-array
-                                          (:reg-count fn-val))))
-                        new-frame (fast-call-frame
-                                    rd
-                                    next-control
-                                    regs
-                                    env
-                                    bytecode
-                                    pool
-                                    k)
-                        new-env (bind-closure-env
-                                  clo-env
-                                  clo-params
-                                  regs
-                                  bytecode
-                                  arg-base
-                                  argc)]
-                    (recur body-addr
-                           next-regs
-                           new-env
-                           store
-                           new-frame
-                           clo-bytecode
-                           clo-pool
-                           id-counter))
-                  :else (throw (ex-info "Cannot call non-function"
-                                        {:fn fn-val}))))
+            (cond
+              (fn? fn-val)
+              (let [result (invoke-native fn-val regs bytecode arg-base argc)]
+                (if (module/effect? result)
+                  (-> (materialize-fast-state vm
+                                              control
+                                              regs
+                                              env
+                                              store
+                                              k
+                                              bytecode
+                                              pool
+                                              id-counter)
+                      (handle-native-result result rd next-control)
+                      reg-vm-run-scheduler)
+                  (do (reg-array-set! regs rd result)
+                      (recur next-control
+                             regs
+                             env
+                             store
+                             k
+                             bytecode
+                             pool
+                             id-counter))))
+              (= :closure (:type fn-val))
+              (let [{clo-params :params,
+                     body-addr :body-addr,
+                     clo-env :env,
+                     clo-bytecode :bytecode,
+                     clo-pool :pool,
+                     empty-regs :empty-regs,
+                     empty-regs-arr :empty-regs-arr}
+                    fn-val
+                    next-regs (reg-array-clone (or empty-regs-arr
+                                                   (some-> empty-regs
+                                                           regs->array)
+                                                   (make-empty-regs-array
+                                                     (:reg-count fn-val))))
+                    new-frame (fast-call-frame rd
+                                               next-control
+                                               regs
+                                               env
+                                               bytecode
+                                               pool
+                                               k)
+                    new-env (bind-closure-env clo-env
+                                              clo-params
+                                              regs
+                                              bytecode
+                                              arg-base
+                                              argc)]
+                (recur body-addr
+                       next-regs
+                       new-env
+                       store
+                       new-frame
+                       clo-bytecode
+                       clo-pool
+                       id-counter))
+              :else (throw (ex-info "Cannot call non-function" {:fn fn-val}))))
           :tailcall
           (let [rd (nth bytecode (inc control))
                 rf (nth bytecode (+ control 2))
@@ -1265,114 +1261,107 @@
                 arg-base (+ control 4)
                 fn-val (get-reg regs rf)
                 next-control (+ arg-base argc)]
-            (cond (fn? fn-val)
-                  (let [result (invoke-native fn-val regs bytecode arg-base argc)]
-                    (if (module/effect? result)
-                      (case (:effect result)
-                        :vm/store-put
-                        (do
-                          (reg-array-set! regs rd (:val result))
-                          (recur next-control
-                                 regs
-                                 env
-                                 (assoc store (:key result) (:val result))
-                                 k
-                                 bytecode
-                                 pool
-                                 id-counter))
-                        (throw (ex-info "Unhandled effect in tailcall"
-                                        {:effect result})))
-                      (do
-                        (reg-array-set! regs rd result)
-                        (recur next-control
-                               regs
-                               env
-                               store
-                               k
-                               bytecode
-                               pool
-                               id-counter))))
-                  (= :closure (:type fn-val))
-                  (let [{clo-params :params,
-                         body-addr :body-addr,
-                         clo-env :env,
-                         clo-bytecode :bytecode,
-                         clo-pool :pool,
-                         empty-regs :empty-regs,
-                         empty-regs-arr :empty-regs-arr}
-                        fn-val
-                        next-regs (reg-array-clone
-                                    (or empty-regs-arr
-                                        (some-> empty-regs regs->array)
-                                        (make-empty-regs-array
-                                          (:reg-count fn-val))))
-                        new-env (bind-closure-env
-                                  clo-env
-                                  clo-params
-                                  regs
-                                  bytecode
-                                  arg-base
-                                  argc)]
-                    (recur body-addr
-                           next-regs
-                           new-env
-                           store
-                           k
-                           clo-bytecode
-                           clo-pool
-                           id-counter))
-                  :else (throw (ex-info "Cannot apply non-function"
-                                        {:fn fn-val}))))
+            (cond
+              (fn? fn-val)
+              (let [result (invoke-native fn-val regs bytecode arg-base argc)]
+                (if (module/effect? result)
+                  (case (:effect result)
+                    :vm/store-put (do (reg-array-set! regs rd (:val result))
+                                      (recur next-control
+                                             regs
+                                             env
+                                             (assoc store
+                                                    (:key result) (:val result))
+                                             k
+                                             bytecode
+                                             pool
+                                             id-counter))
+                    (throw (ex-info "Unhandled effect in tailcall"
+                                    {:effect result})))
+                  (do (reg-array-set! regs rd result)
+                      (recur next-control
+                             regs
+                             env
+                             store
+                             k
+                             bytecode
+                             pool
+                             id-counter))))
+              (= :closure (:type fn-val))
+              (let [{clo-params :params,
+                     body-addr :body-addr,
+                     clo-env :env,
+                     clo-bytecode :bytecode,
+                     clo-pool :pool,
+                     empty-regs :empty-regs,
+                     empty-regs-arr :empty-regs-arr}
+                    fn-val
+                    next-regs (reg-array-clone (or empty-regs-arr
+                                                   (some-> empty-regs
+                                                           regs->array)
+                                                   (make-empty-regs-array
+                                                     (:reg-count fn-val))))
+                    new-env (bind-closure-env clo-env
+                                              clo-params
+                                              regs
+                                              bytecode
+                                              arg-base
+                                              argc)]
+                (recur body-addr
+                       next-regs
+                       new-env
+                       store
+                       k
+                       clo-bytecode
+                       clo-pool
+                       id-counter))
+              :else (throw (ex-info "Cannot apply non-function" {:fn fn-val}))))
           :return
           (let [rs (nth bytecode (inc control))
                 result (get-reg regs rs)]
-            (cond
-              (nil? k)
-              (assoc vm
-                     :control control
-                     :regs (regs->vector regs)
-                     :env env
-                     :store store
-                     :k k
-                     :bytecode bytecode
-                     :pool pool
-                     :id-counter id-counter
-                     :halted? true
-                     :value result
-                     :blocked? false)
-              (fast-call-frame? k)
-              (let [rd (nth k 1)
-                    frame-control (nth k 2)
-                    frame-regs (nth k 3)
-                    frame-env (nth k 4)
-                    frame-bytecode (nth k 5)
-                    frame-pool (nth k 6)
-                    parent-k (nth k 7)]
-                (when (some? rd)
-                  (reg-array-set! frame-regs rd result))
-                (recur frame-control
-                       frame-regs
-                       frame-env
-                       store
-                       parent-k
-                       frame-bytecode
-                       frame-pool
-                       id-counter))
-              :else
-              (let [rd (:result-reg k)
-                    frame-regs (regs->array (:regs k))
-                    bytecode' (or (:bytecode k) bytecode)
-                    pool' (or (:pool k) pool)]
-                (when (some? rd)
-                  (reg-array-set! frame-regs rd result))
-                (recur (:control k)
-                       frame-regs
-                       (:env k)
-                       store
-                       (:next k)
-                       bytecode'
-                       pool'
-                       id-counter))))
+            (cond (nil? k) (assoc vm
+                                  :control control
+                                  :regs (regs->vector regs)
+                                  :env env
+                                  :store store
+                                  :k k
+                                  :bytecode bytecode
+                                  :pool pool
+                                  :id-counter id-counter
+                                  :halted? true
+                                  :value result
+                                  :blocked? false)
+                  (fast-call-frame? k)
+                  (let [rd (nth k 1)
+                        frame-control (nth k 2)
+                        frame-regs (nth k 3)
+                        frame-env (nth k 4)
+                        frame-bytecode (nth k 5)
+                        frame-pool (nth k 6)
+                        parent-k (nth k 7)]
+                    (when (some? rd) (reg-array-set! frame-regs rd result))
+                    (recur frame-control
+                           frame-regs
+                           frame-env
+                           store
+                           parent-k
+                           frame-bytecode
+                           frame-pool
+                           id-counter))
+                  :else (let [rd (:result-reg k)
+                              frame-regs (regs->array (:regs k))
+                              bytecode' (or (:bytecode k) bytecode)
+                              pool' (or (:pool k) pool)]
+                          (when (some? rd)
+                            (reg-array-set! frame-regs rd result))
+                          (recur (:control k)
+                                 frame-regs
+                                 (:env k)
+                                 store
+                                 (:next k)
+                                 bytecode'
+                                 pool'
+                                 id-counter))))
           :branch
           (let [rt (nth bytecode (inc control))
                 then-addr (nth bytecode (+ control 2))
@@ -1394,7 +1383,14 @@
                 prefix (nth pool (nth bytecode (+ control 2)))
                 id (keyword (str prefix "-" id-counter))]
             (reg-array-set! regs rd id)
-            (recur (+ control 3) regs env store k bytecode pool (inc id-counter)))
+            (recur (+ control 3)
+                   regs
+                   env
+                   store
+                   k
+                   bytecode
+                   pool
+                   (inc id-counter)))
           :store-get
           (let [rd (nth bytecode (inc control))
                 key (nth pool (nth bytecode (+ control 2)))
@@ -1442,8 +1438,8 @@
 (defn- reg-vm-reset
   "Reset RegisterVM execution state to initial baseline, preserving loaded program."
   [^RegisterVM vm]
-  (if-let [artifact (get-in vm [:compiled-by-version
-                                (:active-compiled-version vm)])]
+  (if-let [artifact
+           (get-in vm [:compiled-by-version (:active-compiled-version vm)])]
     (activate-compiled-artifact vm artifact)
     (assoc vm
            :regs (vec (repeat (count (:regs vm)) nil))
@@ -1461,10 +1457,12 @@
   (let [registry (or (:macro-registry vm) {})
         d (vec datoms)
         {:keys [datoms root-eid]}
-        (macro/expand-all d node registry
-                          {:invoke-lambda
-                           (fn [lambda-eid ctx]
-                             (semantic/invoke-macro-lambda lambda-eid ctx d))})
+        (macro/expand-all
+          d
+          node
+          registry
+          {:invoke-lambda (fn [lambda-eid ctx]
+                            (semantic/invoke-macro-lambda lambda-eid ctx d))})
         program-version (inc (or (:program-version vm) 0))
         vm' (assoc vm
                    :program-root-eid root-eid
@@ -1481,7 +1479,7 @@
   [^RegisterVM vm datoms]
   (let [d (vec datoms)
         root-id (:root-id (vm/index-datoms d))]
-    (reg-vm-load-canonical-program vm {:node root-id :datoms d})))
+    (reg-vm-load-canonical-program vm {:node root-id, :datoms d})))
 
 
 (defn- reg-vm-eval
@@ -1509,15 +1507,18 @@
                           (fn [state]
                             (telemetry/emit-snapshot (reg-vm-step state) :step))
                           reg-vm-step)
-                        resume-from-run-queue))
+                        resume-from-run-queue
+                        register-vm-restore))
 
 
 (extend-type RegisterVM
   vm/IVM
   (step [vm]
-    (telemetry/emit-snapshot
-      (engine/step-on-stream vm (:in-stream vm) reg-vm-load-program reg-vm-step)
-      :step))
+    (telemetry/emit-snapshot (engine/step-on-stream vm
+                                                    (:in-stream vm)
+                                                    reg-vm-load-program
+                                                    reg-vm-step)
+                             :step))
   (run [vm] (host-ffi/maybe-run vm reg-vm-run-on-stream))
   (eval [vm ast] (reg-vm-eval vm ast))
   (reset [vm] (reg-vm-reset vm))
@@ -1525,16 +1526,15 @@
   (blocked? [vm] (reg-vm-blocked? vm))
   (value [vm] (reg-vm-value vm))
   vm/IVMState
-  (control [vm] {:control (:control vm), :bytecode (:bytecode vm), :regs (:regs vm)})
+  (control [vm]
+    {:control (:control vm), :bytecode (:bytecode vm), :regs (:regs vm)})
   (environment [vm] (:env vm))
   (store [vm] (:store vm))
   (continuation [vm]
     (when-let [k-head (:k vm)]
       (loop [k k-head
              acc []]
-        (if (nil? k)
-          acc
-          (recur (:next k) (conj acc k)))))))
+        (if (nil? k) acc (recur (:next k) (conj acc k)))))))
 
 
 (defn create-vm
@@ -1545,32 +1545,32 @@
    (let [env (or (:env opts) {})
          bridge-state (host-ffi/bridge-from-opts opts)
          in-stream (:in-stream opts)
-         base (vm/empty-state {:primitives (:primitives opts)
-                               :telemetry (:telemetry opts)
+         base (vm/empty-state {:primitives (:primitives opts),
+                               :telemetry (:telemetry opts),
                                :vm-model :register})]
-     (-> (map->RegisterVM (merge base
-                                 {:in-stream in-stream,
-                                  :in-cursor {:position 0},
-                                  :regs [],
-                                  :k nil,
-                                  :env env,
-                                  :control nil,
-                                  :bytecode nil,
-                                  :pool nil,
-                                  :compiled-by-version {},
-                                  :compiled-cache-limit (or (:compiled-cache-limit opts)
-                                                            default-compiled-cache-limit),
-                                  :active-compiled-version nil,
-                                  :compile-dirty? false,
-                                  :macro-registry (or (:macro-registry opts) {}),
-                                  :program-root-eid nil,
-                                  :datoms [],
-                                  :program-version 0,
-                                  :datom-index nil,
-                                  :halted? true,
-                                  :value nil,
-                                  :blocked? false}
-                                 (when bridge-state
-                                   {:bridge bridge-state})))
+     (-> (map->RegisterVM
+           (merge base
+                  {:in-stream in-stream,
+                   :in-cursor {:position 0},
+                   :regs [],
+                   :k nil,
+                   :env env,
+                   :control nil,
+                   :bytecode nil,
+                   :pool nil,
+                   :compiled-by-version {},
+                   :compiled-cache-limit (or (:compiled-cache-limit opts)
+                                             default-compiled-cache-limit),
+                   :active-compiled-version nil,
+                   :compile-dirty? false,
+                   :macro-registry (or (:macro-registry opts) {}),
+                   :program-root-eid nil,
+                   :datoms [],
+                   :program-version 0,
+                   :datom-index nil,
+                   :halted? true,
+                   :value nil,
+                   :blocked? false}
+                  (when bridge-state {:bridge bridge-state})))
          (telemetry/install :register)
          (telemetry/emit-snapshot :init)))))

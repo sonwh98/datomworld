@@ -10,8 +10,7 @@
 
 (deftest register-handoff-preserves-ingress-state-test
   (testing "register vm handoff payload round-trips the ingress stream"
-    (let [in-stream (ds/open! {:type :ringbuffer
-                               :capacity nil})
+    (let [in-stream (ds/open! {:type :ringbuffer, :capacity nil})
           vm (assoc (register/create-vm {:in-stream in-stream})
                     :in-cursor {:position 7}
                     :regs [:r0 :r1]
@@ -26,7 +25,7 @@
                     :parked {:p {:type :parked-continuation}}
                     :id-counter 99
                     :blocked? true
-                    :run-queue [:resume]
+                    :ready-queue [:resume]
                     :wait-set [:wait])
           payload (handoff/vm-state->handoff :register-vm vm)
           resumed (handoff/handoff->vm-state :register-vm payload)]
@@ -36,15 +35,14 @@
       (is (= 12 (:control resumed)))
       (is (= [[:const 0 1]] (:bytecode resumed)))
       (is (= {:s 1} (:store resumed)))
-      (is (= [:resume] (:run-queue resumed)))
+      (is (= [:resume] (:ready-queue resumed)))
       (is (false? (:halted? resumed)))
       (is (true? (:blocked? resumed))))))
 
 
 (deftest stack-handoff-preserves-ingress-state-test
   (testing "stack vm handoff payload round-trips the ingress stream"
-    (let [in-stream (ds/open! {:type :ringbuffer
-                               :capacity nil})
+    (let [in-stream (ds/open! {:type :ringbuffer, :capacity nil})
           vm (assoc (stack/create-vm {:in-stream in-stream})
                     :in-cursor {:position 11}
                     :stack [:arg :fn]
@@ -59,7 +57,7 @@
                     :parked {:p {:type :parked-continuation}}
                     :id-counter 17
                     :blocked? false
-                    :run-queue [:resume]
+                    :ready-queue [:resume]
                     :wait-set [:wait])
           payload (handoff/vm-state->handoff :stack-vm vm)
           resumed (handoff/handoff->vm-state :stack-vm payload)]
@@ -69,6 +67,6 @@
       (is (= 5 (:control resumed)))
       (is (= [[:const 1]] (:bytecode resumed)))
       (is (= {:s 2} (:store resumed)))
-      (is (= [:resume] (:run-queue resumed)))
+      (is (= [:resume] (:ready-queue resumed)))
       (is (false? (:halted? resumed)))
       (is (false? (:blocked? resumed))))))

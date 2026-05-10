@@ -130,6 +130,13 @@
   (swap! (:link-state-atom ws-stream) assoc :status :closed))
 
 
+(defn connection-status
+  "Return the current link status for a WebSocketStream, or nil for other streams."
+  [stream]
+  (when (instance? WebSocketStream stream)
+    (:status @(:link-state-atom stream))))
+
+
 ;; =============================================================================
 ;; CLJ: listen! (http-kit)
 ;; =============================================================================
@@ -147,7 +154,9 @@
                 (http-server/as-channel
                   req
                   (let [local (ds/open! {:type :ringbuffer,
-                                         :capacity (:capacity opts)})
+                                         :capacity (:capacity opts),
+                                         :eviction-policy (:eviction-policy
+                                                            opts)})
                         stream (make-ws-stream local)]
                     {:on-open
                      (fn [ch]
@@ -169,43 +178,51 @@
 ;; CLJ: connect! (Java 11 built-in WebSocket client)
 ;; =============================================================================
 
-#?(:clj
-   (defn connect!
-     "Connect to a WebSocket server at url. Returns WebSocketStream."
-     ([url] (connect! url nil))
-     ([url opts]
-      (let [local (ds/open! {:type :ringbuffer, :capacity (:capacity opts)})
-            stream (make-ws-stream local)
-            client (java.net.http.HttpClient/newHttpClient)
-            ws-ref (atom nil)
-            listener
-            (reify
-              java.net.http.WebSocket$Listener
-              (onOpen
-                [_ ws]
-                (reset! ws-ref ws)
-                (on-open! stream (fn [msg] (.sendText ws msg true) nil))
-                (.request ws 1))
+#?(:clj (defn connect!
+          "Connect to a WebSocket server at url. Returns WebSocketStream."
+          ([url] (connect! url nil))
+          ([url opts]
+           (let [local (ds/open! {:type :ringbuffer,
+                                  :capacity (:capacity opts),
+                                  :eviction-policy (:eviction-policy opts)})
+                 stream (make-ws-stream local)
+                 client (java.net.http.HttpClient/newHttpClient)
+                 ws-ref (atom nil)
+                 listener
+                 (reify
+                   java.net.http.WebSocket$Listener
+                   (onOpen
+                     [_ ws]
+                     (reset! ws-ref ws)
+                     ;; Java's WebSocket client sends text frames
+                     ;; asynchronously. Block each send until it is
+                     ;; accepted so the initial sync-request and the
+                     ;; first
+                     ;; REPL request cannot race.
+                     (on-open!
+                       stream
+                       (fn [msg] (.join (.sendText ws msg true)) nil))
+                     (.request ws 1))
 
-              (onText
-                [_ ws data _last?]
-                (on-message! stream (str data))
-                (.request ws 1)
-                (java.util.concurrent.CompletableFuture/completedFuture
-                  nil))
+                   (onText
+                     [_ ws data _last?]
+                     (on-message! stream (str data))
+                     (.request ws 1)
+                     (java.util.concurrent.CompletableFuture/completedFuture
+                       nil))
 
-              (onClose
-                [_ _ws _code _reason]
-                (on-close! stream)
-                (java.util.concurrent.CompletableFuture/completedFuture
-                  nil))
+                   (onClose
+                     [_ _ws _code _reason]
+                     (on-close! stream)
+                     (java.util.concurrent.CompletableFuture/completedFuture
+                       nil))
 
-              (onError [_ _ws _err] (on-close! stream)))]
-        (.thenAccept (.buildAsync (.. client newWebSocketBuilder)
-                                  (java.net.URI/create url)
-                                  listener)
-                     (fn [_ws] nil))
-        stream))))
+                   (onError [_ _ws _err] (on-close! stream)))]
+             (.thenAccept (.buildAsync (.. client newWebSocketBuilder)
+                                       (java.net.URI/create url)
+                                       listener)
+                          (fn [_ws] nil))
+             stream))))
 
 
 ;; =============================================================================
@@ -242,10 +259,13 @@
 
 #?(:clj (defmethod ds/open! :websocket
           [descriptor]
-          (let [{:keys [mode url port capacity], :as opts} descriptor]
+          (let [{:keys [mode url port capacity eviction-policy], :as opts}
+                descriptor]
             (case mode
               :listen (listen! port opts)
-              :connect (connect! url {:capacity capacity})
+              :connect (connect! url
+                                 {:capacity capacity,
+                                  :eviction-policy eviction-policy})
               (throw (ex-info
                        "websocket transport mode must be :listen or :connect"
                        {:descriptor descriptor, :mode mode}))))))
@@ -264,7 +284,9 @@
              "connection"
              (fn [ws]
                (let [local (ds/open! {:type :ringbuffer,
-                                      :capacity (:capacity opts)})
+                                      :capacity (:capacity opts),
+                                      :eviction-policy (:eviction-policy
+                                                         opts)})
                      stream (make-ws-stream local)]
                  (on-open! stream (fn [msg] (.send ^js ws msg)))
                  (swap! conns conj stream)
@@ -281,10 +303,13 @@
 
 #?(:cljs (defmethod ds/open! :websocket
            [descriptor]
-           (let [{:keys [mode url port capacity], :as opts} descriptor]
+           (let [{:keys [mode url port capacity eviction-policy], :as opts}
+                 descriptor]
              (case mode
                :listen (listen! port opts)
-               :connect (connect! url {:capacity capacity})
+               :connect (connect! url
+                                  {:capacity capacity,
+                                   :eviction-policy eviction-policy})
                (throw (ex-info
                         "websocket transport mode must be :listen or :connect"
                         {:descriptor descriptor, :mode mode}))))))

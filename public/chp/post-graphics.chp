@@ -1,0 +1,98 @@
+(let [template (load-file "public/chp/template.chp")]
+  (clojure.walk/postwalk-replace
+    {:template/title "Datom.World — PostGraphics"
+     :template/content
+     (list
+       [:section#post-graphics.section-dark
+        [:div.section-inner
+         [:span.status-pill "Graphics vocabulary"]
+         [:h1 "PostGraphics"]
+         [:p.section-lead
+          "PostGraphics is a frame-oriented graphics vocabulary. "
+          "A frame is a vector of operation records: datoms describing what to draw, not how to draw it. "
+          "Producers emit frames; terminals render them."]
+         [:p
+          "Where traditional engines couple authoring, layout, and painting in one runtime, PostGraphics keeps them apart. "
+          "An op like " [:strong ":draw/fill-circle"] " is a value with center, radius, and color, nothing more. "
+          "It can be inspected, diffed, replayed, sent over a network, or fed to any backend that knows the vocabulary."]
+         [:p
+          "The result is graphics that behave like data: explicit, composable, transport-independent."]
+         [:p.learn-more
+          "PostGraphics frames flow through " [:a {:href "/dao-stream.chp"} "DaoStream"] ". "
+          "To understand why semantic streams beat pixel streams in the right contexts, read "
+          [:a {:href "/blog/structure-vs-interpretation.blog"} "Structure vs Interpretation"] "."]]]
+       [:section.section-light
+        [:div.section-inner
+         [:h2 "The Frame is Data"]
+         [:p
+          "Each frame is a vector of op maps. Every op carries everything it needs: an "
+          [:strong ":op/kind"] " discriminator and the parameters relevant to that kind. "
+          "There are no hidden draw calls and no implicit state outside the frame."]
+         [:p
+          "Because the frame is a value, you can:"]
+         [:ul.bulleted
+          [:li [:strong "Replay it"] ". The same frame input produces the same image, every time."]
+          [:li [:strong "Diff it"] ". Compute what changed between two frames at op granularity."]
+          [:li [:strong "Annotate it"] ". Wrap ops with metadata for inspection or telemetry."]
+          [:li [:strong "Transport it"] ". Ship the frame over WebSocket, UDP, or the filesystem."]
+          [:li [:strong "Render it elsewhere"] ". Producers do not pick the backend."]]
+         [:p
+          "This is graphics in the Plan 9, Datomic, and Lisp lineage: programs as data, time as a sequence of values, identity by content rather than reference."]]]
+       [:section.section-dark
+        [:div.section-inner
+         [:h2 "Inspired by PostScript"]
+         [:p
+          "The name is a nod to PostScript, the language that pioneered the idea that graphics should be a program the renderer interprets, not a buffer the producer fills. "
+          "Display PostScript and Sun's NeWS carried the conviction to live displays."]
+         [:p
+          "PostGraphics keeps that conviction and changes the form. "
+          "Where PostScript is a stack-based source language parsed and executed by an interpreter, PostGraphics is a bytecode of op records driven by a VM. "
+          "A frame is bounded (a finite vector of ops), data-shaped (each op is a map with explicit fields), and ships through "
+          [:a {:href "/dao-stream.chp"} "DaoStream"]
+          " rather than embedded in document files."]
+         [:p
+          "The architectural conviction is the same: send the renderer an interpretable program, not a finished image. "
+          "The execution model and packaging are what differ."]]]
+       [:section.section-light
+        [:div.section-inner
+         [:h2 "Stream-Based Rendering"]
+         [:p
+          "Producers append frames to a " [:a {:href "/dao-stream.chp"} "DaoStream"] ". "
+          "Consumers read the latest frame and render it. "
+          "That decoupling is the architecture: the producer does not call into the renderer, it publishes the next frame."]
+         [:p
+          "This makes ordinary patterns natural:"]
+         [:ul.bulleted
+          [:li "Local animation: a timer pushes a frame each tick, the widget reads the latest."]
+          [:li "Remote rendering: a server emits frames over WebSocket, a thin client renders them at native fidelity."]
+          [:li "Replay: persist a stream of frames and re-render the session frame by frame."]
+          [:li "Inspection: tap into the stream from a debugger or recorder without modifying the producer."]]
+         [:p
+          "PostGraphics defines the frame vocabulary, not how producers and consumers connect. "
+          "The same producer can drive a Flutter widget, a screenshot job, or a remote viewer with no producer-side change."]]]
+       [:section.section-dark
+        [:div.section-inner
+         [:h2 "For Developers"]
+         [:p
+          "PostGraphics gives you graphics that behave like the rest of your data: small, declarative, inspectable, transport-independent. "
+          "You stop thinking about draw calls and start thinking about what the frame is."]
+         [:div.design-grid
+          [:article.design-card
+           [:h3 "Flutter terminal"]
+           [:p "The reference terminal renders 2D and 3D ops directly to a Flutter Canvas, with software-rasterized depth testing for 3D primitives."]]
+          [:article.design-card
+           [:h3 "Backend-neutral vocabulary"]
+           [:p "The op set is small and explicit. SVG emitters, TUI renderers, GPU command encoders, and headless rasterizers can all interpret the same frames."]]
+          [:article.design-card
+           [:h3 "Validation at the boundary"]
+           [:p "Terminals validate frames as they arrive. A malformed remote frame surfaces as an error, not a corrupted image."]]]
+         [:p
+          "PostGraphics is an interpreter, not an engine. It does not own your scene graph, your authoring layer, or your input system. "
+          "It owns the vocabulary that crosses the wire between whatever produces frames and whatever paints them."]
+         [:p.next
+          "Explore "
+          [:a {:href "/dao-stream.chp"} "DaoStream"]
+          " for the substrate that carries frames, or revisit "
+          [:a {:href "/yin.chp"} "Yin"]
+          " to drive frame producers from agents."]]])}
+    template))

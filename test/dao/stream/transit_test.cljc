@@ -13,24 +13,20 @@
 (defn- write-str
   ([v] (write-str v nil))
   ([v opts]
-   #?(:clj
-      (let [out (java.io.ByteArrayOutputStream.)]
-        (transit/write (transit/writer out :json opts) v)
-        (.toString out "UTF-8"))
-      :cljd
-      (let [out (StringBuffer.)]
-        (transit/write (transit/writer out :json opts) v)
-        (.toString out)))))
+   #?(:clj (let [out (java.io.ByteArrayOutputStream.)]
+             (transit/write (transit/writer out :json opts) v)
+             (.toString out "UTF-8"))
+      :cljd (let [out (StringBuffer.)]
+              (transit/write (transit/writer out :json opts) v)
+              (.toString out)))))
 
 
 (defn- read-str
   ([s] (read-str s nil))
   ([s opts]
-   #?(:clj
-      (let [in (java.io.ByteArrayInputStream. (.getBytes s "UTF-8"))]
-        (transit/read (transit/reader in :json opts)))
-      :cljd
-      (transit/read (transit/reader s :json opts) s))))
+   #?(:clj (let [in (java.io.ByteArrayInputStream. (.getBytes s "UTF-8"))]
+             (transit/read (transit/reader in :json opts)))
+      :cljd (transit/read (transit/reader s :json opts) s))))
 
 
 (deftest basic-write-scalars-test
@@ -66,8 +62,7 @@
 (deftest roundtrip-default-handlers-test
   (testing "plain transit data round-trips"
     (doseq [v [nil true false 0 42 3.5 "" :foo/bar 'foo/bar [1 2] '(1 2)
-               {:foo "bar" :baz [1 2]}
-               #{}]]
+               {:foo "bar", :baz [1 2]} #{}]]
       (is (= v (read-str (write-str v)))
           (str "round-trip failed for " (pr-str v))))))
 
@@ -77,19 +72,16 @@
     (let [p (->Point 10 20)
           handler-key #?(:clj Point
                          :cljd (str (.-runtimeType p)))
-          encoded (write-str
-                    p
-                    {:handlers
-                     {handler-key
-                      (transit/write-handler
-                        (fn [_] "point")
-                        (fn [pt] [(:x pt) (:y pt)]))}})
-          decoded (read-str
-                    encoded
-                    {:handlers
-                     {"point"
-                      (transit/read-handler
-                        (fn [[x y]] (->Point x y)))}})]
+          encoded (write-str p
+                             {:handlers {handler-key (transit/write-handler
+                                                       (fn [_] "point")
+                                                       (fn [pt]
+                                                         [(:x pt)
+                                                          (:y pt)]))}})
+          decoded (read-str encoded
+                            {:handlers {"point" (transit/read-handler
+                                                  (fn [[x y]]
+                                                    (->Point x y)))}})]
       (is (= "[\"~#point\",[10,20]]" encoded))
       (is (= p decoded)))))
 
@@ -111,34 +103,38 @@
     (let [v (with-meta [1 2] {:origin :test})
           encoded (write-str v {:transform transit/write-meta})
           decoded (read-str encoded)]
-      (is (= "[\"~#with-meta\",[[1,2],[\"^ \",\"~:origin\",\"~:test\"]]]" encoded))
+      (is (= "[\"~#with-meta\",[[1,2],[\"^ \",\"~:origin\",\"~:test\"]]]"
+             encoded))
       (is (= [1 2] decoded))
       (is (= {:origin :test} (meta decoded))))))
 
 
 (deftest dao-apply-response-cross-runtime-shape-test
-  (testing "a JVM-encoded dao.stream.apply response with a composite id decodes intact"
-    (let [encoded "[\"^ \",\"~:dao.stream.apply/id\",[\"~:dao.repl/request\",\"scope\",1],\"~:dao.stream.apply/value\",\"ok\"]"
-          decoded (read-str encoded)]
-      (is (= (dao-apply/response [:dao.repl/request "scope" 1] "ok")
-             decoded))
+  (testing
+    "a JVM-encoded dao.stream.apply response with a composite id decodes intact"
+    (let
+      [encoded
+       "[\"^ \",\"~:dao.stream.apply/id\",[\"~:yin.repl/request\",\"scope\",1],\"~:dao.stream.apply/value\",\"ok\"]"
+       decoded (read-str encoded)]
+      (is (= (dao-apply/response [:yin.repl/request "scope" 1] "ok") decoded))
       (is (dao-apply/response? decoded))
-      (is (= [:dao.repl/request "scope" 1]
-             (dao-apply/response-id decoded)))
-      (is (= "ok"
-             (dao-apply/response-value decoded))))))
+      (is (= [:yin.repl/request "scope" 1] (dao-apply/response-id decoded)))
+      (is (= "ok" (dao-apply/response-value decoded))))))
 
 
 (deftest nested-cached-dao-apply-responses-cross-runtime-test
-  (testing "cached keyword refs inside a JVM sync-response preserve nested dao.stream.apply responses"
-    (let [encoded "[\"^ \",\"~:type\",\"~:datom/sync-response\",\"~:datoms\",[[\"^ \",\"~:dao.stream.apply/id\",\"dao.repl/request/scope/0\",\"~:dao.stream.apply/value\",\"CLOSURE\"],[\"^ \",\"^3\",\"dao.repl/request/scope/1\",\"^4\",\"1\"]],\"~:from-pos\",0,\"~:to-pos\",2]"
-          decoded (read-str encoded)]
-      (is (= {:type :datom/sync-response
-              :datoms [(dao-apply/response "dao.repl/request/scope/0" "CLOSURE")
-                       (dao-apply/response "dao.repl/request/scope/1" "1")]
-              :from-pos 0
+  (testing
+    "cached keyword refs inside a JVM sync-response preserve nested dao.stream.apply responses"
+    (let
+      [encoded
+       "[\"^ \",\"~:type\",\"~:datom/sync-response\",\"~:datoms\",[[\"^ \",\"~:dao.stream.apply/id\",\"yin.repl/request/scope/0\",\"~:dao.stream.apply/value\",\"CLOSURE\"],[\"^ \",\"^3\",\"yin.repl/request/scope/1\",\"^4\",\"1\"]],\"~:from-pos\",0,\"~:to-pos\",2]"
+       decoded (read-str encoded)]
+      (is (= {:type :datom/sync-response,
+              :datoms [(dao-apply/response "yin.repl/request/scope/0" "CLOSURE")
+                       (dao-apply/response "yin.repl/request/scope/1" "1")],
+              :from-pos 0,
               :to-pos 2}
              decoded))
-      (is (= [(dao-apply/response "dao.repl/request/scope/0" "CLOSURE")
-              (dao-apply/response "dao.repl/request/scope/1" "1")]
+      (is (= [(dao-apply/response "yin.repl/request/scope/0" "CLOSURE")
+              (dao-apply/response "yin.repl/request/scope/1" "1")]
              (:datoms decoded))))))

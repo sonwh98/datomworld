@@ -17,8 +17,7 @@
 (defn- queue-ast!
   [vm-state ast]
   (let [in-stream (or (:in-stream vm-state)
-                      (ds/open! {:type :ringbuffer
-                                 :capacity nil}))
+                      (ds/open! {:type :ringbuffer, :capacity nil}))
         queued-vm (assoc vm-state
                          :in-stream in-stream
                          :in-cursor {:position 0}
@@ -30,20 +29,23 @@
 (defn- bridge-step
   [vm handlers cursor]
   (let [call-in (get (vm/store vm) vm/call-in-stream-key)
-        {:keys [ok] :as next-result} (ds/next call-in cursor)
+        {:keys [ok], :as next-result} (ds/next call-in cursor)
         cursor' (:cursor next-result)]
     (if ok
-      (let [{request-id :dao.stream.apply/id
-             request-op :dao.stream.apply/op
-             request-args :dao.stream.apply/args} ok
+      (let [{request-id :dao.stream.apply/id,
+             request-op :dao.stream.apply/op,
+             request-args :dao.stream.apply/args}
+            ok
             result (apply (get handlers request-op) (or request-args []))
             call-out (get (vm/store vm) vm/call-out-stream-key)
             ;; ds/put! on RingBufferStream returns woken entries
-            put-result (ds/put! call-out (dao.stream.apply/response request-id result))
+            put-result (ds/put! call-out
+                                (dao.stream.apply/response request-id result))
             woke (:woke put-result)
-            ;; Use engine helper to transform woken entries into run-queue entries
+            ;; Use engine helper to transform woken entries into run-queue
+            ;; entries
             entries (engine/make-woken-run-queue-entries vm woke)
-            vm' (update vm :run-queue (fnil into []) entries)]
+            vm' (update vm :ready-queue (fnil into []) entries)]
         [vm' cursor'])
       [vm cursor])))
 
@@ -315,14 +317,16 @@
 
 
 (deftest eval-dao-call-test
-  (testing "dao.stream.apply/call dispatches through bridge dispatcher and resumes with result"
+  (testing
+    "dao.stream.apply/call dispatches through bridge dispatcher and resumes with result"
     (let [ast {:type :dao.stream.apply/call,
                :op :op/echo,
                :operands [{:type :literal, :value 42}]}
           vm (ast-walker/create-vm)
           result-parked (vm/eval vm ast)]
       (is (vm/blocked? result-parked))
-      (let [[vm' _cursor'] (bridge-step result-parked {:op/echo identity} {:position 0})
+      (let [[vm' _cursor']
+            (bridge-step result-parked {:op/echo identity} {:position 0})
             result (vm/eval vm' nil)]
         (is (vm/halted? result))
         (is (= 42 (vm/value result)))))))
@@ -336,35 +340,39 @@
           vm (ast-walker/create-vm)
           result-parked (vm/eval vm ast)]
       (is (vm/blocked? result-parked))
-      (try
-        (bridge-step result-parked {} {:position 0})
-        (is false "Expected missing handler exception")
-        (catch #?(:clj Exception :cljs js/Error :cljd Object) _e
-          (is true))))))
+      (try (bridge-step result-parked {} {:position 0})
+           (is false "Expected missing handler exception")
+           (catch #?(:clj Exception
+                     :cljs js/Error
+                     :cljd Object)
+                  _e
+             (is true))))))
 
 
 (deftest eval-blocked-effect-preserves-current-env-test
-  (testing "Blocked effect should preserve the active lexical environment in VM state"
+  (testing
+    "Blocked effect should preserve the active lexical environment in VM state"
     (let [vm0 (vm/eval (ast-walker/create-vm) {:type :stream/make, :buffer 2})
           stream-ref (vm/value vm0)
-          vm1 (vm/eval vm0 {:type :stream/cursor,
-                            :source {:type :literal, :value stream-ref}})
+          vm1 (vm/eval vm0
+                       {:type :stream/cursor,
+                        :source {:type :literal, :value stream-ref}})
           cursor-ref (vm/value vm1)
           block-next (fn [cursor] {:effect :stream/next, :cursor cursor})
-          vm-with-primitive (assoc vm1 :env
-                                   (assoc (vm/environment vm1)
-                                          'block-next block-next))
+          vm-with-primitive
+          (assoc vm1 :env (assoc (vm/environment vm1) 'block-next block-next))
           ast {:type :application,
                :operator {:type :lambda,
                           :params ['x],
                           :body {:type :application,
                                  :operator {:type :variable, :name 'block-next},
-                                 :operands [{:type :variable, :name 'x}]}}
+                                 :operands [{:type :variable, :name 'x}]}},
                :operands [{:type :literal, :value cursor-ref}]}
           result (vm/eval vm-with-primitive ast)]
-      ;; NOTE: With transport-local readers, the waiter is registered directly
-      ;; on the transport (RingBufferStream), not in wait-set. So we check that
-      ;; the VM is blocked and the environment is preserved in the VM state.
+      ;; NOTE: With transport-local readers, the waiter is registered
+      ;; directly on the transport (RingBufferStream), not in wait-set. So
+      ;; we check that the VM is blocked and the environment is preserved
+      ;; in the VM state.
       (is (vm/blocked? result))
       (is (= :yin/blocked (vm/value result)))
       (is (= cursor-ref (get (vm/environment result) 'x))))))
@@ -530,16 +538,16 @@
 
 (deftest stream-make-test
   (testing "stream/make creates a stream reference"
-    (let [vm (vm/eval (ast-walker/create-vm)
-                      {:type :stream/make, :buffer 10})]
+    (let [vm (vm/eval (ast-walker/create-vm) {:type :stream/make, :buffer 10})]
       (is (= :stream-ref (:type (vm/value vm))))
       (is (keyword? (:id (vm/value vm))))))
   (testing "stream/make with default buffer (unbounded)"
-    (let [vm (vm/eval (ast-walker/create-vm)
-                      {:type :stream/make})
+    (let [vm (vm/eval (ast-walker/create-vm) {:type :stream/make})
           stream-id (:id (vm/value vm))
-          stream #?(:cljs ^dao.stream.ringbuffer/RingBufferStream (get (vm/store vm) stream-id)
-                    :cljd ^dao.stream.ringbuffer/RingBufferStream (get (vm/store vm) stream-id)
+          stream #?(:cljs ^dao.stream.ringbuffer/RingBufferStream
+                    (get (vm/store vm) stream-id)
+                    :cljd ^dao.stream.ringbuffer/RingBufferStream
+                    (get (vm/store vm) stream-id)
                     :default (get (vm/store vm) stream-id))]
       (is (some? stream))
       (is (= 1024 (.-capacity stream))))))
@@ -553,8 +561,7 @@
           stream-id (:id stream-ref)
           vm-after-put (vm/eval vm-with-stream
                                 {:type :stream/put,
-                                 :target {:type :literal,
-                                          :value stream-ref},
+                                 :target {:type :literal, :value stream-ref},
                                  :val {:type :literal, :value 42}})
           stream (get (vm/store vm-after-put) stream-id)]
       (is (= 42 (vm/value vm-after-put)))
@@ -583,8 +590,7 @@
           ;; Put a value
           vm-after-put (vm/eval vm-with-stream
                                 {:type :stream/put,
-                                 :target {:type :literal,
-                                          :value stream-ref},
+                                 :target {:type :literal, :value stream-ref},
                                  :val {:type :literal, :value 99}})
           ;; Create cursor and read
           ast {:type :application,
@@ -631,8 +637,7 @@
           ;; Create cursor
           vm-with-cursor (vm/eval vm-after-puts
                                   {:type :stream/cursor,
-                                   :source {:type :literal,
-                                            :value stream-ref}})
+                                   :source {:type :literal, :value stream-ref}})
           cursor-ref (vm/value vm-with-cursor)
           vm-read1 (vm/eval vm-with-cursor (read-ast cursor-ref))
           ;; After next!, the cursor in store was updated
@@ -666,8 +671,7 @@
     ;; put 42 into B, put B's stream-ref into A, read A to get B's ref,
     ;; read B through recovered ref to get 42.
     (let [;; Create stream A
-          vm0 (vm/eval (ast-walker/create-vm)
-                       {:type :stream/make, :buffer 10})
+          vm0 (vm/eval (ast-walker/create-vm) {:type :stream/make, :buffer 10})
           ref-a (vm/value vm0)
           ;; Create stream B
           vm1 (vm/eval vm0 {:type :stream/make, :buffer 10})
@@ -697,13 +701,11 @@
       ;; Now read from recovered ref to get 42
       (let [vm6 (vm/eval vm5
                          {:type :stream/cursor,
-                          :source {:type :literal,
-                                   :value recovered-ref}})
+                          :source {:type :literal, :value recovered-ref}})
             cursor-b (vm/value vm6)
             vm7 (vm/eval vm6
                          {:type :stream/next,
-                          :source {:type :literal,
-                                   :value cursor-b}})]
+                          :source {:type :literal, :value cursor-b}})]
         (is (= 42 (vm/value vm7))
             "Reading from recovered stream-ref yields the original value")))))
 

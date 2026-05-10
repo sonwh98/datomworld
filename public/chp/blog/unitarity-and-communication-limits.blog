@@ -99,7 +99,7 @@
            [:li
             [:strong "Enforce Causality"]
             " — Events form a partial order (Lamport-like clocks in "
-            [:a {:href "/dao-flow.chp"} "DaoFlow"]
+            [:a {:href "/dao-stream.chp"} "DaoStream"]
             ")"]
            [:li
             [:strong "Preserve Reversibility"]

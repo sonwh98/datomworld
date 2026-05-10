@@ -1,0 +1,6 @@
+(ns datomworld.demo.main
+  (:require [datomworld.demo.repl :as repl-demo]
+            [datomworld.demo.solar-system :as solar-system-demo]
+            [datomworld.demo.postgraphics :as postgraphics-demo]))
+
+(defn main [] (solar-system-demo/main) #_(postgraphics-demo/main))

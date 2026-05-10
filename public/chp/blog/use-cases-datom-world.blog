@@ -148,7 +148,7 @@
           [:h4 "The Problem"]
           [:p "Building dashboards requires custom code for each visualization. UI and rendering logic are tightly coupled."]
           [:h4 "The Datom.world Solution"]
-          [:p [:a {:href "/dao-flow.chp"} "DaoFlow"] " renders datom streams directly into UI, 3D, or charts. Change the data, the UI updates instantly."]
+          [:p [:a {:href "/post-graphics.chp"} "PostGraphics"] " consumes graphics frame programs derived from your data and paints them. Change the data, the producer emits a new frame, the screen updates."]
           [:p [:em "Related blog: "] [:a {:href "/blog/many-syntaxes-one-ast.blog"} "Many Syntaxes"]]
 
           [:h3 "19. Time-Travel Debugging"]
@@ -215,7 +215,7 @@
            [:li [:a {:href "/dao-db.chp"} "DaoDB"] ": The Datalog database that stores everything as datoms"]
            [:li [:a {:href "/yin.chp"} "Yin.vm"] ": Mobile continuations and universal execution"]
            [:li [:a {:href "/yang.chp"} "Yang Compiler"] ": Universal AST for polyglot systems"]
-           [:li [:a {:href "/dao-flow.chp"} "DaoFlow"] ": Reactive rendering from datom streams"]
+           [:li [:a {:href "/post-graphics.chp"} "PostGraphics"] ": Frame-program graphics rendered over streams"]
 
            [:li [:a {:href "/blog/ai-data-crisis.blog"} "The Coming AI Data Crisis"] ": Why agents need datom streams"]
            [:li [:a {:href "/"} "Datom.world"] ": Explore the ecosystem"]]]]]}

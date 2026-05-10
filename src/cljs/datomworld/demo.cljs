@@ -2,22 +2,23 @@
   (:require
     [datomworld.demo.compilation-pipeline :as pipeline]
     [datomworld.demo.continuation-stream :as cont-demo]
-    [datomworld.demo.dao-repl :as dao-repl-demo]
     [datomworld.demo.equation-plotter :as plotter-demo]
+    [datomworld.demo.yin-repl :as yin-repl-demo]
     [reagent.core :as r]
     [reagent.dom :as rdom]
     [yin.vm.telemetry-viewer :as tv]))
 
 
 (def demo-options
-  [{:id :dao-repl,
-    :label "Dao REPL",
+  [{:id :yin-repl,
+    :label "Yin REPL",
     :icon "λ",
-    :desc "Browser CodeMirror client for a remote Dao REPL over WebSockets."}
+    :desc "Browser CodeMirror client for a remote Yin REPL over WebSockets."}
    {:id :continuation,
     :label "Continuation Example",
     :icon "⤱",
-    :desc "Step through a single continuation executed by two different VM backends: Register and Stack."}
+    :desc
+    "Step through a single continuation executed by two different VM backends: Register and Stack."}
    {:id :pipeline,
     :label "Pipeline Compilation",
     :icon "⚙",
@@ -25,7 +26,8 @@
    {:id :plotter,
     :label "Equation Plotter",
     :icon "📈",
-    :desc "Math equation plotter demonstrating FFI from Yin.VM to functions implemented in ClojureScript"}
+    :desc
+    "Math equation plotter demonstrating FFI from Yin.VM to functions implemented in ClojureScript"}
    {:id :telemetry,
     :label "VM Telemetry Viewer",
     :icon "📡",
@@ -35,7 +37,7 @@
 (defn- hash->demo
   [hash-value]
   (case hash-value
-    "#dao-repl" :dao-repl
+    "#yin-repl" :yin-repl
     "#pipeline" :pipeline
     "#plotter" :plotter
     "#continuation" :continuation
@@ -46,7 +48,7 @@
 (defn- demo->hash
   [demo-id]
   (case demo-id
-    :dao-repl "#dao-repl"
+    :yin-repl "#yin-repl"
     :pipeline "#pipeline"
     :plotter "#plotter"
     :continuation "#continuation"
@@ -61,7 +63,8 @@
 (defn sync-demo-from-hash!
   [& _]
   (swap! demo-shell-state assoc
-         :selected-demo (hash->demo (.-hash js/location))))
+         :selected-demo
+         (hash->demo (.-hash js/location))))
 
 
 (defn select-demo!
@@ -81,10 +84,15 @@
             :background "#060817",
             :color "#f1f5ff"}}
    [:h1 {:style {:font-size "3rem", :margin-bottom "4rem"}}
-    [:a {:href "https://datom.world", :style {:color "inherit", :text-decoration "none"}} "Datom.world"]
+    [:a
+     {:href "https://datom.world",
+      :style {:color "inherit", :text-decoration "none"}} "Datom.world"]
     " Demos"]
    [:div
-    {:style {:display "flex", :gap "30px", :flex-wrap "wrap", :justify-content "center"}}
+    {:style {:display "flex",
+             :gap "30px",
+             :flex-wrap "wrap",
+             :justify-content "center"}}
     (for [{:keys [id label icon desc]} demo-options]
       ^{:key id}
       [:div
@@ -100,11 +108,13 @@
                 :flex-direction "column",
                 :align-items "center",
                 :text-align "center"},
-        :on-mouse-over (fn [e]
-                         (set! (.. e -currentTarget -style -borderColor) "#58a6ff")
-                         (set! (.. e -currentTarget -style -transform) "translateY(-5px)"))
+        :on-mouse-over
+        (fn [e]
+          (set! (.. e -currentTarget -style -borderColor) "#58a6ff")
+          (set! (.. e -currentTarget -style -transform) "translateY(-5px)")),
         :on-mouse-out (fn [e]
-                        (set! (.. e -currentTarget -style -borderColor) "#2d3b55")
+                        (set! (.. e -currentTarget -style -borderColor)
+                              "#2d3b55")
                         (set! (.. e -currentTarget -style -transform) "none"))}
        [:div {:style {:font-size "4rem", :margin-bottom "20px"}} icon]
        [:h2 {:style {:margin-bottom "15px"}} label]
@@ -116,7 +126,7 @@
   (let [selected-demo (:selected-demo @demo-shell-state)]
     [:<>
      (case selected-demo
-       :dao-repl [dao-repl-demo/main-view]
+       :yin-repl [yin-repl-demo/main-view]
        :pipeline [pipeline/main-view]
        :plotter [plotter-demo/main-view]
        :continuation [cont-demo/main-view]
@@ -132,13 +142,13 @@
                  :display "flex",
                  :align-items "center",
                  :gap "12px"}}
-        [:a {:href "https://datom.world",
-             :style {:color "#f1f5ff",
-                     :text-decoration "none",
-                     :font-weight "bold",
-                     :font-size "14px",
-                     :margin-right "8px"}}
-         "Datom.world"]
+        [:a
+         {:href "https://datom.world",
+          :style {:color "#f1f5ff",
+                  :text-decoration "none",
+                  :font-weight "bold",
+                  :font-size "14px",
+                  :margin-right "8px"}} "Datom.world"]
         [:button
          {:on-click #(select-demo! :home),
           :style {:background "#151b33",

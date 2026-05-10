@@ -1,0 +1,952 @@
+(ns dao.postgraphics.flutter
+  (:require ["package:flutter/material.dart" :as m]
+            ["dart:ui" :as ui]
+            ["dart:typed_data" :as type]
+            ["dart:math" :as math]
+            ["dart:core" :as dart]
+            ["package:vector_math/vector_math_64.dart" :as vm]
+            [dao.stream :as ds]))
+
+;; --- matrix helpers ---
+
+(defn- ->f64-list
+  ^type/Float64List [args]
+  (let [fl (type/Float64List. (count args))]
+    (loop [i 0
+           s (seq args)]
+      (if s (do (aset fl i (double (first s))) (recur (inc i) (next s))) fl))))
+
+
+(defn- op->matrix
+  ^vm/Matrix4 [op]
+  (if-let [mat (:matrix op)]
+    (if (= 9 (count mat))
+      (let [[m00 m01 m02 m10 m11 m12 m20 m21 m22] mat]
+        (vm/Matrix4.fromList (->f64-list [m00 m10 0.0 m20 m01 m11 0.0 m21 0.0
+                                          0.0 1.0 0.0 m02 m12 0.0 m22])))
+      (vm/Matrix4.fromList (->f64-list mat)))
+    (let [m (vm/Matrix4.identity)]
+      (when-let [t (:translate op)]
+        (.translate m
+                    (double (nth t 0))
+                    (double (nth t 1))
+                    (double (if (= 3 (count t)) (nth t 2) 0.0))))
+      (when-let [r (:rotate op)]
+        (if (number? r)
+          (.rotateZ m (double r))
+          (let [rx (double (nth r 0))
+                ry (double (nth r 1))
+                rz (double (nth r 2))]
+            (.multiply m (vm/Matrix4.rotationZ rz))
+            (.multiply m (vm/Matrix4.rotationY ry))
+            (.multiply m (vm/Matrix4.rotationX rx)))))
+      (when-let [s (:scale op)]
+        (.scale m
+                (double (nth s 0))
+                (double (nth s 1))
+                (double (if (= 3 (count s)) (nth s 2) 1.0))))
+      m)))
+
+(defn- valid-2d-affine?
+  [^vm/Matrix4 m]
+  (let [st (.-storage m)]
+    (and (== 0.0 (aget st 2))
+         (== 0.0 (aget st 6))
+         (== 0.0 (aget st 14))
+         (== 1.0 (aget st 10))
+         (== 0.0 (aget st 3))
+         (== 0.0 (aget st 7))
+         (== 1.0 (aget st 15)))))
+
+;; --- validation ---
+
+(defn- vec3? [v] (and (vector? v) (= 3 (count v)) (every? number? v)))
+(defn- vec4? [v] (and (vector? v) (= 4 (count v)) (every? number? v)))
+
+(defn- validate-frame!
+  [frame]
+  (when-not (vector? frame) (throw (Exception. "Frame must be a vector")))
+  (loop [ops frame
+         m-stack (list (vm/Matrix4.identity))
+         c-stack 0
+         has-cam false]
+    (if (empty? ops)
+      (do (when (> (count m-stack) 1)
+            (throw (Exception. "Frame ended with non-empty transform stack")))
+          (when (not= c-stack 0)
+            (throw (Exception. "Frame ended with non-empty clip stack"))))
+      (let [op (first ops)
+            kind (:op/kind op)]
+        (when-not (map? op) (throw (Exception. "Op must be a map")))
+        (when-not kind (throw (Exception. "Op missing :op/kind")))
+        (case kind
+          :frame/clear (recur (rest ops) m-stack c-stack has-cam)
+          :transform/push
+            (let [top (first m-stack)
+                  new-m (.clone top)]
+              (.multiply new-m (op->matrix op))
+              (recur (rest ops) (conj m-stack new-m) c-stack has-cam))
+          :transform/pop (if (<= (count m-stack) 1)
+                           (throw (Exception. "Transform pop without push"))
+                           (recur (rest ops)
+                                  (or (next m-stack)
+                                      (list (vm/Matrix4.identity)))
+                                  c-stack
+                                  has-cam))
+          :clip/push-rect
+            (let [r (:rect op)]
+              (when-not (vec4? r)
+                (throw (Exception.
+                         "Missing or invalid :rect on clip/push-rect")))
+              (recur (rest ops) m-stack (inc c-stack) has-cam))
+          :clip/pop (if (<= c-stack 0)
+                      (throw (Exception. "Clip pop without push"))
+                      (recur (rest ops) m-stack (dec c-stack) has-cam))
+          :camera3d/set
+            (let [proj (:camera3d/projection op)]
+              (case proj
+                :perspective
+                  (let [fov (:camera3d/fov op)
+                        near (:camera3d/near op)
+                        far (:camera3d/far op)
+                        aspect (:camera3d/aspect op)]
+                    (when-not (and (number? fov) (number? near) (number? far))
+                      (throw
+                        (Exception.
+                          "Perspective camera missing numeric fov, near, or far")))
+                    (when-not (and (> (double fov) 0.0) (< (double fov) 180.0))
+                      (throw (Exception. "FOV must be in (0, 180)")))
+                    (when-not (> (double near) 0.0)
+                      (throw (Exception. "Near must be > 0")))
+                    (when-not (> (double far) (double near))
+                      (throw (Exception. "Far must be > near")))
+                    (when (and aspect (<= (double aspect) 0.0))
+                      (throw (Exception. "Aspect must be positive"))))
+                :orthographic
+                  (let [l (:camera3d/left op)
+                        r (:camera3d/right op)
+                        b (:camera3d/bottom op)
+                        t (:camera3d/top op)
+                        near (:camera3d/near op)
+                        far (:camera3d/far op)]
+                    (when-not (and (number? l)
+                                   (number? r)
+                                   (number? b)
+                                   (number? t)
+                                   (number? near)
+                                   (number? far))
+                      (throw (Exception.
+                               "Orthographic camera missing numeric bounds")))
+                    (when-not (> (double r) (double l))
+                      (throw (Exception. "Right must be > left")))
+                    (when-not (> (double t) (double b))
+                      (throw (Exception. "Top must be > bottom"))))
+                (throw (Exception. "Unknown projection")))
+              (when-let [pos (:camera3d/position op)]
+                (when-not (vec3? pos)
+                  (throw (Exception. "camera3d/position must be vec3"))))
+              (when-let [rot (:camera3d/rotation op)]
+                (when-not (vec3? rot)
+                  (throw (Exception. "camera3d/rotation must be vec3"))))
+              (when-let [vmat (:camera3d/view-matrix op)]
+                (when-not (and (vector? vmat)
+                               (= 16 (count vmat))
+                               (every? number? vmat))
+                  (throw (Exception. "camera3d/view-matrix must be vec16"))))
+              (recur (rest ops) m-stack c-stack true))
+          :state/depth-test (do (when-not (contains? op :enabled)
+                                  (throw (Exception. "Missing :enabled")))
+                                (when-not (boolean? (:enabled op))
+                                  (throw (Exception.
+                                           ":enabled must be boolean")))
+                                (recur (rest ops) m-stack c-stack has-cam))
+          :state/depth-write (do (when-not (contains? op :enabled)
+                                   (throw (Exception. "Missing :enabled")))
+                                 (when-not (boolean? (:enabled op))
+                                   (throw (Exception.
+                                            ":enabled must be boolean")))
+                                 (recur (rest ops) m-stack c-stack has-cam))
+          (:draw3d/lines :draw3d/triangles)
+            (let [verts (:vertices op)
+                  vl (count verts)]
+              (when-not has-cam
+                (throw (Exception. "3D draw without prior camera3d/set")))
+              (when-not (vector? verts)
+                (throw (Exception. "Missing or non-vector :vertices")))
+              (when-not (every? vec3? verts)
+                (throw (Exception. "All :vertices must be vec3")))
+              (if (= kind :draw3d/triangles)
+                (let [inds (:indices op)]
+                  (when-not (vector? inds)
+                    (throw (Exception. "Missing or non-vector :indices")))
+                  (when-not (every? (fn [v]
+                                      (and (vector? v)
+                                           (= 3 (count v))
+                                           (every?
+                                             #(and (int? %) (>= % 0) (< % vl))
+                                             v)))
+                                    inds)
+                    (throw (Exception. "Invalid indices"))))
+                (let [edges (:edges op)]
+                  (when (and edges
+                             (not (every? (fn [v]
+                                            (and (vector? v)
+                                                 (= 2 (count v))
+                                                 (every? #(and (int? %)
+                                                               (>= % 0)
+                                                               (< % vl))
+                                                         v)))
+                                          edges)))
+                    (throw (Exception. "Invalid edges")))))
+              (when-let [norms (:normals op)]
+                (when (not= (count norms) vl)
+                  (throw (Exception.
+                           "Normals length must equal vertices length")))
+                (when-not (every? vec3? norms)
+                  (throw (Exception. "All normals must be vec3"))))
+              (recur (rest ops) m-stack c-stack has-cam))
+          (:draw/fill-rect :draw/stroke-rect :draw/fill-circle
+                           :draw/stroke-circle :draw/text
+                           :draw/path :draw/image)
+            (do (when-not (valid-2d-affine? (first m-stack))
+                  (throw (Exception.
+                           "Invalid 2D affine matrix for 2D draw op")))
+                (case kind
+                  (:draw/fill-rect :draw/stroke-rect)
+                    (when-not (vec4? (:rect op))
+                      (throw (Exception. "Missing or invalid :rect")))
+                  (:draw/fill-circle :draw/stroke-circle)
+                    (do (when-not (and (vector? (:center op))
+                                       (= 2 (count (:center op))))
+                          (throw (Exception. "Missing or invalid :center")))
+                        (when-not (number? (:radius op))
+                          (throw (Exception. "Missing or invalid :radius"))))
+                  :draw/text
+                    (do (when-not (string? (:text op))
+                          (throw (Exception. "Missing or invalid :text")))
+                        (when-not (and (vector? (:position op))
+                                       (= 2 (count (:position op))))
+                          (throw (Exception. "Missing or invalid :position"))))
+                  :draw/path (when-not (vector? (:segments op))
+                               (throw (Exception.
+                                        "Missing or invalid :segments")))
+                  :draw/image
+                    (do (when-not (vec4? (:rect op))
+                          (throw (Exception. "Missing or invalid :rect")))
+                        (when-not (contains? op :image/source)
+                          (throw (Exception. "Missing :image/source")))))
+                (recur (rest ops) m-stack c-stack has-cam))
+          (throw (Exception. (str "Unknown op kind: " kind))))))))
+
+;; --- color and paint helpers ---
+
+(defn- ->flutter-color
+  [[r g b a]]
+  (ui/Color.fromARGB (int (* (or a 1.0) 255))
+                     (int (* (or r 0.0) 255))
+                     (int (* (or g 0.0) 255))
+                     (int (* (or b 0.0) 255))))
+
+(defn- fill-paint
+  [color]
+  (let [p (ui/Paint.)]
+    (set! (.-style p) ui/PaintingStyle.fill)
+    (set! (.-color p) (->flutter-color color))
+    p))
+
+(defn- stroke-paint
+  [color stroke-width]
+  (let [p (ui/Paint.)]
+    (set! (.-style p) ui/PaintingStyle.stroke)
+    (set! (.-color p) (->flutter-color color))
+    (set! (.-strokeWidth p) (double (or stroke-width 1.0)))
+    p))
+
+;; --- path builder ---
+
+(defn- build-path
+  [segments]
+  (let [path (ui/Path.)]
+    (doseq [seg segments]
+      (case (first seg)
+        :move-to (let [[_ x y] seg] (.moveTo path (double x) (double y)))
+        :line-to (let [[_ x y] seg] (.lineTo path (double x) (double y)))
+        :quad-to (let [[_ cx cy x y] seg]
+                   (.quadraticBezierTo path
+                                       (double cx)
+                                       (double cy)
+                                       (double x)
+                                       (double y)))
+        :cubic-to (let [[_ cx1 cy1 cx2 cy2 x y] seg]
+                    (.cubicTo path
+                              (double cx1)
+                              (double cy1)
+                              (double cx2)
+                              (double cy2)
+                              (double x)
+                              (double y)))
+        :close (.close path)
+        nil))
+    path))
+
+
+(defn- build-camera
+  ^vm/Matrix4 [op width height]
+  (let [proj (vm/Matrix4.zero)]
+    (case (:camera3d/projection op)
+      :perspective (let [fov (double (:camera3d/fov op))
+                         near (double (:camera3d/near op))
+                         far (double (:camera3d/far op))
+                         aspect (double
+                                  (get op :camera3d/aspect (/ width height)))
+                         f (/ 1.0 (math/tan (/ (* fov math/pi) 360.0)))
+                         st (.-storage proj)]
+                     (aset st 0 (/ f aspect))
+                     (aset st 5 f)
+                     (aset st 10 (/ far (- near far)))
+                     (aset st 11 -1.0)
+                     (aset st 14 (/ (* near far) (- near far))))
+      :orthographic (let [left (double (:camera3d/left op))
+                          right (double (:camera3d/right op))
+                          bottom (double (:camera3d/bottom op))
+                          top (double (:camera3d/top op))
+                          near (double (:camera3d/near op))
+                          far (double (:camera3d/far op))
+                          st (.-storage proj)]
+                      (aset st 0 (/ 2.0 (- right left)))
+                      (aset st 5 (/ 2.0 (- top bottom)))
+                      (aset st 10 (/ 1.0 (- near far)))
+                      (aset st 12 (- (/ (+ right left) (- right left))))
+                      (aset st 13 (- (/ (+ top bottom) (- top bottom))))
+                      (aset st 14 (/ near (- near far)))
+                      (aset st 15 1.0)))
+    (if-let [vmat (:camera3d/view-matrix op)]
+      (let [v (vm/Matrix4.fromList (type/Float64List.fromList
+                                     (to-array (map double vmat))))]
+        (.multiply proj v))
+      (let [pos (get op :camera3d/position [0.0 0.0 0.0])
+            rot (get op :camera3d/rotation [0.0 0.0 0.0])
+            vmat (vm/Matrix4.identity)]
+        (.translate vmat
+                    (double (nth pos 0))
+                    (double (nth pos 1))
+                    (double (nth pos 2)))
+        (.multiply vmat (vm/Matrix4.rotationZ (double (nth rot 2))))
+        (.multiply vmat (vm/Matrix4.rotationY (double (nth rot 1))))
+        (.multiply vmat (vm/Matrix4.rotationX (double (nth rot 0))))
+        (.invert vmat)
+        (.multiply proj vmat)))
+    proj))
+
+;; --- 3D pipeline ---
+
+(defn- transform-vertex
+  [^vm/Matrix4 mvp [x y z]]
+  (let [st (.-storage mvp)
+        xc
+          (+ (* x (aget st 0)) (* y (aget st 4)) (* z (aget st 8)) (aget st 12))
+        yc
+          (+ (* x (aget st 1)) (* y (aget st 5)) (* z (aget st 9)) (aget st 13))
+        zc (+ (* x (aget st 2))
+              (* y (aget st 6))
+              (* z (aget st 10))
+              (aget st 14))
+        wc (+ (* x (aget st 3))
+              (* y (aget st 7))
+              (* z (aget st 11))
+              (aget st 15))]
+    [xc yc zc wc]))
+
+(defn- clip-line-near
+  [v1 v2]
+  (let [[xc1 yc1 zc1 wc1] v1
+        [xc2 yc2 zc2 wc2] v2
+        in1 (and (> wc1 0.0) (>= zc1 0.0))
+        in2 (and (> wc2 0.0) (>= zc2 0.0))]
+    (cond (and in1 in2) [v1 v2]
+          (and (not in1) (not in2)) nil
+          :else (let [t (/ zc1 (- zc1 zc2))
+                      xc-i (+ xc1 (* t (- xc2 xc1)))
+                      yc-i (+ yc1 (* t (- yc2 yc1)))
+                      zc-i 0.0
+                      wc-i (+ wc1 (* t (- wc2 wc1)))
+                      vi [xc-i yc-i zc-i wc-i]]
+                  (if in1 [v1 vi] [vi v2])))))
+
+(defn- clip-triangle-near
+  [v1 v2 v3]
+  (let [in? (fn [[xc yc zc wc]] (and (> wc 0.0) (>= zc 0.0)))
+        pts [v1 v2 v3]
+        ins (filterv in? pts)
+        outs (filterv (complement in?) pts)]
+    (case (count ins)
+      3 [[v1 v2 v3]]
+      0 []
+      1 (let [in-pt (nth ins 0)
+              out1 (nth outs 0)
+              out2 (nth outs 1)
+              t1 (/ (nth in-pt 2) (- (nth in-pt 2) (nth out1 2)))
+              i1 [(+ (nth in-pt 0) (* t1 (- (nth out1 0) (nth in-pt 0))))
+                  (+ (nth in-pt 1) (* t1 (- (nth out1 1) (nth in-pt 1)))) 0.0
+                  (+ (nth in-pt 3) (* t1 (- (nth out1 3) (nth in-pt 3))))]
+              t2 (/ (nth in-pt 2) (- (nth in-pt 2) (nth out2 2)))
+              i2 [(+ (nth in-pt 0) (* t2 (- (nth out2 0) (nth in-pt 0))))
+                  (+ (nth in-pt 1) (* t2 (- (nth out2 1) (nth in-pt 1)))) 0.0
+                  (+ (nth in-pt 3) (* t2 (- (nth out2 3) (nth in-pt 3))))]]
+          [[in-pt i1 i2]])
+      2 (let [out-pt (nth outs 0)
+              in1 (nth ins 0)
+              in2 (nth ins 1)
+              t1 (/ (nth in1 2) (- (nth in1 2) (nth out-pt 2)))
+              i1 [(+ (nth in1 0) (* t1 (- (nth out-pt 0) (nth in1 0))))
+                  (+ (nth in1 1) (* t1 (- (nth out-pt 1) (nth in1 1)))) 0.0
+                  (+ (nth in1 3) (* t1 (- (nth out-pt 3) (nth in1 3))))]
+              t2 (/ (nth in2 2) (- (nth in2 2) (nth out-pt 2)))
+              i2 [(+ (nth in2 0) (* t2 (- (nth out-pt 0) (nth in2 0))))
+                  (+ (nth in2 1) (* t2 (- (nth out-pt 1) (nth in2 1)))) 0.0
+                  (+ (nth in2 3) (* t2 (- (nth out-pt 3) (nth in2 3))))]]
+          [[in1 i1 in2] [in2 i1 i2]]))))
+
+(defn- ndc->screen
+  [[xc yc zc wc] width height]
+  (let [ndc-x (/ xc wc)
+        ndc-y (/ yc wc)
+        ndc-z (/ zc wc)
+        sx (* (+ ndc-x 1.0) 0.5 width)
+        sy (* (- 1.0 ndc-y) 0.5 height)]
+    [sx sy ndc-z]))
+
+;; --- Software Rasterizer ---
+
+(defn- rasterize-triangle
+  [^ui/Path path ^type/Float32List depth-buffer int-width int-height s1 s2 s3
+   depth-test depth-write clip-rects]
+  (let [x1 (double (nth s1 0))
+        y1 (double (nth s1 1))
+        z1 (double (nth s1 2))
+        x2 (double (nth s2 0))
+        y2 (double (nth s2 1))
+        z2 (double (nth s2 2))
+        x3 (double (nth s3 0))
+        y3 (double (nth s3 1))
+        z3 (double (nth s3 2))
+        area (- (* (- x2 x1) (- y3 y1)) (* (- y2 y1) (- x3 x1)))]
+    (when (not= area 0.0)
+      (let [[x1 y1 z1 x2 y2 z2 x3 y3 z3 area]
+              (if (< area 0.0)
+                [x1 y1 z1 x3 y3 z3 x2 y2 z2 (- area)]
+                [x1 y1 z1 x2 y2 z2 x3 y3 z3 area])
+            min-x (int
+                    (math/max 0 (.ceil (- (math/min x1 (math/min x2 x3)) 0.5))))
+            max-x (int (math/min (dec int-width)
+                                 (dec (.ceil (- (math/max x1 (math/max x2 x3))
+                                                0.5)))))
+            min-y (int
+                    (math/max 0 (.ceil (- (math/min y1 (math/min y2 y3)) 0.5))))
+            max-y (int (math/min (dec int-height)
+                                 (dec (.ceil (- (math/max y1 (math/max y2 y3))
+                                                0.5)))))
+            dx12 (- x1 x2)
+            dy12 (- y1 y2)
+            dx23 (- x2 x3)
+            dy23 (- y2 y3)
+            dx31 (- x3 x1)
+            dy31 (- y3 y1)
+            tl3
+              (if (or (> dy12 0.0) (and (== dy12 0.0) (< dx12 0.0))) -1e-5 0.0)
+            tl1
+              (if (or (> dy23 0.0) (and (== dy23 0.0) (< dx23 0.0))) -1e-5 0.0)
+            tl2
+              (if (or (> dy31 0.0) (and (== dy31 0.0) (< dx31 0.0))) -1e-5 0.0)]
+        (loop [y min-y]
+          (when (<= y max-y)
+            (let [yf (+ (double y) 0.5)]
+              (loop [x min-x
+                     span-start -1]
+                (if (<= x max-x)
+                  (let [xf (+ (double x) 0.5)
+                        w1 (- (* (- x2 xf) (- y3 yf)) (* (- y2 yf) (- x3 xf)))
+                        w2 (- (* (- x3 xf) (- y1 yf)) (* (- y3 yf) (- x1 xf)))
+                        w3 (- (* (- x1 xf) (- y2 yf)) (* (- y1 yf) (- x2 xf)))]
+                    (if (and (> w1 tl1) (> w2 tl2) (> w3 tl3))
+                      (let [w1-norm (/ w1 area)
+                            w2-norm (/ w2 area)
+                            w3-norm (/ w3 area)
+                            z (+ (* w1-norm z1) (* w2-norm z2) (* w3-norm z3))
+                            idx (+ (* y int-width) x)]
+                        (if (and (>= z 0.0) (<= z 1.0))
+                          (let [curr-z (aget depth-buffer idx)
+                                pass? (or (not depth-test) (<= z curr-z))]
+                            (let [in-clip? (if (empty? clip-rects)
+                                             true
+                                             (every? (fn [^ui/Rect r]
+                                                       (and (>= xf (.-left r))
+                                                            (< xf (.-right r))
+                                                            (>= yf (.-top r))
+                                                            (< yf
+                                                               (.-bottom r))))
+                                                     clip-rects))]
+                              (if (and pass? in-clip?)
+                                (do (when depth-write (aset depth-buffer idx z))
+                                    (recur (inc x)
+                                           (if (= span-start -1) x span-start)))
+                                (do (when (not= span-start -1)
+                                      (.addRect path
+                                                (ui/Rect.fromLTWH
+                                                  (double span-start)
+                                                  (double y)
+                                                  (double (- x span-start))
+                                                  1.0)))
+                                    (recur (inc x) -1)))))
+                          (do (when (not= span-start -1)
+                                (.addRect path
+                                          (ui/Rect.fromLTWH (double span-start)
+                                                            (double y)
+                                                            (double
+                                                              (- x span-start))
+                                                            1.0)))
+                              (recur (inc x) -1))))
+                      (do (when (not= span-start -1)
+                            (.addRect path
+                                      (ui/Rect.fromLTWH (double span-start)
+                                                        (double y)
+                                                        (double (- x
+                                                                   span-start))
+                                                        1.0)))
+                          (recur (inc x) -1))))
+                  (when (not= span-start -1)
+                    (.addRect path
+                              (ui/Rect.fromLTWH (double span-start)
+                                                (double y)
+                                                (double (- (inc max-x)
+                                                           span-start))
+                                                1.0))))))
+            (recur (inc y))))))))
+
+;; --- 2D draw wrappers ---
+
+(defn- draw-text
+  [^ui/Canvas canvas op px py color size family align]
+  (let [ts (if family
+             (ui/TextStyle. .color color .fontSize size .fontFamily family)
+             (ui/TextStyle. .color color .fontSize size))
+        style (ui/ParagraphStyle. .textDirection
+                                  ui/TextDirection.ltr
+                                  .textAlign
+                                  align
+                                  .fontSize
+                                  size)
+        builder (ui/ParagraphBuilder. style)
+        _ (.pushStyle builder ts)
+        _ (.addText builder (:text op))
+        para (.build builder)
+        _ (.layout para (ui/ParagraphConstraints. .width 10000.0))
+        w (.-maxIntrinsicWidth para)
+        x-off (condp = align
+                ui/TextAlign.start 0.0
+                ui/TextAlign.center (- (/ w 2.0))
+                ui/TextAlign.end (- w)
+                0.0)
+        y-off (- (* 0.85 size))]
+    (.save canvas)
+    (.translate canvas (double px) (double py))
+    (.scale canvas 1.0 -1.0)
+    (.drawParagraph canvas para (ui/Offset. x-off y-off))
+    (.restore canvas)))
+
+(defn- exec-2d-op
+  [^ui/Canvas canvas op sx sy]
+  (case (:op/kind op)
+    :draw/fill-rect
+      (let [[x y w h] (:rect op)]
+        (.drawRect
+          canvas
+          (ui/Rect.fromLTWH (double x) (double y) (double w) (double h))
+          (fill-paint (get op :color [1.0 1.0 1.0 1.0]))))
+    :draw/stroke-rect
+      (let [[x y w h] (:rect op)
+            sw (get op :stroke-width 1.0)]
+        (.drawRect
+          canvas
+          (ui/Rect.fromLTWH (double x) (double y) (double w) (double h))
+          (stroke-paint (get op :color [1.0 1.0 1.0 1.0])
+                        (/ (double sw) (double sx)))))
+    :draw/fill-circle (let [[cx cy] (:center op)]
+                        (.drawCircle canvas
+                                     (ui/Offset. (double cx) (double cy))
+                                     (double (:radius op))
+                                     (fill-paint
+                                       (get op :color [1.0 1.0 1.0 1.0]))))
+    :draw/stroke-circle (let [[cx cy] (:center op)
+                              sw (get op :stroke-width 1.0)]
+                          (.drawCircle canvas
+                                       (ui/Offset. (double cx) (double cy))
+                                       (double (:radius op))
+                                       (stroke-paint
+                                         (get op :color [1.0 1.0 1.0 1.0])
+                                         (/ (double sw) (double sx)))))
+    :draw/text (let [[px py] (:position op)
+                     color (->flutter-color (get op :color [1.0 1.0 1.0 1.0]))
+                     size (double (get op :font-size 14.0))
+                     align (case (get op :align :start)
+                             :start ui/TextAlign.start
+                             :center ui/TextAlign.center
+                             :end ui/TextAlign.end
+                             ui/TextAlign.start)]
+                 (draw-text canvas op px py color size (:font-family op) align))
+    :draw/path (let [path (build-path (:segments op))
+                     fill (:fill op)
+                     stroke (:stroke op)
+                     sw (get op :stroke-width 1.0)]
+                 (when fill (.drawPath canvas path (fill-paint fill)))
+                 (when stroke
+                   (.drawPath canvas
+                              path
+                              (stroke-paint stroke
+                                            (/ (double sw) (double sx))))))
+    :draw/image
+      (let [[x y w h] (:rect op)
+            src (:image/source op)]
+        (if (instance? ui/Image src)
+          (let [img-w (double (.-width ^ui/Image src))
+                img-h (double (.-height ^ui/Image src))
+                [sx sy sw sh] (get op :image/src-rect [0.0 0.0 img-w img-h])
+                fit (get op :image/fit :fill)
+                opacity (double (get op :opacity 1.0))
+                paint (ui/Paint.)]
+            (when (< opacity 1.0)
+              (set! (.-colorFilter paint)
+                    (ui/ColorFilter.matrix
+                      (->f64-list [1.0 0.0 0.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0
+                                   0.0 1.0 0.0 0.0 0.0 0.0 0.0 opacity 0.0]))))
+            (let [[dst-x dst-y dst-w dst-h src-x src-y src-w src-h]
+                    (case fit
+                      :fill [x y w h sx sy sw sh]
+                      :contain (let [scale (math/min (/ w sw) (/ h sh))
+                                     fw (* sw scale)
+                                     fh (* sh scale)]
+                                 [(+ x (/ (- w fw) 2.0)) (+ y (/ (- h fh) 2.0))
+                                  fw fh sx sy sw sh])
+                      :cover (let [scale (math/max (/ w sw) (/ h sh))
+                                   fw (/ w scale)
+                                   fh (/ h scale)]
+                               [x y w h (+ sx (/ (- sw fw) 2.0))
+                                (+ sy (/ (- sh fh) 2.0)) fw fh])
+                      :none (let [vw (math/min sw w)
+                                  vh (math/min sh h)
+                                  dx (+ x (/ (- w vw) 2.0))
+                                  dy (+ y (/ (- h vh) 2.0))
+                                  sx-off (+ sx (/ (- sw vw) 2.0))
+                                  sy-off (+ sy (/ (- sh vh) 2.0))]
+                              [dx dy vw vh sx-off sy-off vw vh])
+                      [x y w h sx sy sw sh])]
+              (.drawImageRect canvas
+                              src
+                              (ui/Rect.fromLTWH (double src-x)
+                                                (double src-y)
+                                                (double src-w)
+                                                (double src-h))
+                              (ui/Rect.fromLTWH (double dst-x)
+                                                (double dst-y)
+                                                (double dst-w)
+                                                (double dst-h))
+                              paint)))
+          (.drawRect
+            canvas
+            (ui/Rect.fromLTWH (double x) (double y) (double w) (double h))
+            (fill-paint [1.0 0.0 1.0 0.5]))))
+    nil))
+
+(defn- exec-3d-op
+  [^ui/Canvas canvas op ^vm/Matrix4 mvp width height
+   ^type/Float32List depth-buffer clip-stack depth-test depth-write]
+  (let [int-width (int (.ceil width))
+        int-height (int (.ceil height))
+        kind (:op/kind op)
+        verts (:vertices op)]
+    (case kind
+      :draw3d/lines
+        (let [edges (or (:edges op)
+                        (mapv vector
+                          (range (dec (count verts)))
+                          (range 1 (count verts))))
+              color (get op :color [1.0 1.0 1.0 1.0])
+              sw (double (get op :stroke-width 1.0))
+              [w alpha-mod] (if (< sw 1.0) [1.0 sw] [sw 1.0])
+              c-mod [(nth color 0) (nth color 1) (nth color 2)
+                     (* (nth color 3) alpha-mod)]
+              paint (fill-paint c-mod)
+              path (ui/Path.)]
+          (doseq [[i j] edges]
+            (let [v1 (transform-vertex mvp (nth verts i))
+                  v2 (transform-vertex mvp (nth verts j))
+                  clipped (clip-line-near v1 v2)]
+              (when clipped
+                (let [s1 (ndc->screen (first clipped) width height)
+                      s2 (ndc->screen (second clipped) width height)
+                      dx (- (nth s2 0) (nth s1 0))
+                      dy (- (nth s2 1) (nth s1 1))
+                      len (math/sqrt (+ (* dx dx) (* dy dy)))]
+                  (when (> len 0.0)
+                    (let [nx (/ (- dy) len)
+                          ny (/ dx len)
+                          hx (* nx (/ w 2.0))
+                          hy (* ny (/ w 2.0))
+                          p1 [(+ (nth s1 0) hx) (+ (nth s1 1) hy) (nth s1 2)]
+                          p2 [(+ (nth s2 0) hx) (+ (nth s2 1) hy) (nth s2 2)]
+                          p3 [(- (nth s2 0) hx) (- (nth s2 1) hy) (nth s2 2)]
+                          p4 [(- (nth s1 0) hx) (- (nth s1 1) hy) (nth s1 2)]]
+                      (rasterize-triangle path
+                                          depth-buffer
+                                          int-width
+                                          int-height
+                                          p1
+                                          p2
+                                          p3
+                                          depth-test
+                                          depth-write
+                                          clip-stack)
+                      (rasterize-triangle path
+                                          depth-buffer
+                                          int-width
+                                          int-height
+                                          p1
+                                          p3
+                                          p4
+                                          depth-test
+                                          depth-write
+                                          clip-stack)))))))
+          (.drawPath canvas path paint))
+      :draw3d/triangles (let [indices (:indices op)
+                              fill (get op :fill [1.0 1.0 1.0 1.0])
+                              paint (fill-paint fill)
+                              path (ui/Path.)]
+                          (doseq [[i j k] indices]
+                            (let [v1 (transform-vertex mvp (nth verts i))
+                                  v2 (transform-vertex mvp (nth verts j))
+                                  v3 (transform-vertex mvp (nth verts k))
+                                  clipped-tris (clip-triangle-near v1 v2 v3)]
+                              (doseq [tri clipped-tris]
+                                (let [s1 (ndc->screen (nth tri 0) width height)
+                                      s2 (ndc->screen (nth tri 1) width height)
+                                      s3 (ndc->screen (nth tri 2) width height)]
+                                  (rasterize-triangle path
+                                                      depth-buffer
+                                                      int-width
+                                                      int-height
+                                                      s1
+                                                      s2
+                                                      s3
+                                                      depth-test
+                                                      depth-write
+                                                      clip-stack)))))
+                          (.drawPath canvas path paint))
+      nil)))
+
+;; --- painter ---
+
+(deftype PostgraphicsPainter [^m/ValueNotifier notifier]
+  :extends
+  m/CustomPainter
+    (paint [_this ^ui/Canvas canvas ^ui/Size size]
+      (let [frame (.-value notifier)
+            width (.-width size)
+            height (.-height size)]
+        (when (seq frame)
+          (let [int-width (int (.ceil width))
+                int-height (int (.ceil height))
+                depth-buffer (type/Float32List. (* int-width int-height))]
+            (.fillRange depth-buffer 0 (.-length depth-buffer) 1.0)
+            (loop [ops frame
+                   model-stack (list (vm/Matrix4.identity))
+                   clip-stack (list)
+                   camera-matrix nil
+                   depth-test false
+                   depth-write false]
+              (when-let [op (first ops)]
+                (let [kind (:op/kind op)
+                      next-ops (rest ops)]
+                  (case kind
+                    :frame/clear
+                      (do
+                        (.drawPaint canvas
+                                    (fill-paint
+                                      (get op :color [0.0 0.0 0.0 1.0])))
+                        (.fillRange depth-buffer 0 (.-length depth-buffer) 1.0)
+                        (recur next-ops
+                               model-stack
+                               clip-stack
+                               camera-matrix
+                               depth-test
+                               depth-write))
+                    :transform/push (let [top (first model-stack)
+                                          new-m (.clone top)]
+                                      (.multiply new-m (op->matrix op))
+                                      (recur next-ops
+                                             (conj model-stack new-m)
+                                             clip-stack
+                                             camera-matrix
+                                             depth-test
+                                             depth-write))
+                    :transform/pop (recur next-ops
+                                          (or (next model-stack)
+                                              (list (vm/Matrix4.identity)))
+                                          clip-stack
+                                          camera-matrix
+                                          depth-test
+                                          depth-write)
+                    :clip/push-rect (let [[x y w h] (:rect op)
+                                          r (ui/Rect.fromLTWH
+                                              (double x)
+                                              (- height (double y) (double h))
+                                              (double w)
+                                              (double h))]
+                                      (recur next-ops
+                                             model-stack
+                                             (conj clip-stack r)
+                                             camera-matrix
+                                             depth-test
+                                             depth-write))
+                    :clip/pop (recur next-ops
+                                     model-stack
+                                     (or (next clip-stack) (list))
+                                     camera-matrix
+                                     depth-test
+                                     depth-write)
+                    :camera3d/set (let [cam (build-camera op width height)]
+                                    (when camera-matrix
+                                      (.fillRange depth-buffer
+                                                  0
+                                                  (.-length depth-buffer)
+                                                  1.0))
+                                    (recur next-ops
+                                           model-stack
+                                           clip-stack
+                                           cam
+                                           depth-test
+                                           depth-write))
+                    :state/depth-test (recur next-ops
+                                             model-stack
+                                             clip-stack
+                                             camera-matrix
+                                             (boolean (:enabled op))
+                                             depth-write)
+                    :state/depth-write (recur next-ops
+                                              model-stack
+                                              clip-stack
+                                              camera-matrix
+                                              depth-test
+                                              (boolean (:enabled op)))
+                    (:draw/fill-rect :draw/stroke-rect :draw/fill-circle
+                                     :draw/stroke-circle :draw/text
+                                     :draw/path :draw/image)
+                      (do (when-not (valid-2d-affine? (first model-stack))
+                            (throw
+                              (Exception.
+                                "Invalid 2D affine matrix for 2D draw op")))
+                          (let [st (.-storage (first model-stack))
+                                sx (math/sqrt (+ (* (aget st 0) (aget st 0))
+                                                 (* (aget st 1) (aget st 1))))
+                                sy (math/sqrt (+ (* (aget st 4) (aget st 4))
+                                                 (* (aget st 5) (aget st 5))))]
+                            (.save canvas)
+                            (doseq [c clip-stack] (.clipRect canvas c))
+                            (.translate canvas 0.0 height)
+                            (.scale canvas 1.0 -1.0)
+                            (.transform canvas st)
+                            (exec-2d-op canvas op sx sy)
+                            (.restore canvas))
+                          (recur next-ops
+                                 model-stack
+                                 clip-stack
+                                 camera-matrix
+                                 depth-test
+                                 depth-write))
+                    (:draw3d/lines :draw3d/triangles)
+                      (do (when-not camera-matrix
+                            (throw (Exception.
+                                     "No camera matrix set before 3D draw op")))
+                          (let [mvp (.clone camera-matrix)]
+                            (.multiply mvp (first model-stack))
+                            (exec-3d-op canvas
+                                        op
+                                        mvp
+                                        width
+                                        height
+                                        depth-buffer
+                                        clip-stack
+                                        depth-test
+                                        depth-write))
+                          (recur next-ops
+                                 model-stack
+                                 clip-stack
+                                 camera-matrix
+                                 depth-test
+                                 depth-write))
+                    (recur next-ops
+                           model-stack
+                           clip-stack
+                           camera-matrix
+                           depth-test
+                           depth-write)))))))))
+    (shouldRepaint [_this _old] true))
+
+;; --- stream wiring ---
+
+(defn- bind-stream->notifier!
+  [frame-stream ^m/ValueNotifier notifier & {:keys [on-error]}]
+  (letfn
+    [(try-set-frame! [frame]
+       (try (validate-frame! frame)
+            (set! (.-value notifier) frame)
+            (catch Exception e
+              (if on-error
+                (on-error e)
+                (dart:core/print (str "Invalid frame rejected: " e))))))
+     (await-next! [cursor]
+       (let [result (ds/next frame-stream cursor)]
+         (cond (map? result) (do (try-set-frame! (:ok result))
+                                 (ds/drain-one! frame-stream)
+                                 (recur (:cursor result)))
+               (= :blocked result) (ds/register-reader-waiter!
+                                     frame-stream
+                                     (:position cursor)
+                                     {:resume resume,
+                                      :reason :next,
+                                      :stream frame-stream,
+                                      :cursor cursor})
+               :else nil)))
+     (resume [rt entry value]
+       (when (some? value)
+         (try-set-frame! value)
+         (ds/drain-one! frame-stream)
+         (await-next! (update (:cursor entry) :position inc)))
+       rt)]
+    (await-next! {:position 0})))
+
+(defn put-frame!
+  [frame-stream frame]
+  (let [{:keys [result woke]} (ds/put! frame-stream frame)]
+    (doseq [{:keys [entry value position]} woke]
+      (let [ready (assoc entry
+                    :value value
+                    :status :ok
+                    :position position)]
+        ((:resume ready) nil ready value)))
+    result))
+
+(defn- frame-widget
+  [^m/ValueNotifier notifier]
+  (m/ValueListenableBuilder.
+    .valueListenable
+    notifier
+    .builder
+    (fn [_ _ _] (m/CustomPaint. .painter (PostgraphicsPainter. notifier)))))
+
+(defn postgraphics-widget
+  "Returns a Flutter widget that renders dao.postgraphics frame programs from
+  frame-stream. Supports an optional :on-error callback."
+  [frame-stream & {:keys [on-error]}]
+  (let [notifier (m/ValueNotifier. [])]
+    (bind-stream->notifier! frame-stream notifier :on-error on-error)
+    (frame-widget notifier)))

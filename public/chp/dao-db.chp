@@ -95,7 +95,7 @@
           [:a {:href "/blog/ast-datom-streams-bytecode-performance.blog"} "bytecode-like execution performance"] " while preserving full semantic queryability."]
          [:p
           "DaoDB is just one interpreter among many. "
-          "The same datom streams can be interpreted differently by other applications—" [:a {:href "/dao-flow.chp"} "DaoFlow"] " renders them as reactive interfaces, "
+          "The same datom streams can be interpreted differently by other applications—" [:a {:href "/post-graphics.chp"} "PostGraphics"] " consumes graphics frame programs derived from them and paints the result, "
           [:a {:href "/shibi.chp"} "Shibi"] " interprets them as economic signals and value flows. "
           "DaoDB provides the " [:strong "database interpreter view"] ": materializing indexes for structured Datalog queries over flowing facts. "
           "Learn how " [:a {:href "/blog/datoms-as-streams.blog"} "datoms flow as streams"] " and why "
@@ -104,6 +104,6 @@
           "See how "
           [:a {:href "/yin.chp"} "Yin"]
           " agents process DaoDB streams, or explore "
-          [:a {:href "/dao-flow.chp"} "DaoFlow"]
-          " to visualize the data."]]])}
+          [:a {:href "/post-graphics.chp"} "PostGraphics"]
+          " to render frame programs into living visuals."]]])}
     template))

@@ -398,7 +398,7 @@
 
           [:ul.bulleted
            [:li [:strong "DaoDB"] " expands datoms into entity graphs"]
-           [:li [:strong "DaoFlow"] " expands datoms into UI trees"]
+           [:li [:strong "PostGraphics"] " expands datoms into UI trees"]
            [:li [:strong "Yin.vm"] " expands datoms into execution semantics"]
            [:li [:strong "Entangled nodes"] " expand streams into distributed timelines"]]
 

@@ -1,4 +1,4 @@
-(ns dao.repl-args)
+(ns yin.repl-args)
 
 
 (defn parse-args

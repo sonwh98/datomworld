@@ -1,4 +1,0 @@
-(ns datomworld.main
-  (:require [datomworld.demo.repl :as repl-demo]))
-
-(defn main [] (repl-demo/main))

@@ -1,11 +1,33 @@
 (ns yin.vm.engine
   (:refer-clojure :exclude [gensym])
   (:require
+    [dao.runtime :as rt]
     [dao.stream :as ds]
     [dao.stream.ringbuffer]
     [yin.module :as module]
+    [yin.vm.runtime-adapter :as adapter]
     [yin.vm.stream-driver :as stream-driver]
     [yin.vm.telemetry :as telemetry]))
+
+
+(defn- rt-result->vm-result
+  ([rt-result] (rt-result->vm-result rt-result nil))
+  ([rt-result effect]
+   (let [base {:state (:state rt-result),
+               :value (if (= :blocked (:result rt-result))
+                        :yin/blocked
+                        (:value rt-result)),
+               :blocked? (or (= :blocked (:result rt-result))
+                             (= :full (:result rt-result))
+                             (= :empty (:result rt-result)))}]
+     (if-let [new-cursor (:cursor rt-result)]
+       (let [cursor-id (:id (:cursor effect))
+             state (:state base)
+             new-store (assoc (:store state)
+                              cursor-id (assoc (get (:store state) cursor-id)
+                                               :position (:position new-cursor)))]
+         (assoc base :state (assoc state :store new-store)))
+       base))))
 
 
 (defn resolve-var
@@ -19,10 +41,13 @@
         (val pair)
         (if-let [resolved (when (namespace name)
                             (module/resolve-module
-                              (symbol (str (namespace name) "." (clojure.core/name name)))))]
+                              (symbol (str (namespace name)
+                                           "."
+                                           (clojure.core/name name)))))]
           resolved
-          (throw (ex-info (str "Unable to resolve symbol: " name " in this context")
-                          {:symbol name})))))))
+          (throw (ex-info
+                   (str "Unable to resolve symbol: " name " in this context")
+                   {:symbol name})))))))
 
 
 (defn- gen-id
@@ -46,16 +71,15 @@
 (defn halted-with-empty-queue?
   "Returns true if the VM has halted and its run-queue is empty."
   [vm]
-  (and (boolean (:halted? vm)) (empty? (or (:run-queue vm) []))))
+  (and (boolean (:halted? vm))
+       (empty? (or (:ready-queue vm) (:ready-queue vm) []))))
 
 
 (defn restore-initial-env
   "After eval, restore :env to initial-env when the computation halted.
    Blocked and parked states keep the active lexical env for resumption."
   [initial-env result]
-  (if (halted-with-empty-queue? result)
-    (assoc result :env initial-env)
-    result))
+  (if (halted-with-empty-queue? result) (assoc result :env initial-env) result))
 
 
 (defn active-continuation?
@@ -74,20 +98,33 @@
 
 
 (defn make-woken-run-queue-entries
-  "Transform transport-level woken entries (readers or writers) into run-queue entries.
+  "Transform transport-level woken entries (readers or writers) into ready-queue entries.
    Readers (with :cursor-ref) compute :store-updates for cursor advance.
-   Writers (no :cursor-ref) just stamp :value."
-  [state woken]
-  (mapv
-    (fn [{:keys [entry value position]}]
-      (if-let [cursor-ref (:cursor-ref entry)]
-        (let [cursor-id (:id cursor-ref)
-              cursor-data (get (:store state) cursor-id)
-              store-updates (when position
-                              {cursor-id (assoc cursor-data :position (inc position))})]
-          (assoc entry :value value :store-updates store-updates))
-        (assoc entry :value value)))
-    woken))
+   Writers (no :cursor-ref) just stamp :value.
+   If restore-fn is provided, wraps entries as dao.runtime tasks."
+  ([state woken] (make-woken-run-queue-entries state woken nil))
+  ([state woken restore-fn]
+   (mapv (fn [{:keys [entry value position], :as woken-entry}]
+           (let [cursor-ref (:cursor-ref entry)
+                 store-updates
+                 (or (:store-updates woken-entry)
+                     (when cursor-ref
+                       (let [cursor-id (:id cursor-ref)
+                             cursor-data (get (:store state) cursor-id)
+                             pos (or position (:position cursor-data))]
+                         {cursor-id (assoc cursor-data
+                                           :position (inc pos))})))
+                 base-entry (assoc entry
+                                   :value value
+                                   :store-updates store-updates
+                                   :position position)]
+             (if restore-fn
+               (let [task (adapter/vm-task base-entry restore-fn)]
+                 (assoc task
+                        :value value
+                        :position position))
+               base-entry)))
+         woken)))
 
 
 (defn handle-make
@@ -95,9 +132,7 @@
    Returns [stream-ref updated-state]."
   [state effect id]
   (let [capacity (:capacity effect)
-        descriptor {:type :ringbuffer
-                    :mode :create
-                    :capacity capacity}
+        descriptor {:type :ringbuffer, :mode :create, :capacity capacity}
         stream (ds/open! descriptor)
         new-store (assoc (:store state) id stream)
         stream-ref {:type :stream-ref, :id id}]
@@ -119,9 +154,7 @@
     (let [result (ds/put! stream val)]
       (if (= :full (:result result))
         {:park true, :stream-id stream-id, :state state}
-        {:value val,
-         :state state,
-         :woke (:woke result)}))))
+        {:value val, :state state, :woke (:woke result)}))))
 
 
 (defn handle-cursor
@@ -186,9 +219,8 @@
     (when (nil? stream)
       (throw (ex-info "Invalid stream reference" {:ref stream-ref})))
     (let [result (ds/drain-one! stream)]
-      (cond (map? result) {:value (:ok result),
-                           :state state,
-                           :woke (:woke result)}
+      (cond (map? result)
+            {:value (:ok result), :state state, :woke (:woke result)}
             (= :empty result) {:park true, :stream-id stream-id, :state state}
             (= :end result) {:value nil, :state state}))))
 
@@ -201,114 +233,47 @@
         stream-id (:id stream-ref)
         stream (get (:store state) stream-id)
         {:keys [woke]} (ds/close! stream)]
-    {:state state,
-     :resume-parked woke}))
+    {:state state, :resume-parked woke}))
 
 
 (defn check-wait-set
   "Check wait-set entries against current store.
-   Returns updated state with newly runnable entries moved to run-queue.
+   Returns updated state with newly runnable entries moved to ready-queue.
 
    NOTE: Transport-local waking (IDaoStreamWaitable) is an optimization that
    removes entries from the scheduler's wait-set. This function serves as the
    universal fallback for transports that do not support local registration."
-  [state]
-  (let [wait-set (or (:wait-set state) [])
-        run-queue (or (:run-queue state) [])]
-    (if (empty? wait-set)
-      state
-      (let [initial-store (:store state)]
-        (loop [remaining wait-set
-               new-wait []
-               new-run run-queue
-               store initial-store]
-          (if (empty? remaining)
-            (assoc state
-                   :wait-set new-wait
-                   :run-queue new-run
-                   :store store)
-            (let [entry (first remaining)
-                  rest-entries (rest remaining)]
-              (case (:reason entry)
-                :next
-                (let [cursor-ref (:cursor-ref entry)
-                      cursor-id (:id cursor-ref)
-                      effect {:effect :stream/next, :cursor cursor-ref}
-                      result (handle-next (assoc state :store store)
-                                          effect)]
-                  (if (:park result)
-                    (recur rest-entries (conj new-wait entry) new-run store)
-                    (let [updated-store (:store (:state result))
-                          cursor-update {cursor-id (get updated-store cursor-id)}]
-                      (recur rest-entries
-                             new-wait
-                             (conj new-run
-                                   (assoc entry
-                                          :value (:value result)
-                                          :store-updates cursor-update))
-                             (or updated-store store)))))
-
-                :take
-                (let [stream-id (:stream-id entry)
-                      stream-ref {:type :stream-ref, :id stream-id}
-                      effect {:effect :stream/take, :stream stream-ref}
-                      result (handle-take (assoc state :store store)
-                                          effect)]
-                  (if (:park result)
-                    (recur rest-entries (conj new-wait entry) new-run store)
-                    (let [updated-store (:store (:state result))
-                          stream-update {stream-id (get updated-store stream-id)}
-                          woken (:woke result)
-                          woken-entries (make-woken-run-queue-entries
-                                          (assoc state :store updated-store)
-                                          woken)]
-                      (recur rest-entries
-                             new-wait
-                             (into new-run
-                                   (cons (assoc entry
-                                                :value (:value result)
-                                                :store-updates stream-update)
-                                         woken-entries))
-                             (or updated-store store)))))
-
-                :put
-                (let [stream-id (:stream-id entry)
-                      stream (get store stream-id)]
-                  (if (ds/closed? stream)
-                    (recur rest-entries
-                           new-wait
-                           (conj new-run (assoc entry :value nil))
-                           store)
-                    (let [datom (:datom entry)
-                          stream-ref {:type :stream-ref, :id stream-id}
-                          effect {:effect :stream/put,
-                                  :stream stream-ref,
-                                  :val datom}
-                          result (handle-put (assoc state
-                                                    :store store)
-                                             effect)]
-                      (if (:park result)
-                        (recur rest-entries
-                               (conj new-wait entry)
-                               new-run
-                               store)
-                        (let [updated-store (:store (:state result))
-                              stream-update {stream-id (get updated-store stream-id)}
-                              woken (:woke result)
-                              woken-entries (make-woken-run-queue-entries
-                                              (assoc state :store updated-store)
-                                              woken)]
-                          (recur rest-entries
-                                 new-wait
-                                 (into new-run
-                                       (cons (assoc entry
-                                                    :value (:value result)
-                                                    :store-updates stream-update)
-                                             woken-entries))
-                                 (or updated-store store)))))))
-
-                ;; Unknown reason, keep waiting
-                (recur rest-entries (conj new-wait entry) new-run store)))))))))
+  ([state] (check-wait-set state nil))
+  ([state restore-fn]
+   (let [wait-set (:wait-set state)
+         store (:store state)
+         augmented-wait-set
+         (mapv (fn [entry]
+                 (cond (and (not (:stream entry)) (:cursor-ref entry))
+                       (let [cursor-id (:id (:cursor-ref entry))
+                             cursor-data (get store cursor-id)
+                             stream-id (:stream-id cursor-data)
+                             stream (get store stream-id)]
+                         (assoc entry
+                                :stream stream
+                                :cursor {:position (:position cursor-data)}))
+                       (and (not (:stream entry)) (:stream-id entry))
+                       (assoc entry :stream (get store (:stream-id entry)))
+                       :else entry))
+               wait-set)
+         rt-result (rt/check-wait-set (assoc state
+                                             :wait-set augmented-wait-set))
+         ;; rt/check-wait-set moved entries from its :wait-set to its
+         ;; :ready-queue. These are raw dao.runtime entries. We need to
+         ;; wrap them for the VM.
+         woken (mapv (fn [entry]
+                       {:entry entry,
+                        :value (:value entry),
+                        :position (:position entry),
+                        :store-updates (:store-updates entry)})
+                     (:ready-queue rt-result))
+         new-tasks (make-woken-run-queue-entries state woken restore-fn)]
+     (assoc rt-result :ready-queue new-tasks))))
 
 
 (declare handle-effect resume-continuation)
@@ -318,27 +283,27 @@
   "Generic eval loop with scheduler support.
    active? is a predicate that returns true when the VM should keep stepping.
    step-fn steps the VM one tick.
-   resume-fn pops the run-queue and resumes, returning updated state or nil."
-  [state active? step-fn resume-fn]
+   resume-fn pops the ready-queue and resumes, returning updated state or nil."
+  [state active? step-fn resume-fn restore-fn]
   (loop [v state]
-    (cond (active? v) (recur (step-fn v))
-          (:blocked? v) (let [v' (check-wait-set v)]
-                          (if-let [resumed (resume-fn v')]
-                            (recur resumed)
-                            (telemetry/emit-snapshot v' :blocked)))
-          (seq (or (:run-queue v) [])) (if-let [resumed (resume-fn v)]
-                                         (recur resumed)
-                                         v)
-          :else (if (:halted? v)
-                  (telemetry/emit-snapshot v :halt)
-                  v))))
+    (let [q (or (:ready-queue v) [])]
+      (cond (active? v) (recur (step-fn v))
+            (:blocked? v) (let [v' (check-wait-set v restore-fn)]
+                            (if-let [resumed (or (rt/run-once v')
+                                                 (resume-fn v'))]
+                              (recur resumed)
+                              (telemetry/emit-snapshot v' :blocked)))
+            (seq q) (if-let [resumed (or (rt/run-once v) (resume-fn v))]
+                      (recur resumed)
+                      v)
+            :else (if (:halted? v) (telemetry/emit-snapshot v :halt) v)))))
 
 
 (defn run-on-stream
   "Run a VM while polling its ingress DaoStream between evaluations.
    Internal VM blocking still returns immediately; ingress polling only happens
    when the VM is idle between program batches."
-  [vm in-stream load-fn step-fn resume-fn]
+  [vm in-stream load-fn step-fn resume-fn restore-fn]
   (loop [v vm]
     (if (and in-stream (ready-for-ingress? v))
       (let [{:keys [status state]} (ingest-next-program v in-stream load-fn)]
@@ -347,32 +312,35 @@
           state))
       (if (ready-for-ingress? v)
         v
-        (let [v' (run-loop v active-continuation? step-fn resume-fn)]
-          (if (and in-stream
-                   (not (:blocked? v'))
-                   (ready-for-ingress? v'))
+        (let [v' (run-loop v active-continuation? step-fn resume-fn restore-fn)]
+          (if (and in-stream (not (:blocked? v')) (ready-for-ingress? v'))
             (recur v')
             v'))))))
 
 
 (defn- resume-entries-with-nil
   "Set :value to nil on each entry, for waking parked continuations after stream close.
-   Handles raw transport entries {:entry map, :value val}."
-  [entries]
-  (mapv (fn [{:keys [entry]}]
-          (assoc entry :value nil))
-        entries))
+   Handles raw transport entries {:entry map, :value val}.
+   If restore-fn is provided, wraps entries as dao.runtime tasks."
+  ([entries] (resume-entries-with-nil entries nil))
+  ([entries restore-fn]
+   (mapv (fn [{:keys [entry]}]
+           (if restore-fn
+             (let [task (adapter/vm-task entry restore-fn)]
+               (assoc task :value nil))
+             (assoc entry :value nil)))
+         entries)))
 
 
 (defn resume-from-run-queue
   "Pop first entry from run-queue, merge store-updates, and restore VM-specific context."
   [state restore-fn]
-  (let [run-queue (or (:run-queue state) [])]
+  (let [run-queue (or (:ready-queue state) [])]
     (when (seq run-queue)
       (let [entry (first run-queue)
             rest-queue (subvec run-queue 1)
             base (assoc state
-                        :run-queue rest-queue
+                        :ready-queue rest-queue
                         :store (merge (:store state) (:store-updates entry))
                         :blocked? false
                         :halted? false)]
@@ -425,7 +393,7 @@
                     (throw (ex-info "Parked entry required for blocking stream"
                                     {:result result})))
           new-state (-> (:state result)
-                        (add-wait-entry entry)
+                        (rt/park-task entry)
                         (assoc :value :yin/blocked
                                :blocked? true
                                :halted? false))]
@@ -436,7 +404,7 @@
 (defn handle-effect
   "Dispatch an effect and return {:state updated-state :value v :blocked? bool}.
    park-entry-fns maps :stream/put/:stream/next etc to functions that build wait entries."
-  [state effect {:keys [park-entry-fns] :as opts}]
+  [state effect {:keys [park-entry-fns restore-fn], :as opts}]
   (let [park-entry (get park-entry-fns (:effect effect))
         result
         (case (:effect effect)
@@ -445,78 +413,140 @@
                                                      (:key effect) (:val effect))),
                          :value (:val effect),
                          :blocked? false}
-          :stream/make (let [[id s'] (gensym state "stream")
-                             [stream-ref new-state]
-                             (handle-make s' effect id)]
-                         {:state new-state, :value stream-ref, :blocked? false})
-          :stream/cursor (let [[id s'] (gensym state "cursor")
-                               [cursor-ref new-state]
-                               (handle-cursor s' effect id)]
-                           {:state new-state, :value cursor-ref, :blocked? false})
-          :stream/put (let [result (handle-put state effect)]
-                        (if (:park result)
-                          (let [built-entry (when park-entry (park-entry state effect result))
-                                stream-id   (:stream-id result)
-                                stream      (get (:store state) stream-id)]
-                            (if (and built-entry (satisfies? ds/IDaoStreamWaitable stream))
-                              (do (ds/register-writer-waiter! stream built-entry)
-                                  {:state (assoc (:state result) :blocked? true :halted? false
-                                                 :value :yin/blocked)
-                                   :value :yin/blocked
-                                   :blocked? true})
-                              (handle-stream-block result built-entry)))
-                          (let [woken (:woke result)
-                                base {:state (:state result), :value (:value result), :blocked? false}]
-                            (if (seq woken)
-                              (let [entries (make-woken-run-queue-entries (:state result) woken)]
-                                (update base :state update :run-queue into entries))
-                              base))))
-          :stream/next (let [result (handle-next state effect)]
-                         (if (:park result)
-                           (let [built-entry (when park-entry (park-entry state effect result))
-                                 stream-id   (:stream-id result)
-                                 stream      (get (:store state) stream-id)
-                                 cursor-id   (:id (:cursor-ref result))
-                                 position    (:position (get (:store state) cursor-id))]
-                             (if (and built-entry (satisfies? ds/IDaoStreamWaitable stream))
-                               (do (ds/register-reader-waiter! stream position built-entry)
-                                   {:state (assoc (:state result) :blocked? true :halted? false
-                                                  :value :yin/blocked)
-                                    :value :yin/blocked
-                                    :blocked? true})
-                               (handle-stream-block result built-entry)))
-                           {:state (:state result), :value (:value result), :blocked? false}))
-          :stream/take (let [result (handle-take state effect)]
-                         (if (:park result)
-                           (handle-stream-block result
-                                                (when park-entry
-                                                  (park-entry state effect result)))
-                           (let [woken (:woke result)
-                                 base {:state (:state result), :value (:value result), :blocked? false}]
-                             (if (seq woken)
-                               (let [entries (make-woken-run-queue-entries (:state result) woken)]
-                                 (update base :state update :run-queue into entries))
-                               base))))
-          :stream/close (let [close-result (handle-close state effect)
-                              new-state (:state close-result)
-                              to-resume (:resume-parked close-result)
-                              run-queue (or (:run-queue new-state) [])
-                              new-run-queue (into run-queue
-                                                  (resume-entries-with-nil
-                                                    to-resume))]
-                          {:state (assoc new-state :run-queue new-run-queue),
-                           :value nil,
-                           :blocked? false})
-
+          :stream/make
+          (let [[id s'] (gensym state "stream")
+                [stream-ref new-state] (handle-make s' effect id)]
+            {:state new-state, :value stream-ref, :blocked? false})
+          :stream/cursor
+          (let [[id s'] (gensym state "cursor")
+                [cursor-ref new-state] (handle-cursor s' effect id)]
+            {:state new-state, :value cursor-ref, :blocked? false})
+          :stream/put
+          (let [result (handle-put state effect)]
+            (if (:park result)
+              (let [built-entry (when park-entry
+                                  (park-entry state effect result))
+                    stream-id (:stream-id result)
+                    stream (get (:store state) stream-id)
+                    ;; Augment for dao.runtime compatibility
+                    built-entry
+                    (cond-> built-entry
+                      (and built-entry (not (:stream built-entry)))
+                      (assoc :stream stream)
+                      (and built-entry (not (:datom built-entry)))
+                      (assoc :datom (:val effect)))
+                    task (when (and built-entry restore-fn)
+                           (adapter/vm-task built-entry restore-fn))]
+                (if (satisfies? ds/IDaoStreamWaitable stream)
+                  (if task
+                    (rt-result->vm-result
+                      (rt/handle-write state stream (:val effect) task)
+                      effect)
+                    (do (ds/register-writer-waiter! stream built-entry)
+                        {:state (assoc (:state result)
+                                       :blocked? true
+                                       :halted? false
+                                       :value :yin/blocked),
+                         :value :yin/blocked,
+                         :blocked? true}))
+                  (handle-stream-block result (or task built-entry))))
+              (let [woken (:woke result)
+                    base {:state (:state result),
+                          :value (:value result),
+                          :blocked? false}]
+                (if (seq woken)
+                  (let [entries (make-woken-run-queue-entries (:state
+                                                                result)
+                                                              woken
+                                                              restore-fn)]
+                    (update base :state update :ready-queue into entries))
+                  base))))
+          :stream/next
+          (let [result (handle-next state effect)]
+            (if (:park result)
+              (let [built-entry (when park-entry
+                                  (park-entry state effect result))
+                    stream-id (:stream-id result)
+                    stream (get (:store state) stream-id)
+                    cursor-id (:id (:cursor-ref result))
+                    position (:position (get (:store state) cursor-id))
+                    ;; Augment for dao.runtime compatibility
+                    built-entry
+                    (cond-> built-entry
+                      (and built-entry (not (:stream built-entry)))
+                      (assoc :stream stream)
+                      (and built-entry (not (:cursor built-entry)))
+                      (assoc :cursor {:position position}))
+                    task (when (and built-entry restore-fn)
+                           (adapter/vm-task built-entry restore-fn))]
+                (if (satisfies? ds/IDaoStreamWaitable stream)
+                  (if task
+                    (rt-result->vm-result (rt/handle-read state
+                                                          stream
+                                                          {:position
+                                                           position}
+                                                          task)
+                                          effect)
+                    (do (ds/register-reader-waiter! stream
+                                                    position
+                                                    built-entry)
+                        {:state (assoc (:state result)
+                                       :blocked? true
+                                       :halted? false
+                                       :value :yin/blocked),
+                         :value :yin/blocked,
+                         :blocked? true}))
+                  (handle-stream-block result (or task built-entry))))
+              {:state (:state result),
+               :value (:value result),
+               :blocked? false}))
+          :stream/take
+          (let [result (handle-take state effect)]
+            (if (:park result)
+              (let [built-entry (when park-entry
+                                  (park-entry state effect result))
+                    stream-id (:stream-id result)
+                    stream (get (:store state) stream-id)
+                    ;; Augment for dao.runtime compatibility
+                    built-entry (cond-> built-entry
+                                  (and built-entry
+                                       (not (:stream built-entry)))
+                                  (assoc :stream stream))
+                    task (when (and built-entry restore-fn)
+                           (adapter/vm-task built-entry restore-fn))]
+                (handle-stream-block result (or task built-entry)))
+              (let [woken (:woke result)
+                    base {:state (:state result),
+                          :value (:value result),
+                          :blocked? false}]
+                (if (seq woken)
+                  (let [entries (make-woken-run-queue-entries (:state
+                                                                result)
+                                                              woken
+                                                              restore-fn)]
+                    (update base :state update :ready-queue into entries))
+                  base))))
+          :stream/close
+          (let [close-result (handle-close state effect)
+                new-state (:state close-result)
+                to-resume (:resume-parked close-result)
+                run-queue (or (:ready-queue new-state) [])
+                new-run-queue (into run-queue
+                                    (resume-entries-with-nil to-resume
+                                                             restore-fn))]
+            {:state (assoc new-state :ready-queue new-run-queue),
+             :value nil,
+             :blocked? false})
           (let [[id s'] (gensym state "effect")
                 handler (module/get-effect-handler (:effect effect))]
             (if handler
               (handler s' effect (assoc opts :id id))
-              (throw (ex-info "Unknown effect" {:effect (:effect effect)})))))]
-
+              (throw (ex-info "Unknown effect"
+                              {:effect (:effect effect)})))))]
     (update result
             :state
             (fn [result-state]
-              (telemetry/emit-snapshot (assoc result-state :value (:value result))
+              (telemetry/emit-snapshot (assoc result-state
+                                              :value (:value result))
                                        :effect
                                        {:effect-type (:effect effect)})))))

@@ -1,10 +1,10 @@
-(ns dao.repl-main.cljd
+(ns yin.repl-main.cljd
   (:require ["dart:io" :as io :refer [stdout]]
             ["dart:async" :as async]
             ["dart:convert" :as convert]
             [clojure.string :as str]
-            [dao.repl :as repl]
-            [dao.repl-args :as repl-args]))
+            [yin.repl :as repl]
+            [yin.repl-args :as repl-args]))
 
 
 (defn- write-out! [message] (print message))
@@ -13,10 +13,10 @@
 (defn- write-err! [message] (binding [*out* *err*] (println message)))
 
 
-(defn- print-prompt! [] (.write stdout "dao> ") (.flush stdout))
+(defn- print-prompt! [] (.write stdout "yin> ") (.flush stdout))
 
 
-(defn- print-continuation-prompt! [] (.write stdout "dao.. ") (.flush stdout))
+(defn- print-continuation-prompt! [] (.write stdout "yin.. ") (.flush stdout))
 
 
 (defn- clean-cljd-input
@@ -157,7 +157,7 @@
             (let [state-atom (atom state)
                   server (when-let [port (:port opts)]
                            (write-out!
-                             (str "Dao REPL server listening on ws://localhost:"
+                             (str "Yin REPL server listening on ws://localhost:"
                                   port))
                            (repl/serve! state-atom port))]
               (if (and (:headless? opts) (not server))

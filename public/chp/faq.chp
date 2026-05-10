@@ -19,12 +19,12 @@
              " (a compiler), "
              [:a {:href "/dao-db.chp"} "DaoDB"]
              " (a datom stream interpreter), "
-             [:a {:href "/dao-flow.chp"} "DaoFlow"]
-             " (a rendering engine), and "
+             [:a {:href "/post-graphics.chp"} "PostGraphics"]
+             " (a graphics frame vocabulary and renderer), and "
              [:a {:href "/shibi.chp"} "Shibi"]
              " (an economic primitive)."]
             [:p
-             "All apps work the same way: they consume datom streams and interpret them. DaoDB interprets them as queryable indexes, DaoFlow interprets them as renderable interfaces, Shibi interprets them as economic signals. "
+             "All apps work the same way: they consume datom streams and interpret them. DaoDB interprets them as queryable indexes, PostGraphics interprets graphics frame programs as drawn output, Shibi interprets them as economic signals. "
              "The radical move is unifying code, data, and computation into a single primitive (the datom stream), making programs queryable, mobile, and evolvable."]]]
           [:details.faq
            [:summary "What is a datom, exactly?"]
@@ -134,7 +134,7 @@
            [:div
             [:p
              "Use "
-             [:code "dao.repl"]
+             [:code "yin.repl"]
              ", a portable REPL that evaluates Clojure, Python, or PHP source through Yang into Yin. "
              "You can switch VMs at the prompt with "
              [:code "(vm :semantic)"]
@@ -146,7 +146,7 @@
              [:code "(vm :ast-walker)"]
              ", switch languages with "
              [:code "(lang :clojure)"]
-             ", and connect to a remote dao.repl over WebSocket with "
+             ", and connect to a remote yin.repl over WebSocket with "
              [:code "(connect \"daostream:ws://host:port\")"]
              ". The REPL is available on the JVM, Node, and Dart."]]]
           [:details.faq
@@ -194,7 +194,7 @@
             [:p
              "ClojureDart does not ship a full socket REPL. That is a real loss: interactive development is one of Clojure's best properties, and mobile work is where you need it most. "
              "Embedding Yin.VM into a Flutter app restores it. The app carries a full "
-             [:code "dao.repl"]
+             [:code "yin.repl"]
              " reachable over WebSocket, so you can connect from your laptop and evaluate code directly inside the running Android or iOS process. "
              "Calls into native platform code go through "
              [:code "dao.stream.apply"]

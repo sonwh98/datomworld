@@ -112,8 +112,8 @@
 
 
 (defonce app-state
-  (let [{:keys [k-stream cursors pending-ks]}
-        (ct/init-state [:register-vm :stack-vm])]
+  (let [{:keys [k-stream cursors pending-ks]} (ct/init-state [:register-vm
+                                                              :stack-vm])]
     (r/atom
       {:source-code source-example,
        :ast nil,
@@ -148,11 +148,7 @@
 
 (defn k-depth
   [k]
-  (loop [frame k
-         depth 0]
-    (if frame
-      (recur (:next frame) (inc depth))
-      depth)))
+  (loop [frame k depth 0] (if frame (recur (:next frame) (inc depth)) depth)))
 
 
 (defn k-frames
@@ -186,8 +182,7 @@
 
 (defn vm-k-depth
   [_ vm-state]
-  (when vm-state
-    (count (or (vm/continuation vm-state) []))))
+  (when vm-state (count (or (vm/continuation vm-state) []))))
 
 
 (defn vm-state->k
@@ -207,9 +202,10 @@
 
 (defn- queue-vm
   [vm-state datoms]
-  (let [in-stream (ds/open! {:type :ringbuffer
-                             :capacity nil})
-        queued-vm (assoc vm-state :in-stream in-stream :in-cursor {:position 0})]
+  (let [in-stream (ds/open! {:type :ringbuffer, :capacity nil})
+        queued-vm (assoc vm-state
+                         :in-stream in-stream
+                         :in-cursor {:position 0})]
     (ds/put! in-stream (vec datoms))
     queued-vm))
 
@@ -250,8 +246,7 @@
       [state false]
       (let [[state* message] (ct/consume-k-for state owner)]
         (if message
-          [(assoc state*
-                  owner (k->vm-state owner (:k message))) true]
+          [(assoc state* owner (k->vm-state owner (:k message))) true]
           [state* false])))))
 
 
@@ -266,8 +261,8 @@
 (defn invalidate-compiled-state!
   []
   (stop-run-loop!)
-  (let [{:keys [k-stream cursors pending-ks]}
-        (ct/init-state [:register-vm :stack-vm])]
+  (let [{:keys [k-stream cursors pending-ks]} (ct/init-state [:register-vm
+                                                              :stack-vm])]
     (swap! app-state assoc
            :ast nil
            :ast-datoms nil
@@ -307,8 +302,8 @@
   (let [{:keys [ast-datoms]} @app-state]
     (when ast-datoms
       (stop-run-loop!)
-      (let [{:keys [k-stream cursors pending-ks]}
-            (ct/init-state [:register-vm :stack-vm])
+      (let [{:keys [k-stream cursors pending-ks]} (ct/init-state [:register-vm
+                                                                  :stack-vm])
             initial-vm (create-loaded-register-vm ast-datoms)]
         (swap! app-state assoc
                :register-vm initial-vm
@@ -340,8 +335,8 @@
              stack-pool :pool,
              stack-source-map :source-map}
             (stack/assemble stack-asm)
-            {:keys [k-stream cursors pending-ks]}
-            (ct/init-state [:register-vm :stack-vm])
+            {:keys [k-stream cursors pending-ks]} (ct/init-state [:register-vm
+                                                                  :stack-vm])
             initial-vm (create-loaded-register-vm ast-datoms)]
         (swap! app-state assoc
                :ast ast
@@ -479,7 +474,7 @@
          :continuation {:depth (count (or continuation [])),
                         :frames (stack-k-frames continuation)},
          :stack (:stack vm-state),
-         :run-queue-count (count (or (:run-queue vm-state) [])),
+         :ready-queue-count (count (or (:ready-queue vm-state) [])),
          :wait-set-count (count (or (:wait-set vm-state) [])),
          :value (:value vm-state)}
         {:control {:control control,
@@ -492,7 +487,7 @@
          :continuation {:depth (count (or continuation [])),
                         :frames (k-frames continuation)},
          :registers (:regs vm-state),
-         :run-queue-count (count (or (:run-queue vm-state) [])),
+         :ready-queue-count (count (or (:ready-queue vm-state) [])),
          :wait-set-count (count (or (:wait-set vm-state) [])),
          :value (:value vm-state)}))))
 
@@ -674,8 +669,8 @@
      (fn []
        (let [{:keys [source-code register-asm register-bytecode register-pool
                      register-reg-count stack-asm stack-bytecode stack-pool
-                     k-stream cursors steps handoffs owner
-                     completed? result error]}
+                     k-stream cursors steps handoffs owner completed? result
+                     error]}
              @app-state
              register-vm (:register-vm @app-state)
              stack-vm (:stack-vm @app-state)

@@ -227,7 +227,7 @@
 
           [:p
            "DaoDB is just one such interpreter. It materializes queryable indexes from the stream, and then Datalog queries "
-           "run against those indexes. But the frontend (DaoFlow), the backend (Yin.VM continuations), and analytics pipelines "
+           "run against those indexes. But the frontend (PostGraphics), the backend (Yin.VM continuations), and analytics pipelines "
            "are all equally valid interpreters, each transforming the same stream into their own specialized data structures."]
 
           [:h3 "1. Everything is a stream"]
@@ -355,11 +355,11 @@
             " Business logic runs as a continuation in Yin.VM, consuming datoms and producing new datoms. "
             "Its state is explicit and serializable."]
            [:li
-            [:strong "The frontend is also a continuation:"]
-            " Using "
-            [:a {:href "/dao-flow.chp"} "DaoFlow"]
-            ", the UI renders by interpreting the datom stream as a continuation that can pause and resume. "
-            "You can use React with Reagent, or any rendering approach. The frontend consumes the stream and materializes views. "
+            [:strong "The frontend consumes streams:"]
+            " A producer emits "
+            [:a {:href "/post-graphics.chp"} "PostGraphics"]
+            " frame programs derived from the datom stream; a terminal paints them. "
+            "You can layer Reagent-style authoring on top, or feed any other producer that emits valid frames. "
             "No separate TypeScript interface, just interpreters over the stream."]]
 
           [:p
@@ -699,7 +699,7 @@
               ": Reacts to order streams"]
              [:li
               [:code "components/ui-interpreter"]
-              ": Reacts to state streams to render HTML (DaoFlow)"]]]]
+              ": Reacts to state streams to render HTML (PostGraphics)"]]]]
 
           [:p
            "The simplification: If you use Datom.World, your Polylith structure becomes incredibly boring. "
@@ -914,7 +914,7 @@
            [:li [:a {:href "/yin.chp"} "Yin.VM"] ": The CESK continuation machine"]
            [:li [:a {:href "/dao-stream.chp"} "DaoStream"] ": Universal streaming API"]
            [:li [:a {:href "/dao-db.chp"} "DaoDB"] ": Materialized views from streams"]
-           [:li [:a {:href "/dao-flow.chp"} "DaoFlow"] ": Reactive UI interpretation"]]
+           [:li [:a {:href "/post-graphics.chp"} "PostGraphics"] ": Frame-program graphics vocabulary and renderer"]]
 
           [:p [:em "Related:"]]
           [:ul.bulleted

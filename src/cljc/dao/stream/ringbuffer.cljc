@@ -16,16 +16,18 @@
 (def ^:private put-result-key ::put-result)
 (def ^:private closed-put-result ::closed)
 (def ^:private take-result-key ::take-result)
+(def ^:private default-eviction-policy :reject)
+(def ^:private supported-eviction-policies #{:reject :evict-oldest})
 
 
 (defn- initial-state
   ([] (initial-state 0))
   ([position]
-   {:buffer {}
-    :head position
-    :tail position
-    :closed false
-    :reader-waiters {}
+   {:buffer {},
+    :head position,
+    :tail position,
+    :closed false,
+    :reader-waiters {},
     :writer-waiters []}))
 
 
@@ -34,29 +36,57 @@
   (- (:tail state) (:head state)))
 
 
+(defn- normalize-eviction-policy
+  [eviction-policy]
+  (let [policy (or eviction-policy default-eviction-policy)]
+    (when-not (contains? supported-eviction-policies policy)
+      (throw (ex-info "Unsupported ringbuffer eviction policy"
+                      {:eviction-policy eviction-policy,
+                       :supported-policies supported-eviction-policies})))
+    policy))
+
+
+(defn- append-state
+  [state val]
+  (let [tail (:tail state)
+        woken-entry (get (:reader-waiters state) tail)
+        next-state (-> state
+                       (assoc-in [:buffer tail] val)
+                       (update :tail inc))]
+    (if woken-entry
+      (-> next-state
+          (update :reader-waiters dissoc tail)
+          (assoc put-result-key {:ok :ok, :woken-entry woken-entry}))
+      (assoc next-state put-result-key {:ok :ok}))))
+
+
+(defn- evict-oldest-state
+  [state]
+  (let [head (:head state)
+        tail (:tail state)]
+    (if (< head tail)
+      (-> state
+          (update :buffer dissoc head)
+          (update :head inc))
+      state)))
+
+
 (defn- put-state
-  [state capacity val]
+  [state capacity eviction-policy val]
   (let [head (:head state)
         tail (:tail state)
         available (- tail head)]
-    (cond
-      (:closed state)
-      (assoc state put-result-key closed-put-result)
-
-      (and capacity (>= available capacity))
-      (assoc state put-result-key :full)
-
-      :else
-      (let [woken-entry (get (:reader-waiters state) tail)
-            next-state (-> state
-                           (assoc-in [:buffer tail] val)
-                           (update :tail inc))]
-        (if woken-entry
-          (-> next-state
-              (update :reader-waiters dissoc tail)
-              (assoc put-result-key {:ok :ok
-                                     :woken-entry woken-entry}))
-          (assoc next-state put-result-key {:ok :ok}))))))
+    (cond (:closed state) (assoc state put-result-key closed-put-result)
+          (and capacity (>= available capacity))
+          (case eviction-policy
+            :evict-oldest (if (pos? capacity)
+                            (recur (evict-oldest-state state)
+                                   capacity
+                                   eviction-policy
+                                   val)
+                            (assoc state put-result-key :full))
+            :reject (assoc state put-result-key :full))
+          :else (append-state state val))))
 
 
 (defn- put-outcome
@@ -67,12 +97,11 @@
     (let [{:keys [woken-entry]} put-result]
       (if (= :full put-result)
         {:result :full}
-        {:result :ok
-         :woke (if woken-entry
-                 [{:entry woken-entry
-                   :value val
-                   :position (dec (:tail state))}]
-                 [])}))))
+        {:result :ok,
+         :woke
+         (if woken-entry
+           [{:entry woken-entry, :value val, :position (dec (:tail state))}]
+           [])}))))
 
 
 (defn- next-outcome
@@ -80,30 +109,26 @@
   (let [pos (:position cursor)
         head (:head state)
         tail (:tail state)]
-    (cond
-      (< pos head) :daostream/gap
-      (< pos tail) {:ok (get-in state [:buffer pos])
-                    :cursor (update cursor :position inc)}
-      (:closed state) :end
-      :else :blocked)))
+    (cond (< pos head) :daostream/gap
+          (< pos tail) {:ok (get-in state [:buffer pos]),
+                        :cursor (update cursor :position inc)}
+          (:closed state) :end
+          :else :blocked)))
 
 
 (defn- close-state
   [state]
-  (assoc state :closed true
+  (assoc state
+         :closed true
          :reader-waiters {}
          :writer-waiters []))
 
 
 (defn- close-outcome
   [state]
-  (let [reader-woken (mapv (fn [[_pos entry]]
-                             {:entry entry
-                              :value nil})
+  (let [reader-woken (mapv (fn [[_pos entry]] {:entry entry, :value nil})
                            (:reader-waiters state))
-        writer-woken (mapv (fn [entry]
-                             {:entry entry
-                              :value nil})
+        writer-woken (mapv (fn [entry] {:entry entry, :value nil})
                            (:writer-waiters state))]
     {:woke (into reader-woken writer-woken)}))
 
@@ -142,18 +167,14 @@
                 (assoc-in [:buffer tail'] datom)
                 (update :tail inc)
                 (update :writer-waiters (comp vec rest))
-                (cond-> reader-entry
-                  (update :reader-waiters dissoc tail'))
+                (cond-> reader-entry (update :reader-waiters dissoc tail'))
                 (assoc take-result-key
-                       {:ok val
-                        :woke (cond-> [{:entry writer-entry
-                                        :value datom}]
-                                reader-entry
-                                (conj {:entry reader-entry
-                                       :value datom
-                                       :position tail'}))})))
-          (assoc state' take-result-key {:ok val
-                                         :woke []})))
+                       {:ok val,
+                        :woke (cond-> [{:entry writer-entry, :value datom}]
+                                reader-entry (conj {:entry reader-entry,
+                                                    :value datom,
+                                                    :position tail'}))})))
+          (assoc state' take-result-key {:ok val, :woke []})))
       (if (:closed state)
         (assoc state take-result-key :end)
         (assoc state take-result-key :empty)))))
@@ -166,28 +187,25 @@
 
 #?(:cljd
    (deftype RingBufferStream
-     [capacity state-atom]
+     [capacity eviction-policy state-atom]
 
      cljd.core/ICounted
 
-     (-count
-       [_]
-       (count-state @state-atom))
+     (-count [_] (count-state @state-atom))
 
 
      ds/IDaoStreamWriter
 
      (put!
        [_this val]
-       (let [result (swap! state-atom put-state capacity val)]
+       (let [result
+             (swap! state-atom put-state capacity eviction-policy val)]
          (put-outcome result val)))
 
 
      ds/IDaoStreamReader
 
-     (next
-       [_this cursor]
-       (next-outcome @state-atom cursor))
+     (next [_this cursor] (next-outcome @state-atom cursor))
 
 
      ds/IDaoStreamBound
@@ -220,88 +238,79 @@
        [_this]
        (let [result (swap! state-atom drain-one-state)]
          (drain-one-outcome result))))
+   :clj (deftype RingBufferStream
+          [capacity eviction-policy state-atom]
 
-   :clj
-   (deftype RingBufferStream
-     [capacity state-atom]
+          clojure.lang.Counted
 
-     clojure.lang.Counted
-
-     (count
-       [_]
-       (count-state @state-atom))
+          (count [_] (count-state @state-atom))
 
 
-     ds/IDaoStreamWriter
+          ds/IDaoStreamWriter
 
-     (put!
-       [_this val]
-       (let [result (swap! state-atom put-state capacity val)]
-         (put-outcome result val)))
-
-
-     ds/IDaoStreamReader
-
-     (next
-       [_this cursor]
-       (next-outcome @state-atom cursor))
+          (put!
+            [_this val]
+            (let [result
+                  (swap! state-atom put-state capacity eviction-policy val)]
+              (put-outcome result val)))
 
 
-     ds/IDaoStreamBound
+          ds/IDaoStreamReader
 
-     (close!
-       [_this]
-       (let [result @state-atom]
-         (swap! state-atom close-state)
-         (close-outcome result)))
+          (next [_this cursor] (next-outcome @state-atom cursor))
 
 
-     (closed? [_this] (closed-state? @state-atom))
+          ds/IDaoStreamBound
+
+          (close!
+            [_this]
+            (let [result @state-atom]
+              (swap! state-atom close-state)
+              (close-outcome result)))
 
 
-     ds/IDaoStreamWaitable
-
-     (register-reader-waiter!
-       [_this position entry]
-       (swap! state-atom register-reader-waiter-state position entry))
+          (closed? [_this] (closed-state? @state-atom))
 
 
-     (register-writer-waiter!
-       [_this entry]
-       (swap! state-atom register-writer-waiter-state entry))
+          ds/IDaoStreamWaitable
+
+          (register-reader-waiter!
+            [_this position entry]
+            (swap! state-atom register-reader-waiter-state position entry))
 
 
-     ds/IDaoStreamDrainable
+          (register-writer-waiter!
+            [_this entry]
+            (swap! state-atom register-writer-waiter-state entry))
 
-     (-drain-one!
-       [_this]
-       (let [result (swap! state-atom drain-one-state)]
-         (drain-one-outcome result))))
 
+          ds/IDaoStreamDrainable
+
+          (-drain-one!
+            [_this]
+            (let [result (swap! state-atom drain-one-state)]
+              (drain-one-outcome result))))
    :default
    (deftype RingBufferStream
-     [capacity state-atom]
+     [capacity eviction-policy state-atom]
 
      ICounted
 
-     (-count
-       [_]
-       (count-state @state-atom))
+     (-count [_] (count-state @state-atom))
 
 
      ds/IDaoStreamWriter
 
      (put!
        [_this val]
-       (let [result (swap! state-atom put-state capacity val)]
+       (let [result
+             (swap! state-atom put-state capacity eviction-policy val)]
          (put-outcome result val)))
 
 
      ds/IDaoStreamReader
 
-     (next
-       [_this cursor]
-       (next-outcome @state-atom cursor))
+     (next [_this cursor] (next-outcome @state-atom cursor))
 
 
      ds/IDaoStreamBound
@@ -336,37 +345,42 @@
          (drain-one-outcome result)))))
 
 
+(defn- make-ring-buffer-stream*
+  [capacity eviction-policy position]
+  (->RingBufferStream capacity
+                      (normalize-eviction-policy eviction-policy)
+                      (atom (initial-state position))))
+
+
 (defn make-ring-buffer-stream
-  ([capacity]
-   (make-ring-buffer-stream capacity 0))
-  ([capacity position]
-   (->RingBufferStream capacity (atom (initial-state position)))))
+  ([capacity] (make-ring-buffer-stream capacity 0))
+  ([capacity position] (make-ring-buffer-stream* capacity nil position)))
 
 
 #?(:cljd
-   (do
-     (deftype RingBufferOpenMethod
-       []
-       :type-only true
+   (do (deftype RingBufferOpenMethod
+         []
+         :type-only
+         true
 
-       cljd.core/IFn
+         cljd.core/IFn
 
-       (-invoke
-         [_ ^dynamic table]
-         (assoc! table
-                 :ringbuffer
-                 (fn [descriptor]
-                   (let [capacity (:capacity descriptor)]
-                     (make-ring-buffer-stream capacity))))))
-
-     (contribute* :multi-method
-                  dao.stream/open!
-                  dao.stream.ringbuffer/RingBufferOpenMethod
-                  dao.stream.ringbuffer/RingBufferOpenMethod))
-   :default
-   (defmethod ds/open! :ringbuffer [descriptor]
-     (let [capacity (:capacity descriptor)]
-       (make-ring-buffer-stream capacity))))
+         (-invoke
+           [_ ^dynamic table]
+           (assoc!
+             table
+             :ringbuffer
+             (fn [descriptor]
+               (let [{:keys [capacity eviction-policy]} descriptor]
+                 (make-ring-buffer-stream* capacity eviction-policy 0))))))
+       (contribute* :multi-method
+                    dao.stream/open!
+                    dao.stream.ringbuffer/RingBufferOpenMethod
+                    dao.stream.ringbuffer/RingBufferOpenMethod))
+   :default (defmethod ds/open! :ringbuffer
+              [descriptor]
+              (let [{:keys [capacity eviction-policy]} descriptor]
+                (make-ring-buffer-stream* capacity eviction-policy 0))))
 
 
 ;; ============================================================
@@ -375,39 +389,38 @@
 
 (defn make
   ([] (make nil))
-  ([cap] {:effect :stream/make,   :capacity cap}))
+  ([cap] {:effect :stream/make, :capacity cap}))
 
 
 (defn put!
   [s v]
-  {:effect :stream/put,           :stream s, :val v})
+  {:effect :stream/put, :stream s, :val v})
 
 
 (defn cursor
   [s]
-  {:effect :stream/cursor,        :stream s})
+  {:effect :stream/cursor, :stream s})
 
 
 (defn next!
   [c]
-  {:effect :stream/next,          :cursor c})
+  {:effect :stream/next, :cursor c})
 
 
 (defn take!
   [s]
-  {:effect :stream/take,          :stream s})
+  {:effect :stream/take, :stream s})
 
 
 (defn close!
   [s]
-  {:effect :stream/close,         :stream s})
+  {:effect :stream/close, :stream s})
 
 
-(module/register-module!
-  'stream
-  {'make make
-   'put! put!
-   'cursor cursor
-   'next! next!
-   'take! take!
-   'close! close!})
+(module/register-module! 'stream
+                         {'make make,
+                          'put! put!,
+                          'cursor cursor,
+                          'next! next!,
+                          'take! take!,
+                          'close! close!})

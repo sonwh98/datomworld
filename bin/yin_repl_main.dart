@@ -1,5 +1,5 @@
 import 'dart:io';
-import '../lib/cljd-out/dao/repl-main/cljd.dart' as repl;
+import '../lib/cljd-out/yin/repl-main/cljd.dart' as repl;
 
 void main(List<String> args) async {
   try {
