@@ -30,10 +30,10 @@
            [:summary "What is a datom, exactly?"]
            [:div
             [:p
-             "A datom is a five-tuple [e a v t m]: entity, attribute, value, transaction ID, metadata entity ID. It is an immutable fact, not an object. "
+             "A datom is an N-dimensional tuple. The canonical format for persistent facts is the five-tuple [e a v t m]: entity, attribute, value, transaction ID, metadata entity ID. It is an immutable fact, not an object. "
              "The t is monotonic within its stream, not globally ordered. The m references an entity carrying causal relationships, encryption context, or expansion provenance, and is used to establish causality across streams (since t has no meaning outside its originating stream). "
              "When you transact a map, it decomposes into datoms automatically. See "
-             [:a {:href "/dao-db.chp#the-five-element-tuple"} "DaoDB"]
+             [:a {:href "/dao-db.chp#n-dimensional-datoms"} "DaoDB"]
              " for the full structure and "
              [:a {:href "/blog/power-of-restriction-datom-tuple.blog"} "The Power of Restriction"]
              " for the design rationale."]]]
@@ -98,8 +98,9 @@
            [:summary "How does this relate to Datomic?"]
            [:div
             [:p
-             "Datom.World inherits the datom idea from Datomic and changes two things. First, the transaction ID t is stream-scoped, not globally ordered. Cross-stream causality lives in the metadata slot m. "
+             "Datom.World inherits the datom idea from Datomic and generalizes it. First, the transaction ID t is stream-scoped, not globally ordered. Cross-stream causality lives in the metadata slot m. "
              "Second, datoms are used for everything (ASTs, bytecode, execution traces, schema, provenance), not just application data. "
+             "Third, while Datomic fixes the datom as a 5-tuple, Datom.World allows N-dimensional tuples for specialized streams, though the 5-tuple remains the canonical persistent format. "
              [:a {:href "/dao-db.chp"} "DaoDB"]
              " is a family of stream interpreters that materialize whatever indexes the consumer needs. See "
              [:a {:href "/blog/daodb-moduli-space-of-databases.blog"} "DaoDB as a Moduli Space of Databases"]

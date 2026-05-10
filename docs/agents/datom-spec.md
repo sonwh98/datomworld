@@ -1,15 +1,16 @@
 ---
-description: Datom moduli space; meta-protocol over open dimensions; d5 documented as the original 5-tuple instance
+description: Datom moduli space; meta-protocol over open dimensions; N-dimensional tuples, entity IDs, content addressing, namespaces; d5 documented as the original 5-tuple instance
 ---
 
 # DATOMS
 
 Datoms are tuples in a moduli space, graded by dimension n.
+The canonical format for persistent facts is the 5-tuple: (e a v t m).
 Each dimension dn is a distinct kind of fact, fit for a distinct role.
 The moduli space is open: applications declare new dimensions as needed. No dimension is canonical.
 
 Datoms are immutable facts, not objects.
-Datoms are the canonical format for persistent facts: DaoDB, AST, schema, provenance.
+Datoms are the universal format for persistent facts: DaoDB, AST, schema, provenance.
 Streams carry whatever values the consumer needs (datoms for persistent layers, entities or scalars for ephemeral layers).
 
 Dimensions in use:
@@ -36,9 +37,12 @@ Intuition (physics metaphor):
   The datom stream is the unitary wave function: it contains the complete state of the universe.
   Each dimension is a different chart on that universe.
   A datom at dimension n is a tuple-shaped event in n coordinates.
-  In d5, [e a v t m] is a space-time event: [e a v] is space (structural), [t m] is time (causal).
+  A canonical datom [e a v t m] is like a space-time event:
+  Space (structural): [e a v] defines what exists (entity, attribute, value).
+  Time (causal): [t m] defines when and why (transaction, metadata).
   Interpreters observe parts of the stream and construct higher-dimensional structures.
   Like quantum measurement, each interpreter projects the stream differently: same data, different meanings.
+  Higher-dimensional datoms (6-tuple, 7-tuple, etc.) can be used for specialized streams (e.g., spatial coordinates, confidence scores, or parallel transport context).
 
 # META-PROTOCOL
 
@@ -125,7 +129,7 @@ Other dimensions (d1, d3, etc.) are documented separately when introduced.
 Tuple shape:
   (e a v t m)
 
-Components:
+Components (for canonical 5-tuples):
   e: Entity ID. Local handle for evolving identity. Relative offset from zero basis.
      Negative IDs are temporary local IDs (tempids), used during compilation and before commitment.
      Positive IDs are permanent IDs assigned by DaoDB after a successful transaction.
