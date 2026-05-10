@@ -19,12 +19,12 @@
              " (a compiler), "
              [:a {:href "/dao-db.chp"} "DaoDB"]
              " (a datom stream interpreter), "
-             [:a {:href "/dao-flow.chp"} "DaoFlow"]
-             " (a rendering engine), and "
+             [:a {:href "/post-graphics.chp"} "PostGraphics"]
+             " (a graphics frame vocabulary and renderer), and "
              [:a {:href "/shibi.chp"} "Shibi"]
              " (an economic primitive)."]
             [:p
-             "All apps work the same way: they consume datom streams and interpret them. DaoDB interprets them as queryable indexes, DaoFlow interprets them as renderable interfaces, Shibi interprets them as economic signals. "
+             "All apps work the same way: they consume datom streams and interpret them. DaoDB interprets them as queryable indexes, PostGraphics interprets graphics frame programs as drawn output, Shibi interprets them as economic signals. "
              "The radical move is unifying code, data, and computation into a single primitive (the datom stream), making programs queryable, mobile, and evolvable."]]]
           [:details.faq
            [:summary "What is a datom, exactly?"]

@@ -181,11 +181,11 @@
         (let [updated-db (assoc-in db [e a] {:value v, :tx t})]
           (println "DaoDB materialized entity" e)
           (recur updated-db))))
-    ;; Consumer 2: DaoFlow (interprets as UI)
+    ;; Consumer 2: PostGraphics (interprets as UI)
     ;; π-calculus: !stream(d).render(d)
     (go-loop []
       (when-let [[e a v t m] (<! stream)]
-        (println "DaoFlow rendered:" v "at position" e)
+        (println "PostGraphics rendered:" v "at position" e)
         (recur)))
     stream))
 
@@ -194,7 +194,7 @@
 ;; (datom-stream)
 ;; => Appended datom: [1 :person/name "Alice" 100 {}]
 ;; => DaoDB materialized entity 1
-;; => DaoFlow rendered: Alice at position 1
+;; => PostGraphics rendered: Alice at position 1
 ;; ... continues
 
 

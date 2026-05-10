@@ -390,7 +390,7 @@
            "This realizes the core evolutionary strategy: by fixing the fundamental constraints, the invariant 5-tuple datom, we create the stable environment where behavior can evolve through stream history and open interpretation."]
           [:p
            "Quick orientation for readers new to datom.world: DaoDB is the database engine, Yin.VM is the evaluator, "
-           "DaoFlow is the UI/runtime layer, and Shibi is the capability token system. The details differ, but each "
+           "PostGraphics is the UI/runtime layer, and Shibi is the capability token system. The details differ, but each "
            "component interprets the same datom stream."]
           [:h3 "Immutable Streams: Entropy Distribution by Design"]
           [:p
@@ -463,7 +463,7 @@
            "Streams of datoms are the universal substrate. "
            "DaoDB interprets the stream as indexes. "
            "Yin.VM interprets it as execution. "
-           "DaoFlow interprets it as UI. "
+           "PostGraphics interprets it as UI. "
            "AI agents interpret it as training data. "
            "Interpretation layers extract meaning, and no single consumer owns the semantics."]
           [:p

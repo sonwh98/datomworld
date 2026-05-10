@@ -117,7 +117,7 @@
            "DaoDB provides the database view: structured queries over flowing facts. But other applications "
            "interpret the same streams differently:"]
           [:ul.bulleted
-           [:li [:a {:href "/dao-flow.chp"} "DaoFlow"] " renders datom streams as reactive user interfaces"]
+           [:li [:a {:href "/post-graphics.chp"} "PostGraphics"] " consumes graphics frame programs derived from those streams and paints them"]
            [:li [:a {:href "/shibi.chp"} "Shibi"] " interprets them as economic signals and value flows"]
            [:li [:a {:href "/yin.chp"} "Yin agents"] " process streams as computational primitives"]]
           [:p
@@ -146,7 +146,7 @@
           [:ol
            [:li "Understand how " [:a {:href "/dao-stream.chp"} "DaoStream"] " works"]
            [:li "See how " [:a {:href "/yin.chp"} "Yin agents"] " process DaoDB streams"]
-           [:li "Visualize your data with " [:a {:href "/dao-flow.chp"} "DaoFlow"] ""]
+           [:li "Render frame programs derived from your data with " [:a {:href "/post-graphics.chp"} "PostGraphics"] ""]
            [:li "Read about " [:a {:href "/blog/datoms-as-streams.blog"} "streaming datoms with transducers"] ""]]
           [:p
            "DaoDB isn't just a database—it's a different way of thinking about data, time, and truth. "

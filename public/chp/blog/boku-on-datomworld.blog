@@ -49,7 +49,7 @@
           [:p "Because the data is in " [:a {:href "/dao-db.chp"} "DaoDB"] ", it's queryable by anything."]
           [:p [:strong "The CLI View:"]]
           [:pre [:code {:class "language-bash"} "$ dao query '[:find ?url ?title :where [?e :bookmark/tag \"clojure\"] [?e :bookmark/url ?url] [?e :bookmark/title ?title]]'"]]
-          [:p [:strong "The Web View (DaoFlow):"]]
+          [:p [:strong "The Web View (PostGraphics):"]]
           [:p "A reactive dashboard that visualizes your reading habits. Not a separate app, just a query rendering your stream."]
           [:p [:strong "The IDE View:"]]
           [:p "Your code editor can query your bookmarks to find documentation you saved months ago."]

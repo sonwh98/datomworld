@@ -93,9 +93,9 @@
           "The shared coordination space becomes "
           [:a {:href "/dao-space.chp"} "DaoSpace"]
           ", a tuple space implementation that enables stigmergic coordination between agents via Datalog queries over shared streams. "
-          "And instead of the DOM, "
-          [:a {:href "/dao-flow.chp"} "DaoFlow"]
-          " interprets streams as renderable interfaces, treating the UI as an emergent view of living data."]
+          "For graphics, "
+          [:a {:href "/post-graphics.chp"} "PostGraphics"]
+          " defines a frame vocabulary that consumers paint, treating drawn output as the realization of a stream of explicit frame programs."]
          [:p
           "Each component corresponds to its web counterpart, but their composition is entirely different. "
           "Instead of a client viewing a remote world, every node in Datom.World participates in creating that world. "

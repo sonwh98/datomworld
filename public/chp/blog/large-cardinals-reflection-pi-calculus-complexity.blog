@@ -269,7 +269,7 @@
           [:pre
            [:code
             {:class "language-clojure"}
-            ";; Level 0: Raw datom stream (1D - time)\n[e a v t m]\n\n;; Level 1: DaoDB interprets as entities (2D - entities × attributes)\n{:entity-1 {:name \"Alice\" :age 30}}\n\n;; Level 2: DaoFlow interprets as UI (3D - entities × attributes × screen position)\n[:div {:style {:x 100 :y 200}} \"Alice, 30\"]\n\n;; Level 3: Yin interprets as computation (4D - + control flow)\n(if (> age 18) (render-adult) (render-child))\n\n;; Each interpreter ADDS A DIMENSION"]]
+            ";; Level 0: Raw datom stream (1D - time)\n[e a v t m]\n\n;; Level 1: DaoDB interprets as entities (2D - entities × attributes)\n{:entity-1 {:name \"Alice\" :age 30}}\n\n;; Level 2: PostGraphics interprets as UI (3D - entities × attributes × screen position)\n[:div {:style {:x 100 :y 200}} \"Alice, 30\"]\n\n;; Level 3: Yin interprets as computation (4D - + control flow)\n(if (> age 18) (render-adult) (render-child))\n\n;; Each interpreter ADDS A DIMENSION"]]
 
           [:p
            "This is "
@@ -439,7 +439,7 @@
           [:pre
            [:code
             {:class "language-clojure"}
-            ";; Bad: too many layers\ndatoms → entities → ORM → API → JSON → HTTP → ...\n\n;; Good: minimal layers\ndatoms → entities → view (DaoFlow)\n\n;; Or even better: direct stream interpretation\ndatoms → (interpret-as view-spec) → UI"]]
+            ";; Bad: too many layers\ndatoms → entities → ORM → API → JSON → HTTP → ...\n\n;; Good: minimal layers\ndatoms → entities → view (PostGraphics)\n\n;; Or even better: direct stream interpretation\ndatoms → (interpret-as view-spec) → UI"]]
 
           [:h2 "The Deep Pattern"]
           [:p

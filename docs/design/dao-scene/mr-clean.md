@@ -5,8 +5,7 @@
 `mr-clean` is the Reagent-inspired authoring layer that compiles component
 models into `dao.scene` fragments.
 
-It is not a renderer. It is not a workflow runtime. It is not part of
-`dao.flow`.
+It is not a renderer. It is not a stream runtime.
 
 `mr-clean` is responsible for:
 
@@ -17,9 +16,8 @@ It is not a renderer. It is not a workflow runtime. It is not part of
 - composing those fragments into scenes
 
 It does not paint, does not subscribe to streams, and does not realize Flutter
-widgets. Downstream interpreters lower its scene output into graphics
-bytecode, a `dao.flow` workflow carries that bytecode through `dao.stream`,
-and a separate terminal renderer paints it.
+widgets. Downstream code lowers its scene output into graphics bytecode and
+hands the result to a terminal renderer.
 
 The intended pipeline is:
 
@@ -27,7 +25,7 @@ The intended pipeline is:
 [mr-clean compiler]
    │ emits dao.scene fragments
    ▼
-[scene-lowering interpreter]
+[scene-lowering function]
    │ emits dao.postgraphics frames
    ▼
 [dao.postgraphics.flutter terminal]
@@ -36,69 +34,29 @@ The intended pipeline is:
 on-screen widget
 ```
 
-The boxes are stages (interpreters and a terminal). The labels on the edges
-are domain vocabularies (data on the wire between stages). An application or
-runner composes those stages into a workflow using `dao.flow`. `mr-clean` is
-the first stage; it does not compose the workflow.
+Each arrow is either a direct function call or a `dao.stream` boundary.
+Ordinary function composition wires the stages together. `mr-clean` produces
+values; an application decides how to feed them downstream.
 
-A one-line summary of the architecture:
+## Layering
 
-> An application uses `dao.flow` to compose a UI compilation workflow,
-> `mr-clean` → scene-lowering → `dao.postgraphics.flutter`, where `dao.scene`
-> and `dao.postgraphics` are the vocabularies passed between stages.
-
-## Layering and Dependency Direction
-
-`mr-clean` is a client of the `dao` stack, not a layer of it. The dependency
+`mr-clean` is the first stage in a UI compilation pipeline. The dependency
 arrow points one way:
 
-- `mr-clean` produces values
-- scene-lowering interpreters produce graphics bytecode from those values
-- `dao.flow` composes workflows that transport bytecode through `dao.stream`
-- `dao.postgraphics.flutter` is the terminal that paints
+- `mr-clean` produces `dao.scene` fragments
+- a scene-lowering function turns those into `dao.postgraphics` frames
+- `dao.postgraphics.flutter` is the terminal that paints frames
 
 Concretely:
 
-- `mr-clean` does not import `dao.flow`
-- `dao.flow` does not know `mr-clean` exists
-- `mr-clean`'s primary semantic contract is `dao.scene`, not `dao.flow` and
-  not graphics bytecode
+- `mr-clean`'s primary semantic contract is `dao.scene`, not graphics bytecode
+- `mr-clean` does not own pipeline wiring; the application that uses it does
+- `mr-clean` does not paint, subscribe to streams, or realize Flutter widgets
 
-This matches the `dao.flow` spec, which lists `yin.vm`, `dao.postgraphics`,
-`dao.gpu.compute`, UI, text, audio, telemetry, and logging as example clients,
-not the definition of `dao.flow`. `mr-clean` is one such client: the UI
-authoring one.
-
-## Stages and Vocabularies
-
-A `dao.flow` workflow is composed of stages connected by streams of values.
-The values on each stream are drawn from a domain vocabulary. The two
-concepts are separate, and `mr-clean` is one stage in the UI compilation
-workflow, not a vocabulary.
-
-Stages in a typical UI compilation workflow:
-
-| Stage | Role |
-|---|---|
-| `mr-clean` | compiles authored components into `dao.scene` fragments |
-| scene-lowering interpreter | lowers `dao.scene` values into `dao.postgraphics` frames |
-| `dao.postgraphics.flutter` | terminal that realizes frames as Flutter drawing |
-
-Vocabularies (data on the wire between stages):
-
-| Vocabulary | Defined by | Carried between |
-|---|---|---|
-| `dao.scene` fragments | `dao.scene` / `scene-algebra` | `mr-clean` → scene-lowering interpreter |
-| `dao.postgraphics` frames | `dao.postgraphics` | scene-lowering interpreter → terminal |
-
-`dao.scene` and `dao.postgraphics` are vocabularies, not stages. They define
-the grammar of values that cross a boundary, not a unit of work. `mr-clean`
-and the lowering interpreter and the terminal are stages, not vocabularies.
-They do work; they don't define wire formats.
-
-The application composes the stages with `dao.flow` and connects them with
-`dao.stream` boundaries; the vocabularies are the contract on those
-boundaries.
+There is no separate workflow algebra. Stages are wired with ordinary Clojure
+function composition, with `dao.stream` providing the boundary substrate
+where one is needed (replay, multiple readers, decoupled producers and
+consumers).
 
 ## Relationship to Reagent
 
@@ -121,9 +79,8 @@ It is not a renderer and not a DOM runtime.
 
 ## Architectural Position
 
-`mr-clean` is the first interpreter stage in a UI compilation workflow. It
-sits upstream of scene lowering, workflow composition, and terminal
-rendering.
+`mr-clean` is the first stage in a UI compilation pipeline. It sits upstream
+of scene lowering and terminal rendering.
 
 It owns:
 
@@ -136,30 +93,25 @@ It does not own:
 
 - terminal painting
 - Flutter widget realization
-- frame stream subscription
+- stream subscription
 - draw-op interpretation
-- workflow composition
+- pipeline wiring
 
-Those belong downstream or outside. Scene-lowering interpreters produce
-graphics bytecode from scene values; the application uses `dao.flow` to
-compose `mr-clean`, the lowering stage, and the terminal into a workflow;
-a terminal such as `dao.postgraphics.flutter` realizes the resulting frames.
-
-`mr-clean` does not compose the workflow it participates in. The application
-or runner that drives the UI does.
+The application that uses `mr-clean` decides whether to call the lowering
+function directly, write its output to a `dao.stream`, or both. That wiring
+is ordinary Clojure code, not a separate infrastructure layer.
 
 ## Output Contract
 
 The primary output of `mr-clean` is `scene-algebra` data, not graphics
-bytecode and not workflow fragments.
+bytecode.
 
 More precisely:
 
 - components compile to fragments
 - fragment composition yields larger fragments
 - completed fragments finalize into scenes
-- downstream interpreters lower scenes into graphics bytecode
-- `dao.flow` workflows transport that bytecode to terminals
+- downstream code lowers scenes into graphics bytecode
 
 This means `mr-clean` should target:
 
@@ -167,8 +119,7 @@ This means `mr-clean` should target:
 - [scene-vocabulary.md](scene-vocabulary.md)
 - [dao.scene.md](dao.scene.md)
 
-not graphics bytecode and not `dao.flow` workflow APIs as its primary semantic
-contract.
+not graphics bytecode as its primary semantic contract.
 
 ## Relationship to Scene Algebra
 
@@ -204,24 +155,24 @@ games rather than trying to span UI, world simulation, and XR all at once.
 
 ## Relationship to Terminal Rendering
 
-The terminal renderer is a separate downstream layer composed via `dao.flow`.
+The terminal renderer is a separate downstream layer.
 
 Its job is:
 
-- subscribe to a `dao.stream` of graphics bytecode frames
-- interpret that bytecode
-- realize it as Flutter (or other) drawing
+- read `dao.postgraphics` frames (from a `dao.stream` or by direct call)
+- interpret those frames
+- realize them as Flutter (or other) drawing
 
 That terminal boundary should stay narrow.
 
 `mr-clean` should not be defined as that renderer. The current
 `dao.postgraphics.flutter` namespace is a good model for the terminal side,
-but it is a peer client of `dao.flow`, not the semantic role of `mr-clean`.
+but it is a peer downstream of `mr-clean`, not the same role.
 
 ## Public Surface
 
 The public surface of `mr-clean` should be authoring-oriented, not
-terminal-oriented and not workflow-oriented.
+terminal-oriented and not stream-oriented.
 
 Examples of concerns that belong here:
 
@@ -237,20 +188,18 @@ Examples of concerns that do not belong here:
 - frame listeners
 - `CustomPainter` integration
 - direct graphics-bytecode subscription
-- `dao.flow` workflow construction
 - `dao.stream` opening or cursor management
 
 ## Design Rules
 
-- treat `mr-clean` as the authoring/runtime layer
+- treat `mr-clean` as the authoring layer
 - treat `mr-clean` as a compiler from Reagent-like component models into
   `scene-algebra`
 - keep terminal rendering separate
-- keep workflow composition separate
-- target scene fragments first, not graphics bytecode and not workflows
+- keep pipeline wiring separate
+- target scene fragments first, not graphics bytecode
 - preserve Reagent-like ergonomics without importing React or DOM assumptions
 - keep the stable semantic contract at the scene layer
-- never depend on `dao.flow` from `mr-clean`
 
 ## Accepted Defaults
 
@@ -260,14 +209,9 @@ These choices are fixed for v1:
 - `mr-clean` is inspired by Reagent
 - `mr-clean` compiles Reagent-like component models into `scene-algebra`
 - `mr-clean` is not the Flutter renderer
-- `mr-clean` is not part of `dao.flow`; it is a client whose lowered output
-  flows through `dao.flow` workflows
-- `mr-clean` is one stage in a UI compilation workflow, not the workflow's
-  composer
-- the application or runner composes the workflow using `dao.flow`
 - `mr-clean` produces `dao.scene` fragments and scenes
-- `dao.scene` and `dao.postgraphics` are vocabularies on the wire, not stages
 - graphics bytecode is derived downstream
-- workflow composition is owned by `dao.flow`, not `mr-clean`
+- pipeline wiring is ordinary function composition over `dao.stream`, not a
+  separate algebra
 - Flutter terminal rendering is a separate concern, owned by
   `dao.postgraphics.flutter`

@@ -203,8 +203,8 @@
             [:a {:href "/yin.chp"} "Revisit Yin"]
             " to see how continuations are scheduled and migrated."]
            [:li
-            [:a {:href "/dao-flow.chp"} "Explore DaoFlow"]
-            " to watch emitted continuations shape living interfaces."]
+            [:a {:href "/post-graphics.chp"} "Explore PostGraphics"]
+            " to render the frame programs your agents emit into living visuals."]
            [:li
             [:a {:href "/shibi.chp"} "Study Shibi"]
             " to combine economic signaling with generated agents."]]]]])}

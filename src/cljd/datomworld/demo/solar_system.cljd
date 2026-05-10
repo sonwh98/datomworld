@@ -349,11 +349,11 @@
     (m/runApp
       (w
         [:MaterialApp
-         {:title "dao.flow solar system",
+         {:title "postgraphics solar system",
           :theme [:ThemeData {:colorScheme (m/ColorScheme.dark)}],
           :home
             [:Scaffold
-             {:appBar [:AppBar {:title [:Text "dao.flow solar system"]}],
+             {:appBar [:AppBar {:title [:Text "postgraphics solar system"]}],
               :body
                 [:ListView {:padding (m/EdgeInsets.all 16.0)}
                  [:Builder

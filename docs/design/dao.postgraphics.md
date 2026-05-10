@@ -82,8 +82,9 @@ authoring code
 -> backend
 ```
 
-`dao.flow` may be used to construct pipelines around this architecture, but
-`dao.postgraphics` is independent of `dao.flow` itself.
+The pipeline is wired with ordinary function composition over `dao.stream`:
+each stage reads from one stream and writes to another, and an application
+opens the streams it needs.
 
 ## What `dao.postgraphics` Is
 
@@ -659,17 +660,19 @@ Its responsibilities do not include:
 - interpreting `dao.scene`
 - owning layout or UI semantics
 
-Using `dao.flow`, one likely rendering workflow is:
+A typical rendering workflow wires stages with `dao.stream` and ordinary
+function composition:
 
 ```text
 dao.scene stream
--> lowering interpreter
+-> lowering function
 -> dao.postgraphics stream
 -> Flutter graphics VM
 ```
 
-But the Flutter graphics VM could also be used without `dao.flow` if a producer
-hands it frame programs directly.
+Producers and consumers communicate via `dao.stream` cursors. The Flutter
+graphics VM can also be used directly if a producer hands it frame programs
+without an intermediate stream.
 
 ## Example Frame Program
 
