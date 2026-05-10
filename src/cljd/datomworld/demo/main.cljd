@@ -3,4 +3,4 @@
             [datomworld.demo.solar-system :as solar-system-demo]
             [datomworld.demo.postgraphics :as postgraphics-demo]))
 
-(defn main [] #_(solar-system-demo/main) (postgraphics-demo/main))
+(defn main [] (solar-system-demo/main) #_(postgraphics-demo/main))
