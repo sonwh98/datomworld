@@ -248,8 +248,6 @@
         frame-stream (ds/open! {:type :ringbuffer,
                                 :capacity 4,
                                 :eviction-policy :evict-oldest})
-        notifier (m/ValueNotifier. [])
-        _ (pg/register-frame-task! frame-stream notifier)
         scene-state (atom initial-state)
         anims (atom {})
         sched (fn [period-ms tick!]
@@ -410,4 +408,4 @@
                          (m/Text. "REPL Info")))}] [:SizedBox {:height 8.0}]
                  [:Center
                   [:SizedBox {:width 500.0, :height 500.0}
-                   (pg/frame-widget notifier)]]]}]}]))))
+                   (pg/postgraphics-widget frame-stream)]]]}]}]))))

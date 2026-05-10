@@ -101,8 +101,6 @@
   (let [stream (ds/open! {:type :ringbuffer,
                           :capacity 4,
                           :eviction-policy :evict-oldest})
-        notifier (m/ValueNotifier. [])
-        _ (pg/register-frame-task! stream notifier)
         tick (atom 0)
         fps-count (atom 0)
         fps-display (atom 0)
@@ -120,21 +118,22 @@
                                       (reset! fps-t0 now))
                                     (emit-frame! stream n @fps-display))))]
     (m/runApp
-      (m/MaterialApp.
-        .title
-        "dao.postgraphics demo"
-        .theme
-        (m/ThemeData. .colorScheme (m/ColorScheme.dark))
-        .home
-        (m/Scaffold. .appBar
-                     (m/AppBar. .title (m/Text. "dao.postgraphics"))
-                     .backgroundColor
-                     (m/Color.fromARGB 255 10 10 18)
-                     .body
-                     (m/Center. .child
-                                (m/SizedBox. .width
-                                             W
-                                             .height
-                                             H
-                                             .child
-                                             (pg/frame-widget notifier))))))))
+      (m/MaterialApp. .title
+                      "dao.postgraphics demo"
+                      .theme
+                      (m/ThemeData. .colorScheme (m/ColorScheme.dark))
+                      .home
+                      (m/Scaffold.
+                        .appBar
+                        (m/AppBar. .title (m/Text. "dao.postgraphics"))
+                        .backgroundColor
+                        (m/Color.fromARGB 255 10 10 18)
+                        .body
+                        (m/Center. .child
+                                   (m/SizedBox. .width
+                                                W
+                                                .height
+                                                H
+                                                .child
+                                                (pg/postgraphics-widget
+                                                  stream))))))))

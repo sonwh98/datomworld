@@ -893,7 +893,7 @@
 
 ;; --- stream wiring ---
 
-(defn register-frame-task!
+(defn- bind-stream->notifier!
   [frame-stream ^m/ValueNotifier notifier & {:keys [on-error]}]
   (letfn
     [(try-set-frame! [frame]
@@ -935,7 +935,7 @@
         ((:resume ready) nil ready value)))
     result))
 
-(defn frame-widget
+(defn- frame-widget
   [^m/ValueNotifier notifier]
   (m/ValueListenableBuilder.
     .valueListenable
@@ -948,5 +948,5 @@
   frame-stream. Supports an optional :on-error callback."
   [frame-stream & {:keys [on-error]}]
   (let [notifier (m/ValueNotifier. [])]
-    (register-frame-task! frame-stream notifier :on-error on-error)
+    (bind-stream->notifier! frame-stream notifier :on-error on-error)
     (frame-widget notifier)))
