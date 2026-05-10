@@ -23,6 +23,21 @@
           [:a {:href "/blog/structure-vs-interpretation.blog"} "Structure vs Interpretation"] "."]]]
        [:section.section-light
         [:div.section-inner
+         [:h2 "Inspired by PostScript"]
+         [:p
+          "The name is a nod to PostScript, the language that pioneered the idea that graphics should be a program the renderer interprets, not a buffer the producer fills. "
+          "Display PostScript and Sun's NeWS carried the conviction to live displays."]
+         [:p
+          "PostGraphics keeps that conviction and changes the form. "
+          "Where PostScript is a stack-based source language parsed and executed by an interpreter, PostGraphics is a bytecode of op records driven by a VM. "
+          "A frame is bounded (a finite vector of ops), data-shaped (each op is a map with explicit fields), and ships through "
+          [:a {:href "/dao-stream.chp"} "DaoStream"]
+          " rather than embedded in document files."]
+         [:p
+          "The architectural conviction is the same: send the renderer an interpretable program, not a finished image. "
+          "The execution model and packaging are what differ."]]]
+       [:section.section-dark
+        [:div.section-inner
          [:h2 "The Frame is Data"]
          [:p
           "Each frame is a vector of op maps. Every op carries everything it needs: an "
@@ -38,21 +53,6 @@
           [:li [:strong "Render it elsewhere"] ". Producers do not pick the backend."]]
          [:p
           "This is graphics in the Plan 9, Datomic, and Lisp lineage: programs as data, time as a sequence of values, identity by content rather than reference."]]]
-       [:section.section-dark
-        [:div.section-inner
-         [:h2 "Inspired by PostScript"]
-         [:p
-          "The name is a nod to PostScript, the language that pioneered the idea that graphics should be a program the renderer interprets, not a buffer the producer fills. "
-          "Display PostScript and Sun's NeWS carried the conviction to live displays."]
-         [:p
-          "PostGraphics keeps that conviction and changes the form. "
-          "Where PostScript is a stack-based source language parsed and executed by an interpreter, PostGraphics is a bytecode of op records driven by a VM. "
-          "A frame is bounded (a finite vector of ops), data-shaped (each op is a map with explicit fields), and ships through "
-          [:a {:href "/dao-stream.chp"} "DaoStream"]
-          " rather than embedded in document files."]
-         [:p
-          "The architectural conviction is the same: send the renderer an interpretable program, not a finished image. "
-          "The execution model and packaging are what differ."]]]
        [:section.section-light
         [:div.section-inner
          [:h2 "Stream-Based Rendering"]
