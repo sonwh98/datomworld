@@ -1,23 +1,37 @@
 # Design: Scene Algebra
 
+## Scope Note
+
+This document defines the algebraic core of the **retained-graphics** scene
+system. It is **not** part of the `mr-clean` pipeline. `mr-clean` compiles
+Reagent-like authoring directly to `dao.postgraphics` frame programs and
+does not produce scene fragments. See [mr-clean.md](mr-clean.md).
+
+This algebra is reserved for future retained-graphics consumers: tooling that
+needs to inspect a stable tree, systems that need to retarget one source to
+multiple backends, or any authoring layer that wants semantic queries
+(hit-testing, focus, accessibility) preserved as data before lowering.
+
 ## Summary
 
-This document defines the algebraic core of the scene system.
+This document defines the algebraic core of the scene system for retained
+graphics.
 
-The intended pipeline is:
+The intended pipeline for retained consumers is:
 
 ```text
-hiccup/components/atoms
+retained authoring (not mr-clean)
 -> scene fragments
 -> assembled scene
 -> graphics bytecode
 -> terminal renderer
 ```
 
-`scene.core` is the stable semantic contract for composition in v1.
+`scene.core` is the stable semantic contract for retained composition in v1.
 
 Its purpose is to prevent premature collapse from authored scene meaning
-directly into backend-shaped paint commands.
+directly into backend-shaped paint commands **for consumers that want to
+preserve that meaning**.
 
 The model is algebraic and compositional:
 
