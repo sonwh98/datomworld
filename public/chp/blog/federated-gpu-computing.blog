@@ -1,0 +1,230 @@
+#:blog{:title "Federated GPU Computing: Better Hardware Utilization Through Mobile Continuations"
+       :date #inst "2026-05-11T00:00:00.000-00:00"
+       :abstract
+       [:p
+        "GPU utilization is limited less by FLOPS than by architecture. When inference and training are treated as movable suspended computations over streams, scarce accelerators can be used more fully without discarding live work."]
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+
+          [:p
+           "The usual story about GPU scarcity is simple: there is too much demand and not enough hardware. "
+           "That story is true, but incomplete. A second problem hides underneath it: "
+           [:strong "we waste expensive accelerators because our software architecture pins live computation to a single runtime instance."]
+           " When memory pressure rises, when a batch gets fragmented, when a node is overloaded, or when private data cannot leave a boundary, the standard response is surprisingly crude: retry, re-batch, evict, or fail."]
+
+          [:p
+           "This is not a law of physics. It is a consequence of how current ML systems represent computation. "
+           "Most stacks treat the running job as an opaque process with hidden mutable state: device buffers, KV cache, optimizer moments, communication handles, scheduler queues. Those choices are fast on the happy path, but brittle under pressure. A computation that cannot be suspended and moved is a computation that must be thrown away when its local environment becomes inconvenient."]
+
+          [:p
+           "Datom.World points toward a different answer. If code, data, and runtime state are all stream-shaped, then a live computation can be represented as a first-class continuation. That continuation can be suspended without semantic loss. It can be persisted. It can be migrated. It can resume elsewhere. Under this model, the scarce resource is not \"the process\" but the GPU cycles themselves. The computation becomes mobile; the hardware becomes fungible."]
+
+          [:h2 "The waste hidden inside today's GPU stacks"]
+
+          [:p
+           "Modern inference engines and training systems are impressive, but their performance model is local. They assume that the most important thing is to keep tensors resident, fuse kernels aggressively, and avoid host overhead. All of that is sensible. The trouble begins when local assumptions fail."]
+
+          [:ul.bulleted
+           [:li
+            [:strong "Inference waste:"]
+            " a live session is tied to one process and one KV cache layout. If that node becomes overloaded or memory-constrained, the work in progress is difficult to relocate without rebuilding state."]
+           [:li
+            [:strong "Training waste:"]
+            " parameter shards, gradients, and optimizer state are distributed, but the job itself is still tightly coupled to the runtime topology chosen at launch."]
+           [:li
+            [:strong "Operational waste:"]
+            " long-running jobs are fragile because their most valuable state lives in opaque mutable memory rather than in explicit portable structures."]
+           [:li
+            [:strong "Privacy waste:"]
+            " when data locality matters, we often move data to computation because moving computation itself is not a first-class primitive."]]
+
+          [:p
+           "The result is lower effective utilization than the raw hardware numbers suggest. A cluster may show high aggregate usage while still wasting valuable work through restarts, over-provisioning, session pinning, and stranded memory."]
+
+          [:h2 "The architectural pivot: preserve live computation"]
+
+          [:p
+           "The central trick is simple to state and surprisingly rare in practice: "
+           [:strong "do not throw away a live computation just because local resources became insufficient."]
+           " Suspend it instead."]
+
+          [:p
+           "In Yin.VM, a continuation is a first-class value. It captures where execution is, what environment it has closed over, and what remains to be done. Because continuations are serializable and mobile, suspension is not an exception path. It is part of the normal execution model."]
+
+          [:p
+           "That changes the economics of GPU scheduling. Instead of treating a running decode loop or training step as an inseparable process, we can treat it as a suspended computation plus explicit references to the streams it depends on. If the local machine has enough GPU memory and bandwidth, the continuation resumes there. If not, it migrates to a node that does."]
+
+          [:h2 "DaoStream is not the bottleneck"]
+
+          [:p
+           "A common objection appears immediately: streams sound slower than direct process-local state. That objection only holds if \"stream\" is mistaken for \"remote durable queue.\" DaoStream is an abstraction, not a single transport."]
+
+          [:p
+           "A DaoStream can be:"]
+
+          [:ul.bulleted
+           [:li "a local ringbuffer for immediate throughput"]
+           [:li "a shared-memory queue between scheduler and worker"]
+           [:li "a bounded persistent stream for checkpointing"]
+           [:li "a network transport for migration or federation"]]
+
+          [:p
+           "The semantics stay uniform while the physics changes. On the hot path, a GPU dispatch stream can be a local ringbuffer with minimal overhead. On the slow path, the same stream protocol can support persistence, replay, migration, or cross-node transfer. This is the advantage of using streams as the contract and implementations as projections."]
+
+          [:h2 "Offloading math without collapsing the VM into the GPU runtime"]
+
+          [:p
+           "Yin.VM is not supposed to become a tensor-core simulator. Its role is to orchestrate computation, not to implement fast dense math in the interpreter itself. The right split is structural:"]
+
+          [:ul.bulleted
+           [:li
+            [:strong "Yin.VM owns:"]
+            " control flow, suspension, resumption, migration, provenance, policy, and composition."]
+           [:li
+            [:strong "GPU runtimes own:"]
+            " matrix multiplication, attention kernels, quantized packing, memory layout, and device scheduling."]]
+
+          [:p
+           "A Yin library for fast math therefore does not perform the math directly. It constructs explicit effects such as a GPU dispatch request. The continuation parks. A local or remote GPU interpreter consumes the request, materializes the relevant stream segments into the buffer layout it prefers, executes the kernels, and emits the result. Then the parked continuation resumes."]
+
+          [:p
+           "This is a crucial distinction. The library is not parked. "
+           [:strong "The continuation is parked."]
+           " The library merely emits the effect that makes the suspension point explicit."]
+
+          [:h2 "Generalized datoms make tensors stream-native"]
+
+          [:p
+           "Older discussions of datoms often start from the five-tuple. Datom.World has since relaxed that definition: a datom can be any N-dimensional tuple, and tuples can be bitpacked into integers. That matters enormously for machine learning."]
+
+          [:p
+           "Under this generalized model, tensors do not need to be treated as opaque foreign blobs with metadata on the side. They can be represented as streams of packed tuples. The same is true for KV cache, gradients, optimizer state, and parameter shards."]
+
+          [:table
+           [:thead
+            [:tr
+             [:th "Artifact"]
+             [:th "Canonical Representation"]
+             [:th "Execution Projection"]]]
+           [:tbody
+            [:tr
+             [:td "Model weights"]
+             [:td "Bounded stream of bitpacked tensor-block tuples"]
+             [:td "Device buffers optimized for kernel layout"]]
+            [:tr
+             [:td "KV cache"]
+             [:td "Append-only stream of packed cache-page tuples"]
+             [:td "Paged attention cache in GPU memory"]]
+            [:tr
+             [:td "Gradients"]
+             [:td "Stream of packed update blocks with provenance"]
+             [:td "All-reduce or local accumulation buffers"]]
+            [:tr
+             [:td "Continuation state"]
+             [:td "Suspended computation plus refs to bounded stream regions"]
+             [:td "Resumed runtime frames and active buffers"]]]]
+
+          [:p
+           "The key is to choose the right granularity. Scalar-level tuples are usually too fine and will drown the system in interpretation overhead. The practical unit is the block: tile, page, shard, quantization group, head block, cache segment. Streams remain explicit, but they carry structures large enough to preserve throughput."]
+
+          [:h2 "The projection is the cache: Handling brittle hardware"]
+
+          [:p
+           "A common question arises: if GPU kernels are opaque and brittle, how can we suspend them? Most accelerators do not support pausing a running dispatch and serializing its registers. If memory pressure becomes too high, the hardware state is often simply discarded."]
+
+          [:p
+           "The answer is structural. We do not attempt to suspend the hardware state. We suspend the orchestrator at the boundary of a discrete effect. When a Yin.VM program requests a matrix multiplication or a transformer block, it emits an effect datom and parks. The GPU consumes the effect, executes a discrete, non-suspendable task, and emits the result. The continuation then resumes."]
+
+          [:p
+           "Under this model, the physical memory of the GPU is not the primary home for state. It is an execution projection (a high-speed cache) of the canonical tuple streams. If a node must drop its local memory state due to pressure, it is not a catastrophic loss of work. It is merely a cache miss at the projection layer. The parked continuation still exists. It carries the identity of the required streams. It can migrate to a node with available capacity, re-materialize the necessary projection from the stream, and resume as if nothing happened."]
+
+          [:h2 "Why this improves inference utilization"]
+
+          [:p
+           "Inference, especially autoregressive inference, is a perfect fit for suspendable mobile continuations. A live session is mostly a decode position, sampling state, a continuation, model references, and KV cache references. None of those inherently require being trapped inside one process."]
+
+          [:p
+           "With packed stream-native cache pages and mobile continuations, a session can:"]
+
+          [:ol
+           [:li "Run locally while resources are available"]
+           [:li "Suspend when the local node becomes constrained"]
+           [:li "Migrate with its continuation and explicit cache references"]
+           [:li "Resume on another GPU node without restarting from the prompt"]]
+
+          [:p
+           "This is much stronger than simply routing a new request to another machine. The work-in-progress itself moves. Already-computed causal structure is preserved. The system is no longer forced to choose between locality and continuity."]
+
+          [:h2 "Why this also improves training utilization"]
+
+          [:p
+           "Training is harder than inference because communication overhead is harsher and the tolerance for abstraction tax is lower. But the architectural benefits are also larger. Training already distributes parameter shards and gradients; what it rarely distributes cleanly is "
+           [:em "live computation as a portable value"]
+           "."]
+
+          [:p
+           "Under a stream-native continuation model, a training step can emit explicit gradient or update streams, and aggregation becomes an interpreter over those streams rather than a pile of hidden mutable side channels. That gives us:"]
+
+          [:ul.bulleted
+           [:li "federated provenance, because updates remain attributable"]
+           [:li "federated policy, because different aggregation rules are just different interpreters"]
+           [:li "fault tolerance, because suspended work can be resumed rather than replayed from coarse checkpoints"]
+           [:li "better locality, because computation can move toward private data instead of forcing data to centralize"]]
+
+          [:p
+           "This does not eliminate the need for fast all-reduce, fused optimizers, or smart memory planning. It changes the layer at which those optimizations live. They become projections of the stream model rather than the canonical model itself."]
+
+          [:h2 "Federation becomes ordinary systems engineering"]
+
+          [:p
+           "The most interesting consequence is conceptual. In mainstream ML infrastructure, federated inference and federated training often feel like special products bolted onto a fundamentally centralized stack. In Datom.World they become ordinary consequences of the substrate."]
+
+          [:p
+           "If computations are mobile continuations and state is carried by bounded tuple streams, then federation is no longer exotic. It is simply the ability to place interpreters and storage across trust boundaries while preserving causality. The same primitives that support local ringbuffer dispatch also support migration across a cluster, across an enterprise boundary, or onto an edge device."]
+
+          [:h2 "Convergent Evolution: How the industry is catching up"]
+
+          [:p
+           "This is not a purely theoretical vision. The high-performance inference community is already converging on these patterns, though they often describe them as specialized optimizations rather than a unified substrate."]
+
+          [:ul.bulleted
+           [:li
+            [:strong "vLLM and Llumnix:"]
+            " By breaking the KV cache into discrete blocks (PagedAttention), vLLM created the atomic unit for migration. Llumnix extends this by implementing iterative \"context switching\" for requests, copying cache blocks in the background so a session can move between servers to balance load. This is a direct validation of the block-page-as-tuple model."]
+           [:li
+            [:strong "Petals:"]
+            " In decentralized inference, Petals moves the \"continuation\" to the client. The client orchestrates a swarm of GPUs, treating each one as a temporary interpreter for a specific layer. If a node fails, the client simply finds a new projection of that layer elsewhere."]
+           [:li
+            [:strong "Mooncake and LMCache:"]
+            " Newer architectures are explicitly disaggregating the KV cache, treating it as a shared data stream that lives independently of any single GPU's memory. They are realizing that the KVCache is not just a buffer; it is the canonical record of the conversation."]]
+
+          [:p
+           "The difference in Datom.World is one of integration. In mainstream stacks, live migration and disaggregated caching are complex features bolted onto an opaque tensor runtime. In this architecture, they are ordinary consequences of the substrate. If the VM is an interpreter over streams, then migration is just re-pointing that interpreter to a new segment of the same canonical fact-stream."]
+
+          [:h2 "Why this architecture is not mainstream yet"]
+
+          [:p
+           "If the idea is so attractive, why is the industry still built on opaque tensor runtimes? The answer is not that the mainstream stack is foolish. It is that the mainstream stack optimized for a narrower objective: maximal local throughput under familiar deployment assumptions."]
+
+          [:p
+           "GPU software ecosystems reward dense contiguous buffers, static-ish kernel plans, and aggressive locality. They do not yet reward first-class mobility, explicit provenance, or suspendable computation strongly enough to dominate the design. Tooling, compilers, profilers, and operator habits all reinforce the tensor-runtime worldview."]
+
+          [:p
+           "But the pressure is changing. Long-running agentic workloads, privacy-sensitive inference, heterogeneous clusters, intermittent edge devices, and expensive accelerator scarcity all make resumability and mobility more valuable. The more we care about preserving live work rather than merely launching new work, the more continuation-native architectures become attractive."]
+
+          [:h2 "The real target: better effective utilization, not prettier semantics"]
+
+          [:p
+           "This architecture should not be judged by whether it sounds elegant in a whiteboard conversation. It should be judged by whether it increases "
+           [:strong "effective GPU utilization"]
+           ": more useful work completed per scarce accelerator hour, less discarded state, fewer cold restarts, more flexible placement, better privacy boundaries, and lower operational fragility."]
+
+          [:p
+           "That is the promise of mobile continuations over stream-native tensor state. We stop treating GPUs as places where opaque jobs go to live and die. We start treating them as interpreters for explicit computation that can be suspended, relocated, and resumed."]
+
+          [:p
+           "Once that shift happens, federated inference and federated training stop looking like compromises. They start looking like the natural consequence of taking computation seriously as data."]]]]}
