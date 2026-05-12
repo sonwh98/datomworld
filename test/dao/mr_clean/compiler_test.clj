@@ -111,6 +111,54 @@
         "inner overlay anchor should include both outer overlay offset and local translate"))))
 
 
+(deftest overlay-does-not-shift-component-returned-contribution-overlays
+  (testing
+    "overlaying [my-comp] should preserve absolute overlay coords from a returned contribution map"
+    (let [contribution
+          {:width 0,
+           :height 0,
+           :flow [],
+           :overlay
+           [{:op/kind :transform/push, :translate [3 4], :absolute? true}
+            {:op/kind :clip/push-rect, :rect [3 4 5 6]}
+            {:op/kind :draw/fill-rect, :rect [0 0 5 6]} {:op/kind :clip/pop}
+            {:op/kind :transform/pop}]}
+          comp (fn [] contribution)
+          direct-result
+          (binding [compiler/*current-context*
+                    {:translate-only? true, :abs-x 10, :abs-y 20}
+                    compiler/*constraints* {:max-width :unbounded,
+                                            :max-height :unbounded}
+                    compiler/*capabilities*
+                    {:measure-text (fn [_] {:width 100, :height 20})}
+                    compiler/*snapshot* {}]
+            (compiler/overlay contribution))
+          component-result
+          (binding [compiler/*current-context*
+                    {:translate-only? true, :abs-x 10, :abs-y 20}
+                    compiler/*constraints* {:max-width :unbounded,
+                                            :max-height :unbounded}
+                    compiler/*capabilities*
+                    {:measure-text (fn [_] {:width 100, :height 20})}
+                    compiler/*snapshot* {}]
+            (compiler/overlay [comp]))
+          direct-absolute-pushes (filter #(and (= :transform/push (:op/kind %))
+                                               (:absolute? %))
+                                         (:overlay direct-result))
+          component-absolute-pushes
+          (filter #(and (= :transform/push (:op/kind %)) (:absolute? %))
+                  (:overlay component-result))
+          direct-clip (some #(when (= :clip/push-rect (:op/kind %)) %)
+                            (:overlay direct-result))
+          component-clip (some #(when (= :clip/push-rect (:op/kind %)) %)
+                               (:overlay component-result))]
+      (is (= (mapv :translate direct-absolute-pushes)
+             (mapv :translate component-absolute-pushes)))
+      (is (= (:rect direct-clip) (:rect component-clip)))
+      (is (= [[10 20] [3 4]] (mapv :translate component-absolute-pushes)))
+      (is (= [3 4 5 6] (:rect component-clip))))))
+
+
 (deftest compile-ui-invokes-function-root-with-props
   (testing "compile-ui should invoke a function root with the supplied props"
     (let [root (fn [{:keys [width height]}]

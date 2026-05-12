@@ -11,6 +11,7 @@
 (def ^:dynamic *capabilities* nil)
 (def ^:dynamic *current-context* nil)
 (def ^:dynamic *constraints* nil)
+(def ^:private local-absolute-coords-key ::local-absolute-coords?)
 
 
 (defn read-atom
@@ -51,20 +52,16 @@
                        :enclosing-transform (:non-translate-cause ctx)})))
     (let [ax (:abs-x ctx)
           ay (:abs-y ctx)
-          ;; Compile Hiccup with abs-x/abs-y reset to 0 so absolute-screen
-          ;; -space ops (e.g. :clip/push-rect) emit at the inner origin. We
-          ;; then reapply the outer overlay anchor exactly once to both the
-          ;; immediate :flow and any nested overlay anchors/absolute ops
-          ;; emitted from that Hiccup tree. Raw op vectors and direct
-          ;; contribution maps keep their existing absolute coordinates.
+          ;; Compile local-coordinate subtrees with abs-x/abs-y reset to 0
+          ;; so absolute-screen-space ops (e.g. :clip/push-rect) emit at
+          ;; the inner origin. We then reapply the outer overlay anchor
+          ;; exactly once to both the immediate :flow and any nested
+          ;; overlay anchors/absolute ops from those compiled-local
+          ;; contributions. Raw op vectors and direct contribution maps
+          ;; keep their existing absolute coordinates.
           inner-ctx (assoc ctx
                            :abs-x 0
                            :abs-y 0)
-          compiled-hiccup? (not (or (and (map? child-ops) (:flow child-ops))
-                                    (and (vector? child-ops)
-                                         (not-empty child-ops)
-                                         (map? (first child-ops))
-                                         (:op/kind (first child-ops)))))
           contribution (cond (and (map? child-ops) (:flow child-ops)) child-ops
                              (and (vector? child-ops)
                                   (not-empty child-ops)
@@ -79,7 +76,7 @@
           ;; anchor; transform-relative draw ops are placed by the VM's
           ;; transform stack from the :transform/push above.
           shifted-flow (shift-absolute-coords flow ax ay)
-          shifted-nested-overlay (if compiled-hiccup?
+          shifted-nested-overlay (if (local-absolute-coords-key contribution)
                                    (shift-absolute-coords nested-overlay ax ay)
                                    nested-overlay)]
       {:width (:width contribution 0),
@@ -538,7 +535,8 @@
           (if (#{:column :row :stack :text :image :rect :clip :transform}
                tag)
             (binding [*evaluation-path* (conj *evaluation-path* tag)]
-              (handle-primitive tag attrs children constraints ctx))
+              (assoc (handle-primitive tag attrs children constraints ctx)
+                     local-absolute-coords-key true))
             (throw (ex-info "Unknown primitive tag"
                             {:tag tag, :path *evaluation-path*}))))
         (fn? (first node))
