@@ -1,11 +1,8 @@
-{:files {:extensions #{"cljc" "cljs" "clj" "edn" "chp" "blog"}
-         :ignore #{".git" ".shadow-cljs" ".cpcache" "node_modules" "target"}}
- :rules
- {:indentation {:enabled? true}
-  :whitespace {:enabled? true
-               :remove-trailing? true
-               :insert-missing? true}
-  :blank-lines {:enabled? true
-                :max-consecutive 2}
-  :namespaces {:enabled? true}
-  :eof-newline {:enabled? true}}}
+{:files {:extensions #{"blog" "chp" "clj" "cljc" "cljd" "cljs" "edn"},
+         :ignore #{".cpcache" ".git" ".shadow-cljs" "node_modules" "target"}},
+ :rules {:blank-lines {:enabled? true, :max-consecutive 2},
+         :eof-newline {:enabled? true},
+         :indentation {:enabled? true},
+         :namespaces {:enabled? true},
+         :whitespace
+           {:enabled? true, :insert-missing? true, :remove-trailing? true}}}
