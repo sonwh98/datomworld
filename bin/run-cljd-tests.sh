@@ -13,6 +13,7 @@ clj -M:cljd compile \
     yin.repl-test \
     dao.stream.apply-test \
     dao.stream.transit-test \
+    dao.mr-clean.compiler-cljd-test \
     yin.vm.ast-walker-test \
     yin.vm.engine-test \
     yin.vm.macro-test \
