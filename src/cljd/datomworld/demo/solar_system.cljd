@@ -1,12 +1,13 @@
 (ns datomworld.demo.solar-system
-  (:require ["dart:async" :as async]
-            ["dart:core" :as core]
-            ["dart:math" :as math]
-            ["package:flutter/material.dart" :as m]
-            [dao.postgraphics.flutter :as pg]
-            [dao.stream :as ds]
-            [dao.stream.ringbuffer]
-            [yin.repl.flutter :as flutter-repl]))
+  (:require
+    ["dart:async" :as async]
+    ["dart:core" :as core]
+    ["dart:math" :as math]
+    ["package:flutter/material.dart" :as m]
+    [dao.postgraphics.flutter :as pg]
+    [dao.stream :as ds]
+    [dao.stream.ringbuffer]
+    [yin.repl.flutter :as flutter-repl]))
 
 
 (def initial-state
@@ -67,19 +68,21 @@
         circle (fn [pt-fn] (mapv (fn [i] (pt-fn (* i step))) (range n)))
         equator (circle (fn [t] [(* r (math/cos t)) 0.0 (* r (math/sin t))]))
         meridian (fn [phi]
-                   (circle (fn [t] [(* r (math/cos phi) (math/cos t))
-                                    (* r (math/sin t))
-                                    (* r (math/sin phi) (math/cos t))])))
+                   (circle (fn [t]
+                             [(* r (math/cos phi) (math/cos t))
+                              (* r (math/sin t))
+                              (* r (math/sin phi) (math/cos t))])))
         meridians (mapcat #(meridian (* % (/ math/pi 6.0))) (range 6))
         lat-circle (fn [lat]
-                     (circle (fn [t] [(* r (math/cos lat) (math/cos t))
-                                      (* r (math/sin lat))
-                                      (* r (math/cos lat) (math/sin t))])))
+                     (circle (fn [t]
+                               [(* r (math/cos lat) (math/cos t))
+                                (* r (math/sin lat))
+                                (* r (math/cos lat) (math/sin t))])))
         lat-circles (mapcat #(lat-circle (* % (/ math/pi 6.0))) [-2 -1 1 2])
         all-vertices (vec (concat equator meridians lat-circles))
         ring-edges (fn [start]
                      (mapv (fn [i] [(+ start i) (+ start (mod (inc i) n))])
-                       (range n)))
+                           (range n)))
         ring-count (quot (count all-vertices) n)
         all-edges (vec (mapcat #(ring-edges (* % n)) (range ring-count)))]
     {:vertices all-vertices, :edges all-edges}))
@@ -172,7 +175,7 @@
           children (if has-attrs? (next after-pos) after-pos)
           expand (fn [x] (if (and (vector? x) (keyword? (first x))) `(w ~x) x))
           attr-forms
-            (mapcat (fn [[k v]] [(symbol (str "." (name k))) (expand v)]) attrs)
+          (mapcat (fn [[k v]] [(symbol (str "." (name k))) (expand v)]) attrs)
           child-forms (case (count children)
                         0 []
                         1 ['.child (expand (first children))]
@@ -204,11 +207,11 @@
                             (swap! angle-atom + speed)
                             (swap! tilt-atom + tilt-speed)
                             (swap! scene-state assoc-in
-                              [:bodies id :translate]
-                              [x y z]))))]
+                                   [:bodies id :translate]
+                                   [x y z]))))]
      (swap! anims assoc
-       anim-key
-       {:stop-fn stop-fn, :angle-atom angle-atom, :tilt-atom tilt-atom})
+            anim-key
+            {:stop-fn stop-fn, :angle-atom angle-atom, :tilt-atom tilt-atom})
      :orbiting)))
 
 
@@ -224,8 +227,8 @@
                                next-rot [(+ rx drx) (+ ry dry) (+ rz drz)]]
                            (reset! rot-atom next-rot)
                            (swap! scene-state assoc-in
-                             [:bodies id :rotate]
-                             next-rot))))]
+                                  [:bodies id :rotate]
+                                  next-rot))))]
     (swap! anims assoc anim-key {:stop-fn stop-fn, :rot-atom rot-atom})
     :spinning))
 
@@ -263,8 +266,8 @@
                     (doseq [[_ {:keys [stop-fn]}] @anims]
                       (when stop-fn (stop-fn)))
                     (swap! anims
-                      (fn [m]
-                        (into {} (map (fn [[k v]] [k (dissoc v :stop-fn)]) m))))
+                           (fn [m]
+                             (into {} (map (fn [[k v]] [k (dissoc v :stop-fn)]) m))))
                     :stopped)
         reset-scene! (fn []
                        (stop-all!)
@@ -280,71 +283,71 @@
                       sort
                       vec))
         extra-prims
-          {'bodies bodies,
-           'translate! (fn [id x y z]
+        {'bodies bodies,
+         'translate! (fn [id x y z]
+                       (swap! scene-state assoc-in
+                              [:bodies (keyword id) :translate]
+                              [(double x) (double y) (double z)])
+                       :translated),
+         'rotate-body! (fn [id rx ry rz]
                          (swap! scene-state assoc-in
-                           [:bodies (keyword id) :translate]
-                           [(double x) (double y) (double z)])
-                         :translated),
-           'rotate-body! (fn [id rx ry rz]
-                           (swap! scene-state assoc-in
-                             [:bodies (keyword id) :rotate]
-                             [(double rx) (double ry) (double rz)])
-                           :rotated),
-           'color! (fn [id r g b]
-                     (swap! scene-state assoc-in
-                       [:bodies (keyword id) :color]
-                       [(double r) (double g) (double b) 1.0])
-                     :colored),
-           'scale! (fn [id s]
-                     (swap! scene-state assoc-in
-                       [:bodies (keyword id) :scale]
-                       [(double s) (double s) (double s)])
-                     :scaled),
-           'add-body! (fn [id x y z r g b]
-                        (swap! scene-state assoc-in
-                          [:bodies (keyword id)]
-                          {:kind :cube,
-                           :translate [(double x) (double y) (double z)],
-                           :scale [0.5 0.5 0.5],
-                           :color [(double r) (double g) (double b) 1.0]})
-                        :added),
-           'remove-body!
-             (fn [id]
-               (swap! scene-state update :bodies dissoc (keyword id))
-               :removed),
-           'camera! (fn [x y z]
+                                [:bodies (keyword id) :rotate]
+                                [(double rx) (double ry) (double rz)])
+                         :rotated),
+         'color! (fn [id r g b]
+                   (swap! scene-state assoc-in
+                          [:bodies (keyword id) :color]
+                          [(double r) (double g) (double b) 1.0])
+                   :colored),
+         'scale! (fn [id s]
+                   (swap! scene-state assoc-in
+                          [:bodies (keyword id) :scale]
+                          [(double s) (double s) (double s)])
+                   :scaled),
+         'add-body! (fn [id x y z r g b]
                       (swap! scene-state assoc-in
-                        [:camera :translate]
-                        [(double x) (double y) (double z)])
-                      :camera-moved),
-           'camera-rotate! (fn [rx ry rz]
-                             (swap! scene-state assoc-in
-                               [:camera :rotate]
-                               [(double rx) (double ry) (double rz)])
-                             :camera-rotated),
-           'camera-fov!
-             (fn [fov]
-               (swap! scene-state assoc-in [:camera :fov] (double fov))
-               :camera-fov),
-           'orbit! (fn [id radius speed]
-                     (orbit! scene-state
-                             anims
-                             sched
-                             (keyword id)
-                             (double radius)
-                             (double speed))),
-           'spin! (fn [id drx dry drz]
-                    (spin! scene-state
+                             [:bodies (keyword id)]
+                             {:kind :cube,
+                              :translate [(double x) (double y) (double z)],
+                              :scale [0.5 0.5 0.5],
+                              :color [(double r) (double g) (double b) 1.0]})
+                      :added),
+         'remove-body!
+         (fn [id]
+           (swap! scene-state update :bodies dissoc (keyword id))
+           :removed),
+         'camera! (fn [x y z]
+                    (swap! scene-state assoc-in
+                           [:camera :translate]
+                           [(double x) (double y) (double z)])
+                    :camera-moved),
+         'camera-rotate! (fn [rx ry rz]
+                           (swap! scene-state assoc-in
+                                  [:camera :rotate]
+                                  [(double rx) (double ry) (double rz)])
+                           :camera-rotated),
+         'camera-fov!
+         (fn [fov]
+           (swap! scene-state assoc-in [:camera :fov] (double fov))
+           :camera-fov),
+         'orbit! (fn [id radius speed]
+                   (orbit! scene-state
                            anims
                            sched
                            (keyword id)
-                           (double drx)
-                           (double dry)
-                           (double drz))),
-           'animate! (fn [] (animate-all! scene-state anims sched)),
-           'stop! stop-all!,
-           'reset! (fn [] (reset-scene!))}]
+                           (double radius)
+                           (double speed))),
+         'spin! (fn [id drx dry drz]
+                  (spin! scene-state
+                         anims
+                         sched
+                         (keyword id)
+                         (double drx)
+                         (double dry)
+                         (double drz))),
+         'animate! (fn [] (animate-all! scene-state anims sched)),
+         'stop! stop-all!,
+         'reset! (fn [] (reset-scene!))}]
     (flutter-repl/start-server! {:port port, :extra-primitives extra-prims})
     (m/runApp
       (w
@@ -352,60 +355,60 @@
          {:title "postgraphics solar system",
           :theme [:ThemeData {:colorScheme (m/ColorScheme.dark)}],
           :home
-            [:Scaffold
-             {:appBar [:AppBar {:title [:Text "postgraphics solar system"]}],
-              :body
-                [:ListView {:padding (m/EdgeInsets.all 16.0)}
-                 [:Builder
-                  {:builder
-                     (fn [ctx]
-                       (m/OutlinedButton.
-                         .onPressed
-                         (fn []
-                           (do
-                             (m/showDialog
-                               .context
-                               ctx
-                               .builder
-                               (fn [_]
-                                 (m/AlertDialog.
-                                   .title
-                                   (m/Text. "REPL")
-                                   .content
-                                   (m/SingleChildScrollView.
-                                     .child
-                                     (m/Column.
-                                       .crossAxisAlignment
-                                       m/CrossAxisAlignment.start
-                                       .mainAxisSize
-                                       m/MainAxisSize.min
-                                       .children
-                                       [(flutter-repl/info-card {:port port})
-                                        (m/SizedBox. .height 8.0)
-                                        (mono
-                                          "(connect \"daostream:ws://<ip>:7777\")")
-                                        (mono "(bodies)")
-                                        (mono "(translate! :earth 11 2 0)")
-                                        (mono "(color! :venus 0.3 0.9 0.5)")
-                                        (mono "(scale! :mars 2.0)")
-                                        (mono
-                                          "(add-body! :asteroid 7 3 0 0.6 0.6 0.6)")
-                                        (mono "(camera! 0 20 38)")
-                                        (mono "(orbit! :mercury 5.5 0.04)")
-                                        (mono "(orbit! :earth 11 0.02)")
-                                        (mono "(spin! :sun 0 0.03 0)")
-                                        (mono "(animate!)") (mono "(stop!)")
-                                        (mono "(reset!)")]))
-                                   .actions
-                                   [(m/TextButton.
-                                      .onPressed
-                                      (fn []
-                                        (do (.pop (m/Navigator.of ctx)) nil))
-                                      .child
-                                      (m/Text. "Close"))])))
-                             nil))
-                         .child
-                         (m/Text. "REPL Info")))}] [:SizedBox {:height 8.0}]
-                 [:Center
-                  [:SizedBox {:width 500.0, :height 500.0}
-                   (pg/postgraphics-widget frame-stream)]]]}]}]))))
+          [:Scaffold
+           {:appBar [:AppBar {:title [:Text "postgraphics solar system"]}],
+            :body
+            [:ListView {:padding (m/EdgeInsets.all 16.0)}
+             [:Builder
+              {:builder
+               (fn [ctx]
+                 (m/OutlinedButton.
+                   .onPressed
+                   (fn []
+                     (do
+                       (m/showDialog
+                         .context
+                         ctx
+                         .builder
+                         (fn [_]
+                           (m/AlertDialog.
+                             .title
+                             (m/Text. "REPL")
+                             .content
+                             (m/SingleChildScrollView.
+                               .child
+                               (m/Column.
+                                 .crossAxisAlignment
+                                 m/CrossAxisAlignment.start
+                                 .mainAxisSize
+                                 m/MainAxisSize.min
+                                 .children
+                                 [(flutter-repl/info-card {:port port})
+                                  (m/SizedBox. .height 8.0)
+                                  (mono
+                                    "(connect \"daostream:ws://<ip>:7777\")")
+                                  (mono "(bodies)")
+                                  (mono "(translate! :earth 11 2 0)")
+                                  (mono "(color! :venus 0.3 0.9 0.5)")
+                                  (mono "(scale! :mars 2.0)")
+                                  (mono
+                                    "(add-body! :asteroid 7 3 0 0.6 0.6 0.6)")
+                                  (mono "(camera! 0 20 38)")
+                                  (mono "(orbit! :mercury 5.5 0.04)")
+                                  (mono "(orbit! :earth 11 0.02)")
+                                  (mono "(spin! :sun 0 0.03 0)")
+                                  (mono "(animate!)") (mono "(stop!)")
+                                  (mono "(reset!)")]))
+                             .actions
+                             [(m/TextButton.
+                                .onPressed
+                                (fn []
+                                  (do (.pop (m/Navigator.of ctx)) nil))
+                                .child
+                                (m/Text. "Close"))])))
+                       nil))
+                   .child
+                   (m/Text. "REPL Info")))}] [:SizedBox {:height 8.0}]
+             [:Center
+              [:SizedBox {:width 500.0, :height 500.0}
+               (pg/postgraphics-widget frame-stream)]]]}]}]))))

@@ -1,19 +1,23 @@
 (ns datomworld.demo.repl
-  (:require ["dart:async" :as async]
-            ["package:flutter/material.dart" :as m]
-            [clojure.string :as str]
-            [yin.repl.flutter :as flutter-repl]))
+  (:require
+    ["dart:async" :as async]
+    ["package:flutter/material.dart" :as m]
+    [clojure.string :as str]
+    [yin.repl.flutter :as flutter-repl]))
+
 
 (def ^:private button-label (m/ValueNotifier "Click me!"))
 (def ^:private click-output (m/ValueNotifier ""))
 
+
 (defn- extra-primitives
   []
   {'set-button-text!
-     (fn [text] (set! (.-value ^m/ValueNotifier button-label) (str text)) text),
+   (fn [text] (set! (.-value ^m/ValueNotifier button-label) (str text)) text),
    'button-handler
-     (fn []
-       "(define a handler via REPL: (def button-handler (fn [] \"result\")))")})
+   (fn []
+     "(define a handler via REPL: (def button-handler (fn [] \"result\")))")})
+
 
 (defn- on-press!
   []
@@ -21,10 +25,12 @@
          (fn [result]
            (set! (.-value ^m/ValueNotifier click-output) (str result)))))
 
+
 (defn- mono
   ([text] (mono text 12.0))
   ([text size]
    (m/Text text .style (m/TextStyle .fontFamily "monospace" .fontSize size))))
+
 
 (defn home-page
   []
@@ -89,6 +95,7 @@
        (mono "(def button-handler (fn [] \"Hi!\"))")
        (mono "(def button-handler (fn [] (str \"Sum: \" (+ 1 2 3))))")
        (m/SizedBox .height 12.0) (mono "; Reset VM state:") (mono "(reset)")])))
+
 
 (defn main
   []

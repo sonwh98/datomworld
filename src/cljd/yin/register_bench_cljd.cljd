@@ -4,14 +4,16 @@
     [dao.stream.ringbuffer :as ringbuffer]
     [yin.vm :as vm]
     [yin.vm.register :as register])
-  (:import ["dart:core" DateTime]))
+  (:import
+    (dart:core
+      DateTime)))
 
 
 (def ^:private benchmark-config
-  {:workload :tail-countdown
-   :iterations 20
-   :samples 9
-   :warmup 4
+  {:workload :tail-countdown,
+   :iterations 20,
+   :samples 9,
+   :warmup 4,
    :countdown-n 50000})
 
 
@@ -32,45 +34,39 @@
         mid (quot n 2)]
     (if (odd? n)
       (nth sorted mid)
-      (/ (+ (nth sorted (dec mid))
-            (nth sorted mid))
-         2.0))))
+      (/ (+ (nth sorted (dec mid)) (nth sorted mid)) 2.0))))
 
 
 (defn- closure-call-ast
   []
-  {:type :application
-   :operator {:type :lambda
-              :params ['x]
-              :body {:type :variable :name 'x}}
-   :operands [{:type :literal :value 42}]})
+  {:type :application,
+   :operator {:type :lambda, :params ['x], :body {:type :variable, :name 'x}},
+   :operands [{:type :literal, :value 42}]})
 
 
 (defn- tail-countdown-ast
   [n]
-  (let [self-fn {:type :lambda
-                 :params ['self 'n]
-                 :body {:type :if
-                        :test {:type :application
-                               :operator {:type :variable :name '<}
-                               :operands [{:type :variable :name 'n}
-                                          {:type :literal :value 1}]}
-                        :consequent {:type :literal :value 0}
-                        :alternate {:type :application
-                                    :operator {:type :variable :name 'self}
-                                    :operands [{:type :variable :name 'self}
-                                               {:type :application
-                                                :operator {:type :variable
-                                                           :name '-}
-                                                :operands [{:type :variable
-                                                            :name 'n}
-                                                           {:type :literal
-                                                            :value 1}]}]
-                                    :tail? true}
+  (let [self-fn {:type :lambda,
+                 :params ['self 'n],
+                 :body {:type :if,
+                        :test {:type :application,
+                               :operator {:type :variable, :name '<},
+                               :operands [{:type :variable, :name 'n}
+                                          {:type :literal, :value 1}]},
+                        :consequent {:type :literal, :value 0},
+                        :alternate
+                        {:type :application,
+                         :operator {:type :variable, :name 'self},
+                         :operands [{:type :variable, :name 'self}
+                                    {:type :application,
+                                     :operator {:type :variable, :name '-},
+                                     :operands [{:type :variable, :name 'n}
+                                                {:type :literal, :value 1}]}],
+                         :tail? true},
                         :tail? true}}]
-    {:type :application
-     :operator self-fn
-     :operands [self-fn {:type :literal :value n}]
+    {:type :application,
+     :operator self-fn,
+     :operands [self-fn {:type :literal, :value n}],
      :tail? true}))
 
 
@@ -79,14 +75,15 @@
   (case workload
     :closure-call (closure-call-ast)
     :tail-countdown (tail-countdown-ast countdown-n)
-    (throw (ex-info "Unknown benchmark workload"
-                    {:workload workload}))))
+    (throw (ex-info "Unknown benchmark workload" {:workload workload}))))
 
 
 (defn- queue-vm
   [vm-state datoms]
   (let [in-stream (ringbuffer/make-ring-buffer-stream nil)
-        queued-vm (assoc vm-state :in-stream in-stream :in-cursor {:position 0})]
+        queued-vm (assoc vm-state
+                         :in-stream in-stream
+                         :in-cursor {:position 0})]
     (ds/put! in-stream (vec datoms))
     queued-vm))
 
@@ -98,8 +95,7 @@
 
 (defn- run-iterations
   [program iterations]
-  (dotimes [_ iterations]
-    (vm/run program)))
+  (dotimes [_ iterations] (vm/run program)))
 
 
 (defn- sample-total-ms
@@ -111,11 +107,10 @@
 
 (defn main
   []
-  (let [{:keys [workload iterations samples warmup] :as cfg} benchmark-config
+  (let [{:keys [workload iterations samples warmup], :as cfg} benchmark-config
         ast (workload->ast cfg)
         program (load-register-program ast)]
-    (dotimes [_ warmup]
-      (run-iterations program iterations))
+    (dotimes [_ warmup] (run-iterations program iterations))
     (let [sample-total (vec (for [_ (range samples)]
                               (sample-total-ms program iterations)))
           sample-per-iter (mapv #(/ % iterations) sample-total)]

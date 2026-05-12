@@ -1,10 +1,12 @@
 (ns yin.repl.flutter
   "A reusable Flutter component to easily embed a Yin.VM REPL server inside any application."
-  (:require ["dart:async" :as async]
-            ["dart:io" :as io]
-            ["package:flutter/material.dart" :as m]
-            [clojure.string :as str]
-            [yin.repl :as repl]))
+  (:require
+    ["dart:async" :as async]
+    ["dart:io" :as io]
+    ["package:flutter/material.dart" :as m]
+    [clojure.string :as str]
+    [yin.repl :as repl]))
+
 
 (def device-ip (m/ValueNotifier "..."))
 (def interface-addresses (m/ValueNotifier []))
@@ -12,6 +14,7 @@
 (def active-clients (atom 0))
 (def repl-state (atom nil))
 (def repl-server (atom nil))
+
 
 (defn load-device-ip!
   "Asynchronously loads the local network interfaces and populates the device-ip and interface-addresses notifiers."
@@ -35,30 +38,32 @@
         (set! (.-value ^m/ValueNotifier device-ip) (or @found "localhost"))
         (set! (.-value ^m/ValueNotifier interface-addresses) @rows)))))
 
+
 (defn start-server!
   "Starts the REPL server on the specified port (default 7777) and populates the device-ip and server-status notifiers."
   [{:keys [port extra-primitives], :or {port 7777}}]
   (when-let [stop! (:stop! @repl-server)] (stop!))
   (reset! active-clients 0)
   (reset! repl-state
-    (-> (repl/create-state {:vm-type :semantic})
-        (update :vm update :primitives merge (or extra-primitives {}))))
+          (-> (repl/create-state {:vm-type :semantic})
+              (update :vm update :primitives merge (or extra-primitives {}))))
   (reset! repl-server
-    (repl/serve!
-      repl-state
-      port
-      {:on-connect (fn [_stream]
-                     (let [client-count (swap! active-clients inc)]
-                       (set! (.-value ^m/ValueNotifier server-status)
-                             (repl/connection-status-text client-count)))),
-       :on-disconnect (fn [_stream]
-                        (let [client-count (swap! active-clients
-                                             (fn [n] (max 0 (dec n))))]
-                          (set! (.-value ^m/ValueNotifier server-status)
-                                (repl/connection-status-text client-count))))}))
+          (repl/serve!
+            repl-state
+            port
+            {:on-connect (fn [_stream]
+                           (let [client-count (swap! active-clients inc)]
+                             (set! (.-value ^m/ValueNotifier server-status)
+                                   (repl/connection-status-text client-count)))),
+             :on-disconnect (fn [_stream]
+                              (let [client-count (swap! active-clients
+                                                        (fn [n] (max 0 (dec n))))]
+                                (set! (.-value ^m/ValueNotifier server-status)
+                                      (repl/connection-status-text client-count))))}))
   (set! (.-value ^m/ValueNotifier server-status)
         (repl/connection-status-text @active-clients))
   (load-device-ip!))
+
 
 (defn eval-input!
   "Evaluates code in the active REPL state, updates the state, and returns a future with the result string."
@@ -66,10 +71,12 @@
   (.then ^async/Future (repl/eval-input @repl-state code)
          (fn [[state' result]] (reset! repl-state state') result)))
 
+
 (defn- mono
   ([text] (mono text 12.0))
   ([text size]
    (m/Text text .style (m/TextStyle .fontFamily "monospace" .fontSize size))))
+
 
 (defn info-card
   "A Flutter Widget that displays the REPL server status and device IPs."
@@ -110,7 +117,7 @@
                         (if (seq rows)
                           (mapv (fn [[iface ips]]
                                   (mono (str iface ": " (str/join ", " ips))))
-                            rows)
+                                rows)
                           [(mono "loading...")])))) (m/SizedBox .height 6.0)
                   (m/ValueListenableBuilder
                     .valueListenable

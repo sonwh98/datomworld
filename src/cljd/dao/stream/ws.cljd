@@ -1,39 +1,53 @@
 (ns dao.stream.ws
   "WebSocket-backed stream for ClojureDart using dart:io."
-  (:require ["dart:io" :as io]
-            [dao.stream :as ds]
-            [dao.stream.link :as link]
-            [dao.stream.transit :as transit]
-            [dao.stream.ringbuffer :as ringbuffer]))
+  (:require
+    ["dart:io" :as io]
+    [dao.stream :as ds]
+    [dao.stream.link :as link]
+    [dao.stream.ringbuffer :as ringbuffer]
+    [dao.stream.transit :as transit]))
 
 
-(defrecord WebSocketStream [link-state-atom send-fn-atom]
+(defrecord WebSocketStream
+  [link-state-atom send-fn-atom]
+
   ds/IDaoStreamWriter
-    (put! [_ val]
-      (let [state @link-state-atom
-            [state' msg] (link/local-put state val)]
-        (if-let [send-fn @send-fn-atom]
-          (do (reset! link-state-atom (assoc state'
-                                        :local-sent-pos (:local-pos state')))
-              (send-fn (transit/encode msg)))
-          (reset! link-state-atom state'))
-        {:result :ok, :woke []}))
+
+  (put!
+    [_ val]
+    (let [state @link-state-atom
+          [state' msg] (link/local-put state val)]
+      (if-let [send-fn @send-fn-atom]
+        (do (reset! link-state-atom (assoc state'
+                                           :local-sent-pos (:local-pos state')))
+            (send-fn (transit/encode msg)))
+        (reset! link-state-atom state'))
+      {:result :ok, :woke []}))
+
+
   ds/IDaoStreamReader
-    (next [_ c] (ds/next (:remote-stream @link-state-atom) c))
+
+  (next [_ c] (ds/next (:remote-stream @link-state-atom) c))
+
+
   ds/IDaoStreamBound
-    (close! [_]
-      (when-let [send-fn @send-fn-atom]
-        (send-fn (transit/encode (link/close-msg))))
-      (let [state (:remote-stream @link-state-atom)] (ds/close! state))
-      (swap! link-state-atom assoc :status :closed)
-      {:woke []})
-    (closed? [_] (= :closed (:status @link-state-atom))))
+
+  (close!
+    [_]
+    (when-let [send-fn @send-fn-atom]
+      (send-fn (transit/encode (link/close-msg))))
+    (let [state (:remote-stream @link-state-atom)] (ds/close! state))
+    (swap! link-state-atom assoc :status :closed)
+    {:woke []})
+
+
+  (closed? [_] (= :closed (:status @link-state-atom))))
 
 
 (defn- make-ws-stream
   [local]
   (->WebSocketStream (atom (assoc (link/make-link-state local)
-                             :local-sent-pos 0))
+                                  :local-sent-pos 0))
                      (atom nil)))
 
 
@@ -57,20 +71,20 @@
 (defn- on-open!
   [ws-stream send-fn]
   (swap! (:link-state-atom ws-stream)
-    (fn [state]
-      (let [remote-stream (:remote-stream state)]
-        (cond-> (assoc state :status :connecting)
-          (ds/closed? remote-stream)
-            (assoc :remote-stream
-              (ringbuffer/make-ring-buffer-stream nil (:remote-pos state)))))))
+         (fn [state]
+           (let [remote-stream (:remote-stream state)]
+             (cond-> (assoc state :status :connecting)
+               (ds/closed? remote-stream)
+               (assoc :remote-stream
+                      (ringbuffer/make-ring-buffer-stream nil (:remote-pos state)))))))
   (reset! (:send-fn-atom ws-stream) send-fn)
   (let [state @(:link-state-atom ws-stream)]
     (send-fn (transit/encode (link/connect-msg state)))
     (when-let [msg (unsent-local-put-msg state)]
       (send-fn (transit/encode msg))
       (swap! (:link-state-atom ws-stream) assoc
-        :local-sent-pos
-        (:local-pos state)))))
+             :local-sent-pos
+             (:local-pos state)))))
 
 
 (defn- on-message!
@@ -144,7 +158,7 @@
                            (maybe-upgrade-request! request opts conns)))))]
      (.then (io/HttpServer.bind "0.0.0.0" port) on-server)
      {:stop-fn
-        (fn [] (when-let [server @server-ref] (.close ^io/HttpServer server))),
+      (fn [] (when-let [server @server-ref] (.close ^io/HttpServer server))),
       :conns conns})))
 
 
@@ -160,24 +174,28 @@
      stream)))
 
 
-(deftype WebSocketOpenMethod []
+(deftype WebSocketOpenMethod
+  []
   :type-only
   true
+
   cljd.core/IFn
-    (-invoke [_ ^dynamic table]
-      (assoc!
-        table
-        :websocket
-        (fn [descriptor]
-          (let [{:keys [mode url port capacity eviction-policy]} descriptor]
-            (case mode
-              :listen (listen! port descriptor)
-              :connect (connect! url
-                                 {:capacity capacity,
-                                  :eviction-policy eviction-policy})
-              (throw (ex-info
-                       "websocket transport mode must be :listen or :connect"
-                       {:descriptor descriptor, :mode mode}))))))))
+
+  (-invoke
+    [_ ^dynamic table]
+    (assoc!
+      table
+      :websocket
+      (fn [descriptor]
+        (let [{:keys [mode url port capacity eviction-policy]} descriptor]
+          (case mode
+            :listen (listen! port descriptor)
+            :connect (connect! url
+                               {:capacity capacity,
+                                :eviction-policy eviction-policy})
+            (throw (ex-info
+                     "websocket transport mode must be :listen or :connect"
+                     {:descriptor descriptor, :mode mode}))))))))
 
 
 (contribute* :multi-method
