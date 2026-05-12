@@ -1,4 +1,4 @@
-package datomworld.demo.repl
+package datomworld.demo.mr_clean
 
 import io.flutter.embedding.android.FlutterActivity
 

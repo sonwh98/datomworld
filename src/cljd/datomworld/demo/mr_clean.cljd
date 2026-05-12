@@ -1,4 +1,4 @@
-(ns datomworld.demo.repl
+(ns datomworld.demo.mr-clean
   (:require ["package:flutter/material.dart" :as m]
             [dao.mr-clean.compiler :as mr-clean]
             [dao.postgraphics.flutter :as pg]

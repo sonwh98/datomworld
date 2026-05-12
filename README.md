@@ -70,7 +70,7 @@ clj -M:cljs -m shadow.cljs.devtools.cli compile test && node target/node-tests.j
 
 ## Flutter Prototype
 
-The active ClojureDart demo boots a Flutter surface backed by `dao.postgraphics/postgraphics-widget` and a remote Yin REPL. The demo entrypoint is `src/cljd/datomworld/demo/main.cljd`, which currently launches `datomworld.demo.repl`.
+The active ClojureDart demo boots a Flutter surface backed by `dao.postgraphics/postgraphics-widget` and a remote Yin REPL. The demo entrypoint is `src/cljd/datomworld/demo/main.cljd`, which currently launches `datomworld.demo.mr-clean`.
 
 ### Android Emulator
 

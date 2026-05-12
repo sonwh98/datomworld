@@ -1,7 +1,50 @@
 (ns datomworld.demo.main
-  (:require [datomworld.demo.repl :as repl-demo]))
+  (:require ["package:flutter/material.dart" :as m]
+            [datomworld.demo.mr-clean :as mr-clean-demo]
+            [datomworld.demo.solar-system :as solar-system-demo]))
 
 
 (defn main
   []
-  (repl-demo/main))
+  (m/runApp
+    (m/MaterialApp .title
+                   "Datomworld Demos"
+                   .theme
+                   (m/ThemeData .primarySwatch m.Colors/indigo)
+                   .home
+                   (m/Scaffold
+                     .appBar
+                     (m/AppBar .title (m/Text "Datomworld Demos"))
+                     .body
+                     (m/Center
+                       .child
+                       (m/Column
+                         .mainAxisAlignment
+                         m/MainAxisAlignment.center
+                         .children
+                         [(m/SizedBox .width
+                                      240.0
+                                      .height
+                                      60.0
+                                      .child
+                                      (m/ElevatedButton
+                                        .onPressed
+                                        (fn [] (mr-clean-demo/main))
+                                        .child
+                                        (m/Text "Mr-Clean Prototype"
+                                                .style
+                                                (m/TextStyle .fontSize 18.0))))
+                          (m/SizedBox .height 24.0)
+                          (m/SizedBox .width
+                                      240.0
+                                      .height
+                                      60.0
+                                      .child
+                                      (m/ElevatedButton
+                                        .onPressed
+                                        (fn [] (solar-system-demo/main))
+                                        .child
+                                        (m/Text "Solar System Demo"
+                                                .style
+                                                (m/TextStyle .fontSize
+                                                             18.0))))]))))))
