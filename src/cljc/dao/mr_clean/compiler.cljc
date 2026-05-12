@@ -52,13 +52,19 @@
     (let [ax (:abs-x ctx)
           ay (:abs-y ctx)
           ;; Compile Hiccup with abs-x/abs-y reset to 0 so absolute-screen
-          ;; -space ops (e.g. :clip/push-rect) emit at the inner origin.
-          ;; shift-absolute-coords below applies the anchor exactly once
-          ;; — same rule as the raw-op-vector branch — so both shapes go
-          ;; through the same coordinate model.
+          ;; -space ops (e.g. :clip/push-rect) emit at the inner origin. We
+          ;; then reapply the outer overlay anchor exactly once to both the
+          ;; immediate :flow and any nested overlay anchors/absolute ops
+          ;; emitted from that Hiccup tree. Raw op vectors and direct
+          ;; contribution maps keep their existing absolute coordinates.
           inner-ctx (assoc ctx
                            :abs-x 0
                            :abs-y 0)
+          compiled-hiccup? (not (or (and (map? child-ops) (:flow child-ops))
+                                    (and (vector? child-ops)
+                                         (not-empty child-ops)
+                                         (map? (first child-ops))
+                                         (:op/kind (first child-ops)))))
           contribution (cond (and (map? child-ops) (:flow child-ops)) child-ops
                              (and (vector? child-ops)
                                   (not-empty child-ops)
@@ -72,7 +78,10 @@
           ;; Selective shift: only absolute-screen-space ops move with the
           ;; anchor; transform-relative draw ops are placed by the VM's
           ;; transform stack from the :transform/push above.
-          shifted-flow (shift-absolute-coords flow ax ay)]
+          shifted-flow (shift-absolute-coords flow ax ay)
+          shifted-nested-overlay (if compiled-hiccup?
+                                   (shift-absolute-coords nested-overlay ax ay)
+                                   nested-overlay)]
       {:width (:width contribution 0),
        :height (:height contribution 0),
        :flow [],
@@ -81,7 +90,7 @@
                                :absolute? true}]
                              shifted-flow
                              [{:op/kind :transform/pop}]
-                             nested-overlay))})))
+                             shifted-nested-overlay))})))
 
 
 (defn- fn-display-name

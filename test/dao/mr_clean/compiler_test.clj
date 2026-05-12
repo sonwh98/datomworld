@@ -88,6 +88,29 @@
       (is (= [10 20 5 6] (:rect clip-op))))))
 
 
+(deftest overlay-preserves-outer-anchor-for-nested-overlays
+  (testing
+    "overlaying hiccup that emits an inner overlay should preserve the outer absolute anchor"
+    (let [inner-overlay (fn [] (compiler/overlay [:rect {:width 2, :height 3}]))
+          result (binding [compiler/*current-context*
+                           {:translate-only? true, :abs-x 10, :abs-y 20}
+                           compiler/*constraints* {:max-width :unbounded,
+                                                   :max-height :unbounded}
+                           compiler/*capabilities*
+                           {:measure-text (fn [_] {:width 100, :height 20})}
+                           compiler/*snapshot* {}]
+                   (compiler/overlay [:transform {:translate [3 4]}
+                                      [inner-overlay]]))
+          absolute-pushes (filter #(and (= :transform/push (:op/kind %))
+                                        (:absolute? %))
+                                  (:overlay result))]
+      (is (= 2 (count absolute-pushes)))
+      (is (= [10 20] (:translate (first absolute-pushes))))
+      (is
+        (= [13 24] (:translate (second absolute-pushes)))
+        "inner overlay anchor should include both outer overlay offset and local translate"))))
+
+
 (deftest compile-ui-invokes-function-root-with-props
   (testing "compile-ui should invoke a function root with the supplied props"
     (let [root (fn [{:keys [width height]}]
