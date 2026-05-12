@@ -1,12 +1,11 @@
 (ns dao.postgraphics.flutter
-  (:require
-    ["dart:core" :as dart]
-    ["dart:math" :as math]
-    ["dart:typed_data" :as type]
-    ["dart:ui" :as ui]
-    ["package:flutter/material.dart" :as m]
-    ["package:vector_math/vector_math_64.dart" :as vm]
-    [dao.stream :as ds]))
+  (:require ["dart:core" :as dart]
+            ["dart:math" :as math]
+            ["dart:typed_data" :as type]
+            ["dart:ui" :as ui]
+            ["package:flutter/material.dart" :as m]
+            ["package:vector_math/vector_math_64.dart" :as vm]
+            [dao.stream :as ds]))
 
 
 ;; --- matrix helpers ---
@@ -778,144 +777,154 @@
     [_this ^ui/Canvas canvas ^ui/Size size]
     (let [frame (.-value notifier)
           width (.-width size)
-          height (.-height size)]
+          height (.-height size)
+          surface-rect
+          (ui/Rect.fromLTWH 0.0 0.0 (double width) (double height))]
       (when (seq frame)
-        (let [int-width (int (.ceil width))
-              int-height (int (.ceil height))
-              depth-buffer (type/Float32List. (* int-width int-height))]
-          (.fillRange depth-buffer 0 (.-length depth-buffer) 1.0)
-          (loop [ops frame
-                 model-stack (list (vm/Matrix4.identity))
-                 clip-stack (list)
-                 camera-matrix nil
-                 depth-test false
-                 depth-write false]
-            (when-let [op (first ops)]
-              (let [kind (:op/kind op)
-                    next-ops (rest ops)]
-                (case kind
-                  :frame/clear
-                  (do
-                    (.drawPaint canvas
-                                (fill-paint
-                                  (get op :color [0.0 0.0 0.0 1.0])))
-                    (.fillRange depth-buffer 0 (.-length depth-buffer) 1.0)
+        (.save canvas)
+        (.clipRect canvas surface-rect)
+        (try
+          (let [int-width (int (.ceil width))
+                int-height (int (.ceil height))
+                depth-buffer (type/Float32List. (* int-width int-height))]
+            (.fillRange depth-buffer 0 (.-length depth-buffer) 1.0)
+            (loop [ops frame
+                   model-stack (list (vm/Matrix4.identity))
+                   clip-stack (list)
+                   camera-matrix nil
+                   depth-test false
+                   depth-write false]
+              (when-let [op (first ops)]
+                (let [kind (:op/kind op)
+                      next-ops (rest ops)]
+                  (case kind
+                    :frame/clear (do (.drawPaint
+                                       canvas
+                                       (fill-paint
+                                         (get op :color [0.0 0.0 0.0 1.0])))
+                                     (.fillRange depth-buffer
+                                                 0
+                                                 (.-length depth-buffer)
+                                                 1.0)
+                                     (recur next-ops
+                                            model-stack
+                                            clip-stack
+                                            camera-matrix
+                                            depth-test
+                                            depth-write))
+                    :transform/push (let [top (first model-stack)
+                                          new-m (.clone top)]
+                                      (.multiply new-m (op->matrix op))
+                                      (recur next-ops
+                                             (conj model-stack new-m)
+                                             clip-stack
+                                             camera-matrix
+                                             depth-test
+                                             depth-write))
+                    :transform/pop (recur next-ops
+                                          (or (next model-stack)
+                                              (list (vm/Matrix4.identity)))
+                                          clip-stack
+                                          camera-matrix
+                                          depth-test
+                                          depth-write)
+                    :clip/push-rect (let [[x y w h] (:rect op)
+                                          r (ui/Rect.fromLTWH
+                                              (double x)
+                                              (- height (double y) (double h))
+                                              (double w)
+                                              (double h))]
+                                      (recur next-ops
+                                             model-stack
+                                             (conj clip-stack r)
+                                             camera-matrix
+                                             depth-test
+                                             depth-write))
+                    :clip/pop (recur next-ops
+                                     model-stack
+                                     (or (next clip-stack) (list))
+                                     camera-matrix
+                                     depth-test
+                                     depth-write)
+                    :camera3d/set (let [cam (build-camera op width height)]
+                                    (when camera-matrix
+                                      (.fillRange depth-buffer
+                                                  0
+                                                  (.-length depth-buffer)
+                                                  1.0))
+                                    (recur next-ops
+                                           model-stack
+                                           clip-stack
+                                           cam
+                                           depth-test
+                                           depth-write))
+                    :state/depth-test (recur next-ops
+                                             model-stack
+                                             clip-stack
+                                             camera-matrix
+                                             (boolean (:enabled op))
+                                             depth-write)
+                    :state/depth-write (recur next-ops
+                                              model-stack
+                                              clip-stack
+                                              camera-matrix
+                                              depth-test
+                                              (boolean (:enabled op)))
+                    (:draw/fill-rect :draw/stroke-rect :draw/fill-circle
+                                     :draw/stroke-circle :draw/text
+                                     :draw/path :draw/image)
+                    (do (when-not (valid-2d-affine? (first model-stack))
+                          (throw
+                            (Exception.
+                              "Invalid 2D affine matrix for 2D draw op")))
+                        (let [st (.-storage (first model-stack))
+                              sx (math/sqrt (+ (* (aget st 0) (aget st 0))
+                                               (* (aget st 1) (aget st 1))))
+                              sy (math/sqrt (+ (* (aget st 4) (aget st 4))
+                                               (* (aget st 5)
+                                                  (aget st 5))))]
+                          (.save canvas)
+                          (doseq [c clip-stack] (.clipRect canvas c))
+                          (.translate canvas 0.0 height)
+                          (.scale canvas 1.0 -1.0)
+                          (.transform canvas st)
+                          (exec-2d-op canvas op sx sy)
+                          (.restore canvas))
+                        (recur next-ops
+                               model-stack
+                               clip-stack
+                               camera-matrix
+                               depth-test
+                               depth-write))
+                    (:draw3d/lines :draw3d/triangles)
+                    (do (when-not camera-matrix
+                          (throw
+                            (Exception.
+                              "No camera matrix set before 3D draw op")))
+                        (let [mvp (.clone camera-matrix)]
+                          (.multiply mvp (first model-stack))
+                          (exec-3d-op canvas
+                                      op
+                                      mvp
+                                      width
+                                      height
+                                      depth-buffer
+                                      clip-stack
+                                      depth-test
+                                      depth-write))
+                        (recur next-ops
+                               model-stack
+                               clip-stack
+                               camera-matrix
+                               depth-test
+                               depth-write))
                     (recur next-ops
                            model-stack
                            clip-stack
                            camera-matrix
                            depth-test
-                           depth-write))
-                  :transform/push (let [top (first model-stack)
-                                        new-m (.clone top)]
-                                    (.multiply new-m (op->matrix op))
-                                    (recur next-ops
-                                           (conj model-stack new-m)
-                                           clip-stack
-                                           camera-matrix
-                                           depth-test
-                                           depth-write))
-                  :transform/pop (recur next-ops
-                                        (or (next model-stack)
-                                            (list (vm/Matrix4.identity)))
-                                        clip-stack
-                                        camera-matrix
-                                        depth-test
-                                        depth-write)
-                  :clip/push-rect (let [[x y w h] (:rect op)
-                                        r (ui/Rect.fromLTWH
-                                            (double x)
-                                            (- height (double y) (double h))
-                                            (double w)
-                                            (double h))]
-                                    (recur next-ops
-                                           model-stack
-                                           (conj clip-stack r)
-                                           camera-matrix
-                                           depth-test
-                                           depth-write))
-                  :clip/pop (recur next-ops
-                                   model-stack
-                                   (or (next clip-stack) (list))
-                                   camera-matrix
-                                   depth-test
-                                   depth-write)
-                  :camera3d/set (let [cam (build-camera op width height)]
-                                  (when camera-matrix
-                                    (.fillRange depth-buffer
-                                                0
-                                                (.-length depth-buffer)
-                                                1.0))
-                                  (recur next-ops
-                                         model-stack
-                                         clip-stack
-                                         cam
-                                         depth-test
-                                         depth-write))
-                  :state/depth-test (recur next-ops
-                                           model-stack
-                                           clip-stack
-                                           camera-matrix
-                                           (boolean (:enabled op))
-                                           depth-write)
-                  :state/depth-write (recur next-ops
-                                            model-stack
-                                            clip-stack
-                                            camera-matrix
-                                            depth-test
-                                            (boolean (:enabled op)))
-                  (:draw/fill-rect :draw/stroke-rect :draw/fill-circle
-                                   :draw/stroke-circle :draw/text
-                                   :draw/path :draw/image)
-                  (do (when-not (valid-2d-affine? (first model-stack))
-                        (throw
-                          (Exception.
-                            "Invalid 2D affine matrix for 2D draw op")))
-                      (let [st (.-storage (first model-stack))
-                            sx (math/sqrt (+ (* (aget st 0) (aget st 0))
-                                             (* (aget st 1) (aget st 1))))
-                            sy (math/sqrt (+ (* (aget st 4) (aget st 4))
-                                             (* (aget st 5) (aget st 5))))]
-                        (.save canvas)
-                        (doseq [c clip-stack] (.clipRect canvas c))
-                        (.translate canvas 0.0 height)
-                        (.scale canvas 1.0 -1.0)
-                        (.transform canvas st)
-                        (exec-2d-op canvas op sx sy)
-                        (.restore canvas))
-                      (recur next-ops
-                             model-stack
-                             clip-stack
-                             camera-matrix
-                             depth-test
-                             depth-write))
-                  (:draw3d/lines :draw3d/triangles)
-                  (do (when-not camera-matrix
-                        (throw (Exception.
-                                 "No camera matrix set before 3D draw op")))
-                      (let [mvp (.clone camera-matrix)]
-                        (.multiply mvp (first model-stack))
-                        (exec-3d-op canvas
-                                    op
-                                    mvp
-                                    width
-                                    height
-                                    depth-buffer
-                                    clip-stack
-                                    depth-test
-                                    depth-write))
-                      (recur next-ops
-                             model-stack
-                             clip-stack
-                             camera-matrix
-                             depth-test
-                             depth-write))
-                  (recur next-ops
-                         model-stack
-                         clip-stack
-                         camera-matrix
-                         depth-test
-                         depth-write)))))))))
+                           depth-write))))))
+          (finally (.restore canvas))))))
 
 
   (shouldRepaint [_this _old] true))

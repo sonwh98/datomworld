@@ -68,6 +68,73 @@ Compile and run the tests for the frontend/CLJS logic using the Clojure CLI:
 clj -M:cljs -m shadow.cljs.devtools.cli compile test && node target/node-tests.js
 ```
 
+## Flutter Prototype
+
+The active ClojureDart demo boots a Flutter surface backed by `dao.postgraphics/postgraphics-widget` and a remote Yin REPL. The demo entrypoint is `src/cljd/datomworld/demo/main.cljd`, which currently launches `datomworld.demo.repl`.
+
+### Android Emulator
+
+Install toolchains first:
+```bash
+mise install
+```
+
+A dedicated Android emulator helper is included:
+```bash
+bin/run-android-emulator.sh
+```
+
+That script:
+- boots the `Datomworld_Pixel_3_API_34` AVD
+- waits for Android boot completion
+- runs `flutter run` against that emulator instead of your phone
+
+Useful variants:
+```bash
+bin/run-android-emulator.sh --boot-only
+bin/run-android-emulator.sh --avd Pixel_3_API_34
+```
+
+If you want to launch the emulator manually:
+```bash
+emulator -avd Datomworld_Pixel_3_API_34
+flutter run -d emulator-5554
+```
+
+### Remote REPL UI Prototype
+
+The prototype screen starts a REPL server on port `7777` and exposes helpers for pushing either raw PostGraphics frames or `mr-clean` UI compiled into PostGraphics.
+
+Connect from a desktop REPL:
+```bash
+mise exec -- clj -M:yin-repl
+```
+
+Then from the Yin REPL:
+```clojure
+(connect "daostream:ws://<ip>:7777")
+(show-demo-ui!)
+(show-sample-frame!)
+(clear-frame!)
+```
+
+Push a raw frame:
+```clojure
+(set-frame!
+ [{:op/kind :frame/clear :color [0 0 0 1]}
+  {:op/kind :draw/fill-rect
+   :rect [20 20 120 60]
+   :color [0.2 0.6 1 1]}])
+```
+
+Or compile `mr-clean` UI directly:
+```clojure
+(set-ui!
+ [:column
+  [:rect {:width 80 :height 24}]
+  [:text {:value "hello" :font-size 18}]])
+```
+
 ## Yin REPL
 
 Launch the interactive Yin REPL to experiment with the Yin VM and manipulate datoms directly.

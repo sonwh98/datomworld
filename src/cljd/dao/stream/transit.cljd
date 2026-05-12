@@ -13,16 +13,9 @@
    Dart `int` is used for integers, but web builds inherit JavaScript precision
    limits, so peers that need larger integers should use `bigint`."
   (:refer-clojure :exclude [read])
-  (:require
-    ["dart:convert" :as convert])
-  (:import
-    (dart:core
-      BigInt
-      DateTime
-      StringBuffer
-      Uri)
-    (dart:typed_data
-      Uint8List)))
+  (:require ["dart:convert" :as convert])
+  (:import ["dart:core" BigInt DateTime StringBuffer Uri]
+           ["dart:typed_data" Uint8List]))
 
 
 (def ^:private cache-size 1936)
