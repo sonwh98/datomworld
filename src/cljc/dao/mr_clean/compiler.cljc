@@ -51,20 +51,27 @@
                        :enclosing-transform (:non-translate-cause ctx)})))
     (let [ax (:abs-x ctx)
           ay (:abs-y ctx)
-          ;; If child-ops is a contribution map, use it. If it's a vector
-          ;; of ops, use it. Otherwise, treat as Hiccup and compile it.
+          ;; Compile Hiccup with abs-x/abs-y reset to 0 so absolute-screen
+          ;; -space ops (e.g. :clip/push-rect) emit at the inner origin.
+          ;; shift-absolute-coords below applies the anchor exactly once
+          ;; — same rule as the raw-op-vector branch — so both shapes go
+          ;; through the same coordinate model.
+          inner-ctx (assoc ctx
+                           :abs-x 0
+                           :abs-y 0)
           contribution (cond (and (map? child-ops) (:flow child-ops)) child-ops
                              (and (vector? child-ops)
                                   (not-empty child-ops)
                                   (map? (first child-ops))
                                   (:op/kind (first child-ops)))
                              {:flow child-ops, :overlay []}
-                             :else (compile-node child-ops constraints ctx))
+                             :else
+                             (compile-node child-ops constraints inner-ctx))
           flow (:flow contribution)
           nested-overlay (:overlay contribution)
-          ;; The transform/push anchor only moves ops positioned by the
-          ;; VM's transform stack; screen-space ops (e.g. :clip/push-rect)
-          ;; need the anchor translation baked into their coordinates.
+          ;; Selective shift: only absolute-screen-space ops move with the
+          ;; anchor; transform-relative draw ops are placed by the VM's
+          ;; transform stack from the :transform/push above.
           shifted-flow (shift-absolute-coords flow ax ay)]
       {:width (:width contribution 0),
        :height (:height contribution 0),
@@ -143,18 +150,30 @@
     (throw (ex-info "Unknown layout type" {:layout-type layout-type}))))
 
 
+(defn- absolute-screen-space-op?
+  "True for ops whose coordinates are in absolute screen space, so they
+   must be shifted to track an enclosing overlay's anchor rather than
+   ridden by the VM's transform stack. Currently:
+   - :clip/push-rect — its :rect is screen-space by design.
+   - :transform/push marked :absolute? — overlay anchors.
+   Extend this predicate, not the call sites, when new screen-space ops
+   appear."
+  [op]
+  (or (= :clip/push-rect (:op/kind op))
+      (and (= :transform/push (:op/kind op)) (:absolute? op))))
+
+
 (defn- shift-absolute-coords
-  "Adds [dx dy] to every screen-space op in ops: :clip/push-rect (whose
-   :rect is screen-space) and :transform/push ops marked :absolute?
-   (overlay anchors). Other ops are positioned by the VM's transform
-   stack and are unaffected."
+  "Adds [dx dy] to every absolute-screen-space op. Transform-relative ops
+   pass through unchanged so the surrounding :transform/push still places
+   them."
   [ops dx dy]
   (mapv (fn [op]
-          (cond (= :clip/push-rect (:op/kind op))
+          (cond (not (absolute-screen-space-op? op)) op
+                (= :clip/push-rect (:op/kind op))
                 (update op :rect (fn [[x y w h]] [(+ x dx) (+ y dy) w h]))
-                (and (= :transform/push (:op/kind op)) (:absolute? op))
-                (update op :translate (fn [[x y]] [(+ x dx) (+ y dy)]))
-                :else op))
+                (= :transform/push (:op/kind op))
+                (update op :translate (fn [[x y]] [(+ x dx) (+ y dy)]))))
         ops))
 
 
@@ -568,6 +587,56 @@
   (fn-accepts-arity? f 1))
 
 
+(defn- fn-is-variadic-zero-required?
+  "JVM-only: true if f is a variadic fn whose variadic arm requires no
+   fixed args (e.g. (fn [& xs])). The compiled class extends RestFn and
+   declares doInvoke rather than invoke, so the reflection-based arity
+   probes miss it — without this check the fallback would invoke such a
+   root with [nil] and stuff nil into & xs."
+  [#?(:clj f
+      :default _f)]
+  #?(:clj (and (instance? clojure.lang.RestFn f)
+               (zero? (.getRequiredArity ^clojure.lang.RestFn f)))
+     :default false))
+
+
+(defn- arity-mismatch?
+  "True if e is the host's signal for invoking a fn with the wrong number
+   of args. We catch narrowly so a real exception from the root's body
+   (not the call shape) propagates through the fallback path."
+  [e]
+  #?(:clj (instance? clojure.lang.ArityException e)
+     :cljs (and (instance? js/Error e)
+                (some? (.-message e))
+                (boolean (re-find #"Invalid arity" (.-message e))))
+     :cljd (instance? NoSuchMethodError e)))
+
+
+(defn- resolve-root-mode
+  "Classifies how compile-ui should invoke root-form. Replaces an implicit
+   conflation of nil-as-omitted with nil-as-real-value: the mode names
+   the intent.
+   :root-non-fn       root-form is data, compile it as-is
+   :root-with-props   call (root-form props); props may be nil when the
+                       root has a unary arm and we want it to see nil
+   :root-without-props call (root-form) with zero args
+   :root-fallback     introspection unavailable (e.g. non-JVM target);
+                       try unary first, recover only on a narrow arity
+                       mismatch signal"
+  [root-form props]
+  (cond (not (fn? root-form)) :root-non-fn
+        (some? props) :root-with-props
+        ;; Bare-fn root, props omitted. A variadic root with zero required
+        ;; args wants zero args so `& xs` binds to (), not (nil).
+        (fn-is-variadic-zero-required? root-form) :root-without-props
+        ;; An explicit unary arm receives nil so the component can
+        ;; distinguish "absent" from any sentinel it might pick.
+        (fn-accepts-one-arity? root-form) :root-with-props
+        ;; Only a zero-arity arm — never force nil through it.
+        (fn-accepts-zero-arity? root-form) :root-without-props
+        :else :root-fallback))
+
+
 (defn compile-ui
   "Pure compiler entry point.
    Inputs:
@@ -584,21 +653,16 @@
     (let [ctx {:translate-only? true, :abs-x 0, :abs-y 0}
           constraints {:max-width :unbounded, :max-height :unbounded}
           result
-          (cond (not (fn? root-form)) (compile-node root-form constraints ctx)
-                (some? props) (compile-node [root-form props] constraints ctx)
-                ;; Bare-fn root, props omitted. Honor an explicit unary
-                ;; arm so nil reaches the component; only call zero-arity
-                ;; if that's the only arm. When introspection fails
-                ;; (non-JVM), try unary first and recover from
-                ;; ArityException.
-                (fn-accepts-one-arity? root-form)
-                (compile-node [root-form nil] constraints ctx)
-                (fn-accepts-zero-arity? root-form)
-                (compile-node [root-form] constraints ctx)
-                :else (try (compile-node [root-form nil] constraints ctx)
-                           (catch #?(:clj clojure.lang.ArityException
-                                     :cljs :default
-                                     :cljd Error)
-                                  _
-                             (compile-node [root-form] constraints ctx))))]
+          (case (resolve-root-mode root-form props)
+            :root-non-fn (compile-node root-form constraints ctx)
+            :root-with-props (compile-node [root-form props] constraints ctx)
+            :root-without-props (compile-node [root-form] constraints ctx)
+            :root-fallback (try (compile-node [root-form nil] constraints ctx)
+                                (catch #?(:clj clojure.lang.ArityException
+                                          :cljs :default
+                                          :cljd Object)
+                                       e
+                                  (if (arity-mismatch? e)
+                                    (compile-node [root-form] constraints ctx)
+                                    (throw e)))))]
       (vec (concat (:flow result) (:overlay result))))))

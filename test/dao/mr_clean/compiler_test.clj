@@ -70,6 +70,24 @@
       (is (= [10 20 5 6] (:rect clip-op))))))
 
 
+(deftest overlay-does-not-double-translate-clips-from-compiled-hiccup
+  (testing
+    "overlaying compiled hiccup with a clip should keep the clip rect at the current screen position"
+    (let [result (binding [compiler/*current-context*
+                           {:translate-only? true, :abs-x 10, :abs-y 20}
+                           compiler/*constraints* {:max-width :unbounded,
+                                                   :max-height :unbounded}
+                           compiler/*capabilities*
+                           {:measure-text (fn [_] {:width 100, :height 20})}
+                           compiler/*snapshot* {}]
+                   (compiler/overlay [:clip {:width 5, :height 6}
+                                      [:rect {:width 5, :height 6}]]))
+          clip-op (some #(when (= :clip/push-rect (:op/kind %)) %)
+                        (:overlay result))]
+      (is clip-op)
+      (is (= [10 20 5 6] (:rect clip-op))))))
+
+
 (deftest compile-ui-invokes-function-root-with-props
   (testing "compile-ui should invoke a function root with the supplied props"
     (let [root (fn [{:keys [width height]}]
@@ -119,12 +137,17 @@
 (deftest compile-ui-does-not-force-nil-into-variadic-roots
   (testing
     "when props are omitted, a variadic root should be invoked with zero args rather than [nil]"
-    (let [seen-args (atom nil)
+    (let [seen-args (atom ::unset)
           root
           (fn [& xs] (reset! seen-args xs) [:rect {:width 13, :height 14}])]
       (is (= [{:op/kind :draw/fill-rect, :rect [0 0 13 14]}]
              (compiler/compile-ui root nil {} {})))
-      (is (= '() @seen-args)))))
+      ;; Clojure binds `& xs` to nil when invoked with zero args; what we
+      ;; must NOT see is `(nil)`, which would mean the compiler forced a
+      ;; nil arg through.
+      (is (not= ::unset @seen-args) "root must have been invoked")
+      (is (empty? @seen-args)
+          "& xs should hold no rest args (nil or ()), never (nil)"))))
 
 
 (deftest compile-ui-preserves-real-unary-root-errors-in-non-jvm-fallback
