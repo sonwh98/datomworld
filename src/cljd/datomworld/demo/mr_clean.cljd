@@ -312,7 +312,19 @@
         (m/Text "Remote REPL Info")))))
 
 
-(defn home-page
+(defn start!
+  []
+  (show-sample-frame!)
+  (flutter-repl/start-server! {:port 7777,
+                               :extra-primitives (extra-primitives)}))
+
+
+(defn stop!
+  []
+  (flutter-repl/stop-server!))
+
+
+(defn view
   []
   (m/Scaffold
     .appBar
@@ -391,12 +403,10 @@
 
 (defn main
   []
-  (show-sample-frame!)
-  (flutter-repl/start-server! {:port 7777,
-                               :extra-primitives (extra-primitives)})
+  (start!)
   (m/runApp (m/MaterialApp .title
                            "Yin.VM Postgraphics REPL Prototype"
                            .theme
                            (m/ThemeData .primarySwatch m.Colors/indigo)
                            .home
-                           (home-page))))
+                           (view))))

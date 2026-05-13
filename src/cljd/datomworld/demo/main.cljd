@@ -7,44 +7,63 @@
 (defn main
   []
   (m/runApp
-    (m/MaterialApp .title
-                   "Datomworld Demos"
-                   .theme
-                   (m/ThemeData .primarySwatch m.Colors/indigo)
-                   .home
-                   (m/Scaffold
-                     .appBar
-                     (m/AppBar .title (m/Text "Datomworld Demos"))
-                     .body
-                     (m/Center
-                       .child
-                       (m/Column
-                         .mainAxisAlignment
-                         m/MainAxisAlignment.center
-                         .children
-                         [(m/SizedBox .width
-                                      240.0
-                                      .height
-                                      60.0
-                                      .child
-                                      (m/ElevatedButton
-                                        .onPressed
-                                        (fn [] (mr-clean-demo/main))
-                                        .child
-                                        (m/Text "Mr-Clean Prototype"
-                                                .style
-                                                (m/TextStyle .fontSize 18.0))))
-                          (m/SizedBox .height 24.0)
-                          (m/SizedBox .width
-                                      240.0
-                                      .height
-                                      60.0
-                                      .child
-                                      (m/ElevatedButton
-                                        .onPressed
-                                        (fn [] (solar-system-demo/main))
-                                        .child
-                                        (m/Text "Solar System Demo"
-                                                .style
-                                                (m/TextStyle .fontSize
-                                                             18.0))))]))))))
+    (m/MaterialApp
+      .title
+      "Datomworld Demos"
+      .theme
+      (m/ThemeData .primarySwatch m.Colors/indigo)
+      .home
+      (m/Scaffold
+        .appBar
+        (m/AppBar .title (m/Text "Datomworld Demos"))
+        .body
+        (m/Builder
+          .builder
+          (fn [context]
+            (m/Center
+              .child
+              (m/Column
+                .mainAxisAlignment
+                m/MainAxisAlignment.center
+                .children
+                [(m/SizedBox .width
+                             240.0
+                             .height
+                             60.0
+                             .child
+                             (m/ElevatedButton
+                               .onPressed
+                               (fn []
+                                 (mr-clean-demo/start!)
+                                 (.then (m/Navigator.push
+                                          context
+                                          (m/MaterialPageRoute
+                                            .builder
+                                            (fn [_] (mr-clean-demo/view))))
+                                        (fn [_] (mr-clean-demo/stop!)))
+                                 nil)
+                               .child
+                               (m/Text "Mr-Clean Prototype"
+                                       .style
+                                       (m/TextStyle .fontSize 18.0))))
+                 (m/SizedBox .height 24.0)
+                 (m/SizedBox .width
+                             240.0
+                             .height
+                             60.0
+                             .child
+                             (m/ElevatedButton
+                               .onPressed
+                               (fn []
+                                 (solar-system-demo/start!)
+                                 (.then (m/Navigator.push
+                                          context
+                                          (m/MaterialPageRoute
+                                            .builder
+                                            (fn [_] (solar-system-demo/view))))
+                                        (fn [_] (solar-system-demo/stop!)))
+                                 nil)
+                               .child
+                               (m/Text "Solar System Demo"
+                                       .style
+                                       (m/TextStyle .fontSize 18.0))))]))))))))

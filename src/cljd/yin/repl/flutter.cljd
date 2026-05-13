@@ -1,11 +1,10 @@
 (ns yin.repl.flutter
   "A reusable Flutter component to easily embed a Yin.VM REPL server inside any application."
-  (:require
-    ["dart:async" :as async]
-    ["dart:io" :as io]
-    ["package:flutter/material.dart" :as m]
-    [clojure.string :as str]
-    [yin.repl :as repl]))
+  (:require ["dart:async" :as async]
+            ["dart:io" :as io]
+            ["package:flutter/material.dart" :as m]
+            [clojure.string :as str]
+            [yin.repl :as repl]))
 
 
 (def device-ip (m/ValueNotifier "..."))
@@ -39,10 +38,20 @@
         (set! (.-value ^m/ValueNotifier interface-addresses) @rows)))))
 
 
+(defn stop-server!
+  "Stops the active REPL server and clears the server status."
+  []
+  (when-let [server @repl-server]
+    (when-let [stop! (:stop! server)] (stop!))
+    (reset! repl-server nil)
+    (set! (.-value ^m/ValueNotifier server-status) "stopped")
+    :stopped))
+
+
 (defn start-server!
   "Starts the REPL server on the specified port (default 7777) and populates the device-ip and server-status notifiers."
   [{:keys [port extra-primitives], :or {port 7777}}]
-  (when-let [stop! (:stop! @repl-server)] (stop!))
+  (stop-server!)
   (reset! active-clients 0)
   (reset! repl-state
           (-> (repl/create-state {:vm-type :semantic})

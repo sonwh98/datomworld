@@ -947,7 +947,6 @@
        [cursor]
        (let [result (ds/next frame-stream cursor)]
          (cond (map? result) (do (try-set-frame! (:ok result))
-                                 (ds/drain-one! frame-stream)
                                  (recur (:cursor result)))
                (= :blocked result) (ds/register-reader-waiter!
                                      frame-stream
@@ -956,12 +955,17 @@
                                       :reason :next,
                                       :stream frame-stream,
                                       :cursor cursor})
+               ;; Cursor fell behind an evicted ringbuffer slot —
+               ;; fast-forward one slot at a time until we catch up to head
+               ;; or hit :blocked. Without this, a widget rebuilt against a
+               ;; partly-consumed stream would silently exit and never
+               ;; render.
+               (= :daostream/gap result) (recur (update cursor :position inc))
                :else nil)))
      (resume
        [rt entry value]
        (when (some? value)
          (try-set-frame! value)
-         (ds/drain-one! frame-stream)
          (await-next! (update (:cursor entry) :position inc)))
        rt)]
     (await-next! {:position 0})))

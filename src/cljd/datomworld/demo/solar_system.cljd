@@ -1,13 +1,12 @@
 (ns datomworld.demo.solar-system
-  (:require
-    ["dart:async" :as async]
-    ["dart:core" :as core]
-    ["dart:math" :as math]
-    ["package:flutter/material.dart" :as m]
-    [dao.postgraphics.flutter :as pg]
-    [dao.stream :as ds]
-    [dao.stream.ringbuffer]
-    [yin.repl.flutter :as flutter-repl]))
+  (:require ["dart:async" :as async]
+            ["dart:core" :as core]
+            ["dart:math" :as math]
+            ["package:flutter/material.dart" :as m]
+            [dao.postgraphics.flutter :as pg]
+            [dao.stream :as ds]
+            [dao.stream.ringbuffer]
+            [yin.repl.flutter :as flutter-repl]))
 
 
 (def initial-state
@@ -245,37 +244,52 @@
     :animating))
 
 
-(defn main
+(def ^:private frame-stream
+  (ds/open! {:type :ringbuffer, :capacity 4, :eviction-policy :evict-oldest}))
+
+
+(def ^:private scene-state (atom initial-state))
+(def ^:private anims (atom {}))
+
+
+(defn- stop-all!
   []
+  (doseq [[_ {:keys [stop-fn]}] @anims] (when stop-fn (stop-fn)))
+  (swap! anims (fn [m] (into {} (map (fn [[k v]] [k (dissoc v :stop-fn)]) m))))
+  :stopped)
+
+
+(defn stop!
+  []
+  (stop-all!)
+  (let [frame-timer (get @anims :frame-timer)]
+    (when-let [stop-fn (:stop-fn frame-timer)] (stop-fn))
+    (swap! anims dissoc :frame-timer))
+  (flutter-repl/stop-server!))
+
+
+(defn- reset-scene!
+  []
+  (stop!)
+  (reset! anims {})
+  (reset! scene-state initial-state)
+  :reset)
+
+
+(defn start!
+  []
+  (stop!)
   (let [port 7777
-        frame-stream (ds/open! {:type :ringbuffer,
-                                :capacity 4,
-                                :eviction-policy :evict-oldest})
-        scene-state (atom initial-state)
-        anims (atom {})
         sched (fn [period-ms tick!]
                 (let [timer (async/Timer.periodic (core/Duration .milliseconds
                                                                  period-ms)
                                                   (fn [_timer] (tick!)))]
                   (fn [] (.cancel ^async/Timer timer))))
-        _ (sched 16
-                 (fn []
-                   (pg/put-frame! frame-stream
-                                  (frame-from-state @scene-state))))
-        stop-all! (fn []
-                    (doseq [[_ {:keys [stop-fn]}] @anims]
-                      (when stop-fn (stop-fn)))
-                    (swap! anims
-                           (fn [m]
-                             (into {} (map (fn [[k v]] [k (dissoc v :stop-fn)]) m))))
-                    :stopped)
-        reset-scene! (fn []
-                       (stop-all!)
-                       (reset! anims {})
-                       (reset! scene-state initial-state)
-                       :reset)
-        _ (spin! scene-state anims sched :sun 0.0 0.015 0.0)
-        _ (spin! scene-state anims sched :moon-pivot 0.0 0.08 0.0)
+        frame-stop-fn (sched 16
+                             (fn []
+                               (pg/put-frame! frame-stream
+                                              (frame-from-state @scene-state))))
+        _ (swap! anims assoc :frame-timer {:stop-fn frame-stop-fn})
         bodies (fn []
                  (->> (:bodies @scene-state)
                       (remove (fn [[_ v]] (= (:kind v) :group)))
@@ -346,69 +360,78 @@
                          (double dry)
                          (double drz))),
          'animate! (fn [] (animate-all! scene-state anims sched)),
-         'stop! stop-all!,
+         'stop! stop!,
          'reset! (fn [] (reset-scene!))}]
     (flutter-repl/start-server! {:port port, :extra-primitives extra-prims})
-    (m/runApp
-      (w
-        [:MaterialApp
-         {:title "postgraphics solar system",
-          :theme [:ThemeData {:colorScheme (m/ColorScheme.dark)}],
-          :home
-          [:Scaffold
-           {:appBar [:AppBar {:title [:Text "postgraphics solar system"]}],
-            :body
-            [:ListView {:padding (m/EdgeInsets.all 16.0)}
-             [:Builder
-              {:builder
-               (fn [ctx]
-                 (m/OutlinedButton.
-                   .onPressed
-                   (fn []
-                     (do
-                       (m/showDialog
-                         .context
-                         ctx
-                         .builder
-                         (fn [_]
-                           (m/AlertDialog.
-                             .title
-                             (m/Text. "REPL")
-                             .content
-                             (m/SingleChildScrollView.
-                               .child
-                               (m/Column.
-                                 .crossAxisAlignment
-                                 m/CrossAxisAlignment.start
-                                 .mainAxisSize
-                                 m/MainAxisSize.min
-                                 .children
-                                 [(flutter-repl/info-card {:port port})
-                                  (m/SizedBox. .height 8.0)
-                                  (mono
-                                    "(connect \"daostream:ws://<ip>:7777\")")
-                                  (mono "(bodies)")
-                                  (mono "(translate! :earth 11 2 0)")
-                                  (mono "(color! :venus 0.3 0.9 0.5)")
-                                  (mono "(scale! :mars 2.0)")
-                                  (mono
-                                    "(add-body! :asteroid 7 3 0 0.6 0.6 0.6)")
-                                  (mono "(camera! 0 20 38)")
-                                  (mono "(orbit! :mercury 5.5 0.04)")
-                                  (mono "(orbit! :earth 11 0.02)")
-                                  (mono "(spin! :sun 0 0.03 0)")
-                                  (mono "(animate!)") (mono "(stop!)")
-                                  (mono "(reset!)")]))
-                             .actions
-                             [(m/TextButton.
-                                .onPressed
-                                (fn []
-                                  (do (.pop (m/Navigator.of ctx)) nil))
-                                .child
-                                (m/Text. "Close"))])))
-                       nil))
-                   .child
-                   (m/Text. "REPL Info")))}] [:SizedBox {:height 8.0}]
-             [:Center
-              [:SizedBox {:width 500.0, :height 500.0}
-               (pg/postgraphics-widget frame-stream)]]]}]}]))))
+    (spin! scene-state anims sched :sun 0.0 0.015 0.0)
+    (spin! scene-state anims sched :moon-pivot 0.0 0.08 0.0)))
+
+
+(defn view
+  []
+  (let [port 7777]
+    (w [:Scaffold
+        {:appBar [:AppBar {:title [:Text "postgraphics solar system"]}],
+         :body
+         [:ListView {:padding (m/EdgeInsets.all 16.0)}
+          [:Builder
+           {:builder
+            (fn [ctx]
+              (m/OutlinedButton.
+                .onPressed
+                (fn []
+                  (do
+                    (m/showDialog
+                      .context
+                      ctx
+                      .builder
+                      (fn [_]
+                        (m/AlertDialog.
+                          .title
+                          (m/Text. "REPL")
+                          .content
+                          (m/SingleChildScrollView.
+                            .child
+                            (m/Column.
+                              .crossAxisAlignment
+                              m/CrossAxisAlignment.start
+                              .mainAxisSize
+                              m/MainAxisSize.min
+                              .children
+                              [(flutter-repl/info-card {:port port})
+                               (m/SizedBox. .height 8.0)
+                               (mono
+                                 "(connect \"daostream:ws://<ip>:7777\")")
+                               (mono "(bodies)")
+                               (mono "(translate! :earth 11 2 0)")
+                               (mono "(color! :venus 0.3 0.9 0.5)")
+                               (mono "(scale! :mars 2.0)")
+                               (mono
+                                 "(add-body! :asteroid 7 3 0 0.6 0.6 0.6)")
+                               (mono "(camera! 0 20 38)")
+                               (mono "(orbit! :mercury 5.5 0.04)")
+                               (mono "(orbit! :earth 11 0.02)")
+                               (mono "(spin! :sun 0 0.03 0)")
+                               (mono "(animate!)") (mono "(stop!)")
+                               (mono "(reset!)")]))
+                          .actions
+                          [(m/TextButton.
+                             .onPressed
+                             (fn [] (do (.pop (m/Navigator.of ctx)) nil))
+                             .child
+                             (m/Text. "Close"))])))
+                    nil))
+                .child
+                (m/Text. "REPL Info")))}] [:SizedBox {:height 8.0}]
+          [:Center
+           [:SizedBox {:width 500.0, :height 500.0}
+            (pg/postgraphics-widget frame-stream)]]]}])))
+
+
+(defn main
+  []
+  (start!)
+  (m/runApp (w [:MaterialApp
+                {:title "postgraphics solar system",
+                 :theme [:ThemeData {:colorScheme (m/ColorScheme.dark)}],
+                 :home (view)}])))
