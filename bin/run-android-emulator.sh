@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-AVD_NAME="${AVD_NAME:-Datomworld_Pixel_3_API_34}"
+AVD_NAME="${AVD_NAME:-myandroid}"
 BOOT_ONLY=0
 
 while [[ $# -gt 0 ]]; do
