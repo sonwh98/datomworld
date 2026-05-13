@@ -285,12 +285,13 @@
                     .mainAxisSize
                     m/MainAxisSize.min
                     .children
-                    [(flutter-repl/info-card {:port 7777})
-                     (m/SizedBox .height 8.0)
+                    [(flutter-repl/info-card {}) (m/SizedBox .height 8.0)
                      (mono
                        "1. Run `mise exec -- clj -M:yin-repl` on your desktop.")
-                     (mono
-                       "2. Connect with `(connect \"daostream:ws://<ip>:7777\")`.")
+                     (mono (str
+                             "2. Connect with `(connect \"daostream:ws://<ip>:"
+                             flutter-repl/default-port
+                             "\")`."))
                      (mono
                        "3. Push frames or mr-clean UI into the attached DaoStream.")
                      (m/SizedBox .height 12.0) (mono "(show-demo-ui!)")
@@ -315,8 +316,7 @@
 (defn start!
   []
   (show-sample-frame!)
-  (flutter-repl/start-server! {:port 7777,
-                               :extra-primitives (extra-primitives)}))
+  (flutter-repl/start-server! {:extra-primitives (extra-primitives)}))
 
 
 (defn stop!

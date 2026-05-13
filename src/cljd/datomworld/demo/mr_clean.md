@@ -1,12 +1,13 @@
 # Flutter REPL Demo: Local Run Guide
 
-This demo starts a Yin REPL server inside the Flutter app on port `7777`.
+This demo starts a Yin REPL server inside the Flutter app.
+The default port is platform-specific: `7777` on Android, `7778` on iOS.
 It demonstrates dynamically calling CLJD functions from a remote Yin REPL to change the Flutter UI at runtime.
 
 ## Prerequisites
 
 - Install [mise](https://mise.jdx.dev/getting-started.html)
-- Android device connected over USB with `adb`
+- Android device connected over USB with `adb`, or an iOS Simulator / device
 
 All tool dependencies for this demo are managed by the repo's [`mise.toml`](../../../../mise.toml), including:
 
@@ -84,7 +85,9 @@ Why this is necessary:
 - `FLUTTER_STORAGE_BASE_URL` redirects Flutter engine and artifact downloads away from Google storage
 - without these variables, Gradle may still try to fetch Android Flutter artifacts from `storage.googleapis.com`, which is often slow or unreachable in China
 
-## 3. Forward the REPL port over USB
+## 3. Make the REPL port reachable from the host
+
+### Android (USB forwarding)
 
 USB forwarding is the most reliable local setup:
 
@@ -94,6 +97,18 @@ mise exec -- adb forward tcp:7777 tcp:7777
 
 This makes the Android app's port `7777` reachable from your laptop as `localhost:7777`.
 
+### iOS Simulator
+
+No forwarding is needed: the Simulator shares the host's loopback, so the app's `7778` is reachable directly as `localhost:7778`.
+
+### iOS physical device
+
+Use a usbmuxd-based forwarder such as `iproxy` (from `libimobiledevice`):
+
+```bash
+iproxy 7778 7778
+```
+
 ## 4. Connect from the desktop Yin REPL
 
 Start a JVM Yin REPL:
@@ -102,16 +117,22 @@ Start a JVM Yin REPL:
 mise exec -- clj -M:yin-repl
 ```
 
-Connect to the Flutter app:
+Connect to the Flutter app (Android):
 
 ```clojure
 (connect "daostream:ws://localhost:7777")
 ```
 
+Or iOS:
+
+```clojure
+(connect "daostream:ws://localhost:7778")
+```
+
 After the connection succeeds:
 
-- the desktop REPL should print `Connected to ws://localhost:7777`
-- the Android app should change from `status: listening` to `status: client connected`
+- the desktop REPL should print `Connected to ws://localhost:<port>`
+- the Flutter app should change from `status: listening` to `status: client connected`
 
 ## 5. Try a few remote evaluations
 
@@ -145,9 +166,12 @@ Override the button handler:
 If the desktop REPL says `Connected...` but evaluation times out:
 
 1. Make sure the app screen says `status: client connected`
-2. If it still says `status: listening`, redo:
+2. If it still says `status: listening`, redo the port mapping for your platform:
    ```bash
+   # Android
    mise exec -- adb forward tcp:7777 tcp:7777
+   # iOS physical device
+   iproxy 7778 7778
    ```
 3. Recompile CLJD and fully restart the app:
    ```bash
