@@ -250,6 +250,7 @@
 
 (def ^:private scene-state (atom initial-state))
 (def ^:private anims (atom {}))
+(def ^:private frame-timer-stop-fn (atom nil))
 
 
 (defn- stop-all!
@@ -259,13 +260,16 @@
   :stopped)
 
 
+(defn- stop-frame-timer!
+  []
+  (when-let [stop-fn @frame-timer-stop-fn]
+    (stop-fn)
+    (reset! frame-timer-stop-fn nil)))
+
+
 (defn stop!
   []
-  (stop-all!)
-  (let [frame-timer (get @anims :frame-timer)]
-    (when-let [stop-fn (:stop-fn frame-timer)] (stop-fn))
-    (swap! anims dissoc :frame-timer))
-  (flutter-repl/stop-server!))
+  (stop-all!) :stopped)
 
 
 (defn- reset-scene!
@@ -279,6 +283,7 @@
 (defn start!
   []
   (stop!)
+  (stop-frame-timer!)
   (let [port flutter-repl/default-port
         sched (fn [period-ms tick!]
                 (let [timer (async/Timer.periodic (core/Duration .milliseconds
@@ -289,7 +294,7 @@
                              (fn []
                                (pg/put-frame! frame-stream
                                               (frame-from-state @scene-state))))
-        _ (swap! anims assoc :frame-timer {:stop-fn frame-stop-fn})
+        _ (reset! frame-timer-stop-fn frame-stop-fn)
         bodies (fn []
                  (->> (:bodies @scene-state)
                       (remove (fn [[_ v]] (= (:kind v) :group)))
