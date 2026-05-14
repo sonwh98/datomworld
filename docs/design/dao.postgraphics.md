@@ -656,7 +656,7 @@ Its responsibilities are:
 
 Its responsibilities do not include:
 
-- evaluating `mr-clean` components
+- evaluating `dao.gui` components
 - interpreting `dao.scene`
 - owning layout or UI semantics
 

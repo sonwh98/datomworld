@@ -1,13 +1,13 @@
-# Design: `mr-clean`
+# Design: `dao.gui`
 
 ## Summary
 
-`mr-clean` is the Reagent-inspired authoring layer that compiles component
+`dao.gui` is the Reagent-inspired authoring layer that compiles component
 models into `dao.postgraphics` frame programs.
 
 It is not a renderer. It is not a stream runtime.
 
-`mr-clean` is responsible for:
+`dao.gui` is responsible for:
 
 - Hiccup surface syntax
 - function and closure components
@@ -24,7 +24,7 @@ graphics VM.
 The intended pipeline is:
 
 ```text
-[mr-clean compiler]
+[dao.gui compiler]
    │ emits dao.postgraphics frame programs
    ▼
 [dao.postgraphics.flutter terminal]
@@ -34,27 +34,27 @@ on-screen widget
 ```
 
 Each arrow is either a direct function call or a `dao.stream` boundary.
-Ordinary function composition wires the stages together. `mr-clean` produces
+Ordinary function composition wires the stages together. `dao.gui` produces
 values; an application decides how to feed them downstream.
 
 ## Layering
 
-`mr-clean` is the first stage in a UI compilation pipeline. The dependency
+`dao.gui` is the first stage in a UI compilation pipeline. The dependency
 arrow points one way:
 
-- `mr-clean` produces `dao.postgraphics` frame programs
+- `dao.gui` produces `dao.postgraphics` frame programs
 - `dao.postgraphics.flutter` is the graphics VM that paints frames
 
 Concretely:
 
-- `mr-clean`'s semantic contract is `dao.postgraphics`, the same layer the
+- `dao.gui`'s semantic contract is `dao.postgraphics`, the same layer the
   Flutter VM already consumes
-- `mr-clean` does not own pipeline wiring; the application that uses it does
-- `mr-clean` does not paint, subscribe to streams, or realize Flutter widgets
+- `dao.gui` does not own pipeline wiring; the application that uses it does
+- `dao.gui` does not paint, subscribe to streams, or realize Flutter widgets
 
 There is no intermediate scene-graph layer in this pipeline. The scene
 vocabulary family (`scene-algebra`, `dao.scene`, `scene.world`, `scene.xr`)
-is reserved for retained-graphics consumers; `mr-clean` is not one of them.
+is reserved for retained-graphics consumers; `dao.gui` is not one of them.
 See "Relationship to the Scene Vocabulary Family" below.
 
 Stages are wired with ordinary Clojure function composition, with
@@ -63,7 +63,7 @@ multiple readers, decoupled producers and consumers).
 
 ## Relationship to Reagent
 
-`mr-clean` is inspired by Reagent in the authoring model:
+`dao.gui` is inspired by Reagent in the authoring model:
 
 - Hiccup expresses structure
 - functions and closures act as components
@@ -71,12 +71,12 @@ multiple readers, decoupled producers and consumers).
 
 But it is not React.js, not a DOM system, and not a virtual DOM runtime.
 
-The output of `mr-clean` is graphics bytecode, not a retained tree. There is
+The output of `dao.gui` is graphics bytecode, not a retained tree. There is
 no virtual DOM and no diffing.
 
 V1 uses **whole-root recomputation**: any change to a watched atom retriggers
 the compiler on the top-level component, producing a complete frame program.
-`mr-clean` does not track which components depend on which atoms; it does
+`dao.gui` does not track which components depend on which atoms; it does
 not attempt fine-grained invalidation. `dao.postgraphics` is immediate-mode
 at the VM boundary, so whole-frame replacement is the expected update model
 and whole-root recomputation lines up with it cleanly.
@@ -86,7 +86,7 @@ pattern) is a later optimization. It requires a reactive primitive with
 dependency tracking that does not yet exist in this codebase. v1 does not
 include it.
 
-More precisely, `mr-clean` is like a compiler:
+More precisely, `dao.gui` is like a compiler:
 
 - input: Reagent-like component models
 - output: `dao.postgraphics` frame programs
@@ -95,7 +95,7 @@ It is not a renderer and not a DOM runtime.
 
 ## Architectural Position
 
-`mr-clean` is the first stage in a UI compilation pipeline. It sits upstream
+`dao.gui` is the first stage in a UI compilation pipeline. It sits upstream
 of the graphics VM.
 
 It owns:
@@ -114,13 +114,13 @@ It does not own:
 - graphics VM execution
 - pipeline wiring
 
-The application that uses `mr-clean` decides whether to call the graphics VM
-directly, write `mr-clean`'s output to a `dao.stream`, or both. That wiring
+The application that uses `dao.gui` decides whether to call the graphics VM
+directly, write `dao.gui`'s output to a `dao.stream`, or both. That wiring
 is ordinary Clojure code, not a separate infrastructure layer.
 
 ## Output Contract
 
-The output of `mr-clean` is `dao.postgraphics` frame programs.
+The output of `dao.gui` is `dao.postgraphics` frame programs.
 
 More precisely:
 
@@ -140,15 +140,15 @@ More precisely:
 - a top-level component evaluation produces one complete frame program
 - the graphics VM consumes that frame program directly
 
-This means `mr-clean` should target:
+This means `dao.gui` should target:
 
-- [../dao.postgraphics.md](../dao.postgraphics.md)
+- [dao.postgraphics.md](dao.postgraphics.md)
 
 as its semantic contract.
 
 ### Coordinate strategy: structure-preserving, not flattened
 
-`mr-clean` uses the graphics VM's transform stack rather than flattening
+`dao.gui` uses the graphics VM's transform stack rather than flattening
 layout into absolute leaf coordinates.
 
 Concretely:
@@ -187,7 +187,7 @@ over-clip or under-clip — the scissor primitive is not expressive enough
 to clip the true rotated/sheared region.
 
 V1 chooses correctness over expressiveness: by restricting
-layout-emitted placements to translates, `mr-clean` guarantees clip ops
+layout-emitted placements to translates, `dao.gui` guarantees clip ops
 are exact.
 
 ### Component-internal non-translation transforms
@@ -198,7 +198,7 @@ illustration). The constraint is narrow:
 
 - a `:clip/push-rect` op is only valid when the **entire enclosing
   transform stack at that point is translate-only**
-- equivalently: `mr-clean` must not emit a clip op inside any subtree
+- equivalently: `dao.gui` must not emit a clip op inside any subtree
   whose ancestors include a non-translation transform
 - components that combine scale/rotate with clipping in v1 are a
   compiler error
@@ -274,7 +274,7 @@ escape that clip by appearing later in the op sequence: the clip is
 active until its matching `:clip/pop`. Tooltips, dropdowns, and modal
 overlays anchored to a clipped element need an algebraic escape hatch.
 
-`mr-clean` provides this as an **overlay layer**, expressed through the
+`dao.gui` provides this as an **overlay layer**, expressed through the
 layered contribution shape introduced in the Output Contract above.
 
 Components route ops into the overlay layer by returning a contribution
@@ -325,21 +325,21 @@ Constraints on the overlay primitive in v1:
 ## Relationship to the Scene Vocabulary Family
 
 `scene-algebra`, `dao.scene`, `scene.world`, and `scene.xr` are separate
-designs for **retained graphics**. They are not part of `mr-clean`'s
+designs for **retained graphics**. They are not part of `dao.gui`'s
 pipeline.
 
 If retained UI semantics are ever wanted — hit-testing, focus traversal,
 accessibility tree, animation interpolation against a stable tree, multi-
 backend retargeting against a single source — `dao.scene` is the schema
 that would carry them, and a separate authoring layer or compiler stage
-would target it. `mr-clean` does not.
+would target it. `dao.gui` does not.
 
-`mr-clean` is just paint. It compiles to immediate-mode graphics bytecode and
+`dao.gui` is just paint. It compiles to immediate-mode graphics bytecode and
 stops there.
 
 ## Authoring Scope
 
-For v1, `mr-clean`'s component vocabulary should be able to express the
+For v1, `dao.gui`'s component vocabulary should be able to express the
 visual structure of 2D productivity apps and 2D game UI:
 
 - containers with stack layout
@@ -355,7 +355,7 @@ visual structure of 2D productivity apps and 2D game UI:
 - HUD-style 2D game UI
 
 This is a paint-time scope. Input dispatch, focus traversal, and
-accessibility are not part of `mr-clean`. They would be handled by a
+accessibility are not part of `dao.gui`. They would be handled by a
 separate system, possibly using the scene vocabulary as its data layer.
 
 ## Relationship to Terminal Rendering
@@ -370,13 +370,13 @@ Its job is:
 
 That terminal boundary is narrow.
 
-`mr-clean` is not that renderer. The current `dao.postgraphics.flutter`
-namespace is the v1 graphics VM; it is a peer downstream of `mr-clean`,
+`dao.gui` is not that renderer. The current `dao.postgraphics.flutter`
+namespace is the v1 graphics VM; it is a peer downstream of `dao.gui`,
 not the same role.
 
 ## Public Surface
 
-`mr-clean` exposes two layers with an explicit boundary between them:
+`dao.gui` exposes two layers with an explicit boundary between them:
 
 1. A **pure compiler**. Its inputs are:
 
@@ -392,7 +392,7 @@ not the same role.
 
    Its output is a complete `dao.postgraphics` frame program. No side
    effects. No atom watching. No stream writing. No deref of live
-   atoms during compilation. This is the layer most of `mr-clean` is.
+   atoms during compilation. This is the layer most of `dao.gui` is.
 
    Keeping atom resolution outside the compiler is what makes
    recompilation deterministic: the same `(form, props, snapshot,
@@ -462,8 +462,8 @@ Examples of concerns that do not belong here:
 
 ## Design Rules
 
-- treat `mr-clean` as the authoring layer
-- treat `mr-clean` as a compiler from Reagent-like component models into
+- treat `dao.gui` as the authoring layer
+- treat `dao.gui` as a compiler from Reagent-like component models into
   `dao.postgraphics` frame programs
 - keep terminal rendering separate
 - keep pipeline wiring separate
@@ -507,14 +507,14 @@ Examples of concerns that do not belong here:
 
 These choices are fixed for v1:
 
-- `mr-clean` is the authoring layer
-- `mr-clean` is inspired by Reagent
-- `mr-clean` compiles Reagent-like component models into `dao.postgraphics`
+- `dao.gui` is the authoring layer
+- `dao.gui` is inspired by Reagent
+- `dao.gui` compiles Reagent-like component models into `dao.postgraphics`
   frame programs
-- `mr-clean` is not the Flutter renderer
-- `mr-clean` produces `dao.postgraphics` frame programs, not scene values
-- there is no intermediate scene-graph stage in `mr-clean`'s pipeline
-- layout solving lives inside `mr-clean`
+- `dao.gui` is not the Flutter renderer
+- `dao.gui` produces `dao.postgraphics` frame programs, not scene values
+- there is no intermediate scene-graph stage in `dao.gui`'s pipeline
+- layout solving lives inside `dao.gui`
 - lowering is structure-preserving: the layout solver emits placement
   transforms (`:transform/push` / `:transform/pop`) around child ops; leaf
   draw ops use the component's local coordinates
@@ -522,7 +522,7 @@ These choices are fixed for v1:
   are only valid under translate-only enclosing transform stacks
 - the compiler enforces the clip-under-non-translation invariant at
   op-emission via a `translate-only?` flag threaded through descent
-- `mr-clean` provides an overlay primitive that emits ops into a
+- `dao.gui` provides an overlay primitive that emits ops into a
   post-flow overlay layer outside any enclosing clip; nested overlays
   flatten in v1
 - components return a layered contribution value

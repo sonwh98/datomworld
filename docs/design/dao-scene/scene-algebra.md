@@ -3,9 +3,9 @@
 ## Scope Note
 
 This document defines the algebraic core of the **retained-graphics** scene
-system. It is **not** part of the `mr-clean` pipeline. `mr-clean` compiles
+system. It is **not** part of the `dao.gui` pipeline. `dao.gui` compiles
 Reagent-like authoring directly to `dao.postgraphics` frame programs and
-does not produce scene fragments. See [mr-clean.md](mr-clean.md).
+does not produce scene fragments. See [dao.gui.md](dao.gui.md).
 
 This algebra is reserved for future retained-graphics consumers: tooling that
 needs to inspect a stable tree, systems that need to retarget one source to
@@ -20,7 +20,7 @@ graphics.
 The intended pipeline for retained consumers is:
 
 ```text
-retained authoring (not mr-clean)
+retained authoring (not dao.gui)
 -> scene fragments
 -> assembled scene
 -> graphics bytecode
