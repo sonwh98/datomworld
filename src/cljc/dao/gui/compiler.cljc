@@ -1,4 +1,4 @@
-(ns dao.mr-clean.compiler
+(ns dao.gui.compiler
   {:clj-kondo/config '{:linters {:unused-namespace {:exclude
                                                     [clojure.string]}}}}
   (:require
@@ -277,16 +277,16 @@
     (when (and translate (not (vec-of-2-numbers? translate)))
       (throw
         (ex-info
-          "transform :translate must be a 2-element vector of numbers [x y]; mr-clean is 2D"
+          "transform :translate must be a 2-element vector of numbers [x y]; dao.gui is 2D"
           {:path *evaluation-path*, :translate translate})))
     (when (and scale (not (vec-of-2-numbers? scale)))
       (throw
         (ex-info
-          "transform :scale must be a 2-element vector of numbers [sx sy]; mr-clean is 2D"
+          "transform :scale must be a 2-element vector of numbers [sx sy]; dao.gui is 2D"
           {:path *evaluation-path*, :scale scale})))
     (when (and rotate (not (number? rotate)))
       (throw (ex-info
-               "transform :rotate must be a scalar (radians); mr-clean is 2D"
+               "transform :rotate must be a scalar (radians); dao.gui is 2D"
                {:path *evaluation-path*, :rotate rotate})))
     (when matrix
       (when (or translate scale rotate)
@@ -301,7 +301,7 @@
       (when-not (= 9 (count matrix))
         (throw
           (ex-info
-            "transform :matrix must be a 9-element 3x3 affine matrix; mr-clean is 2D"
+            "transform :matrix must be a 9-element 3x3 affine matrix; dao.gui is 2D"
             {:path *evaluation-path*, :matrix-count (count matrix)})))
       (when-not (every? number? matrix)
         (throw (ex-info "transform :matrix entries must all be numbers"
@@ -312,7 +312,7 @@
                   (not= 1.0 (double m22)))
           (throw
             (ex-info
-              "transform :matrix must be an affine 2D matrix (m20=0, m21=0, m22=1); mr-clean is 2D"
+              "transform :matrix must be an affine 2D matrix (m20=0, m21=0, m22=1); dao.gui is 2D"
               {:path *evaluation-path*, :matrix matrix})))))))
 
 

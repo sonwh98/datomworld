@@ -1,7 +1,7 @@
-(ns dao.mr-clean.compiler-test
+(ns dao.gui.compiler-test
   (:require
     [clojure.test :refer [deftest is testing]]
-    [dao.mr-clean.compiler :as compiler]))
+    [dao.gui.compiler :as compiler]))
 
 
 (deftest raw-op-vector-as-child-is-accepted
@@ -198,7 +198,7 @@
   (testing
     "when zero-arity introspection is unavailable, a bare zero-arity root should still compile"
     (let [root (fn [] [:rect {:width 11, :height 12}])]
-      (with-redefs-fn {#'dao.mr-clean.compiler/fn-accepts-zero-arity? (fn [_]
+      (with-redefs-fn {#'dao.gui.compiler/fn-accepts-zero-arity? (fn [_]
                                                                         false)}
         (fn []
           (is (= [{:op/kind :draw/fill-rect, :rect [0 0 11 12]}]
@@ -226,9 +226,9 @@
     "non-JVM root fallback should not swallow a real unary-root compile exception"
     (let [root (fn [_props]
                  (throw (ex-info "boom from unary root" {:phase :root})))]
-      (with-redefs-fn {#'dao.mr-clean.compiler/fn-accepts-one-arity? (fn [_]
+      (with-redefs-fn {#'dao.gui.compiler/fn-accepts-one-arity? (fn [_]
                                                                        false),
-                       #'dao.mr-clean.compiler/fn-accepts-zero-arity? (fn [_]
+                       #'dao.gui.compiler/fn-accepts-zero-arity? (fn [_]
                                                                         false)}
         (fn []
           (is (thrown-with-msg? clojure.lang.ExceptionInfo
@@ -278,7 +278,7 @@
 
 (deftest emitted-frame-matches-current-postgraphics-vm-shape
   (testing
-    "mr-clean should emit the field shapes the current Flutter VM validates"
+    "dao.gui should emit the field shapes the current Flutter VM validates"
     (let [capabilities {:measure-text (fn [_] {:width 40, :height 12})}
           frame
           (compiler/compile-ui
@@ -454,8 +454,8 @@
                     [:rect {:width 1, :height 1}])]
       (compiler/compile-ui [:column [my-comp] [my-comp]] {} {} {})
       (is (= 2 (count @paths)))
-      (is (= [:column 0 "dao.mr-clean.compiler-test/my-comp"] (first @paths)))
-      (is (= [:column 1 "dao.mr-clean.compiler-test/my-comp"]
+      (is (= [:column 0 "dao.gui.compiler-test/my-comp"] (first @paths)))
+      (is (= [:column 1 "dao.gui.compiler-test/my-comp"]
              (second @paths)))))
   (testing ":clip and :transform should also conj child indices onto the path"
     (let [paths (atom [])
@@ -466,16 +466,16 @@
                            {}
                            {}
                            {})
-      (is (= [:clip 0 "dao.mr-clean.compiler-test/my-comp"] (first @paths)))
-      (is (= [:clip 1 "dao.mr-clean.compiler-test/my-comp"] (second @paths)))
+      (is (= [:clip 0 "dao.gui.compiler-test/my-comp"] (first @paths)))
+      (is (= [:clip 1 "dao.gui.compiler-test/my-comp"] (second @paths)))
       (reset! paths [])
       (compiler/compile-ui [:transform {:translate [0 0]} [my-comp] [my-comp]]
                            {}
                            {}
                            {})
-      (is (= [:transform 0 "dao.mr-clean.compiler-test/my-comp"]
+      (is (= [:transform 0 "dao.gui.compiler-test/my-comp"]
              (first @paths)))
-      (is (= [:transform 1 "dao.mr-clean.compiler-test/my-comp"]
+      (is (= [:transform 1 "dao.gui.compiler-test/my-comp"]
              (second @paths))))))
 
 

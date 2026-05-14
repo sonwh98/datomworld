@@ -1,8 +1,8 @@
-(ns dao.mr-clean.runtime-test
+(ns dao.gui.runtime-test
   (:require
     [clojure.test :refer [deftest is testing]]
-    [dao.mr-clean.compiler :as compiler]
-    [dao.mr-clean.runtime :as runtime]))
+    [dao.gui.compiler :as compiler]
+    [dao.gui.runtime :as runtime]))
 
 
 (deftest coalescing-works
@@ -194,7 +194,7 @@
           b (atom 0)
           scheduler-calls (atom [])
           seen (atom nil)]
-      (with-redefs-fn {#'dao.mr-clean.runtime/create-snapshot (fn [[a b]]
+      (with-redefs-fn {#'dao.gui.runtime/create-snapshot (fn [[a b]]
                                                                 (let [a-val @a]
                                                                   (reset! b 1)
                                                                   {a a-val,
@@ -226,7 +226,7 @@
           seen (atom nil)
           snapshot-started (promise)
           allow-snapshot-finish (promise)]
-      (with-redefs-fn {#'dao.mr-clean.runtime/create-snapshot
+      (with-redefs-fn {#'dao.gui.runtime/create-snapshot
                        (fn [[a b]]
                          (let [a-val @a]
                            (deliver snapshot-started true)

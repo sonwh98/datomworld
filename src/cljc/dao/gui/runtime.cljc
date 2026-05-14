@@ -1,6 +1,6 @@
-(ns dao.mr-clean.runtime
+(ns dao.gui.runtime
   (:require
-    [dao.mr-clean.compiler :as compiler]))
+    [dao.gui.compiler :as compiler]))
 
 
 (defn- create-snapshot
@@ -9,7 +9,7 @@
 
 
 (defn create-runtime
-  "Creates a reactive runtime for mr-clean.
+  "Creates a reactive runtime for dao.gui.
    Inputs:
    - root-form: the hiccup/component at the root of the tree
    - props: root props

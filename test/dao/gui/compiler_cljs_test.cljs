@@ -1,7 +1,7 @@
-(ns dao.mr-clean.compiler-cljs-test
+(ns dao.gui.compiler-cljs-test
   (:require
     [cljs.test :refer-macros [deftest is testing]]
-    [dao.mr-clean.compiler :as compiler]))
+    [dao.gui.compiler :as compiler]))
 
 
 (deftest compile-ui-preserves-real-unary-root-errors-in-cljs-fallback

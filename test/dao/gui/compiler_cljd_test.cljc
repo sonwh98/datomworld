@@ -1,7 +1,7 @@
-(ns dao.mr-clean.compiler-cljd-test
+(ns dao.gui.compiler-cljd-test
   (:require
     [clojure.test :refer [deftest is testing]]
-    [dao.mr-clean.compiler :as compiler]))
+    [dao.gui.compiler :as compiler]))
 
 
 #?(:cljd

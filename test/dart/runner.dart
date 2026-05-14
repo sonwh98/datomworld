@@ -5,7 +5,7 @@ import '../cljd-out/dao/db/in-memory-test_test.dart' as db_in_memory;
 import '../cljd-out/yin/repl-test_test.dart' as repl;
 import '../cljd-out/dao/stream/apply-test_test.dart' as apply;
 import '../cljd-out/dao/stream/transit-test_test.dart' as transit;
-import '../cljd-out/dao/mr-clean/compiler-cljd-test_test.dart' as mr_clean_compiler;
+import '../cljd-out/dao/gui/compiler-cljd-test_test.dart' as dao_gui_compiler;
 import '../cljd-out/yin/vm/ast-walker-test_test.dart' as ast_walker;
 import '../cljd-out/yin/vm/engine-test_test.dart' as engine;
 import '../cljd-out/yin/vm/macro-test_test.dart' as macro;
@@ -24,7 +24,7 @@ void main() {
   repl.main();
   apply.main();
   transit.main();
-  mr_clean_compiler.main();
+  dao_gui_compiler.main();
   ast_walker.main();
   engine.main();
   macro.main();

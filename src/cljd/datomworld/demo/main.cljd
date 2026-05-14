@@ -1,6 +1,6 @@
 (ns datomworld.demo.main
   (:require ["package:flutter/material.dart" :as m]
-            [datomworld.demo.mr-clean :as mr-clean-demo]
+            [datomworld.demo.dao-gui :as dao-gui-demo]
             [datomworld.demo.solar-system :as solar-system-demo]))
 
 
@@ -34,16 +34,16 @@
                              (m/ElevatedButton
                                .onPressed
                                (fn []
-                                 (mr-clean-demo/start!)
+                                 (dao-gui-demo/start!)
                                  (.then (m/Navigator.push
                                           context
                                           (m/MaterialPageRoute
                                             .builder
-                                            (fn [_] (mr-clean-demo/view))))
-                                        (fn [_] (mr-clean-demo/stop!)))
+                                            (fn [_] (dao-gui-demo/view))))
+                                        (fn [_] (dao-gui-demo/stop!)))
                                  nil)
                                .child
-                               (m/Text "Mr-Clean Prototype"
+                               (m/Text "dao.gui Prototype"
                                        .style
                                        (m/TextStyle .fontSize 18.0))))
                  (m/SizedBox .height 24.0)
