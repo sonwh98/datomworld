@@ -1,0 +1,21 @@
+[package]
+name = "yin-vm"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+hashbrown = "0.17.1"
+im = "15.1.0"
+ordered-float = "5.3.0"
+parking_lot = "0.12.5"
+regex = "1.12.3"
+rustyline = "18.0.0"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+
+[lib]
+path = "src/rust/yin-vm/src/lib.rs"
+
+[[bin]]
+name = "yin-repl"
+path = "src/rust/yin-vm/src/main.rs"
