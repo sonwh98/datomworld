@@ -11,7 +11,21 @@ substrate to a usable real-time 3D renderer:
 - **render targets** for offscreen passes (shadow maps, reflections,
   post-processing)
 
-V4 conformance implies v3 conformance, which implies v2 and v1.
+V4 conformance implies v3 conformance, which implies v2 and v1. In particular,
+v4 inherits without modification:
+
+- v1's Metadata Carriage contract: every v4 op (including `:light/*`,
+  `:state/lighting-enable`, `:target/push`, `:target/pop`, `:draw3d/mesh`) may
+  carry an optional `:op/meta` field that does not affect paint semantics but
+  MUST be preserved by terminals participating in geometry reporting
+- v1's Normative Protocol Contracts: the Canonical Precedence Formula, the
+  Axis-Alignment Epsilon (generalized by v3's `EPSILON = 1.0e-6` policy), and
+  the Canonical Signal Shapes for VM Reset, Frame Rejection, Protocol Error,
+  and Frame Skipped — extended to cover v4-specific failure modes (e.g.,
+  unresolvable `:texture/source`, target stack imbalance) under the same
+  signal shapes with `:reason :validation-failure`
+- v1's Normative Text Metrics for `:draw/text` (alphabetic baseline, `1.2 ×
+  font-size` line-height, System Monospace metric-parity fallback)
 
 V4 deliberately does not introduce a programmable shader pipeline. The
 lighting equation is fixed-function. Producers needing custom shading must
@@ -28,7 +42,7 @@ In addition to the v1, v2, and v3 VM state, a v4 VM maintains:
 - **render target stack** — LIFO stack of bound render targets; the bottom of
   the stack is the default framebuffer (viewport-sized, sRGB color, depth)
 - **target registry** — map of `:target/id` keyword → render target; populated
-  by `:target/push` and read by texture sampling and `:target/sample`
+  by `:target/push` and read by texture sampling through `:texture/source`
 
 The light list and target registry are reset to empty at the start of each
 frame program. Frame programs that need to recompute lighting or offscreen
@@ -68,9 +82,51 @@ Texture sampling parameters are specified per-draw on `:draw3d/mesh`:
   `:target/id` sources have no mipmaps unless `:target/mipmap true` was set on
   the corresponding `:target/push`.
 
-UV coordinates come from the existing `:uvs` field on `:draw3d/mesh`.
+UV coordinates come from the `:uvs` field on `:draw3d/mesh`.
 When `:texture/source` is present, `:uvs` is required and must have one entry
 per vertex.
+
+### `:draw3d/mesh`
+
+V4 introduces `:draw3d/mesh` as a first-class draw op. This supersedes v2's
+triangle-only mesh-lowering rule for V4-conforming producers; `:draw3d/triangles`
+remains valid, but `:draw3d/mesh` is the canonical textured and lit geometry
+surface in v4.
+
+Like `:draw3d/triangles`, a mesh draw is immediate-mode geometry. The VM does
+not retain mesh assets between frames; producers re-emit the draw each frame if
+the geometry remains visible.
+
+Required fields:
+
+- `:op/kind`
+- `:vertices` — vector of `[x y z]` points in local object space
+- `:indices` — vector of `[i j k]` triples (one triangle per triple)
+
+Optional fields:
+
+- `:fill` — `[r g b a]` diffuse base color; default opaque white
+- `:normals` — vector of `[nx ny nz]` local-space vertex normals; when present,
+  its length must equal `count(:vertices)` exactly
+- `:uvs` — vector of `[u v]` texture coordinates; when present, its length must
+  equal `count(:vertices)` exactly
+- `:colors` — vector of `[r g b a]` per-vertex diffuse colors; when present,
+  its length must equal `count(:vertices)` exactly
+- `:texture/source`
+- `:texture/wrap`
+- `:texture/filter`
+- `:texture/mipmap`
+- `:material/specular`
+- `:material/shininess`
+- `:material/emissive`
+
+Per-vertex `:colors`, when present, replace uniform `:fill` as the diffuse base
+input. If both are omitted, the diffuse base defaults to opaque white.
+
+All other v2 3D pipeline rules still apply: vertices are transformed by
+`MVP = camera_matrix × stack_top`, indices define triangles, clipping and
+viewport mapping happen per v2/v3, and depth testing/writing use the active
+v2 state ops.
 
 ### Texture Modulation
 
@@ -92,6 +148,22 @@ A future version may add specular and emissive texture maps.
 
 ## Lighting
 
+### Color Arity for Lights and Materials
+
+V1's failure semantics require paint color tuples to be 4-channel `[r g b a]`.
+V4 light and material color fields describe emission and reflectance, not
+coverage, and are therefore **3-channel `[r g b]`** (sRGB-encoded), with no
+alpha component:
+
+- `:color` on `:light/ambient`, `:light/directional`, `:light/point`
+- `:material/specular`
+- `:material/emissive`
+
+These fields are exempt from v1's arity-4 rule. Paint color fields on draw ops
+(`:color`, `:fill`, `:stroke`, per-vertex `:colors`) remain 4-channel `[r g b a]`
+in v4 as in v1. A 3-channel value on a paint color field, or a 4-channel value
+on a light/material field, is invalid.
+
 ### Lighting Mode
 
 Lighting is off by default. To enable it, emit:
@@ -102,8 +174,8 @@ Lighting is off by default. To enable it, emit:
 
 When enabled, subsequent `:draw3d/mesh` ops are shaded using the active
 light list and the Blinn-Phong reflection equation defined below. The op
-must include `:normals` (already specified in v2); a triangle without
-`:normals` under lighting-enabled is invalid.
+must include `:normals`; a mesh draw without `:normals` under
+lighting-enabled is invalid.
 
 `:draw3d/lines` is never affected by lighting; line rendering is always
 unlit, using the line's `:color` directly.
@@ -219,18 +291,29 @@ fragment.a   = K_d.a   ; alpha is taken from the diffuse base, unaffected by lig
 
 The lighting equation is computed in **linear** color space: sRGB inputs
 (`:fill`, `:material/*`, light `:color`) are converted to linear before
-multiplication, the equation is evaluated, and the result is converted back to
-sRGB for blending. This preserves correct light addition. The conversion
-functions are the standard sRGB transfer:
+multiplication and the equation is evaluated in linear. This preserves correct
+light addition. The conversion functions are the standard sRGB transfer:
 
 ```
 linear = (sRGB <= 0.04045) ? sRGB / 12.92 : ((sRGB + 0.055) / 1.055)^2.4
 sRGB   = (linear <= 0.0031308) ? linear * 12.92 : 1.055 * linear^(1/2.4) - 0.055
 ```
 
-This is the only place in the contract where blending is performed in linear
-space. v1's source-over blending continues to operate in sRGB space at the
-framebuffer level.
+The framebuffer color space then determines what happens before source-over
+blending:
+
+- For sRGB-format targets (`:rgba8`, including the default framebuffer): the
+  linear lighting result is converted back to sRGB and source-over blending
+  proceeds in sRGB space (v1's rule, preserved).
+- For linear HDR targets (`:rgba16f`, `:rgba32f`): the linear lighting result
+  is written directly; source-over blending proceeds in linear space because
+  the target itself is linear. Producers that want sRGB display output from
+  an HDR pass tone-map and convert to sRGB explicitly via a full-screen-quad
+  post-process targeting the default framebuffer.
+
+Outside of lighting, v1's source-over blending operates in the framebuffer's
+native color space: sRGB for `:rgba8` (v1's rule, unchanged), linear for HDR
+formats introduced by v4.
 
 ### Normal Transformation
 
@@ -321,8 +404,12 @@ attachment are generated at pop time.
 ### Sampling Targets as Textures
 
 A previously popped (or currently inactive) target is sampled by setting
-`:texture/source` to the target's id keyword on a `:draw3d/mesh` or
-`:draw/image` op:
+its id keyword as:
+
+- `:texture/source` on a `:draw3d/mesh`, or
+- `:image/source` on a `:draw/image`
+
+For example:
 
 ```clojure
 {:op/kind :draw3d/mesh
@@ -330,6 +417,10 @@ A previously popped (or currently inactive) target is sampled by setting
  :indices [...]
  :uvs [...]
  :texture/source :shadow-map}
+
+{:op/kind :draw/image
+ :image/source :shadow-map
+ :rect [0 0 512 512]}
 ```
 
 Sampling a target that is currently active (i.e., on top of the render-target
@@ -410,8 +501,9 @@ Post-processing (bloom, tone mapping, color grading) is implemented by:
 1. Pushing an HDR render target (`:target/format :rgba16f`)
 2. Drawing the scene normally into it
 3. Popping the target
-4. Drawing a full-screen quad with `:texture/source` set to the target's id,
-   into the default framebuffer
+4. Drawing a full-screen quad with `:texture/source` (for `:draw3d/mesh`) or
+   `:image/source` (for `:draw/image`) set to the target's id, into the
+   default framebuffer
 
 Producers that want HDR-aware composition should use `:rgba16f` or
 `:rgba32f` targets; the `:rgba8` default clamps to `[0, 1]` and loses HDR
@@ -423,10 +515,19 @@ V4 adds these failure conditions:
 
 - `:state/lighting-enable` is missing the `:enabled` field, or `:enabled` is
   not a boolean
+- `:draw3d/mesh` is missing `:vertices` or `:indices`
+- `:draw3d/mesh` `:vertices` contains an entry that is not a three-element
+  numeric vector
+- `:draw3d/mesh` `:indices` contains an entry that is not a three-integer
+  vector with each index in `[0, count(:vertices))`
 - `:draw3d/mesh` is rendered with lighting enabled but is missing
   `:normals`
+- `:draw3d/mesh` `:normals`, when present, has a length not equal to
+  `count(:vertices)`, or a normal is not a three-element numeric vector
 - `:draw3d/mesh` carries `:texture/source` but is missing `:uvs`, or
   `count(:uvs) ≠ count(:vertices)`, or a uv is not a two-element numeric vector
+- `:draw3d/mesh` `:colors`, when present, has a length not equal to
+  `count(:vertices)`, or a color is not a four-element numeric vector
 - `:texture/wrap`, when present, is not one of `:clamp`, `:repeat`, `:mirror`
 - `:texture/filter`, when present, is not one of `:linear`, `:nearest`
 - `:texture/mipmap`, when present, is not a boolean
@@ -449,7 +550,7 @@ V4 adds these failure conditions:
 - `:texture/source` references a `:target/id` that is currently bound (top of
   render target stack), or a `:target/id` that has not been pushed in this
   frame
-- a `:texture/source` that is a `:target/id` references a `:depth` target on
+- an `:image/source` that is a `:target/id` references a `:depth` target on
   a `:draw/image` op (only `:draw3d/mesh` may sample depth targets in v4)
 
 ## Accepted Defaults (v4 additions)
@@ -459,9 +560,19 @@ V4 fixes:
 - lighting is off by default; enabled by `:state/lighting-enable`
 - light list and target registry are reset at frame start
 - the lighting equation is **Blinn-Phong** evaluated in linear color space;
-  inputs and outputs convert through the standard sRGB transfer
-- texture sampling default: linear filtering, clamp-to-edge wrapping, mipmaps
-  enabled when available
+  sRGB inputs convert to linear via the standard sRGB transfer, and the result
+  is converted back to sRGB only when writing into an sRGB-format target
+- light and material color fields (`:color` on `:light/*`, `:material/specular`,
+  `:material/emissive`) are **3-channel `[r g b]`**, exempt from v1's
+  arity-4 paint-color rule; paint color fields on draw ops remain 4-channel
+- source-over blending operates in the framebuffer's native color space: sRGB
+  for `:rgba8` targets (v1's rule, unchanged), linear for HDR targets
+  (`:rgba16f`, `:rgba32f`)
+- texture sampling default on `:draw3d/mesh`: linear filtering, clamp-to-edge
+  wrapping, mipmaps enabled when available
+- `:draw/image` continues to use v3 image sampling rules (bilinear,
+  clamp-to-edge); the v4 `:texture/*` sampling state applies only to
+  `:draw3d/mesh`
 - texture color modulates the diffuse term by multiplication
 - render target default format is `:rgba8` (sRGB color + depth); HDR formats
   available via `:rgba16f` and `:rgba32f`
