@@ -75,6 +75,7 @@ impl RegisterVM {
         self.control = 0;
         self.halted = false;
         self.value = Value::Nil;
+        self.blocked = false;
     }
 
     pub fn compile_uat(&self, uat: &Value) -> (Vec<SymbolicInstruction>, usize) {
@@ -118,7 +119,7 @@ impl RegisterVM {
                 instrs.push(SymbolicInstruction::LoadVar(rd, name));
                 rd
             }
-            "application" => {
+            "application" | "yin/macro-expand" => {
                 let op_node = m.get(&Value::keyword("operator")).unwrap();
                 let operand_nodes = match m.get(&Value::keyword("operands")).unwrap() {
                     Value::Vector(v) => v,
@@ -347,6 +348,18 @@ impl RegisterVM {
             }
             Value::Boolean(args[0] == args[1])
         });
+        self.add_primitive("==", |args| {
+            if args.len() < 2 {
+                return Value::Boolean(true);
+            }
+            Value::Boolean(args[0] == args[1])
+        });
+        self.add_primitive("!=", |args| {
+            if args.len() < 2 {
+                return Value::Boolean(false);
+            }
+            Value::Boolean(args[0] != args[1])
+        });
         self.add_primitive("<", |args| {
             if args.len() < 2 {
                 return Value::Nil;
@@ -363,6 +376,26 @@ impl RegisterVM {
             }
             if let (Value::Integer(a), Value::Integer(b)) = (&args[0], &args[1]) {
                 Value::Boolean(a > b)
+            } else {
+                Value::Nil
+            }
+        });
+        self.add_primitive("<=", |args| {
+            if args.len() < 2 {
+                return Value::Nil;
+            }
+            if let (Value::Integer(a), Value::Integer(b)) = (&args[0], &args[1]) {
+                Value::Boolean(a <= b)
+            } else {
+                Value::Nil
+            }
+        });
+        self.add_primitive(">=", |args| {
+            if args.len() < 2 {
+                return Value::Nil;
+            }
+            if let (Value::Integer(a), Value::Integer(b)) = (&args[0], &args[1]) {
+                Value::Boolean(a >= b)
             } else {
                 Value::Nil
             }
@@ -824,8 +857,23 @@ impl RegisterVM {
                 self.set_reg(rd, Value::ReifiedContinuation(frame));
                 self.control += 2;
             }
-            _ => {
-                panic!("Opcode {:?} not implemented yet", op);
+            Opcode::DaoStreamApplyCall => {
+                let rd = self.bytecode[self.control + 1] as usize;
+                let _op_idx = self.bytecode[self.control + 2] as usize;
+                let argc = self.bytecode[self.control + 3] as usize;
+                let arg_base = self.control + 4;
+
+                let frame = self.snap_frame(Some(rd), arg_base + argc);
+                let id = format!("bridge-{}", self.id_counter);
+                self.id_counter += 1;
+                let parked_id = Value::Keyword(Arc::from(id.as_str()));
+                self.parked
+                    .insert(parked_id.clone(), Value::ReifiedContinuation(frame));
+
+                self.set_reg(rd, parked_id.clone());
+                self.value = parked_id;
+                self.blocked = true;
+                self.halted = false;
             }
         }
     }
