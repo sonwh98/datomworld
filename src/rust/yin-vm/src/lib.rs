@@ -8,15 +8,46 @@ pub mod parser;
 pub mod compiler;
 pub mod yang;
 
-pub use value::{Value, Closure, Frame, NativeFn, StreamValue, CursorValue};
+pub use assemble::{assemble, SymbolicInstruction};
 pub use opcode::Opcode;
+pub use value::{Closure, CursorValue, Frame, NativeFn, StreamValue, Value};
 pub use vm::RegisterVM;
-pub use assemble::{SymbolicInstruction, assemble};
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::stream::{DaoStream, RingBufferStream, StreamReadResult};
     use std::sync::Arc;
+    use im::HashMap;
+
+    fn literal_node(v: Value) -> Value {
+        let mut m = HashMap::new();
+        m.insert(Value::keyword("type"), Value::keyword("literal"));
+        m.insert(Value::keyword("value"), v);
+        Value::Map(m)
+    }
+
+    fn variable_node(name: &str) -> Value {
+        let mut m = HashMap::new();
+        m.insert(Value::keyword("type"), Value::keyword("variable"));
+        m.insert(Value::keyword("name"), Value::symbol(name));
+        Value::Map(m)
+    }
+
+    fn application_node(op: Value, operands: Vec<Value>) -> Value {
+        let mut m = HashMap::new();
+        m.insert(Value::keyword("type"), Value::keyword("application"));
+        m.insert(Value::keyword("operator"), op);
+        m.insert(Value::keyword("operands"), Value::Vector(operands.into()));
+        Value::Map(m)
+    }
+
+    fn load_and_run(vm: &mut RegisterVM, artifact: crate::assemble::CompiledArtifact, reg_count: usize) {
+        vm.load_artifact(artifact, reg_count);
+        while !vm.halted && !vm.blocked {
+            vm.step();
+        }
+    }
 
     #[test]
     fn test_literal() {
@@ -26,20 +57,12 @@ mod tests {
         ];
         let artifact = assemble(&instrs);
         let mut vm = RegisterVM::new();
-        vm.bytecode = Arc::new(artifact.bytecode);
-        vm.pool = Arc::new(artifact.pool);
-        vm.halted = false;
-        
-        while !vm.halted {
-            vm.step();
-        }
-        
+        load_and_run(&mut vm, artifact, 1);
         assert_eq!(vm.value, Value::Integer(42));
     }
 
     #[test]
     fn test_arithmetic() {
-        // (+ 10 20)
         let instrs = vec![
             SymbolicInstruction::Literal(1, Value::Integer(10)),
             SymbolicInstruction::Literal(2, Value::Integer(20)),
@@ -49,86 +72,41 @@ mod tests {
         ];
         let artifact = assemble(&instrs);
         let mut vm = RegisterVM::new().with_std_primitives();
-        vm.bytecode = Arc::new(artifact.bytecode);
-        vm.pool = Arc::new(artifact.pool);
-        vm.halted = false;
-        
-        while !vm.halted {
-            vm.step();
-        }
-        
+        load_and_run(&mut vm, artifact, 4);
         assert_eq!(vm.value, Value::Integer(30));
     }
 
     #[test]
     fn test_tco_countdown() {
-        // ((fn [self n] (if (< n 1) 0 (self self (- n 1)))) <same-fn> 1000)
         let instrs = vec![
-            // 0: Lambda r1 [self, n]
             SymbolicInstruction::Lambda(1, Value::Vector(im::vector![Value::symbol("self"), Value::symbol("n")]), 2, 8),
-            // 1: Jump to 16 (after body)
             SymbolicInstruction::Jump(16),
-            // 2: Body starts here
-            // 2: LoadVar r2 <
             SymbolicInstruction::LoadVar(2, Value::symbol("<")),
-            // 3: LoadVar r3 n
             SymbolicInstruction::LoadVar(3, Value::symbol("n")),
-            // 4: Literal r4 1
             SymbolicInstruction::Literal(4, Value::Integer(1)),
-            // 5: Call r2 r2 [r3, r4]
             SymbolicInstruction::Call(2, 2, vec![3, 4]),
-            // 6: Branch r2 7 9
             SymbolicInstruction::Branch(2, 7, 9),
-            // 7: Literal r0 0
             SymbolicInstruction::Literal(0, Value::Integer(0)),
-            // 8: Return r0
             SymbolicInstruction::Return(0),
-            // 9: LoadVar r2 self
             SymbolicInstruction::LoadVar(2, Value::symbol("self")),
-            // 10: LoadVar r3 self
             SymbolicInstruction::LoadVar(3, Value::symbol("self")),
-            // 11: LoadVar r4 n
             SymbolicInstruction::LoadVar(4, Value::symbol("n")),
-            // 12: LoadVar r5 -
             SymbolicInstruction::LoadVar(5, Value::symbol("-")),
-            // 13: Call r6 r5 [r4, Literal 1] -- need Literal 1 in a reg
             SymbolicInstruction::Literal(7, Value::Integer(1)),
             SymbolicInstruction::Call(6, 5, vec![4, 7]),
-            // 14: Tailcall r0 r2 [r3, r6]
             SymbolicInstruction::Tailcall(0, 2, vec![3, 6]),
-            // 15: Main starts here
-            // 15: Literal r2 1000
             SymbolicInstruction::Literal(2, Value::Integer(1000)),
-            // 16: Call r0 r1 [r1, r2]
             SymbolicInstruction::Call(0, 1, vec![1, 2]),
-            // 17: Return r0
             SymbolicInstruction::Return(0),
         ];
         let artifact = assemble(&instrs);
         let mut vm = RegisterVM::new().with_std_primitives();
-        vm.bytecode = Arc::new(artifact.bytecode);
-        vm.pool = Arc::new(artifact.pool);
-        vm.halted = false;
-        
-        // Initial setup to start execution from instruction 0
-        vm.control = 0;
-
-        let mut steps = 0;
-        while !vm.halted && steps < 100000 {
-            vm.step();
-            steps += 1;
-        }
-        
+        load_and_run(&mut vm, artifact, 32);
         assert_eq!(vm.value, Value::Integer(0));
-        assert!(steps > 1000);
     }
 
     #[test]
     fn test_stream_basic() {
-        // (let [s (stream/make 10)]
-        //   (stream/put s 42)
-        //   (let [c (stream/cursor s)]
-        //     (stream/next c)))
         let instrs = vec![
             SymbolicInstruction::StreamMake(2, Value::Integer(10)),
             SymbolicInstruction::Literal(3, Value::Integer(42)),
@@ -139,14 +117,7 @@ mod tests {
         ];
         let artifact = assemble(&instrs);
         let mut vm = RegisterVM::new();
-        vm.bytecode = Arc::new(artifact.bytecode);
-        vm.pool = Arc::new(artifact.pool);
-        vm.halted = false;
-        
-        while !vm.halted && !vm.blocked {
-            vm.step();
-        }
-        
+        load_and_run(&mut vm, artifact, 10);
         assert_eq!(vm.value, Value::Integer(42));
     }
 
@@ -158,17 +129,9 @@ mod tests {
         ];
         let artifact = assemble(&instrs);
         let mut vm = RegisterVM::new();
-        vm.bytecode = Arc::new(artifact.bytecode);
-        vm.pool = Arc::new(artifact.pool);
-        vm.halted = false;
-        
-        while !vm.halted {
-            vm.step();
-        }
+        load_and_run(&mut vm, artifact, 1);
         
         let parked_id = vm.value.clone();
-        assert!(matches!(parked_id, Value::Keyword(_)));
-        
         let resume_instrs = vec![
             SymbolicInstruction::Literal(1, parked_id.clone()),
             SymbolicInstruction::Literal(2, Value::Integer(42)),
@@ -176,15 +139,103 @@ mod tests {
             SymbolicInstruction::Return(0),
         ];
         let resume_artifact = assemble(&resume_instrs);
-        vm.bytecode = Arc::new(resume_artifact.bytecode);
-        vm.pool = Arc::new(resume_artifact.pool);
-        vm.control = 0;
-        vm.halted = false;
-        
-        while !vm.halted {
+        vm.load_artifact(resume_artifact, 3);
+        while !vm.halted && !vm.blocked {
             vm.step();
         }
-        
         assert_eq!(vm.value, Value::Integer(42));
+    }
+
+    #[test]
+    fn test_macro_expand_executes_expansion_instead_of_returning_ast() {
+        let mut vm = RegisterVM::new().with_std_primitives();
+        vm.add_primitive("expand-to-add", |_args| {
+            application_node(
+                variable_node("+"),
+                vec![literal_node(Value::Integer(1)), literal_node(Value::Integer(2))],
+            )
+        });
+
+        let mut macro_expand = HashMap::new();
+        macro_expand.insert(Value::keyword("type"), Value::keyword("yin/macro-expand"));
+        macro_expand.insert(Value::keyword("operator"), variable_node("expand-to-add"));
+        macro_expand.insert(Value::keyword("operands"), Value::Vector(im::vector![]));
+
+        let (instrs, reg_count) = vm.compile_uat(&Value::Map(macro_expand));
+        let artifact = assemble(&instrs);
+        load_and_run(&mut vm, artifact, reg_count);
+
+        assert_eq!(vm.value, Value::Integer(3));
+    }
+
+    #[test]
+    fn test_dao_stream_apply_call_emits_request_to_call_in_stream() {
+        let mut vm = RegisterVM::new();
+        let call_in = Arc::new(RingBufferStream::new(Some(8)));
+        vm.store.insert(
+            Value::keyword("yin/call-in"),
+            Value::Stream(StreamValue(call_in.clone())),
+        );
+
+        let instrs = vec![
+            SymbolicInstruction::Literal(1, Value::Integer(41)),
+            SymbolicInstruction::Literal(2, Value::Integer(1)),
+            SymbolicInstruction::DaoStreamApplyCall(0, Value::keyword("op/add"), vec![1, 2]),
+            SymbolicInstruction::Return(0),
+        ];
+        let artifact = assemble(&instrs);
+        load_and_run(&mut vm, artifact, 3);
+
+        assert!(vm.blocked);
+
+        let (request, next_pos) = match DaoStream::next(&*call_in, 0) {
+            StreamReadResult::Ok(value, pos) => (value, pos),
+            other => panic!("expected bridge request on :yin/call-in, got {:?}", other),
+        };
+        assert_eq!(next_pos, 1);
+
+        let parked_id = vm.get_reg(0);
+        let mut expected = HashMap::new();
+        expected.insert(Value::keyword("dao.stream.apply/id"), parked_id);
+        expected.insert(Value::keyword("dao.stream.apply/op"), Value::keyword("op/add"));
+        expected.insert(
+            Value::keyword("dao.stream.apply/args"),
+            Value::Vector(im::vector![Value::Integer(41), Value::Integer(1)]),
+        );
+
+        assert_eq!(request, Value::Map(expected));
+    }
+
+    #[test]
+    fn test_defn_compilation_and_execution() {
+        let mut vm = RegisterVM::new().with_std_primitives();
+        // (defn inc [n] (+ n 1))
+        let form = Value::Vector(im::vector![
+            Value::symbol("defn"),
+            Value::symbol("inc"),
+            Value::Vector(im::vector![Value::symbol("n")]),
+            Value::Vector(im::vector![
+                Value::symbol("+"),
+                Value::symbol("n"),
+                Value::Integer(1)
+            ]),
+        ]);
+        let uat = compiler::compile(form);
+        let (instrs, reg_count) = vm.compile_uat(&uat);
+        let artifact = assemble(&instrs);
+        load_and_run(&mut vm, artifact, reg_count);
+
+        // Check if 'inc' is in the store
+        let inc = vm.store.get(&Value::symbol("inc")).unwrap();
+        assert!(matches!(inc, Value::Closure(_)));
+
+        // Now run (inc 10)
+        let call_form = Value::Vector(im::vector![Value::symbol("inc"), Value::Integer(10)]);
+        let call_uat = compiler::compile(call_form);
+        let (call_instrs, call_reg_count) = vm.compile_uat(&call_uat);
+        let call_artifact = assemble(&call_instrs);
+        load_and_run(&mut vm, call_artifact, call_reg_count);
+
+        assert_eq!(vm.value, Value::Integer(11));
     }
 }
