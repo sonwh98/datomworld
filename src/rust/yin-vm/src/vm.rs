@@ -119,7 +119,7 @@ impl RegisterVM {
                 instrs.push(SymbolicInstruction::LoadVar(rd, name));
                 rd
             }
-            "application" | "yin/macro-expand" => {
+            "application" => {
                 let op_node = m.get(&Value::keyword("operator")).unwrap();
                 let operand_nodes = match m.get(&Value::keyword("operands")).unwrap() {
                     Value::Vector(v) => v,
@@ -141,6 +141,37 @@ impl RegisterVM {
                     instrs.push(SymbolicInstruction::Call(rd, rf, arg_regs));
                 }
                 rd
+            }
+            "yin/macro-expand" => {
+                let op_node = m.get(&Value::keyword("operator")).unwrap();
+                let operands = match m.get(&Value::keyword("operands")).unwrap() {
+                    Value::Vector(v) => v,
+                    _ => panic!("operands must be vector"),
+                };
+
+                let expander = match op_node {
+                    Value::Map(op_map) => {
+                        let node_type_val = op_map.get(&Value::keyword("type")).unwrap();
+                        let node_type = match node_type_val {
+                            Value::Keyword(s) => s.as_ref(),
+                            _ => panic!("type must be keyword"),
+                        };
+                        if node_type == "variable" {
+                            let name = op_map.get(&Value::keyword("name")).unwrap();
+                            engine::resolve_var(&self.env, &self.store, &self.primitives, name)
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                };
+
+                if let Some(Value::NativeFn(native)) = expander {
+                    let expansion = (native.0)(operands.iter().cloned().collect());
+                    self.compile_uat_node(&expansion, tail, instrs, reg_counter)
+                } else {
+                    panic!("Unsupported macro expander or not found: {:?}", op_node);
+                }
             }
             "lambda" => {
                 let params = m.get(&Value::keyword("params")).cloned().unwrap();
@@ -859,9 +890,16 @@ impl RegisterVM {
             }
             Opcode::DaoStreamApplyCall => {
                 let rd = self.bytecode[self.control + 1] as usize;
-                let _op_idx = self.bytecode[self.control + 2] as usize;
+                let op_idx = self.bytecode[self.control + 2] as usize;
+                let op = self.pool[op_idx].clone();
                 let argc = self.bytecode[self.control + 3] as usize;
                 let arg_base = self.control + 4;
+
+                let mut args = Vec::with_capacity(argc);
+                for i in 0..argc {
+                    let arg_reg = self.bytecode[arg_base + i] as usize;
+                    args.push(self.get_reg(arg_reg));
+                }
 
                 let frame = self.snap_frame(Some(rd), arg_base + argc);
                 let id = format!("bridge-{}", self.id_counter);
@@ -869,6 +907,18 @@ impl RegisterVM {
                 let parked_id = Value::Keyword(Arc::from(id.as_str()));
                 self.parked
                     .insert(parked_id.clone(), Value::ReifiedContinuation(frame));
+
+                // Emit request to :yin/call-in
+                if let Some(Value::Stream(s)) = self.store.get(&Value::keyword("yin/call-in")) {
+                    let mut req = HashMap::new();
+                    req.insert(Value::keyword("dao.stream.apply/id"), parked_id.clone());
+                    req.insert(Value::keyword("dao.stream.apply/op"), op);
+                    req.insert(
+                        Value::keyword("dao.stream.apply/args"),
+                        Value::Vector(args.into()),
+                    );
+                    let _ = s.0.put(Value::Map(req));
+                }
 
                 self.set_reg(rd, parked_id.clone());
                 self.value = parked_id;
