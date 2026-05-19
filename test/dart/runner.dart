@@ -6,6 +6,8 @@ import '../cljd-out/yin/repl-test_test.dart' as repl;
 import '../cljd-out/dao/stream/apply-test_test.dart' as apply;
 import '../cljd-out/dao/stream/transit-test_test.dart' as transit;
 import '../cljd-out/dao/gui/compiler-cljd-test_test.dart' as dao_gui_compiler;
+import '../cljd-out/dao/postgraphics/flutter-cljd-test_test.dart' as postgraphics_flutter;
+import '../cljd-out/dao/postgraphics/v3-compliance-repro-test_test.dart' as postgraphics_v3_repro;
 import '../cljd-out/yin/vm/ast-walker-test_test.dart' as ast_walker;
 import '../cljd-out/yin/vm/engine-test_test.dart' as engine;
 import '../cljd-out/yin/vm/macro-test_test.dart' as macro;
@@ -25,6 +27,8 @@ void main() {
   apply.main();
   transit.main();
   dao_gui_compiler.main();
+  postgraphics_flutter.main();
+  postgraphics_v3_repro.main();
   ast_walker.main();
   engine.main();
   macro.main();

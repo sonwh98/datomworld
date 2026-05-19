@@ -6,7 +6,7 @@ ClojureDart tests are cross-compiled to Dart and executed using the Dart VM.
 ```bash
 ./bin/run-cljd-tests.sh
 ```
-This script handles compilation of the test runner and executes all registered tests via `dart`.
+This script handles compilation of the test runner and executes all registered tests via `flutter test`.
 
 ### Test Runner
 The entry point for ClojureDart tests is `test/dart/runner.dart`, which imports and executes the `main` function of each compiled test namespace.

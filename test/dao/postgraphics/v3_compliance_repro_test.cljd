@@ -1,0 +1,29 @@
+(ns dao.postgraphics.v3-compliance-repro-test
+  (:require
+    ["dart:ui" :as ui]
+    [clojure.test :refer [deftest is testing]]
+    [dao.postgraphics.flutter :as pg]))
+
+
+(deftest text-rendering-compliance
+  (testing "Standard line-height should be 1.2x font-size"
+    ;; This will require a test hook in flutter.cljd to inspect the
+    ;; ParagraphStyle/TextStyle height
+    (is
+      (= 1.2 (pg/text-style-height-test-hook))
+      "v3 §Line Height: Standard line-height in v1 is pinned to 1.2x font-size"))
+  (testing
+    "Font size should be in screen pixels and independent of current transform"
+    ;; This is harder to test without a mock canvas, but we can verify the
+    ;; logic that skips transform application for text.
+    (is
+      (pg/text-ignores-transform-test-hook)
+      "v3 §Font Size: The current 2D transform's scale and rotation do not scale or rotate the glyphs."))
+  (testing "Font family resolution fallback to System Monospace"
+    (is
+      (= "monospace" (pg/resolve-font-family-test-hook "unknown-font"))
+      "v3 §Font Family Resolution: The VM MUST fall back to a System Monospace font where metrics are strictly known and stable."))
+  (testing "Image sampling should be bilinear with CLAMP_TO_EDGE"
+    (is
+      (pg/image-clamping-test-hook)
+      "v3 §Source Coordinate Clamping: source coordinates are clamped to the image edge.")))
