@@ -173,9 +173,9 @@
       (is (true? (:vertex-colors-applied shading))))))
 
 
-(deftest shaded-textured-mesh-applies-texture-on-first-frame
+(deftest shaded-textured-mesh-skips-on-first-frame-cache-miss
   (testing
-    "lit textured meshes should still apply texture color on an initial draw"
+    "lit textured meshes should skip first-frame shaded samples until texture bytes exist"
     (let [path (pg/textured-mesh-shaded-path-test-hook
                  {:op/kind :draw3d/mesh,
                   :texture/source :placeholder,
@@ -185,11 +185,13 @@
                  {:enabled true}
                  false)]
       (is (true? (:uses-shaded-path path)))
-      (is (true? (:lighting-preserved-this-frame path)))
-      (is (true? (:lighting-equation-uses-textured-diffuse path)))
-      (is (true? (:texture-applied-this-frame path)))))
+      (is (= :skip (:first-frame-policy path)))
+      (is (true? (:skips-depth-write-this-frame path)))
+      (is (false? (:lighting-preserved-this-frame path)))
+      (is (false? (:lighting-equation-uses-textured-diffuse path)))
+      (is (false? (:texture-applied-this-frame path)))))
   (testing
-    "vertex-colored textured meshes should still apply texture color on an initial draw"
+    "vertex-colored textured meshes should also skip first-frame shaded samples on cache miss"
     (let [path (pg/textured-mesh-shaded-path-test-hook
                  {:op/kind :draw3d/mesh,
                   :texture/source :placeholder,
@@ -198,8 +200,10 @@
                  {:enabled false}
                  false)]
       (is (true? (:uses-shaded-path path)))
-      (is (true? (:vertex-colors-preserved-this-frame path)))
-      (is (true? (:texture-applied-this-frame path))))))
+      (is (= :skip (:first-frame-policy path)))
+      (is (true? (:skips-depth-write-this-frame path)))
+      (is (false? (:vertex-colors-preserved-this-frame path)))
+      (is (false? (:texture-applied-this-frame path))))))
 
 
 (deftest shaded-textured-mesh-uses-perspective-correct-fragment-interpolation
