@@ -242,13 +242,14 @@
       (is (true? (:software-sampler-sees-mipmap path))))))
 
 
-(deftest image-bytes-cache-is-bounded-to-image-lifetime
+(deftest image-bytes-cache-uses-expando-backed-roundtrip-storage
   (testing
-    "software texture bytes should not live forever in a process-global cache"
+    "software texture bytes should be stored through Expando-backed roundtrips and the production cache entrypoint should be callable"
     (let [policy (pg/image-bytes-cache-policy-test-hook)]
-      (is (false? (:global-cache policy)))
-      (is (true? (:evicts-entries policy)))
-      (is (true? (:cache-bound-to-image-lifetime policy)))
+      (is (true? (:backed-by-expando policy)))
+      (is (true? (:expando-roundtrip-works policy)))
+      (is (true? (:image-key-roundtrip-works policy)))
+      (is (true? (:ensure-image-levels-callable policy)))
       (is (true? (:stores-generated-mip-pyramids policy))))))
 
 

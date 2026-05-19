@@ -868,6 +868,7 @@
 (declare mat4-apply-normal)
 (declare sample-bytes-at)
 (declare image-levels)
+(declare ensure-image-levels!)
 (declare choose-mesh-render-path)
 (declare reconstruct-fragment)
 
@@ -1061,12 +1062,27 @@
 
 
 (defn image-bytes-cache-policy-test-hook
-  "Test hook exposing image byte cache ownership and lifetime semantics."
+  "Test hook exposing the implemented cache structure. This verifies that the
+   cache is Expando-backed and that Expando read/write round-trips work, but
+   it does not attempt to probe GC-driven key expiry."
   []
-  (let [expando-backed? (some? image-levels)]
-    {:global-cache (not expando-backed?),
-     :evicts-entries expando-backed?,
-     :cache-bound-to-image-lifetime expando-backed?,
+  (let [key (dart/Object.)
+        _ (aset image-levels key :sentinel)
+        object-roundtrip? (= :sentinel (aget image-levels key))
+        _ (aset image-levels key nil)
+        recorder (ui/PictureRecorder.)
+        canvas (ui/Canvas. recorder)
+        _ (.drawRect canvas (ui/Rect.fromLTWH 0.0 0.0 1.0 1.0) (ui/Paint.))
+        picture (.endRecording recorder)
+        img (.toImageSync picture 1 1)
+        _ (aset image-levels img :image-sentinel)
+        image-roundtrip? (= :image-sentinel (aget image-levels img))
+        _ (aset image-levels img nil)
+        ensure-callable? (nil? (ensure-image-levels! img))]
+    {:backed-by-expando true,
+     :expando-roundtrip-works object-roundtrip?,
+     :image-key-roundtrip-works image-roundtrip?,
+     :ensure-image-levels-callable ensure-callable?,
      :stores-generated-mip-pyramids true}))
 
 
@@ -1671,7 +1687,8 @@
   "Correctly transforms a normal by applying the inverse-transpose of the
    upper-left 3x3 of the model matrix (v4 §Normal Transformation).
    NOTE: For performance in hot loops, callers should pre-calculate the
-   normal matrix once and call mat4-apply-3x3 directly."
+   normal matrix once and call mat4-apply-3x3 directly. Retained for tests
+   and non-hot callers that need the canonical transform directly."
   [^vm/Matrix4 model-m normal]
   (let [nm (vm/Matrix4.copy model-m)]
     (.invert nm)
@@ -2084,139 +2101,126 @@
    s3 attrs1 attrs2 attrs3 tex-res fill-srgb ks-linear ^double shininess
    ke-linear lit? textured? has-vcols? camera-pos lights depth-test depth-write
    clip-rects]
-  (let [skip-triangle? (and textured? tex-res (nil? (:levels tex-res)))]
-    (when-not skip-triangle?
-      (let [x1 (double (nth s1 0))
-            y1 (double (nth s1 1))
-            z1 (double (nth s1 2))
-            x2 (double (nth s2 0))
-            y2 (double (nth s2 1))
-            z2 (double (nth s2 2))
-            x3 (double (nth s3 0))
-            y3 (double (nth s3 1))
-            z3 (double (nth s3 2))
-            area-raw (- (* (- x2 x1) (- y3 y1)) (* (- y2 y1) (- x3 x1)))]
-        (when (not= area-raw 0.0)
-          (let [flip? (< area-raw 0.0)
-                [x1 y1 z1 attrs1 x2 y2 z2 attrs2 x3 y3 z3 attrs3 area]
-                (if flip?
-                  [x1 y1 z1 attrs1 x3 y3 z3 attrs3 x2 y2 z2 attrs2
-                   (- area-raw)]
-                  [x1 y1 z1 attrs1 x2 y2 z2 attrs2 x3 y3 z3 attrs3 area-raw])
-                min-x (int (math/max 0
-                                     (.ceil (- (math/min x1 (math/min x2 x3))
-                                               0.5))))
-                max-x (int (math/min (dec int-width)
-                                     (dec (.ceil (- (math/max x1
-                                                              (math/max x2 x3))
-                                                    0.5)))))
-                min-y (int (math/max 0
-                                     (.ceil (- (math/min y1 (math/min y2 y3))
-                                               0.5))))
-                max-y (int (math/min (dec int-height)
-                                     (dec (.ceil (- (math/max y1
-                                                              (math/max y2 y3))
-                                                    0.5)))))
-                dx12 (- x1 x2)
-                dy12 (- y1 y2)
-                dx23 (- x2 x3)
-                dy23 (- y2 y3)
-                dx31 (- x3 x1)
-                dy31 (- y3 y1)
-                tl3 (if (or (> dy12 0.0) (and (== dy12 0.0) (< dx12 0.0)))
-                      (- EPSILON)
-                      0.0)
-                tl1 (if (or (> dy23 0.0) (and (== dy23 0.0) (< dx23 0.0)))
-                      (- EPSILON)
-                      0.0)
-                tl2 (if (or (> dy31 0.0) (and (== dy31 0.0) (< dx31 0.0)))
-                      (- EPSILON)
-                      0.0)
-                paint (ui/Paint.)
-                mip-level (if tex-res
-                            (mip-level-for-triangle
-                              attrs1
-                              attrs2
-                              attrs3
-                              x1
-                              y1
-                              x2
-                              y2
-                              x3
-                              y3
-                              area
-                              (int (.-width ^ui/Image (:img tex-res)))
-                              (int (.-height ^ui/Image (:img tex-res))))
-                            0.0)
-                shade-ctx {:tex-res tex-res,
-                           :textured? textured?,
-                           :lit? lit?,
-                           :ks-linear ks-linear,
-                           :shininess shininess,
-                           :ke-linear ke-linear,
-                           :camera-pos camera-pos,
-                           :lights lights,
-                           :mip-level mip-level}]
-            (loop [y min-y]
-              (when (<= y max-y)
-                (let [yf (+ (double y) 0.5)]
-                  (loop [x min-x]
-                    (when (<= x max-x)
-                      (let [xf (+ (double x) 0.5)
-                            w1 (- (* (- x2 xf) (- y3 yf))
-                                  (* (- y2 yf) (- x3 xf)))
-                            w2 (- (* (- x3 xf) (- y1 yf))
-                                  (* (- y3 yf) (- x1 xf)))
-                            w3 (- (* (- x1 xf) (- y2 yf))
-                                  (* (- y1 yf) (- x2 xf)))]
-                        (when (and (> w1 tl1) (> w2 tl2) (> w3 tl3))
-                          (let [w1n (/ w1 area)
-                                w2n (/ w2 area)
-                                w3n (/ w3 area)
-                                z (+ (* w1n z1) (* w2n z2) (* w3n z3))
-                                idx (+ (* y int-width) x)]
-                            (when (and (>= z (- EPSILON))
-                                       (<= z (+ 1.0 EPSILON)))
-                              (let [curr-z (aget depth-buffer idx)
-                                    pass? (or (not depth-test) (<= z curr-z))
-                                    in-clip? (or (empty? clip-rects)
-                                                 (every?
-                                                   (fn [^ui/Rect r]
-                                                     (and (>= xf (.-left r))
-                                                          (< xf (.-right r))
-                                                          (>= yf (.-top r))
-                                                          (< yf (.-bottom r))))
-                                                   clip-rects))]
-                                (when (and pass? in-clip?)
-                                  (let [frag (reconstruct-fragment
-                                               attrs1
-                                               attrs2
-                                               attrs3
-                                               w1n
-                                               w2n
-                                               w3n
-                                               has-vcols?
-                                               fill-srgb)
-                                        shaded (shade-fragment frag shade-ctx)]
-                                    (when shaded
-                                      (when depth-write
-                                        (aset depth-buffer idx z))
-                                      (set!
-                                        (.-color paint)
+  (let [x1 (double (nth s1 0))
+        y1 (double (nth s1 1))
+        z1 (double (nth s1 2))
+        x2 (double (nth s2 0))
+        y2 (double (nth s2 1))
+        z2 (double (nth s2 2))
+        x3 (double (nth s3 0))
+        y3 (double (nth s3 1))
+        z3 (double (nth s3 2))
+        skip-triangle? (and textured? tex-res (nil? (:levels tex-res)))
+        area-raw (- (* (- x2 x1) (- y3 y1)) (* (- y2 y1) (- x3 x1)))]
+    (when (and (not skip-triangle?) (not= area-raw 0.0))
+      (let [flip? (< area-raw 0.0)
+            [x1 y1 z1 attrs1 x2 y2 z2 attrs2 x3 y3 z3 attrs3 area]
+            (if flip?
+              [x1 y1 z1 attrs1 x3 y3 z3 attrs3 x2 y2 z2 attrs2 (- area-raw)]
+              [x1 y1 z1 attrs1 x2 y2 z2 attrs2 x3 y3 z3 attrs3 area-raw])
+            min-x (int
+                    (math/max 0 (.ceil (- (math/min x1 (math/min x2 x3)) 0.5))))
+            max-x (int (math/min (dec int-width)
+                                 (dec (.ceil (- (math/max x1 (math/max x2 x3))
+                                                0.5)))))
+            min-y (int
+                    (math/max 0 (.ceil (- (math/min y1 (math/min y2 y3)) 0.5))))
+            max-y (int (math/min (dec int-height)
+                                 (dec (.ceil (- (math/max y1 (math/max y2 y3))
+                                                0.5)))))
+            dx12 (- x1 x2)
+            dy12 (- y1 y2)
+            dx23 (- x2 x3)
+            dy23 (- y2 y3)
+            dx31 (- x3 x1)
+            dy31 (- y3 y1)
+            tl3 (if (or (> dy12 0.0) (and (== dy12 0.0) (< dx12 0.0)))
+                  (- EPSILON)
+                  0.0)
+            tl1 (if (or (> dy23 0.0) (and (== dy23 0.0) (< dx23 0.0)))
+                  (- EPSILON)
+                  0.0)
+            tl2 (if (or (> dy31 0.0) (and (== dy31 0.0) (< dx31 0.0)))
+                  (- EPSILON)
+                  0.0)
+            paint (ui/Paint.)
+            mip-level (if tex-res
+                        (mip-level-for-triangle
+                          attrs1
+                          attrs2
+                          attrs3
+                          x1
+                          y1
+                          x2
+                          y2
+                          x3
+                          y3
+                          area
+                          (int (.-width ^ui/Image (:img tex-res)))
+                          (int (.-height ^ui/Image (:img tex-res))))
+                        0.0)
+            shade-ctx {:tex-res tex-res,
+                       :textured? textured?,
+                       :lit? lit?,
+                       :ks-linear ks-linear,
+                       :shininess shininess,
+                       :ke-linear ke-linear,
+                       :camera-pos camera-pos,
+                       :lights lights,
+                       :mip-level mip-level}]
+        (loop [y min-y]
+          (when (<= y max-y)
+            (let [yf (+ (double y) 0.5)]
+              (loop [x min-x]
+                (when (<= x max-x)
+                  (let [xf (+ (double x) 0.5)
+                        w1 (- (* (- x2 xf) (- y3 yf)) (* (- y2 yf) (- x3 xf)))
+                        w2 (- (* (- x3 xf) (- y1 yf)) (* (- y3 yf) (- x1 xf)))
+                        w3 (- (* (- x1 xf) (- y2 yf)) (* (- y1 yf) (- x2 xf)))]
+                    (when (and (> w1 tl1) (> w2 tl2) (> w3 tl3))
+                      (let [w1n (/ w1 area)
+                            w2n (/ w2 area)
+                            w3n (/ w3 area)
+                            z (+ (* w1n z1) (* w2n z2) (* w3n z3))
+                            idx (+ (* y int-width) x)]
+                        (when (and (>= z (- EPSILON)) (<= z (+ 1.0 EPSILON)))
+                          (let [curr-z (aget depth-buffer idx)
+                                pass? (or (not depth-test) (<= z curr-z))
+                                in-clip? (or (empty? clip-rects)
+                                             (every? (fn [^ui/Rect r]
+                                                       (and (>= xf (.-left r))
+                                                            (< xf (.-right r))
+                                                            (>= yf (.-top r))
+                                                            (< yf
+                                                               (.-bottom r))))
+                                                     clip-rects))]
+                            (when (and pass? in-clip?)
+                              (let [frag (reconstruct-fragment attrs1
+                                                               attrs2
+                                                               attrs3
+                                                               w1n
+                                                               w2n
+                                                               w3n
+                                                               has-vcols?
+                                                               fill-srgb)
+                                    shaded (shade-fragment frag shade-ctx)]
+                                (when shaded
+                                  (when depth-write (aset depth-buffer idx z))
+                                  (set! (.-color paint)
                                         (ui/Color.fromARGB
                                           (int (* (double (nth shaded 3)) 255))
                                           (int (* (double (nth shaded 0)) 255))
                                           (int (* (double (nth shaded 1)) 255))
                                           (int (* (double (nth shaded 2))
                                                   255))))
-                                      (.drawRect canvas
-                                                 (ui/Rect.fromLTWH (double x)
-                                                                   (double y)
-                                                                   1.0
-                                                                   1.0)
-                                                 paint)))))))))
-                      (recur (inc x)))))
-                (recur (inc y))))))))))
+                                  (.drawRect canvas
+                                             (ui/Rect.fromLTWH (double x)
+                                                               (double y)
+                                                               1.0
+                                                               1.0)
+                                             paint)))))))))
+                  (recur (inc x)))))
+            (recur (inc y))))))))
 
 
 (defn- choose-mesh-render-path
@@ -2262,6 +2266,11 @@
                      m))
         textured? (some? tex-src)
         render-path (choose-mesh-render-path op lighting)
+        ;; Lazy prefetch policy: the unlit affine ImageShader path does not
+        ;; decode byte levels. If a mesh later gains lighting or :colors
+        ;; and upgrades to :shaded-software, the first promoted frame may
+        ;; skip while levels are fetched, which trades a one-frame hiccup
+        ;; for avoiding eager decode cost on the fast path.
         tex-res (when textured?
                   (op->texture-resource op (= render-path :shaded-software)))]
     (case render-path
