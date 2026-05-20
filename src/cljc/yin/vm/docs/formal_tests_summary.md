@@ -17,7 +17,7 @@ test/
 
 ## 🎯 Core Test Suite: vm_basic_test.clj
 
-**Location:** [test/yin/vm_basic_test.clj](../../../test/yin/vm_basic_test.clj)
+**Location:** [test/yin/vm_basic_test.clj](../../../../../test/yin/vm_basic_test.clj)
 
 ### Test Coverage (8 tests, 16 assertions)
 
@@ -133,9 +133,9 @@ Uses `deps.edn` with `:test` alias:
 ## 📚 Related Files
 
 - **Test Runner:** [run_formal_tests.sh](run_formal_tests.sh)
-- **Test Documentation:** [test/README.md](../../../test/README.md)
+- **Test Documentation:** [test/README.md](../../../../../test/README.md)
 - **VM Implementation:** [src/cljc/yin/vm.cljc](vm.cljc)
-- **Informal Tests:** [test_add.clj](../../../test_add.clj), [test_simple_continuation.clj](../../../test_simple_continuation.clj)
+- **Informal Tests:** [test_add.clj](../../../../../test_add.clj), [test_simple_continuation.clj](../../../../../test_simple_continuation.clj)
 
 ## 🔮 Future Enhancements
 

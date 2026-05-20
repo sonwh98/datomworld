@@ -218,4 +218,4 @@ Use different approaches for different contexts:
 
 ---
 
-See [assignments.md](src/cljc/yin/docs/assignments.md) for detailed analysis and implementation examples.
+See [assignments.md](assignments.md) for detailed analysis and implementation examples.

@@ -16,12 +16,12 @@
 
 ### 2. Comprehensive Test Suite
 **Files:**
-- [test/yin/vm_test.cljc](../../../test/yin/vm_test.cljc) - Converted formal test suite (7 tests)
-- [test/yin/vm_basic_test.clj](../../../test/yin/vm_basic_test.clj) - Core VM tests (8 tests)
-- [test/yin/vm_addition_test.clj](../../../test/yin/vm_addition_test.clj) - Addition tests (5 tests)
-- [test/yin/vm_literal_test.clj](../../../test/yin/vm_literal_test.clj) - Literal tests (11 tests)
-- [test/yin/vm_state_test.clj](../../../test/yin/vm_state_test.clj) - State transition tests (10 tests)
-- [test/yin/vm_continuation_test.clj](../../../test/yin/vm_continuation_test.clj) - Continuation tests (6 tests)
+- [test/yin/vm_test.cljc](../../../../../test/yin/vm_test.cljc) - Converted formal test suite (7 tests)
+- [test/yin/vm_basic_test.clj](../../../../../test/yin/vm_basic_test.clj) - Core VM tests (8 tests)
+- [test/yin/vm_addition_test.clj](../../../../../test/yin/vm_addition_test.clj) - Addition tests (5 tests)
+- [test/yin/vm_literal_test.clj](../../../../../test/yin/vm_literal_test.clj) - Literal tests (11 tests)
+- [test/yin/vm_state_test.clj](../../../../../test/yin/vm_state_test.clj) - State transition tests (10 tests)
+- [test/yin/vm_continuation_test.clj](../../../../../test/yin/vm_continuation_test.clj) - Continuation tests (6 tests)
 
 **Test Coverage:**
 - ✅ Literal evaluation
@@ -35,7 +35,7 @@
 - ✅ Works with `clojure` CLI (deps.edn) - **Recommended**
 - ✅ Works with `lein` (project.clj) - Alternative
 - ✅ Cognitect test-runner configured
-- ✅ Shared test utilities in [test/yin/test_util.clj](../../../test/yin/test_util.clj)
+- ✅ Shared test utilities in [test/yin/test_util.clj](../../../../../test/yin/test_util.clj)
 
 ## 🚀 Quick Start
 
