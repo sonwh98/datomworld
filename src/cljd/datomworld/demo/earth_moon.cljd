@@ -52,10 +52,13 @@
 
 
 (defn- globe-widget
-  [asset-path diameter u-phase shadow-alpha]
+  [asset-path diameter u-phase shadow-alpha v-crop]
   (let [d (double diameter)
         tex-w (* d 2.0)
-        offset-x (- (* d (modulo1 u-phase)))]
+        tex-h d
+        strip-w (* tex-w 2.0)
+        offset-x (- (* tex-w (modulo1 u-phase)))
+        offset-y 0.0]
     (m/Container
       .width
       d
@@ -76,86 +79,126 @@
       .child
       (m/ClipOval
         .child
-        (m/Stack .fit
-                 m/StackFit.expand
-                 .children
-                 [(m/Container .color (m/Color.fromARGB 255 22 28 40))
-                  (m/Transform.translate .offset
-                                         (ui/Offset offset-x 0.0)
-                                         .child
-                                         (m/SizedBox .width
-                                                     tex-w
-                                                     .height
-                                                     d
-                                                     .child
-                                                     (m/Image.asset
-                                                       asset-path
-                                                       .width
-                                                       tex-w
-                                                       .height
-                                                       d
-                                                       .fit
-                                                       m/BoxFit.fill
-                                                       .filterQuality
-                                                       m/FilterQuality.low)))
-                  (m/Container .decoration
-                               (m/BoxDecoration
-                                 .gradient
-                                 (m/RadialGradient
-                                   .center
-                                   (m/Alignment -0.28 -0.24)
-                                   .radius
-                                   0.92
-                                   .colors
-                                   [(m/Color.fromARGB 0 255 255 255)
-                                    (m/Color.fromARGB 0 255 255 255)
-                                    (m/Color.fromARGB 18 255 255 255)
-                                    (m/Color.fromARGB shadow-alpha 0 0 0)])))
-                  (m/Container .decoration
-                               (m/BoxDecoration
-                                 .gradient
-                                 (m/LinearGradient
-                                   .begin
-                                   m/Alignment.centerLeft
-                                   .end
-                                   m/Alignment.centerRight
-                                   .colors
-                                   [(m/Color.fromARGB 88 0 0 0)
-                                    (m/Color.fromARGB 0 0 0 0)
-                                    (m/Color.fromARGB 12 255 255 255)
-                                    (m/Color.fromARGB 120 0 0 0)])))])))))
+        (m/Stack
+          .fit
+          m/StackFit.expand
+          .children
+          [(m/Container .color (m/Color.fromARGB 255 22 28 40))
+           (m/Transform.translate
+             .offset
+             (ui/Offset offset-x offset-y)
+             .child
+             (m/OverflowBox .alignment
+                            m/Alignment.centerLeft
+                            .minWidth
+                            strip-w
+                            .maxWidth
+                            strip-w
+                            .minHeight
+                            tex-h
+                            .maxHeight
+                            tex-h
+                            .child
+                            (m/Row .children
+                                   [(m/Image.asset asset-path
+                                                   .width
+                                                   tex-w
+                                                   .height
+                                                   tex-h
+                                                   .fit
+                                                   m/BoxFit.fill
+                                                   .filterQuality
+                                                   m/FilterQuality.low)
+                                    (m/Image.asset asset-path
+                                                   .width
+                                                   tex-w
+                                                   .height
+                                                   tex-h
+                                                   .fit
+                                                   m/BoxFit.fill
+                                                   .filterQuality
+                                                   m/FilterQuality.low)])))
+           (m/Container .decoration
+                        (m/BoxDecoration
+                          .gradient
+                          (m/RadialGradient
+                            .center
+                            (m/Alignment -0.28 -0.24)
+                            .radius
+                            0.92
+                            .colors
+                            [(m/Color.fromARGB 0 255 255 255)
+                             (m/Color.fromARGB 0 255 255 255)
+                             (m/Color.fromARGB 18 255 255 255)
+                             (m/Color.fromARGB shadow-alpha 0 0 0)])))
+           (m/Container .decoration
+                        (m/BoxDecoration .gradient
+                                         (m/LinearGradient
+                                           .begin
+                                           m/Alignment.centerLeft
+                                           .end
+                                           m/Alignment.centerRight
+                                           .colors
+                                           [(m/Color.fromARGB 88 0 0 0)
+                                            (m/Color.fromARGB 0 0 0 0)
+                                            (m/Color.fromARGB 12 255 255 255)
+                                            (m/Color.fromARGB 120 0
+                                                              0 0)])))])))))
 
 
 (defn- scene-widget
   [seconds]
   (let [earth-d 268.0
         moon-d 78.0
-        earth-left 132.0
+        earth-left 88.0
         earth-top 150.0
         earth-u (* seconds 0.03)
-        moon-u (* seconds 0.01)
+        moon-u (* seconds 0.045)
         orbit-a (* seconds 0.32)
         orbit-rx 176.0
         orbit-ry 54.0
         moon-cx (+ earth-left (/ earth-d 2.0) (* orbit-rx (math/cos orbit-a)))
         moon-cy (+ earth-top (/ earth-d 2.0) (* orbit-ry (math/sin orbit-a)))
-        moon-front? (pos? (math/sin orbit-a))
+        moon-frontness (math/sin orbit-a)
+        moon-visibility (-> (/ (+ moon-frontness 0.12) 0.24)
+                            (math/max 0.0)
+                            (math/min 1.0))
+        moon-front-blend (-> (/ (+ moon-frontness 0.06) 0.18)
+                             (math/max 0.0)
+                             (math/min 1.0))
+        moon-behind-opacity (* moon-visibility (- 1.0 moon-front-blend))
+        moon-front-opacity (* moon-visibility moon-front-blend)
         moon-left (- moon-cx (/ moon-d 2.0))
         moon-top (- moon-cy (/ moon-d 2.0))
-        moon-widget (m/Positioned
-                      .left
-                      moon-left
-                      .top
-                      moon-top
-                      .child
-                      (globe-widget moon-asset-path moon-d moon-u 132))
+        moon-behind-widget
+        (m/Positioned
+          .left
+          moon-left
+          .top
+          moon-top
+          .child
+          (m/Opacity .opacity
+                     moon-behind-opacity
+                     .child
+                     (globe-widget moon-asset-path moon-d moon-u 132 0.04)))
+        moon-front-widget
+        (m/Positioned
+          .left
+          moon-left
+          .top
+          moon-top
+          .child
+          (m/Opacity .opacity
+                     moon-front-opacity
+                     .child
+                     (globe-widget moon-asset-path moon-d moon-u 132 0.04)))
         earth-widget (m/Positioned
                        .left
                        earth-left
                        .top
                        earth-top
                        .child
-                       (globe-widget earth-asset-path earth-d earth-u 156))
+                       (globe-widget earth-asset-path earth-d earth-u 156 0.0))
         title-widget
         (m/Positioned
           .left
@@ -223,8 +266,8 @@
                                             [(m/Color.fromARGB 42 92 68 180)
                                              (m/Color.fromARGB 0 92 68 180)]))))
                         earth-widget title-widget]
-                 (not moon-front?) (into [moon-widget])
-                 moon-front? (conj moon-widget))]
+                 (> moon-behind-opacity 0.0) (into [moon-behind-widget])
+                 (> moon-front-opacity 0.0) (conj moon-front-widget))]
     (m/Container .width
                  W
                  .height
