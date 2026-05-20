@@ -19,7 +19,7 @@ architecture.
 
 ```text
 application  (inference engine, training engine, agent runtime, pipeline)
-    provides: workflow graph, admission policy, output parsing
+    provides: workflow graph, admission policy, output parsing (where needed)
 
 dao.flow  (general workflow orchestrator)
     provides: scheduling, stream injection, batching, causality
@@ -123,12 +123,12 @@ not one at a time. Each continuation is an independent thread of execution
 through the same stages.
 
 **Dynamic** — the topology can grow at runtime. A continuation that emits a
-tool intent, fork intent, or retrieval intent creates new continuations. The
-pipeline graph expands as execution proceeds.
+domain intent or fork intent creates new continuations. The pipeline graph
+expands as execution proceeds.
 
 **Parkable** — a continuation can stop mid-pipeline and wait. It parks until a
-stream injection, an effect result, or a tool result satisfies its wait
-condition. Other continuations keep moving.
+stream injection or an effect result satisfies its wait condition. Other
+continuations keep moving.
 
 **Batchable** — continuations that reach the same stage at the same time with
 compatible effects can be grouped into one batched dispatch, then split back to
@@ -261,13 +261,11 @@ A continuation's input boundary is not fixed at request admission.
 
 An active continuation may be injected with new streams:
 
-- a retrieval result stream
-- a tool result stream
+- an effect result stream
 - a user correction stream
-- a memory stream
 - another agent's output stream
 - a policy or capability stream
-- a kernel result stream
+- a domain result stream (retrieval, tool, memory, or kernel result)
 
 Injection is not host mutation. It is an explicit command and lifecycle event:
 
@@ -356,7 +354,13 @@ Core workflow event kinds (apply to any workload):
 - `:workflow/completed`
 - `:workflow/cancelled`
 - `:workflow/error`
-- `:workflow/intent` (`:intent/kind` discriminator: `:intent/tool`, `:intent/render`, `:intent/memory`)
+- `:workflow/intent`
+- `:intent/kind` (values: `:intent/tool`, `:intent/render`, `:intent/memory`)
+
+  ```clojure
+  [intent-id :workflow/intent true      t m]
+  [intent-id :intent/kind    :intent/tool  t m]
+  ```
 - `:continuation/id`
 - `:continuation/parent`
 - `:continuation/root-request`
