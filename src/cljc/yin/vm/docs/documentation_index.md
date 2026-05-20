@@ -53,22 +53,22 @@ Complete plan for documenting all AST node types with progress tracking.
 
 Located in project root:
 
-- **[test_add.clj](../../../test_add.clj)** - Lambda addition tests
+- **[test_add.clj](../../../../../test_add.clj)** - Lambda addition tests
   ```bash
   clj test_add.clj
   ```
 
-- **[test_simple_continuation.clj](../../../test_simple_continuation.clj)** - Continuation stepping
+- **[test_simple_continuation.clj](../../../../../test_simple_continuation.clj)** - Continuation stepping
   ```bash
   clj test_simple_continuation.clj
   ```
 
-- **[test_literal_demo.clj](../../../test_literal_demo.clj)** - Literal evaluation examples
+- **[test_literal_demo.clj](../../../../../test_literal_demo.clj)** - Literal evaluation examples
   ```bash
   clj test_literal_demo.clj
   ```
 
-- **[test_state_demo.clj](../../../test_state_demo.clj)** - State transitions demo
+- **[test_state_demo.clj](../../../../../test_state_demo.clj)** - State transitions demo
   ```bash
   clj test_state_demo.clj
   ```
@@ -79,8 +79,8 @@ Located in project root:
 
 Located in `test/` directory:
 
-- **[test/README.md](../../../test/README.md)** - Test suite documentation
-- **[test/yin/vm_basic_test.clj](../../../test/yin/vm_basic_test.clj)** - 8 tests, 16 assertions
+- **[test/README.md](../../../../../test/README.md)** - Test suite documentation
+- **[test/yin/vm_basic_test.clj](../../../../../test/yin/vm_basic_test.clj)** - 8 tests, 16 assertions
 
 **Run:** `./run_formal_tests.sh`
 
@@ -92,7 +92,7 @@ Located in `test/` directory:
 
 ### Source Code
 
-- **[src/cljc/yin/vm.cljc](vm.cljc)** - The Yin VM implementation
+- **[src/cljc/yin/vm.cljc](../vm.cljc)** - The Yin VM implementation
   - `eval` function - Steps the CESK machine
   - `run` function - Runs evaluation to completion
   - `primitives` - Built-in operations (`+`, `-`, `*`, `/`, `=`, `<`, `>`)
@@ -100,7 +100,7 @@ Located in `test/` directory:
 ### Configuration
 
 - **[deps.edn](deps.edn)** - Clojure CLI configuration
-- **[project.clj](../../../project.clj)** - Leiningen configuration (alternative)
+- **[project.clj](../../../../../project.clj)** - Leiningen configuration (alternative)
 
 ## 📊 Project Documentation
 
@@ -144,7 +144,7 @@ Located in `test/` directory:
 1. Run `./run_tests.sh` - See all informal tests
 2. Read [yin_vm_tests.md](yin_vm_tests.md) - Understand test coverage
 3. Run `./run_formal_tests.sh` - See formal tests
-4. Read [test/README.md](../../../test/README.md) - Learn formal testing
+4. Read [test/README.md](../../../../../test/README.md) - Learn formal testing
 5. Study [src/cljc/yin/vm.cljc](vm.cljc) - Understand implementation
 
 ### Advanced Path
@@ -152,7 +152,7 @@ Located in `test/` directory:
 1. Read [ast_documentation_plan.md](ast_documentation_plan.md) - See the roadmap
 2. Study continuation handling in [state.md](state.md)
 3. Implement new AST node types (Variables, Lambdas, etc.)
-4. Add new tests to [test/yin/vm_basic_test.clj](../../../test/yin/vm_basic_test.clj)
+4. Add new tests to [test/yin/vm_basic_test.clj](../../../../../test/yin/vm_basic_test.clj)
 5. Contribute to AST documentation
 
 ## 🔍 By Topic
@@ -160,34 +160,34 @@ Located in `test/` directory:
 ### Understanding State
 
 - [state.md](state.md) - Complete guide
-- [test_state_demo.clj](../../../test_state_demo.clj) - Interactive demo
+- [test_state_demo.clj](../../../../../test_state_demo.clj) - Interactive demo
 - [src/cljc/yin/vm.cljc](vm.cljc) - Implementation
 
 ### Understanding AST
 
 - [ast.md](ast.md) - Main documentation
 - [ast_quickref.md](ast_quickref.md) - Quick reference
-- [test_literal_demo.clj](../../../test_literal_demo.clj) - Literal examples
+- [test_literal_demo.clj](../../../../../test_literal_demo.clj) - Literal examples
 - [ast_documentation_plan.md](ast_documentation_plan.md) - Roadmap
 
 ### Understanding Tests
 
 - [readme_tests.md](readme_tests.md) - Quick start
 - [yin_vm_tests.md](yin_vm_tests.md) - Comprehensive guide
-- [test/README.md](../../../test/README.md) - Formal tests
+- [test/README.md](../../../../../test/README.md) - Formal tests
 - [formal_tests_summary.md](formal_tests_summary.md) - Test details
 
 ### Understanding Continuations
 
 - [state.md](state.md#continuation---return-context) - Continuation field
-- [test_simple_continuation.clj](../../../test_simple_continuation.clj) - Demo
-- [test_state_demo.clj](../../../test_state_demo.clj) - Step-by-step transitions
+- [test_simple_continuation.clj](../../../../../test_simple_continuation.clj) - Demo
+- [test_state_demo.clj](../../../../../test_state_demo.clj) - Step-by-step transitions
 
 ### Understanding Primitives
 
 - [src/cljc/yin/vm.cljc](vm.cljc) - `primitives` definition
-- [test_add.clj](../../../test_add.clj) - Addition examples
-- [test/yin/vm_basic_test.clj](../../../test/yin/vm_basic_test.clj) - All primitives tested
+- [test_add.clj](../../../../../test_add.clj) - Addition examples
+- [test/yin/vm_basic_test.clj](../../../../../test/yin/vm_basic_test.clj) - All primitives tested
 
 ## 📁 File Organization
 
@@ -273,7 +273,7 @@ cat summary.md
 ### I want to add new features
 1. Read [ast_documentation_plan.md](ast_documentation_plan.md)
 2. Study [src/cljc/yin/vm.cljc](vm.cljc)
-3. Add tests to [test/yin/vm_basic_test.clj](../../../test/yin/vm_basic_test.clj)
+3. Add tests to [test/yin/vm_basic_test.clj](../../../../../test/yin/vm_basic_test.clj)
 
 ### I want to understand continuations
 1. Read [state.md](state.md) continuation section

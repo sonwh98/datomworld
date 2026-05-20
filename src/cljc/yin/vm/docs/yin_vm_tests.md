@@ -7,12 +7,12 @@ This document describes the test suite for the Yin Virtual Machine implementatio
 ## Implementation Files
 
 - **[src/cljc/yin/vm.cljc](vm.cljc)** - The Yin VM implementation
-- **[test/yin/vm_test.cljc](../../../test/yin/vm_test.cljc)** - Comprehensive test suite
+- **[test/yin/vm_test.cljc](../../../../../test/yin/vm_test.cljc)** - Comprehensive test suite
 
 ## Quick Test Files
 
 ### 1. Simple Addition Test
-**File:** [test_add.clj](../../../test_add.clj)
+**File:** [test_add.clj](../../../../../test_add.clj)
 
 Tests basic primitive operations and lambda-based addition:
 - ✅ `(+ 10 20)` → `30`
@@ -21,7 +21,7 @@ Tests basic primitive operations and lambda-based addition:
 **Run:** `lein run -m clojure.main test_add.clj`
 
 ### 2. Continuation Stepping Test
-**File:** [test_simple_continuation.clj](../../../test_simple_continuation.clj)
+**File:** [test_simple_continuation.clj](../../../../../test_simple_continuation.clj)
 
 Demonstrates step-by-step execution with continuations:
 - Shows each evaluation step
@@ -45,7 +45,7 @@ Final value: 6
 
 ## Test Suite
 
-The comprehensive test suite in [test/yin/vm_test.cljc](../../../test/yin/vm_test.cljc) includes:
+The comprehensive test suite in [test/yin/vm_test.cljc](../../../../../test/yin/vm_test.cljc) includes:
 
 ### Test 1: Literal Evaluation
 - Evaluates `42` to itself

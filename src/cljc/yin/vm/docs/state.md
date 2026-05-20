@@ -491,4 +491,4 @@ The state is the heart of the Yin VM - it represents the entire computational co
 See also:
 - [ast.md](ast.md) - AST node documentation
 - [src/cljc/yin/vm.cljc](vm.cljc) - Implementation
-- [test/yin/vm_basic_test.clj](../../../test/yin/vm_basic_test.clj) - Test examples
+- [test/yin/vm_basic_test.clj](../../../../../test/yin/vm_basic_test.clj) - Test examples

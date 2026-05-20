@@ -128,7 +128,7 @@ When the Yin VM encounters a literal node:
 
 ### Test Examples
 
-From [test/yin/vm_basic_test.clj](../../../test/yin/vm_basic_test.clj):
+From [test/yin/vm_basic_test.clj](../../../../../test/yin/vm_basic_test.clj):
 
 ```clojure
 (deftest test-literal-evaluation

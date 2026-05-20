@@ -18,7 +18,7 @@ Comprehensive, incremental documentation with:
 Single-page quick reference for all node types
 
 ### Demo Scripts
-- [test_literal_demo.clj](../../../test_literal_demo.clj) - Interactive literal evaluation
+- [test_literal_demo.clj](../../../../../test_literal_demo.clj) - Interactive literal evaluation
 
 ---
 
@@ -39,7 +39,7 @@ Single-page quick reference for all node types
 
 **Files:**
 - [ast.md](ast.md) - Lines 23-206
-- [test_literal_demo.clj](../../../test_literal_demo.clj)
+- [test_literal_demo.clj](../../../../../test_literal_demo.clj)
 - [ast_quickref.md](ast_quickref.md)
 
 ---
@@ -59,7 +59,7 @@ Single-page quick reference for all node types
 
 **Implementation Reference:** [src/cljc/yin/vm.cljc](vm.cljc) lines 40-44
 
-**Test Reference:** [test/yin/vm_basic_test.clj](../../../test/yin/vm_basic_test.clj) - `test-variable-lookup`
+**Test Reference:** [test/yin/vm_basic_test.clj](../../../../../test/yin/vm_basic_test.clj) - `test-variable-lookup`
 
 ---
 
@@ -78,7 +78,7 @@ Single-page quick reference for all node types
 
 **Implementation Reference:** [src/cljc/yin/vm.cljc](vm.cljc) lines 47-54
 
-**Test Reference:** [test/yin/vm_basic_test.clj](../../../test/yin/vm_basic_test.clj) - `test-lambda-closure`
+**Test Reference:** [test/yin/vm_basic_test.clj](../../../../../test/yin/vm_basic_test.clj) - `test-lambda-closure`
 
 ---
 
@@ -97,7 +97,7 @@ Single-page quick reference for all node types
 
 **Implementation Reference:** [src/cljc/yin/vm.cljc](vm.cljc) lines 57-116
 
-**Test Reference:** [test/yin/vm_basic_test.clj](../../../test/yin/vm_basic_test.clj) - `test-primitive-addition`, `test-lambda-addition`
+**Test Reference:** [test/yin/vm_basic_test.clj](../../../../../test/yin/vm_basic_test.clj) - `test-primitive-addition`, `test-lambda-addition`
 
 ---
 
@@ -115,7 +115,7 @@ Single-page quick reference for all node types
 
 **Implementation Reference:** [src/cljc/yin/vm.cljc](vm.cljc) lines 118-134
 
-**Test Reference:** [test/yin/vm_test.cljc](../../../test/yin/vm_test.cljc) - `test-if-true`
+**Test Reference:** [test/yin/vm_test.cljc](../../../../../test/yin/vm_test.cljc) - `test-if-true`
 
 ---
 
