@@ -1067,17 +1067,17 @@
    it does not attempt to probe GC-driven key expiry."
   []
   (let [key (dart/Object.)
-        _ (aset image-levels key :sentinel)
-        object-roundtrip? (= :sentinel (aget image-levels key))
-        _ (aset image-levels key nil)
+        _ (. image-levels "[]=" key :sentinel)
+        object-roundtrip? (= :sentinel (. image-levels "[]" key))
+        _ (. image-levels "[]=" key nil)
         recorder (ui/PictureRecorder.)
         canvas (ui/Canvas. recorder)
         _ (.drawRect canvas (ui/Rect.fromLTWH 0.0 0.0 1.0 1.0) (ui/Paint.))
         picture (.endRecording recorder)
         img (.toImageSync picture 1 1)
-        _ (aset image-levels img :image-sentinel)
-        image-roundtrip? (= :image-sentinel (aget image-levels img))
-        _ (aset image-levels img nil)
+        _ (. image-levels "[]=" img :image-sentinel)
+        image-roundtrip? (= :image-sentinel (. image-levels "[]" img))
+        _ (. image-levels "[]=" img nil)
         ensure-callable? (nil? (ensure-image-levels! img))]
     {:backed-by-expando true,
      :expando-roundtrip-works object-roundtrip?,
@@ -1536,14 +1536,14 @@
 
 (defn- ensure-image-levels!
   [^ui/Image img]
-  (or (aget image-levels img)
+  (or (. image-levels "[]" img)
       (do (-> (.toByteData img .format ui/ImageByteFormat.rawRgba)
               (.then (fn [byte-data]
                        (when byte-data
                          (let [mips (generate-mipmaps byte-data
                                                       (.-width img)
                                                       (.-height img))]
-                           (aset image-levels img mips))))))
+                           (. image-levels "[]=" img mips))))))
           nil)))
 
 

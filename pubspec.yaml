@@ -12,3 +12,10 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   test: ^1.29.0
+
+flutter:
+  assets:
+    - assets/images/earth_land_ocean_ice_2048.jpg
+    - assets/images/moon_texture_1024.jpg
+    - assets/images/earth_land_ocean_ice_1024.jpg
+    - assets/images/moon_texture_512.jpg
