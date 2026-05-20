@@ -1,94 +1,169 @@
-# Design: `dao.nao`
+# Design: `dao.flow`
 
 ## Summary
 
-`dao.nao` is a datomworld-native inference runtime built from
-`yin.vm`, `dao.stream`, `dao.db`, `dao.space`, and copied transformer kernels
-from vLLM.
+`dao.flow` is a datomworld-native continuation scheduler and ML kernel
+orchestrator built from `yin.vm`, `dao.stream`, `dao.db`, `dao.space`, and a
+registry of subordinate GPU kernels.
 
-The goal is not to wrap vLLM, Ollama, or an OpenAI-compatible server. Those
-runtimes model the public operation as a request that produces a token stream.
-That shape fixes the input boundary at admission time. Once generation starts,
-there is no first-class operation that injects a new `dao.stream` into the
-running inference.
+`dao.flow` is not an inference engine. Inference engines, agent runtimes, and
+multimodal pipelines are applications built on top of `dao.flow`.
 
-`dao.nao` changes that boundary. An inference request may create one
-`yin.vm` continuation or decompose into many continuations. Each continuation's
-input streams can change through explicit stream injection facts. Multiple
-continuations from one request, or from many users, can run, park, resume, fork,
-cancel, accept new streams, and batch together.
+```text
+application  (inference engine, agent runtime, multimodal pipeline)
+    provides: workflow graph, admission policy, output parsing
 
-This is analogous to cooperative multi-threading. The request is like a process,
-and its continuations are like fibers. The scheduler runs each continuation
-until it yields, parks, completes, or errors. Yielded GPU work from compatible
-continuations can then be batched. The hardware advantage comes from exposing a
-richer work graph, not from launching one operating-system thread per
-continuation.
+dao.flow  (continuation scheduler, ML kernel orchestrator)
+    provides: scheduling, stream injection, batching, causality
 
-The heavy tensor math still belongs to transformer kernels. `dao.nao`
-does not invent its own GPU kernels. It reuses copied vLLM kernels as
-subordinate numeric interpreters for explicit tensor effects emitted by Yin
-continuations.
+kernel registry  (transformer, diffusion, vision, audio, 3D, biology, ...)
+    provides: numeric execution, result tensors
+
+GPU
+    provides: parallel compute
+```
+
+The workflow graph — the continuation graph admitted at request time — is what
+makes `dao.flow` behave as an LLM engine, a diffusion engine, an audio pipeline,
+or any other ML workload. The scheduler, stream injection, batching, and
+causality machinery do not change across modalities. What changes is the shape
+of the graph and the kernel ops each continuation dispatches.
+
+`dao.flow` does not wrap vLLM, Ollama, or an OpenAI-compatible server. Those
+runtimes fix the input boundary at admission time. Once generation starts there
+is no first-class operation that injects a new `dao.stream` into the running
+computation. `dao.flow` makes stream injection a normal runtime transition.
+
+A workflow may create one `yin.vm` continuation or decompose into many.
+Continuations run, park, resume, fork, cancel, accept new streams, and batch
+together. This is analogous to cooperative multi-threading. The workflow is like
+a process; its continuations are like fibers.
+
+`dao.flow` does not invent GPU kernels. Kernels are subordinate numeric
+interpreters called with explicit inputs and returning explicit results. They do
+not own sessions, queues, causality, memory policy, or durable state.
 
 The strategic boundary is:
 
-- `yin.vm` owns inference runtime semantics.
+- `yin.vm` owns the continuation runtime and scheduler semantics.
 - `dao.stream` carries requests, effects, results, tokens, intents, and errors.
-- copied vLLM kernels execute tensor operations.
+- `dao.flow` orchestrates continuations and dispatches kernel effects.
+- kernels execute tensor operations and return results as explicit values.
 - kernels do not own sessions, queues, causality, memory policy, or durable
-  inference state.
+  state.
 
 ## Core Claim
 
-Inference should not be modeled as a chat-completion RPC whose prompt and
-message inputs are fixed when the request starts.
+ML computation should not be modeled as a request/response RPC whose inputs
+are fixed when the request starts.
 
-Inference should be modeled as continuation execution:
+ML computation should be modeled as continuation execution over explicit kernel
+effects:
 
 ```text
 dao.stream request/control events
--> dao.nao scheduler program in yin.vm
--> many inference continuations
+-> dao.flow scheduler program in yin.vm
+-> many continuations (workflow graph)
 -> batched continuation steps
 -> explicit tensor/kernel effects
--> copied vLLM kernels execute numeric work
+-> kernel registry executes numeric work
 -> kernel result stream
 -> yin.vm resumes continuations
--> token/message/intent/error datoms
+-> token/message/intent/error/result datoms
 ```
 
-The model does not own memory, UI, tools, scheduling, or collaboration state. It
-is one interpreter inside a larger stream process. Other interpreters decide
-how emitted values become memory, rendering, tool use, or agent coordination.
+An inference engine is one application of this model. The workflow graph it
+provides determines what the continuations do and which kernels they call.
+`dao.flow` does not know or care whether the workload is language modeling,
+image generation, audio synthesis, or something else.
+
+The kernel is not the runtime. The kernel is one subordinate interpreter inside
+a larger stream process. Other interpreters decide how emitted values become
+memory, rendering, tool use, or agent coordination.
 
 The key flexibility is stream injection. A running or parked continuation can
 receive a new input stream as data, record the cursor and purpose of that stream,
-and resume if the stream satisfies a wait condition. The alternative in
-request/token-stream runtimes is usually cancel-and-restart or build a new
-prompt. `dao.nao` should make this a normal runtime transition.
+and resume if the stream satisfies a wait condition. This makes mid-computation
+input changes a normal runtime transition rather than a cancel-and-restart.
+
+## Pipeline Intuition
+
+`dao.flow` is structurally similar to threading a value through a pipeline.
+
+A Clojure thread macro expresses this directly:
+
+```clojure
+(-> request
+    admit
+    decompose
+    schedule
+    batch-effects
+    dispatch-kernels
+    resume-continuations
+    emit-results)
+```
+
+Each step receives the output of the previous one. The topology is fixed, the
+execution is single-threaded, every request follows the same path.
+
+`dao.flow` generalizes this in four directions:
+
+**Concurrent** — many continuations flow through the pipeline simultaneously,
+not one at a time. Each continuation is an independent thread of execution
+through the same stages.
+
+**Dynamic** — the topology can grow at runtime. A continuation that emits a
+tool intent, fork intent, or retrieval intent creates new continuations. The
+pipeline graph expands as execution proceeds.
+
+**Parkable** — a continuation can stop mid-pipeline and wait. It parks until a
+stream injection, a kernel result, or a tool result satisfies its wait
+condition. Other continuations keep moving.
+
+**Batchable** — continuations that reach the same stage at the same time with
+compatible effects can be grouped into one kernel dispatch, then split back to
+independent continuations with their result slices.
+
+The thread macro is a degenerate case of `dao.flow`: one continuation, static
+topology, no parking, no branching, no batching. `dao.flow` is the general form.
+
+The intuition for explaining `dao.flow` to someone unfamiliar:
+
+> It is like threading a request through a pipeline, except many requests
+> thread concurrently, the pipeline topology can change mid-execution, any
+> step can park and wait for new input, and every step is a first-class value
+> you can inspect, replay, or redirect.
+
+The deeper connection: `->` in Clojure is itself a syntactic
+continuation-passing transformation. Each step receives a value and passes a
+value forward. `dao.flow` makes those values explicit stream facts and the steps
+explicit continuation states, rather than collapsing them into a single
+synchronous call stack.
 
 ## Scope
 
-`dao.nao` is responsible for:
+`dao.flow` is responsible for:
 
-- admitting inference requests from `dao.stream`
-- decomposing inference requests into one or more `yin.vm` continuations
+- admitting workflow requests from `dao.stream`
+- decomposing requests into one or more `yin.vm` continuations
 - scheduling continuations that are runnable or have yielded GPU-calculable
   effects
 - parking blocked continuations on explicit stream or effect dependencies
 - injecting new streams into active continuations
+- dispatching kernel effects to the appropriate kernel in the registry
 - batching compatible continuation effects to improve hardware utilization
-- emitting tokens, completions, errors, telemetry, and intents as datoms
+- emitting results, errors, telemetry, and intents as datoms
 - preserving continuation lineage for branch, replay, and inspection
 
-`dao.nao` is not responsible for:
+`dao.flow` is not responsible for:
 
-- using vLLM, Ollama, or OpenAI-compatible APIs as inference engines
+- being an inference engine — inference engines are built on top of `dao.flow`
+- using vLLM, Ollama, or OpenAI-compatible APIs as its runtime
 - hiding request state inside server sessions
-- implementing new transformer kernels from scratch
-- letting copied kernels own inference scheduling or causal state
+- implementing new GPU kernels from scratch
+- letting kernels own scheduling or causal state
 - distributing kernel execution across nodes
-- collapsing tool execution, rendering, or memory commit into model execution
+- collapsing tool execution, rendering, or memory commit into kernel execution
 - replacing `dao.db`, `dao.space`, `dao.stream`, or `yin.vm`
 
 ## Invariants
@@ -143,12 +218,12 @@ compatible GPU work, and preserve explicit join points.
 ### 2. The scheduler/runtime is Yin
 
 Admission, ready queues, wait sets, cancellation, fork, resume, and batching
-are part of the `dao.nao` program running in `yin.vm`.
+are part of the `dao.flow` program running in `yin.vm`.
 
 The host may bootstrap the VM and provide transports or kernel dispatch, but
-the host must not become the inference scheduler. If a scheduling decision
-affects causality, fairness, batching, cancellation, or continuation state, it
-belongs in Yin-visible data.
+the host must not become the scheduler. If a scheduling decision affects
+causality, fairness, batching, cancellation, or continuation state, it belongs
+in Yin-visible data.
 
 ### 3. Multiple continuations can run
 
@@ -224,7 +299,7 @@ many non-parked continuations
 
 This gives the practical throughput benefit of vLLM-style batching without
 copying vLLM's opaque scheduler or request-state model. vLLM batches opaque
-runtime state. `dao.nao` batches explicit continuation effects.
+runtime state. `dao.flow` batches explicit continuation effects.
 
 The speedup is not from CPU threads alone. The speedup comes when the
 continuation graph lets the scheduler:
@@ -257,13 +332,13 @@ outputs are values in explicit effect streams.
 
 ### 7. KV-cache bytes live in VRAM
 
-For GPU inference, the hot KV-cache is VRAM state. `dao.nao` runs in
+For GPU inference, the hot KV-cache is VRAM state. `dao.flow` runs in
 `yin.vm` on the CPU and should not carry or mutate raw K/V tensor bytes.
 
 The split is:
 
 ```text
-dao.nao / yin.vm / RAM:
+dao.flow / yin.vm / RAM:
   cache identity
   cache ownership
   cache position
@@ -305,11 +380,11 @@ kernels, advances the cache, and returns explicit result facts:
 [result-id :kernel/logits logits-handle t m]
 ```
 
-`dao.nao` does not own KV-cache bytes. It owns KV-cache meaning:
+`dao.flow` does not own KV-cache bytes. It owns KV-cache meaning:
 identity, lifecycle, lineage, position, permission, and causal relationship to
 continuations.
 
-The cache handle should identify a local kernel host/device. `dao.nao`
+The cache handle should identify a local kernel host/device. `dao.flow`
 may move or resume continuations on different nodes, but it should not split one
 kernel invocation across nodes.
 
@@ -377,7 +452,7 @@ replayable.
 The implementation should separate interpreters by what they are allowed to
 decide.
 
-### `dao.nao.scheduler`
+### `dao.flow.scheduler`
 
 A Yin program that owns inference runtime policy.
 
@@ -391,7 +466,7 @@ Responsibilities:
 - group compatible yielded tensor values/effects into batches
 - emit lifecycle, token, completion, cancellation, and telemetry datoms
 
-### `dao.nao.context`
+### `dao.flow.context`
 
 Assembles model input from explicit values.
 
@@ -402,7 +477,7 @@ Responsibilities:
 - enforce context budgets
 - record which context values were included
 
-### `dao.nao.retrieve`
+### `dao.flow.retrieve`
 
 Retrieves memory from durable substrates.
 
@@ -420,7 +495,7 @@ Responsibilities:
 ## External Data And Context
 
 External data enters an inference through explicit retrieval plans and injected
-streams. `dao.nao` should not silently browse, query a vector database, or
+streams. `dao.flow` should not silently browse, query a vector database, or
 invent Datalog queries while assembling context.
 
 The normal flow is:
@@ -506,7 +581,7 @@ Every assembled context window should record:
 This makes the prompt/context explainable without making external retrieval a
 hidden side effect.
 
-### `dao.nao.effects`
+### `dao.flow.effects`
 
 Defines effect values emitted by inference continuations.
 
@@ -518,7 +593,7 @@ Responsibilities:
 - describe injected stream descriptors and cursors
 - preserve provenance from continuation effect to kernel result
 
-### `dao.nao.kernel`
+### `dao.flow.kernel`
 
 Host-side interpreter for tensor effects.
 
@@ -533,7 +608,7 @@ Responsibilities:
 - avoid owning inference sessions or scheduler state
 - keep kernel execution local to the selected kernel host/device
 
-### `dao.nao.parse`
+### `dao.flow.parse`
 
 Parses model output into explicit structured intents.
 
@@ -545,7 +620,7 @@ Responsibilities:
 - extract render intents
 - reject malformed structured output explicitly
 
-### `dao.nao.commit`
+### `dao.flow.commit`
 
 Commits accepted outputs to streams and memory substrates.
 
@@ -633,21 +708,24 @@ continuations from unrelated requests, or both.
 
 ## Kernel Boundary
 
-`dao.nao` may copy vLLM kernel source and adapt it to this runtime, but it
+`dao.flow` may copy vLLM kernel source and adapt it to this runtime, but it
 must not copy vLLM's opaque runtime boundary.
 
-Kernel execution is local. `dao.nao` is distributed; kernels are not. A
+Kernel execution is local. `dao.flow` is distributed; kernels are not. A
 kernel effect may be routed to a node that owns the relevant GPU, model weights,
 and cache handles, but the copied kernel invocation itself should run on that
 local host/device. Cross-node distribution belongs to continuations, streams,
 retrieval, tools, planners, verifiers, and joins, not to one tensor kernel.
 
-Accepted from vLLM:
+Accepted kernel sources and ops:
 
-- attention kernels
-- paged/KV-cache kernels
-- matmul or quantized matmul kernels
-- normalization and activation kernels
+- attention kernels (vLLM, flash-attn, xFormers)
+- paged/KV-cache kernels (vLLM)
+- matmul or quantized matmul kernels (vLLM, cuBLAS, CUTLASS)
+- normalization and activation kernels (vLLM, PyTorch)
+- UNET attention and conv kernels (diffusers, xFormers)
+- VAE encode and decode kernels (diffusers)
+- CLIP text encoder kernels (diffusers, transformers)
 - kernel launch patterns needed to use those kernels correctly
 
 Not accepted as the runtime boundary:
@@ -716,10 +794,12 @@ In a datomworld-native design:
 This makes collaboration replayable and inspectable while still allowing
 throughput-oriented batching.
 
-## Distributed Inference
+## Federated And Distributed Inference
 
-`dao.nao` can be distributed because continuations and streams are
-distributed values.
+`dao.flow` can be federated and distributed because continuations and streams
+are distributed values. Distributed inference means moving or placing
+continuations across `dao.flow` nodes, not splitting one tensor kernel across
+nodes.
 
 Different nodes may host different parts of the continuation graph:
 
@@ -732,13 +812,68 @@ Different nodes may host different parts of the continuation graph:
 - scheduler shards over explicit stream partitions
 
 These continuations coordinate through `dao.stream` and preserve lineage through
-datoms. A continuation can be moved, resumed, or forked on another node if its
-required streams, capabilities, and cache handles are available.
+datoms.
 
-Tensor kernels are not distributed by `dao.nao`. If a continuation yields
+### Continuation Migration
+
+A continuation can migrate to another `dao.flow` node for computation when that
+node has better locality or authority for the next step. The migrated unit is
+not a token stream or an opaque server session. It is explicit continuation
+state plus dependencies:
+
+- continuation id
+- root request id
+- parent lineage
+- current status
+- required stream descriptors and cursors
+- injected input stream set
+- required capabilities
+- model or program identity
+- pending wait/effect state
+- cache handle references, when relevant
+
+Migration is useful when another node has better access to:
+
+- private or local `dao.db` facts
+- local `dao.stream` history
+- tools or web/search capabilities
+- policy or capability authority
+- a model/kernel host with available GPU capacity
+- a continuation branch's required working context
+
+The receiving node validates capabilities, hydrates required streams or context,
+resumes or parks the continuation, and emits result or lifecycle datoms back to
+the appropriate streams.
+
+```text
+node A root request
+-> creates continuation graph
+-> migrates retrieval continuation to node B near private data
+-> migrates web-search continuation to node C with web capability
+-> routes decode continuation to node D with GPU/model/cache locality
+-> receives result streams
+-> join continuation aggregates
+```
+
+### Cache Locality
+
+Tensor kernels are not distributed by `dao.flow`. If a continuation yields
 a GPU effect, the scheduler routes that effect to a local kernel interpreter
 that owns the relevant model weights, VRAM cache handles, and device. The
 result returns as stream facts and resumes the continuation.
+
+Migration must respect KV-cache locality. A continuation that depends on a hot
+VRAM cache handle cannot freely resume decode on another node unless one of
+these is true:
+
+- the destination already has the cache materialized
+- the cache is explicitly transferred or reconstructed
+- the continuation restarts from a replayable prefix
+- the migrated work does not need the hot cache, such as retrieval, planning,
+  tool use, verification, or joining
+
+This makes migration cheap for semantic work and controlled for cache-heavy
+decode work.
 
 The boundary is:
 
@@ -751,12 +886,14 @@ distributed:
   tools
   verification
   joins
+  continuation migration
 
 local to kernel host:
   copied vLLM kernel invocation
   VRAM KV-cache bytes
   device pointers
   low-level tensor buffers
+  hot cache mutation
 ```
 
 This keeps the semantic runtime distributed without turning the kernel layer
@@ -767,15 +904,15 @@ into a cross-node tensor runtime.
 One possible initial namespace layout:
 
 ```text
-dao.nao
-dao.nao.scheduler
-dao.nao.context
-dao.nao.retrieve
-dao.nao.effects
-dao.nao.kernel
-dao.nao.parse
-dao.nao.commit
-dao.nao.render
+dao.flow
+dao.flow.scheduler
+dao.flow.context
+dao.flow.retrieve
+dao.flow.effects
+dao.flow.kernel
+dao.flow.parse
+dao.flow.commit
+dao.flow.render
 ```
 
 The exact shape should emerge from implementation pressure, but the scheduler
@@ -784,7 +921,7 @@ to explicit effects.
 
 ## Suggested Build Order
 
-1. Define the stream event vocabulary for `dao.nao`.
+1. Define the stream event vocabulary for `dao.flow`.
 2. Implement the Yin scheduler with request admission, ready queue, wait set,
    cancellation, and continuation status.
 3. Prove one request can statically decompose into a continuation graph and
@@ -818,19 +955,67 @@ The first milestone is small but complete:
 If this loop feels clean, copied vLLM kernel integration can replace fake token
 generation without changing the public stream semantics.
 
+## Workflow As Configuration
+
+The continuation graph is the workflow. It is data admitted at request time,
+not a fixed property of the runtime.
+
+Different graphs produce different inference behaviors.
+
+**LLM transformer:**
+
+```text
+request
+-> prefill continuation (process prompt tokens)
+-> decode loop continuation (autoregressive token generation)
+-> parse continuation (extract intents from output)
+-> commit continuation
+```
+
+**Stable diffusion:**
+
+```text
+request
+-> encode-text continuation (CLIP positive)
+-> encode-text continuation (CLIP negative, parallel)
+-> denoise loop continuation (N steps of UNET forward pass)
+-> decode continuation (VAE)
+-> emit render intent
+```
+
+In both cases the scheduler parks and resumes continuations, dispatches kernel
+effects with explicit data, batches compatible effects across requests, injects
+streams, and preserves lineage as datoms. The kernel ops differ. The runtime
+mechanics do not.
+
+`dao.flow.kernel` is a thin wrapper: resolve handles to VRAM pointers, call the
+kernel, return result datoms. For transformer inference the kernels come from
+vLLM. For diffusion inference the kernels come from diffusers, xFormers, or
+equivalent sources. Both are subordinate numeric interpreters. Neither owns
+scheduling, session state, or causality.
+
+This means the workflow graph is the configuration boundary between inference
+modalities. Swapping LLM for diffusion means swapping the graph shape and
+kernel ops, not the runtime.
+
 ## Design Direction
 
 The main idea is simple:
 
-- do not treat inference as a chat API
+- `dao.flow` is a runtime substrate, not an inference engine
+- inference engines, agent runtimes, and multimodal pipelines are built on top
+- do not treat any ML workload as a fixed request/response RPC
 - do not treat memory as hidden session state
-- do not treat vLLM as the runtime
-- do not let kernels own causality
+- do not let kernels own causality or scheduling
+- do not fix the ML modality in the runtime
 - do batch continuations to keep the GPU busy
 - do use continuation graphs to expose more schedulable hardware work
+- do treat the workflow graph as data that configures the modality
+- do treat kernels as subordinate numeric interpreters, nothing more
 
-Treat inference as explicit Yin continuation execution over explicit streams.
-Batch compatible continuation effects for hardware utilization, overlap stream
-and context work with GPU execution, run copied vLLM kernels as subordinate
-numeric interpreters, then resume each continuation with inspectable causal
-facts.
+Each layer does one thing. No layer reaches into the layer above it. The layer
+diagram is in the Summary.
+
+The workflow graph determines whether `dao.flow` is running a language model,
+a diffusion pipeline, an audio synthesizer, or something not yet invented.
+The runtime does not know or care.
