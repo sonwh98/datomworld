@@ -22,7 +22,7 @@ This document defines only the Flutter-specific realization details:
 - the final Cartesian-to-Flutter viewport transform, including the y-axis flip
 - canvas-state wrapping and per-op realization
 - Flutter-specific resource and validation behavior
-- the current Flutter host API and its documented surface gaps
+- the current Flutter host API and its documented host limitations
 
 ## Viewport Transform
 
@@ -166,8 +166,9 @@ These ops mutate VM-local state only and MUST NOT call
 
 - `:transform/push`, `:transform/pop` — mutate `model-stack`.
 - `:clip/push-rect`, `:clip/pop` — mutate `clip-stack`.
-- `:meta/region` — inert in v1 paint (validated for shape; no canvas
-  effect; geometry-report contract is out of scope here).
+- `:meta/region` — validated for shape and ancestry, but has no paint effect in
+  this host. The current Flutter terminal does not emit a geometry-report
+  stream, so `:meta/region` is intentionally inert beyond validation.
 - `:camera3d/set` — sets `camera-matrix`; clears `depth-buffer` when a
   prior camera was active.
 - `:state/depth-test`, `:state/depth-write` — set the booleans.
@@ -216,8 +217,19 @@ is described in § GPU Mesh Shading. The 3D state ops (`:camera3d/set`,
 `:state/depth-test`, `:state/depth-write`, `:state/lighting-enable`,
 `:light/ambient`, `:light/directional`, `:light/point`, `:light/clear`)
 are non-drawing and are listed in § Canvas State Protocol > Non-Drawing
-Op State. Per-op Flutter realization for 3D draws is out of scope
-here.
+Op State.
+
+For the current Flutter terminal, the per-op 3D draw realization is:
+
+- `:draw3d/lines` — transform vertices by `camera-matrix × model-stack.top`,
+  clip against the near plane and active clip rects, project to screen,
+  depth-test the covered pixels in software, then emit the surviving coverage
+  as path draws in screen space
+- `:draw3d/triangles` — same pipeline, but rasterize filled triangles instead
+  of line segments
+- `:draw3d/mesh` — same geometry pipeline, with either the software shaded path
+  or the `FragmentShader`-backed color path from § GPU Mesh Shading applied
+  after the software depth / clip walk
 
 ### Paint Configuration
 
@@ -292,7 +304,8 @@ error.
 Inert in v1 paint. Validated for `:rect`, presence of `:op/meta`, and
 translate-only ancestry. No canvas calls.
 
-Geometry-report emission for `:meta/region` is out of scope here.
+This host does not currently expose a geometry-report stream, so
+`:meta/region` affects neither painting nor emitted host data.
 
 ### `:draw/fill-rect`
 
@@ -601,10 +614,12 @@ The shared frame-accounting and canonical-signal rules are defined in
 
 Flutter-specific note:
 
-- the current widget API documents `:dao.terminal/reset` and
-  `:dao.terminal/rejection` on `:signal-stream`; additional canonical signal
-  surfaces are host-accounting concerns unless and until this terminal opts into
-  fuller `dao.gui.event` participation
+- when `:signal-stream` is supplied, the shared terminal binding in
+  `src/cljc/dao/postgraphics/terminal.cljc` emits the canonical
+  `:dao.terminal/reset`, `:dao.terminal/rejection`, and
+  `:dao.terminal/frame-skipped` signals
+- `:dao.terminal/protocol-error` is reserved for stream/binding faults, not
+  frame-validation failures
 
 ## Wiring
 
@@ -621,6 +636,11 @@ dao.scene stream
 Producers and consumers communicate via `dao.stream` cursors. Any direct-use
 entrypoint a Flutter implementation exposes is an optional helper layered on
 top of the required stream-bound constructor, not a replacement for it.
+
+The stream-binding, generation-ID, canonical-signal, and skipped-submission
+accounting behavior described here is implemented in
+`src/cljc/dao/postgraphics/terminal.cljc` and reused by the Flutter host via
+its widget binding.
 
 ## Widget API
 
@@ -660,8 +680,9 @@ read from `frame-stream`.
   `:on-error` invocation (or one `print`) and vice versa.
 - `:signal-stream` — optional. A `dao.stream` to which the VM emits
   canonical terminal signals (`:dao.terminal/reset`,
-  `:dao.terminal/rejection`). Required for participants in
-  `dao.gui.event`. When omitted, signals are dropped silently.
+  `:dao.terminal/rejection`, `:dao.terminal/frame-skipped`, and reserved
+  `:dao.terminal/protocol-error`). Required for participants in `dao.gui.event`.
+  When omitted, signals are dropped silently.
 - `:shader/strict-lights` — optional, defaults to `false`. When `true`,
   3D mesh frames with more than `MAX_LIGHTS = 8` active lights are
   rejected with `:reason :validation-failure` rather than silently
@@ -737,8 +758,8 @@ triangle** by lifting the per-fragment computation into a GLSL fragment shader.
 A Flutter VM that ships this path conforms to v1, v2, v3, and v4 **except
 for v4's render-target stack** (`:target/push`, `:target/pop`,
 `:target/id`, the `:depth` target sampling path). Those ops are rejected
-with `:reason :unsupported-op`. See § Open Questions > Render targets
-for the rationale and the plan to lift this restriction. A frame that
+with `:reason :unsupported-op`. See § Host Limitations for the current
+documented restriction. A frame that
 does not use render-target ops is fully v4-compliant under this VM.
 
 ### Motivation
@@ -1203,7 +1224,7 @@ fast textured path, with no Blinn-Phong evaluation in Dart.
 The Flutter VM narrows v4 in two documented ways:
 
 - `:target/push` and `:target/pop` are rejected with `:reason
-  :unsupported-op` (see § Open Questions > Render targets and
+  :unsupported-op` (see § Host Limitations and
   § Compatibility and Conformance).
 - More than `MAX_LIGHTS = 8` active lights in a single frame are
   either rejected (strict mode) or silently truncated (default), per
@@ -1221,7 +1242,7 @@ shapes, field shapes, and value ranges are otherwise identical.
   the software Path-of-rects rasterizer.
 - The Flutter VM rejects `:target/push` and `:target/pop` with
   `:reason :unsupported-op`. This is the one documented divergence from
-  v4 (see § Open Questions > Render targets). Producers that need
+  v4 (see § Host Limitations). Producers that need
   offscreen passes must use a different terminal or wait for that
   restriction to lift.
 - A v4 frame that a v4 VM rejects (other than for render-target reasons)
@@ -1260,34 +1281,19 @@ shapes, field shapes, and value ranges are otherwise identical.
   interpolators. This is the trade for staying within Flutter's
   `FragmentShader` API (which does not expose a vertex stage).
 
-### Open Questions
+### Host Limitations
 
 - **Render targets.** v4's `:target/push` / `:target/pop` (and the
-  associated target registry / `:depth` sampling path) are normative in
-  v4 but currently rejected by this VM with `:reason :unsupported-op`.
-  This is the one acknowledged gap in v4 conformance for the Flutter
-  terminal. The plan to lift it is to back targets with Flutter's
-  `PictureRecorder` → `Picture.toImage` flow: the software depth buffer
-  can be allocated per target, the GPU shading path is target-agnostic,
-  and the target registry can be a VM-local map keyed by `:target/id`.
-  No bytecode or shader changes are required; the work is purely VM
-  plumbing (target lifecycle, registry, depth-buffer pool, `:texture/
-  source :target/id ...` resolution).
-- **Mipmap quality.** v4's `:texture/mipmap` is honored via
-  `Paint.filterQuality = medium` on the existing `ImageShader` path.
-  The FragmentShader sampler uses Flutter's default filter for
-  `texture()` calls; this remains a host concession unless future
-  work plumbs `:texture/mipmap` to the sampler explicitly through a
-  uniform-controlled `textureLod()`.
-- **Custom shaders for producers.** This path does not expose a way for
-  producers to supply their own shaders. A future bytecode version may
-  add a `:shader/source` field on `:draw3d/mesh` (or a separate
-  `:shader/use` state op) — that would be a producer-visible language
-  extension and belongs in a separate proposal.
-- **WebGPU / Skia parity.** The canonical kernel targets GLSL ES 3.10
-  features that Flutter's shader toolchain compiles to SPIR-V for
-  Impeller and GLSL ES 3.00 for the web Skia backend. Differences in
-  precision qualifiers and `texture()` overloads between targets are
-  the build tool's responsibility; this design assumes the toolchain
-  hides them. A WebGPU-native rendering path is documented separately
-  in `dao.postgraphics.webgpu.md`.
+  associated target registry / `:depth` sampling path) are currently rejected
+  by this host with `:reason :unsupported-op`. This is a documented host
+  limitation, not an unspecified behavior.
+- **Mipmap quality on the GPU mesh path.** v4's `:texture/mipmap` is honored
+  on the `ImageShader` path. The `FragmentShader` mesh path inherits Flutter's
+  sampler behavior and therefore does not yet expose producer-visible LOD
+  control beyond the existing bytecode fields.
+- **Producer-supplied shaders are not part of this host surface.** The current
+  terminal realizes the fixed `dao.postgraphics` language only; custom shader
+  injection would be a separate language extension, not a host-local option.
+- **Backend shader portability is delegated to Flutter's shader toolchain.**
+  This host pins the shader contract and accepts the backend compiler's
+  platform-specific lowering to Impeller / Skia targets.

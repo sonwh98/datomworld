@@ -12,6 +12,10 @@ is defined in `dao.postgraphics.terminal.md`. This document defines the
 WebGPU-specific realization of that contract. The Flutter terminal is documented
 separately in `dao.postgraphics.flutter.md`.
 
+Shared stream-binding, generation-ID, canonical-signal, and skipped-submission
+accounting behavior should reuse `src/cljc/dao/postgraphics/terminal.cljc`
+rather than re-defining those concerns in the WebGPU host layer.
+
 The WebGPU terminal is intended to reach feature parity with the Flutter
 terminal's v1-v4 surface:
 

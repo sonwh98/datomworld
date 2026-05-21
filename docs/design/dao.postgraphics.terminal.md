@@ -20,6 +20,11 @@ regardless of host realization:
 Concrete hosts such as Flutter and WebGPU add only host-specific realization
 details on top of this contract.
 
+The current shared runtime realization of this contract lives in
+`src/cljc/dao/postgraphics/terminal.cljc`. Host docs may define richer local
+APIs, but stream binding, canonical signal helpers, and submission-sequence
+handling should reuse that namespace rather than being re-invented per host.
+
 ## Responsibilities
 
 Every conforming terminal MUST:

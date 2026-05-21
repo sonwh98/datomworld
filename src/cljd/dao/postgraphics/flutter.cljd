@@ -5,7 +5,7 @@
             ["dart:ui" :as ui]
             ["package:flutter/material.dart" :as m]
             ["package:vector_math/vector_math_64.dart" :as vm]
-            [dao.stream :as ds]))
+            [dao.postgraphics.terminal :as terminal]))
 
 
 ;; --- spec constants ---
@@ -2888,94 +2888,23 @@
   (shouldRepaint [_this _old] true))
 
 
-;; --- terminal protocol signals ---
-
-(defonce ^:private generation-counter (atom 0))
-
-
-(defn- new-generation-id
-  []
-  (let [now (.-millisecondsSinceEpoch (dart/DateTime.now))
-        n (swap! generation-counter inc)]
-    (str now "-" n)))
-
-
-(defn- emit-signal!
-  [signal-stream signal]
-  (when signal-stream
-    (try (ds/put! signal-stream signal)
-         (catch Exception e
-           (dart/print (str "postgraphics: failed to emit signal: " e))))))
-
-
-(defn- rejection-reason
-  [e]
-  (or (get (ex-data e) :dao.postgraphics/reason) :validation-failure))
-
-
 ;; --- stream wiring ---
 
 (defn- bind-stream->notifier!
   [frame-stream ^m/ValueNotifier notifier & {:keys [on-error signal-stream]}]
-  (let [submission-counter (atom -1)
-        generation-id (new-generation-id)]
-    (emit-signal! signal-stream
-                  {:message/kind :dao.terminal/reset,
-                   :generation-id generation-id})
-    (letfn
-      [(try-set-frame!
-         [frame]
-         (let [sid (swap! submission-counter inc)]
-           (try (validate-frame! frame)
-                (set! (.-value notifier) frame)
-                (catch Exception e
-                  (let [reason (rejection-reason e)]
-                    (emit-signal! signal-stream
-                                  {:message/kind :dao.terminal/rejection,
-                                   :submission-id sid,
-                                   :reason reason})
-                    (if on-error
-                      (on-error e)
-                      (dart/print (str "Invalid frame rejected (" reason
-                                       "): " e))))))))
-       (await-next!
-         [cursor]
-         (let [result (ds/next frame-stream cursor)]
-           (cond (map? result) (do (try-set-frame! (:ok result))
-                                   (recur (:cursor result)))
-                 (= :blocked result) (ds/register-reader-waiter!
-                                       frame-stream
-                                       (:position cursor)
-                                       {:resume resume,
-                                        :reason :next,
-                                        :stream frame-stream,
-                                        :cursor cursor})
-                 ;; Cursor fell behind an evicted ringbuffer slot —
-                 ;; fast-forward one slot at a time until we catch up to
-                 ;; head or hit :blocked. Without this, a widget rebuilt
-                 ;; against a partly-consumed stream would silently exit
-                 ;; and never render.
-                 (= :daostream/gap result) (recur (update cursor :position inc))
-                 :else nil)))
-       (resume
-         [rt entry value]
-         (when (some? value)
-           (try-set-frame! value)
-           (await-next! (update (:cursor entry) :position inc)))
-         rt)]
-      (await-next! {:position 0}))))
+  (terminal/bind-stream!
+    frame-stream
+    {:validate-frame! validate-frame!,
+     :present-frame! (fn [frame] (set! (.-value notifier) frame)),
+     :signal-stream signal-stream,
+     :on-error (or on-error
+                   (fn [e]
+                     (dart/print (str "Invalid frame rejected ("
+                                      (name (terminal/rejection-reason e))
+                                      "): " e))))}))
 
 
-(defn put-frame!
-  [frame-stream frame]
-  (let [{:keys [result woke]} (ds/put! frame-stream frame)]
-    (doseq [{:keys [entry value position]} woke]
-      (let [ready (assoc entry
-                         :value value
-                         :status :ok
-                         :position position)]
-        ((:resume ready) nil ready value)))
-    result))
+(def put-frame! terminal/put-frame!)
 
 
 (defn- frame-widget
