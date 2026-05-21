@@ -332,7 +332,7 @@
     .body
     (m/LayoutBuilder
       .builder
-      (fn [_ constraints]
+      (fn [_ ^m/BoxConstraints constraints]
         (let [max-width (.-maxWidth constraints)
               content-width (if (< max-width 720.0) max-width 720.0)]
           (m/Center
@@ -352,7 +352,7 @@
                  (m/SizedBox .height 8.0)
                  (m/LayoutBuilder
                    .builder
-                   (fn [_ constraints]
+                   (fn [_ ^m/BoxConstraints constraints]
                      (let [max-width (.-maxWidth constraints)
                            surface-width (max 0.0 (- max-width 24.0))
                            surface-height (* surface-width

@@ -161,7 +161,7 @@
           :frame/clear (do (check-color! op :color)
                            (recur (rest ops) m-stack c-stack has-cam lit?))
           :transform/push
-          (let [top (first m-stack)
+          (let [^vm/Matrix4 top (first m-stack)
                 new-m (.clone top)]
             (.multiply new-m (op->matrix op))
             (recur (rest ops) (conj m-stack new-m) c-stack has-cam lit?))
@@ -1067,17 +1067,18 @@
    it does not attempt to probe GC-driven key expiry."
   []
   (let [key (dart/Object.)
-        _ (. image-levels "[]=" key :sentinel)
-        object-roundtrip? (= :sentinel (. image-levels "[]" key))
-        _ (. image-levels "[]=" key nil)
+        ^dart/Expando levels image-levels
+        _ (aset levels key :sentinel)
+        object-roundtrip? (= :sentinel (aget levels key))
+        _ (aset levels key nil)
         recorder (ui/PictureRecorder.)
         canvas (ui/Canvas. recorder)
         _ (.drawRect canvas (ui/Rect.fromLTWH 0.0 0.0 1.0 1.0) (ui/Paint.))
         picture (.endRecording recorder)
         img (.toImageSync picture 1 1)
-        _ (. image-levels "[]=" img :image-sentinel)
-        image-roundtrip? (= :image-sentinel (. image-levels "[]" img))
-        _ (. image-levels "[]=" img nil)
+        _ (aset levels img :image-sentinel)
+        image-roundtrip? (= :image-sentinel (aget levels img))
+        _ (aset levels img nil)
         ensure-callable? (nil? (ensure-image-levels! img))]
     {:backed-by-expando true,
      :expando-roundtrip-works object-roundtrip?,
@@ -1536,15 +1537,16 @@
 
 (defn- ensure-image-levels!
   [^ui/Image img]
-  (or (. image-levels "[]" img)
-      (do (-> (.toByteData img .format ui/ImageByteFormat.rawRgba)
-              (.then (fn [byte-data]
-                       (when byte-data
-                         (let [mips (generate-mipmaps byte-data
-                                                      (.-width img)
-                                                      (.-height img))]
-                           (. image-levels "[]=" img mips))))))
-          nil)))
+  (let [^dart/Expando levels image-levels]
+    (or (aget levels img)
+        (do (-> (.toByteData img .format ui/ImageByteFormat.rawRgba)
+                (.then (fn [byte-data]
+                         (when byte-data
+                           (let [mips (generate-mipmaps byte-data
+                                                        (.-width img)
+                                                        (.-height img))]
+                             (aset levels img mips))))))
+            nil))))
 
 
 (defn- op->texture-resource
@@ -1570,7 +1572,7 @@
 (defn- sample-bytes-at
   "Reads RGBA at clamped (px, py) from byte-data. Returns [r g b a]
    in [0, 1] sRGB space."
-  [byte-data ^int img-w ^int img-h ^int px ^int py]
+  [^type/ByteData byte-data ^int img-w ^int img-h ^int px ^int py]
   (let [x (math/max 0 (math/min (dec img-w) px))
         y (math/max 0 (math/min (dec img-h) py))
         offset (* 4 (+ (* y img-w) x))]
@@ -2247,8 +2249,9 @@
    - lit, no texture → per-fragment software Blinn-Phong
    - textured + (lit or colors) → per-fragment software shaded path
    - textured, unlit → drawVertices with ImageShader (v2 fallback)"
-  [^ui/Canvas canvas op ^vm/Matrix4 mvp ^vm/Matrix4 model-m width height
-   ^type/Float32List depth-buffer clip-stack depth-test depth-write lighting]
+  [^ui/Canvas canvas op ^vm/Matrix4 mvp ^vm/Matrix4 model-m ^double width
+   ^double height ^type/Float32List depth-buffer clip-stack depth-test
+   depth-write lighting]
   (let [int-width (int (.ceil width))
         int-height (int (.ceil height))
         verts (:vertices op)
@@ -2492,7 +2495,7 @@
 
 
 (defn- exec-3d-op
-  [^ui/Canvas canvas op ^vm/Matrix4 mvp width height
+  [^ui/Canvas canvas op ^vm/Matrix4 mvp ^double width ^double height
    ^type/Float32List depth-buffer clip-stack depth-test depth-write]
   (let [int-width (int (.ceil width))
         int-height (int (.ceil height))
@@ -2588,17 +2591,17 @@
   (paint
     [_this ^ui/Canvas canvas ^ui/Size size]
     (let [frame (.-value notifier)
-          width (.-width size)
-          height (.-height size)
-          surface-rect
-          (ui/Rect.fromLTWH 0.0 0.0 (double width) (double height))]
+          ^double width (.-width size)
+          ^double height (.-height size)
+          surface-rect (ui/Rect.fromLTWH 0.0 0.0 width height)]
       (when (seq frame)
         (.save canvas)
         (.clipRect canvas surface-rect)
         (try
           (let [int-width (int (.ceil width))
                 int-height (int (.ceil height))
-                depth-buffer (type/Float32List. (* int-width int-height))
+                ^type/Float32List depth-buffer (type/Float32List.
+                                                 (* int-width int-height))
                 ;; v4 lighting state — kept in a mutable container so the
                 ;; inner loop signature does not have to thread three
                 ;; more values through every op handler. Reset implicitly
@@ -2632,7 +2635,7 @@
                                             camera-matrix
                                             depth-test
                                             depth-write))
-                    :transform/push (let [top (first model-stack)
+                    :transform/push (let [^vm/Matrix4 top (first model-stack)
                                           new-m (.clone top)]
                                       (.multiply new-m (op->matrix op))
                                       (recur next-ops
@@ -2649,7 +2652,8 @@
                                           depth-test
                                           depth-write)
                     :clip/push-rect (let [[x y w h] (:rect op)
-                                          st (.-storage (first model-stack))
+                                          ^vm/Matrix4 top (first model-stack)
+                                          st (.-storage top)
                                           tx (aget st 12)
                                           ty (aget st 13)
                                           wx (+ (double x) tx)
@@ -2769,7 +2773,8 @@
                       (when-not (valid-2d-affine? (first model-stack))
                         (reject! "Invalid 2D affine matrix for 2D draw op"))
                       (let [[lx ly] (:position op)
-                            st (.-storage (first model-stack))
+                            ^vm/Matrix4 top (first model-stack)
+                            st (.-storage top)
                             ;; transform local [lx ly 0 1] through 4x4
                             ;; model
                             cart-x (+ (* (aget st 0) (double lx))
@@ -2815,7 +2820,8 @@
                     (do
                       (when-not (valid-2d-affine? (first model-stack))
                         (reject! "Invalid 2D affine matrix for 2D draw op"))
-                      (let [st (.-storage (first model-stack))
+                      (let [^vm/Matrix4 top (first model-stack)
+                            st (.-storage top)
                             sx (math/sqrt (+ (* (aget st 0) (aget st 0))
                                              (* (aget st 1) (aget st 1))))]
                         (.save canvas)
@@ -2835,7 +2841,8 @@
                     (do (when-not camera-matrix
                           (reject!
                             "No camera matrix set before 3D draw op"))
-                        (let [mvp (.clone camera-matrix)
+                        (let [^vm/Matrix4 cam-m camera-matrix
+                              mvp (.clone cam-m)
                               model-m (first model-stack)]
                           (.multiply mvp model-m)
                           (exec-3d-mesh-op canvas
@@ -2859,7 +2866,8 @@
                     (do (when-not camera-matrix
                           (reject!
                             "No camera matrix set before 3D draw op"))
-                        (let [mvp (.clone camera-matrix)]
+                        (let [^vm/Matrix4 cam-m camera-matrix
+                              mvp (.clone cam-m)]
                           (.multiply mvp (first model-stack))
                           (exec-3d-op canvas
                                       op

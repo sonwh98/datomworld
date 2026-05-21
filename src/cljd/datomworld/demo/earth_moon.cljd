@@ -398,7 +398,7 @@
 
 (defn start!
   []
-  (when-let [timer @timer*] (.cancel timer))
+  (when-let [^async/Timer timer @timer*] (.cancel timer))
   (set! (.-value ^m/ValueNotifier phase*) 0.0)
   (let [started-at (core/DateTime.now)]
     (reset! timer* (async/Timer.periodic
@@ -415,7 +415,7 @@
 
 (defn stop!
   []
-  (when-let [timer @timer*]
+  (when-let [^async/Timer timer @timer*]
     (.cancel timer)
     (reset! timer* nil))
   :stopped)
