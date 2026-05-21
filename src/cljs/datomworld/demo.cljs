@@ -2,6 +2,7 @@
   (:require
     [datomworld.demo.compilation-pipeline :as pipeline]
     [datomworld.demo.continuation-stream :as cont-demo]
+    [datomworld.demo.earth-moon :as earth-moon-demo]
     [datomworld.demo.equation-plotter :as plotter-demo]
     [datomworld.demo.solar-system :as solar-demo]
     [datomworld.demo.yin-repl :as yin-repl-demo]
@@ -36,7 +37,11 @@
    {:id :solar-system,
     :label "Solar System",
     :icon "☉",
-    :desc "Postgraphics solar system ported to the browser WebGPU terminal."}])
+    :desc "Postgraphics solar system ported to the browser WebGPU terminal."}
+   {:id :earth-moon,
+    :label "Earth and Moon",
+    :icon "◐",
+    :desc "3D postgraphics Earth/Moon scene using mesh and line ops."}])
 
 
 (defn- hash->demo
@@ -48,6 +53,7 @@
     "#continuation" :continuation
     "#telemetry" :telemetry
     "#solar-system" :solar-system
+    "#earth-moon" :earth-moon
     :home))
 
 
@@ -60,6 +66,7 @@
     :continuation "#continuation"
     :telemetry "#telemetry"
     :solar-system "#solar-system"
+    :earth-moon "#earth-moon"
     "#home"))
 
 
@@ -139,6 +146,7 @@
        :continuation [cont-demo/main-view]
        :telemetry [tv/main-panel]
        :solar-system [solar-demo/main-view]
+       :earth-moon [earth-moon-demo/main-view]
        [home-view])
      (when (not= selected-demo :home)
        [:div

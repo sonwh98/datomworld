@@ -850,31 +850,32 @@
                :target/pop (update state :target-stack rest)
                :draw/fill-rect (lower-2d-rect op state height :solid-2d)
                :draw/stroke-rect (lower-2d-rect op state height :stroke-2d)
-               :draw/fill-circle (append-draw state
-                                              {:pipeline :circle-2d,
-                                               :op/kind kind,
-                                               :center (transform-point
-                                                         (first (:model-stack
-                                                                  state))
-                                                         (:center op)),
-                                               :radius (:radius op),
-                                               :color (:color op),
-                                               :filled? true,
-                                               :clips (vec (:clip-stack state)),
-                                               :op/meta (:op/meta op)})
-               :draw/stroke-circle (append-draw
-                                     state
-                                     {:pipeline :circle-2d,
-                                      :op/kind kind,
-                                      :center (transform-point
-                                                (first (:model-stack state))
-                                                (:center op)),
-                                      :radius (:radius op),
-                                      :stroke-width (:stroke-width op 1.0),
-                                      :color (:color op),
-                                      :filled? false,
-                                      :clips (vec (:clip-stack state)),
-                                      :op/meta (:op/meta op)})
+               :draw/fill-circle
+               (let [[cx cy] (transform-point (first (:model-stack state))
+                                              (:center op))]
+                 (append-draw state
+                              {:pipeline :circle-2d,
+                               :op/kind kind,
+                               :screen-center [cx (- height cy)],
+                               :radius (:radius op),
+                               :color (:color op),
+                               :filled? true,
+                               :clips (vec (:clip-stack state)),
+                               :op/meta (:op/meta op)}))
+               :draw/stroke-circle
+               (append-draw state
+                            (let [[cx cy] (transform-point
+                                            (first (:model-stack state))
+                                            (:center op))]
+                              {:pipeline :circle-2d,
+                               :op/kind kind,
+                               :screen-center [cx (- height cy)],
+                               :radius (:radius op),
+                               :stroke-width (:stroke-width op 1.0),
+                               :color (:color op),
+                               :filled? false,
+                               :clips (vec (:clip-stack state)),
+                               :op/meta (:op/meta op)}))
                :draw/path (append-draw state
                                        {:pipeline :path-2d,
                                         :op/kind :draw/path,
