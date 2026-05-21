@@ -2,741 +2,431 @@
 
 ## Summary
 
-`dao.flow` is a datomworld-native general workflow orchestrator built from
-`yin.vm`, `dao.stream`, `dao.db`, `dao.space`, and a pluggable effect registry.
+`dao.flow` is the datom coordination protocol that runs on `dao.space`. It
+is not a separate software component — it is the set of conventions that let
+datoms be matched and processed like network packets. `dao.space` (`dao.stream` +
+`dao.db`) is the medium; `dao.flow` is the protocol.
 
-It provides: continuation scheduling, stream injection, park and resume, fork
-and join, batching of compatible work units, causal lineage as datoms, and
-stigmergic coordination via `dao.space`. These capabilities apply to any
-workload: business processes, data pipelines, agent task graphs, or machine
-learning.
+`dao.space` on its own is a general-purpose tuple space that already enables
+stigmergic coordination: agents write datoms to shared space, other agents
+react to those writes without direct coupling. `dao.flow` adds the specific
+conventions: a datom vocabulary, agents matching type datoms by attribute/value
+pattern, and agents redirecting flow by writing type datoms with different
+type values. By convention in datomworld, the type datom has attribute `:a`; its
+`v` value is the type value. By themselves, these conventions give `dao.space`
+packet-like datom coordination. The scheduler agent adds workflow semantics —
+continuation scheduling, batching, stream injection, fork / join, and lineage.
+ML kernel agents make it an ML workflow substrate. The workload type is
+determined by which agents run, not by `dao.flow` itself.
 
-The effect registry is pluggable. Any effect type — SQL queries, HTTP calls,
-tool execution, vector search, ML kernels — is a registered interpreter that
-`dao.flow` dispatches to. Adding ML kernel effect interpreters is what makes
-`dao.flow` an ML workflow runtime substrate. That is configuration, not
-architecture.
+`dao.space` is built on `dao.stream` (append-only event log) and `dao.db`
+(Datalog query engine). `dao.flow` runs on `dao.space`; it does not call
+`dao.stream` or `dao.db` directly — it depends on them only through `dao.space`.
+
+Agents write datoms into `dao.space`. Other agents pattern-match on those datoms
+and pick them up. When an agent processes matched datoms, it writes new datoms to
+`dao.space` — including a type datom whose `v` value is a different type
+value. No central dispatcher directs the flow — the coordination pattern emerges
+from what each agent writes and what other agents match. This is stigmergic
+coordination: agents act on shared state without direct coupling to each other.
+No agent needs to know what other agents exist.
 
 ```text
 application  (inference engine, training engine, agent runtime, pipeline)
-    provides: workflow graph, admission policy, output parsing (where needed)
+    provides: workflow graph, agent patterns, output handling
 
-dao.flow  (general workflow orchestrator)
-    provides: scheduling, stream injection, batching, causality
+dao.space  (tuple space: dao.stream + dao.db)
+    provides: datom coordination medium — agents write/read datoms,
+              pattern matching determines flow, history is preserved
 
-effect registry
-    ML kernels      — transformer, diffusion, vision, audio, 3D, biology, ...
-    other effects   — SQL queries, HTTP calls, tool execution, vector search, ...
+agents  (datom producers and consumers — all coordinate via dao.space)
+    scheduler agent    — Yin program: continuation scheduling, batching,
+                         stream injection, fork / join, lineage
+    yin.vm agent       — executes Yin programs
+    ML kernel agent    — tensor operations, paged KV-cache
+    retrieval agent    — dao.db queries, vector search, web
+    commit agent       — output to dao.db / dao.stream
+    render agent       — matches intent datoms, emits to dao.postgraphics
+    other agents       — HTTP, tools, ...
 
-datomworld substrate
-    dao.db      — durable fact memory, optimizer state, query
-    dao.stream  — append-only event history, checkpointing, causality
-    dao.space   — shared resource announcements, batch slot visibility,
-                  node capabilities, stigmergic coordination
-
-GPU  (when ML kernels are present)
+GPU  (when ML kernel agent is present)
     provides: parallel compute
 ```
 
-The workflow graph is what makes `dao.flow` behave as an LLM engine, a
-diffusion engine, an audio pipeline, a business process, or anything else. The
-scheduler, stream injection, batching, and causality machinery do not change
-across workloads. What changes is the graph shape and the effect interpreters
-each continuation dispatches.
-
-A workflow may create one `yin.vm` continuation or decompose into many.
-Continuations run, park, resume, fork, cancel, accept new streams, and batch
-together. This is analogous to cooperative multi-threading. The workflow is like
-a process; its continuations are like fibers.
-
-Effect interpreters are subordinate. They are called with explicit inputs and
-return explicit results. They do not own sessions, queues, causality, memory
-policy, or durable state.
+Any agent can participate: a Yin scheduler, a GPU kernel, a retrieval service,
+a tool executor. The workload type is determined entirely by which agents are
+running and what type values they write and match. That is configuration,
+not architecture.
 
 The strategic boundary is:
 
-- `yin.vm` owns the continuation runtime and scheduler semantics.
-- `dao.stream` carries requests, effects, results, intents, and errors.
-- `dao.space` carries resource announcements, batch slot availability, and node
-  capabilities that enable federated scheduling and stigmergic coordination.
-- `dao.flow` orchestrates continuations and dispatches effects.
-- effect interpreters execute work and return results as explicit values.
-- effect interpreters do not own sessions, queues, causality, or durable state.
+- agents match datoms by attribute/value pattern, Datalog query,
+  or predicate.
+- agents do not inspect payload datoms outside the groups selected by their
+  matching rule during dispatch; they may freely query `dao.space` for facts
+  within their declared scope.
+- agents do not own durable hidden queues or global causality — scheduler
+  state is explicit datoms in `dao.space`.
+- durable state lives in `dao.space` itself: `dao.stream` for append-only
+  history, `dao.db` for queryable indexed facts.
+- the scheduler agent owns continuation scheduling; no other agent does.
 
 ## Core Claim
 
 Computation should not be modeled as a request/response RPC whose inputs are
-fixed when the request starts.
+fixed when the request starts, nor as a static graph whose topology is fixed at
+design time.
 
-Computation should be modeled as continuation execution over explicit effects:
+Computation should be modeled as a dynamic flow of datoms coordinated via a
+shared tuple space:
 
 ```text
-dao.stream request/control events
--> dao.flow scheduler program in yin.vm
--> many continuations (workflow graph)
--> batched continuation steps
--> explicit effects (kernel calls, queries, HTTP, tools, ...)
--> effect registry executes work
--> result stream
--> yin.vm resumes continuations
--> result/intent/error datoms
+agent A writes datoms with type value :some/effect to dao.space
+-> agent B wait-for-pattern [:a :some/effect], picks it up
+-> agent B processes, writes datoms with type value :next/effect to dao.space
+-> agent C wait-for-pattern [:a :next/effect], picks it up
+-> ...
 ```
 
 An inference engine, a training engine, a business process, and a data pipeline
-are all applications of this model. The workflow graph each provides determines
-what the continuations do and which effects they dispatch. `dao.flow` does not
-know or care what kind of workload it is running.
+are all instances of this model. The type values each uses and the agents
+that serve those types determine what the system does. `dao.space` does not know
+or care what kind of workload it is hosting.
 
-Effect interpreters are not the runtime. Each is one subordinate interpreter
-inside a larger stream process. Other interpreters decide how emitted values
-become memory, rendering, tool use, or agent coordination.
+The key flexibility is that flow is fully determined by what agents write and
+what agents match. An agent redirects the flow by writing datoms that include a type datom with a
+different type value. No central dispatcher is involved. The coordination
+pattern emerges from agent behavior.
 
-The key flexibility is stream injection. A running or parked continuation can
-receive a new input stream as data, record the cursor and purpose of that stream,
-and resume if the stream satisfies a wait condition. This makes mid-computation
-input changes a normal runtime transition rather than a cancel-and-restart.
+## Coordination Intuition
 
-## Pipeline Intuition
+`dao.flow` coordination emerges from agents writing and reading datoms through a
+shared tuple space. It is packet-like in behavior — agents match typed facts and
+process them — but the unit is still a datom in `dao.space`, not a separate
+message abstraction.
 
-`dao.flow` is structurally similar to threading a value through a pipeline.
+A datom is an n-tuple — a single fact, a sequence of values at named positions.
+There is no fixed arity or mandatory position schema.
 
-A Clojure thread macro expresses this directly:
+Related datoms sharing the same entity identity form a group. One of those
+datoms can be the type datom, which interpreters match on to identify work they
+can process.
+The remaining datoms are payload facts carrying the data the handler needs.
+
+By convention in datomworld, the type datom has attribute `:a`; its `v` value
+is the type value — what interpreters match on to select work. Outside
+the convention, no datom is designated as the type datom; the interpreter's
+matching pattern determines which datom plays which role.
 
 ```clojure
-(-> request
-    admit
-    decompose
-    schedule
-    batch-effects
-    dispatch-effects
-    resume-continuations
-    emit-results)
+[effect-id :a            :ml/kernel-effect  t m]   ; type datom: attribute :a, type value :ml/kernel-effect
+[effect-id :kernel/op    :kernel/decode     t m]   ; payload datom
+[effect-id :kernel/cache cache-id           t m]   ; payload datom
 ```
 
-Each step receives the output of the previous one. The topology is fixed, the
-execution is single-threaded, every request follows the same path.
+`effect-id` is the entity identity. The ML kernel agent matches
+`[?e :a :ml/kernel-effect]` — attribute `:a`, value `:ml/kernel-effect` — which
+yields `effect-id`; it then reads the payload datoms by querying all datoms
+where `e = effect-id`.
 
-`dao.flow` generalizes this in four directions:
+Matching is interpreter-dependent: which attribute or metadata position an
+interpreter matches on is up to the interpreter. One interpreter may match on
+attribute `:a`; another on metadata carried in `m`; another on a combination.
+The same group of datoms can satisfy multiple interpreters simultaneously.
 
-**Concurrent** — many continuations flow through the pipeline simultaneously,
-not one at a time. Each continuation is an independent thread of execution
-through the same stages.
+Under the `dao.flow` convention, a group of datoms is active if and only if it
+includes a type datom `[e :a type t m]`. A group without one — such as
+`[optimizer-id :adam/step 1024 t m]` — is queryable state. Outside the
+convention, any interpreter may match on any attribute or position; the shared
+vocabulary of `dao.flow` uses attribute `:a` as the type marker so that
+agents remain decoupled from each other's internal state.
 
-**Dynamic** — the topology can grow at runtime. A continuation that emits a
-domain intent or fork intent creates new continuations. The pipeline graph
-expands as execution proceeds.
+Placement selection — which node or device processes the matched datoms — is
+separate from semantic matching. By convention it is carried in the `m` position,
+consumed by a placement interpreter after the `:a` attribute match. The `m`
+position also carries: provenance, lineage, and capability tokens.
 
-**Parkable** — a continuation can stop mid-pipeline and wait. It parks until a
-stream injection or an effect result satisfies its wait condition. Other
-continuations keep moving.
+An agent processes matched datoms by reading their payload datoms, then writes
+new datoms to `dao.space` with type datom `[e :a new-type t m]`, so that a
+different agent matches the result.
 
-**Batchable** — continuations that reach the same stage at the same time with
-compatible effects can be grouped into one batched dispatch, then split back to
-independent continuations with their result slices.
+Agents match datoms in three ways:
 
-The thread macro is a degenerate case of `dao.flow`: one continuation, static
-topology, no parking, no branching, no batching. `dao.flow` is the general form.
+- **By attribute and value** — the common case: `[?e :a <type>]` finds all
+  groups whose type datom has the matching type (attribute `:a`, value
+  `<type>`). Any attribute works; `:a` is the datomworld convention for
+  semantic matching; `m` carries placement affinity.
+- **By Datalog query** — for patterns that require multiple positions or joins
+  (e.g., pending requests where a cache block is available).
+- **By predicate or function** — a continuation or function tests a datom or
+  group directly against an in-process condition.
 
-The intuition for explaining `dao.flow` to someone unfamiliar:
+Attribute/value matching is the primary mechanism. Datalog is for coordination
+logic that spans multiple positions or entity identities across the shared space.
 
-> It is like threading a request through a pipeline, except many requests
-> thread concurrently, the pipeline topology can change mid-execution, any
-> step can park and wait for new input, and every step is a first-class value
-> you can inspect, replay, or redirect.
+This is different from a central router:
 
-The deeper connection: `->` in Clojure is itself a syntactic
-continuation-passing transformation. Each step receives a value and passes a
-value forward. `dao.flow` makes those values explicit stream facts and the steps
-explicit continuation states, rather than collapsing them into a single
-synchronous call stack.
+- A central router maintains a dispatch table and actively delivers datoms.
+- `dao.flow` has no central router. Agents read from `dao.space` directly.
+  The coordination is the tuple-space pattern match.
+
+This is also different from direct function calls:
+
+- Direct function calls couple caller to callee by name.
+- `dao.flow` agents are coupled only by type value. An agent writing
+  `:ml/kernel-effect` does not know or care whether a GPU kernel agent or
+  a simulation agent picks it up.
+
+The underlying coordination model is stigmergy. In stigmergic systems, agents
+do not send messages to each other — they modify a shared environment, and other
+agents react to those modifications. `dao.space` is the environment. Datoms
+are the modifications. The workflow emerges from agent reactions, not from a
+plan imposed by a coordinator.
+
+### Why Not Actual UDP?
+
+The matching principle resembles UDP: agents write datoms into
+the shared space; other agents match on type. But actual UDP is the wrong
+mechanism:
+
+- UDP sends bytes between network addresses. `dao.flow` agents match datoms by
+  attribute/value pattern, not by network address.
+- UDP is stateless and history-free. `dao.space` preserves the full datom
+  history as an append-only log — queryable, replayable, and auditable.
+- UDP requires network transport. `dao.flow` coordination works in-process
+  across JVM, JS, Dart, and WASM without serialization or round-trip cost.
+
+### dao.space and dao.stream
+
+`dao.space` is built on `dao.stream`. Their roles differ:
+
+| Dimension    | dao.space / dao.flow               | dao.stream                                |
+|--------------|------------------------------------|-------------------------------------------|
+| Role         | Coordinate agents via shared space | Deliver events reliably and in order      |
+| Abstraction  | Tuple space: query + coordination  | Append-only event log                     |
+| State        | Stateful: full queryable history   | Stateful: cursors, positions, causality   |
+| Addressing   | Type value → agent                 | Stream id + cursor → subscriber           |
+| Query power  | Full Datalog                       | Cursor-based read                         |
 
 ## Scope
 
-`dao.flow` is responsible for:
+The `dao.flow` protocol covers:
 
-- admitting workflow requests from `dao.stream`
-- decomposing requests into one or more `yin.vm` continuations
-- scheduling continuations that are runnable or have yielded effects
-- parking blocked continuations on explicit stream or effect dependencies
-- injecting new streams into active continuations
-- dispatching effects to the appropriate interpreter in the registry
-- batching compatible continuation effects to improve utilization
-- emitting results, errors, telemetry, and intents as datoms
-- preserving continuation lineage for branch, replay, and inspection
+- agents writing datoms into `dao.space`
+- agents matching on `dao.space` for type datoms of their type value
+- flow redirection: agents write datoms with a type datom `[e :a new-type t m]`
+  so that a different agent matches the result
+- full history: datom writes are preserved by `dao.space` (via
+  `dao.stream`) for replay, debugging, and audit — at no extra cost to agents
 
-`dao.flow` is not responsible for:
+The `dao.flow` protocol does not cover:
 
-- being an inference engine — inference engines are built on top of `dao.flow`
-- using vLLM, Ollama, or OpenAI-compatible APIs as its runtime
-- hiding request state inside server sessions
-- implementing new GPU kernels from scratch
-- letting effect interpreters own scheduling or causal state
-- distributing effect execution across nodes
-- collapsing tool execution, rendering, or memory commit into effect execution
-- replacing `dao.db`, `dao.space`, `dao.stream`, or `yin.vm`
+- continuation scheduling — the scheduler agent's responsibility
+- batching compatible effects — the scheduler agent or ML kernel agent
+- stream injection — `dao.stream` and the scheduler agent
+- fork / join — the scheduler agent
+- GPU kernel execution — the ML kernel agent
+- being an inference engine — inference engines are built using this protocol
 
 ## Invariants
 
-### 1. A workflow request becomes continuations
+### 1. Payload-opaque coordination
 
-A workflow request is not necessarily one continuation. It is an admitted
-intent that may be represented by a root continuation and any number of child
-continuations hosted by `yin.vm`.
-
-A continuation carries or references:
-
-- continuation id
-- parent continuation id
-- root request id
-- request id and user or agent identity
-- program or workflow identity
-- execution state
-- provenance links to the stream values that produced it
-
-The continuation is not an opaque session. It is the runtime-execution lineage
-around which inputs, effects, and outputs can be interpreted.
-
-Splitting a workflow request into many continuations is useful for:
-
-- speculative execution
-- multiple candidate branches
-- retrieval or tool sub-plans
-- parallel context exploration
-- ensemble or debate-style agents
-- separating preparation work from execution work
-- running independent sub-computations that later join
-
-Every child continuation must preserve its root request and parent lineage so
-the final output can be traced back to the originating request.
-
-Continuation decomposition can happen in two ways:
-
-- static decomposition, where the request or task is analyzed at admission
-  time and expanded into a known continuation graph
-- dynamic decomposition, where a running continuation yields a fork, tool,
-  retrieval, verifier, or subtask intent that creates more continuations
-
-The static case matters because a workflow request may already imply independent
-work. The scheduler should be able to create that initial continuation graph
-before execution begins, schedule runnable nodes, batch compatible effects, and
-preserve explicit join points.
-
-### 2. The scheduler/runtime is Yin
-
-Admission, ready queues, wait sets, cancellation, fork, resume, and batching
-are part of the `dao.flow` program running in `yin.vm`.
-
-The host may bootstrap the VM and provide transports or effect dispatch, but
-the host must not become the scheduler. If a scheduling decision affects
-causality, fairness, batching, cancellation, or continuation state, it belongs
-in Yin-visible data.
-
-### 3. Multiple continuations can run
-
-Many users and agents may have continuations alive at once. A single workflow
-request may also have many continuations alive at once.
-
-Continuations may be:
-
-- runnable
-- parked on input
-- parked on an effect result
-- parked on tool or memory results
-- completed
-- cancelled
-- forked from a parent continuation
-- joined into an aggregate continuation
-
-They must not share mutable session state. Any shared value must be explicit:
-a program id, a stream position, a datom ref, or a batch id. When ML kernels
-are present, shared values also include model ids and cache handles.
-
-The runtime is therefore closer to a cooperative thread scheduler than a
-request handler. Continuations are the schedulable units. Requests provide the
-root identity and may define an initial continuation graph.
-
-### 4. Stream inputs are dynamic
-
-A continuation's input boundary is not fixed at request admission.
-
-An active continuation may be injected with new streams:
-
-- an effect result stream
-- a user correction stream
-- another agent's output stream
-- a policy or capability stream
-- a domain result stream (retrieval, tool, memory, or kernel result)
-
-Injection is not host mutation. It is an explicit command and lifecycle event:
+Agents match datoms by attribute/value pattern, by Datalog query, or
+by predicate. During dispatch, they do not inspect payload datoms outside the
+groups selected by their matching rule. Agents may freely query `dao.space` via
+Datalog for facts within their declared scope — cache allocations, macro
+definitions, optimizer state. That is stigmergic reading of the shared
+environment, not dispatch payload inspection.
 
 ```text
-inject stream
--> validate target continuation
--> add stream descriptor and cursor to continuation state
--> emit injection applied or rejected
--> resume continuation if the injected stream satisfies a wait
+scheduler agent matches   :inference/request  ->  allocates cache, forms batch
+ML kernel agent matches   :ml/kernel-effect   ->  runs GPU kernel
+result agent matches      :inference/token    ->  streams to caller
 ```
 
-The continuation may then read from the new stream in future execution steps.
-This is the flexibility missing from request/response APIs: they fix the input
-boundary at admission time and have no first-class operation for injecting new
-input into a running computation.
+By convention, the type datom has attribute `:a`; its `v` value is the type
+value — what agents match to select which agent class handles the work. The
+`m` position is the metadata envelope: provenance, lineage, capability tokens,
+and placement affinity. Placement selection — which node or device runs the
+handler — uses `m`, but only after the `:a` attribute match has already
+occurred. These are two distinct matching concerns: attribute `:a` selects the
+interpreter; `m` guides where it executes.
 
-### 5. Continuations enable batching
+### 2. State is external
 
-Continuations make better resource utilization possible because they expose
-more schedulable structure than a single request/response model.
-
-A single continuation often yields one small effect. Dispatching each effect
-alone underutilizes available resources. The scheduler should look across
-non-parked continuations, collect compatible yielded effects, and dispatch them
-as a batch.
-
-```text
-many non-parked continuations
--> yielded effects with compatible batch keys
--> compatible batch group
--> one batched dispatch
--> per-continuation result slices
--> independent continuation resumes
-```
-
-The speedup comes when the continuation graph lets the scheduler:
-
-- batch compatible effects from within one request and across requests
-- overlap CPU-side stream and coordination work with effect execution
-- keep parked work from blocking runnable work
-- cancel or deprioritize branches that no longer matter
-
-When the effect registry includes ML kernels, this batching extends to GPU
-kernel invocations. See the ML Extension section for GPU-specific details.
-
-### 6. State is external
-
-Effect interpreters do not own durable state.
-
-Durable state lives in:
+Agents do not own durable state. All state lives in `dao.space`:
 
 - `dao.stream` for append-only event history
-- `dao.db` for stabilized fact memory
-- `dao.space` for navigable shared working context
+- `dao.db` for stabilized queryable facts
+- working context, resource announcements, and coordination metadata as datoms
 
-These layers remain distinct even if an implementation projects one into
-another for performance.
+Agents may buffer in-memory (for example, the ML kernel agent accumulates
+effects before issuing a batch). They do not persist state outside `dao.space`.
+`dao.space` is the single source of truth.
 
-### 7. Intent is not execution
+### 3. Intent is not execution
 
-A continuation may emit intents:
+An agent may emit intent datoms:
 
 - message intents
 - memory intents
 - tool intents
 - render intents
 
-Other interpreters decide how those intents are executed or committed. A
-continuation emits values. It does not directly mutate the world.
+Other agents decide how those intents are executed or committed. An agent
+emits datoms. It does not directly mutate the world.
 
 ## First-Class Values
 
-The first implementation should begin with a small event vocabulary.
+The `:workflow/*` types are the scheduler agent's protocol vocabulary for
+workflow lifecycle events. Agents do not need to use them directly — they are
+the scheduler's internal language for tracking what stage a unit of work is in.
+Domain-specific types (`:ml/kernel-effect`, `:retrieval/result`,
+`:intent/render`) are the content of those stages. Using `:workflow/effect` as
+a wrapper around a domain effect is optional; agents may use domain types
+directly when scheduler lifecycle tracking is not needed.
 
-Core workflow event kinds (apply to any workload):
+Scheduler lifecycle types:
 
 - `:workflow/request`
 - `:workflow/accepted`
-- `:workflow/queued`
-- `:workflow/batch`
 - `:workflow/effect`
 - `:workflow/effect-result`
-- `:workflow/inject-stream`
-- `:workflow/inject-applied`
-- `:workflow/inject-rejected`
 - `:workflow/completed`
 - `:workflow/cancelled`
 - `:workflow/error`
 - `:workflow/intent`
-- `:intent/kind` (values: `:intent/tool`, `:intent/render`, `:intent/memory`)
 
-  ```clojure
-  [intent-id :workflow/intent true      t m]
-  [intent-id :intent/kind    :intent/tool  t m]
-  ```
-- `:continuation/id`
-- `:continuation/parent`
-- `:continuation/root-request`
-- `:continuation/join`
-- `:continuation/status`
+Intent datoms use direct types as the `v` value of the type datom:
 
-ML-specific event kinds (apply when any ML application profile is active):
+- `:intent/tool`
+- `:intent/render`
+- `:intent/memory`
+- `:intent/message`
+
+When the scheduler needs to intercept all intent types before dispatching, the
+scheduler-owned generic wrapper is also valid: `[e :a :workflow/intent t m]`
+plus an `:intent/kind` payload datom carrying the specific kind. Direct types are
+simpler; the generic form is useful when one scheduler path handles all intents
+uniformly.
+
+ML-specific types (apply when any ML application profile is active):
 
 - `:ml/kernel-effect`
 - `:ml/kernel-result`
 
-Inference-specific event kinds (apply when the inference profile is active):
+Inference-specific types (apply when the inference profile is active):
 
 - `:inference/token`
 - `:inference/message`
 
-The goal is not to freeze a final ontology now. The goal is to define enough
-values for the first continuation scheduler and effect loop to be replayable.
-
-## Interpreter Decomposition
-
-The implementation should separate interpreters by what they are allowed to
-decide.
-
-### `dao.flow.scheduler`
-
-A Yin program that owns workflow scheduling policy.
-
-Responsibilities:
-
-- read request and control streams
-- allocate, decompose, or resume continuations
-- create initial continuation graphs from admission-time decomposition plans
-- maintain ready queues and wait sets
-- apply stream injection commands
-- group compatible yielded effects into batches
-- emit lifecycle, completion, cancellation, and telemetry datoms
-
-### `dao.flow.effects`
-
-Defines effect values emitted by workflow continuations.
-
-Responsibilities:
-
-- describe effect payloads as explicit data
-- define batch compatibility key schema
-- describe injected stream descriptors and cursors
-- preserve provenance from continuation effect to result
-
-ML-specific effects (tensor operations, KV/cache handles) are part of the ML
-application package. See the ML Extension section.
-
-## Continuation Runtime Loop
-
-The first runtime loop should be continuation-first:
-
-1. A user, agent, or process appends a `:workflow/request`.
-2. The Yin scheduler validates and accepts the request.
-3. The scheduler creates a root continuation or statically decomposes the
-   request into an initial continuation graph.
-4. Input interpreters provide explicit values from the continuation's current
-   input streams, when the workflow requires them.
-5. The continuation runs until it emits an intent, yields an effect, waits,
-   completes, or errors.
-6. Yielded effects from non-parked continuations are grouped with compatible
-   yielded effects from other continuations.
-7. The effect interpreter executes the batch via the effect registry.
-8. Results are split into per-continuation values.
-9. Each continuation resumes independently with its result slice.
-10. Results, intents, telemetry, and terminal facts are appended to streams
-    as datoms.
-
-During execution, continuations may dynamically create child continuations. Join
-continuations aggregate results from child branches and decide what should be
-emitted, cancelled, or continued.
-
-At any point before a terminal state, a control stream may inject a new stream
-into the continuation. If the continuation is waiting for that class of input,
-the injection can make it runnable. Otherwise, the stream becomes part of the
-continuation's future input set.
-
-This loop should work with deterministic fake effect results before real
-effect interpreter integration. The first proof is the runtime invariant:
-multiple continuations are hosted, injected with streams, batched, parked, and
-resumed by Yin.
-
-## Batch Compatibility
-
-Batching is a scheduler interpretation over explicit yielded effects. It is the
-mechanism that turns the richer continuation work graph into better resource
-utilization.
-
-Two continuations can share a batch when each has yielded an effect that the
-scheduler can dispatch together without changing either continuation's
-semantics. A continuation parked on input, tool output, memory, policy, or a
-prior effect result is not eligible for a new batch until it is resumed and
-yields again.
-
-The compatibility key is data emitted with the yielded effect:
+Direct intent datoms:
 
 ```clojure
-[effect-id :effect/compat-key compat-key t m]
+[intent-id :a          :intent/tool  t m]
+[intent-id :intent/body tool-params  t m]
 ```
 
-The scheduler groups by that key, emits a batch fact, and records which
-continuations participated.
-
-For generic workflows the compat key may be as simple as the effect type. For
-ML workloads it includes model identity, kernel operation, dtype, device
-placement, and cache shape. Both cases use the same batching mechanism.
-
-Every batch result must preserve the mapping:
-
-```text
-batch id
--> root request id
--> continuation id
--> effect id
--> result slice
-```
-
-This is the causal bridge between resource utilization and independent stream
-semantics.
-
-Batching does not require all continuations in a batch to come from different
-requests. A batch may contain sibling continuations created by one request,
-continuations from unrelated requests, or both.
-
-## Multi-Agent Collaboration
-
-Multi-agent support emerges naturally from multiple continuations.
-
-In a datomworld-native design:
-
-- agents read from shared streams
-- agents write proposals, observations, and outputs as datoms
-- agents can fork from shared continuation lineage
-- one request can decompose into multiple cooperating continuations
-- continuation graphs can run like cooperative threads
-- richer continuation graphs can expose more batchable work
-- coordination happens through explicit values, not hidden mailboxes
-- compatible continuations from different users or agents can share a batch
-
-This makes collaboration replayable and inspectable while still allowing
-throughput-oriented batching.
-
-## Federated And Distributed Execution
-
-`dao.flow` can be federated and distributed because continuations and streams
-are distributed values. Distributed execution means moving or placing
-continuations across `dao.flow` nodes, not splitting one effect invocation
-across nodes.
-
-Different nodes may host different parts of the continuation graph:
-
-- retrieval continuations
-- query-planner continuations
-- tool continuations
-- verifier continuations
-- branch continuations
-- join continuations
-- scheduler shards over explicit stream partitions
-
-These continuations coordinate through `dao.stream` and preserve lineage through
-datoms.
-
-### Continuation Migration
-
-A continuation can migrate to another `dao.flow` node for computation when that
-node has better locality or authority for the next step. The migrated unit is
-not an output stream or an opaque session. It is explicit continuation state
-plus dependencies:
-
-- continuation id
-- root request id
-- parent lineage
-- current status
-- required stream descriptors and cursors
-- injected input stream set
-- required capabilities
-- model or program identity
-- pending wait/effect state
-- cache handle references, when relevant
-
-Migration is useful when another node has better access to:
-
-- private or local `dao.db` facts
-- local `dao.stream` history
-- tools or web/search capabilities
-- policy or capability authority
-- a compute host with available capacity for this effect type
-- a continuation branch's required working context
-- a node with an open batch for a compatible effect
-
-The receiving node validates capabilities, hydrates required streams or context,
-resumes or parks the continuation, and emits result or lifecycle datoms back to
-the appropriate streams.
-
-```text
-node A root request
--> creates continuation graph
--> migrates retrieval continuation to node B near private data
--> migrates web-search continuation to node C with web capability
--> migrates compute continuation to node D with the required effect host
--> receives result streams
--> join continuation aggregates
-```
-
-### Effect Host Locality
-
-Some effects must execute on a specific host. A continuation that has yielded
-such an effect should route to the node that owns the required resource — a
-private data store, a specific tool, or a compute device with the needed
-capabilities — rather than require the resource to move to the continuation.
-
-The scheduler distinguishes continuations that are free to migrate from those
-bound to a host by their effect requirements. Migration is cheap for work with
-no host-binding constraint. Host-bound work stays in place; the scheduler pulls
-compatible effects toward it.
-
-When ML kernels are present, GPU KV-cache locality is the primary host-binding
-constraint. See the ML Extension section.
-
-### Resource Announcement via dao.space
-
-For federated nodes to coordinate — migration decisions, batch filling,
-capability routing — they need to discover each other's resources without
-explicit message passing. This is stigmergic coordination, made possible by
-`dao.space`.
-
-Each `dao.flow` node writes its current resource state as datoms into a shared
-`dao.space`. Other nodes query that space to make scheduling decisions. No node
-needs to know about any other node directly. Coordination emerges from the
-shared fact space.
-
-A node announces its resources:
+Generic form (when the scheduler handles all intents before dispatching):
 
 ```clojure
-[node-id :node/capabilities    #{:web-search}     t m]
-[node-id :node/effect-types    #{:http :sql}      t m]
-[node-id :node/status          :ready             t m]
+[intent-id :a           :workflow/intent  t m]
+[intent-id :intent/kind :intent/tool      t m]
+[intent-id :intent/body tool-params       t m]
 ```
 
-When ML kernels are present, a node also announces GPU resources. See the ML
-Extension section for GPU-specific resource datoms.
-
-A node announces open batch slots:
-
-```clojure
-[batch-id :batch/node            node-id          t m]
-[batch-id :batch/compat-key      compat-key       t m]
-[batch-id :batch/slots-remaining 4                t m]
-```
-
-A federated scheduler finds nodes with compatible open slots via Datalog:
-
-```clojure
-[:find ?node ?slots
- :where [?b :batch/compat-key   compat-key]
-        [?b :batch/slots-remaining ?slots]
-        [?b :batch/node         ?node]
-        [(> ?slots 0)]]
-```
-
-A scheduler looking to route a retrieval continuation queries for nodes with
-the required capability:
-
-```clojure
-[:find ?node
- :where [?node :node/capabilities ?caps]
-        [(contains? ?caps :private-dao-db)]]
-```
-
-This is stigmergy: nodes leave facts in a shared space; other nodes act on
-those facts without any direct coupling. The full coordination history is
-preserved in `dao.stream` for replay, audit, and debugging. No hidden
-mailboxes, no direct RPC between schedulers, no centralized coordinator.
-
-### Federated Batch Filling
-
-Batch compatibility is not constrained by node boundaries. A continuation that
-has yielded a compatible effect can migrate to another node not because of data
-locality but because that node has room in a compatible batch.
-
-```text
-node A: 3 continuations yielded compatible effects, batch not full
-node B: 5 continuations yielded compatible effects, batch not full
-
-federated scheduler:
-  8 compatible effects visible across both nodes
-  -> migrate node A continuations to node B
-  -> one full batch dispatched on node B
-  -> per-continuation result slices returned
-  -> continuations resume on node B or migrate back
-```
-
-This turns batch filling from a local problem into a cluster-wide optimization.
-
-A node with low traffic would normally underutilize its resources — batches stay
-thin. With federated batch filling, the scheduler pulls compatible continuations
-from across the cluster to fill every batch. A busy node can shed continuations
-to less loaded nodes to keep batches dense without dropping requests.
-
-**What makes this possible:**
-
-- continuations are explicit mobile values, not opaque server sessions
-- effects carry explicit batch compatibility keys
-- the compatibility key is the same regardless of which node the continuation
-  originated from
-- migration cost is streaming the continuation state facts, not copying data
-- `dao.space` makes open batch slots visible cluster-wide as queryable datoms —
-  no direct node-to-node messaging required
-
-**Batch-filling migration is cheapest for:**
-
-- retrieval, planning, and tool continuations
-- continuations with no host-bound state
-- early steps of any workflow before effect-host binding is established
-
-When ML kernels are present, GPU KV-cache depth constrains migration further.
-See the ML Extension section.
+Scheduler-specific vocabulary — continuation identity, batch keys, inject
+commands, wait sets — belongs to the scheduler agent's vocabulary. Other agents
+have no dependency on it.
 
 ## Application Profiles
 
-The following sections describe how dao.flow is configured for specific
-workloads. Each profile provides a workflow graph, a set of effect interpreters,
-and domain-specific event vocabulary. The core runtime is unchanged.
+The following sections describe how the `dao.flow` coordination protocol is
+applied to specific workloads. Each profile defines the type values and the
+agents that coordinate via `dao.space`. The coordination substrate is unchanged
+across profiles.
 
 ### LLM Inference
 
+The inference profile implements continuous batching and paged KV-cache
+coordination via `dao.space`:
+
 ```text
-request
--> prefill continuation (process prompt tokens)
--> decode loop continuation (autoregressive token generation)
--> parse continuation (extract intents from output)
--> commit continuation
+HTTP / queue
+  -> datoms with type value :inference/request written to dao.space
+
+scheduler agent (wait-for-pattern [:a :inference/request])
+  -> Datalog: find pending requests + available KV-cache block datoms
+  -> claims cache blocks (writes allocation datoms to dao.space)
+  -> writes datoms with type value :ml/kernel-effect (:kernel/op :kernel/prefill)
+
+ML kernel agent (wait-for-pattern [:a :ml/kernel-effect])
+  -> resolves VRAM handles from cache datoms in dao.space
+  -> runs prefill + decode loop internally
+  -> writes datoms with type value :ml/kernel-result back to dao.space
+
+inference adapter agent (wait-for-pattern [:a :ml/kernel-result])
+  -> converts logits / sampled token results into datoms with type value
+     :inference/token
+
+result-collector agent (wait-for-pattern [:a :inference/token])
+  -> streams tokens to caller
 ```
 
+**Paged KV-cache:** block metadata (handle, device, position, status) lives in
+`dao.space` as datoms; actual tensor bytes live in VRAM. The scheduler queries
+for available blocks with Datalog, claims them, writes the allocation back.
+
+**Continuous batching:** the scheduler agent queries `dao.space` for all
+pending datoms with type value `:inference/request` on each step and adds new
+prefills to the running batch. For high-throughput scenarios the scheduler agent is
+implemented natively (Clojure/Dart/Rust); `dao.space` remains the coordination
+medium regardless.
+
+**What this adds over vLLM:** scheduler decisions, cache allocations, and
+request state are queryable datoms — observable, replayable, and debuggable.
+Preemption and cache swaps are explicit datom writes visible in the history.
+Multi-node coordination uses `dao.space` resource announcements and batch-slot
+datoms via Datalog.
+
 Kernel source: vLLM (attention, paged KV-cache, matmul, normalization). The
-kernel interpreter (`dao.ml.kernel`) resolves handles to VRAM pointers, calls
-the kernel, and returns result datoms. It does not own scheduling or session
-state.
+ML kernel agent resolves handles to VRAM pointers, calls the kernel, and
+returns result datoms. It does not own scheduling or session state.
 
 ### Diffusion
 
 ```text
-request
--> encode-text continuation (CLIP positive)
--> encode-text continuation (CLIP negative, parallel)
--> denoise loop continuation (N steps of UNET forward pass)
--> decode continuation (VAE)
--> emit render intent
+datoms with type value :diffusion/request
+-> datoms with type value :encode/clip-positive (CLIP positive encoder agent)
+-> datoms with type value :encode/clip-negative
+   (CLIP negative encoder agent, parallel)
+-> datoms with type value :denoise/unet-step (N steps, UNET agent)
+-> datoms with type value :decode/vae (VAE agent)
+-> datoms with type value :intent/render (render agent)
 ```
 
-Kernel source: diffusers, xFormers (UNET attention and conv, VAE encode/decode,
-CLIP text encoder). Same dispatch and batching mechanics as LLM inference; the
-kernel ops and workflow graph shape differ.
+Kernel source: diffusers, xFormers. Same coordination mechanics as LLM
+inference; the kernel types and workflow graph differ.
 
 ### Training
 
-Training is a valid workload. The training workflow graph is deeper than the
-inference workflow graph but uses the same runtime mechanics.
+Training is a valid workload. The training workflow uses the same coordination
+mechanics with a deeper datom graph.
 
 **Training workflow:**
 
 ```text
-request
--> forward pass continuation (compute output, record computation graph as datoms)
--> loss continuation (compute scalar loss)
--> backward pass continuation (walk recorded ops in reverse)
--> gradient continuations (one per parameter, run in parallel)
--> optimizer continuation (apply gradient updates, emit updated weight handles)
--> emit updated weight handles to dao.db
+:training/request
+-> :op/forward-pass    (forward pass agent, records computation graph as datoms)
+-> :op/loss            (loss agent)
+-> :op/backward-pass   (backward pass agent, reads op datoms in reverse)
+-> :op/gradient        (gradient agents, one per parameter, run in parallel)
+-> :op/optimizer       (optimizer agent, emits updated weight handles)
+-> :db/write           (commit agent writes weight handles to dao.db)
 ```
 
-The forward pass records each op and its inputs and outputs as datoms:
+The forward pass agent records each op as datoms in `dao.space`:
 
 ```clojure
 [op-id :op/kind     :op/matmul      t m]
@@ -746,21 +436,17 @@ The forward pass records each op and its inputs and outputs as datoms:
 [op-id :op/vjp-fn   :vjp/matmul     t m]
 ```
 
-The backward pass continuation reads those datoms and emits gradient kernel
-effects in reverse order. Gradient continuations across a batch can run in
-parallel and join before the optimizer step.
+The backward pass agent reads those datoms via Datalog and emits gradient
+kernel datoms in reverse order.
 
 #### How datomworld fills the training gaps
 
-Training at scale requires state and infrastructure beyond what `dao.flow`
-provides directly. The rest of datomworld covers each gap naturally.
+**Distributed gradient aggregation** — gradient result datoms from different
+nodes are written to `dao.space`. A join agent Datalog-queries all gradient
+results and aggregates them.
 
-**Distributed gradient aggregation** — gradient results from different nodes
-are stream facts. A join continuation aggregates them via `dao.stream`.
-Continuation migration already handles cross-node coordination.
-
-**Optimizer state** — Adam momentum buffers, second moment estimates, and step
-counts are facts in `dao.db`. Durable, queryable, and explicit:
+**Optimizer state** — Adam buffers, momentum estimates, and step counts are
+datoms in `dao.db` (queryable via `dao.space`):
 
 ```clojure
 [optimizer-id :adam/step      1024       t m]
@@ -769,259 +455,181 @@ counts are facts in `dao.db`. Durable, queryable, and explicit:
 [optimizer-id :adam/variance  tensor-id  t m]
 ```
 
-**Checkpoint and resume** — `dao.stream` is append-only event history. A
-training run is already a stream of facts. Resuming from a checkpoint is
-replaying the stream to a known cursor and continuing. No special checkpoint
-infrastructure is needed.
+**Checkpoint and resume** — `dao.stream` (the foundation of `dao.space`) is
+the append-only history. Resuming from a checkpoint is replaying to a known
+cursor. No special checkpoint infrastructure needed.
 
-**Mixed precision and gradient scaling** — dtype, layout, and scaling factors
-are explicit values on kernel effects. The batch compatibility key already
-includes dtype. Loss scaling state lives in `dao.db` alongside optimizer state.
+**Mixed precision** — dtype, layout, and scaling factors are explicit values
+on kernel datoms. Loss scaling state lives in `dao.db`.
 
 In every case the pattern is the same:
 
 - state that needs to persist: `dao.db`
 - events that need to be replayed: `dao.stream`
-- shared working context: `dao.space`
-- scheduling and causality: `dao.flow`
-- numeric execution: effect registry
-
-`dao.flow` does not need to reinvent checkpointing, optimizer state, or
-gradient aggregation because the rest of datomworld already solves those
-problems in their proper layers.
+- shared working context and coordination: `dao.space`
+- numeric execution: ML kernel agent
 
 ### Tool And Render Integration
 
-Tool use should not be modeled as direct execution by a continuation.
-
 ```text
-continuation output
--> tool intent
--> tool interpreter
--> tool result stream
--> continuation resume if needed
+agent output -> datoms with type value :intent/tool
+             -> tool agent -> :tool/result datoms
+agent output -> datoms with type value :intent/render
+             -> render agent -> dao.postgraphics
+agent output -> datoms with type value :intent/memory
+             -> memory agent -> dao.db / dao.space
 ```
-
-Likewise for rendering:
-
-```text
-continuation output
--> render intent
--> render interpreter
--> dao.postgraphics frame stream
-```
-
-And likewise for memory:
-
-```text
-continuation output
--> memory intent
--> memory interpreter
--> dao.db / dao.space / dao.stream
-```
-
-This preserves the separation between interpretation and execution regardless
-of workload.
 
 ### Retrieval and Context
 
-External data enters a workflow through explicit retrieval plans and injected
-streams. The retrieval pattern is optional — not all workflows require it.
-
-The normal flow when retrieval is needed:
-
 ```text
-continuation needs context
--> request, policy, template, or planner supplies a retrieval plan
--> retrieval interpreter reads an external source
--> retrieval results are written to a result stream
--> result stream is injected into the continuation
--> context assembler records what entered the context window
+agent needs context
+-> datoms with type value :retrieval/plan (from planner or admission policy)
+-> retrieval agent reads external source
+-> datoms with type value :retrieval/result written to dao.space
+-> scheduler agent injects result into waiting continuation
 ```
 
-Supported retrieval sources:
+Supported retrieval sources: `dao.db` Datalog queries, vector indexes, web
+search, `dao.stream` histories, `dao.space` working context, tool outputs.
 
-- `dao.db` Datalog queries
-- vector indexes or vector databases
-- web search
-- explicit `dao.stream` histories
-- `dao.space` working context
-- tool output streams
-- policy and capability streams
-
-If an LLM is used to create a retrieval query, that work should be a
-query-planner child continuation:
+Query planning:
 
 ```text
-main continuation needs context
--> scheduler creates query-planner child continuation
--> planner proposes Datalog, vector, stream, or web retrieval intent
--> deterministic validator checks the proposal
--> approved retrieval interpreter executes it
--> result stream is injected into the main continuation
+main agent needs context
+-> datoms with type value :query/plan (planner agent matches it)
+-> planner proposes Datalog, vector, stream, or web retrieval
+-> validator agent checks proposal
+-> retrieval agent executes approved plan
+-> result injected into main agent
 ```
 
-The LLM proposes. A validator approves. A retrieval interpreter executes.
+### Compilation
+
+Each compiler pass is an agent that matches specific type values. `dao.space`
+coordinates the passes — no agent understands another agent's internal data.
+
+```text
+datoms with type value :compile/request
+-> parse agent           (source string -> :ast/datoms)
+-> macro-expand agent    (wait-for-pattern on datoms with type value
+                          :macro/definition)
+-> cps agent             (:ast/datoms -> :cps/datoms)
+-> closure-convert agent (:cps/datoms -> :closure/datoms)
+-> codegen agent         (:closure/datoms -> :bytecode/artifact)
+-> optimization agents   (N parallel passes per function)
+-> commit agent          (writes artifact to dao.db)
+```
+
+**Macro expansion:** the macro-expand agent `wait-for-pattern` on
+`[:find ?d :where [?d :a :macro/definition] [?d :macro/name macro-name]]` in
+`dao.space`. When a sibling compilation agent writes the macro definition datoms,
+the macro-expand agent resumes.
+
+**Multi-module builds:** N independent `:compile/request` groups of datoms run in
+parallel. A join agent queries for all `:bytecode/artifact` datoms from the
+module set and emits the linked artifact.
+
+**Incremental compilation:** a changed source file writes datoms with type value
+`:ast/datoms` to `dao.space`. The recompilation agent picks them up. Unchanged
+module artifacts in `dao.db` remain valid.
 
 ## ML Extension
 
-This section specifies the behavior of dao.flow when the effect registry
-includes ML kernels. Nothing here applies to a dao.flow deployment without
-ML kernels.
+This section applies only when ML kernel agents are registered.
 
 ### GPU Batching
 
-When ML kernels are present, effect batching maps directly to GPU kernel
-batching. This is where the hardware utilization benefit of the continuation
-model is realized.
+The ML kernel agent decides when to batch GPU effects. It buffers incoming
+datoms with type value `:ml/kernel-effect` from `dao.space` and issues batched
+kernel invocations.
 
-A single continuation often yields one small tensor effect. Dispatching each
-effect alone underutilizes the GPU. The scheduler collects compatible yielded
-kernel effects across non-parked continuations and issues them as one batched
-kernel invocation.
+A single group of datoms with type value `:ml/kernel-effect` often represents
+one small tensor operation. The ML kernel agent groups compatible effects and
+issues one batched invocation.
 
-The speedup comes from:
-
-- batching compatible GPU effects from within one request and across requests
-- overlapping CPU-side stream, retrieval, and context work with GPU kernel execution
-- keeping parked work from blocking runnable work
-- cancelling or deprioritizing branches that no longer matter
-- keeping GPU batches dense while preserving per-continuation causality
-
-If continuations are stepped too finely or GPU effects are launched one by one,
-this model can be slower than vLLM. The runtime must preserve coarse enough
-batch boundaries for the kernels to stay efficient.
-
-ML kernel compat key fields include: model identity, kernel operation, dtype,
-layout, device placement, cache shape, quantization mode, and sampling stage.
-
-### GPU Resource Announcements
-
-When ML kernels are present, a node announces its GPU resources:
-
-```clojure
-[node-id :node/gpu-device      :cuda:0            t m]
-[node-id :node/gpu-free-vram   16384              t m]
-[node-id :node/models-loaded   #{:llama-3-8b}     t m]
-```
-
-Open GPU batch slots:
-
-```clojure
-[batch-id :batch/node            node-id                              t m]
-[batch-id :batch/compat-key      {:op :decode
-                                  :dtype :bfloat16
-                                  :model :llama-3-8b}                 t m]
-[batch-id :batch/slots-remaining 4                                    t m]
-```
-
-Gradient continuations from different training jobs with compatible effects can
-share a batch across nodes, improving GPU utilization across the entire cluster.
+ML kernel batch compatibility fields: model identity, kernel operation, dtype,
+layout, device placement, cache shape, quantization mode, sampling stage.
 
 ### GPU Cache Locality
 
-A continuation that yields a GPU effect is routed to the node that owns the
-relevant model weights, VRAM cache handles, and device. The kernel invocation
-runs locally on that node. The result returns as stream facts and resumes the
-continuation.
+After the `:a` attribute match selects the ML kernel agent class, the `m`
+position carries placement affinity — the node address of the GPU that owns the
+relevant model weights and VRAM cache handles. A placement interpreter reads
+`m` and delivers the matched datoms to that node. The kernel invocation runs
+locally.
 
-Migration must respect KV-cache locality. A continuation that depends on a hot
-VRAM cache handle cannot freely resume on another node unless one of these is
-true:
+Once a continuation has a deep hot KV-cache on a specific GPU, the scheduler
+agent addresses subsequent kernel datoms to that node rather than migrating
+them.
 
-- the destination already has the cache materialized
-- the cache is explicitly transferred or reconstructed
-- the continuation restarts from a replayable prefix
-- the migrated work does not need the hot cache, such as retrieval, planning,
-  tool use, verification, or joining
+### Kernels Are Subordinate Agents
 
-Once a continuation has a deep hot KV-cache on a specific GPU, it is cheaper
-to keep it there and pull compatible effects toward it rather than migrate it
-away. Batch-filling migration and cache-locality migration are complementary
-strategies the scheduler applies based on the continuation's cache depth.
+ML kernel agents perform tensor math:
 
-### Kernels Are Subordinate Interpreters
-
-Kernels in the ML effect registry perform tensor math:
-
-- matrix multiplication
-- attention
-- softmax
-- normalization
-- activation functions
+- matrix multiplication, attention, softmax, normalization, activation
 - KV/cache reads and writes
-- quantized operations where supported
+- quantized operations
 
 They do not decide which request runs next, what a session means, when memory
-is committed, or how tool/render/memory intents are interpreted. Kernel inputs
-and outputs are values in explicit effect streams.
+is committed, or how intent datoms are handled. Kernel inputs and outputs are
+datoms in `dao.space`.
 
 ### Domain State On ML Effects
 
-When the inference or diffusion profile is active, the yielded effect carries
-domain-specific fields that the core continuation record does not include:
+When the inference or diffusion profile is active, the yielded datoms carry
+domain-specific fields:
 
 - model identity
 - sampling state
 - KV/cache handles
 
-These are not an extension of the core continuation record. They are explicit
-values on the pending effect or the domain state the effect references. The
-continuation references them by handle; it does not own or mutate them.
+These are explicit values on the datoms. The agent references them by handle;
+it does not own or mutate the underlying tensors.
 
 ### KV-Cache Bytes Live In VRAM
 
-For GPU inference, the hot KV-cache is VRAM state. `dao.flow` runs in
-`yin.vm` on the CPU and should not carry or mutate raw K/V tensor bytes.
+For GPU inference, the hot KV-cache is VRAM state. Coordination state in
+`dao.space` runs in RAM; it carries only handles, not tensor bytes.
 
 ```text
-dao.flow / yin.vm / RAM:
+dao.space / RAM:
   cache identity, ownership, position, lineage, lifecycle, handles
 
-kernel layer / VRAM:
-  actual K/V tensor blocks, device pointers, low-level cache reads and writes
+ML kernel agent / VRAM:
+  actual K/V tensor blocks, device pointers, reads and writes
 ```
 
-The continuation references cache handles, not cache tensors:
+Cache handle datoms in `dao.space`:
 
 ```clojure
-[k-id :cache/handle cache-id t m]
-[cache-id :cache/device :cuda:0 t m]
-[cache-id :cache/position 2048 t m]
-[cache-id :cache/status :cache/active t m]
+[cache-id :cache/handle   cache-id       t m]
+[cache-id :cache/device   :cuda:0        t m]
+[cache-id :cache/position 2048           t m]
+[cache-id :cache/status   :cache/active  t m]
 ```
 
-A kernel effect uses the handle:
+Kernel effect datoms (attribute `:a`, type value `:ml/kernel-effect` in
+`v`):
 
 ```clojure
-[effect-id :kernel/op :kernel/decode t m]
-[effect-id :kernel/cache cache-id t m]
-[effect-id :kernel/input input-buffer-id t m]
+[effect-id :a            :ml/kernel-effect  t m]   ; type datom
+[effect-id :kernel/op    :kernel/decode     t m]   ; payload
+[effect-id :kernel/cache cache-id           t m]   ; payload
+[effect-id :kernel/input input-buffer-id    t m]   ; payload
 ```
 
-The kernel interpreter resolves `cache-id` to VRAM buffers, runs the kernel,
-and returns explicit result facts:
+The ML kernel agent resolves `cache-id` to VRAM buffers, runs the kernel, and
+writes result datoms back to `dao.space`:
 
 ```clojure
-[result-id :kernel/result-for effect-id t m]
-[result-id :cache/advanced-to 2049 t m]
-[result-id :kernel/logits logits-handle t m]
+[result-id :a               :ml/kernel-result  t m]   ; type datom
+[result-id :kernel/result-for effect-id        t m]   ; payload
+[result-id :cache/advanced-to 2049             t m]   ; payload
+[result-id :kernel/logits     logits-id        t m]   ; payload
 ```
-
-`dao.flow` does not own KV-cache bytes. It owns KV-cache meaning: identity,
-lifecycle, lineage, position, permission, and causal relationship to
-continuations.
 
 ### Kernel Boundary
-
-`dao.flow` may copy vLLM kernel source and adapt it to this runtime, but must
-not copy vLLM's opaque runtime boundary.
-
-Kernel execution is local. `dao.flow` is distributed; kernels are not. A
-kernel effect is routed to the node that owns the relevant GPU, model weights,
-and cache handles. The kernel invocation runs locally on that node. Cross-node
-distribution belongs to continuations, streams, and joins — not to one tensor
-kernel.
 
 Accepted kernel sources and ops:
 
@@ -1032,7 +640,6 @@ Accepted kernel sources and ops:
 - UNET attention and conv kernels (diffusers, xFormers)
 - VAE encode and decode kernels (diffusers)
 - CLIP text encoder kernels (diffusers, transformers)
-- kernel launch patterns needed to use those kernels correctly
 
 Not accepted as the runtime boundary:
 
@@ -1041,132 +648,33 @@ Not accepted as the runtime boundary:
 - vLLM OpenAI-compatible server API
 - vLLM request queues as source of truth
 - opaque per-request runtime state
-- distributed kernel execution as an inference primitive
-
-If copied vLLM code requires supporting metadata, that metadata should be
-projected from explicit continuation and batch values.
 
 Copied kernel source must preserve upstream license notices, provenance, and
 local modification history.
-
-## Suggested Namespace Sketch
-
-Core namespaces — apply to any workload:
-
-```text
-dao.flow             — core runtime entry point
-dao.flow.scheduler   — continuation scheduler, ready queues, wait sets
-dao.flow.registry    — effect interpreter registry, dispatch, batching
-dao.flow.effects     — effect value vocabulary and compat key schema
-dao.flow.lineage     — continuation lineage, provenance, branch tracking
-dao.flow.migration   — continuation migration across nodes
-dao.flow.space       — dao.space integration for stigmergic coordination
-```
-
-General extension package — optional, not ML-specific:
-
-```text
-dao.flow.retrieve    — retrieval from dao.db, vector indexes, dao.stream
-dao.flow.commit      — output commit to streams and memory substrates
-dao.flow.render      — render intent routing to dao.postgraphics
-```
-
-ML kernel package — shared across inference, diffusion, and training profiles:
-
-```text
-dao.ml.kernel        — ML kernel effect interpreter (resolve, call, return)
-```
-
-Inference package — application-layer code for LLM workloads:
-
-```text
-dao.nao.context      — context assembly for LLM workloads
-dao.nao.parse        — structured output parsing, intent extraction
-```
-
-`dao.nao.*` provides the "output parsing" role described in the layer diagram
-summary. It is application package code that sits above the effect registry and
-depends on core. Core and extension namespaces must not depend on it.
-
-The general extension package and the ML kernel package depend on core. The
-inference package depends on core, the extension package, and the ML kernel
-package. The exact shape should emerge from implementation pressure.
-
-## Suggested Build Order
-
-### Core
-
-1. Define the core event vocabulary (`:workflow/*`, `:continuation/*`).
-2. Implement the Yin scheduler: request admission, ready queue, wait set,
-   cancellation, continuation status.
-3. Prove one request can statically decompose into a continuation graph and
-   that multiple continuations can run with deterministic fake effect results.
-4. Add explicit effect values and batch compatibility keys.
-5. Batch compatible yielded effects; resume each continuation from its result
-   slice.
-6. Add continuation forking, joining, and branch comparison.
-7. Integrate the first real effect interpreter behind the effect registry.
-
-### General Extension Package
-
-1. Add retrieval interpreter (`dao.flow.retrieve`).
-2. Add commit interpreter (`dao.flow.commit`).
-3. Add render intent routing (`dao.flow.render`).
-4. Wire intent dispatch for `:intent/tool`, `:intent/render`, `:intent/memory`.
-
-### ML Kernel Package (dao.ml.kernel)
-
-1. Define `:ml/kernel-effect` and `:ml/kernel-result` event kinds; specify
-   model identity, weight handles, and KV/cache handles as explicit fields on
-   kernel effects.
-2. Implement `dao.ml.kernel` — resolve handles, call the interpreter, return
-   result slices.
-3. Integrate the first real kernel: vLLM attention and paged KV-cache.
-
-### Inference Package (dao.nao.*)
-
-1. Add `dao.nao.context` — context assembly for LLM workloads.
-2. Add `dao.nao.parse` — structured output parsing and intent extraction.
-
-## First Milestone
-
-The first milestone is small but complete:
-
-- a user appends a workflow request
-- the Yin scheduler creates a root continuation or an initial continuation graph
-  for that request
-- several continuations can be runnable at once
-- continuations yield effects
-- the scheduler batches compatible yielded effects
-- fake effect results return per-continuation result slices
-- each continuation resumes independently
-- join continuations aggregate child results when the graph requires it
-- results, completion, batch, and telemetry datoms are appended to `dao.stream`
-
-If this loop feels clean, real effect interpreter integration can replace fake
-results without changing the public stream semantics.
 
 ## Design Direction
 
 The main idea is simple:
 
-- `dao.flow` is a general workflow orchestrator, not an inference engine or training framework
-- ML kernel effect interpreters make it an ML workflow runtime substrate — they are pluggable, not structural
-- inference engines, training engines, business processes, and pipelines are all applications built on top
+- `dao.flow` is the datom coordination protocol running on `dao.space` —
+  not a separate software component
+- `dao.space` (`dao.stream` + `dao.db`) is the medium; agents coordinate by
+  writing and reading datoms
+- flow is emergent: agents match datoms and write new datoms; no central
+  dispatcher is involved
+- the scheduler agent makes `dao.flow` behave as a workflow runtime — it is an
+  agent in `dao.space`, not a separate infrastructure layer
+- ML kernel agents make it an ML workflow runtime substrate — pluggable, not
+  structural
+- inference engines, training engines, and data pipelines are all applications
+  expressed as type values coordinated via `dao.space`
 - do not treat any workload as a fixed request/response RPC
-- do not treat memory as hidden session state
-- do not let effect interpreters own causality or scheduling
-- do not fix the workload type in the runtime
-- do batch continuations to keep work units dense
-- do use continuation graphs to expose more schedulable work
-- do treat the workflow graph as data that configures the workload
-- do treat effect interpreters as subordinate, nothing more
+- do not treat memory as hidden agent state
+- do not let agents own causality or scheduling
+- do not fix the workload type in the coordination substrate
+- do treat the workflow graph as type values that configure the workload
 
-Each layer does one thing. No layer reaches into the layer above it. The layer
-diagram is in the Summary.
-
-`dao.flow` without ML kernel effect interpreters is a complete workflow
-orchestrator. With them, it is an ML workflow runtime substrate. The difference
-is configuration, not architecture. The rest of datomworld — `dao.db`,
-`dao.stream`, `dao.space` — fills the gaps that the runtime deliberately does
-not own.
+`dao.flow` without the scheduler agent is raw datom coordination over
+`dao.space`. With the scheduler agent and ML kernel agents, it is a complete
+workflow runtime and ML substrate. The difference is which agents are running,
+not the architecture of `dao.space` itself.
