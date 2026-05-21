@@ -1,9 +1,22 @@
 # Design: `dao.scene`
 
+## Scope Note
+
+This document defines `dao.scene` as a **retained-graphics** UI vocabulary.
+It is **not** the intermediate used by `dao.gui`, which compiles directly to
+`dao.postgraphics` frame programs and does not produce scene values. See
+[dao.gui.md](dao.gui.md).
+
+`dao.scene` is deferred: there is no current consumer of this schema in the
+`dao.gui` pipeline. It is preserved here because it is the schema that
+would carry retained UI semantics (hit-testing, focus traversal,
+accessibility tree) if those concerns are ever pulled into a separate
+system. Until that system exists, this document is design-only.
+
 ## Summary
 
 This document defines `dao.scene`, the first concrete domain vocabulary built on
-top of [scene-algebra.md](scene-algebra.md).
+top of [scene-algebra.md](scene-algebra.md), for retained-graphics consumers.
 
 `dao.scene` is scoped to:
 
@@ -14,10 +27,10 @@ top of [scene-algebra.md](scene-algebra.md).
 
 It is not a browser DOM and not a generic world-simulation vocabulary.
 
-The intended pipeline is:
+The intended pipeline for a retained consumer would be:
 
 ```text
-hiccup/components/atoms
+retained authoring (not dao.gui)
 -> dao.scene fragments
 -> assembled scene
 -> ui graphics bytecode

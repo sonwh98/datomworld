@@ -1,6 +1,8 @@
 (ns test-runner
   (:require
     [cljs.test :as t :refer-macros [run-tests]]
+    [dao.gui.compiler-cljs-test]
+    [dao.postgraphics.webgpu-test]
     [dao.runtime.driver-cljs-test]
     [dao.stream-test]
     [datomworld.continuation-transport-test]
@@ -28,6 +30,8 @@
 (defn -main
   []
   (run-tests 'dao.runtime.driver-cljs-test
+             'dao.gui.compiler-cljs-test
+             'dao.postgraphics.webgpu-test
              'datomworld.continuation-transport-test
              'datomworld.demo.yin-repl-test
              'datomworld.demo.continuation-handoff-test

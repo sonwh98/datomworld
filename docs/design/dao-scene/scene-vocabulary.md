@@ -2,13 +2,14 @@
 
 ## Summary
 
-This document defines the layered family of scene vocabularies used between the
-Reagent-inspired authoring model and terminal graphics bytecode.
+This document defines the layered family of scene vocabularies for
+**retained-graphics** consumers — systems that want a stable, queryable tree
+of scene values between authoring and rendering.
 
 The intended architecture is:
 
 ```text
-authoring
+retained authoring
 -> scene.core
 -> dao.scene / scene.world / scene.xr
 -> graphics bytecode
@@ -23,6 +24,14 @@ The key design rule is:
 
 This avoids overloading one vocabulary with every semantic concern from
 productivity UI through immersive 3D.
+
+**`dao.gui` is not a consumer of this vocabulary family.** `dao.gui` is the
+Reagent-inspired authoring layer for paint-only UI; it compiles directly to
+`dao.postgraphics` frame programs and skips the scene stage entirely. See
+[dao.gui.md](dao.gui.md). The scene vocabulary family is reserved for
+future authoring layers or tooling that need retained semantics (hit-testing,
+focus traversal, accessibility tree, multi-backend retargeting, animation
+interpolation).
 
 ## Layering
 
@@ -133,16 +142,20 @@ So the correct split is:
 
 ## Authoring Boundary
 
-The Reagent-inspired authoring layer should compile into scene fragments and
-scene values, not directly into terminal graphics bytecode.
+A **retained** authoring layer should compile into scene fragments and scene
+values, not directly into terminal graphics bytecode. The Reagent-inspired
+authoring layer for `dao.gui` is **not** retained — it compiles straight to
+`dao.postgraphics` ops. A different, future authoring layer (or a tooling
+system that wants to inspect, animate, or retarget a stable tree) is the
+intended consumer of this boundary.
 
-That authoring layer may use:
+A retained authoring layer may use:
 
 - Hiccup surface syntax
 - functions and closures as components
 - reactive atoms
 
-But once authoring evaluation completes, the result should live in
+But once retained authoring evaluation completes, the result should live in
 `scene.core` plus one or more domain extensions.
 
 ## Lowering Boundary

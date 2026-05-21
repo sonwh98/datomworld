@@ -1,11 +1,13 @@
 (ns datomworld.demo.postgraphics
-  (:require ["dart:async" :as async]
-            ["dart:core" :as core]
-            ["dart:math" :as math]
-            ["package:flutter/material.dart" :as m]
-            [dao.postgraphics.flutter :as pg]
-            [dao.stream :as ds]
-            [dao.stream.ringbuffer]))
+  (:require
+    ["dart:async" :as async]
+    ["dart:core" :as core]
+    ["dart:math" :as math]
+    ["package:flutter/material.dart" :as m]
+    [dao.postgraphics.flutter :as pg]
+    [dao.stream :as ds]
+    [dao.stream.ringbuffer]))
+
 
 ;; Fixed canvas size. The widget is placed inside a SizedBox of this size.
 (def ^:private W 400.0)
@@ -13,16 +15,17 @@
 (def ^:private cx (/ W 2.0))
 (def ^:private cy (+ (/ H 2.0) 30.0))
 
+
 (defn- emit-frame!
   [stream tick fps]
   (let [t (double tick)
         angle (* t 0.04)
-        ; pulsing circle radius
+        ;; pulsing circle radius
         pulse-r (+ 48.0 (* 14.0 (math/sin (* t 0.07))))
-        ; orbit radius
+        ;; orbit radius
         orb-r 130.0
-        ; orbiting rect corner (in local space after transform)
-        ; diamond counter-rotates
+        ;; orbiting rect corner (in local space after transform)
+        ;; diamond counter-rotates
         dia-a (- (* t 0.025))]
     (pg/put-frame!
       stream
@@ -91,10 +94,11 @@
         :font-size 11.0}
        {:op/kind :draw/text,
         :text
-          "fill-rect · stroke-rect · fill-circle · stroke-circle · path · text · transform · clip",
+        "fill-rect · stroke-rect · fill-circle · stroke-circle · path · text · transform · clip",
         :position [26.0 26.0],
         :color [0.3 0.3 0.48 1.0],
         :font-size 9.5} {:op/kind :clip/pop}])))
+
 
 (defn main
   []

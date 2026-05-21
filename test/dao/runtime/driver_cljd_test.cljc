@@ -63,5 +63,6 @@
               (async/Future.delayed (core/Duration .milliseconds 5))
                     (fn [_]
                       (is (= [:ready] @seen))
-                      (.complete ^async/Completer completer nil)))))
+                      (.complete ^async/Completer completer nil)))
+             nil))
          (.-future ^async/Completer completer)))))

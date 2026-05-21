@@ -11,9 +11,13 @@ detailed rendering rules that v1 and v2 left to the host backend:
 - path stroke joins, caps, and tessellation
 - numeric epsilon policy for boundary comparisons
 
-V3 is the precision contract for VMs that need to agree pixel-for-pixel across
-backends. A v1- or v2-conforming VM that does not implement v3 may produce
-visually similar but not pixel-identical output.
+V3 is the precision contract for VMs that need maximal cross-backend
+determinism. For geometry, clipping, image fitting, and other fully specified
+surfaces, a v3-conforming VM can agree pixel-for-pixel with another
+v3-conforming VM. Text rendering remains the one documented exception unless a
+shared reference font and shaper are supplied. A v1- or v2-conforming VM that
+does not implement v3 may produce visually similar but not pixel-identical
+output.
 
 V3 is layered: a VM may declare itself v1-, v2-, or v3-conforming. V3
 conformance implies v2 and v1 conformance.
@@ -26,6 +30,13 @@ V3 fixes a single epsilon for all spec-mandated boundary comparisons:
 ```
 EPSILON = 1.0e-6
 ```
+
+This is the same value as v1's Axis-Alignment Epsilon. V3 generalizes the scope
+of that epsilon from axis-alignment of resolved 2D transforms to every
+spec-mandated floating-point boundary comparison enumerated below. A
+v1-conforming VM that already implements the Axis-Alignment Epsilon is
+consistent with v3's policy for that subset; v3 conformance requires applying
+`EPSILON` uniformly across the additional comparison sites.
 
 This epsilon applies to:
 
@@ -131,14 +142,35 @@ treat advance width as a host-specific value and not rely on it for layout.
 
 `:font-family`, when present, names a font. The VM resolves it as follows:
 
-1. If the host provides a font with that exact family name, use it.
+1. If the host provides a font with that exact family name **and** can
+   guarantee pixel-perfect metric parity with the upstream measurement
+   capability for that family, use it.
 2. Otherwise, fall back to the host's default monospace font if `:font-family`
    is `"monospace"`, default sans-serif if `"sans-serif"`, default serif if
    `"serif"`, or the host's default font for any other unmatched name.
-3. The fallback choice is host-specific. Producers should use generic family
+3. If none of the above can guarantee metric parity, the VM MUST fall back to
+   a **System Monospace** font where metrics are strictly known and stable.
+   This realizes v1's Normative Text Metrics fallback rule.
+4. The fallback choice is host-specific. Producers should use generic family
    names (`"monospace"`, `"sans-serif"`, `"serif"`) for portable frames.
 
-If `:font-family` is omitted, the VM uses its host default font.
+If `:font-family` is omitted, the VM uses its host default font, subject to
+the same metric-parity rule.
+
+### Line Height
+
+V1 pins standard line-height to **`1.2 × font-size`** in screen pixels. V3
+preserves this: authors should treat a text run as a spatial block whose
+height is `font-size × 1.2`, anchored on the alphabetic baseline. The leading
+above the baseline is approximately `0.8 × font-size` (cap and ascender room)
+and the leading below is approximately `0.4 × font-size` (descender room);
+the exact split is host-specific but the total block height is `1.2 ×
+font-size`.
+
+V3 does not introduce a `:line-height` field. Higher-level layout capabilities
+may override the 1.2 ratio, but they MUST emit `:draw/text` ops whose
+`:position` values already reflect the chosen line-height; the VM has no
+notion of multi-line layout.
 
 ### Glyph Shaping and Rasterization
 
@@ -187,9 +219,10 @@ implicit clamped texels under bilinear filtering — i.e., the edge texels.
 ### `:image/fit` Exact Behavior
 
 Let `src` be the effective source rect (the image bounds clipped by
-`:image/src-rect` if present). Let `dst` be the `:rect` field in screen-space
-pixels. Let `aspect_src = src.width / src.height` and
-`aspect_dst = dst.width / dst.height`.
+`:image/src-rect` if present). Let `dst` be the resolved destination rectangle
+in screen-space pixels after the `:draw/image` `:rect` has passed through the
+current transform stack and the backend viewport transform. Let
+`aspect_src = src.width / src.height` and `aspect_dst = dst.width / dst.height`.
 
 **`:contain`** — scale uniformly to fit inside `dst`, preserving aspect ratio.
 The image is centered within `dst`; portions of `dst` not covered by the image
@@ -336,11 +369,18 @@ matrices to satisfy the strict check.
 
 V3 fixes:
 
-- `EPSILON = 1.0e-6` for boundary comparisons listed in the Numeric Epsilon Policy
+- `EPSILON = 1.0e-6` for boundary comparisons listed in the Numeric Epsilon
+  Policy; consistent with v1's Axis-Alignment Epsilon, generalized to every
+  spec-mandated floating-point comparison
 - `:font-size` is in screen pixels (EM box height); not affected by the current
   transform
+- standard line-height is `1.2 × font-size`; a text run occupies a spatial
+  block of that height anchored on the alphabetic baseline (inherits v1's
+  Normative Text Metrics)
 - `:position` for `:draw/text` is the alphabetic baseline origin; default
   `:align` is `:start`; LTR only in v3
+- font-family resolution falls back to **System Monospace** when no host font
+  can guarantee metric parity for the requested family
 - `:image/fit` default is `:fill`
 - image sampling is bilinear with `CLAMP_TO_EDGE` source addressing
 - stroke caps are butt; stroke joins are bevel; tessellation tolerance is

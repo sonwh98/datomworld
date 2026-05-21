@@ -132,18 +132,48 @@ a non-conforming stack top.
 
 ## Clip Semantics
 
-`:clip/push-rect` rects are in screen-space (viewport pixel) coordinates, as
-defined in v1's Coordinate System section. V2 extends this to 3D draw ops:
+V2 preserves v1's clip contract: `:clip/push-rect` carries its `:rect` in the
+current transform space, and the VM resolves that rect to a screen-space
+axis-aligned clip rectangle using the active transform stack. For v1/v2
+portability, clip ancestry must remain translate-only so that this resolution is
+deterministic and exact.
 
-- For 2D draw ops, the clip rect is applied after the 2D transform and viewport
-  mapping (unchanged from v1).
-- For 3D draw ops, the clip rect is applied after MVP projection, perspective
-  divide, and viewport mapping. Fragments outside the active clip rect are
-  discarded.
+V2 extends the resulting screen-space clip rectangle to 3D draw ops:
+
+- For 2D draw ops, the clip rect is resolved from current transform space and
+  then applied after the 2D transform and viewport mapping.
+- For 3D draw ops, the same resolved screen-space clip rect is applied after MVP
+  projection, perspective divide, and viewport mapping. Fragments outside the
+  active clip rect are discarded.
 
 The clip stack is LIFO and governs both 2D and 3D ops. A clip rect pushed before
 a 3D draw op clips that op's projected screen-space output exactly as it would
 clip a 2D op.
+
+## Metadata Carriage
+
+V1's Metadata Carriage contract applies unchanged in v2. Any v2 op may carry an
+optional `:op/meta` field, including 3D ops (`:camera3d/set`, `:state/*`,
+`:draw3d/lines`, `:draw3d/triangles`). The VM must ignore `:op/meta` for paint
+semantics; terminals that participate in downstream geometry reporting or
+hit-testing MUST preserve and re-emit it.
+
+The `:meta/region` op defined in v1 is supported in v2 frame programs and
+continues to operate on a 2D `:rect` in current transform space. Like other
+rect-bearing 2D ops, it is subject to the 2D-affine check on the current stack
+top (see Failure Semantics below) when used in a mixed 2D/3D program.
+
+The Normative v1 Protocol Contracts apply to v2 frame programs and VMs without
+modification:
+
+- the **Canonical Precedence Formula** —
+  `effective-z = (metadata-precedence << 32) | bytecode-index` — governs
+  precedence across mixed producer families
+- the **Axis-Alignment Epsilon** of `1e-6` governs coordinate resolution and
+  axis-alignment checks for resolved 2D transforms
+- the **Canonical Signal Shapes** for VM Reset, Frame Rejection, Protocol
+  Error, and Frame Skipped are the same in v2 (terminal-level protocol is
+  unchanged by 3D extensions)
 
 ## Extended `:transform/push`
 
@@ -181,6 +211,10 @@ translate/rotate/scale fields onto the current transform in this fixed order:
 - then translate
 
 TRS composition order (when no `:matrix`): `T × R × S`.
+
+An empty `:transform/push` with none of `:translate`, `:rotate`, `:scale`, or
+`:matrix` present is valid (inherited from v1) and means push the 4x4 identity
+transform.
 
 ## V2 Bytecode Vocabulary
 
@@ -325,12 +359,13 @@ Example:
 Draws filled triangles in local object space.
 
 This is the primitive through which higher-level geometry — including meshes —
-is rendered. A mesh system sitting above `dao.postgraphics` holds mesh assets in
-its own memory (loaded via `dao.stream`) and lowers them into `:draw3d/triangles`
-ops each frame. The VM renders the triangles and holds no memory of them between
-frames. The producer re-emits the same op the next frame if the geometry is
-still visible. `dao.postgraphics` never sees the concept of a mesh; it only sees
-triangles.
+is rendered in v2. A mesh system sitting above `dao.postgraphics` holds mesh
+assets in its own memory (loaded via `dao.stream`) and lowers them into
+`:draw3d/triangles` ops each frame. The VM renders the triangles and holds no
+memory of them between frames. The producer re-emits the same op the next frame
+if the geometry is still visible. In v2, `dao.postgraphics` never sees the
+concept of a mesh; it only sees triangles. Later versions may add first-class
+mesh ops with richer material state.
 
 Required fields:
 
@@ -438,9 +473,10 @@ Pixel-center convention: pixel `(i, j)` is centered at `(i + 0.5, j + 0.5)` in
 this screen-space coordinate system. A fragment at exact integer screen
 coordinates lies on the corner between four pixels.
 
-Clip rects use the same screen-space pixel coordinates: a clip rect
-`[x y w h]` includes pixels whose centers satisfy `x ≤ cx < x + w` and
-`y ≤ cy < y + h`.
+Resolved clip rects use the same screen-space pixel coordinates: once a
+`[x y w h]` clip rect has been transformed from current transform space into its
+screen-space rectangle, it includes pixels whose centers satisfy
+`x ≤ cx < x + w` and `y ≤ cy < y + h`.
 
 ## Rasterization Fill Rule
 
@@ -540,9 +576,11 @@ Additional failure conditions beyond v1:
 - `:draw3d/triangles` `:normals`, when present, has a length not equal to
   `count(:vertices)`, or contains an entry that is not a three-element numeric
   vector
-- a 2D draw op (`:draw/*`) is issued when the current stack top fails the 2D
-  affine check: `M[2]`, `M[6]`, `M[14]` not all zero; or `M[10]` not one; or
-  `M[3]`, `M[7]` not zero; or `M[15]` not one
+- a 2D draw op (`:draw/*`), a `:meta/region` op, or a `:clip/push-rect` op is
+  issued when the current stack top fails the 2D affine check: `M[2]`, `M[6]`,
+  `M[14]` not all zero; or `M[10]` not one; or `M[3]`, `M[7]` not zero; or
+  `M[15]` not one. The check applies to every op whose `:rect` or `:position`
+  is resolved through the transform stack as a 2D quantity
 
 ## Example Frame Program
 
@@ -624,8 +662,15 @@ others. This section makes the relationship explicit.
 - op order defines paint order
 - v1 Rendering Conventions for **2D** draws: sRGB color space, straight alpha,
   source-over blending, analytical-coverage anti-aliasing for 2D primitive edges
-- v1 op kinds and their fields, including `:clip/push-rect` rect coordinate
-  space (screen-space pixels)
+- v1 op kinds and their fields, including `:meta/region` and the
+  current-transform-space rect coordinate space for `:clip/push-rect`
+- v1 Metadata Carriage, including the `:op/meta` field on every op kind and the
+  standard interaction metadata schema (`:node-id`, `:interactive-events`,
+  `:op/precedence`)
+- Normative v1 Protocol Contracts: Canonical Precedence Formula
+  (`(metadata-precedence << 32) | bytecode-index`), Axis-Alignment Epsilon
+  (`1e-6`), and Canonical Signal Shapes (VM Reset, Frame Rejection, Protocol
+  Error, Frame Skipped) with their constrained keyword vocabularies
 - Flutter is one graphics VM host, not the definition of the layer
 
 ### Redefined by v2
@@ -635,10 +680,10 @@ others. This section makes the relationship explicit.
   `:transform/push` are promoted to 4x4 by the VM. Externally observable
   behavior for pure 2D programs is unchanged, but the underlying execution
   state is different
-- v2 adds a new validity rule for v1 2D draw ops: a `:draw/*` op is invalid if
-  the current stack top fails the 2D-affine check. This rule has no effect on
-  pure-2D programs (where it is trivially satisfied) but constrains mixed
-  programs
+- v2 adds a new validity rule for v1 2D rect-bearing ops: a `:draw/*`,
+  `:meta/region`, or `:clip/push-rect` op is invalid if the current stack top
+  fails the 2D-affine check. This rule has no effect on pure-2D programs
+  (where it is trivially satisfied) but constrains mixed programs
 
 ### Added by v2
 

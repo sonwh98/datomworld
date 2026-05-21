@@ -6,8 +6,11 @@
 
 (deftype UdpOpenMethod
   []
-  :type-only true
+  :type-only
+  true
+
   cljd.core/IFn
+
   (-invoke
     [_ ^dynamic table]
     (assoc! table

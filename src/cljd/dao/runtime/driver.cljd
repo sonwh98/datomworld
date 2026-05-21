@@ -1,7 +1,8 @@
 (ns dao.runtime.driver
-  (:require [dao.runtime :as rt]
-            ["dart:async" :as async]
-            ["dart:core" :as core]))
+  (:require
+    ["dart:async" :as async]
+    ["dart:core" :as core]
+    [dao.runtime :as rt]))
 
 
 (def current-rt (atom (rt/initial-state)))
@@ -25,11 +26,11 @@
                                               (async/scheduleMicrotask
                                                 run-pending!))
             (seq (:wait-set final-rt))
-              (do (reset! scheduled? true)
-                  (reset! polling? true)
-                  (let [timer (async/Timer. (core/Duration .milliseconds 20)
-                                            run-pending!)]
-                    (reset! active-timer timer)))))))
+            (do (reset! scheduled? true)
+                (reset! polling? true)
+                (let [timer (async/Timer. (core/Duration .milliseconds 20)
+                                          run-pending!)]
+                  (reset! active-timer timer)))))))
 
 
 (defn schedule-work!

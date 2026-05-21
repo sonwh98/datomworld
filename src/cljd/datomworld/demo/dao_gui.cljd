@@ -1,0 +1,412 @@
+(ns datomworld.demo.dao-gui
+  (:require ["package:flutter/material.dart" :as m]
+            [dao.gui.compiler :as dao.gui]
+            [dao.postgraphics.flutter :as pg]
+            [dao.stream :as ds]
+            [dao.stream.ringbuffer]
+            [yin.repl.flutter :as flutter-repl]))
+
+
+(def ^:private frame-stream
+  (ds/open! {:type :ringbuffer, :capacity 8, :eviction-policy :evict-oldest}))
+
+
+(def ^:private design-width 420.0)
+(def ^:private design-height 320.0)
+(def ^:private surface-size (atom nil))
+(def ^:private surface-mode (atom :empty))
+
+
+(defn- put-frame!
+  [frame]
+  (pg/put-frame! frame-stream frame) frame)
+
+
+(defn- sample-frame
+  [width height]
+  (let [sx (/ width design-width)
+        sy (/ height design-height)
+        s (min sx sy)
+        x #(* sx %)
+        y #(* sy %)
+        u #(* s %)]
+    [{:op/kind :frame/clear, :color [0.05 0.06 0.1 1.0]}
+     {:op/kind :draw/fill-rect,
+      :rect [(x 24.0) (y 24.0) (x 372.0) (y 272.0)],
+      :color [0.09 0.1 0.16 1.0]}
+     {:op/kind :draw/stroke-rect,
+      :rect [(x 24.0) (y 24.0) (x 372.0) (y 272.0)],
+      :color [0.23 0.28 0.4 1.0],
+      :stroke-width (u 1.0)}
+     {:op/kind :draw/fill-circle,
+      :center [(x 98.0) (y 228.0)],
+      :radius (u 34.0),
+      :color [0.12 0.56 0.98 1.0]}
+     {:op/kind :transform/push, :translate [(x 210.0) (y 160.0)], :rotate 0.4}
+     {:op/kind :draw/fill-rect,
+      :rect [(- (u 44.0)) (- (u 26.0)) (u 88.0) (u 52.0)],
+      :color [0.98 0.46 0.14 1.0]} {:op/kind :transform/pop}
+     {:op/kind :clip/push-rect, :rect [(x 246.0) (y 54.0) (x 118.0) (y 62.0)]}
+     {:op/kind :draw/fill-rect,
+      :rect [(x 246.0) (y 54.0) (x 118.0) (y 62.0)],
+      :color [0.1 0.14 0.2 1.0]}
+     {:op/kind :draw/text,
+      :text "Remote REPL",
+      :position [(x 258.0) (y 93.0)],
+      :font-size (u 14.0),
+      :color [0.9 0.93 1.0 1.0]}
+     {:op/kind :draw/text,
+      :text "(set-frame! ...)",
+      :position [(x 258.0) (y 71.0)],
+      :font-size (u 11.0),
+      :color [0.45 0.52 0.72 1.0]} {:op/kind :clip/pop}]))
+
+
+(defn- clear-frame!
+  []
+  (reset! surface-mode :empty) (put-frame! []))
+
+
+(defn- approx-measure-text
+  [spec]
+  (let [font-size (double (or (:text/font-size spec) 14.0))
+        text (str (or (:text/value spec) ""))]
+    {:width (* (count text) font-size 0.6), :height (* font-size 1.2)}))
+
+
+(defn- compile-ui->frame
+  ([ui] (compile-ui->frame ui nil))
+  ([ui props]
+   (dao.gui/compile-ui ui props {} {:measure-text approx-measure-text})))
+
+
+(defn- set-ui!
+  ([ui] (set-ui! ui nil))
+  ([ui props]
+   (let [frame (compile-ui->frame ui props)]
+     (put-frame! frame)
+     frame)))
+
+
+(defn- demo-ui
+  [width height]
+  (let [sx (/ width design-width)
+        sy (/ height design-height)
+        s (min sx sy)
+        x #(* sx %)
+        y #(* sy %)
+        u #(* s %)]
+    [:stack [:rect {:width width, :height height, :color [0.05 0.06 0.1 1.0]}]
+     [:transform {:translate [(x 20.0) (y 18.0)]}
+      [:stack
+       [:text
+        {:value "postgraphics mission control",
+         :font-size (u 22.0),
+         :color [0.94 0.97 1.0 1.0]}]
+       [:transform {:translate [0.0 (y 24.0)]}
+        [:text
+         {:value "remote repl drives this surface through dao.stream",
+          :font-size (u 13.0),
+          :color [0.56 0.67 0.83 1.0]}]]]]
+     [:transform {:translate [(x 20.0) (y 68.0)]}
+      [:stack
+       [:rect {:width (x 232.0), :height (y 124.0), :color [0.1 0.13 0.2 1.0]}]
+       [:transform {:translate [(x 12.0) (y 12.0)]}
+        [:text
+         {:value "signal lanes",
+          :font-size (u 15.0),
+          :color [0.92 0.96 1.0 1.0]}]]
+       [:transform {:translate [(x 12.0) (y 34.0)]}
+        [:rect
+         {:width (x 184.0), :height (y 12.0), :color [0.17 0.25 0.38 1.0]}]]
+       [:transform {:translate [(x 12.0) (y 34.0)]}
+        [:clip {:width (x 132.0), :height (y 12.0)}
+         [:rect
+          {:width (x 184.0), :height (y 12.0), :color [0.2 0.74 0.98 1.0]}]]]
+       [:transform {:translate [(x 12.0) (y 56.0)]}
+        [:rect
+         {:width (x 184.0), :height (y 12.0), :color [0.17 0.25 0.38 1.0]}]]
+       [:transform {:translate [(x 12.0) (y 56.0)]}
+        [:clip {:width (x 96.0), :height (y 12.0)}
+         [:rect
+          {:width (x 184.0), :height (y 12.0), :color [0.99 0.54 0.19 1.0]}]]]
+       [:transform {:translate [(x 12.0) (y 78.0)]}
+        [:rect
+         {:width (x 184.0), :height (y 12.0), :color [0.17 0.25 0.38 1.0]}]]
+       [:transform {:translate [(x 12.0) (y 78.0)]}
+        [:clip {:width (x 156.0), :height (y 12.0)}
+         [:rect
+          {:width (x 184.0), :height (y 12.0), :color [0.43 0.87 0.56 1.0]}]]]
+       [:transform {:translate [(x 12.0) (y 106.0)]}
+        [:text
+         {:value "frames, clips, transforms, overlays",
+          :font-size (u 11.0),
+          :color [0.62 0.71 0.85 1.0]}]]]]
+     [:transform {:translate [(x 268.0) (y 68.0)]}
+      [:stack
+       [:rect
+        {:width (x 132.0), :height (y 124.0), :color [0.11 0.12 0.18 1.0]}]
+       [:transform {:translate [(x 12.0) (y 12.0)]}
+        [:text
+         {:value "live ops", :font-size (u 15.0), :color [0.93 0.97 1.0 1.0]}]]
+       [:transform {:translate [(x 12.0) (y 36.0)]}
+        [:text
+         {:value "(show-demo-ui!)",
+          :font-size (u 12.0),
+          :color [0.34 0.82 0.99 1.0]}]]
+       [:transform {:translate [(x 12.0) (y 56.0)]}
+        [:text
+         {:value "(set-ui! ...)",
+          :font-size (u 12.0),
+          :color [0.34 0.82 0.99 1.0]}]]
+       [:transform {:translate [(x 12.0) (y 76.0)]}
+        [:text
+         {:value "(set-frame! ...)",
+          :font-size (u 12.0),
+          :color [0.34 0.82 0.99 1.0]}]]
+       [:transform {:translate [(x 12.0) (y 102.0)]}
+        [:rect {:width (x 94.0), :height (y 8.0), :color [0.21 0.28 0.42 1.0]}]]
+       [:transform {:translate [(x 12.0) (y 102.0)]}
+        [:clip {:width (x 72.0), :height (y 8.0)}
+         [:rect
+          {:width (x 94.0), :height (y 8.0), :color [0.98 0.46 0.14 1.0]}]]]]]
+     [:transform {:translate [(x 20.0) (y 210.0)]}
+      [:stack
+       [:rect {:width (x 380.0), :height (y 84.0), :color [0.08 0.09 0.14 1.0]}]
+       [:transform {:translate [(x 12.0) (y 12.0)]}
+        [:text
+         {:value "layout map",
+          :font-size (u 15.0),
+          :color [0.92 0.96 1.0 1.0]}]]
+       [:transform {:translate [(x 12.0) (y 34.0)]}
+        [:row
+         [:rect
+          {:width (x 56.0), :height (y 34.0), :color [0.18 0.61 0.98 1.0]}]
+         [:rect
+          {:width (x 12.0), :height (y 34.0), :color [0.08 0.09 0.14 0.0]}]
+         [:rect
+          {:width (x 92.0), :height (y 34.0), :color [0.98 0.53 0.18 1.0]}]
+         [:rect
+          {:width (x 12.0), :height (y 34.0), :color [0.08 0.09 0.14 0.0]}]
+         [:rect
+          {:width (x 74.0), :height (y 34.0), :color [0.42 0.87 0.57 1.0]}]
+         [:rect
+          {:width (x 12.0), :height (y 34.0), :color [0.08 0.09 0.14 0.0]}]
+         [:rect
+          {:width (x 86.0), :height (y 34.0), :color [0.74 0.35 0.96 1.0]}]]]
+       [:transform {:translate [(x 12.0) (y 74.0)]}
+        [:text
+         {:value "explicit transforms give the spacing some bite",
+          :font-size (u 11.0),
+          :color [0.61 0.71 0.84 1.0]}]]]]
+     [dao.gui/overlay
+      [:transform {:translate [(x 246.0) (y 12.0)]}
+       [:stack
+        [:transform {:rotate 0.2}
+         [:rect
+          {:width (x 146.0), :height (y 50.0), :color [0.99 0.46 0.15 1.0]}]]
+        [:transform {:translate [(x 16.0) (y 14.0)]}
+         [:text
+          {:value "overlay layer",
+           :font-size (u 15.0),
+           :color [1.0 0.97 0.94 1.0]}]]
+        [:transform {:translate [(x 16.0) (y 31.0)]}
+         [:text
+          {:value "always floating above flow",
+           :font-size (u 11.0),
+           :color [1.0 0.9 0.84 1.0]}]]]]]]))
+
+
+(defn- render-built-in-surface!
+  []
+  (when-let [[width height] @surface-size]
+    (case @surface-mode
+      :sample (put-frame! (sample-frame width height))
+      :demo (put-frame! (compile-ui->frame (demo-ui width height)))
+      nil)))
+
+
+(defn- show-demo-ui!
+  []
+  (reset! surface-mode :demo)
+  (render-built-in-surface!)
+  :ok)
+
+
+(defn- show-sample-frame!
+  []
+  (reset! surface-mode :sample)
+  (render-built-in-surface!)
+  :ok)
+
+
+(defn- extra-primitives
+  []
+  {'set-frame! (fn [frame] (reset! surface-mode :custom) (put-frame! frame)),
+   'clear-frame! (fn [] (clear-frame!) :cleared),
+   'show-sample-frame! (fn [] (show-sample-frame!)),
+   'show-demo-ui! (fn [] (show-demo-ui!)),
+   'compile-ui (fn
+                 ([ui] (compile-ui->frame ui))
+                 ([ui props] (compile-ui->frame ui props))),
+   'set-ui! (fn
+              ([ui] (reset! surface-mode :custom) (set-ui! ui))
+              ([ui props] (reset! surface-mode :custom) (set-ui! ui props)))})
+
+
+(defn- mono
+  ([text] (mono text 12.0))
+  ([text size]
+   (m/Text text .style (m/TextStyle .fontFamily "monospace" .fontSize size))))
+
+
+(defn- repl-info-button
+  []
+  (m/Builder
+    .builder
+    (fn [ctx]
+      (m/OutlinedButton
+        .onPressed
+        (fn []
+          (m/showDialog
+            .context
+            ctx
+            .builder
+            (fn [_]
+              (m/AlertDialog
+                .title
+                (m/Text "Remote REPL")
+                .content
+                (m/SingleChildScrollView
+                  .child
+                  (m/Column
+                    .crossAxisAlignment
+                    m/CrossAxisAlignment.start
+                    .mainAxisSize
+                    m/MainAxisSize.min
+                    .children
+                    [(flutter-repl/info-card {}) (m/SizedBox .height 8.0)
+                     (mono
+                       "1. Run `mise exec -- clj -M:yin-repl` on your desktop.")
+                     (mono (str
+                             "2. Connect with `(connect \"daostream:ws://<ip>:"
+                             flutter-repl/default-port
+                             "\")`."))
+                     (mono
+                       "3. Push frames or dao.gui UI into the attached DaoStream.")
+                     (m/SizedBox .height 12.0) (mono "(show-demo-ui!)")
+                     (mono "(show-sample-frame!)") (mono "(clear-frame!)")
+                     (mono "(set-frame! [{:op/kind :draw/fill-rect")
+                     (mono "             :rect [20 20 120 60]")
+                     (mono "             :color [0.2 0.6 1 1]}])")
+                     (m/SizedBox .height 12.0) (mono "(set-ui! [:column")
+                     (mono "          [:rect {:width 80 :height 24}]")
+                     (mono
+                       "          [:text {:value \"hello\" :font-size 18}]])")]))
+                .actions
+                [(m/TextButton .onPressed
+                               (fn [] (.pop (m/Navigator.of ctx)))
+                               .child
+                               (m/Text "Close"))])))
+          nil)
+        .child
+        (m/Text "Remote REPL Info")))))
+
+
+(defn start!
+  []
+  (show-sample-frame!)
+  (flutter-repl/start-server! {:extra-primitives (extra-primitives)}))
+
+
+(defn stop!
+  []
+  (flutter-repl/stop-server!))
+
+
+(defn view
+  []
+  (m/Scaffold
+    .appBar
+    (m/AppBar .title (m/Text "dao.gui demo"))
+    .body
+    (m/LayoutBuilder
+      .builder
+      (fn [_ ^m/BoxConstraints constraints]
+        (let [max-width (.-maxWidth constraints)
+              content-width (if (< max-width 720.0) max-width 720.0)]
+          (m/Center
+            .child
+            (m/SizedBox
+              .width
+              content-width
+              .child
+              (m/ListView
+                .padding
+                (m/EdgeInsets.all 16.0)
+                .children
+                [(repl-info-button) (m/SizedBox .height 16.0)
+                 (m/Text "Remote Frame Surface"
+                         .style
+                         (m/TextStyle .fontWeight m/FontWeight.bold))
+                 (m/SizedBox .height 8.0)
+                 (m/LayoutBuilder
+                   .builder
+                   (fn [_ ^m/BoxConstraints constraints]
+                     (let [max-width (.-maxWidth constraints)
+                           surface-width (max 0.0 (- max-width 24.0))
+                           surface-height (* surface-width
+                                             (/ design-height design-width))
+                           dims [surface-width surface-height]]
+                       (when (not= dims @surface-size)
+                         (reset! surface-size dims)
+                         (when (contains? #{:sample :demo} @surface-mode)
+                           (render-built-in-surface!)))
+                       (m/Center .child
+                                 (m/Container
+                                   .padding
+                                   (m/EdgeInsets.all 12.0)
+                                   .decoration
+                                   (m/BoxDecoration
+                                     .color
+                                     (m/Color.fromARGB 255 10 10 18)
+                                     .border
+                                     (m/Border.all .color
+                                                   (m/Color.fromARGB 255 56
+                                                                     64 88))
+                                     .borderRadius
+                                     (m/BorderRadius.circular 8.0))
+                                   .child
+                                   (m/SizedBox .width
+                                               surface-width
+                                               .height
+                                               surface-height
+                                               .child
+                                               (pg/postgraphics-widget
+                                                 frame-stream)))))))
+                 (m/SizedBox .height 12.0)
+                 (m/Row .children
+                        [(m/Expanded .child
+                                     (m/OutlinedButton .onPressed
+                                                       show-sample-frame!
+                                                       .child
+                                                       (m/Text
+                                                         "Load sample frame")))
+                         (m/SizedBox .width 12.0)
+                         (m/Expanded .child
+                                     (m/OutlinedButton
+                                       .onPressed
+                                       clear-frame!
+                                       .child
+                                       (m/Text "Clear frame")))])]))))))))
+
+
+(defn main
+  []
+  (start!)
+  (m/runApp (m/MaterialApp .title
+                           "Yin.VM Postgraphics REPL Prototype"
+                           .theme
+                           (m/ThemeData .primarySwatch m.Colors/indigo)
+                           .home
+                           (view))))

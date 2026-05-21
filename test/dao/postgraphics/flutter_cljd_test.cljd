@@ -1,0 +1,283 @@
+(ns dao.postgraphics.flutter-cljd-test
+  (:require
+    [clojure.test :refer [deftest is testing]]
+    [dao.postgraphics.flutter :as pg]))
+
+
+(def eps 1.0e-6)
+(def boundary-tol 1.0e-12)
+
+
+(def identity-view-matrix
+  [1.0 0.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 1.0])
+
+
+(def translated-view-matrix
+  [1.0 0.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 1.0 0.0 -3.0 2.0 -5.0 1.0])
+
+
+(def non-uniform-scale-model-matrix
+  [2.0 0.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 0.5 0.0 0.0 0.0 0.0 1.0])
+
+
+(def line-outside-by-w [0.0 0.0 1.0 0.0])
+
+
+(def line-inside [0.5 0.0 2.0 (* 2.0 eps)])
+
+
+(def tri-inside-a [0.0 0.0 1.0 (* 2.0 eps)])
+
+
+(def tri-inside-b [0.0 0.5 1.5 (* 3.0 eps)])
+
+
+(def textured-tri-outside [0.0 0.0 -1.0 1.0])
+
+
+(def textured-tri-inside-a [2.0 0.0 1.0 1.0])
+
+
+(def textured-tri-inside-b [0.0 2.0 1.0 1.0])
+
+
+(defn- clipped-vertex-valid?
+  [v]
+  (and (>= (nth v 3) (- eps boundary-tol)) (>= (nth v 2) (- eps boundary-tol))))
+
+
+(defn- approx=
+  [a b]
+  (let [delta (- (double a) (double b))
+        abs-delta (if (neg? delta) (- delta) delta)]
+    (< abs-delta 1.0e-6)))
+
+
+(defn- approx-vec2=
+  [a b]
+  (and (approx= (nth a 0) (nth b 0)) (approx= (nth a 1) (nth b 1))))
+
+
+(defn- approx-vec3=
+  [a b]
+  (and (approx= (nth a 0) (nth b 0))
+       (approx= (nth a 1) (nth b 1))
+       (approx= (nth a 2) (nth b 2))))
+
+
+(deftest near-plane-clipping-keeps-generated-vertices-in-front-of-both-planes
+  (testing "line clipping stays valid when only w_c puts one endpoint outside"
+    (let [clipped-line (pg/clip-line-near-test-hook line-outside-by-w
+                                                    line-inside)]
+      (is (= 2 (count clipped-line)))
+      (is (every? clipped-vertex-valid? clipped-line))
+      (is (some #(= eps (nth % 3)) clipped-line))))
+  (testing "triangle clipping does not synthesize vertices with invalid w_c"
+    (let [tris (pg/clip-triangle-near-test-hook line-outside-by-w
+                                                tri-inside-a
+                                                tri-inside-b)]
+      (is (= 2 (count tris)))
+      (is (every? clipped-vertex-valid? (mapcat seq tris)))
+      (is (some #(= eps (nth % 3)) (mapcat seq tris))))))
+
+
+(deftest textured-mesh-depth-path-preserves-depth-buffer-behavior
+  (testing "textured meshes should still participate in software depth handling"
+    (let [config (pg/textured-mesh-render-config-test-hook
+                   {:op/kind :draw3d/mesh,
+                    :texture/source :placeholder,
+                    :texture/wrap :clamp,
+                    :texture/filter :linear,
+                    :texture/mipmap true})]
+      (is (true? (:uses-depth-buffer config)))
+      (is (true? (:depth-test-consulted config)))
+      (is (true? (:depth-write-consulted config))))))
+
+
+(deftest textured-mesh-honors-requested-sampling-modes
+  (testing
+    "requested wrap and filter modes should become the effective texture config"
+    (let [config (pg/textured-mesh-render-config-test-hook
+                   {:op/kind :draw3d/mesh,
+                    :texture/source :placeholder,
+                    :texture/wrap :mirror,
+                    :texture/filter :nearest,
+                    :texture/mipmap true})]
+      (is (= :mirror (:wrap-x config)))
+      (is (= :mirror (:wrap-y config)))
+      (is (= :nearest (:filter-quality config))))))
+
+
+(deftest textured-mesh-honors-requested-mipmap-mode
+  (testing "requested mipmap usage should become the effective texture config"
+    (let [config (pg/textured-mesh-render-config-test-hook
+                   {:op/kind :draw3d/mesh,
+                    :texture/source :placeholder,
+                    :texture/wrap :clamp,
+                    :texture/filter :linear,
+                    :texture/mipmap true})]
+      (is (true? (:mipmap-enabled config))))))
+
+
+(deftest textured-mesh-interpolates-uvs-at-near-plane-clip-vertices
+  (testing "synthesized near-plane vertices should receive interpolated UVs"
+    (let [tris (pg/textured-mesh-clipped-tris-test-hook textured-tri-outside
+                                                        textured-tri-inside-a
+                                                        textured-tri-inside-b
+                                                        [0.0 0.0]
+                                                        [1.0 0.0]
+                                                        [0.0 1.0])
+          first-tri (nth tris 0)
+          first-tri-uvs (:uvs first-tri)
+          second-tri (nth tris 1)
+          second-tri-uvs (:uvs second-tri)]
+      (is (= 2 (count tris)))
+      ;; With one outside vertex at z=-1 and two inside vertices at z=1,
+      ;; the near-plane intersections lie halfway along each edge.
+      (is (approx-vec2= [0.5 0.0] (nth first-tri-uvs 1)))
+      (is (approx-vec2= [0.5 0.0] (nth second-tri-uvs 1)))
+      (is (approx-vec2= [0.0 0.5] (nth second-tri-uvs 2))))))
+
+
+(deftest textured-mesh-under-lighting-still-uses-lighting
+  (testing
+    "textured meshes should keep the diffuse lighting path when lighting is enabled"
+    (let [shading (pg/textured-mesh-shading-test-hook
+                    {:op/kind :draw3d/mesh,
+                     :texture/source :placeholder,
+                     :normals [[0.0 0.0 1.0] [0.0 0.0 1.0] [0.0 0.0 1.0]]}
+                    {:enabled true})]
+      (is (true? (:lighting-requested shading)))
+      (is (true? (:lighting-applied shading))))))
+
+
+(deftest textured-mesh-modulates-texture-by-diffuse-color
+  (testing "uniform :fill rgb should modulate sampled texture color"
+    (let [shading (pg/textured-mesh-shading-test-hook
+                    {:op/kind :draw3d/mesh,
+                     :texture/source :placeholder,
+                     :fill [0.25 0.5 0.75 1.0]}
+                    {:enabled false})]
+      (is (= :fill (:diffuse-rgb-source shading)))
+      (is (true? (:fill-rgb-applied shading)))))
+  (testing
+    "per-vertex :colors should replace :fill as the diffuse modulation source"
+    (let [shading (pg/textured-mesh-shading-test-hook
+                    {:op/kind :draw3d/mesh,
+                     :texture/source :placeholder,
+                     :fill [1.0 1.0 1.0 1.0],
+                     :colors [[0.2 0.4 0.6 1.0] [0.3 0.5 0.7 1.0]
+                              [0.4 0.6 0.8 1.0]]}
+                    {:enabled false})]
+      (is (= :vertex-colors (:diffuse-rgb-source shading)))
+      (is (true? (:vertex-colors-applied shading))))))
+
+
+(deftest shaded-textured-mesh-skips-on-first-frame-cache-miss
+  (testing
+    "lit textured meshes should skip first-frame shaded samples until texture bytes exist"
+    (let [path (pg/textured-mesh-shaded-path-test-hook
+                 {:op/kind :draw3d/mesh,
+                  :texture/source :placeholder,
+                  :texture/filter :linear,
+                  :texture/mipmap true,
+                  :normals [[0.0 0.0 1.0] [0.0 0.0 1.0] [0.0 0.0 1.0]]}
+                 {:enabled true}
+                 false)]
+      (is (true? (:uses-shaded-path path)))
+      (is (= :skip (:first-frame-policy path)))
+      (is (true? (:skips-depth-write-this-frame path)))
+      (is (false? (:lighting-preserved-this-frame path)))
+      (is (false? (:lighting-equation-uses-textured-diffuse path)))
+      (is (false? (:texture-applied-this-frame path)))))
+  (testing
+    "vertex-colored textured meshes should also skip first-frame shaded samples on cache miss"
+    (let [path (pg/textured-mesh-shaded-path-test-hook
+                 {:op/kind :draw3d/mesh,
+                  :texture/source :placeholder,
+                  :colors [[1.0 0.0 0.0 1.0] [0.0 1.0 0.0 1.0]
+                           [0.0 0.0 1.0 1.0]]}
+                 {:enabled false}
+                 false)]
+      (is (true? (:uses-shaded-path path)))
+      (is (= :skip (:first-frame-policy path)))
+      (is (true? (:skips-depth-write-this-frame path)))
+      (is (false? (:vertex-colors-preserved-this-frame path)))
+      (is (false? (:texture-applied-this-frame path))))))
+
+
+(deftest shaded-textured-mesh-uses-perspective-correct-fragment-interpolation
+  (testing
+    "UVs, world position, normals, and colors should be perspective-correct when clip-space w differs"
+    (let [result (pg/shaded-mesh-perspective-interpolation-test-hook
+                   {:weights [0.2 0.3 0.5],
+                    :clip-ws [1.0 2.0 4.0],
+                    :uvs [[0.0 0.0] [1.0 0.0] [0.0 1.0]],
+                    :world-pos [[0.0 0.0 1.0] [4.0 0.0 2.0] [0.0 8.0 4.0]],
+                    :normals [[0.0 0.0 1.0] [1.0 0.0 1.0] [0.0 1.0 1.0]],
+                    :colors [[1.0 0.0 0.0] [0.0 1.0 0.0] [0.0 0.0 1.0]]})]
+      (is (approx-vec2= (get-in result [:expected :uv])
+                        (get-in result [:current :uv])))
+      (is (approx-vec3= (get-in result [:expected :world-pos])
+                        (get-in result [:current :world-pos])))
+      (is (approx-vec3= (get-in result [:expected :normal])
+                        (get-in result [:current :normal])))
+      (is (approx-vec3= (get-in result [:expected :color])
+                        (get-in result [:current :color]))))))
+
+
+(deftest shaded-textured-mesh-honors-mipmap-mode
+  (testing
+    "software shaded textured meshes should propagate :texture/mipmap to the sampler"
+    (let [path (pg/textured-mesh-shaded-path-test-hook
+                 {:op/kind :draw3d/mesh,
+                  :texture/source :placeholder,
+                  :texture/filter :linear,
+                  :texture/mipmap true,
+                  :normals [[0.0 0.0 1.0] [0.0 0.0 1.0] [0.0 0.0 1.0]]}
+                 {:enabled true}
+                 true)]
+      (is (true? (:uses-shaded-path path)))
+      (is (true? (:requested-mipmap path)))
+      (is (true? (:software-sampler-sees-mipmap path))))))
+
+
+(deftest image-bytes-cache-uses-expando-backed-roundtrip-storage
+  (testing
+    "software texture bytes should be stored through Expando-backed roundtrips and the production cache entrypoint should be callable"
+    (let [policy (pg/image-bytes-cache-policy-test-hook)]
+      (is (true? (:backed-by-expando policy)))
+      (is (true? (:expando-roundtrip-works policy)))
+      (is (true? (:image-key-roundtrip-works policy)))
+      (is (true? (:ensure-image-levels-callable policy)))
+      (is (true? (:stores-generated-mip-pyramids policy))))))
+
+
+(deftest lighting-normals-use-inverse-transpose-under-non-uniform-scale
+  (testing
+    "lit meshes should transform normals by inverse-transpose of the model 3x3"
+    (let [result (pg/normal-transform-test-hook non-uniform-scale-model-matrix
+                                                [1.0 0.0 1.0])]
+      (is (approx-vec3= (:expected result) (:current result))))))
+
+
+(deftest lighting-camera-position-comes-from-custom-view-matrix
+  (testing
+    "lighting eye position should be derived from :camera3d/view-matrix when present"
+    (is (= [3.0 -2.0 5.0]
+           (pg/lighting-camera-pos-test-hook {:op/kind :camera3d/set,
+                                              :camera3d/projection :perspective,
+                                              :camera3d/fov 45.0,
+                                              :camera3d/near 0.1,
+                                              :camera3d/far 10.0,
+                                              :camera3d/view-matrix
+                                              translated-view-matrix}))))
+  (testing "identity custom view matrix keeps the eye at the origin"
+    (is (= [0.0 0.0 0.0]
+           (pg/lighting-camera-pos-test-hook {:op/kind :camera3d/set,
+                                              :camera3d/projection :perspective,
+                                              :camera3d/fov 45.0,
+                                              :camera3d/near 0.1,
+                                              :camera3d/far 10.0,
+                                              :camera3d/view-matrix
+                                              identity-view-matrix})))))

@@ -1,22 +1,31 @@
 (ns yin.repl-main.cljd
-  (:require ["dart:io" :as io :refer [stdout]]
-            ["dart:async" :as async]
-            ["dart:convert" :as convert]
-            [clojure.string :as str]
-            [yin.repl :as repl]
-            [yin.repl-args :as repl-args]))
+  (:require
+    ["dart:async" :as async]
+    ["dart:convert" :as convert]
+    ["dart:io" :as io :refer [stdout]]
+    [clojure.string :as str]
+    [yin.repl :as repl]
+    [yin.repl-args :as repl-args]))
 
 
-(defn- write-out! [message] (print message))
+(defn- write-out!
+  [message]
+  (print message))
 
 
-(defn- write-err! [message] (binding [*out* *err*] (println message)))
+(defn- write-err!
+  [message]
+  (binding [*out* *err*] (println message)))
 
 
-(defn- print-prompt! [] (.write stdout "yin> ") (.flush stdout))
+(defn- print-prompt!
+  []
+  (.write stdout "yin> ") (.flush stdout))
 
 
-(defn- print-continuation-prompt! [] (.write stdout "yin.. ") (.flush stdout))
+(defn- print-continuation-prompt!
+  []
+  (.write stdout "yin.. ") (.flush stdout))
 
 
 (defn- clean-cljd-input
@@ -32,7 +41,7 @@
                                          (update :result conj char)
                                          (assoc :state :comment))
                                   (\space \tab \newline \return)
-                                    (assoc acc :state :whitespace)
+                                  (assoc acc :state :whitespace)
                                   (update acc :result conj char))
                         :string (if (= char \")
                                   (-> acc
@@ -68,8 +77,8 @@
                                           (update :result conj \space)
                                           (update :result conj char)
                                           (assoc :state :normal)))))
-              {:state :normal, :result []}
-              s)]
+                    {:state :normal, :result []}
+                    s)]
     (apply str (:result res))))
 
 
@@ -84,8 +93,8 @@
                            \{ (update counts :brace inc)
                            \} (update counts :brace dec)
                            counts))
-                 {:paren 0, :bracket 0, :brace 0}
-                 s)]
+                       {:paren 0, :bracket 0, :brace 0}
+                       s)]
     (every? (fn [v] (<= v 0)) (vals counts))))
 
 
@@ -100,9 +109,9 @@
 (defn- configure-state
   [state opts]
   (let [p (cond (:telemetry-stream opts)
-                  (repl/eval-input
-                    state
-                    (str "(telemetry " (pr-str (:telemetry-stream opts)) ")"))
+                (repl/eval-input
+                  state
+                  (str "(telemetry " (pr-str (:telemetry-stream opts)) ")"))
                 (:telemetry? opts) (repl/eval-input state "(telemetry)")
                 :else (async/Future.value [state nil]))]
     (.then ^async/Future p
@@ -115,9 +124,11 @@
   [state-atom]
   (let [acc (atom "")]
     (letfn
-      [(show-prompt! []
+      [(show-prompt!
+         []
          (if (empty? @acc) (print-prompt!) (print-continuation-prompt!)))
-       (handle-line! [line]
+       (handle-line!
+         [line]
          (let [new-acc (str @acc "\n" line)]
            (if (complete-form? new-acc)
              (if (str/blank? (str/trim new-acc))
@@ -144,8 +155,8 @@
                                     (when (:running? @state-atom)
                                       (println)
                                       (reset! state-atom (assoc @state-atom
-                                                           :running?
-                                                             false)))))))))
+                                                                :running?
+                                                                false)))))))))
 
 
 (defn run-main

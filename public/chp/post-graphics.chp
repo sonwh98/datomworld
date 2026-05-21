@@ -72,6 +72,34 @@
           "The same producer can drive a Flutter widget, a screenshot job, or a remote viewer with no producer-side change."]]]
        [:section.section-dark
         [:div.section-inner
+         [:h2 "Beyond Pixel Streams"]
+         [:p
+          "AI visual browsers like "
+          [:a {:href "https://flipbook.run/" :target "_blank" :rel "noopener noreferrer"} "Flipbook"]
+          " show a compelling direction: prompt for a page, click anywhere, and branch into the next visual world. "
+          "The usual implementation path is to generate each page as pixels. PostGraphics suggests a stronger architecture."]
+         [:p
+          "Let the LLM do the semantic work. It interprets the prompt, decides what regions mean, chooses what a click continues into, and emits the next frame program. "
+          "PostGraphics then carries that decision as explicit drawing ops instead of a full pixel buffer."]
+         [:p
+          "That changes the economics. A compact frame program is usually cheaper to emit, cheaper to transport, and cheaper to replay than a complete generated image. "
+          "Text stays crisp, geometry stays precise, interaction regions stay explicit, and the same frame can be cached or re-rendered without rerunning image synthesis."]
+         [:p
+          "This does not mean giving up imagery. PostGraphics already supports images, but image payloads travel through "
+          [:a {:href "/dao-stream.chp"} "DaoStream"]
+          ". That lets a frame mix vector structure, typography, transforms, clips, and streamed images in one causal pipeline. "
+          "Use primitives where structure matters, use images where density matters, and keep both as inspectable values."]
+         [:p
+          "In that sense, the stack is not LLM versus renderer. It is LLM as interpreter, PostGraphics as bytecode, DaoStream as transport, and the terminal as executor. "
+          "Compared with page-sized pixel generation, that buys lower latency, better caching, explicit provenance, and stable clickable semantics."]
+         [:p.learn-more
+          "See the "
+          [:a {:href "https://flipbook.run/" :target "_blank" :rel "noopener noreferrer"} "Flipbook website"]
+          " and the "
+          [:a {:href "https://flipbook.run/" :target "_blank" :rel "noopener noreferrer"} "live demo"]
+          ". The key architectural question is not whether an LLM can paint pixels, but whether it can emit a structured visual program. PostGraphics is built for that case."]]]
+       [:section.section-dark
+        [:div.section-inner
          [:h2 "For Developers"]
          [:p
           "PostGraphics gives you graphics that behave like the rest of your data: small, declarative, inspectable, transport-independent. "

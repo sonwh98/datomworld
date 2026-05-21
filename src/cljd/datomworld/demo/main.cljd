@@ -1,6 +1,91 @@
 (ns datomworld.demo.main
-  (:require [datomworld.demo.repl :as repl-demo]
-            [datomworld.demo.solar-system :as solar-system-demo]
-            [datomworld.demo.postgraphics :as postgraphics-demo]))
+  (:require ["package:flutter/material.dart" :as m]
+            [datomworld.demo.dao-gui :as dao-gui-demo]
+            [datomworld.demo.earth-moon :as earth-moon-demo]
+            [datomworld.demo.solar-system :as solar-system-demo]))
 
-(defn main [] (solar-system-demo/main) #_(postgraphics-demo/main))
+
+(defn main
+  []
+  (m/runApp
+    (m/MaterialApp
+      .title
+      "Datomworld Demos"
+      .theme
+      (m/ThemeData .primarySwatch m.Colors/indigo)
+      .home
+      (m/Scaffold
+        .appBar
+        (m/AppBar .title (m/Text "Datomworld Demos"))
+        .body
+        (m/Builder
+          .builder
+          (fn [context]
+            (m/Center
+              .child
+              (m/Column
+                .mainAxisAlignment
+                m/MainAxisAlignment.center
+                .children
+                [(m/SizedBox .width
+                             240.0
+                             .height
+                             60.0
+                             .child
+                             (m/ElevatedButton
+                               .onPressed
+                               (fn []
+                                 (dao-gui-demo/start!)
+                                 (.then (m/Navigator.push
+                                          context
+                                          (m/MaterialPageRoute
+                                            .builder
+                                            (fn [_] (dao-gui-demo/view))))
+                                        (fn [_] (dao-gui-demo/stop!)))
+                                 nil)
+                               .child
+                               (m/Text "dao.gui Prototype"
+                                       .style
+                                       (m/TextStyle .fontSize 18.0))))
+                 (m/SizedBox .height 24.0)
+                 (m/SizedBox .width
+                             240.0
+                             .height
+                             60.0
+                             .child
+                             (m/ElevatedButton
+                               .onPressed
+                               (fn []
+                                 (solar-system-demo/start!)
+                                 (.then (m/Navigator.push
+                                          context
+                                          (m/MaterialPageRoute
+                                            .builder
+                                            (fn [_] (solar-system-demo/view))))
+                                        (fn [_] (solar-system-demo/stop!)))
+                                 nil)
+                               .child
+                               (m/Text "Solar System Demo"
+                                       .style
+                                       (m/TextStyle .fontSize 18.0))))
+                 (m/SizedBox .height 24.0)
+                 (m/SizedBox .width
+                             240.0
+                             .height
+                             60.0
+                             .child
+                             (m/ElevatedButton
+                               .onPressed
+                               (fn []
+                                 (earth-moon-demo/start!)
+                                 (.then (m/Navigator.push
+                                          context
+                                          (m/MaterialPageRoute
+                                            .builder
+                                            (fn [_] (earth-moon-demo/view))))
+                                        (fn [_] (earth-moon-demo/stop!)))
+                                 nil)
+                               .child
+                               (m/Text "Earth and Moon Demo"
+                                       .style
+                                       (m/TextStyle .fontSize 18.0))))]))))))))
