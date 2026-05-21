@@ -3,6 +3,7 @@
     [datomworld.demo.compilation-pipeline :as pipeline]
     [datomworld.demo.continuation-stream :as cont-demo]
     [datomworld.demo.equation-plotter :as plotter-demo]
+    [datomworld.demo.solar-system :as solar-demo]
     [datomworld.demo.yin-repl :as yin-repl-demo]
     [reagent.core :as r]
     [reagent.dom :as rdom]
@@ -31,7 +32,11 @@
    {:id :telemetry,
     :label "VM Telemetry Viewer",
     :icon "📡",
-    :desc "Live telemetry and REPL for running VMs."}])
+    :desc "Live telemetry and REPL for running VMs."}
+   {:id :solar-system,
+    :label "Solar System",
+    :icon "☉",
+    :desc "Postgraphics solar system ported to the browser WebGPU terminal."}])
 
 
 (defn- hash->demo
@@ -42,6 +47,7 @@
     "#plotter" :plotter
     "#continuation" :continuation
     "#telemetry" :telemetry
+    "#solar-system" :solar-system
     :home))
 
 
@@ -53,6 +59,7 @@
     :plotter "#plotter"
     :continuation "#continuation"
     :telemetry "#telemetry"
+    :solar-system "#solar-system"
     "#home"))
 
 
@@ -131,6 +138,7 @@
        :plotter [plotter-demo/main-view]
        :continuation [cont-demo/main-view]
        :telemetry [tv/main-panel]
+       :solar-system [solar-demo/main-view]
        [home-view])
      (when (not= selected-demo :home)
        [:div
