@@ -889,13 +889,16 @@ Producer guidance for async image loading:
   application responsibility, consistent with `dao.postgraphics`'s "side
   effects appear as stream emissions" model.
 
-## Flutter Graphics VM
+## Terminal Hosts
 
-The Flutter graphics VM is one concrete terminal host for `dao.postgraphics`.
-It consumes complete frame programs and realizes them on Flutter's canvas while
-preserving the bytecode model's ordering and state semantics.
+A graphics VM is a terminal that executes `dao.postgraphics` bytecode. Concrete
+terminal designs live in their own documents alongside this one:
 
-Its responsibilities are:
+- `dao.postgraphics.flutter.md` — Flutter canvas VM (including a GPU
+  `FragmentShader` path for lit / vertex-colored meshes)
+- `dao.postgraphics.webgpu.md` — browser-native WebGPU VM
+
+Every conforming terminal MUST:
 
 - consume complete frame programs from a `dao.stream` or direct invocation
 - validate each submitted frame before presentation
@@ -903,22 +906,18 @@ Its responsibilities are:
 - hold the last accepted frame as the current visual and interactive truth
 - repaint when a new accepted frame arrives
 - interpret op maps directly in bytecode order
-- apply the final Cartesian-to-Flutter viewport transform, including the y-axis
-  flip from Cartesian `y`-up into Flutter's top-left, `y`-down canvas space
+- apply the final Cartesian-to-screen viewport transform appropriate to its
+  host (e.g., a y-axis flip for y-down canvas backends)
 - resolve translate-only clip rects and interactive regions into screen-space
   rectangles using the active transform stack
 
-For all rect-bearing ops in Flutter — `:draw/fill-rect`,
-`:draw/stroke-rect`, `:draw/image`, `:meta/region`, and the resolved
-screen-space form of `:clip/push-rect` — the VM flips the Cartesian
-lower-left-corner rect into Flutter's top-left-corner screen space. A rect
-`[x y width height]` therefore maps to Flutter as
-`[x, viewport-height - (y + height), width, height]`. The rect height
-participates in the y-flip; the VM must not treat the Cartesian `y` value
-alone as the top edge. Here `viewport-height` is the current host-provided
-height of the Flutter drawing surface for the frame being painted.
+A conforming terminal MUST NOT:
 
-Frame ID rules:
+- evaluate `dao.gui` components
+- interpret `dao.scene`
+- own layout or UI semantics
+
+Frame ID rules (apply to every terminal):
 
 - an accepted frame allocates exactly one new presented-frame ID; producer-side
   asset-status events and other auxiliary signals do not
@@ -939,15 +938,11 @@ Frame ID rules:
 - terminals that participate in `dao.gui.event` MUST emit an explicit **VM Reset
   Signal** when the presented-frame ID namespace is restarted
 
-The Flutter VM adheres to the Canonical Signal Shapes and Axis-Alignment Epsilon
-defined in §Normative v1 Protocol Contracts above. No Flutter-specific overrides
-or additions apply in v1.
-
-Its responsibilities do not include:
-
-- evaluating `dao.gui` components
-- interpreting `dao.scene`
-- owning layout or UI semantics
+All terminals adhere to the Canonical Signal Shapes and Axis-Alignment Epsilon
+defined in §Normative v1 Protocol Contracts above. Terminal-specific overrides
+are not permitted in v1; any host-specific resolution (e.g. a Flutter
+y-flip, a WebGPU coordinate mapping) is an interpretation of the same
+contract, not a deviation from it.
 
 A typical rendering workflow wires stages with `dao.stream` and ordinary
 function composition:
@@ -956,12 +951,12 @@ function composition:
 dao.scene stream
 -> lowering function
 -> dao.postgraphics stream
--> Flutter graphics VM
+-> graphics VM (any conforming terminal)
 ```
 
-Producers and consumers communicate via `dao.stream` cursors. The Flutter
-graphics VM can also be used directly if a producer hands it frame programs
-without an intermediate stream.
+Producers and consumers communicate via `dao.stream` cursors. The graphics VM
+can also be used directly if a producer hands it frame programs without an
+intermediate stream.
 
 ## Example Frame Program
 
