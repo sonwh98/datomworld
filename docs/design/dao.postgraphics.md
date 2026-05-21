@@ -894,6 +894,7 @@ Producer guidance for async image loading:
 A graphics VM is a terminal that executes `dao.postgraphics` bytecode. Concrete
 terminal designs live in their own documents alongside this one:
 
+- `dao.postgraphics.terminal.md` — shared terminal-VM contract for all hosts
 - `dao.postgraphics.flutter.md` — Flutter canvas VM (including a GPU
   `FragmentShader` path for lit / vertex-colored meshes)
 - `dao.postgraphics.webgpu.md` — browser-native WebGPU VM

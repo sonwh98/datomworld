@@ -6,28 +6,23 @@
 It consumes complete frame programs and realizes them on Flutter's canvas while
 preserving the bytecode model's ordering and state semantics.
 
-`dao.postgraphics` itself is terminal-neutral. This document defines how a
-Flutter-hosted VM interprets that bytecode. The WebGPU terminal is documented
-separately in `dao.postgraphics.webgpu.md`.
+`dao.postgraphics` itself is terminal-neutral. The shared terminal-VM contract
+is defined in `dao.postgraphics.terminal.md`. This document defines the
+Flutter-specific realization of that contract. The WebGPU terminal is
+documented separately in `dao.postgraphics.webgpu.md`.
 
 ## Responsibilities
 
-- consume complete frame programs from a `dao.stream` or direct invocation
-- validate each submitted frame before presentation
-- assign a monotonically increasing presented-frame ID to each accepted frame
-- hold the last accepted frame as the current visual and interactive truth
-- repaint when a new accepted frame arrives
-- interpret op maps directly in bytecode order
-- apply the final Cartesian-to-Flutter viewport transform, including the y-axis
-  flip from Cartesian `y`-up into Flutter's top-left, `y`-down canvas space
-- resolve translate-only clip rects and interactive regions into screen-space
-  rectangles using the active transform stack
+The shared terminal responsibilities, exclusions, lifecycle, abstract
+operations, and frame-accounting rules are defined in
+`dao.postgraphics.terminal.md`.
 
-Its responsibilities do not include:
+This document defines only the Flutter-specific realization details:
 
-- evaluating `dao.gui` components
-- interpreting `dao.scene`
-- owning layout or UI semantics
+- the final Cartesian-to-Flutter viewport transform, including the y-axis flip
+- canvas-state wrapping and per-op realization
+- Flutter-specific resource and validation behavior
+- the current Flutter host API and its documented surface gaps
 
 ## Viewport Transform
 
@@ -56,47 +51,25 @@ is wrapped per-op from those local values.
 
 ### VM-Local State
 
-Maintained for the lifetime of one paint invocation:
+The abstract state slots are defined in `dao.postgraphics.terminal.md`.
+For the Flutter terminal, they are realized as follows for the lifetime of one
+paint invocation:
 
-- **`model-stack`** — list of 4×4 column-major matrices. Initialized as
-  `(list identity)`. Mutated by `:transform/push` and `:transform/pop`.
-- **`clip-stack`** — list of resolved screen-space `Rect`s. Initialized
-  empty. Mutated by `:clip/push-rect` (which resolves the op's current-
-  transform-space rect into screen-space using the translate-only
-  ancestor chain) and `:clip/pop`.
-- **`camera-matrix`** — the active 4×4 view-projection matrix, or `nil`
-  if no camera is set. Set by `:camera3d/set`.
-- **`depth-buffer`** — VM-private `Float32List` of length
-  `ceil(viewport-width) × ceil(viewport-height)`. Allocated fresh per
-  paint invocation, filled with `1.0`. Cleared again by `:frame/clear`
-  and by `:camera3d/set` when a previous camera was active.
-- **`lighting-enabled`** — boolean. Default `false`. Toggled by
-  `:state/lighting-enable` per `dao.postgraphics.v4.md § Lighting Mode`.
-- **`lights`** — ordered list of active lights. Empty by default.
-  Appended by `:light/ambient`, `:light/directional`, `:light/point`;
-  cleared by `:light/clear`. Field shapes per
-  `dao.postgraphics.v4.md § Light Ops`.
-- **`camera-pos`** — world-space eye position, used by the lighting
-  equation. Resolved from `:camera3d/set` as follows:
-  - If `:camera3d/view-matrix V` is present in the op, `camera-pos =
-    (V⁻¹).translation` — that is, take entries `[12 13 14]` of the
-    column-major inverse view matrix. This is the eye position
-    consistent with `V` mapping world → view space (the inverse
-    matrix maps view origin back to the world eye). The producer
-    MUST emit an invertible 4×4 view matrix; a non-invertible
-    `:camera3d/view-matrix` is rejected with `:reason
-    :validation-failure`.
-  - Otherwise, `camera-pos = :camera3d/position` (defaulting to
-    `[0 0 0]` per v2 § `:camera3d/set`).
-  - If both are present, `:camera3d/view-matrix` takes precedence
-    for the projection × view product (per v2), and the same
-    inverse-matrix derivation supplies `camera-pos`;
-    `:camera3d/position` is ignored. This keeps the eye position
-    consistent with the projection actually used by the shader.
-- **`depth-test`**, **`depth-write`** — booleans. Default `false`.
-
-`lighting-enabled`, `lights`, and `camera-pos` are all reset implicitly
-each paint by allocating fresh state at the top of the op loop.
+- **`model-stack`** — held as a list of 4×4 column-major matrices in the
+  op-loop locals; initialized as `(list identity)`.
+- **`clip-stack`** — held as a list of resolved screen-space `Rect`s in the
+  op-loop locals.
+- **`camera-matrix`** — held as the active 4×4 view-projection matrix or `nil`.
+- **depth state** — realized as a VM-private `Float32List` of length
+  `ceil(viewport-width) × ceil(viewport-height)`, allocated fresh per paint,
+  filled with `1.0`, and cleared again by `:frame/clear` and by
+  `:camera3d/set` when a previous camera was active.
+- **lighting state** — `lighting-enabled`, `lights`, and `camera-pos` live in
+  the op-loop locals and reset implicitly by allocating fresh state at the top
+  of each paint. `camera-pos` follows the shared terminal rule from
+  `dao.postgraphics.terminal.md` and is used here only as Flutter-local
+  lighting state.
+- **`depth-test`**, **`depth-write`** — booleans held in the op-loop locals.
 
 ### Frame Boundary
 
@@ -120,14 +93,13 @@ Specific Validation > Two-Phase Validation); a pre-paint rejection
 never reaches this `try`. The `try`/`finally` here exists for
 **runtime-guard** throws from inside the op loop. When such a throw
 occurs, the canonical Frame Rejection Signal is emitted, the
-`finally` runs the frame-level `restore()`, and the VM treats the
-frame as not-presented for interactive accounting (no new presented-
-frame ID is allocated, and the previous successfully presented frame
-remains interactive truth). Any pixels Flutter actually flushed from
-the partial paint are visually transient — they are overwritten by
-the next successfully presented frame and do not become interactive
-content. Combined with the Hygiene Rules below (every per-op
-`save()` has a matching `restore()` before the op handler returns),
+`finally` runs the frame-level `restore()`, and the VM applies the
+shared terminal presentation semantics for a rejected frame. On
+Flutter, any pixels actually flushed from the partial paint are
+visually transient — they are overwritten by the next successfully
+presented frame and do not become interactive content. Combined with
+the Hygiene Rules below (every per-op `save()` has a matching
+`restore()` before the op handler returns),
 this keeps the canvas's own state stack balanced across rejection.
 
 ### Per-Op Canvas Wrapping
@@ -590,9 +562,11 @@ may carry partial drawing at the moment the guard throws. Two
 producer-observable consequences follow:
 
 - The VM treats the rejected frame as not-presented for interactive
-  accounting: no new presented-frame ID is allocated, and the
-  previously successfully presented frame remains the interactive
-  truth.
+  accounting: when this terminal exposes presented-frame identity, no
+  new presented-frame ID is allocated, and the previously successfully
+  presented frame remains the interactive truth. When the surface is
+  not exposed, the same accounting is preserved internally per
+  `dao.postgraphics.terminal.md § Frame ID Rules`.
 - Any pixels Flutter actually flushed from the partial paint are
   visually transient — they are overwritten by the next successfully
   presented frame and do not become interactive content. The VM does
@@ -622,28 +596,15 @@ The following are NOT frame-validation concerns:
 
 ## Frame ID Rules
 
-- an accepted frame allocates exactly one new presented-frame ID; producer-side
-  asset-status events and other auxiliary signals do not
-- if the VM rejects an ingested frame (validation failure, unloadable image, or
-  any Failure Semantics rule), the terminal MUST emit a **Frame Rejection
-  Signal** (see `dao.postgraphics.md` § Canonical Signal Shapes) naming the
-  rejected submission's `submission-id` and a constrained `:reason`. It does
-  not allocate a new presented-frame ID and does not emit geometry for that
-  submission. The last successfully presented frame remains both visually and
-  interactively active. The terminal MAY emit additional implementation-
-  specific diagnostics alongside the rejection signal, but the signal itself
-  is mandatory for participants in `dao.gui.event`
-- if the terminal accepts a submission into its ingress sequence but drops it
-  before presentation, for example due to coalescing or backpressure, it emits
-  a **Frame Skipped Signal** naming that skipped `submission-id`
-- after a VM restart there is no surviving presented-frame generation. A new
-  valid frame must be presented before interactive state becomes non-empty
-- terminals that participate in `dao.gui.event` MUST emit an explicit **VM Reset
-  Signal** when the presented-frame ID namespace is restarted
+The shared frame-accounting and canonical-signal rules are defined in
+`dao.postgraphics.terminal.md` and `dao.postgraphics.md`.
 
-The Flutter VM adheres to the Canonical Signal Shapes and Axis-Alignment
-Epsilon defined in `dao.postgraphics.md` § Normative v1 Protocol Contracts.
-No Flutter-specific overrides or additions apply.
+Flutter-specific note:
+
+- the current widget API documents `:dao.terminal/reset` and
+  `:dao.terminal/rejection` on `:signal-stream`; additional canonical signal
+  surfaces are host-accounting concerns unless and until this terminal opts into
+  fuller `dao.gui.event` participation
 
 ## Wiring
 
@@ -657,9 +618,9 @@ dao.scene stream
 -> Flutter graphics VM
 ```
 
-Producers and consumers communicate via `dao.stream` cursors. The Flutter
-graphics VM can also be used directly if a producer hands it frame programs
-without an intermediate stream.
+Producers and consumers communicate via `dao.stream` cursors. Any direct-use
+entrypoint a Flutter implementation exposes is an optional helper layered on
+top of the required stream-bound constructor, not a replacement for it.
 
 ## Widget API
 
