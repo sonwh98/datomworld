@@ -455,12 +455,24 @@
               :on-error #(js/console.error "earth/moon frame rejected" %)))))
 
 
+(defn- release-terminal!
+  []
+  (when-let [handle @terminal-handle]
+    (when-let [close! (:close! handle)] (close!))
+    (reset! terminal-handle nil)))
+
+
 (defn stop!
   []
   (when-let [id @interval-id]
     (js/clearInterval id)
     (reset! interval-id nil))
   :stopped)
+
+
+(defn dispose!
+  []
+  (stop!) (release-terminal!) :disposed)
 
 
 (defn start!
@@ -498,6 +510,7 @@
                                                      (frame-from-seconds
                                                        (:seconds
                                                          @scene-state))))),
+       :component-will-unmount (fn [_] (dispose!)),
        :reagent-render
        (fn []
          [:canvas

@@ -65,7 +65,8 @@
     :or {validate-frame! identity,
          present-frame! (fn [_] nil),
          generation-id-fn new-generation-id}}]
-  (let [generation-id (or generation-id (generation-id-fn))]
+  (let [generation-id (or generation-id (generation-id-fn))
+        open? (atom true)]
     (emit-signal! signal-stream (reset-signal generation-id))
     (letfn
       [(reject-frame!
@@ -88,33 +89,35 @@
          (await-next! (update cursor :position inc)))
        (await-next!
          [cursor]
-         (let [result (try (ds/next frame-stream cursor)
-                           (catch #?(:clj Exception
-                                     :cljs :default
-                                     :cljd Object)
-                                  e
-                             (emit-signal! signal-stream
-                                           (protocol-error-signal
-                                             :stream-read-failed
-                                             (:position cursor)))
-                             (when on-error (on-error e))
-                             ::stream-read-failed))]
-           (cond (map? result) (do (accept-frame! (:position cursor)
-                                                  (:ok result))
-                                   (recur (:cursor result)))
-                 (= :blocked result) (ds/register-reader-waiter!
-                                       frame-stream
-                                       (:position cursor)
-                                       {:resume resume,
-                                        :reason :next,
-                                        :stream frame-stream,
-                                        :cursor cursor})
-                 (= :daostream/gap result) (handle-gap! cursor)
-                 :else nil)))
+         (when @open?
+           (let [result (try (ds/next frame-stream cursor)
+                             (catch #?(:clj Exception
+                                       :cljs :default
+                                       :cljd Object)
+                                    e
+                               (emit-signal! signal-stream
+                                             (protocol-error-signal
+                                               :stream-read-failed
+                                               (:position cursor)))
+                               (when on-error (on-error e))
+                               ::stream-read-failed))]
+             (cond (map? result) (do (accept-frame! (:position cursor)
+                                                    (:ok result))
+                                     (recur (:cursor result)))
+                   (= :blocked result) (ds/register-reader-waiter!
+                                         frame-stream
+                                         (:position cursor)
+                                         {:resume resume,
+                                          :reason :next,
+                                          :stream frame-stream,
+                                          :cursor cursor})
+                   (= :daostream/gap result) (handle-gap! cursor)
+                   :else nil))))
        (resume
          [rt entry value]
-         (when (some? value)
+         (when (and @open? (some? value))
            (accept-frame! (:position entry) value)
            (await-next! (update (:cursor entry) :position inc)))
          rt)]
-      (await-next! {:position 0}) {:generation-id generation-id})))
+      (await-next! {:position 0}) {:generation-id generation-id,
+                                   :close! #(reset! open? false)})))
