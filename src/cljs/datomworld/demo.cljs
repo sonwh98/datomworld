@@ -76,15 +76,27 @@
 
 (defn sync-demo-from-hash!
   [& _]
-  (swap! demo-shell-state assoc
-         :selected-demo
-         (hash->demo (.-hash js/location))))
+  (let [selected-demo (hash->demo (.-hash js/location))]
+    (when (not= selected-demo (:selected-demo @demo-shell-state))
+      (swap! demo-shell-state assoc :selected-demo selected-demo))))
+
+
+(defn- dispose-demo!
+  [demo-id]
+  (case demo-id
+    :solar-system (solar-demo/dispose!)
+    :earth-moon (earth-moon-demo/dispose!)
+    nil))
 
 
 (defn select-demo!
   [demo-id]
-  (swap! demo-shell-state assoc :selected-demo demo-id)
-  (set! (.-hash js/location) (demo->hash demo-id)))
+  (let [current-demo (:selected-demo @demo-shell-state)]
+    (when (not= current-demo demo-id)
+      (dispose-demo! current-demo)
+      (r/flush)
+      (set! (.-hash js/location) (demo->hash demo-id))
+      (sync-demo-from-hash!))))
 
 
 (defn home-view

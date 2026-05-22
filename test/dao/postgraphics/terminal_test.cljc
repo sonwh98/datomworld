@@ -76,3 +76,12 @@
     (is (= {:message/kind :dao.terminal/frame-skipped, :submission-id 0}
            (:ok (ds/next signals {:position 1}))))
     (is (= :blocked (ds/next signals {:position 2})))))
+
+
+(deftest closed-binding-stops-presenting-frames
+  (let [frames (make-stream)
+        accepted (atom [])
+        handle (term/bind-stream! frames (validating-presenter accepted))]
+    ((:close! handle))
+    (is (= :ok (term/put-frame! frames [:frame/after-close])))
+    (is (empty? @accepted))))
