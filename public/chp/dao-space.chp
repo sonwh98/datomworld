@@ -40,7 +40,15 @@
           [:li [:strong "Time Travel"] " — Query the coordination state at any historical point via " [:code "as-of-time"] "."]
           [:li [:strong "Fault Tolerance"] " — If an agent crashes, its traces remain in the stream for others to audit or recover."]]
          [:p
-         "DaoSpace is inspired by the " [:strong "Linda"] " coordination language and " [:strong "JavaSpace"] ", but modernized for the datom-stream paradigm. "
+         "DaoSpace is inspired by the "
+         [:a {:href "https://en.wikipedia.org/wiki/Linda_(coordination_language)"
+              :target "_blank"}
+          [:strong "Linda"]]
+         " coordination language and "
+         [:a {:href "https://www.oracle.com/technical-resources/articles/javase/javaspaces.html"
+              :target "_blank"}
+          [:strong "JavaSpace"]]
+         ", but modernized for the datom-stream paradigm. "
          "By replacing positional tuples with named datoms and wildcard matching with Datalog, DaoSpace removes the fragility and opacity that limited earlier tuple space implementations."]]]
        [:section.section-dark
         [:div.section-inner
@@ -80,8 +88,8 @@
           "Traditional tuple spaces like Linda used destructive reads (" [:code "take"] ") that caused deadlocks and lost history. "
           "DaoSpace is " [:strong "immutable and non-destructive"] ". Cursors allow multiple agents to observe the same facts independently, and history is preserved forever."]
          [:p
-          "Where Linda matches on positional wildcards, DaoSpace uses " [:strong "Datalog"] ". "
-          "This allows agents to express complex coordination logic involving joins, aggregations, and temporal constraints directly in their queries. "
+          "Where Linda matched only on positional wildcards, DaoSpace supports " [:strong "both positional matching and Datalog"] ". "
+          "Simple agents can use fast, positional lookups on datom values, while complex agents use Datalog to express logic involving joins, aggregations, and temporal constraints directly in their queries. "
           "Coordination becomes a database query problem, not a distributed systems protocol problem."]
          [:p.next
           "Learn how "
