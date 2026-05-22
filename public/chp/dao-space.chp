@@ -25,9 +25,9 @@
            [:h3 "Persistent history"]
            [:p "The entire coordination log is available for replay, debugging, and audit trails."]]]]]
        [:section.section-light
-        [:div.section-inner
-         [:h2 "Stigmergy: Coordination via Traces"]
-         [:p
+       [:div.section-inner
+        [:h2 "Stigmergy: Coordination via Traces"]
+        [:p
           "The core concept of DaoSpace is " [:strong "Tuple Space = DaoStream of Datoms + DaoDB Query Engine"] ". "
           "Agents see a shared log of facts that they can query using Datalog. "
           "When an agent needs to coordinate, it appends a new datom to the stream. "
@@ -40,8 +40,21 @@
           [:li [:strong "Time Travel"] " — Query the coordination state at any historical point via " [:code "as-of-time"] "."]
           [:li [:strong "Fault Tolerance"] " — If an agent crashes, its traces remain in the stream for others to audit or recover."]]
          [:p
-          "DaoSpace is inspired by the " [:strong "Linda"] " coordination language and " [:strong "JavaSpace"] ", but modernized for the datom-stream paradigm. "
-          "By replacing positional tuples with named datoms and wildcard matching with Datalog, DaoSpace removes the fragility and opacity that limited earlier tuple space implementations."]]]
+         "DaoSpace is inspired by the " [:strong "Linda"] " coordination language and " [:strong "JavaSpace"] ", but modernized for the datom-stream paradigm. "
+         "By replacing positional tuples with named datoms and wildcard matching with Datalog, DaoSpace removes the fragility and opacity that limited earlier tuple space implementations."]]]
+       [:section.section-dark
+        [:div.section-inner
+         [:h2 "Code Can Live in DaoSpace"]
+         [:p
+          "DaoSpace is not only for tasks, queues, or messages. Code itself can inhabit the space. If a function, parameter list, call site, or proof is represented as tuples, then the storage unit and the semantic unit finally match."]
+         [:p
+          "That is the break with Git. Git stores serialized files and merges text. Agents do not naturally work at file granularity. They rename functions, alter arguments, move subtrees, and explore variants below the file boundary. When those edits are forced through file diffs, accidental conflicts multiply."]
+         [:p
+          "In DaoSpace, those edits become facts in a shared queryable environment. One agent can assert a new function name. Another can assert a new parameter vector. A third can query variants, run evaluations, and promote the winning tuple set. The collaboration surface is semantic from the start, and files can be regenerated later as views for humans."]
+         [:p.next
+          "For the full argument, see "
+          [:a {:href "/blog/agent-smith-needs-to-kill-git.chp"} "Agent Smith Needs to Kill Git"]
+          "."]]]
        [:section.section-dark
         [:div.section-inner
          [:h2 "Coordination Patterns"]

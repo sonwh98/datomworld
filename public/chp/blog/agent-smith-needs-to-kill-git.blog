@@ -2,16 +2,16 @@
        :date #inst "2026-04-13T00:00:00.000-00:00",
        :abstract
        [:p
-        "Git diffs text line by line. It was built for humans who type slowly. Agents rewrite a hundred files in a second, and every reorder, rename, and reformat turns into merge hell. When code is represented as "
-        [:strong "datoms"]
-        " instead of files, the conflict surface collapses. The solution to agentic merge hell is not a better Git, it is to stop versioning files at all."],
+        "Git stores code in units that are too coarse for agents. Files force sub-file semantic work through line diffs, so renames, reorders, and refactors collide for accidental reasons. When code lives in "
+        [:strong "DaoSpace"]
+        " as tuples, the storage unit and the code unit finally match. That makes DaoSpace a better Git than Git for agentic coding."],
        :content
        [:section.blog-article
         [:div.section-inner
          [:article
           :$blog-title
           :$blog-date
-          [:h2 "Git Is a Tool for Slow Typists"]
+          [:h2 "Git Stores Code Too Coarsely"]
           [:p
            "Git is past twenty now. It was designed for a workflow where a human edits a few files, stages them, writes a commit message, and pushes. The unit of change is a "
            [:strong "line of text"]
@@ -19,7 +19,11 @@
           [:p
            "None of these assumptions survive contact with an agent. An agent does not type. It rewrites. It can fork a hundred variants of a function in parallel, test each against a fitness function, and promote the survivor. It does not pause to write a commit message. It does not care which file a function lives in."]
           [:p
-           "The substrate has to match the worker. Git matches humans. It does not match agents."]
+           "The real problem is granularity. Git stores code in "
+           [:strong "files"]
+           ". Agents do not naturally work at file granularity. They touch functions, call sites, parameters, expressions, proofs, and relationships between entities. Git versions serialized files while agents edit sub-file meaning. That mismatch is the source of merge hell."]
+          [:p
+           "Git versions files. Agents edit tuples. The substrate has to match the worker, and Git no longer does."]
           [:h2 "Agents Edit Geometry, Not Text"]
           [:p
            "Go one layer deeper than \"the agent does not type\". An LLM does not understand a program as a sequence of characters. It understands it as a "
@@ -52,6 +56,8 @@
            "Merging that pile is next to impossible even for another agent. The conflict is stated in the vocabulary of "
            [:em "text"]
            " (\"these two lines disagree\"), not in the vocabulary of the program (\"these two facts disagree\"). An agent trying to resolve a textual conflict has to re-infer the semantics from the lines, decide which side is right, and hope the context around the conflict is stable. At swarm scale this re-inference becomes the bottleneck, and the error rate compounds."]
+          [:p
+           "The reason is straightforward. Files are too coarse-grained for the work being done. If one agent renames a function and another adjusts a call graph or parameter list, Git funnels both edits through the same file boundary and often the same lines. The system reports a file conflict even when the semantic edits are independent."]
           [:p "Three failure modes follow from the same root:"]
           [:ul.bulleted
            [:li
@@ -69,7 +75,7 @@
            "The common root is that Git versions the "
            [:em "wrong thing"]
            ". It versions the serialization (text) rather than the meaning (AST). At one-agent scale that mismatch is an annoyance. At swarm scale it is a wall."]
-          [:h2 "The Solution: Code as Datoms, Not Files"]
+          [:h2 "The Solution: Code as Tuples in DaoSpace"]
           [:p
            "The fix is not a better diff algorithm or a smarter merge tool. The fix is to stop representing code as "
            [:strong "files"]
@@ -88,6 +94,10 @@
           [:pre
            [:code
             "[fn-17 :ast/type       :function   t1 m1]\n[fn-17 :ast/name       \"calculate\" t1 m1]\n[fn-17 :ast/params     [p-1 p-2]   t1 m1]\n[fn-17 :ast/body       expr-42     t1 m1]\n[fn-17 :ast/doc        \"totals \"   t2 m2]"]]
+          [:p
+           "Now put those tuples in "
+           [:a {:href "/dao-space.chp"} [:strong "DaoSpace"]]
+           ": a shared, queryable coordination space built on DaoStream and DaoDB. Code is no longer \"checked out\" into isolated file trees and reconciled afterward. It lives as shared facts that agents can query, fork, refine, and promote directly."]
           [:p
            "Editing is transacting new datoms. History is automatic, not a manual "
            [:code "git commit"]
@@ -137,23 +147,36 @@
             " \"Find every call site that uses this exact expression\" becomes a hash lookup, not a regex. Copy-paste detection, supply-chain auditing, and refactor-impact analysis stop being heuristics."]]
           [:p
            "Git showed that content addressing is the right primitive for a versioned, distributed, tamper-evident system. Datoms finish the argument by applying the primitive to the object the worker actually edits: the fact, not the file."]
-          [:h2 "DaoDB Already Is Git"]
+          [:h2 "DaoSpace Is a Better Git Than Git"]
           [:p
            "The claim sharpens once you put the pieces together. Datoms live as a "
            [:strong "content-addressed stream"]
            " inside "
-           [:a {:href "/dao-db.chp"} [:strong "DaoDB"]]
+           [:a {:href "/dao-space.chp"} [:strong "DaoSpace"]]
+           ", built from "
+           [:a {:href "/dao-stream.chp"} "DaoStream"]
+           " and "
+           [:a {:href "/dao-db.chp"} "DaoDB"]
            ". A stream of content-addressed, append-only, hash-linked records replicated by hash transfer is, structurally, "
            [:em "what Git is"]
            ". The commit graph is a Merkle DAG of content-addressed blobs; our datom stream is a Merkle sequence of content-addressed facts. Same primitive, same guarantees."]
           [:p
-           "So the comparison is not \"datoms instead of Git\" as if something is being given up. DaoDB plus content-addressed datoms "
-           [:em "is"]
-           " Git at the core. Distribution, offline work, cryptographic integrity, replayable history, pull-by-missing-hashes: all present as properties of the substrate, not as features to reimplement. Any capability Git has at the blob layer, DaoDB has at the datom layer, by isomorphism."]
+           "So the comparison is not \"datoms instead of Git\" as if something is being given up. DaoSpace keeps Git's content-addressed, append-only core while changing the unit of storage from file blobs to tuples. Distribution, offline work, cryptographic integrity, replayable history, pull-by-missing-hashes: all present as properties of the substrate, not as features to reimplement."]
           [:p
            "What changes is the range above the floor. Because the addressed object is a semantic fact rather than a byte blob, everything Git could "
            [:em "not"]
-           " do (structural sharing across forks, hash-keyed semantic caches, merge by set union, sub-atomic fork and promote, cross-repository dedup of alpha-equivalent code) falls out as additional reach from the same primitive. Git is the floor. Datoms are the ceiling lifted."]
+           " do (structural sharing across forks, hash-keyed semantic caches, merge by set union, sub-atomic fork and promote, cross-repository dedup of alpha-equivalent code) falls out as additional reach from the same primitive. Git versions files. DaoSpace versions the tuples agents actually change. That is why DaoSpace can be a better Git than Git."]
+          [:h2 "How Agents Work in DaoSpace"]
+          [:p
+           "Once code lives in DaoSpace, coordination happens over code facts themselves. One agent can query for every call site of a function. Another can emit candidate refactors for one subtree. A third can evaluate those variants and promote the winner by asserting a preferred fact set. The swarm no longer forks directories and prays over merges. It operates directly on the semantic graph."]
+          [:p
+           "Take a simple case. Agent A renames a function by asserting "
+           [:code "[fn-17 :ast/name \"total\" t3 m3]"]
+           ". Agent B adds a parameter by asserting "
+           [:code "[fn-17 :ast/params [p-1 p-2 p-3] t3 m3]"]
+           ". In Git those edits often collide because both touch the same signature in the same file. In DaoSpace they are separate tuples, stored separately, queried separately, and merged semantically."]
+          [:p
+           "Only after the semantic state settles does Yang regenerate human-facing source files. Text comes later, as a view. The primary collaboration surface is the tuple space."]
           [:h2 "Programmers Keep Their Tools"]
           [:p
            "The datom representation is the substrate, not the interface. Programmers do not have to learn a new language, a new editor, or a new workflow. They keep writing Clojure, Python, JavaScript, Dart, or whatever they already use. They keep using their editor, their formatter, their linter. They keep saving files."]
@@ -201,7 +224,7 @@
             [:code "[fn-17 :ast/name \"total\" t3 m3]"]
             ". Another writes "
             [:code "[fn-17 :ast/params [p-1 p-2 p-3] t3 m3]"]
-            ". Different attributes, different facts, no conflict. The merge is a set union."]]
+            ". Different attributes, different facts, no file-level conflict. The merge is semantic set union."]]
           [:p
            "Formatting changes vanish entirely. Whitespace, bracket style, import ordering are all properties of the text rendering, not of the AST. Two agents that disagree about formatting are not disagreeing about anything the store records."]
           [:p
@@ -244,11 +267,11 @@
            [:code "git log"]
            " is still how humans narrate change to each other. In a datom-native world both are "
            [:strong "views"]
-           ". The canonical form is the fact stream. Text, patch files, and commit history are projections for humans who want them, the same way "
+           ". The canonical form is the fact stream in DaoSpace. Text, patch files, and commit history are projections for humans who want them, the same way "
            [:a
             {:href "/blog/ide-edits-ast-not-text.blog"}
             "text is a projection over the AST"]
-           "."]
+            "."]
           [:p
            "An agent can emit a Git patch for a reviewer. A reviewer can approve the patch. Behind the scenes the patch is a packaging of the underlying datom transactions. Git is demoted from substrate to serialization."]
           [:h2 "The Line That Matters"]
@@ -259,6 +282,8 @@
           [:p "Killing Git is not hostility. It is promotion. Git did its job. The job changed."]
           [:p [:strong "See also:"]]
           [:ul.bulleted
+          [:li
+            [:a {:href "/dao-space.chp"} "DaoSpace Documentation"]]
            [:li
             [:a
              {:href "/blog/ide-edits-ast-not-text.blog"}
