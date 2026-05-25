@@ -4,6 +4,7 @@
     [dao.postgraphics.webgpu :as pg]
     [dao.stream :as ds]
     [dao.stream.ringbuffer]
+    [datomworld.demo.earth-moon-scene :as scene]
     [reagent.core :as r]))
 
 
@@ -15,22 +16,532 @@
 
 
 (defonce interval-id (atom nil))
-(defonce texture-cache (atom {}))
+(defonce started-at-ms* (atom nil))
+(defonce earth-texture* (atom nil))
+(defonce moon-texture* (atom nil))
+(defonce ring-texture* (atom nil))
+(defonce webgpu-state* (atom nil))
 
 
-(def ^:private earth-texture-path
-  "/assets/images/earth_land_ocean_ice_1024.jpg")
+(defn- load-image-texture!
+  [tex-atom asset-path]
+  (when (nil? @tex-atom)
+    (let [img (js/Image.)]
+      (set! (.-crossOrigin img) "anonymous")
+      (set! (.-onload img)
+            (fn []
+              (reset! tex-atom {:image img,
+                                :width (.-naturalWidth img),
+                                :height (.-naturalHeight img),
+                                :source-id asset-path})))
+      (set! (.-src img) asset-path))))
 
 
-(def ^:private moon-texture-path "/assets/images/moon_texture_512.jpg")
+(defn- ring-darkness
+  [v]
+  (let [edge-fade (* 4.0 v (- 1.0 v))
+        body (+ 0.55 (* 0.45 edge-fade))
+        gap (cond (< (js/Math.abs (- v 0.18)) 0.025) 0.45
+                  (< (js/Math.abs (- v 0.50)) 0.035) 0.30
+                  (< (js/Math.abs (- v 0.78)) 0.020) 0.55
+                  :else 1.0)]
+    (* body gap)))
 
 
-(def ^:private stars
-  [[-6.6 4.8 -16.0] [-5.1 2.9 -13.0] [-4.4 -3.9 -15.0] [-3.2 4.1 -18.0]
-   [-2.0 -4.5 -14.0] [-0.9 5.2 -17.0] [0.8 3.8 -12.0] [2.4 5.0 -16.0]
-   [3.4 2.7 -13.0] [5.2 4.3 -17.0] [6.2 -2.4 -14.0] [-6.2 -1.8 -12.0]
-   [-4.8 0.8 -19.0] [-2.8 1.5 -11.0] [1.7 -3.7 -16.0] [4.8 -0.8 -15.0]
-   [6.8 1.2 -20.0] [-1.6 -2.5 -13.0] [3.0 -4.8 -18.0] [5.8 -4.2 -16.0]])
+(defn- make-ring-canvas
+  [width height]
+  (let [canvas (.createElement js/document "canvas")
+        _ (set! (.-width canvas) width)
+        _ (set! (.-height canvas) height)
+        ctx (.getContext canvas "2d")
+        image-data (.createImageData ctx width height)
+        data (.-data image-data)]
+    (dotimes [y height]
+      (let [v (/ y (max 1 (dec height)))
+            b (ring-darkness v)
+            r (int (* 255 0.92 b))
+            g (int (* 255 0.84 b))
+            blue (int (* 255 0.66 b))]
+        (dotimes [x width]
+          (let [offset (* 4 (+ (* y width) x))]
+            (aset data offset r)
+            (aset data (+ offset 1) g)
+            (aset data (+ offset 2) blue)
+            (aset data (+ offset 3) 255)))))
+    (.putImageData ctx image-data 0 0)
+    {:image canvas, :width width, :height height, :source-id :ring-texture}))
+
+
+(defn- ensure-ring-texture!
+  []
+  (when (nil? @ring-texture*) (reset! ring-texture* (make-ring-canvas 4 256))))
+
+
+(defn- current-textures
+  []
+  {:earth-tex @earth-texture*,
+   :moon-tex @moon-texture*,
+   :ring-tex @ring-texture*})
+
+
+(defn- mat4
+  [& xs]
+  (js/Float32Array. (clj->js xs)))
+
+
+(defn- mat4-mul
+  [a b]
+  (let [out (js/Float32Array. 16)]
+    (dotimes [col 4]
+      (dotimes [row 4]
+        (let [i (+ (* col 4) row)]
+          (aset out
+                i
+                (+ (* (aget a row) (aget b (* col 4)))
+                   (* (aget a (+ 4 row)) (aget b (+ (* col 4) 1)))
+                   (* (aget a (+ 8 row)) (aget b (+ (* col 4) 2)))
+                   (* (aget a (+ 12 row)) (aget b (+ (* col 4) 3))))))))
+    out))
+
+
+(defn- mat4-translation
+  [[tx ty tz]]
+  (mat4 1 0 0 0 0 1 0 0 0 0 1 0 tx ty tz 1))
+
+
+(defn- mat4-rotation-x
+  [a]
+  (let [c (js/Math.cos a)
+        s (js/Math.sin a)]
+    (mat4 1 0 0 0 0 c s 0 0 (- s) c 0 0 0 0 1)))
+
+
+(defn- mat4-rotation-y
+  [a]
+  (let [c (js/Math.cos a)
+        s (js/Math.sin a)]
+    (mat4 c 0 (- s) 0 0 1 0 0 s 0 c 0 0 0 0 1)))
+
+
+(defn- mat4-rotation-z
+  [a]
+  (let [c (js/Math.cos a)
+        s (js/Math.sin a)]
+    (mat4 c s 0 0 (- s) c 0 0 0 0 1 0 0 0 0 1)))
+
+
+(defn- mat4-perspective
+  [fov-deg aspect near far]
+  (let [f (/ 1.0 (js/Math.tan (/ (* fov-deg js/Math.PI) 360.0)))
+        z-range (- near far)]
+    (mat4 (/ f aspect)
+          0
+          0
+          0
+          0
+          f
+          0
+          0
+          0
+          0
+          (/ far z-range)
+          -1
+          0
+          0
+          (/ (* near far) z-range)
+          0)))
+
+
+(defn- camera-view-matrix
+  [{position :camera3d/position, rotation :camera3d/rotation}]
+  (let [[cx cy cz] (or position [0.0 0.0 0.0])
+        [rx ry rz] (or rotation [0.0 0.0 0.0])]
+    (-> (mat4-rotation-z (- rz))
+        (mat4-mul (mat4-rotation-y (- ry)))
+        (mat4-mul (mat4-rotation-x (- rx)))
+        (mat4-mul (mat4-translation [(- cx) (- cy) (- cz)])))))
+
+
+(defn- camera-projection-matrix
+  [{fov :camera3d/fov, near :camera3d/near, far :camera3d/far} width height]
+  (mat4-perspective (or fov 48.0) (/ width height) (or near 0.1) (or far 80.0)))
+
+
+(defn- write-buffer!
+  [^js device usage data]
+  (let [^js buffer (.createBuffer device
+                                  #js {:size (.-byteLength data), :usage usage})
+        ^js queue (.-queue device)]
+    (.writeBuffer queue buffer 0 data)
+    buffer))
+
+
+(defn- interleave-vertex-data
+  [{:keys [vertices normals uvs fill]}]
+  (let [n (count vertices)
+        data (js/Float32Array. (* n 12))
+        [fr fg fb fa] (or fill [1.0 1.0 1.0 1.0])]
+    (dotimes [i n]
+      (let [[x y z] (nth vertices i)
+            [u v] (nth uvs i [0.0 0.0])
+            [nx ny nz] (nth normals i (nth vertices i))
+            o (* i 12)]
+        (aset data o (double x))
+        (aset data (+ o 1) (double y))
+        (aset data (+ o 2) (double z))
+        (aset data (+ o 3) (double u))
+        (aset data (+ o 4) (double v))
+        (aset data (+ o 5) (double nx))
+        (aset data (+ o 6) (double ny))
+        (aset data (+ o 7) (double nz))
+        (aset data (+ o 8) (double fr))
+        (aset data (+ o 9) (double fg))
+        (aset data (+ o 10) (double fb))
+        (aset data (+ o 11) (double fa))))
+    data))
+
+
+(defn- index-data
+  [indices]
+  (let [data (js/Uint16Array. (* 3 (count indices)))]
+    (dotimes [i (count indices)]
+      (let [[a b c] (nth indices i)
+            o (* i 3)]
+        (aset data o a)
+        (aset data (+ o 1) b)
+        (aset data (+ o 2) c)))
+    data))
+
+
+(def ^:private webgpu-shader
+  "struct Uniforms {
+     mvp : mat4x4<f32>,
+     ambient : vec4<f32>,
+     lightColor : vec4<f32>,
+     lightDir : vec4<f32>,
+   };
+
+   @group(0) @binding(0) var<uniform> uniforms : Uniforms;
+   @group(0) @binding(1) var tex : texture_2d<f32>;
+   @group(0) @binding(2) var samp : sampler;
+
+   struct VSIn {
+     @location(0) position : vec3<f32>,
+     @location(1) uv : vec2<f32>,
+     @location(2) normal : vec3<f32>,
+     @location(3) color : vec4<f32>,
+   };
+
+   struct VSOut {
+     @builtin(position) position : vec4<f32>,
+     @location(0) uv : vec2<f32>,
+     @location(1) normal : vec3<f32>,
+     @location(2) color : vec4<f32>,
+   };
+
+   @vertex
+   fn vs_main(input : VSIn) -> VSOut {
+     var out : VSOut;
+     out.position = uniforms.mvp * vec4<f32>(input.position, 1.0);
+     out.uv = input.uv;
+     out.normal = input.normal;
+     out.color = input.color;
+     return out;
+   }
+
+   @fragment
+   fn fs_main(input : VSOut) -> @location(0) vec4<f32> {
+     let texColor = textureSample(tex, samp, input.uv);
+     return texColor * input.color;
+   }")
+
+
+(declare resize-canvas!)
+
+
+(defn- ensure-webgpu-state!
+  [canvas]
+  (when (and canvas (not (:ready? @webgpu-state*)))
+    (let [gpu (.-gpu js/navigator)]
+      (cond
+        (nil? gpu) (swap! webgpu-state* assoc
+                          :initializing? false
+                          :failed? true
+                          :unsupported? true)
+        (not (:initializing? @webgpu-state*))
+        (do
+          (swap! webgpu-state* assoc :initializing? true :canvas canvas)
+          (let [adapter-promise (.requestAdapter gpu)]
+            (.then
+              adapter-promise
+              (fn [^js adapter]
+                (if-not adapter
+                  (swap! webgpu-state* assoc
+                         :initializing? false
+                         :failed? true)
+                  (let [device-promise (.requestDevice adapter)]
+                    (.then
+                      device-promise
+                      (fn [^js device]
+                        (let [^js context (.getContext canvas "webgpu")
+                              format (.getPreferredCanvasFormat gpu)
+                              ^js shader-module (.createShaderModule
+                                                  device
+                                                  #js {:code webgpu-shader})
+                              ^js pipeline
+                              (.createRenderPipeline
+                                device
+                                #js
+                                {:layout "auto",
+                                 :vertex
+                                 #js {:module shader-module,
+                                      :entryPoint "vs_main",
+                                      :buffers
+                                      #js
+                                      [#js
+                                       {:arrayStride 48,
+                                        :attributes
+                                        #js
+                                        [#js {:shaderLocation 0,
+                                              :offset 0,
+                                              :format "float32x3"}
+                                         #js {:shaderLocation 1,
+                                              :offset 12,
+                                              :format "float32x2"}
+                                         #js {:shaderLocation 2,
+                                              :offset 20,
+                                              :format "float32x3"}
+                                         #js {:shaderLocation 3,
+                                              :offset 32,
+                                              :format
+                                              "float32x4"}]}]},
+                                 :fragment #js {:module shader-module,
+                                                :entryPoint "fs_main",
+                                                :targets
+                                                #js [#js {:format
+                                                          format}]},
+                                 :primitive #js {:topology "triangle-list",
+                                                 :cullMode "none"},
+                                 :depthStencil #js {:format "depth24plus",
+                                                    :depthWriteEnabled
+                                                    true,
+                                                    :depthCompare "less"}})
+                              ^js sampler (.createSampler
+                                            device
+                                            #js {:magFilter "linear",
+                                                 :minFilter "linear",
+                                                 :addressModeU "repeat",
+                                                 :addressModeV "repeat"})
+                              ^js white-texture
+                              (.createTexture
+                                device
+                                #js {:size #js [1 1 1],
+                                     :format "rgba8unorm",
+                                     :usage (bit-or (.-TEXTURE_BINDING
+                                                      js/GPUTextureUsage)
+                                                    (.-COPY_DST
+                                                      js/GPUTextureUsage))})
+                              white-bytes (js/Uint8Array. #js [255 255 255
+                                                               255])
+                              ^js queue (.-queue device)]
+                          (.writeTexture
+                            queue
+                            #js {:texture white-texture}
+                            white-bytes
+                            #js {:bytesPerRow 4,
+                                 :width 1,
+                                 :height 1,
+                                 :depthOrArrayLayers 1}
+                            #js {:width 1, :height 1, :depthOrArrayLayers 1})
+                          (.configure context
+                                      #js {:device device,
+                                           :format format,
+                                           :alphaMode "opaque"})
+                          (swap! webgpu-state* assoc
+                                 :adapter adapter
+                                 :device device
+                                 :context context
+                                 :format format
+                                 :pipeline pipeline
+                                 :sampler sampler
+                                 :white-texture white-texture
+                                 :texture-cache {}
+                                 :canvas canvas
+                                 :ready? true
+                                 :initializing? false)))
+                      (.catch device-promise
+                              (fn [err]
+                                (js/console.error "WebGPU device init failed"
+                                                  err)
+                                (swap! webgpu-state* assoc
+                                       :initializing? false
+                                       :failed? true)))))))
+              (.catch adapter-promise
+                      (fn [err]
+                        (js/console.error "WebGPU adapter init failed" err)
+                        (swap! webgpu-state* assoc
+                               :initializing? false
+                               :failed? true))))))))))
+
+
+(defn- texture-entry!
+  [texture]
+  (let [{:keys [texture-cache]} @webgpu-state*
+        ^js device (:device @webgpu-state*)
+        ^js white-texture (:white-texture @webgpu-state*)]
+    (when device
+      (let [source-id (:source-id texture)]
+        (cond
+          (nil? texture) {:texture white-texture,
+                          :view (.createView white-texture)}
+          (and source-id (get texture-cache source-id)) (get texture-cache
+                                                             source-id)
+          (or (nil? (:image texture))
+              (nil? (:width texture))
+              (nil? (:height texture)))
+          {:texture white-texture, :view (.createView white-texture)}
+          :else
+          (let [{:keys [image width height]} texture
+                ^js queue (.-queue device)
+                ^js gpu-texture
+                (.createTexture
+                  device
+                  #js {:size #js [(int width) (int height) 1],
+                       :format "rgba8unorm",
+                       :usage (bit-or (.-TEXTURE_BINDING js/GPUTextureUsage)
+                                      (.-COPY_DST js/GPUTextureUsage))})
+                _ (.copyExternalImageToTexture queue
+                                               #js {:source image}
+                                               #js {:texture gpu-texture}
+                                               #js {:width (int width),
+                                                    :height (int height),
+                                                    :depthOrArrayLayers 1})
+                entry {:texture gpu-texture, :view (.createView gpu-texture)}]
+            (swap! webgpu-state* assoc
+                   :texture-cache
+                   (assoc texture-cache source-id entry))
+            entry))))))
+
+
+(defn- encode-mesh!
+  [^js pass ^js device draw width height]
+  (let [{:keys [payload texture camera lights]} draw
+        {:keys [indices]} payload
+        ambient-light (or (some #(when (= :ambient (:kind %)) %) lights)
+                          {:color [0.08 0.1 0.14]})
+        directional-light (or (some #(when (= :directional (:kind %)) %) lights)
+                              {:color [1.0 0.96 0.86],
+                               :direction [-0.4 0.7 0.9],
+                               :intensity 1.55})
+        [ax ay az] (:color ambient-light)
+        [lx ly lz] (:direction directional-light)
+        intensity (double (get directional-light :intensity 1.0))
+        [lcx lcy lcz] (:color directional-light)
+        ambient (js/Float32Array. #js [ax ay az 1.0])
+        light-color (js/Float32Array. #js [(* intensity lcx) (* intensity lcy)
+                                           (* intensity lcz) 1.0])
+        light-dir (js/Float32Array. #js [lx ly lz 0.0])
+        v-data (interleave-vertex-data payload)
+        i-data (index-data indices)
+        vp (if (vector? (:mvp draw))
+             (js/Float32Array. (clj->js (:mvp draw)))
+             (let [camera-matrix (camera-view-matrix camera)
+                   projection (camera-projection-matrix camera width height)]
+               (mat4-mul projection camera-matrix)))
+        u-data (js/Float32Array. 28)
+        _ (.set u-data vp 0)
+        _ (.set u-data ambient 16)
+        _ (.set u-data light-color 20)
+        _ (.set u-data light-dir 24)
+        v-buffer (write-buffer! device
+                                (bit-or (.-VERTEX js/GPUBufferUsage)
+                                        (.-COPY_DST js/GPUBufferUsage))
+                                v-data)
+        i-buffer (write-buffer! device
+                                (bit-or (.-INDEX js/GPUBufferUsage)
+                                        (.-COPY_DST js/GPUBufferUsage))
+                                i-data)
+        u-buffer (write-buffer! device
+                                (bit-or (.-UNIFORM js/GPUBufferUsage)
+                                        (.-COPY_DST js/GPUBufferUsage))
+                                u-data)
+        texture-entry (texture-entry! texture)
+        ^js pipeline (:pipeline @webgpu-state*)
+        ^js gpu-texture (:texture texture-entry)
+        bind-group
+        (.createBindGroup
+          device
+          #js {:layout (.getBindGroupLayout pipeline 0),
+               :entries
+               #js [#js {:binding 0, :resource #js {:buffer u-buffer}}
+                    #js {:binding 1, :resource (.createView gpu-texture)}
+                    #js {:binding 2,
+                         :resource (:sampler @webgpu-state*)}]})]
+    (.setPipeline pass pipeline)
+    (.setBindGroup pass 0 bind-group)
+    (.setVertexBuffer pass 0 v-buffer)
+    (.setIndexBuffer pass i-buffer "uint16")
+    (.drawIndexed pass (.-length i-data) 1 0 0 0)))
+
+
+(defn- submit-webgpu!
+  [canvas lowered]
+  (ensure-webgpu-state! canvas)
+  (let [{:keys [ready?]} @webgpu-state*
+        ^js device (:device @webgpu-state*)
+        ^js context (:context @webgpu-state*)
+        ^js pipeline (:pipeline @webgpu-state*)]
+    (when (and ready? device context pipeline)
+      (let [[width height] (resize-canvas! canvas)
+            ^js current-texture (.getCurrentTexture context)
+            color-view (.createView current-texture)
+            ^js depth-texture (.createTexture
+                                device
+                                #js {:size #js [(int width) (int height) 1],
+                                     :format "depth24plus",
+                                     :usage (.-RENDER_ATTACHMENT
+                                              js/GPUTextureUsage)})
+            depth-view (.createView depth-texture)
+            ^js encoder (.createCommandEncoder device)
+            ^js pass
+            (.beginRenderPass
+              encoder
+              #js {:colorAttachments
+                   #js [#js {:view color-view,
+                             :clearValue
+                             #js {:r 0.015, :g 0.018, :b 0.04, :a 1.0},
+                             :loadOp "clear",
+                             :storeOp "store"}],
+                   :depthStencilAttachment #js {:view depth-view,
+                                                :depthClearValue 1.0,
+                                                :depthLoadOp "clear",
+                                                :depthStoreOp "store"}})]
+        (doseq [pass-data (:passes lowered)
+                draw (:draws pass-data)]
+          (case (:pipeline draw)
+            :clear nil
+            (:mesh-3d :mesh-textured-3d)
+            (encode-mesh! pass device draw width height)
+            nil))
+        (.end pass)
+        (let [^js queue (.-queue device)]
+          (.submit queue #js [(.finish encoder)]))
+        nil))))
+
+
+(declare render-lowered!)
+
+
+(defn- submit-browser!
+  [canvas lowered]
+  (let [{:keys [failed? unsupported? ready?]} @webgpu-state*]
+    (cond (or failed? unsupported?) (render-lowered! canvas lowered)
+          ready? (submit-webgpu! canvas lowered)
+          :else (do (ensure-webgpu-state! canvas)
+                    (let [{:keys [failed? unsupported? ready?]} @webgpu-state*]
+                      (if (or failed? unsupported?)
+                        (render-lowered! canvas lowered)
+                        (when ready? (submit-webgpu! canvas lowered))))))))
 
 
 (defn- rotate-x
@@ -52,144 +563,6 @@
   (let [c (js/Math.cos a)
         s (js/Math.sin a)]
     [(- (* x c) (* y s)) (+ (* x s) (* y c)) z]))
-
-
-(defn- v+
-  [a b]
-  [(+ (nth a 0) (nth b 0)) (+ (nth a 1) (nth b 1)) (+ (nth a 2) (nth b 2))])
-
-
-(defn- v*
-  [s v]
-  [(* s (nth v 0)) (* s (nth v 1)) (* s (nth v 2))])
-
-
-(defn- sphere-mesh
-  [lat-count lon-count]
-  (let [lon-stride (inc lon-count)
-        vertices (vec (for [lat (range (inc lat-count))
-                            lon (range lon-stride)
-                            :let [v (- (/ lat lat-count) 0.5)
-                                  theta (* v js/Math.PI)
-                                  phi (* 2.0 js/Math.PI (/ lon lon-count))
-                                  ct (js/Math.cos theta)]]
-                        [(* ct (js/Math.cos phi)) (js/Math.sin theta)
-                         (* ct (js/Math.sin phi))]))
-        uvs (vec (for [lat (range (inc lat-count))
-                       lon (range lon-stride)]
-                   [(/ lon lon-count) (- 1.0 (/ lat lat-count))]))
-        idx (fn [lat lon] (+ (* lat lon-stride) lon))
-        indices (vec (mapcat (fn [lat]
-                               (mapcat (fn [lon]
-                                         (let [a (idx lat lon)
-                                               b (idx lat (inc lon))
-                                               c (idx (inc lat) lon)
-                                               d (idx (inc lat) (inc lon))]
-                                           [[a c b] [b c d]]))
-                                       (range lon-count)))
-                             (range lat-count)))]
-    {:vertices vertices, :normals vertices, :uvs uvs, :indices indices}))
-
-
-(def ^:private unit-sphere (sphere-mesh 35 70))
-
-
-(defn- transform-sphere
-  [{:keys [radius translate rotate]} mesh]
-  (let [[rx ry rz] (or rotate [0 0 0])
-        xf-point (fn [p]
-                   (-> (v* radius p)
-                       (rotate-x rx)
-                       (rotate-y ry)
-                       (rotate-z rz)
-                       (v+ translate)))
-        xf-normal (fn [p]
-                    (-> p
-                        (rotate-x rx)
-                        (rotate-y ry)
-                        (rotate-z rz)))]
-    (-> mesh
-        (update :vertices #(mapv xf-point %))
-        (update :normals #(mapv xf-normal %)))))
-
-
-(defn- star-lines
-  []
-  (let [vertices (vec (mapcat (fn [[x y z]]
-                                [[(- x 0.035) y z]
-                                 [(+ x 0.035) y z]])
-                              stars))
-        edges (mapv (fn [i] [(* 2 i) (inc (* 2 i))]) (range (count stars)))]
-    {:op/kind :draw3d/lines,
-     :vertices vertices,
-     :edges edges,
-     :color [0.86 0.92 1.0 0.95]}))
-
-
-(defn frame-from-seconds
-  [seconds]
-  (let [earth (transform-sphere {:radius 2.0,
-                                 :translate [0.0 0.0 0.0],
-                                 :rotate [-0.41 seconds 0.0]}
-                                unit-sphere)
-        orbit-a (* seconds 0.82)
-        moon-pos [(* 4.7 (js/Math.cos orbit-a)) (* 0.42 (js/Math.sin orbit-a))
-                  (* 2.0 (js/Math.sin orbit-a))]
-        moon-behind-earth? (neg? (nth moon-pos 2))
-        moon (transform-sphere {:radius 0.54,
-                                :translate moon-pos,
-                                :rotate [0 (* seconds 1.3) 0]}
-                               unit-sphere)
-        moon-orbit (let [segments 96
-                         vertices
-                         (mapv (fn [i]
-                                 (let [t (* 2.0 js/Math.PI (/ i segments))]
-                                   [(* 4.7 (js/Math.cos t))
-                                    (* 0.42 (js/Math.sin t))
-                                    (* 2.0 (js/Math.sin t))]))
-                               (range segments))
-                         edges (mapv (fn [i] [i (mod (inc i) segments)])
-                                     (range segments))]
-                     {:op/kind :draw3d/lines,
-                      :vertices vertices,
-                      :edges edges,
-                      :color [0.35 0.5 0.8 0.42]})
-        base-frame [{:op/kind :frame/clear, :color [0.015 0.018 0.04 1.0]}
-                    {:op/kind :camera3d/set,
-                     :camera3d/projection :perspective,
-                     :camera3d/fov 48.0,
-                     :camera3d/near 0.1,
-                     :camera3d/far 80.0,
-                     :camera3d/position [0.0 2.8 11.0],
-                     :camera3d/rotation [-0.24 0.0 0.0]}
-                    {:op/kind :state/depth-test, :enabled true}
-                    {:op/kind :state/depth-write, :enabled true}
-                    {:op/kind :state/lighting-enable, :enabled true}
-                    {:op/kind :light/ambient, :color [0.08 0.1 0.14]}
-                    {:op/kind :light/directional,
-                     :direction [-0.4 0.7 0.9],
-                     :color [1.0 0.96 0.86],
-                     :intensity 1.55} (star-lines) moon-orbit]
-        earth-op (assoc earth
-                        :op/kind :draw3d/mesh
-                        :fill [0.34 0.68 1.0 1.0]
-                        :texture/source earth-texture-path
-                        :texture/filter :linear
-                        :texture/wrap :repeat
-                        :texture/mipmap false
-                        :material/specular [0.2 0.26 0.32]
-                        :material/shininess 20.0)
-        moon-op (assoc moon
-                       :op/kind :draw3d/mesh
-                       :fill [0.72 0.72 0.68 1.0]
-                       :texture/source moon-texture-path
-                       :texture/filter :linear
-                       :texture/wrap :repeat
-                       :texture/mipmap false
-                       :material/specular [0.08 0.08 0.08]
-                       :material/shininess 8.0)]
-    (into base-frame
-          (if moon-behind-earth? [moon-op earth-op] [earth-op moon-op]))))
 
 
 (defn- color-css
@@ -263,72 +636,9 @@
   (color-css [(* r shade) (* g shade) (* b shade) a]))
 
 
-(defn- load-texture!
-  [source]
-  (when-not (contains? @texture-cache source)
-    (let [img (js/Image.)]
-      (swap! texture-cache assoc source {:status :loading, :image img})
-      (set! (.-onload img)
-            (fn []
-              (let [canvas (.createElement js/document "canvas")
-                    width (.-naturalWidth img)
-                    height (.-naturalHeight img)
-                    ctx (.getContext canvas "2d")]
-                (set! (.-width canvas) width)
-                (set! (.-height canvas) height)
-                (.drawImage ctx img 0 0 width height)
-                (swap! texture-cache assoc
-                       source
-                       {:status :ready,
-                        :image img,
-                        :width width,
-                        :height height,
-                        :data (.-data (.getImageData ctx 0 0 width height))}))))
-      (set! (.-onerror img)
-            (fn [] (swap! texture-cache assoc source {:status :failed})))
-      (set! (.-src img) source))))
-
-
-(defn- resolve-texture-resource
-  [source _state]
-  (when (#{earth-texture-path moon-texture-path} source)
-    (load-texture! source)
-    {:resource/kind :image-texture, :source source}))
-
-
-(defn- texture-sample
-  [source [u v]]
-  (let [{:keys [status width height data]} (get @texture-cache source)]
-    (if (= status :ready)
-      (let [uu (- u (js/Math.floor u))
-            vv (- v (js/Math.floor v))
-            x (min (dec width) (max 0 (int (* uu width))))
-            y (min (dec height) (max 0 (int (* vv height))))
-            i (* 4 (+ x (* y width)))]
-        [(/ (aget data i) 255.0) (/ (aget data (+ i 1)) 255.0)
-         (/ (aget data (+ i 2)) 255.0) (/ (aget data (+ i 3)) 255.0)])
-      [1.0 1.0 1.0 1.0])))
-
-
-(defn- texture-ready
-  [source]
-  (let [entry (get @texture-cache source)]
-    (when (= :ready (:status entry)) entry)))
-
-
 (defn- texture-tri-color
-  [payload tri]
-  (if-let [source (:texture/source payload)]
-    (let [uvs (:uvs payload)
-          [a b c] tri
-          uv [(/ (+ (nth (nth uvs a) 0) (nth (nth uvs b) 0) (nth (nth uvs c) 0))
-                 3.0)
-              (/ (+ (nth (nth uvs a) 1) (nth (nth uvs b) 1) (nth (nth uvs c) 1))
-                 3.0)]
-          [tr tg tb ta] (texture-sample source uv)
-          [fr fg fb fa] (:fill payload [1 1 1 1])]
-      [(* tr fr) (* tg fg) (* tb fb) (* ta fa)])
-    (:fill payload [1 1 1 1])))
+  [payload _tri]
+  (:fill payload [1 1 1 1]))
 
 
 (defn- affine-from-tri
@@ -380,10 +690,8 @@
 
 
 (defn- render-mesh!
-  [ctx camera width height {:keys [vertices indices], :as payload}]
+  [ctx camera width height {:keys [vertices indices], :as payload} texture]
   (let [projected (mapv #(project camera width height %) vertices)
-        texture (when-let [source (:texture/source payload)]
-                  (texture-ready source))
         tris (->> indices
                   (keep (fn [tri]
                           (let [ps (mapv projected tri)]
@@ -436,8 +744,12 @@
                  (set! (.-fillStyle ctx) (color-css [r g b a]))
                  (.fillRect ctx 0 0 width height))
         :line-3d (render-lines! ctx (:camera draw) width height (:payload draw))
-        (:mesh-3d :mesh-textured-3d)
-        (render-mesh! ctx (:camera draw) width height (:payload draw))
+        (:mesh-3d :mesh-textured-3d) (render-mesh! ctx
+                                                   (:camera draw)
+                                                   width
+                                                   height
+                                                   (:payload draw)
+                                                   (:texture draw))
         nil))))
 
 
@@ -456,24 +768,42 @@
 
 (defn start!
   []
+  (load-image-texture! earth-texture*
+                       "/assets/images/earth_land_ocean_ice_1024.jpg")
+  (load-image-texture! moon-texture* "/assets/images/moon_texture_512.jpg")
+  (ensure-ring-texture!)
   (when-not @interval-id
-    (reset! interval-id
-            (js/setInterval
-              (fn []
-                (swap! scene-state update
-                       :seconds
-                       (fn [seconds]
-                         (if (:animating? @scene-state) (+ seconds 0.0242) seconds)))
-                (terminal/put-frame! frame-stream
-                                     (frame-from-seconds (:seconds @scene-state))))
-              16)))
+    (reset! started-at-ms* (js/Date.now))
+    (reset! interval-id (js/setInterval
+                          (fn []
+                            (let [elapsed-ms (- (js/Date.now) @started-at-ms*)
+                                  seconds (if (:animating? @scene-state)
+                                            (* (/ scene/frame-step-seconds
+                                                  scene/frame-interval-ms)
+                                               elapsed-ms)
+                                            (:seconds @scene-state))]
+                              (swap! scene-state assoc :seconds seconds)
+                              (terminal/put-frame! frame-stream
+                                                   (scene/frame-from-seconds
+                                                     seconds
+                                                     (current-textures)))))
+                          scene/frame-interval-ms)))
   :started)
+
+
+(defn- toggle-animation!
+  []
+  (let [animating? (:animating? @scene-state)]
+    (swap! scene-state update :animating? not)
+    (when-not animating? (reset! started-at-ms* (js/Date.now)))))
 
 
 (defn reset-scene!
   []
+  (reset! started-at-ms* (js/Date.now))
   (reset! scene-state {:seconds 0.0, :animating? true})
-  (terminal/put-frame! frame-stream (frame-from-seconds 0.0)))
+  (terminal/put-frame! frame-stream
+                       (scene/frame-from-seconds 0.0 (current-textures))))
 
 
 (defn- canvas-view
@@ -483,8 +813,9 @@
      :component-did-mount (fn [_]
                             (start!)
                             (terminal/put-frame! frame-stream
-                                                 (frame-from-seconds
-                                                   (:seconds @scene-state)))),
+                                                 (scene/frame-from-seconds
+                                                   (:seconds @scene-state)
+                                                   (current-textures)))),
      :component-will-unmount (fn [_] (dispose!)),
      :reagent-render
      (fn []
@@ -495,10 +826,9 @@
                  :border "1px solid rgba(210,220,255,0.24)",
                  :border-radius "22px",
                  :background "#040612",
-                 :box-shadow "0 30px 100px rgba(0,0,0,0.55)"}}
-        :resolve-resource resolve-texture-resource :submit!
-        render-lowered! :on-error
-        #(js/console.error "earth/moon frame rejected" %)])}))
+                 :box-shadow "0 30px 100px rgba(0,0,0,0.55)"}} :submit!
+        submit-browser! :resolve-resource (fn [source _state] source)
+        :on-error #(js/console.error "earth/moon frame rejected" %)])}))
 
 
 (defn main-view
@@ -531,7 +861,7 @@
                   :margin "8px 0 0"}} "Earth and Moon"]]
        [:div {:style {:display "flex", :gap "10px"}}
         [:button
-         {:on-click #(swap! scene-state update :animating? not),
+         {:on-click toggle-animation!,
           :style {:padding "10px 14px",
                   :border-radius "999px",
                   :border "1px solid #7186c7",
@@ -561,7 +891,7 @@
          "Postgraphics Program"]
         [:p {:style {:color "#c2cee8", :margin "0 0 12px"}}
          "Each tick emits a complete frame with " [:code ":camera3d/set"]
-         ", lighting state, two " [:code ":draw3d/mesh"] " spheres, and "
-         [:code ":draw3d/lines"] " for rings, orbit, and stars."]
+         ", lighting state, and two " [:code ":draw3d/mesh"]
+         " spheres from the shared Clojure/ClojureDart producer."]
         [:p {:style {:color "#8391b7", :font-size "13px", :margin "0"}}
-         "This is a 3D postgraphics producer. The current browser submitter paints the lowered mesh and line intents to canvas while the WebGPU VM owns validation, stream binding, and lowering."]]]]]))
+         "This is a 3D postgraphics producer. The browser renderer now submits the lowered mesh frame through WebGPU with depth testing and textured fragments."]]]]]))

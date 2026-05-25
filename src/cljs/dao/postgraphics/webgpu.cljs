@@ -73,18 +73,6 @@
       (reject! (str k " must be [r g b a] with each component in [0, 1]")))))
 
 
-(defn- identity-affine
-  []
-  {:m00 1.0,
-   :m01 0.0,
-   :m10 0.0,
-   :m11 1.0,
-   :tx 0.0,
-   :ty 0.0,
-   :affine-2d? true,
-   :translate-only? true})
-
-
 (defn- approx-zero?
   [x]
   (< (js/Math.abs (double x)) epsilon))
@@ -115,72 +103,250 @@
     (assoc m :translate-only? (affine-translate-only? m))))
 
 
+(defn- mat4
+  [& xs]
+  (vec (map double xs)))
+
+
+(defn- identity-mat4
+  []
+  (mat4 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1))
+
+
+(defn- mat4-mul
+  [a b]
+  (vec (for [col (range 4)
+             row (range 4)]
+         (+ (* (nth a row) (nth b (* col 4)))
+            (* (nth a (+ 4 row)) (nth b (+ (* col 4) 1)))
+            (* (nth a (+ 8 row)) (nth b (+ (* col 4) 2)))
+            (* (nth a (+ 12 row)) (nth b (+ (* col 4) 3)))))))
+
+
+(defn- mat4-translation
+  [[tx ty tz]]
+  (mat4 1 0 0 0 0 1 0 0 0 0 1 0 (or tx 0.0) (or ty 0.0) (or tz 0.0) 1))
+
+
+(defn- mat4-scale
+  [[sx sy sz]]
+  (mat4 (or sx 1.0) 0 0 0 0 (or sy 1.0) 0 0 0 0 (or sz 1.0) 0 0 0 0 1))
+
+
+(defn- mat4-rotation-x
+  [a]
+  (let [c (js/Math.cos a)
+        s (js/Math.sin a)]
+    (mat4 1 0 0 0 0 c s 0 0 (- s) c 0 0 0 0 1)))
+
+
+(defn- mat4-rotation-y
+  [a]
+  (let [c (js/Math.cos a)
+        s (js/Math.sin a)]
+    (mat4 c 0 (- s) 0 0 1 0 0 s 0 c 0 0 0 0 1)))
+
+
+(defn- mat4-rotation-z
+  [a]
+  (let [c (js/Math.cos a)
+        s (js/Math.sin a)]
+    (mat4 c s 0 0 (- s) c 0 0 0 0 1 0 0 0 0 1)))
+
+
+(defn- matrix4-translation-only?
+  [m]
+  (and (approx-one? (nth m 0))
+       (approx-zero? (nth m 1))
+       (approx-zero? (nth m 2))
+       (approx-zero? (nth m 3))
+       (approx-zero? (nth m 4))
+       (approx-one? (nth m 5))
+       (approx-zero? (nth m 6))
+       (approx-zero? (nth m 7))
+       (approx-zero? (nth m 8))
+       (approx-zero? (nth m 9))
+       (approx-one? (nth m 10))
+       (approx-zero? (nth m 11))
+       (approx-zero? (nth m 14))
+       (approx-one? (nth m 15))))
+
+
+(defn- matrix4->affine
+  [m]
+  (when-not (and (approx-zero? (nth m 2))
+                 (approx-zero? (nth m 3))
+                 (approx-zero? (nth m 6))
+                 (approx-zero? (nth m 7))
+                 (approx-one? (nth m 10))
+                 (approx-zero? (nth m 11))
+                 (approx-zero? (nth m 14))
+                 (approx-one? (nth m 15)))
+    (reject! "4x4 matrix must be 2D-affine for 2D WebGPU lowering"))
+  (affine (nth m 0) (nth m 4) (nth m 1) (nth m 5) (nth m 12) (nth m 13)))
+
+
 (defn- matrix-valid-numbers?
   [m n]
   (and (vector? m) (= n (count m)) (every? finite-number? m)))
 
 
-(defn- matrix-op->affine
+(defn- matrix-op->mat4
   [mat]
-  (cond (matrix-valid-numbers? mat 9) (let [[m00 m01 tx m10 m11 ty m20 m21 m22]
-                                            mat]
-                                        (when-not (and (approx-zero? m20)
-                                                       (approx-zero? m21)
-                                                       (approx-one? m22))
-                                          (reject! "2D matrix must be affine"))
-                                        (affine m00 m01 m10 m11 tx ty))
-        (matrix-valid-numbers? mat 16)
-        (let [m00 (nth mat 0)
-              m10 (nth mat 1)
-              z0 (nth mat 2)
-              w0 (nth mat 3)
-              m01 (nth mat 4)
-              m11 (nth mat 5)
-              z1 (nth mat 6)
-              w1 (nth mat 7)
-              z2 (nth mat 10)
-              tx (nth mat 12)
-              ty (nth mat 13)
-              zt (nth mat 14)
-              wt (nth mat 15)]
-          (when-not (and (approx-zero? z0)
-                         (approx-zero? w0)
-                         (approx-zero? z1)
-                         (approx-zero? w1)
-                         (approx-one? z2)
-                         (approx-zero? zt)
-                         (approx-one? wt))
-            (reject! "4x4 matrix must be 2D-affine for 2D WebGPU lowering"))
-          (affine m00 m01 m10 m11 tx ty))
-        :else (reject! "matrix must be a 9- or 16-element numeric vector")))
+  (cond
+    (matrix-valid-numbers? mat 16) (mapv double mat)
+    (matrix-valid-numbers? mat 9)
+    (let [[m00 m01 m02 m10 m11 m12 m20 m21 m22] mat]
+      (mat4 m00 m10 0.0 m20 m01 m11 0.0 m21 0.0 0.0 1.0 0.0 m02 m12 0.0 m22))
+    :else (reject! "matrix must be a 9- or 16-element numeric vector")))
 
 
-(defn- op->affine
+(defn- op->mat4
   [op]
   (if-let [mat (:matrix op)]
-    (matrix-op->affine mat)
-    (let [[sx sy] (or (:scale op) [1.0 1.0])
-          [tx ty] (or (:translate op) [0.0 0.0])
-          rz (let [r (:rotate op)]
-               (cond (nil? r) 0.0
-                     (finite-number? r) r
-                     (vec3? r) (nth r 2)
-                     :else (reject! "rotate must be a number or [rx ry rz]")))
-          c (js/Math.cos rz)
-          s (js/Math.sin rz)]
-      (when-not (and (vec2? [sx sy]) (vec2? [tx ty]))
-        (reject! "translate and scale must be numeric vectors"))
-      (affine (* c sx) (* (- s) sy) (* s sx) (* c sy) tx ty))))
+    (matrix-op->mat4 mat)
+    (let [translate (or (:translate op) [0.0 0.0 0.0])
+          scale (or (:scale op) [1.0 1.0 1.0])
+          rotate (let [r (:rotate op)]
+                   (cond (nil? r) [0.0 0.0 0.0]
+                         (finite-number? r) [0.0 0.0 r]
+                         (vec3? r) r
+                         :else (reject!
+                                 "rotate must be a number or [rx ry rz]")))]
+      (when-not (or (vec2? translate) (vec3? translate))
+        (reject! "translate must be [x y] or [x y z]"))
+      (when-not (or (vec2? scale) (vec3? scale))
+        (reject! "scale must be [x y] or [x y z]"))
+      (let [[rx ry rz] rotate]
+        (-> (mat4-translation translate)
+            (mat4-mul (mat4-rotation-z rz))
+            (mat4-mul (mat4-rotation-y ry))
+            (mat4-mul (mat4-rotation-x rx))
+            (mat4-mul (mat4-scale scale)))))))
 
 
-(defn- compose-affine
-  [a b]
-  (affine (+ (* (:m00 a) (:m00 b)) (* (:m01 a) (:m10 b)))
-          (+ (* (:m00 a) (:m01 b)) (* (:m01 a) (:m11 b)))
-          (+ (* (:m10 a) (:m00 b)) (* (:m11 a) (:m10 b)))
-          (+ (* (:m10 a) (:m01 b)) (* (:m11 a) (:m11 b)))
-          (+ (* (:m00 a) (:tx b)) (* (:m01 a) (:ty b)) (:tx a))
-          (+ (* (:m10 a) (:tx b)) (* (:m11 a) (:ty b)) (:ty a))))
+(defn- mat4-invert
+  [m]
+  (let [a00 (nth m 0)
+        a01 (nth m 1)
+        a02 (nth m 2)
+        a03 (nth m 3)
+        a10 (nth m 4)
+        a11 (nth m 5)
+        a12 (nth m 6)
+        a13 (nth m 7)
+        a20 (nth m 8)
+        a21 (nth m 9)
+        a22 (nth m 10)
+        a23 (nth m 11)
+        a30 (nth m 12)
+        a31 (nth m 13)
+        a32 (nth m 14)
+        a33 (nth m 15)
+        b00 (- (* a00 a11) (* a01 a10))
+        b01 (- (* a00 a12) (* a02 a10))
+        b02 (- (* a00 a13) (* a03 a10))
+        b03 (- (* a01 a12) (* a02 a11))
+        b04 (- (* a01 a13) (* a03 a11))
+        b05 (- (* a02 a13) (* a03 a12))
+        b06 (- (* a20 a31) (* a21 a30))
+        b07 (- (* a20 a32) (* a22 a30))
+        b08 (- (* a20 a33) (* a23 a30))
+        b09 (- (* a21 a32) (* a22 a31))
+        b10 (- (* a21 a33) (* a23 a31))
+        b11 (- (* a22 a33) (* a23 a32))
+        det (+ (* b00 b11)
+               (- (* b01 b10))
+               (* b02 b09)
+               (* b03 b08)
+               (- (* b04 b07))
+               (* b05 b06))]
+    (when (approx-zero? det) (reject! "4x4 matrix is not invertible"))
+    (let [inv-det (/ 1.0 det)]
+      (mat4 (* (- (* a11 b11) (* a12 b10) (- (* a13 b09))) inv-det)
+            (* (+ (- (* a01 b11)) (* a02 b10) (- (* a03 b09))) inv-det)
+            (* (- (* a31 b05) (* a32 b04) (- (* a33 b03))) inv-det)
+            (* (+ (- (* a21 b05)) (* a22 b04) (- (* a23 b03))) inv-det)
+            (* (+ (- (* a10 b11)) (* a12 b08) (- (* a13 b07))) inv-det)
+            (* (- (* a00 b11) (* a02 b08) (- (* a03 b07))) inv-det)
+            (* (+ (- (* a30 b05)) (* a32 b02) (- (* a33 b01))) inv-det)
+            (* (- (* a20 b05) (* a22 b02) (- (* a23 b01))) inv-det)
+            (* (- (* a10 b10) (* a11 b08) (- (* a13 b06))) inv-det)
+            (* (+ (- (* a00 b10)) (* a01 b08) (- (* a03 b06))) inv-det)
+            (* (- (* a30 b04) (* a31 b02) (- (* a33 b00))) inv-det)
+            (* (+ (- (* a20 b04)) (* a21 b02) (- (* a23 b00))) inv-det)
+            (* (+ (- (* a10 b09)) (* a11 b07) (- (* a12 b06))) inv-det)
+            (* (- (* a00 b09) (* a01 b07) (- (* a02 b06))) inv-det)
+            (* (+ (- (* a30 b03)) (* a31 b01) (- (* a32 b00))) inv-det)
+            (* (- (* a20 b03) (* a21 b01) (- (* a22 b00))) inv-det)))))
+
+
+(defn- camera-pos-from-view-matrix
+  [view-matrix]
+  (let [inv (mat4-invert (mapv double view-matrix))]
+    [(nth inv 12) (nth inv 13) (nth inv 14)]))
+
+
+(defn- build-camera
+  [op width height]
+  (let [projection
+        (case (:camera3d/projection op)
+          :perspective
+          (let [fov (double (:camera3d/fov op))
+                near (double (:camera3d/near op))
+                far (double (:camera3d/far op))
+                aspect (double (get op :camera3d/aspect (/ width height)))
+                f (/ 1.0 (js/Math.tan (/ (* fov js/Math.PI) 360.0)))
+                z-range (- near far)]
+            (mat4 (/ f aspect)
+                  0.0
+                  0.0
+                  0.0
+                  0.0
+                  f
+                  0.0
+                  0.0
+                  0.0
+                  0.0
+                  (/ far z-range)
+                  -1.0
+                  0.0
+                  0.0
+                  (/ (* near far) z-range)
+                  0.0))
+          :orthographic (let [left (double (:camera3d/left op))
+                              right (double (:camera3d/right op))
+                              bottom (double (:camera3d/bottom op))
+                              top (double (:camera3d/top op))
+                              near (double (:camera3d/near op))
+                              far (double (:camera3d/far op))]
+                          (mat4 (/ 2.0 (- right left))
+                                0.0
+                                0.0
+                                0.0
+                                0.0
+                                (/ 2.0 (- top bottom))
+                                0.0
+                                0.0
+                                0.0
+                                0.0
+                                (/ 1.0 (- near far))
+                                0.0
+                                (- (/ (+ right left) (- right left)))
+                                (- (/ (+ top bottom) (- top bottom)))
+                                (/ near (- near far))
+                                1.0)))
+        view (if-let [vmat (:camera3d/view-matrix op)]
+               (mapv double vmat)
+               (let [pos (get op :camera3d/position [0.0 0.0 0.0])
+                     rot (get op :camera3d/rotation [0.0 0.0 0.0])
+                     [rx ry rz] rot
+                     camera-world (-> (mat4-translation pos)
+                                      (mat4-mul (mat4-rotation-z rz))
+                                      (mat4-mul (mat4-rotation-y ry))
+                                      (mat4-mul (mat4-rotation-x rx)))]
+                 (mat4-invert camera-world)))]
+    (mat4-mul projection view)))
 
 
 (defn- transform-point
@@ -293,7 +459,7 @@
 (defn- validate-2d-draw!
   [op model-stack target-stack produced-targets]
   (let [kind (:op/kind op)
-        top (first model-stack)]
+        top (matrix4->affine (first model-stack))]
     (when-not (:affine-2d? top)
       (reject! (str "Invalid 2D affine matrix for " kind)))
     (case kind
@@ -425,7 +591,7 @@
   [frame]
   (when-not (vector? frame) (reject! "Frame must be a vector"))
   (loop [ops (seq frame)
-         model-stack (list (identity-affine))
+         model-stack (list (identity-mat4))
          clip-depth 0
          target-stack (list {:id :default})
          produced-targets #{}
@@ -452,8 +618,8 @@
                                   produced-targets
                                   has-camera?
                                   lighting-enabled?))
-          :transform/push (let [next-m (compose-affine (first model-stack)
-                                                       (op->affine op))]
+          :transform/push (let [next-m (mat4-mul (first model-stack)
+                                                 (op->mat4 op))]
                             (recur (next ops)
                                    (conj model-stack next-m)
                                    clip-depth
@@ -474,7 +640,7 @@
           (do (when-not (positive-rect? (:rect op))
                 (reject!
                   "clip/push-rect :rect must be [x y w h] with w>0, h>0"))
-              (when-not (:translate-only? (first model-stack))
+              (when-not (matrix4-translation-only? (first model-stack))
                 (reject! "clip/push-rect requires translate-only ancestry"))
               (recur (next ops)
                      model-stack
@@ -497,7 +663,7 @@
                 (reject! "meta/region :rect must be [x y w h] with w>0, h>0"))
               (when-not (contains? op :op/meta)
                 (reject! "meta/region missing :op/meta"))
-              (when-not (:translate-only? (first model-stack))
+              (when-not (matrix4-translation-only? (first model-stack))
                 (reject! "meta/region requires translate-only ancestry"))
               (recur (next ops)
                      model-stack
@@ -665,9 +831,9 @@
 
 (defn- lower-2d-rect
   [op state viewport-height pipeline]
-  (let [screen-rect (cart-rect->screen
-                      (transformed-rect (first (:model-stack state)) (:rect op))
-                      viewport-height)]
+  (let [top (matrix4->affine (first (:model-stack state)))
+        screen-rect (cart-rect->screen (transformed-rect top (:rect op))
+                                       viewport-height)]
     (append-draw state
                  {:pipeline pipeline,
                   :op/kind (:op/kind op),
@@ -680,7 +846,8 @@
 
 (defn- lower-text
   [op state viewport-height]
-  (let [[x y] (transform-point (first (:model-stack state)) (:position op))
+  (let [top (matrix4->affine (first (:model-stack state)))
+        [x y] (transform-point top (:position op))
         font-size (double (get op :font-size 14.0))
         width (* (count (:text op)) font-size 0.6)
         x-off (case (get op :align :start)
@@ -704,9 +871,9 @@
 (defn- lower-image
   [op state opts viewport-height]
   (let [resource (resolve-source! (:image/source op) state opts)
-        screen-rect (cart-rect->screen
-                      (transformed-rect (first (:model-stack state)) (:rect op))
-                      viewport-height)]
+        top (matrix4->affine (first (:model-stack state)))
+        screen-rect (cart-rect->screen (transformed-rect top (:rect op))
+                                       viewport-height)]
     (append-draw state
                  {:pipeline (if (= :placeholder (:resource/kind resource))
                               :solid-2d
@@ -725,25 +892,32 @@
 (defn- lower-3d
   [op state opts]
   (let [resource (when-let [source (:texture/source op)]
-                   (resolve-source! source state opts))]
+                   (resolve-source! source state opts))
+        model-m (first (:model-stack state))
+        mvp (mat4-mul (:camera-matrix state) model-m)
+        op' (cond-> (dissoc op :op/meta)
+              resource (assoc :texture/source resource))]
     (append-draw state
                  {:pipeline (case (:op/kind op)
                               :draw3d/lines :line-3d
-                              :draw3d/triangles :flat-3d
-                              :draw3d/mesh
-                              (if resource :mesh-textured-3d :mesh-3d)),
+                              :draw3d/triangles :draw-3d
+                              :draw3d/mesh :mesh-3d),
                   :op/kind (:op/kind op),
-                  :mvp [:camera-matrix :mul :model-stack-top],
-                  :model-transform (first (:model-stack state)),
+                  :op op',
+                  :mvp mvp,
+                  :model-m model-m,
                   :camera (:camera-state state),
                   :depth-test (:depth-test state),
                   :depth-write (:depth-write state),
                   :lighting-enabled (:lighting-enabled state),
+                  :lighting-state {:enabled (:lighting-enabled state),
+                                   :lights (:lights state),
+                                   :camera-pos (:camera-pos state)},
                   :lights (:lights state),
                   :camera-pos (:camera-pos state),
                   :texture resource,
                   :clips (vec (:clip-stack state)),
-                  :payload (dissoc op :op/meta),
+                  :payload op',
                   :op/meta (:op/meta op)})))
 
 
@@ -753,7 +927,7 @@
    (validate-frame! frame)
    (let [{:keys [width height]} (viewport opts)]
      (loop [ops (seq frame)
-            state {:model-stack (list (identity-affine)),
+            state {:model-stack (list (identity-mat4)),
                    :clip-stack (),
                    :target-stack (list {:id :default, :pass-index 0}),
                    :target-registry {},
@@ -782,15 +956,15 @@
                :transform/push (update state
                                        :model-stack
                                        conj
-                                       (compose-affine (first (:model-stack
-                                                                state))
-                                                       (op->affine op)))
+                                       (mat4-mul (first (:model-stack state))
+                                                 (op->mat4 op)))
                :transform/pop (update state :model-stack rest)
                :clip/push-rect (update state
                                        :clip-stack
                                        conj
-                                       (resolve-clip-rect (first (:model-stack
-                                                                   state))
+                                       (resolve-clip-rect (matrix4->affine
+                                                            (first (:model-stack
+                                                                     state)))
                                                           (:rect op)
                                                           height))
                :clip/pop (update state :clip-stack rest)
@@ -798,18 +972,22 @@
                                     :geometry-report
                                     (fnil conj [])
                                     {:screen-rect (resolve-clip-rect
-                                                    (first (:model-stack state))
+                                                    (matrix4->affine
+                                                      (first (:model-stack
+                                                               state)))
                                                     (:rect op)
                                                     height),
                                      :op/meta (:op/meta op)})
-               :camera3d/set (assoc state
-                                    :camera-matrix (or (:camera3d/view-matrix op)
-                                                       {:projection
-                                                        (:camera3d/projection op)})
-                                    :camera-state op
-                                    :camera-pos (if-let [pos (:camera3d/position op)]
-                                                  (mapv double pos)
-                                                  [0.0 0.0 0.0]))
+               :camera3d/set
+               (-> state
+                   (assoc :camera-matrix (build-camera op width height)
+                          :camera-state op
+                          :camera-pos
+                          (if-let [vmat (:camera3d/view-matrix op)]
+                            (camera-pos-from-view-matrix vmat)
+                            (mapv double
+                                  (get op :camera3d/position [0.0 0.0 0.0]))))
+                   (append-draw {:pipeline :camera-reset}))
                :state/depth-test (assoc state :depth-test (:enabled op))
                :state/depth-write (assoc state :depth-write (:enabled op))
                :state/lighting-enable (assoc state

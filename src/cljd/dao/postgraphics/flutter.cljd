@@ -1,9 +1,13 @@
 (ns dao.postgraphics.flutter
-  (:require ["dart:core" :as dart]
+  (:require ["dart:async" :as async]
+            ["dart:core" :as dart]
             ["dart:math" :as math]
             ["dart:typed_data" :as type]
+            ["dart:ui" :as ui]
             ["package:flutter/material.dart" :as m]
+            ["package:flutter/services.dart" :as services]
             ["package:flutter_gpu/gpu.dart" :as gpu]
+            ["package:vector_math/vector_math.dart" :as vm32]
             ["package:vector_math/vector_math_64.dart" :as vm]
             [dao.postgraphics.terminal :as terminal]))
 
@@ -22,7 +26,7 @@
 
 (defn- ->f64-list
   ^type/Float64List [args]
-  (let [fl (type/Float64List. (count args))]
+  (let [^type/Float64List fl (type/Float64List. (count args))]
     (loop [i 0
            s (seq args)]
       (if s (do (aset fl i (double (first s))) (recur (inc i) (next s))) fl))))
@@ -489,7 +493,7 @@
                          aspect (double
                                   (get op :camera3d/aspect (/ width height)))
                          f (/ 1.0 (math/tan (/ (* fov math/pi) 360.0)))
-                         st (.-storage proj)]
+                         ^type/Float64List st (.-storage proj)]
                      (aset st 0 (/ f aspect))
                      (aset st 5 f)
                      (aset st 10 (/ far (- near far)))
@@ -501,7 +505,7 @@
                           top (double (:camera3d/top op))
                           near (double (:camera3d/near op))
                           far (double (:camera3d/far op))
-                          st (.-storage proj)]
+                          ^type/Float64List st (.-storage proj)]
                       (aset st 0 (/ 2.0 (- right left)))
                       (aset st 5 (/ 2.0 (- top bottom)))
                       (aset st 10 (/ 1.0 (- near far)))
@@ -923,9 +927,9 @@
 ;; --- GPU helpers ---
 
 (defn- vertices->float32-list
-  [verts uvs normals colors]
+  ^type/Float32List [verts uvs normals colors]
   (let [n (count verts)
-        data (type/Float32List. (* n 12))]
+        ^type/Float32List data (type/Float32List. (* n 12))]
     (dotimes [i n]
       (let [off (* i 12)
             v (nth verts i)
@@ -948,10 +952,10 @@
 
 
 (defn- indices->uint16-list
-  [indices]
+  ^type/Uint16List [indices]
   (let [flat (flatten indices)
         n (count flat)
-        data (type/Uint16List. n)]
+        ^type/Uint16List data (type/Uint16List. n)]
     (loop [i 0
            s (seq flat)]
       (if s (do (aset data i (int (first s))) (recur (inc i) (next s))) data))))
@@ -986,14 +990,42 @@
     (reject! :validation-failure "Texture width and height must be positive"))
   (require-rgba-byte-size! width height rgba)
   (init-gpu!)
-  (let [{:keys [context]} @gpu-state]
+  (let [^gpu/GpuContext context (:context @gpu-state)]
     (if context
-      (let [texture
+      (let [^gpu/Texture texture
             (.createTexture context gpu/StorageMode.hostVisible width height)]
         (.overwrite texture rgba)
         texture)
       (reject! :unsupported-op
                "Flutter GPU is not available; cannot create texture"))))
+
+
+(defn load-rgba-texture-from-asset!
+  "Asynchronously loads a PNG/JPG asset, decodes it to RGBA8 bytes, and
+   uploads the result to a Flutter GPU texture. Returns a Future that
+   resolves to a gpu/Texture suitable for use as :texture/source."
+  ^async/Future [^String asset-path]
+  (.then
+    ^async/Future (.load services/rootBundle asset-path)
+    (fn [^type/ByteData asset-bytes]
+      (.then
+        ^async/Future
+        (ui/instantiateImageCodec (.asUint8List (.-buffer asset-bytes)))
+        (fn [^ui/Codec codec]
+          (.then
+            ^async/Future (.getNextFrame codec)
+            (fn [^ui/FrameInfo frame]
+              (let [^ui/Image image (.-image frame)
+                    w (.-width image)
+                    h (.-height image)]
+                (.then
+                  ^async/Future
+                  (.toByteData image .format ui/ImageByteFormat.rawRgba)
+                  (fn [rgba]
+                    (if (nil? rgba)
+                      (throw (dart/Exception. (str "Failed to decode asset: "
+                                                   asset-path)))
+                      (create-rgba-texture! w h ^type/ByteData rgba))))))))))))
 
 
 (defn- sampler-filter
@@ -1041,11 +1073,11 @@
         (dart/print "Flutter GPU is not available on this device.")
         (try
           (let [lib (gpu/ShaderLibrary.fromAsset
-                      "shaders/simple_mesh.shaderbundle")
+                      "assets/shaders/simple_mesh.shaderbundle")
                 _ (when (nil? lib)
                     (throw (dart/Exception. "Failed to load shader library")))
-                vert (aget lib "SimpleVertex")
-                frag (aget lib "SimpleFragment")]
+                vert (. ^gpu/ShaderLibrary lib "[]" "SimpleVertex")
+                frag (. ^gpu/ShaderLibrary lib "[]" "SimpleFragment")]
             (if (and vert frag)
               (let [pipeline (.createRenderPipeline ctx vert frag)
                     white-texture (let [bytes (type/ByteData. 4)]
@@ -1134,27 +1166,48 @@
   [lowered ^double width ^double height]
   (reject-non-gpu-draws! lowered)
   (init-gpu!)
-  (let [{:keys [context pipeline host-buffer]} @gpu-state]
+  (let [state @gpu-state
+        ^gpu/GpuContext context (:context state)
+        ^gpu/RenderPipeline pipeline (:pipeline state)
+        ^gpu/HostBuffer host-buffer (:host-buffer state)]
     (if (and context pipeline host-buffer)
       (let [[r g b a] (gpu-clear-color lowered)
-            command-buffer (.createCommandBuffer context)
-            ;; Create a texture to render into
-            texture (.createTexture context
-                                    gpu/StorageMode.devicePrivate
-                                    (int width)
-                                    (int height))
+            ^gpu/CommandBuffer command-buffer (.createCommandBuffer context)
+            ^gpu/Texture texture (.createTexture context
+                                                 gpu/StorageMode.devicePrivate
+                                                 (int width)
+                                                 (int height))
+            ^gpu/Texture depth-texture (.createTexture
+                                         context
+                                         gpu/StorageMode.devicePrivate
+                                         (int width)
+                                         (int height)
+                                         .format
+                                         gpu/PixelFormat.d24UnormS8Uint)
             render-target
             (gpu/RenderTarget.singleColor
               (gpu/ColorAttachment.
                 .texture
                 texture
                 .clearValue
-                (vm/Vector4. (double r) (double g) (double b) (double a))
+                (vm32/Vector4. (double r) (double g) (double b) (double a))
                 .loadAction
                 gpu/LoadAction.clear
                 .storeAction
-                gpu/StoreAction.store))
-            render-pass (.createRenderPass command-buffer render-target)]
+                gpu/StoreAction.store)
+              .depthStencilAttachment
+              (gpu/DepthStencilAttachment. .texture
+                                           depth-texture
+                                           .depthLoadAction
+                                           gpu/LoadAction.clear
+                                           .depthStoreAction
+                                           gpu/StoreAction.dontCare
+                                           .depthClearValue
+                                           1.0))
+            ^gpu/RenderPass render-pass (.createRenderPass command-buffer
+                                                           render-target)]
+        (.setDepthCompareOperation render-pass gpu/CompareFunction.less)
+        (.setDepthWriteEnable render-pass true)
         (.reset host-buffer)
         ;; TODO: implement other pipelines (clear, text, 2D)
         (doseq [draw (:draws lowered)]
@@ -1162,7 +1215,8 @@
             :mesh-3d (render-mesh-gpu! render-pass draw pipeline host-buffer)
             :draw-3d (render-mesh-gpu! render-pass draw pipeline host-buffer)
             nil))
-        (.submit command-buffer))
+        (.submit command-buffer)
+        (.asImage texture))
       (reject! :unsupported-op
                "Flutter GPU is not available; Canvas fallback is disabled"))))
 
@@ -1173,13 +1227,14 @@
   m/CustomPainter
 
   (paint
-    [_this _canvas ^m/Size size]
+    [_this ^ui/Canvas canvas ^m/Size size]
     (let [frame (.-value notifier)
           ^double width (.-width size)
           ^double height (.-height size)]
       (when (seq frame)
-        (try (let [lowered (lower-frame frame width height)]
-               (submit! lowered width height))
+        (try (let [lowered (lower-frame frame width height)
+                   image (submit! lowered width height)]
+               (.drawImage canvas image (ui/Offset. 0.0 0.0) (ui/Paint.)))
              (catch Object e (dart/print (str "Paint failed: " e)))))))
 
 

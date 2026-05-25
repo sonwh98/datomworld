@@ -17,7 +17,7 @@ dev_dependencies:
 
 flutter:
   assets:
-    - shaders/simple_mesh.shaderbundle
+    - assets/shaders/simple_mesh.shaderbundle
     - assets/images/earth_land_ocean_ice_2048.jpg
     - assets/images/moon_texture_1024.jpg
     - assets/images/earth_land_ocean_ice_1024.jpg

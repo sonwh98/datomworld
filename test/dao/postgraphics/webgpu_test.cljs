@@ -12,6 +12,16 @@
   (ds/open! {:type :ringbuffer, :capacity nil}))
 
 
+(defn- approx=
+  [a b]
+  (< (js/Math.abs (- (double a) (double b))) 1.0e-6))
+
+
+(defn- approx-vec=
+  [a b]
+  (and (= (count a) (count b)) (every? true? (map approx= a b))))
+
+
 (deftest rects-are-lowered-into-browser-screen-space
   (let [lowered (webgpu/lower-frame [{:op/kind :draw/fill-rect,
                                       :rect [10 20 30 40],
@@ -48,6 +58,62 @@
     (is (= :text (:pipeline draw)))
     (is (= [13 78] (:screen-position draw)))
     (is (= false (:glyphs-transformed? draw)))))
+
+
+(deftest three-d-lowering-resolves-camera-and-model-like-flutter
+  (let [frame [{:op/kind :camera3d/set,
+                :camera3d/projection :perspective,
+                :camera3d/fov 45.0,
+                :camera3d/near 0.1,
+                :camera3d/far 10.0,
+                :camera3d/position [0.0 0.0 5.0],
+                :camera3d/rotation [0.0 0.0 0.0]}
+               {:op/kind :state/depth-test, :enabled true}
+               {:op/kind :state/depth-write, :enabled true}
+               {:op/kind :state/lighting-enable, :enabled true}
+               {:op/kind :light/ambient, :color [0.1 0.2 0.3]}
+               {:op/kind :transform/push, :translate [1.0 2.0 3.0]}
+               {:op/kind :draw3d/mesh,
+                :vertices [[0.0 0.0 0.0] [1.0 0.0 0.0] [0.0 1.0 0.0]],
+                :indices [[0 1 2]],
+                :normals [[0.0 0.0 1.0] [0.0 0.0 1.0] [0.0 0.0 1.0]],
+                :fill [1.0 1.0 1.0 1.0]} {:op/kind :transform/pop}]
+        lowered (webgpu/lower-frame frame
+                                    {:viewport-width 100, :viewport-height 50})
+        draw (second (get-in lowered [:passes 0 :draws]))]
+    (is (= :camera-reset (get-in lowered [:passes 0 :draws 0 :pipeline])))
+    (is (= :mesh-3d (:pipeline draw)))
+    (is (= true (:depth-test draw)))
+    (is (= true (:depth-write draw)))
+    (is (= {:enabled true,
+            :lights [{:kind :ambient, :color [0.1 0.2 0.3]}],
+            :camera-pos [0.0 0.0 5.0]}
+           (:lighting-state draw)))
+    (is (approx-vec= [1.0 0.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 1.0 0.0 1.0 2.0
+                      3.0 1.0]
+                     (:model-m draw)))
+    (is (vector? (:mvp draw)))
+    (is (= 16 (count (:mvp draw))))))
+
+
+(deftest custom-view-matrix-drives-camera-position
+  (let [view [1.0 0.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 1.0 0.0 -3.0 2.0 -5.0 1.0]
+        lowered (webgpu/lower-frame
+                  [{:op/kind :camera3d/set,
+                    :camera3d/projection :perspective,
+                    :camera3d/fov 45.0,
+                    :camera3d/near 0.1,
+                    :camera3d/far 10.0,
+                    :camera3d/view-matrix view}
+                   {:op/kind :state/lighting-enable, :enabled true}
+                   {:op/kind :draw3d/mesh,
+                    :vertices [[0.0 0.0 0.0] [1.0 0.0 0.0] [0.0 1.0 0.0]],
+                    :indices [[0 1 2]],
+                    :normals [[0.0 0.0 1.0] [0.0 0.0 1.0] [0.0 0.0 1.0]],
+                    :fill [1.0 1.0 1.0 1.0]}]
+                  {:viewport-width 100, :viewport-height 50})
+        draw (second (get-in lowered [:passes 0 :draws]))]
+    (is (= [3.0 -2.0 5.0] (get-in draw [:lighting-state :camera-pos])))))
 
 
 (deftest render-targets-produce-addressable-passes
