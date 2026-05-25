@@ -795,7 +795,11 @@
   []
   (let [animating? (:animating? @scene-state)]
     (swap! scene-state update :animating? not)
-    (when-not animating? (reset! started-at-ms* (js/Date.now)))))
+    (when-not animating?
+      (let [seconds (:seconds @scene-state)
+            elapsed-ms (* seconds
+                          (/ scene/frame-interval-ms scene/frame-step-seconds))]
+        (reset! started-at-ms* (- (js/Date.now) elapsed-ms))))))
 
 
 (defn reset-scene!

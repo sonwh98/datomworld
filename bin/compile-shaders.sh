@@ -30,6 +30,8 @@ fi
 
 mkdir -p "$(dirname "$OUTPUT")"
 
+cd "$ROOT"
+
 "$IMPELLERC" \
   --runtime-stage-metal \
   --runtime-stage-gles \
