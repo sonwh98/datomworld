@@ -15,7 +15,6 @@
 
 
 (defonce interval-id (atom nil))
-(defonce terminal-handle (atom nil))
 (defonce texture-cache (atom {}))
 
 
@@ -442,26 +441,6 @@
         nil))))
 
 
-(defn- ensure-terminal!
-  [canvas]
-  (when-not @terminal-handle
-    (reset! terminal-handle
-            (pg/postgraphics-canvas
-              canvas
-              frame-stream
-              :viewport-size (fn [] [(.-width canvas) (.-height canvas)])
-              :resolve-resource resolve-texture-resource
-              :submit! #(render-lowered! canvas %)
-              :on-error #(js/console.error "earth/moon frame rejected" %)))))
-
-
-(defn- release-terminal!
-  []
-  (when-let [handle @terminal-handle]
-    (when-let [close! (:close! handle)] (close!))
-    (reset! terminal-handle nil)))
-
-
 (defn stop!
   []
   (when-let [id @interval-id]
@@ -472,7 +451,7 @@
 
 (defn dispose!
   []
-  (stop!) (release-terminal!) :disposed)
+  (stop!) :disposed)
 
 
 (defn start!
@@ -499,29 +478,27 @@
 
 (defn- canvas-view
   []
-  (let [canvas-ref (atom nil)]
-    (r/create-class
-      {:display-name "earth-moon-postgraphics-3d-canvas",
-       :component-did-mount (fn [_]
-                              (when-let [canvas @canvas-ref]
-                                (ensure-terminal! canvas)
-                                (start!)
-                                (terminal/put-frame! frame-stream
-                                                     (frame-from-seconds
-                                                       (:seconds
-                                                         @scene-state))))),
-       :component-will-unmount (fn [_] (dispose!)),
-       :reagent-render
-       (fn []
-         [:canvas
-          {:ref #(reset! canvas-ref %),
-           :style {:width "min(78vw, 860px)",
-                   :height "min(76vh, 720px)",
-                   :display "block",
-                   :border "1px solid rgba(210,220,255,0.24)",
-                   :border-radius "22px",
-                   :background "#040612",
-                   :box-shadow "0 30px 100px rgba(0,0,0,0.55)"}}])})))
+  (r/create-class
+    {:display-name "earth-moon-postgraphics-widget",
+     :component-did-mount (fn [_]
+                            (start!)
+                            (terminal/put-frame! frame-stream
+                                                 (frame-from-seconds
+                                                   (:seconds @scene-state)))),
+     :component-will-unmount (fn [_] (dispose!)),
+     :reagent-render
+     (fn []
+       [pg/postgraphics-widget frame-stream :canvas-attrs
+        {:style {:width "min(78vw, 860px)",
+                 :height "min(76vh, 720px)",
+                 :display "block",
+                 :border "1px solid rgba(210,220,255,0.24)",
+                 :border-radius "22px",
+                 :background "#040612",
+                 :box-shadow "0 30px 100px rgba(0,0,0,0.55)"}}
+        :resolve-resource resolve-texture-resource :submit!
+        render-lowered! :on-error
+        #(js/console.error "earth/moon frame rejected" %)])}))
 
 
 (defn main-view

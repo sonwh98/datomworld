@@ -104,19 +104,20 @@
               (catch js/Error e (terminal/rejection-reason e))))))
 
 
-(deftest postgraphics-canvas-binds-stream-and-submits-lowered-frames
+(deftest postgraphics-widget-binding-submits-lowered-frames
   (let [frames (make-stream)
         signals (make-stream)
         submissions (atom [])
         errors (atom [])
-        handle (webgpu/postgraphics-canvas nil
-                                           frames
-                                           :viewport-size (fn [] [100 50])
-                                           :signal-stream signals
-                                           :generation-id "webgpu-test"
-                                           :on-error #(swap! errors conj %)
-                                           :submit! #(swap! submissions conj
-                                                            %))]
+        handle (webgpu/frame-stream-binding-test-hook
+                 nil
+                 frames
+                 {:viewport-size (fn [] [100 50]),
+                  :signal-stream signals,
+                  :generation-id "webgpu-test",
+                  :on-error #(swap! errors conj %),
+                  :submit! (fn [_canvas lowered]
+                             (swap! submissions conj lowered))})]
     (terminal/put-frame!
       frames
       [{:op/kind :draw/fill-rect, :rect [0 0 10 10], :color [1 1 1 1]}])

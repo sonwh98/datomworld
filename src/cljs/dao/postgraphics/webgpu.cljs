@@ -1,6 +1,7 @@
 (ns dao.postgraphics.webgpu
   (:require
-    [dao.postgraphics.terminal :as terminal]))
+    [dao.postgraphics.terminal :as terminal]
+    [reagent.core :as r]))
 
 
 (def ^:private epsilon 1.0e-6)
@@ -894,38 +895,79 @@
 
 
 (defn- default-submit!
-  [_lowered]
+  [_canvas _lowered]
   nil)
 
 
 (def put-frame! terminal/put-frame!)
 
 
-(defn postgraphics-canvas
-  "Binds a browser canvas-oriented WebGPU terminal to a dao.stream of complete
-  postgraphics frames.
+(defn- default-viewport-size
+  [canvas]
+  [(.-width canvas) (.-height canvas)])
 
-  The host-specific encoder is deliberately a seam: pass `:submit!` to turn the
-  lowered pass/draw data into real WebGPU commands. Without it, the terminal
-  still validates, lowers, and accounts for frames, which keeps VM semantics
-  independent from browser device availability."
-  [gpu-canvas frame-stream &
+
+(defn- bind-frame-stream!
+  [canvas frame-stream
    {:keys [on-error signal-stream device-options viewport-size submit!
            resolve-resource generation-id generation-id-fn],
     :or {submit! default-submit!}}]
-  (let [host {:canvas gpu-canvas, :device-options device-options}
+  (let [host {:canvas canvas, :device-options device-options}
+        viewport-size (or viewport-size #(default-viewport-size canvas))
         binding
         (terminal/bind-stream!
           frame-stream
           {:validate-frame! validate-frame!,
-           :present-frame! (fn [frame]
-                             (submit! (lower-frame
-                                        frame
+           :present-frame!
+           (fn [frame]
+             (let [lowered (lower-frame frame
                                         {:viewport-size viewport-size,
                                          :resolve-resource resolve-resource,
-                                         :host host}))),
+                                         :host host})]
+               (submit! canvas lowered))),
            :signal-stream signal-stream,
            :generation-id generation-id,
            :generation-id-fn (or generation-id-fn terminal/new-generation-id),
            :on-error on-error})]
     (merge host binding {:submit! submit!})))
+
+
+(defn frame-stream-binding-test-hook
+  [canvas frame-stream opts]
+  (bind-frame-stream! canvas frame-stream opts))
+
+
+(defn postgraphics-widget
+  "Returns a browser canvas widget that renders frames emitted by frame-stream.
+
+  Options:
+  - :on-error      callback receiving the exception when a frame is rejected
+  - :signal-stream dao.stream to which canonical terminal signals
+                   (:dao.terminal/reset, :dao.terminal/rejection) are emitted;
+                   required for participants in dao.gui.event
+
+  Web options:
+  - :canvas-attrs     Hiccup attrs merged onto the internal canvas
+  - :submit!          host encoder called as (submit! canvas lowered-frame)
+  - :viewport-size    function returning [width height]
+  - :resolve-resource function resolving image/texture resources"
+  [frame-stream & {:keys [canvas-attrs], :as opts}]
+  (let [canvas-ref (atom nil)
+        terminal-handle (atom nil)]
+    (r/create-class {:display-name "dao-postgraphics-webgpu-widget",
+                     :component-did-mount
+                     (fn [_]
+                       (when-let [canvas @canvas-ref]
+                         (reset! terminal-handle
+                                 (bind-frame-stream! canvas frame-stream opts)))),
+                     :component-will-unmount
+                     (fn [_]
+                       (when-let [handle @terminal-handle]
+                         (when-let [close! (:close! handle)] (close!)))
+                       (reset! terminal-handle nil)
+                       (reset! canvas-ref nil)),
+                     :reagent-render (fn []
+                                       [:canvas
+                                        (assoc canvas-attrs
+                                               :ref #(reset! canvas-ref
+                                                             %))])})))

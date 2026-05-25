@@ -89,7 +89,6 @@
 (defonce scene-state (r/atom initial-state))
 (defonce tick-state (atom {:t 0.0}))
 (defonce interval-id (atom nil))
-(defonce terminal-handle (atom nil))
 
 
 (defn- rotate-x
@@ -266,25 +265,6 @@
         nil))))
 
 
-(defn- ensure-terminal!
-  [canvas]
-  (when-not @terminal-handle
-    (reset! terminal-handle
-            (pg/postgraphics-canvas
-              canvas
-              frame-stream
-              :viewport-size (fn [] [(.-width canvas) (.-height canvas)])
-              :submit! #(render-lowered! canvas %)
-              :on-error #(js/console.error "postgraphics frame rejected" %)))))
-
-
-(defn- release-terminal!
-  []
-  (when-let [handle @terminal-handle]
-    (when-let [close! (:close! handle)] (close!))
-    (reset! terminal-handle nil)))
-
-
 (defn stop!
   []
   (when-let [id @interval-id]
@@ -295,7 +275,7 @@
 
 (defn dispose!
   []
-  (stop!) (release-terminal!) :disposed)
+  (stop!) :disposed)
 
 
 (defn start!
@@ -319,28 +299,25 @@
 
 (defn- canvas-view
   []
-  (let [canvas-ref (atom nil)]
-    (r/create-class
-      {:display-name "solar-system-webgpu-canvas",
-       :component-did-mount (fn [_]
-                              (when-let [canvas @canvas-ref]
-                                (ensure-terminal! canvas)
-                                (start!)
-                                (terminal/put-frame! frame-stream
-                                                     (frame-from-state
-                                                       @scene-state)))),
-       :component-will-unmount (fn [_] (dispose!)),
-       :reagent-render
-       (fn []
-         [:canvas
-          {:ref #(reset! canvas-ref %),
-           :style {:width "min(78vw, 900px)",
-                   :height "min(78vh, 720px)",
-                   :display "block",
-                   :border "1px solid rgba(160,190,255,0.28)",
-                   :border-radius "18px",
-                   :background "#050711",
-                   :box-shadow "0 28px 90px rgba(0,0,0,0.48)"}}])})))
+  (r/create-class
+    {:display-name "solar-system-postgraphics-widget",
+     :component-did-mount
+     (fn [_]
+       (start!)
+       (terminal/put-frame! frame-stream (frame-from-state @scene-state))),
+     :component-will-unmount (fn [_] (dispose!)),
+     :reagent-render
+     (fn []
+       [pg/postgraphics-widget frame-stream :canvas-attrs
+        {:style {:width "min(78vw, 900px)",
+                 :height "min(78vh, 720px)",
+                 :display "block",
+                 :border "1px solid rgba(160,190,255,0.28)",
+                 :border-radius "18px",
+                 :background "#050711",
+                 :box-shadow "0 28px 90px rgba(0,0,0,0.48)"}} :submit!
+        render-lowered! :on-error
+        #(js/console.error "postgraphics frame rejected" %)])}))
 
 
 (defn main-view
@@ -403,7 +380,7 @@
         [:p {:style {:color "#b8c7e8", :margin "0 0 12px"}}
          "The scene emits complete dao.postgraphics frames into a DaoStream. "
          "The browser terminal consumes that stream through "
-         [:code "postgraphics-canvas"] " and lowers it with "
+         [:code "postgraphics-widget"] " and lowers it with "
          [:code "dao.postgraphics.webgpu"] "."]
         [:p {:style {:color "#7f91bd", :font-size "13px", :margin "0"}}
          "This demo visualizes the lowered 3D line payload on a canvas-backed submitter while keeping the terminal boundary stream-based."]]]]]))

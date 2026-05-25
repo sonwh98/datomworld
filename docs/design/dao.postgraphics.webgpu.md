@@ -590,22 +590,25 @@ These are host transport choices for `dao.stream`, not extensions of the
 
 ## Host API
 
-The browser host is exposed as a canvas binding rather than a Flutter widget.
+The browser host is exposed as a Reagent widget with the same stream-first
+shape as the Flutter host.
 
-### `postgraphics-canvas`
+### `postgraphics-widget`
 
 ```text
-(postgraphics-canvas gpu-canvas frame-stream
+(postgraphics-widget frame-stream
                      & {:keys [on-error
                                signal-stream
+                               canvas-attrs
+                               submit!
+                               viewport-size
+                               resolve-resource
                                device-options]})
-  -> host-handle
+  -> reagent component
 ```
 
 Arguments:
 
-- `gpu-canvas` - an HTML canvas or wrapper from which the VM obtains a
-  `GPUCanvasContext`
 - `frame-stream` - required `dao.stream` cursor of complete frame programs
 
 `frame-stream` is transport-neutral at the API boundary. In a browser host it
@@ -620,19 +623,23 @@ Options:
 
 - `:on-error` - optional callback invoked for every canonical frame rejection
 - `:signal-stream` - optional stream for canonical terminal signals
+- `:canvas-attrs` - optional Hiccup attributes merged onto the internal canvas
+- `:submit!` - optional host encoder called as `(submit! canvas lowered-frame)`
+- `:viewport-size` - optional function returning `[width height]`
+- `:resolve-resource` - optional resource resolver for image/texture inputs
 - `:device-options` - optional adapter / device / format preferences
 
-The returned `host-handle` owns:
+The returned widget owns:
 
-- the WebGPU device and queue bindings used by the VM
-- the stream reader
+- the internal canvas
+- the stream reader / terminal binding
 - the current presented-frame state
 - any persistent GPU resources such as text atlases, cached pipelines, and
   target pools
 
 ### Lifecycle
 
-- **Binding.** One call to `postgraphics-canvas` creates one VM instance and
+- **Binding.** One mounted `postgraphics-widget` creates one VM instance and
   emits a VM Reset Signal with a fresh generation ID.
 - **Resize.** When the canvas backing size changes, the host reconfigures the
   `GPUCanvasContext` and uses the new size as the viewport on the next paint.
@@ -640,7 +647,7 @@ The returned `host-handle` owns:
 - **Transport/runtime failure.** WebSocket disconnects, reconnects, browser ring
   buffer lifecycle, and other `dao.stream` transport/runtime concerns are host
   runtime behavior, not frame-validation failures.
-- **Disposal.** Disposing the handle detaches the stream reader and releases
+- **Disposal.** Unmounting the widget detaches the stream reader and releases
   GPU resources according to browser lifetime rules.
 
 ## Pipeline Realization Notes
