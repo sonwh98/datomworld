@@ -1,86 +1,26 @@
 (ns dao.postgraphics.webgpu
   (:require
     [dao.postgraphics.terminal :as terminal]
+    [dao.postgraphics.validation :as v]
     [reagent.core :as r]))
 
-
-(def ^:private epsilon 1.0e-6)
 
 (def ^:private target-formats #{:rgba8unorm :bgra8unorm :rgba16f :rgba32f})
 
 
-(defn- finite-number?
-  [x]
-  (and (number? x) (js/isFinite x)))
-
-
-(defn- vecn?
-  [n v]
-  (and (vector? v) (= n (count v)) (every? finite-number? v)))
-
-
-(defn- vec2?
-  [v]
-  (vecn? 2 v))
-
-
-(defn- vec3?
-  [v]
-  (vecn? 3 v))
-
-
-(defn- vec4?
-  [v]
-  (vecn? 4 v))
-
-
-(defn- in-unit-interval?
-  [x]
-  (and (finite-number? x) (<= 0.0 x 1.0)))
-
-
-(defn- valid-color?
-  [c]
-  (and (vec4? c) (every? in-unit-interval? c)))
-
-
-(defn- valid-light-color?
-  [c]
-  (and (vec3? c) (every? in-unit-interval? c)))
-
-
-(defn- positive-rect?
-  [r]
-  (and (vec4? r) (> (double (nth r 2)) 0.0) (> (double (nth r 3)) 0.0)))
-
-
 (defn- positive-size?
   [s]
-  (and (vec2? s) (> (double (nth s 0)) 0.0) (> (double (nth s 1)) 0.0)))
-
-
-(defn- reject!
-  ([message] (reject! :validation-failure message))
-  ([reason message]
-   (throw (ex-info (str "[" (name reason) "] " message)
-                   {:dao.postgraphics/reason reason}))))
-
-
-(defn- check-color!
-  [op k]
-  (when-let [c (get op k)]
-    (when-not (valid-color? c)
-      (reject! (str k " must be [r g b a] with each component in [0, 1]")))))
+  (and (v/vec2? s) (> (double (nth s 0)) 0.0) (> (double (nth s 1)) 0.0)))
 
 
 (defn- approx-zero?
   [x]
-  (< (js/Math.abs (double x)) epsilon))
+  (< (js/Math.abs (double x)) v/EPSILON))
 
 
 (defn- approx-one?
   [x]
-  (< (js/Math.abs (- (double x) 1.0)) epsilon))
+  (< (js/Math.abs (- (double x) 1.0)) v/EPSILON))
 
 
 (defn- affine-translate-only?
@@ -182,13 +122,13 @@
                  (approx-zero? (nth m 11))
                  (approx-zero? (nth m 14))
                  (approx-one? (nth m 15)))
-    (reject! "4x4 matrix must be 2D-affine for 2D WebGPU lowering"))
+    (v/reject! "4x4 matrix must be 2D-affine for 2D WebGPU lowering"))
   (affine (nth m 0) (nth m 4) (nth m 1) (nth m 5) (nth m 12) (nth m 13)))
 
 
 (defn- matrix-valid-numbers?
   [m n]
-  (and (vector? m) (= n (count m)) (every? finite-number? m)))
+  (and (vector? m) (= n (count m)) (every? v/finite-number? m)))
 
 
 (defn- matrix-op->mat4
@@ -198,7 +138,7 @@
     (matrix-valid-numbers? mat 9)
     (let [[m00 m01 m02 m10 m11 m12 m20 m21 m22] mat]
       (mat4 m00 m10 0.0 m20 m01 m11 0.0 m21 0.0 0.0 1.0 0.0 m02 m12 0.0 m22))
-    :else (reject! "matrix must be a 9- or 16-element numeric vector")))
+    :else (v/reject! "matrix must be a 9- or 16-element numeric vector")))
 
 
 (defn- op->mat4
@@ -209,14 +149,14 @@
           scale (or (:scale op) [1.0 1.0 1.0])
           rotate (let [r (:rotate op)]
                    (cond (nil? r) [0.0 0.0 0.0]
-                         (finite-number? r) [0.0 0.0 r]
-                         (vec3? r) r
-                         :else (reject!
+                         (v/finite-number? r) [0.0 0.0 r]
+                         (v/vec3? r) r
+                         :else (v/reject!
                                  "rotate must be a number or [rx ry rz]")))]
-      (when-not (or (vec2? translate) (vec3? translate))
-        (reject! "translate must be [x y] or [x y z]"))
-      (when-not (or (vec2? scale) (vec3? scale))
-        (reject! "scale must be [x y] or [x y z]"))
+      (when-not (or (v/vec2? translate) (v/vec3? translate))
+        (v/reject! "translate must be [x y] or [x y z]"))
+      (when-not (or (v/vec2? scale) (v/vec3? scale))
+        (v/reject! "scale must be [x y] or [x y z]"))
       (let [[rx ry rz] rotate]
         (-> (mat4-translation translate)
             (mat4-mul (mat4-rotation-z rz))
@@ -261,7 +201,7 @@
                (* b03 b08)
                (- (* b04 b07))
                (* b05 b06))]
-    (when (approx-zero? det) (reject! "4x4 matrix is not invertible"))
+    (when (approx-zero? det) (v/reject! "4x4 matrix is not invertible"))
     (let [inv-det (/ 1.0 det)]
       (mat4 (* (- (* a11 b11) (* a12 b10) (- (* a13 b09))) inv-det)
             (* (+ (- (* a01 b11)) (* a02 b10) (- (* a03 b09))) inv-det)
@@ -376,7 +316,7 @@
 (defn- resolve-clip-rect
   [m rect viewport-height]
   (when-not (:translate-only? m)
-    (reject! "clip/push-rect requires translate-only ancestry"))
+    (v/reject! "clip/push-rect requires translate-only ancestry"))
   (let [[x y w h] rect]
     [(+ x (:tx m)) (- viewport-height (+ y (:ty m) h)) w h]))
 
@@ -399,9 +339,9 @@
     (let [target-id (target-source-id source)
           active-id (:id (first target-stack))]
       (when (= active-id target-id)
-        (reject! "A render target cannot sample from itself while active"))
+        (v/reject! "A render target cannot sample from itself while active"))
       (when-not (contains? produced-targets target-id)
-        (reject! "Texture source refers to a missing render target")))))
+        (v/reject! "Texture source refers to a missing render target")))))
 
 
 (defn- validate-target-push!
@@ -409,13 +349,13 @@
   (let [target-id (:target/id op)
         size (:target/size op)
         format (get op :target/format :rgba8unorm)]
-    (when-not target-id (reject! "target/push missing :target/id"))
+    (when-not target-id (v/reject! "target/push missing :target/id"))
     (when (contains? produced-targets target-id)
-      (reject! "target/push reused a target id in the same frame"))
+      (v/reject! "target/push reused a target id in the same frame"))
     (when-not (positive-size? size)
-      (reject! "target/push :target/size must be [w h] with w>0, h>0"))
+      (v/reject! "target/push :target/size must be [w h] with w>0, h>0"))
     (when-not (contains? target-formats format)
-      (reject! :unsupported-op "Unsupported WebGPU render-target format"))))
+      (v/reject! :unsupported-op "Unsupported WebGPU render-target format"))))
 
 
 (defn- validate-camera!
@@ -426,34 +366,34 @@
           near (:camera3d/near op)
           far (:camera3d/far op)
           aspect (:camera3d/aspect op)]
-      (when-not (and (finite-number? fov)
-                     (finite-number? near)
-                     (finite-number? far))
-        (reject! "Perspective camera missing numeric fov, near, or far"))
+      (when-not (and (v/finite-number? fov)
+                     (v/finite-number? near)
+                     (v/finite-number? far))
+        (v/reject! "Perspective camera missing numeric fov, near, or far"))
       (when-not (and (> fov 0.0) (< fov 180.0))
-        (reject! "FOV must be in (0, 180)"))
-      (when-not (> near 0.0) (reject! "Near must be > 0"))
-      (when-not (> (- far near) epsilon) (reject! "Far must exceed near"))
-      (when (and aspect (not (and (finite-number? aspect) (> aspect 0.0))))
-        (reject! "Aspect must be positive")))
+        (v/reject! "FOV must be in (0, 180)"))
+      (when-not (> near 0.0) (v/reject! "Near must be > 0"))
+      (when-not (> (- far near) v/EPSILON) (v/reject! "Far must exceed near"))
+      (when (and aspect (not (and (v/finite-number? aspect) (> aspect 0.0))))
+        (v/reject! "Aspect must be positive")))
     :orthographic (let [l (:camera3d/left op)
                         r (:camera3d/right op)
                         b (:camera3d/bottom op)
                         t (:camera3d/top op)
                         near (:camera3d/near op)
                         far (:camera3d/far op)]
-                    (when-not (every? finite-number? [l r b t near far])
-                      (reject! "Orthographic camera missing numeric bounds"))
-                    (when-not (> r l) (reject! "Right must be > left"))
-                    (when-not (> t b) (reject! "Top must be > bottom")))
-    (reject! "Unknown camera projection"))
+                    (when-not (every? v/finite-number? [l r b t near far])
+                      (v/reject! "Orthographic camera missing numeric bounds"))
+                    (when-not (> r l) (v/reject! "Right must be > left"))
+                    (when-not (> t b) (v/reject! "Top must be > bottom")))
+    (v/reject! "Unknown camera projection"))
   (when-let [pos (:camera3d/position op)]
-    (when-not (vec3? pos) (reject! "camera3d/position must be vec3")))
+    (when-not (v/vec3? pos) (v/reject! "camera3d/position must be vec3")))
   (when-let [rot (:camera3d/rotation op)]
-    (when-not (vec3? rot) (reject! "camera3d/rotation must be vec3")))
+    (when-not (v/vec3? rot) (v/reject! "camera3d/rotation must be vec3")))
   (when-let [vmat (:camera3d/view-matrix op)]
     (when-not (matrix-valid-numbers? vmat 16)
-      (reject! "camera3d/view-matrix must be a 16-element numeric vector"))))
+      (v/reject! "camera3d/view-matrix must be a 16-element numeric vector"))))
 
 
 (defn- validate-2d-draw!
@@ -461,68 +401,69 @@
   (let [kind (:op/kind op)
         top (matrix4->affine (first model-stack))]
     (when-not (:affine-2d? top)
-      (reject! (str "Invalid 2D affine matrix for " kind)))
+      (v/reject! (str "Invalid 2D affine matrix for " kind)))
     (case kind
       (:draw/fill-rect :draw/stroke-rect)
-      (do (when-not (positive-rect? (:rect op))
-            (reject! (str kind " :rect must be [x y w h] with w>0, h>0")))
-          (check-color! op :color)
+      (do (when-not (v/positive-rect? (:rect op))
+            (v/reject! (str kind " :rect must be [x y w h] with w>0, h>0")))
+          (v/check-color! op :color)
           (when-let [sw (:stroke-width op)]
-            (when-not (and (finite-number? sw) (>= sw 0.0))
-              (reject! ":stroke-width must be a non-negative number"))))
+            (when-not (and (v/finite-number? sw) (>= sw 0.0))
+              (v/reject! ":stroke-width must be a non-negative number"))))
       (:draw/fill-circle :draw/stroke-circle)
-      (do (when-not (vec2? (:center op))
-            (reject! (str kind " :center must be [x y]")))
-          (when-not (and (finite-number? (:radius op)) (> (:radius op) 0.0))
-            (reject! (str kind " :radius must be > 0")))
-          (check-color! op :color))
+      (do (when-not (v/vec2? (:center op))
+            (v/reject! (str kind " :center must be [x y]")))
+          (when-not (and (v/finite-number? (:radius op)) (> (:radius op) 0.0))
+            (v/reject! (str kind " :radius must be > 0")))
+          (v/check-color! op :color))
       :draw/path (do (when-not (vector? (:segments op))
-                       (reject! "draw/path missing or invalid :segments"))
-                     (check-color! op :fill)
-                     (check-color! op :stroke))
-      :draw/text
-      (do (when-not (string? (:text op))
-            (reject! "draw/text missing or invalid :text"))
-          (when-not (vec2? (:position op))
-            (reject! "draw/text :position must be [x y]"))
-          (check-color! op :color)
-          (when-let [fs (:font-size op)]
-            (when-not (and (finite-number? fs) (> fs 0.0))
-              (reject! "draw/text :font-size must be > 0")))
-          (when-let [ff (:font-family op)]
-            (when-not (string? ff)
-              (reject! "draw/text :font-family must be a string")))
-          (when (contains? op :align)
-            (when-not (#{:start :center :end} (:align op))
-              (reject! "draw/text :align must be :start, :center, or :end"))))
+                       (v/reject! "draw/path missing or invalid :segments"))
+                     (v/check-color! op :fill)
+                     (v/check-color! op :stroke))
+      :draw/text (do
+                   (when-not (string? (:text op))
+                     (v/reject! "draw/text missing or invalid :text"))
+                   (when-not (v/vec2? (:position op))
+                     (v/reject! "draw/text :position must be [x y]"))
+                   (v/check-color! op :color)
+                   (when-let [fs (:font-size op)]
+                     (when-not (and (v/finite-number? fs) (> fs 0.0))
+                       (v/reject! "draw/text :font-size must be > 0")))
+                   (when-let [ff (:font-family op)]
+                     (when-not (string? ff)
+                       (v/reject! "draw/text :font-family must be a string")))
+                   (when (contains? op :align)
+                     (when-not (#{:start :center :end} (:align op))
+                       (v/reject!
+                         "draw/text :align must be :start, :center, or :end"))))
       :draw/image
       (do
-        (when-not (positive-rect? (:rect op))
-          (reject! "draw/image :rect must be [x y w h] with w>0, h>0"))
+        (when-not (v/positive-rect? (:rect op))
+          (v/reject! "draw/image :rect must be [x y w h] with w>0, h>0"))
         (when-not (contains? op :image/source)
-          (reject! "draw/image missing :image/source"))
+          (v/reject! "draw/image missing :image/source"))
         (check-target-source! (:image/source op)
                               target-stack
                               produced-targets)
         (when-let [opacity (:opacity op)]
-          (when-not (in-unit-interval? opacity)
-            (reject! "draw/image :opacity must be in [0, 1]")))
+          (when-not (v/in-unit-interval? opacity)
+            (v/reject! "draw/image :opacity must be in [0, 1]")))
         (when-let [fit (:image/fit op)]
           (when-not (#{:contain :cover :fill :none} fit)
-            (reject!
+            (v/reject!
               "draw/image :image/fit must be :contain, :cover, :fill, or :none")))))))
 
 
 (defn- validate-3d-draw!
   [op has-camera? lighting-enabled? target-stack produced-targets]
-  (when-not has-camera? (reject! "3D draw without prior camera3d/set"))
+  (when-not has-camera? (v/reject! "3D draw without prior camera3d/set"))
   (let [kind (:op/kind op)
         verts (:vertices op)
         vertex-count (count verts)]
-    (when-not (and (vector? verts) (every? vec3? verts))
-      (reject! "3D draw :vertices must be a vector of vec3"))
+    (when-not (and (vector? verts) (every? v/vec3? verts))
+      (v/reject! "3D draw :vertices must be a vector of vec3"))
     (case kind
-      :draw3d/lines (do (check-color! op :color)
+      :draw3d/lines (do (v/check-color! op :color)
                         (when-let [edges (:edges op)]
                           (when-not (every? (fn [edge]
                                               (and (vector? edge)
@@ -533,7 +474,7 @@
                                                            (< % vertex-count))
                                                      edge)))
                                             edges)
-                            (reject! "draw3d/lines :edges invalid"))))
+                            (v/reject! "draw3d/lines :edges invalid"))))
       :draw3d/triangles
       (do (when-not (and (vector? (:indices op))
                          (every? (fn [tri]
@@ -544,8 +485,8 @@
                                                       (< % vertex-count))
                                                 tri)))
                                  (:indices op)))
-            (reject! "draw3d/triangles :indices invalid"))
-          (check-color! op :fill))
+            (v/reject! "draw3d/triangles :indices invalid"))
+          (v/check-color! op :fill))
       :draw3d/mesh
       (do
         (when-not (and (vector? (:indices op))
@@ -557,39 +498,41 @@
                                                     (< % vertex-count))
                                               tri)))
                                (:indices op)))
-          (reject! "draw3d/mesh :indices invalid"))
-        (check-color! op :fill)
+          (v/reject! "draw3d/mesh :indices invalid"))
+        (v/check-color! op :fill)
         (when (and lighting-enabled? (not (:normals op)))
-          (reject! "draw3d/mesh under lighting-enabled requires :normals"))
-        (doseq [[k pred label] [[:normals vec3? "vec3"] [:uvs vec2? "vec2"]
-                                [:colors valid-color? "color"]]]
+          (v/reject! "draw3d/mesh under lighting-enabled requires :normals"))
+        (doseq [[k pred label] [[:normals v/vec3? "vec3"]
+                                [:uvs v/vec2? "vec2"]
+                                [:colors v/valid-color? "color"]]]
           (when-let [values (get op k)]
             (when-not (= vertex-count (count values))
-              (reject!
+              (v/reject!
                 (str "draw3d/mesh " k " length must equal vertices length")))
             (when-not (every? pred values)
-              (reject! (str "draw3d/mesh " k " entries must be " label)))))
+              (v/reject! (str "draw3d/mesh " k " entries must be " label)))))
         (when-let [source (:texture/source op)]
           (check-target-source! source target-stack produced-targets)
           (when-not (:uvs op)
-            (reject! "draw3d/mesh with :texture/source must provide :uvs")))
+            (v/reject! "draw3d/mesh with :texture/source must provide :uvs")))
         (when-let [wrap (:texture/wrap op)]
           (when-not (#{:clamp :repeat :mirror} wrap)
-            (reject! "draw3d/mesh :texture/wrap invalid")))
+            (v/reject! "draw3d/mesh :texture/wrap invalid")))
         (when-let [filter (:texture/filter op)]
           (when-not (#{:linear :nearest} filter)
-            (reject! "draw3d/mesh :texture/filter invalid")))
+            (v/reject! "draw3d/mesh :texture/filter invalid")))
         (when-let [spec (:material/specular op)]
-          (when-not (valid-light-color? spec)
-            (reject! "draw3d/mesh :material/specular must be [r g b]")))
+          (when-not (v/valid-light-color? spec)
+            (v/reject! "draw3d/mesh :material/specular must be [r g b]")))
         (when-let [shininess (:material/shininess op)]
-          (when-not (and (finite-number? shininess) (> shininess 0.0))
-            (reject! "draw3d/mesh :material/shininess must be positive")))))))
+          (when-not (and (v/finite-number? shininess) (> shininess 0.0))
+            (v/reject!
+              "draw3d/mesh :material/shininess must be positive")))))))
 
 
 (defn validate-frame!
   [frame]
-  (when-not (vector? frame) (reject! "Frame must be a vector"))
+  (when-not (vector? frame) (v/reject! "Frame must be a vector"))
   (loop [ops (seq frame)
          model-stack (list (identity-mat4))
          clip-depth 0
@@ -599,18 +542,18 @@
          lighting-enabled? false]
     (if-not ops
       (do (when (> (count model-stack) 1)
-            (reject! "Frame ended with non-empty transform stack"))
+            (v/reject! "Frame ended with non-empty transform stack"))
           (when (pos? clip-depth)
-            (reject! "Frame ended with non-empty clip stack"))
+            (v/reject! "Frame ended with non-empty clip stack"))
           (when (> (count target-stack) 1)
-            (reject! "Frame ended with non-empty render-target stack"))
+            (v/reject! "Frame ended with non-empty render-target stack"))
           frame)
       (let [op (first ops)
             kind (:op/kind op)]
-        (when-not (map? op) (reject! "Op must be a map"))
-        (when-not kind (reject! "Op missing :op/kind"))
+        (when-not (map? op) (v/reject! "Op must be a map"))
+        (when-not kind (v/reject! "Op missing :op/kind"))
         (case kind
-          :frame/clear (do (check-color! op :color)
+          :frame/clear (do (v/check-color! op :color)
                            (recur (next ops)
                                   model-stack
                                   clip-depth
@@ -628,7 +571,7 @@
                                    has-camera?
                                    lighting-enabled?))
           :transform/pop (if (<= (count model-stack) 1)
-                           (reject! "Transform pop without push")
+                           (v/reject! "Transform pop without push")
                            (recur (next ops)
                                   (rest model-stack)
                                   clip-depth
@@ -637,11 +580,11 @@
                                   has-camera?
                                   lighting-enabled?))
           :clip/push-rect
-          (do (when-not (positive-rect? (:rect op))
-                (reject!
+          (do (when-not (v/positive-rect? (:rect op))
+                (v/reject!
                   "clip/push-rect :rect must be [x y w h] with w>0, h>0"))
               (when-not (matrix4-translation-only? (first model-stack))
-                (reject! "clip/push-rect requires translate-only ancestry"))
+                (v/reject! "clip/push-rect requires translate-only ancestry"))
               (recur (next ops)
                      model-stack
                      (inc clip-depth)
@@ -650,7 +593,7 @@
                      has-camera?
                      lighting-enabled?))
           :clip/pop (if (zero? clip-depth)
-                      (reject! "Clip pop without push")
+                      (v/reject! "Clip pop without push")
                       (recur (next ops)
                              model-stack
                              (dec clip-depth)
@@ -659,12 +602,13 @@
                              has-camera?
                              lighting-enabled?))
           :meta/region
-          (do (when-not (positive-rect? (:rect op))
-                (reject! "meta/region :rect must be [x y w h] with w>0, h>0"))
+          (do (when-not (v/positive-rect? (:rect op))
+                (v/reject!
+                  "meta/region :rect must be [x y w h] with w>0, h>0"))
               (when-not (contains? op :op/meta)
-                (reject! "meta/region missing :op/meta"))
+                (v/reject! "meta/region missing :op/meta"))
               (when-not (matrix4-translation-only? (first model-stack))
-                (reject! "meta/region requires translate-only ancestry"))
+                (v/reject! "meta/region requires translate-only ancestry"))
               (recur (next ops)
                      model-stack
                      clip-depth
@@ -682,7 +626,7 @@
                                    lighting-enabled?))
           :state/depth-test
           (do (when-not (boolean? (:enabled op))
-                (reject! "state/depth-test :enabled must be boolean"))
+                (v/reject! "state/depth-test :enabled must be boolean"))
               (recur (next ops)
                      model-stack
                      clip-depth
@@ -692,7 +636,7 @@
                      lighting-enabled?))
           :state/depth-write
           (do (when-not (boolean? (:enabled op))
-                (reject! "state/depth-write :enabled must be boolean"))
+                (v/reject! "state/depth-write :enabled must be boolean"))
               (recur (next ops)
                      model-stack
                      clip-depth
@@ -702,7 +646,7 @@
                      lighting-enabled?))
           :state/lighting-enable
           (do (when-not (boolean? (:enabled op))
-                (reject! "state/lighting-enable :enabled must be boolean"))
+                (v/reject! "state/lighting-enable :enabled must be boolean"))
               (recur (next ops)
                      model-stack
                      clip-depth
@@ -710,8 +654,9 @@
                      produced-targets
                      has-camera?
                      (:enabled op)))
-          :light/ambient (do (when-not (valid-light-color? (:color op))
-                               (reject! "light/ambient :color must be [r g b]"))
+          :light/ambient (do (when-not (v/valid-light-color? (:color op))
+                               (v/reject!
+                                 "light/ambient :color must be [r g b]"))
                              (recur (next ops)
                                     model-stack
                                     clip-depth
@@ -720,10 +665,10 @@
                                     has-camera?
                                     lighting-enabled?))
           :light/directional
-          (do (when-not (valid-light-color? (:color op))
-                (reject! "light/directional :color must be [r g b]"))
-              (when-not (vec3? (:direction op))
-                (reject! "light/directional :direction must be [x y z]"))
+          (do (when-not (v/valid-light-color? (:color op))
+                (v/reject! "light/directional :color must be [r g b]"))
+              (when-not (v/vec3? (:direction op))
+                (v/reject! "light/directional :direction must be [x y z]"))
               (recur (next ops)
                      model-stack
                      clip-depth
@@ -731,10 +676,11 @@
                      produced-targets
                      has-camera?
                      lighting-enabled?))
-          :light/point (do (when-not (valid-light-color? (:color op))
-                             (reject! "light/point :color must be [r g b]"))
-                           (when-not (vec3? (:position op))
-                             (reject! "light/point :position must be [x y z]"))
+          :light/point (do (when-not (v/valid-light-color? (:color op))
+                             (v/reject! "light/point :color must be [r g b]"))
+                           (when-not (v/vec3? (:position op))
+                             (v/reject!
+                               "light/point :position must be [x y z]"))
                            (recur (next ops)
                                   model-stack
                                   clip-depth
@@ -758,7 +704,7 @@
                                   has-camera?
                                   lighting-enabled?))
           :target/pop (if (<= (count target-stack) 1)
-                        (reject! "target/pop without target/push")
+                        (v/reject! "target/pop without target/push")
                         (recur (next ops)
                                model-stack
                                clip-depth
@@ -790,7 +736,7 @@
                      produced-targets
                      has-camera?
                      lighting-enabled?))
-          (reject! :unsupported-op (str "Unknown op kind: " kind)))))))
+          (v/reject! :unsupported-op (str "Unknown op kind: " kind)))))))
 
 
 (defn- viewport
@@ -820,13 +766,13 @@
         (let [target-id (target-source-id source)]
           (if (contains? (:target-registry state) target-id)
             {:resource/kind :target-texture, :target/id target-id}
-            (reject! "Texture source refers to a missing render target")))
+            (v/reject! "Texture source refers to a missing render target")))
         (:resolve-resource opts)
         (or ((:resolve-resource opts) source state)
-            (reject! :unloadable-image
-                     "Image source is not synchronously realizable"))
-        :else (reject! :unloadable-image
-                       "Image source is not synchronously realizable")))
+            (v/reject! :unloadable-image
+                       "Image source is not synchronously realizable"))
+        :else (v/reject! :unloadable-image
+                         "Image source is not synchronously realizable")))
 
 
 (defn- lower-2d-rect
