@@ -141,7 +141,7 @@
                 (when-not (> (double near) 0.0)
                   (v/reject! "Near must be > 0"))
                 (when-not (> (- (double far) (double near)) v/EPSILON)
-                  (v/reject! "Far must exceed near by more than v/EPSILON"))
+                  (v/reject! "Far must exceed near by more than EPSILON"))
                 (when (and aspect (<= (double aspect) 0.0))
                   (v/reject! "Aspect must be positive")))
               :orthographic
