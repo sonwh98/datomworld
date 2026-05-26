@@ -7,6 +7,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_gpu:
+    sdk: flutter
 
 dev_dependencies:
   flutter_test:
@@ -15,6 +17,7 @@ dev_dependencies:
 
 flutter:
   assets:
+    - assets/shaders/simple_mesh.shaderbundle
     - assets/images/earth_land_ocean_ice_2048.jpg
     - assets/images/moon_texture_1024.jpg
     - assets/images/earth_land_ocean_ice_1024.jpg

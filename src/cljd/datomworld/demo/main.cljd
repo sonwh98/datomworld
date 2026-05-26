@@ -2,7 +2,8 @@
   (:require ["package:flutter/material.dart" :as m]
             [datomworld.demo.dao-gui :as dao-gui-demo]
             [datomworld.demo.earth-moon :as earth-moon-demo]
-            [datomworld.demo.solar-system :as solar-system-demo]))
+            [datomworld.demo.solar-system :as solar-system-demo]
+            [datomworld.demo.voxel :as voxel-demo]))
 
 
 (defn main
@@ -87,5 +88,26 @@
                                  nil)
                                .child
                                (m/Text "Earth and Moon Demo"
+                                       .style
+                                       (m/TextStyle .fontSize 18.0))))
+                 (m/SizedBox .height 24.0)
+                 (m/SizedBox .width
+                             240.0
+                             .height
+                             60.0
+                             .child
+                             (m/ElevatedButton
+                               .onPressed
+                               (fn []
+                                 (voxel-demo/start!)
+                                 (.then (m/Navigator.push
+                                          context
+                                          (m/MaterialPageRoute
+                                            .builder
+                                            (fn [_] (voxel-demo/view))))
+                                        (fn [_] (voxel-demo/stop!)))
+                                 nil)
+                               .child
+                               (m/Text "Voxel Demo"
                                        .style
                                        (m/TextStyle .fontSize 18.0))))]))))))))

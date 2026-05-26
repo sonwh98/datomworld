@@ -5,6 +5,7 @@
     [datomworld.demo.earth-moon :as earth-moon-demo]
     [datomworld.demo.equation-plotter :as plotter-demo]
     [datomworld.demo.solar-system :as solar-demo]
+    [datomworld.demo.voxel :as voxel-demo]
     [datomworld.demo.yin-repl :as yin-repl-demo]
     [reagent.core :as r]
     [reagent.dom :as rdom]
@@ -41,7 +42,12 @@
    {:id :earth-moon,
     :label "Earth and Moon",
     :icon "◐",
-    :desc "3D postgraphics Earth/Moon scene using mesh and line ops."}])
+    :desc "3D postgraphics Earth/Moon scene using mesh and line ops."}
+   {:id :voxel,
+    :label "Voxel",
+    :icon "▣",
+    :desc
+    "First-person voxel chunk: WASD/arrows to fly through the same postgraphics frame program rendered on both Flutter GPU and browser canvas."}])
 
 
 (defn- hash->demo
@@ -54,6 +60,7 @@
     "#telemetry" :telemetry
     "#solar-system" :solar-system
     "#earth-moon" :earth-moon
+    "#voxel" :voxel
     :home))
 
 
@@ -67,6 +74,7 @@
     :telemetry "#telemetry"
     :solar-system "#solar-system"
     :earth-moon "#earth-moon"
+    :voxel "#voxel"
     "#home"))
 
 
@@ -86,6 +94,7 @@
   (case demo-id
     :solar-system (solar-demo/dispose!)
     :earth-moon (earth-moon-demo/dispose!)
+    :voxel (voxel-demo/dispose!)
     nil))
 
 
@@ -159,6 +168,7 @@
        :telemetry [tv/main-panel]
        :solar-system [solar-demo/main-view]
        :earth-moon [earth-moon-demo/main-view]
+       :voxel [voxel-demo/main-view]
        [home-view])
      (when (not= selected-demo :home)
        [:div

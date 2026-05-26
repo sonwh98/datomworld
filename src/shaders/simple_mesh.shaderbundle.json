@@ -1,0 +1,10 @@
+{
+  "SimpleVertex": {
+    "type": "vertex",
+    "file": "src/shaders/simple_mesh.vert"
+  },
+  "SimpleFragment": {
+    "type": "fragment",
+    "file": "src/shaders/simple_mesh.frag"
+  }
+}

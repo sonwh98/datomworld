@@ -38,3 +38,7 @@ build/
 *.iml
 dep-graph.dot
 dep-graph.svg
+
+# Shader build intermediates
+*.spirv
+*.iplr
