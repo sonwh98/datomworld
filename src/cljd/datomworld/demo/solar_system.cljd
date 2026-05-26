@@ -429,8 +429,16 @@
                 .child
                 (m/Text. "REPL Info")))}] [:SizedBox {:height 8.0}]
           [:Center
-           [:SizedBox {:width 500.0, :height 500.0}
-            (pg/postgraphics-widget frame-stream)]]]}])))
+           [:Builder
+            {:builder (fn [ctx]
+                        (let [side (.-shortestSide (m/MediaQuery.sizeOf ctx))]
+                          (m/SizedBox. .width
+                                       side
+                                       .height
+                                       side
+                                       .child
+                                       (pg/postgraphics-widget
+                                         frame-stream))))}]]]}])))
 
 
 (defn main

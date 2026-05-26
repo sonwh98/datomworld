@@ -705,7 +705,8 @@
    :software-renderer? false,
    :texture-rendering? true,
    :texture-source :flutter-gpu-texture,
-   :supported-pipelines #{:clear :camera-reset :mesh-3d :draw-3d},
+   :supported-pipelines #{:clear :camera-reset :mesh-3d :draw-3d :draw-2d
+                          :text},
    :supported-3d-ops #{:draw3d/mesh :draw3d/triangles :draw3d/lines}})
 
 
@@ -1134,9 +1135,14 @@
 
 
 (defn- gpu-supported-draw?
+  "True when a lowered draw is one this Flutter renderer can paint — either
+   directly via Flutter GPU (clear, camera-reset, mesh-3d, draw-3d) or via
+   the 2D Canvas overlay in PostgraphicsPainter (draw-2d, text). The name
+   is historical; reject-non-gpu-draws! is really 'reject unrenderable
+   draws'."
   [draw]
   (case (:pipeline draw)
-    (:clear :camera-reset :mesh-3d) true
+    (:clear :camera-reset :mesh-3d :draw-2d :text) true
     :draw-3d (contains? #{:draw3d/triangles :draw3d/lines}
                         (get-in draw [:op :op/kind]))
     false))
@@ -1218,6 +1224,94 @@
                  "Flutter GPU is not available; Canvas fallback is disabled"))))
 
 
+(defn- ->paint
+  ^ui/Paint [color stroke?]
+  (let [paint (ui/Paint.)
+        [r g b a] (or color [0.0 0.0 0.0 1.0])]
+    (set! (.-color paint)
+          (m/Color.fromARGB (int (* 255.0 (double (or a 1.0))))
+                            (int (* 255.0 (double r)))
+                            (int (* 255.0 (double g)))
+                            (int (* 255.0 (double b)))))
+    (when stroke? (set! (.-style paint) ui/PaintingStyle.stroke))
+    paint))
+
+
+(defn- apply-clips!
+  [^ui/Canvas canvas clips]
+  (doseq [[x y w h] clips]
+    (.clipRect canvas
+               (ui/Rect.fromLTWH (double x) (double y) (double w) (double h)))))
+
+
+(defn- paint-2d-draw!
+  "Renders one :draw-2d op onto the 2D Canvas. Clips are applied in
+   screen-space (the lowering already y-flipped them); then the canvas is
+   y-flipped into the IR's Cartesian convention and the lowered model
+   matrix is applied so the op's own coordinates are used natively."
+  [^ui/Canvas canvas draw ^double height]
+  (let [op (:op draw)
+        kind (:op/kind op)]
+    (.save canvas)
+    (apply-clips! canvas (:clips draw))
+    (.translate canvas 0.0 height)
+    (.scale canvas 1.0 -1.0)
+    (.transform canvas (:matrix-storage draw))
+    (case kind
+      (:draw/fill-rect :draw/stroke-rect)
+      (let [[x y w h] (:rect op)
+            stroke? (= kind :draw/stroke-rect)
+            ^ui/Paint p (->paint (:color op) stroke?)]
+        (when-let [sw (:stroke-width op)]
+          (set! (.-strokeWidth p) (double sw)))
+        (.drawRect
+          canvas
+          (ui/Rect.fromLTWH (double x) (double y) (double w) (double h))
+          p))
+      (:draw/fill-circle :draw/stroke-circle)
+      (let [[cx cy] (:center op)
+            stroke? (= kind :draw/stroke-circle)
+            ^ui/Paint p (->paint (:color op) stroke?)]
+        (when-let [sw (:stroke-width op)]
+          (set! (.-strokeWidth p) (double sw)))
+        (.drawCircle canvas
+                     (ui/Offset. (double cx) (double cy))
+                     (double (:radius op))
+                     p))
+      nil)
+    (.restore canvas)))
+
+
+(defn- paint-text!
+  "Renders one :text op. screen-x/screen-y are already in y-down screen
+   space (pre-flipped by the lowering); shifted up by font-size so the
+   baseline rests at screen-y (Paragraph's natural anchor is the top of
+   the first line, not the baseline)."
+  [^ui/Canvas canvas draw]
+  (let [op (:op draw)
+        [r g b a] (or (:color op) [0.0 0.0 0.0 1.0])
+        font-size (double (get op :font-size 14.0))
+        font-family (or (:font-family op) "monospace")
+        color (m/Color.fromARGB (int (* 255.0 (double (or a 1.0))))
+                                (int (* 255.0 (double r)))
+                                (int (* 255.0 (double g)))
+                                (int (* 255.0 (double b))))
+        builder
+        (ui/ParagraphBuilder.
+          (ui/ParagraphStyle. .fontSize font-size .fontFamily font-family))]
+    (.pushStyle builder (ui/TextStyle. .color color))
+    (.addText builder (str (:text op)))
+    (let [^ui/Paragraph para (.build builder)]
+      (.layout para (ui/ParagraphConstraints. .width 1.0e6))
+      (.save canvas)
+      (apply-clips! canvas (:clips draw))
+      (.drawParagraph canvas
+                      para
+                      (ui/Offset. (double (:screen-x draw))
+                                  (- (double (:screen-y draw)) font-size)))
+      (.restore canvas))))
+
+
 (deftype PostgraphicsPainter
   [^m/ValueNotifier notifier submit!]
   :extends
@@ -1231,7 +1325,12 @@
       (when (seq frame)
         (try (let [lowered (lower-frame frame width height)
                    image (submit! lowered width height)]
-               (.drawImage canvas image (ui/Offset. 0.0 0.0) (ui/Paint.)))
+               (.drawImage canvas image (ui/Offset. 0.0 0.0) (ui/Paint.))
+               (doseq [draw (:draws lowered)]
+                 (case (:pipeline draw)
+                   :draw-2d (paint-2d-draw! canvas draw height)
+                   :text (paint-text! canvas draw)
+                   nil)))
              (catch Object e (dart/print (str "Paint failed: " e)))))))
 
 

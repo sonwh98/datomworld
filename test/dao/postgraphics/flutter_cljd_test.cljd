@@ -83,7 +83,7 @@
       (is (false? (:software-renderer? policy)))
       (is (true? (:texture-rendering? policy)))
       (is (= :flutter-gpu-texture (:texture-source policy)))
-      (is (= #{:clear :camera-reset :mesh-3d :draw-3d}
+      (is (= #{:clear :camera-reset :mesh-3d :draw-3d :draw-2d :text}
              (:supported-pipelines policy)))
       (is (= #{:draw3d/mesh :draw3d/triangles :draw3d/lines}
              (:supported-3d-ops policy))))))
