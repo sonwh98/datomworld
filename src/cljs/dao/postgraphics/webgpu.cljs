@@ -1156,23 +1156,47 @@
     data))
 
 
+(defn texture-upload-mode
+  [texture]
+  (cond (or (nil? texture)
+            (nil? (:width texture))
+            (nil? (:height texture)))
+        :white
+        (:rgba texture) :rgba
+        (:image texture) :image
+        :else :white))
+
+
+(defn- image-source->rgba
+  [image width height]
+  (if (and (exists? js/ImageData) (instance? js/ImageData image))
+    (.-data image)
+    (let [canvas (.createElement js/document "canvas")
+          _ (set! (.-width canvas) width)
+          _ (set! (.-height canvas) height)
+          ctx (.getContext canvas "2d")]
+      (.drawImage ctx image 0 0 width height)
+      (.-data (.getImageData ctx 0 0 width height)))))
+
+
 (defn- texture-entry!
   [state-atom texture]
   (let [state @state-atom
         ^js device (:device state)
         ^js white-texture (:white-texture state)
         texture-cache (:texture-cache state)
-        source-id (:source-id texture)]
-    (cond (or (nil? texture)
-              (nil? (:image texture))
-              (nil? (:width texture))
-              (nil? (:height texture)))
+        source-id (:source-id texture)
+        upload-mode (texture-upload-mode texture)]
+    (cond (= :white upload-mode)
           {:texture white-texture, :view (.createView white-texture)}
           (and source-id (get texture-cache source-id)) (get texture-cache
                                                              source-id)
           :else
-          (let [{:keys [image width height]} texture
+          (let [{:keys [image width height rgba]} texture
                 ^js queue (.-queue device)
+                rgba (if (= :image upload-mode)
+                       (image-source->rgba image width height)
+                       rgba)
                 ^js gpu-texture
                 (.createTexture
                   device
@@ -1180,12 +1204,14 @@
                        :format "rgba8unorm",
                        :usage (bit-or (.-TEXTURE_BINDING js/GPUTextureUsage)
                                       (.-COPY_DST js/GPUTextureUsage))})
-                _ (.copyExternalImageToTexture queue
-                                               #js {:source image}
-                                               #js {:texture gpu-texture}
-                                               #js {:width (int width),
-                                                    :height (int height),
-                                                    :depthOrArrayLayers 1})
+                _ (.writeTexture queue
+                                 #js {:texture gpu-texture}
+                                 rgba
+                                 #js {:bytesPerRow (* 4 (int width)),
+                                      :rowsPerImage (int height)}
+                                 #js {:width (int width),
+                                      :height (int height),
+                                      :depthOrArrayLayers 1})
                 entry {:texture gpu-texture, :view (.createView gpu-texture)}]
             (when source-id
               (swap! state-atom assoc-in [:texture-cache source-id] entry))

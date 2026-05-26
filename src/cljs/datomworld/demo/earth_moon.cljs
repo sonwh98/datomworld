@@ -47,6 +47,11 @@
     {:image canvas, :width width, :height height, :source-id :ring-texture}))
 
 
+(defn- load-ring-texture!
+  []
+  (runner/set-ring-texture! (make-ring-canvas 4 256)))
+
+
 (defn stop!
   []
   (when-let [id @interval-id]
@@ -66,7 +71,7 @@
                        "/assets/images/earth_land_ocean_ice_1024.jpg")
   (load-image-texture! runner/set-moon-texture!
                        "/assets/images/moon_texture_512.jpg")
-  (runner/set-ring-texture! (make-ring-canvas 4 256))
+  (load-ring-texture!)
   (when-not @interval-id
     (runner/reset-scene! (js/Date.now))
     (reset! interval-id (js/setInterval #(runner/tick! (js/Date.now))

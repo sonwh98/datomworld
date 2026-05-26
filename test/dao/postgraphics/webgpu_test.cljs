@@ -199,3 +199,14 @@
             :submission-id 1,
             :reason :validation-failure}
            (:ok (ds/next signals {:position 1}))))))
+
+
+(deftest texture-upload-mode-prefers-automatic-rasterization-for-image-sources
+  (is (= :white (webgpu/texture-upload-mode nil)))
+  (is (= :white (webgpu/texture-upload-mode {:image :x})))
+  (is (= :rgba (webgpu/texture-upload-mode {:rgba (js/Uint8Array. #js [1 2 3 4])
+                                            :width 1
+                                            :height 1})))
+  (is (= :image (webgpu/texture-upload-mode {:image {}
+                                             :width 8
+                                             :height 4}))))
