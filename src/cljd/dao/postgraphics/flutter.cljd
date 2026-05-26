@@ -706,7 +706,7 @@
    :texture-rendering? true,
    :texture-source :flutter-gpu-texture,
    :supported-pipelines #{:clear :camera-reset :mesh-3d :draw-3d},
-   :supported-3d-ops #{:draw3d/mesh :draw3d/triangles}})
+   :supported-3d-ops #{:draw3d/mesh :draw3d/triangles :draw3d/lines}})
 
 
 ;; --- lowering ---
@@ -860,14 +860,16 @@
             (do (when-not (:camera-matrix state)
                   (v/reject! "No camera matrix set before 3D draw op"))
                 (let [^vm/Matrix4 cam-m (:camera-matrix state)
+                      model-m (first (:model-stack state))
                       mvp (vm/Matrix4.copy cam-m)]
-                  (.multiply mvp (first (:model-stack state)))
+                  (.multiply mvp model-m)
                   (update state
                           :draws
                           conj
                           {:pipeline :draw-3d,
                            :op op,
                            :mvp mvp,
+                           :model-m (vm/Matrix4.copy model-m),
                            :clips (vec (:clip-stack state)),
                            :depth-test (:depth-test state),
                            :depth-write (:depth-write state)})))
@@ -1080,6 +1082,43 @@
         u-slot (.getUniformSlot vert-shader "Uniforms")
         tex-slot (.getUniformSlot frag-shader "tex")]
     (.bindPipeline pass pipeline)
+    (.setPrimitiveType pass gpu/PrimitiveType.triangle)
+    (.bindVertexBuffer pass v-view (count verts))
+    (.bindIndexBuffer pass i-view gpu/IndexType.int16 (.-length i-data))
+    (.bindUniform pass u-slot u-view)
+    (.bindTexture pass tex-slot texture .sampler sampler)
+    (.draw pass)))
+
+
+(defn- render-lines-gpu!
+  "Renders a :draw3d/lines op as a GPU line list. Reuses the textured-mesh
+   shader by binding the 1x1 white texture and a per-op constant vertex
+   color, so the lit fragment becomes (1,1,1,1) * color. setPrimitiveType
+   is set on every draw because RenderPass topology is sticky and could
+   leak from a prior lines/triangles draw in the same pass."
+  [^gpu/RenderPass pass draw ^gpu/RenderPipeline pipeline
+   ^gpu/HostBuffer host-buffer]
+  (let [{:keys [op mvp model-m]} draw
+        verts (:vertices op)
+        edges (:edges op)
+        color (get op :color [1.0 1.0 1.0 1.0])
+        colors (vec (repeat (count verts) color))
+        texture (:white-texture @gpu-state)
+        sampler (sampler-options op)
+        v-data (vertices->float32-list verts nil nil colors)
+        i-data (indices->uint16-list edges)
+        v-view (.emplace host-buffer (.asByteData (.-buffer v-data)))
+        i-view (.emplace host-buffer (.asByteData (.-buffer i-data)))
+        u-data (type/Float32List. 32)
+        _ (.setAll u-data 0 (.-storage ^vm/Matrix4 mvp))
+        _ (.setAll u-data 16 (.-storage ^vm/Matrix4 model-m))
+        u-view (.emplace host-buffer (.asByteData (.-buffer u-data)))
+        vert-shader (.-vertexShader pipeline)
+        frag-shader (.-fragmentShader pipeline)
+        u-slot (.getUniformSlot vert-shader "Uniforms")
+        tex-slot (.getUniformSlot frag-shader "tex")]
+    (.bindPipeline pass pipeline)
+    (.setPrimitiveType pass gpu/PrimitiveType.line)
     (.bindVertexBuffer pass v-view (count verts))
     (.bindIndexBuffer pass i-view gpu/IndexType.int16 (.-length i-data))
     (.bindUniform pass u-slot u-view)
@@ -1098,7 +1137,8 @@
   [draw]
   (case (:pipeline draw)
     (:clear :camera-reset :mesh-3d) true
-    :draw-3d (= :draw3d/triangles (get-in draw [:op :op/kind]))
+    :draw-3d (contains? #{:draw3d/triangles :draw3d/lines}
+                        (get-in draw [:op :op/kind]))
     false))
 
 
@@ -1164,7 +1204,13 @@
         (doseq [draw (:draws lowered)]
           (case (:pipeline draw)
             :mesh-3d (render-mesh-gpu! render-pass draw pipeline host-buffer)
-            :draw-3d (render-mesh-gpu! render-pass draw pipeline host-buffer)
+            :draw-3d
+            (case (get-in draw [:op :op/kind])
+              :draw3d/triangles
+              (render-mesh-gpu! render-pass draw pipeline host-buffer)
+              :draw3d/lines
+              (render-lines-gpu! render-pass draw pipeline host-buffer)
+              nil)
             nil))
         (.submit command-buffer)
         (.asImage texture))

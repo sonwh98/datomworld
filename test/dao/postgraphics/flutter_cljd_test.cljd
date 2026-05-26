@@ -85,7 +85,8 @@
       (is (= :flutter-gpu-texture (:texture-source policy)))
       (is (= #{:clear :camera-reset :mesh-3d :draw-3d}
              (:supported-pipelines policy)))
-      (is (= #{:draw3d/mesh :draw3d/triangles} (:supported-3d-ops policy))))))
+      (is (= #{:draw3d/mesh :draw3d/triangles :draw3d/lines}
+             (:supported-3d-ops policy))))))
 
 
 (deftest lighting-normals-use-inverse-transpose-under-non-uniform-scale
