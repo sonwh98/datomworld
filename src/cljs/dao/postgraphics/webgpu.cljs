@@ -1397,6 +1397,46 @@
   (submit-webgpu! canvas lowered))
 
 
+(defn- webgpu-supported?
+  "Synchronous capability probe. The WebGPU spec exposes the `gpu` getter
+   on `navigator` only when the browser ships an implementation, so a
+   nil-check is enough to detect the unsupported case without going async."
+  []
+  (boolean (and (exists? js/navigator) (.-gpu js/navigator))))
+
+
+(defn- webgpu-unsupported-view
+  "Inline notice rendered in place of the canvas when navigator.gpu is
+   missing. Minimum browser versions are spelled out so the user knows
+   what to upgrade to."
+  [canvas-attrs]
+  (let [base-style {:padding "20px 22px",
+                    :border "1px solid rgba(255,140,140,0.35)",
+                    :border-radius "16px",
+                    :background "rgba(40,12,12,0.6)",
+                    :color "#ffe4e4",
+                    :font-family "system-ui, ui-sans-serif, sans-serif",
+                    :line-height "1.55",
+                    :box-sizing "border-box"}
+        style (merge base-style (:style canvas-attrs))]
+    [:div {:style style}
+     [:strong
+      {:style {:display "block",
+               :font-size "18px",
+               :margin-bottom "8px",
+               :color "#ffd4d4"}} "WebGPU not available"]
+     [:p {:style {:margin "0 0 10px"}}
+      "This demo renders through WebGPU and your browser does not expose "
+      [:code "navigator.gpu"] ". You can run it in:"]
+     [:ul {:style {:margin "0", :padding-left "20px"}}
+      [:li "Chrome or Edge " [:strong "113"] " or newer (May 2023)"]
+      [:li "Safari " [:strong "18"]
+       " or newer (macOS Sequoia / iOS 18, Sept 2024)"]
+      [:li "Firefox " [:strong "141"] " or newer on Windows (July 2025); "
+       "other platforms still rolling out, set " [:code "dom.webgpu.enabled"]
+       " in " [:code "about:config"] " on older Nightly builds"]]]))
+
+
 (def put-frame! terminal/put-frame!)
 
 
@@ -1452,20 +1492,22 @@
   [frame-stream & {:keys [canvas-attrs], :as opts}]
   (let [canvas-ref (atom nil)
         terminal-handle (atom nil)]
-    (r/create-class {:display-name "dao-postgraphics-webgpu-widget",
-                     :component-did-mount
-                     (fn [_]
-                       (when-let [canvas @canvas-ref]
-                         (reset! terminal-handle
-                                 (bind-frame-stream! canvas frame-stream opts)))),
-                     :component-will-unmount
-                     (fn [_]
-                       (when-let [handle @terminal-handle]
-                         (when-let [close! (:close! handle)] (close!)))
-                       (reset! terminal-handle nil)
-                       (reset! canvas-ref nil)),
-                     :reagent-render (fn []
-                                       [:canvas
-                                        (assoc canvas-attrs
-                                               :ref #(reset! canvas-ref
-                                                             %))])})))
+    (r/create-class
+      {:display-name "dao-postgraphics-webgpu-widget",
+       :component-did-mount (fn [_]
+                              (when-let [canvas @canvas-ref]
+                                (reset! terminal-handle (bind-frame-stream!
+                                                          canvas
+                                                          frame-stream
+                                                          opts)))),
+       :component-will-unmount (fn [_]
+                                 (when-let [handle @terminal-handle]
+                                   (when-let [close! (:close! handle)]
+                                     (close!)))
+                                 (reset! terminal-handle nil)
+                                 (reset! canvas-ref nil)),
+       :reagent-render (fn []
+                         (if (webgpu-supported?)
+                           [:canvas
+                            (assoc canvas-attrs :ref #(reset! canvas-ref %))]
+                           [webgpu-unsupported-view canvas-attrs]))})))
