@@ -1,38 +1,19 @@
 (ns datomworld.demo.voxel
   (:require
-    [dao.postgraphics.terminal :as terminal]
     [dao.postgraphics.webgpu :as pg]
-    [dao.stream :as ds]
-    [dao.stream.ringbuffer]
+    [datomworld.demo.voxel-runner :as runner]
     [datomworld.demo.voxel-scene :as scene]
     [reagent.core :as r]))
 
 
-(defonce frame-stream
-  (ds/open! {:type :ringbuffer, :capacity 4, :eviction-policy :evict-oldest}))
-
-
 (defonce ^:private interval-id (atom nil))
 (defonce ^:private last-tick-ms* (atom nil))
-(defonce ^:private player* (atom scene/default-player))
-(defonce ^:private keys-down* (atom #{}))
-(defonce ^:private chunk-mesh* (atom nil))
-(defonce ^:private chunk-data* (atom nil))
-
-
-(defn- ensure-chunk-mesh!
-  []
-  (when (nil? @chunk-mesh*)
-    (let [chunk (scene/build-chunk)]
-      (reset! chunk-data* chunk)
-      (reset! chunk-mesh* (scene/chunk-mesh chunk)))))
 
 
 ;; --- keyboard ---
 
-;; Browser KeyboardEvent.code → the same action vocabulary the scene's
-;; integrate-motion understands. Codes are physical-key based so they
-;; work regardless of OS keyboard layout.
+;; Browser KeyboardEvent.code → the runner's action vocabulary. Codes are
+;; physical-key based so they work regardless of OS keyboard layout.
 (def ^:private code->action
   {"KeyW" :forward,
    "KeyS" :back,
@@ -51,14 +32,14 @@
   [^js e]
   (when-let [action (code->action (.-code e))]
     (.preventDefault e)
-    (swap! keys-down* conj action)))
+    (runner/key-down! action)))
 
 
 (defn- handle-key-up
   [^js e]
   (when-let [action (code->action (.-code e))]
     (.preventDefault e)
-    (swap! keys-down* disj action)))
+    (runner/key-up! action)))
 
 
 ;; --- tick loop ---
@@ -67,13 +48,9 @@
   []
   (let [now (js/Date.now)
         last @last-tick-ms*
-        dt (if last (/ (- now last) 1000.0) (/ scene/frame-interval-ms 1000.0))
-        new-player
-        (scene/integrate-motion @player* @keys-down* dt @chunk-data*)]
+        dt (if last (/ (- now last) 1000.0) (/ scene/frame-interval-ms 1000.0))]
     (reset! last-tick-ms* now)
-    (reset! player* new-player)
-    (terminal/put-frame! frame-stream
-                         (scene/frame-from-state new-player @chunk-mesh*))))
+    (runner/tick! dt)))
 
 
 (defn stop!
@@ -81,7 +58,7 @@
   (when-let [id @interval-id]
     (js/clearInterval id)
     (reset! interval-id nil))
-  (reset! keys-down* #{})
+  (runner/clear-keys!)
   :stopped)
 
 
@@ -93,8 +70,8 @@
 (defn start!
   []
   (stop!)
-  (ensure-chunk-mesh!)
-  (reset! player* scene/default-player)
+  (runner/ensure-chunk-mesh!)
+  (runner/reset-player!)
   (reset! last-tick-ms* nil)
   (tick!)
   (reset! interval-id (js/setInterval tick! scene/frame-interval-ms))
@@ -117,7 +94,7 @@
        (dispose!)),
      :reagent-render
      (fn []
-       [pg/postgraphics-widget frame-stream :canvas-attrs
+       [pg/postgraphics-widget runner/frame-stream :canvas-attrs
         {:style {:width "min(78vw, 860px)",
                  :height "min(76vh, 720px)",
                  :display "block",
@@ -165,8 +142,9 @@
        [:li [:strong "WASD"] " walk / strafe"]
        [:li [:strong "Space / Shift"] " fly up / down"]
        [:li [:strong "Arrow keys"] " look around"]]
-      [:p {:style {:color "#c2cee8", :margin "16px 0 0"}} "The same "
-       [:code "datomworld.demo.voxel-scene"] " builds the "
-       "chunk mesh and integrates collision for both the Flutter GPU and "
-       "browser frontends. The browser-side only adds keyboard wiring and "
-       "a 2D Canvas painter for the lowered frame."]]]]])
+      [:p {:style {:color "#c2cee8", :margin "16px 0 0"}} "Shared "
+       [:code "datomworld.demo.voxel-scene"] " (geometry + collision) and "
+       [:code "datomworld.demo.voxel-runner"] " (per-tick state, frame "
+       "stream) drive both this browser frontend and the Flutter GPU one; "
+       "the browser side only adds keyboard wiring and delegates rendering "
+       "to " [:code "dao.postgraphics.webgpu/submit-webgpu!"] "."]]]]])

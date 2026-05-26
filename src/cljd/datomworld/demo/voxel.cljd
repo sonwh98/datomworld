@@ -4,8 +4,7 @@
             ["package:flutter/material.dart" :as m]
             ["package:flutter/services.dart" :as services]
             [dao.postgraphics.flutter :as pg]
-            [dao.stream :as ds]
-            [dao.stream.ringbuffer]
+            [datomworld.demo.voxel-runner :as runner]
             [datomworld.demo.voxel-scene :as scene]))
 
 
@@ -13,25 +12,11 @@
 (def ^:private H 540.0)
 
 
-(defonce frame-stream
-  (ds/open! {:type :ringbuffer, :capacity 4, :eviction-policy :evict-oldest}))
-
-
 (defonce ^:private timer* (atom nil))
 (defonce ^:private last-tick* (atom nil))
-(defonce ^:private player* (atom scene/default-player))
-(defonce ^:private keys-down* (atom #{}))
-(defonce ^:private chunk-mesh* (atom nil))
-(defonce ^:private chunk-data* (atom nil))
 
 
-(defn- ensure-chunk-mesh!
-  []
-  (when (nil? @chunk-mesh*)
-    (let [chunk (scene/build-chunk)]
-      (reset! chunk-data* chunk)
-      (reset! chunk-mesh* (scene/chunk-mesh chunk)))))
-
+;; --- keyboard ---
 
 (def ^:private key->action
   {services/LogicalKeyboardKey.keyW :forward,
@@ -50,12 +35,14 @@
   ^m/KeyEventResult [_node ^services/KeyEvent event]
   (let [action (get key->action (.-logicalKey event))]
     (cond (nil? action) m/KeyEventResult.ignored
-          (instance? services/KeyDownEvent event)
-          (do (swap! keys-down* conj action) m/KeyEventResult.handled)
-          (instance? services/KeyUpEvent event)
-          (do (swap! keys-down* disj action) m/KeyEventResult.handled)
+          (instance? services/KeyDownEvent event) (do (runner/key-down! action)
+                                                      m/KeyEventResult.handled)
+          (instance? services/KeyUpEvent event) (do (runner/key-up! action)
+                                                    m/KeyEventResult.handled)
           :else m/KeyEventResult.handled)))
 
+
+;; --- tick loop ---
 
 (defn- tick!
   []
@@ -63,13 +50,9 @@
         last @last-tick*
         dt (if last
              (/ (double (.-inMicroseconds (.difference now last))) 1.0e6)
-             (/ (double scene/frame-interval-ms) 1000.0))
-        new-player
-        (scene/integrate-motion @player* @keys-down* dt @chunk-data*)]
+             (/ (double scene/frame-interval-ms) 1000.0))]
     (reset! last-tick* now)
-    (reset! player* new-player)
-    (pg/put-frame! frame-stream
-                   (scene/frame-from-state new-player @chunk-mesh*))))
+    (runner/tick! dt)))
 
 
 (defn stop!
@@ -77,15 +60,15 @@
   (when-let [^async/Timer timer @timer*]
     (.cancel timer)
     (reset! timer* nil))
-  (reset! keys-down* #{})
+  (runner/clear-keys!)
   :stopped)
 
 
 (defn start!
   []
   (stop!)
-  (ensure-chunk-mesh!)
-  (reset! player* scene/default-player)
+  (runner/ensure-chunk-mesh!)
+  (runner/reset-player!)
   (reset! last-tick* nil)
   (tick!)
   (reset! timer* (async/Timer.periodic (core/Duration .milliseconds
@@ -103,26 +86,26 @@
       .backgroundColor
       (m/Color.fromARGB 255 6 5 16)
       .body
-      (m/Center .child
-                (m/Column
-                  .mainAxisAlignment
-                  m/MainAxisAlignment.center
-                  .children
-                  [(m/Focus .focusNode
-                            focus-node
-                            .autofocus
-                            true
-                            .onKeyEvent
-                            handle-key-event
-                            .child
-                            (m/SizedBox .width
-                                        W
-                                        .height
-                                        H
-                                        .child
-                                        (pg/postgraphics-widget frame-stream)))
-                   (m/SizedBox .height 12.0)
-                   (m/Text
-                     "WASD to move, Space/Shift to fly, arrows to look"
-                     .style
-                     (m/TextStyle .color m.Colors/white70 .fontSize 14.0))])))))
+      (m/Center
+        .child
+        (m/Column
+          .mainAxisAlignment
+          m/MainAxisAlignment.center
+          .children
+          [(m/Focus .focusNode
+                    focus-node
+                    .autofocus
+                    true
+                    .onKeyEvent
+                    handle-key-event
+                    .child
+                    (m/SizedBox .width
+                                W
+                                .height
+                                H
+                                .child
+                                (pg/postgraphics-widget runner/frame-stream)))
+           (m/SizedBox .height 12.0)
+           (m/Text "WASD to move, Space/Shift to fly, arrows to look"
+                   .style
+                   (m/TextStyle .color m.Colors/white70 .fontSize 14.0))])))))
