@@ -3,6 +3,7 @@
     [dao.postgraphics.webgpu :as pg]
     [datomworld.demo.earth-moon-runner :as runner]
     [datomworld.demo.earth-moon-scene :as scene]
+    [datomworld.demo.responsive :as responsive]
     [reagent.core :as r]))
 
 
@@ -91,13 +92,18 @@
      :component-will-unmount (fn [_] (dispose!)),
      :reagent-render (fn []
                        [pg/postgraphics-widget runner/frame-stream :canvas-attrs
-                        {:style {:width "min(78vw, 860px)",
-                                 :height "min(76vh, 720px)",
-                                 :display "block",
-                                 :border "1px solid rgba(210,220,255,0.24)",
-                                 :border-radius "22px",
-                                 :background "#040612",
-                                 :box-shadow "0 30px 100px rgba(0,0,0,0.55)"}}
+                        {:style (responsive/canvas-frame-style {:max-width 860,
+                                                                :min-height 300,
+                                                                :height-vh 60,
+                                                                :max-height 720,
+                                                                :border-color
+                                                                "rgba(210,220,255,0.24)",
+                                                                :border-radius
+                                                                22,
+                                                                :background
+                                                                "#040612",
+                                                                :box-shadow
+                                                                "0 30px 100px rgba(0,0,0,0.55)"})}
                         :resolve-resource (fn [source _state] source) :on-error
                         #(js/console.error "earth/moon frame rejected" %)])}))
 
@@ -119,6 +125,7 @@
                 :justify-content "space-between",
                 :gap "24px",
                 :align-items "end",
+                :flex-wrap "wrap",
                 :margin-bottom "22px"}}
        [:div
         [:div
@@ -130,7 +137,7 @@
          {:style {:font-size "clamp(34px, 5vw, 64px)",
                   :line-height "0.95",
                   :margin "8px 0 0"}} "Earth and Moon"]]
-       [:div {:style {:display "flex", :gap "10px"}}
+       [:div {:style {:display "flex", :gap "10px", :flex-wrap "wrap"}}
         [:button
          {:on-click toggle-animation!,
           :style {:padding "10px 14px",
@@ -149,7 +156,7 @@
                   :cursor "pointer"}} "Reset"]]]
       [:div
        {:style {:display "grid",
-                :grid-template-columns "minmax(0, 1fr) 300px",
+                :grid-template-columns (responsive/auto-fit-grid 320),
                 :gap "24px",
                 :align-items "start"}} [canvas-view]
        [:aside

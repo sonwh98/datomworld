@@ -1,6 +1,7 @@
 (ns datomworld.demo.voxel
   (:require
     [dao.postgraphics.webgpu :as pg]
+    [datomworld.demo.responsive :as responsive]
     [datomworld.demo.voxel-runner :as runner]
     [datomworld.demo.voxel-scene :as scene]
     [reagent.core :as r]))
@@ -95,13 +96,16 @@
      :reagent-render
      (fn []
        [pg/postgraphics-widget runner/frame-stream :canvas-attrs
-        {:style {:width "min(78vw, 860px)",
-                 :height "min(76vh, 720px)",
-                 :display "block",
-                 :border "1px solid rgba(210,220,255,0.24)",
-                 :border-radius "22px",
-                 :background "#06050f",
-                 :box-shadow "0 30px 100px rgba(0,0,0,0.55)"}} :on-error
+        {:style (responsive/canvas-frame-style {:max-width 860,
+                                                :min-height 300,
+                                                :height-vh 60,
+                                                :max-height 720,
+                                                :border-color
+                                                "rgba(210,220,255,0.24)",
+                                                :border-radius 22,
+                                                :background "#06050f",
+                                                :box-shadow
+                                                "0 30px 100px rgba(0,0,0,0.55)"})} :on-error
         #(js/console.error "voxel frame rejected" %)])}))
 
 
@@ -128,7 +132,7 @@
                :margin "8px 0 0"}} "Voxel Demo"]]
     [:div
      {:style {:display "grid",
-              :grid-template-columns "minmax(0, 1fr) 300px",
+              :grid-template-columns (responsive/auto-fit-grid 320),
               :gap "24px",
               :align-items "start"}} [canvas-view]
      [:aside

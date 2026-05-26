@@ -9,6 +9,7 @@
     [dao.stream :as ds]
     [dao.stream.apply :as dao-apply]
     [dao.stream.ws :as ws]
+    [datomworld.demo.responsive :as responsive]
     [reagent.core :as r]))
 
 
@@ -365,7 +366,7 @@
               :color "#f8fbff"
               :font-family "system-ui, sans-serif"
               :min-height "100vh"
-              :padding "96px 24px 32px"}}
+              :padding "96px 20px 32px"}}
      [:div
       {:style {:max-width "1400px"
                :margin "0 auto"
@@ -404,7 +405,7 @@
                  :border "1px solid #2d3b55"
                  :border-radius "16px"
                  :padding "16px"
-                 :min-width "320px"
+                 :width "100%"
                  :max-width "420px"
                  :display "flex"
                  :flex-direction "column"
@@ -431,7 +432,7 @@
          " to send the current editor buffer to the remote REPL."]]]
       [:div
        {:style {:display "grid"
-                :grid-template-columns "minmax(360px, 1.1fr) minmax(320px, 0.9fr)"
+                :grid-template-columns (responsive/auto-fit-grid 360)
                 :gap "20px"}}
        [:section
         {:style {:background "rgba(8,12,25,0.82)"
@@ -441,7 +442,7 @@
                  :display "flex"
                  :flex-direction "column"
                  :gap "16px"
-                 :min-height "70vh"}}
+                 :min-height (responsive/fluid-height 380 70 860)}}
         [:div
          {:style {:display "flex"
                   :flex-wrap "wrap"
@@ -449,14 +450,15 @@
                   :align-items "center"}}
          [:div
           {:style {:display "flex"
-                   :flex "1"
-                   :min-width "240px"
+                   :flex "1 1 260px"
+                   :flex-wrap "wrap"
                    :gap "10px"}}
           [:input
            {:value url
             :on-change #(swap! app-state assoc :url (.. % -target -value))
             :placeholder "ws://localhost:8080"
             :style {:flex "1"
+                    :min-width "0"
                     :background "#0b1120"
                     :border "1px solid #2d3b55"
                     :border-radius "12px"
@@ -494,7 +496,9 @@
         [:div
          {:style {:display "flex"
                   :justify-content "space-between"
-                  :align-items "center"}}
+                  :align-items "center"
+                  :flex-wrap "wrap"
+                  :gap "12px"}}
          [:div
           [:div {:style {:font-size "12px"
                          :font-weight "700"
@@ -521,7 +525,7 @@
           (if active-request "Waiting..." "Eval")]]
         [:div
          {:style {:flex "1"
-                  :min-height "420px"}}
+                  :min-height (responsive/fluid-height 300 48 620)}}
          [codemirror-editor
           {:value editor-source
            :on-change #(swap! app-state assoc :editor-source %)
@@ -535,11 +539,13 @@
                  :display "flex"
                  :flex-direction "column"
                  :gap "16px"
-                 :min-height "70vh"}}
+                 :min-height (responsive/fluid-height 360 68 860)}}
         [:div
          {:style {:display "flex"
                   :justify-content "space-between"
-                  :align-items "center"}}
+                  :align-items "center"
+                  :flex-wrap "wrap"
+                  :gap "12px"}}
          [:div
           [:div {:style {:font-size "12px"
                          :font-weight "700"

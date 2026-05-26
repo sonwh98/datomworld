@@ -3,6 +3,7 @@
     [dao.stream :as ds]
     [dao.stream.apply :as dao-apply]
     [dao.stream.ws :as ws]
+    [datomworld.demo.responsive :as responsive]
     [reagent.core :as r]
     [reagent.dom :as rdom]))
 
@@ -204,11 +205,22 @@
 (defn connection-panel
   []
   (let [state @app-state]
-    [:div.connection-panel {:style {:padding "10px" :border-bottom "1px solid #ccc"}}
-     [:div "REPL Port:  " [:input {:value (:repl-port state)
-                                   :on-change #(swap! app-state assoc :repl-port (.. % -target -value))}]]
-     [:div "Tel Port:   " [:input {:value (:tel-port state)
-                                   :on-change #(swap! app-state assoc :tel-port (.. % -target -value))}]]
+    [:div.connection-panel {:style {:padding "12px"
+                                    :border-bottom "1px solid #d0d7de"
+                                    :display "flex"
+                                    :flex-wrap "wrap"
+                                    :gap "12px"
+                                    :align-items "center"}}
+     [:label {:style {:display "flex" :align-items "center" :gap "8px"}}
+      [:span "REPL Port:"]
+      [:input {:value (:repl-port state)
+               :style {:width "96px"}
+               :on-change #(swap! app-state assoc :repl-port (.. % -target -value))}]]
+     [:label {:style {:display "flex" :align-items "center" :gap "8px"}}
+      [:span "Tel Port:"]
+      [:input {:value (:tel-port state)
+               :style {:width "96px"}
+               :on-change #(swap! app-state assoc :tel-port (.. % -target -value))}]]
      (if (= (:status state) :connected)
        [:button {:on-click disconnect!} "Disconnect"]
        [:button {:on-click connect!} "Connect"])
@@ -277,14 +289,32 @@
 
 (defn main-panel
   []
-  [:div.telemetry-viewer {:style {:display "flex" :flex-direction "column" :height "100vh" :font-family "sans-serif"}}
+  [:div.telemetry-viewer
+   {:style {:display "flex"
+            :flex-direction "column"
+            :min-height "100vh"
+            :font-family "sans-serif"
+            :background "#f6f8fb"}}
    [connection-panel]
-   [:div {:style {:display "flex" :flex "1" :overflow "hidden"}}
-    [:div {:style {:display "flex" :flex-direction "column" :width "30%" :border-right "1px solid #ccc"}}
+   [:div {:style {:display "grid"
+                  :grid-template-columns (responsive/auto-fit-grid 280)
+                  :gap "1px"
+                  :flex "1"
+                  :background "#d0d7de"}}
+    [:div {:style {:display "flex"
+                   :flex-direction "column"
+                   :min-height (responsive/fluid-height 280 40 520)
+                   :background "#fff"}}
      [repl-panel]]
-    [:div {:style {:display "flex" :flex-direction "column" :width "30%" :border-right "1px solid #ccc"}}
+    [:div {:style {:display "flex"
+                   :flex-direction "column"
+                   :min-height (responsive/fluid-height 280 40 520)
+                   :background "#fff"}}
      [datom-stream-panel]]
-    [:div {:style {:display "flex" :flex-direction "column" :width "40%"}}
+    [:div {:style {:display "flex"
+                   :flex-direction "column"
+                   :min-height (responsive/fluid-height 280 40 520)
+                   :background "#fff"}}
      [snapshot-panel]]]])
 
 

@@ -1481,6 +1481,7 @@
           {:style {:width width,
                    :height height,
                    :position "relative",
+                   :overflow "auto",
                    :background "#060817",
                    :color "#c5c6c7"}}
           (let [pos (:ui-positions @app-state)

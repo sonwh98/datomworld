@@ -1145,6 +1145,17 @@
     data))
 
 
+(defn- line-index-data
+  [edges]
+  (let [data (js/Uint32Array. (* 2 (count edges)))]
+    (dotimes [i (count edges)]
+      (let [[a b] (nth edges i)
+            o (* i 2)]
+        (aset data o a)
+        (aset data (+ o 1) b)))
+    data))
+
+
 (defn- texture-entry!
   [state-atom texture]
   (let [state @state-atom
@@ -1240,6 +1251,42 @@
                                :depthStencil #js {:format "depth24plus",
                                                   :depthWriteEnabled true,
                                                   :depthCompare "less"}})
+                            ^js line-pipeline
+                            (.createRenderPipeline
+                              device
+                              #js
+                              {:layout "auto",
+                               :vertex
+                               #js {:module shader,
+                                    :entryPoint "vs_main",
+                                    :buffers
+                                    #js
+                                    [#js
+                                     {:arrayStride 48,
+                                      :attributes
+                                      #js
+                                      [#js {:shaderLocation 0,
+                                            :offset 0,
+                                            :format "float32x3"}
+                                       #js {:shaderLocation 1,
+                                            :offset 12,
+                                            :format "float32x2"}
+                                       #js {:shaderLocation 2,
+                                            :offset 20,
+                                            :format "float32x3"}
+                                       #js {:shaderLocation 3,
+                                            :offset 32,
+                                            :format
+                                            "float32x4"}]}]},
+                               :fragment
+                               #js {:module shader,
+                                    :entryPoint "fs_main",
+                                    :targets #js [#js {:format format}]},
+                               :primitive #js {:topology "line-list",
+                                               :cullMode "none"},
+                               :depthStencil #js {:format "depth24plus",
+                                                  :depthWriteEnabled true,
+                                                  :depthCompare "less"}})
                             ^js sampler (.createSampler
                                           device
                                           #js {:magFilter "linear",
@@ -1274,6 +1321,7 @@
                                :context context
                                :format format
                                :pipeline pipeline
+                               :line-pipeline line-pipeline
                                :sampler sampler
                                :white-texture white-texture
                                :depth-texture nil
@@ -1347,6 +1395,46 @@
     (.drawIndexed pass (.-length i-data) 1 0 0 0)))
 
 
+(defn- encode-lines!
+  [state-atom ^js pass ^js device draw]
+  (let [{:keys [payload mvp]} draw
+        v-data (interleave-vertex-data (assoc payload
+                                              :fill (:color payload)
+                                              :normals nil
+                                              :uvs nil
+                                              :colors nil))
+        i-data (line-index-data (:edges payload))
+        u-data (js/Float32Array. (clj->js mvp))
+        v-buffer (write-buffer! device
+                                (bit-or (.-VERTEX js/GPUBufferUsage)
+                                        (.-COPY_DST js/GPUBufferUsage))
+                                v-data)
+        i-buffer (write-buffer! device
+                                (bit-or (.-INDEX js/GPUBufferUsage)
+                                        (.-COPY_DST js/GPUBufferUsage))
+                                i-data)
+        u-buffer (write-buffer! device
+                                (bit-or (.-UNIFORM js/GPUBufferUsage)
+                                        (.-COPY_DST js/GPUBufferUsage))
+                                u-data)
+        state @state-atom
+        ^js pipeline (:line-pipeline state)
+        sampler (:sampler state)
+        {:keys [view]} (texture-entry! state-atom nil)
+        bind-group (.createBindGroup
+                     device
+                     #js {:layout (.getBindGroupLayout pipeline 0),
+                          :entries #js [#js {:binding 0,
+                                             :resource #js {:buffer u-buffer}}
+                                        #js {:binding 1, :resource view}
+                                        #js {:binding 2, :resource sampler}]})]
+    (.setPipeline pass pipeline)
+    (.setBindGroup pass 0 bind-group)
+    (.setVertexBuffer pass 0 v-buffer)
+    (.setIndexBuffer pass i-buffer "uint32")
+    (.drawIndexed pass (.-length i-data) 1 0 0 0)))
+
+
 (defn submit-webgpu!
   "WebGPU :submit! for postgraphics-widget. Lazily acquires the GPU
    device on the first call per canvas; subsequent calls reuse the
@@ -1386,6 +1474,8 @@
           (case (:pipeline draw)
             (:mesh-3d :mesh-textured-3d)
             (encode-mesh! state-atom pass device draw)
+            :line-3d
+            (encode-lines! state-atom pass device draw)
             nil))
         (.end pass)
         (.submit (.-queue device) #js [(.finish encoder)])

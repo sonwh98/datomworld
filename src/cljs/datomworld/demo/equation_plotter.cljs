@@ -9,6 +9,7 @@
     [clojure.string :as str]
     [dao.stream :as ds]
     [dao.stream.ringbuffer]
+    [datomworld.demo.responsive :as responsive]
     [reagent.core :as r]
     [yang.clojure :as yang]
     [yin.vm :as vm]
@@ -361,66 +362,77 @@
     [:div {:style {:min-height "100vh"
                    :background "#060817"
                    :color "#c5c6c7"
-                   :padding "20px"}}
-     ;; Title
-     [:h1 {:style {:color "#f1f5ff" :margin-bottom "4px"}}
-      [:a {:href "https://datom.world"} "Datom.world "]
-      "Equation Plotter"]
-     [:p {:style {:color "#8b949e" :margin-top "0" :margin-bottom "20px"
-                  :font-size "14px"}}
-      "Yin source code compiled to register VM bytecode. "
-      "dao.stream.apply :plot/point bridges to a ClojureScript function that renders SVG."]
+                   :padding "96px 20px 32px"}}
+     [:div {:style {:max-width "980px"
+                    :margin "0 auto"
+                    :display "flex"
+                    :flex-direction "column"
+                    :gap "16px"}}
+      [:div {:style {:max-width "760px"}}
+       [:h1 {:style {:color "#f1f5ff" :margin "0 0 6px"
+                     :font-size "clamp(2rem, 4vw, 3.4rem)"}}
+        [:a {:href "https://datom.world"} "Datom.world "]
+        "Equation Plotter"]
+       [:p {:style {:color "#8b949e" :margin 0
+                    :font-size "14px" :line-height "1.6"}}
+        "Yin source code compiled to register VM bytecode. "
+        "dao.stream.apply :plot/point bridges to a ClojureScript function that renders SVG."]]
 
-     ;; Source editor (CodeMirror)
-     [:div {:style {:max-width "900px" :height "220px" :margin-bottom "12px"}}
-      [codemirror-editor
-       {:value source
-        :on-change #(swap! app-state assoc :source %)}]]
+      [:section {:style {:background "#0d1117"
+                         :border "1px solid #30363d"
+                         :border-radius "16px"
+                         :padding "16px"}}
+       [:div {:style {:height (responsive/fluid-height 220 32 320)}}
+        [codemirror-editor
+         {:value source
+          :on-change #(swap! app-state assoc :source %)}]]]
 
-     ;; Compile + Execute buttons
-     [:div {:style {:display "flex" :gap "8px" :align-items "center"
-                    :margin-bottom "16px"}}
-      [:button {:on-click compile!
-                :disabled running?
-                :style (merge btn-style {:background "#238636"})}
-       "Compile"]
-      [:button {:on-click execute!
-                :disabled (or running? (nil? (:program @app-state)))
-                :style (merge btn-style
-                              (if (and (:program @app-state) (not running?))
-                                {:background "#1f6feb"}
-                                {:background "#333" :cursor "not-allowed"}))}
-       (if running? "Running..." "Execute")]]
+      [:div {:style {:display "flex"
+                     :gap "8px"
+                     :align-items "center"
+                     :flex-wrap "wrap"}}
+       [:button {:on-click compile!
+                 :disabled running?
+                 :style (merge btn-style {:background "#238636"})}
+        "Compile"]
+       [:button {:on-click execute!
+                 :disabled (or running? (nil? (:program @app-state)))
+                 :style (merge btn-style
+                               (if (and (:program @app-state) (not running?))
+                                 {:background "#1f6feb"}
+                                 {:background "#333" :cursor "not-allowed"}))}
+        (if running? "Running..." "Execute")]]
 
-     ;; Register assembly (shown after compile)
-     (when asm
-       [:div {:style {:max-width "900px" :margin-bottom "16px"}}
-        [:div {:style {:color "#8b949e" :font-size "12px" :margin-bottom "4px"}}
-         (str (count asm) " register instructions")]
-        [:pre {:style {:background "#0d1117"
-                       :border "1px solid #30363d"
-                       :border-radius "6px"
-                       :padding "12px"
-                       :font-size "12px"
-                       :color "#c9d1d9"
-                       :max-height "200px"
-                       :overflow-y "auto"
-                       :margin "0"}}
-         (str/join "\n" (map-indexed (fn [i instr] (str i ": " (pr-str instr))) asm))]])
+      (when asm
+        [:section {:style {:background "#0d1117"
+                           :border "1px solid #30363d"
+                           :border-radius "16px"
+                           :padding "16px"}}
+         [:div {:style {:color "#8b949e" :font-size "12px" :margin-bottom "8px"}}
+          (str (count asm) " register instructions")]
+         [:pre {:style {:background "#090d14"
+                        :border "1px solid #30363d"
+                        :border-radius "10px"
+                        :padding "12px"
+                        :font-size "12px"
+                        :color "#c9d1d9"
+                        :max-height "200px"
+                        :overflow-y "auto"
+                        :margin "0"}}
+          (str/join "\n" (map-indexed (fn [i instr] (str i ": " (pr-str instr))) asm))]])
 
-     ;; SVG Plot
-     [:div {:style {:width "100%"
-                    :max-width "900px"
-                    :height "500px"
-                    :margin-bottom "12px"}}
-      [svg-plot]]
+      [:section {:style {:background "#0d1117"
+                         :border "1px solid #30363d"
+                         :border-radius "16px"
+                         :padding "16px"}}
+       [:div {:style {:width "100%"
+                      :height (responsive/fluid-height 320 56 560)}}
+        [svg-plot]]]
 
-     ;; Stats
-     (when (pos? call-count)
-       [:div {:style {:font-size "13px" :color "#8b949e" :margin-bottom "12px"}}
-        (str (count points) " points plotted, " call-count " dao.stream.apply calls")])
+      (when (pos? call-count)
+        [:div {:style {:font-size "13px" :color "#8b949e"}}
+         (str (count points) " points plotted, " call-count " dao.stream.apply calls")])]
 
-     ;; Error
      (when error
        [:div {:style {:position "fixed"
                       :bottom "10px" :left "10px" :right "10px"

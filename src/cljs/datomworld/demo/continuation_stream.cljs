@@ -10,6 +10,7 @@
     [dao.stream :as ds]
     [datomworld.continuation-transport :as ct]
     [datomworld.demo.continuation-handoff :as handoff]
+    [datomworld.demo.responsive :as responsive]
     [reagent.core :as r]
     [yang.clojure :as yang]
     [yin.demo.utils :as demo.utils]
@@ -707,7 +708,7 @@
           {:style {:min-height "100vh",
                    :background "#060817",
                    :color "#c5c6c7",
-                   :padding "16px",
+                   :padding "96px 16px 24px",
                    :display "flex",
                    :flex-direction "column",
                    :gap "12px",
@@ -722,45 +723,45 @@
             "Register VM + Stack VM Continuation Stream"]] [controls-panel]
           [:div
            {:style {:display "grid",
-                    :grid-template-columns "repeat(2, minmax(0, 1fr))",
-                    :grid-template-rows "300px 360px 320px",
+                    :grid-template-columns (responsive/auto-fit-grid 320),
                     :gap "12px",
                     :flex "1",
                     :min-height "0"}}
-           [card "Source" "CodeMirror editor: Clojure code"
-            [codemirror-editor
-             {:value source-code,
-              :on-change set-source-code!,
-              :style {:height "100%"}}]]
-           [card "Compiled Bytecode"
-            "Compiled from source via yang -> AST datoms -> register and stack asm."
-            [codemirror-editor
-             {:value bytecode-view,
-              :read-only true,
-              :style {:height "100%"}}]]
-           [card "Register VM"
-            "Register machine CESK state while ownership changes."
-            [vm-window :register-vm "Register VM" "#3b82f6"]]
-           [card "Stack VM"
-            "Stack machine CESK state while ownership changes."
-            [vm-window :stack-vm "Stack VM" "#22c55e"]]
-           [:div
-            {:style {:grid-column "1 / span 2",
-                     :display "grid",
-                     :grid-template-columns "repeat(3, minmax(0, 1fr))",
-                     :gap "12px",
-                     :min-height "0"}}
+           [:div {:style {:min-height (responsive/fluid-height 280 42 380)}}
+            [card "Source" "CodeMirror editor: Clojure code"
+             [codemirror-editor
+              {:value source-code,
+               :on-change set-source-code!,
+               :style {:height "100%"}}]]]
+           [:div {:style {:min-height (responsive/fluid-height 280 42 380)}}
+            [card "Compiled Bytecode"
+             "Compiled from source via yang -> AST datoms -> register and stack asm."
+             [codemirror-editor
+              {:value bytecode-view,
+               :read-only true,
+               :style {:height "100%"}}]]]
+           [:div {:style {:min-height (responsive/fluid-height 320 50 460)}}
+            [card "Register VM"
+             "Register machine CESK state while ownership changes."
+             [vm-window :register-vm "Register VM" "#3b82f6"]]]
+           [:div {:style {:min-height (responsive/fluid-height 320 50 460)}}
+            [card "Stack VM"
+             "Stack machine CESK state while ownership changes."
+             [vm-window :stack-vm "Stack VM" "#22c55e"]]]
+           [:div {:style {:min-height (responsive/fluid-height 240 34 320)}}
             [card "In-Flight"
              "Continuations between VM cursor and stream head."
              [codemirror-editor
-              {:value queue-view, :read-only true, :style {:height "100%"}}]]
+              {:value queue-view, :read-only true, :style {:height "100%"}}]]]
+           [:div {:style {:min-height (responsive/fluid-height 240 34 320)}}
             [card "Stream Datoms"
              "Append-only stream facts for continuation emit/deliver events."
              [codemirror-editor
               {:value stream-view,
                :read-only true,
                :auto-scroll-bottom true,
-               :style {:height "100%"}}]]
+               :style {:height "100%"}}]]]
+           [:div {:style {:min-height (responsive/fluid-height 240 34 320)}}
             [card "Run Summary" "Execution totals and final value."
              [codemirror-editor
               {:value (pretty-print run-summary),

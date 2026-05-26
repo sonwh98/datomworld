@@ -7,6 +7,7 @@
     [dao.stream-test]
     [datomworld.continuation-transport-test]
     [datomworld.demo.continuation-handoff-test]
+    [datomworld.demo.responsive-test]
     [datomworld.demo.vm-state-keys-test]
     [datomworld.demo.yin-repl-test]
     [yin.content-test]
@@ -35,6 +36,7 @@
              'datomworld.continuation-transport-test
              'datomworld.demo.yin-repl-test
              'datomworld.demo.continuation-handoff-test
+             'datomworld.demo.responsive-test
              'datomworld.demo.vm-state-keys-test
              'yin.repl-test
              'dao.stream-test
