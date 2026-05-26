@@ -4,54 +4,28 @@
             ["dart:typed_data" :as type]
             ["package:flutter/material.dart" :as m]
             [dao.postgraphics.flutter :as pg]
-            [dao.stream :as ds]
-            [dao.stream.ringbuffer]
+            [datomworld.demo.earth-moon-runner :as runner]
             [datomworld.demo.earth-moon-scene :as scene]))
 
 
-(def ^:private W 560.0)
-(def ^:private H 560.0)
 (def ^:private earth-asset "assets/images/earth_land_ocean_ice_1024.jpg")
 (def ^:private moon-asset "assets/images/moon_texture_512.jpg")
 (def ^:private ring-tex-width 4)
 (def ^:private ring-tex-height 256)
 
 
-(defonce frame-stream
-  (ds/open! {:type :ringbuffer, :capacity 4, :eviction-policy :evict-oldest}))
+(defonce ^:private timer* (atom nil))
 
 
-(defonce timer* (atom nil))
-(defonce started-at* (atom nil))
-(defonce earth-texture* (atom nil))
-(defonce moon-texture* (atom nil))
-(defonce ring-texture* (atom nil))
+(defn- now-ms
+  ^int []
+  (.-millisecondsSinceEpoch (core/DateTime.now)))
 
 
 (defn- ensure-asset-texture!
-  [texture* asset-path]
-  (when (nil? @texture*)
-    (.then ^async/Future (pg/load-rgba-texture-from-asset! asset-path)
-           (fn [tex] (reset! texture* tex)))))
-
-
-(defn- abs-d
-  ^double [^double x]
-  (if (< x 0.0) (- x) x))
-
-
-(defn- ring-darkness
-  "Radial brightness profile across the ring (v: 0=inner edge, 1=outer).
-   Smooth tan body with three darker gap bands suggestive of Saturn's
-   Cassini-style divisions, plus a parabolic fade toward the edges."
-  ^double [^double v]
-  (let [edge-fade (* 4.0 v (- 1.0 v))
-        body (+ 0.55 (* 0.45 edge-fade))
-        gap (cond (< (abs-d (- v 0.18)) 0.025) 0.45
-                  (< (abs-d (- v 0.50)) 0.035) 0.30
-                  (< (abs-d (- v 0.78)) 0.020) 0.55
-                  :else 1.0)]
-    (* body gap)))
+  [setter! asset-path]
+  (.then ^async/Future (pg/load-rgba-texture-from-asset! asset-path)
+         (fn [tex] (setter! tex))))
 
 
 (defn- ring-texture-bytes
@@ -59,7 +33,7 @@
   (let [bytes (type/ByteData. (* width height 4))]
     (dotimes [y height]
       (let [v (/ (double y) (double (dec height)))
-            b (ring-darkness v)
+            b (runner/ring-darkness v)
             r (int (* 255.0 (* 0.92 b)))
             g (int (* 255.0 (* 0.84 b)))
             blue (int (* 255.0 (* 0.66 b)))]
@@ -74,21 +48,12 @@
 
 (defn- ensure-ring-texture!
   []
-  (when (nil? @ring-texture*)
-    (try (reset! ring-texture* (pg/create-rgba-texture! ring-tex-width
-                                                        ring-tex-height
-                                                        (ring-texture-bytes
-                                                          ring-tex-width
-                                                          ring-tex-height)))
-         (catch Object e
-           (core/print (str "Ring texture creation failed: " e))))))
-
-
-(defn- current-textures
-  []
-  {:earth-tex @earth-texture*,
-   :moon-tex @moon-texture*,
-   :ring-tex @ring-texture*})
+  (try (runner/set-ring-texture! (pg/create-rgba-texture! ring-tex-width
+                                                          ring-tex-height
+                                                          (ring-texture-bytes
+                                                            ring-tex-width
+                                                            ring-tex-height)))
+       (catch Object e (core/print (str "Ring texture creation failed: " e)))))
 
 
 (defn stop!
@@ -102,22 +67,13 @@
 (defn start!
   []
   (stop!)
-  (reset! started-at* (core/DateTime.now))
-  (ensure-asset-texture! earth-texture* earth-asset)
-  (ensure-asset-texture! moon-texture* moon-asset)
+  (runner/reset-scene! (now-ms))
+  (ensure-asset-texture! runner/set-earth-texture! earth-asset)
+  (ensure-asset-texture! runner/set-moon-texture! moon-asset)
   (ensure-ring-texture!)
-  (pg/put-frame! frame-stream (scene/frame-from-seconds 0.0 (current-textures)))
-  (reset! timer*
-          (async/Timer.periodic
-            (core/Duration .milliseconds scene/frame-interval-ms)
-            (fn [_]
-              (let [now (core/DateTime.now)
-                    elapsed-us (.-inMicroseconds (.difference now @started-at*))
-                    seconds (* (/ scene/frame-step-seconds scene/frame-interval-ms)
-                               (/ (double elapsed-us) 1000.0))]
-                (pg/put-frame! frame-stream
-                               (scene/frame-from-seconds seconds (current-textures)))
-                nil))))
+  (reset! timer* (async/Timer.periodic (core/Duration .milliseconds
+                                                      scene/frame-interval-ms)
+                                       (fn [_] (runner/tick! (now-ms)))))
   :started)
 
 
@@ -128,10 +84,27 @@
               .backgroundColor
               (m/Color.fromARGB 255 6 5 16)
               .body
-              (m/Center .child
-                        (m/SizedBox .width
-                                    W
-                                    .height
-                                    H
-                                    .child
-                                    (pg/postgraphics-widget frame-stream)))))
+              (m/LayoutBuilder .builder
+                               (fn [_context ^m/BoxConstraints constraints]
+                                 ;; Square the canvas to the smaller
+                                 ;; available axis so the spherical scene
+                                 ;; stays centered without distortion
+                                 ;; across portrait phones, landscape
+                                 ;; tablets, and resizable desktop windows.
+                                 ;; LayoutBuilder gives the constraints
+                                 ;; handed down by the Scaffold body
+                                 ;; (screen minus appBar) so this picks up
+                                 ;; orientation changes and window resizes
+                                 ;; for free.
+                                 (let [max-w (.-maxWidth constraints)
+                                       max-h (.-maxHeight constraints)
+                                       side (if (< max-w max-h) max-w max-h)]
+                                   (m/Center .child
+                                             (m/SizedBox
+                                               .width
+                                               side
+                                               .height
+                                               side
+                                               .child
+                                               (pg/postgraphics-widget
+                                                 runner/frame-stream))))))))

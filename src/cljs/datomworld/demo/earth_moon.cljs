@@ -1,50 +1,25 @@
 (ns datomworld.demo.earth-moon
   (:require
-    [dao.postgraphics.terminal :as terminal]
     [dao.postgraphics.webgpu :as pg]
-    [dao.stream :as ds]
-    [dao.stream.ringbuffer]
+    [datomworld.demo.earth-moon-runner :as runner]
     [datomworld.demo.earth-moon-scene :as scene]
     [reagent.core :as r]))
 
 
-(defonce frame-stream
-  (ds/open! {:type :ringbuffer, :capacity 4, :eviction-policy :evict-oldest}))
-
-
-(defonce scene-state (r/atom {:seconds 0.0, :animating? true}))
-
-
-(defonce interval-id (atom nil))
-(defonce started-at-ms* (atom nil))
-(defonce earth-texture* (atom nil))
-(defonce moon-texture* (atom nil))
-(defonce ring-texture* (atom nil))
+(defonce ^:private interval-id (atom nil))
 
 
 (defn- load-image-texture!
-  [tex-atom asset-path]
-  (when (nil? @tex-atom)
-    (let [img (js/Image.)]
-      (set! (.-crossOrigin img) "anonymous")
-      (set! (.-onload img)
-            (fn []
-              (reset! tex-atom {:image img,
-                                :width (.-naturalWidth img),
-                                :height (.-naturalHeight img),
-                                :source-id asset-path})))
-      (set! (.-src img) asset-path))))
-
-
-(defn- ring-darkness
-  [v]
-  (let [edge-fade (* 4.0 v (- 1.0 v))
-        body (+ 0.55 (* 0.45 edge-fade))
-        gap (cond (< (js/Math.abs (- v 0.18)) 0.025) 0.45
-                  (< (js/Math.abs (- v 0.50)) 0.035) 0.30
-                  (< (js/Math.abs (- v 0.78)) 0.020) 0.55
-                  :else 1.0)]
-    (* body gap)))
+  [setter! asset-path]
+  (let [img (js/Image.)]
+    (set! (.-crossOrigin img) "anonymous")
+    (set! (.-onload img)
+          (fn []
+            (setter! {:image img,
+                      :width (.-naturalWidth img),
+                      :height (.-naturalHeight img),
+                      :source-id asset-path})))
+    (set! (.-src img) asset-path)))
 
 
 (defn- make-ring-canvas
@@ -57,7 +32,7 @@
         data (.-data image-data)]
     (dotimes [y height]
       (let [v (/ y (max 1 (dec height)))
-            b (ring-darkness v)
+            b (runner/ring-darkness v)
             r (int (* 255 0.92 b))
             g (int (* 255 0.84 b))
             blue (int (* 255 0.66 b))]
@@ -69,18 +44,6 @@
             (aset data (+ offset 3) 255)))))
     (.putImageData ctx image-data 0 0)
     {:image canvas, :width width, :height height, :source-id :ring-texture}))
-
-
-(defn- ensure-ring-texture!
-  []
-  (when (nil? @ring-texture*) (reset! ring-texture* (make-ring-canvas 4 256))))
-
-
-(defn- current-textures
-  []
-  {:earth-tex @earth-texture*,
-   :moon-tex @moon-texture*,
-   :ring-tex @ring-texture*})
 
 
 (defn stop!
@@ -98,61 +61,36 @@
 
 (defn start!
   []
-  (load-image-texture! earth-texture*
+  (load-image-texture! runner/set-earth-texture!
                        "/assets/images/earth_land_ocean_ice_1024.jpg")
-  (load-image-texture! moon-texture* "/assets/images/moon_texture_512.jpg")
-  (ensure-ring-texture!)
+  (load-image-texture! runner/set-moon-texture!
+                       "/assets/images/moon_texture_512.jpg")
+  (runner/set-ring-texture! (make-ring-canvas 4 256))
   (when-not @interval-id
-    (reset! started-at-ms* (js/Date.now))
-    (reset! interval-id (js/setInterval
-                          (fn []
-                            (let [elapsed-ms (- (js/Date.now) @started-at-ms*)
-                                  seconds (if (:animating? @scene-state)
-                                            (* (/ scene/frame-step-seconds
-                                                  scene/frame-interval-ms)
-                                               elapsed-ms)
-                                            (:seconds @scene-state))]
-                              (swap! scene-state assoc :seconds seconds)
-                              (terminal/put-frame! frame-stream
-                                                   (scene/frame-from-seconds
-                                                     seconds
-                                                     (current-textures)))))
-                          scene/frame-interval-ms)))
+    (runner/reset-scene! (js/Date.now))
+    (reset! interval-id (js/setInterval #(runner/tick! (js/Date.now))
+                                        scene/frame-interval-ms)))
   :started)
 
 
 (defn- toggle-animation!
   []
-  (let [animating? (:animating? @scene-state)]
-    (swap! scene-state update :animating? not)
-    (when-not animating?
-      (let [seconds (:seconds @scene-state)
-            elapsed-ms (* seconds
-                          (/ scene/frame-interval-ms scene/frame-step-seconds))]
-        (reset! started-at-ms* (- (js/Date.now) elapsed-ms))))))
+  (runner/toggle-animation! (js/Date.now)))
 
 
-(defn reset-scene!
+(defn- reset-scene!
   []
-  (reset! started-at-ms* (js/Date.now))
-  (reset! scene-state {:seconds 0.0, :animating? true})
-  (terminal/put-frame! frame-stream
-                       (scene/frame-from-seconds 0.0 (current-textures))))
+  (runner/reset-scene! (js/Date.now)))
 
 
 (defn- canvas-view
   []
   (r/create-class
     {:display-name "earth-moon-postgraphics-widget",
-     :component-did-mount (fn [_]
-                            (start!)
-                            (terminal/put-frame! frame-stream
-                                                 (scene/frame-from-seconds
-                                                   (:seconds @scene-state)
-                                                   (current-textures)))),
+     :component-did-mount (fn [_] (start!) (runner/tick! (js/Date.now))),
      :component-will-unmount (fn [_] (dispose!)),
      :reagent-render (fn []
-                       [pg/postgraphics-widget frame-stream :canvas-attrs
+                       [pg/postgraphics-widget runner/frame-stream :canvas-attrs
                         {:style {:width "min(78vw, 860px)",
                                  :height "min(76vh, 720px)",
                                  :display "block",
@@ -166,7 +104,7 @@
 
 (defn main-view
   []
-  (let [{:keys [animating?]} @scene-state]
+  (let [{:keys [animating?]} @runner/scene-state]
     [:div
      {:style
       {:min-height "100vh",
@@ -225,6 +163,11 @@
         [:p {:style {:color "#c2cee8", :margin "0 0 12px"}}
          "Each tick emits a complete frame with " [:code ":camera3d/set"]
          ", lighting state, and two " [:code ":draw3d/mesh"]
-         " spheres from the shared Clojure/ClojureDart producer."]
+         " spheres from a shared " [:code "datomworld.demo.earth-moon-runner"]
+         " (frame stream, scene state, animation gating) plus "
+         [:code "earth-moon-scene"] " (geometry). The browser side adds "
+         "image-texture loading and the interval timer; the Flutter side "
+         "adds asset-bundle texture loading and a Dart Timer."]
         [:p {:style {:color "#8391b7", :font-size "13px", :margin "0"}}
-         "This is a 3D postgraphics producer. The browser renderer now submits the lowered mesh frame through WebGPU with depth testing and textured fragments."]]]]]))
+         "The browser renderer submits the lowered mesh frame through WebGPU "
+         "with depth testing and textured fragments."]]]]]))
