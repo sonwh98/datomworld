@@ -10,7 +10,10 @@
      :writer-waiters  — vector of wait-set-entries; first one woken when drain-one! frees space"
   (:require
     [dao.stream :as ds]
-    [yin.module :as module]))
+    [yin.module :as module])
+  #?(:cljs
+     (:require-macros
+       [dao.stream])))
 
 
 (def ^:private put-result-key ::put-result)
@@ -357,30 +360,10 @@
   ([capacity position] (make-ring-buffer-stream* capacity nil position)))
 
 
-#?(:cljd
-   (do (deftype RingBufferOpenMethod
-         []
-         :type-only
-         true
-
-         cljd.core/IFn
-
-         (-invoke
-           [_ ^dynamic table]
-           (assoc!
-             table
-             :ringbuffer
-             (fn [descriptor]
-               (let [{:keys [capacity eviction-policy]} descriptor]
-                 (make-ring-buffer-stream* capacity eviction-policy 0))))))
-       (contribute* :multi-method
-                    dao.stream/open!
-                    dao.stream.ringbuffer/RingBufferOpenMethod
-                    dao.stream.ringbuffer/RingBufferOpenMethod))
-   :default (defmethod ds/open! :ringbuffer
-              [descriptor]
-              (let [{:keys [capacity eviction-policy]} descriptor]
-                (make-ring-buffer-stream* capacity eviction-policy 0))))
+(ds/defopen :ringbuffer
+            [descriptor]
+            (let [{:keys [capacity eviction-policy]} descriptor]
+              (make-ring-buffer-stream* capacity eviction-policy 0)))
 
 
 ;; ============================================================

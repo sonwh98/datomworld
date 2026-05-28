@@ -97,6 +97,45 @@
   (fn [descriptor] (:type descriptor)))
 
 
+#?(:clj
+   (defmacro defopen
+     "Register an `open!` implementation for descriptors of `{:type dispatch-val}`.
+
+      Reads like `defmethod`:
+
+        (defopen :http [descriptor] ...body...)
+
+      On clj/cljs this expands to `(defmethod open! dispatch-val ...)`.
+      On ClojureDart, where `defmethod` cannot extend a multimethod defined in
+      another namespace (the generated type name is munged from the multifn
+      symbol and fails to resolve), it expands to the equivalent :type-only
+      deftype + `contribute*` registration."
+     [dispatch-val argv & body]
+     ;; This body is selected at macro-load time: the ClojureDart host
+     ;; pass reads with :cljd active, every other host reads :default.
+     #?(:cljd (let [s (name dispatch-val)
+                    tname (symbol (str (.toUpperCase (subs s 0 1))
+                                       (subs s 1)
+                                       "OpenMethod"))
+                    ;; contribute* needs a fully-qualified contributing
+                    ;; type; the compiling namespace is exposed on &env
+                    ;; by ClojureDart.
+                    qname (symbol (name (get-in &env [:nses :current-ns]))
+                                  (name tname))]
+                `(do (deftype ~tname
+                       []
+                       :type-only
+                       true
+
+                       cljd.core/IFn
+
+                       (~'-invoke
+                         [_# tm#]
+                         (assoc! tm# ~dispatch-val (fn ~argv ~@body))))
+                     (~'contribute* :multi-method open! ~qname ~qname)))
+        :default `(~'defmethod open! ~dispatch-val ~argv ~@body))))
+
+
 ;; =============================================================================
 ;; Utilities (Non-Protocol)
 ;; =============================================================================

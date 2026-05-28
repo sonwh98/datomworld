@@ -1,11 +1,10 @@
 (ns dao.stream.ws
   "WebSocket-backed stream for ClojureDart using dart:io."
-  (:require
-    ["dart:io" :as io]
-    [dao.stream :as ds]
-    [dao.stream.link :as link]
-    [dao.stream.ringbuffer :as ringbuffer]
-    [dao.stream.transit :as transit]))
+  (:require ["dart:io" :as io]
+            [dao.stream :as ds]
+            [dao.stream.link :as link]
+            [dao.stream.ringbuffer :as ringbuffer]
+            [dao.stream.transit :as transit]))
 
 
 (defrecord WebSocketStream
@@ -174,31 +173,13 @@
      stream)))
 
 
-(deftype WebSocketOpenMethod
-  []
-  :type-only
-  true
-
-  cljd.core/IFn
-
-  (-invoke
-    [_ ^dynamic table]
-    (assoc!
-      table
-      :websocket
-      (fn [descriptor]
-        (let [{:keys [mode url port capacity eviction-policy]} descriptor]
-          (case mode
-            :listen (listen! port descriptor)
-            :connect (connect! url
-                               {:capacity capacity,
-                                :eviction-policy eviction-policy})
-            (throw (ex-info
-                     "websocket transport mode must be :listen or :connect"
-                     {:descriptor descriptor, :mode mode}))))))))
-
-
-(contribute* :multi-method
-             dao.stream/open!
-             dao.stream.ws/WebSocketOpenMethod
-             dao.stream.ws/WebSocketOpenMethod)
+(ds/defopen
+  :websocket
+  [descriptor]
+  (let [{:keys [mode url port capacity eviction-policy]} descriptor]
+    (case mode
+      :listen (listen! port descriptor)
+      :connect (connect! url
+                         {:capacity capacity, :eviction-policy eviction-policy})
+      (throw (ex-info "websocket transport mode must be :listen or :connect"
+                      {:descriptor descriptor, :mode mode})))))
