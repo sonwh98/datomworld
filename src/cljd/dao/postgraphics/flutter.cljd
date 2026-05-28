@@ -689,13 +689,6 @@
   (resolve-font-family family))
 
 
-(defn image-clamping-test-hook
-  "Returns true if :draw/image samples with explicit clamp-to-edge tiling
-   (v3 §Source Coordinate Clamping)."
-  []
-  false)
-
-
 (defn gpu-renderer-policy-test-hook
   "Exposes the default Flutter submitter policy. The production widget uses
    Flutter GPU for supported pipelines and rejects unsupported draw records

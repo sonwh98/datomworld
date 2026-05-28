@@ -141,3 +141,27 @@
                                 (#{:blocked :end :daostream/gap} result) nil
                                 :else nil))))]
       (walk {:position 0}))))
+
+
+(defn take!!
+  "Block until one value is available at the stream head, then return it.
+
+   Cursor-based and non-destructive: reads position 0 via (next stream ...),
+   polling every 10ms while the stream is open but empty (:blocked). Returns the
+   value on success, nil when the stream closes without a value (:end), and throws
+   on :daostream/gap (the position was evicted before it could be read).
+
+   JVM only — blocks the calling thread. Intended for CLI / REPL / test code; in
+   the async runtime, consume streams via dao.runtime instead."
+  [stream]
+  #?(:clj (loop [cursor {:position 0}]
+            (let [result (next stream cursor)]
+              (cond (map? result) (:ok result)
+                    (= :end result) nil
+                    (= :daostream/gap result)
+                    (throw (ex-info
+                             "take!! cursor gap: position evicted before read"
+                             {:stream stream, :cursor cursor}))
+                    :else (do (Thread/sleep 10) (recur cursor)))))
+     :default (throw (ex-info "dao.stream/take!! is only available on the JVM"
+                              {:stream stream}))))

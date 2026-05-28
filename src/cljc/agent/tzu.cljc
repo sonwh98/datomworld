@@ -1,42 +1,77 @@
 (ns agent.tzu
   (:require
-    [clojure.data.json :as json]
-    [clojure.edn :as edn]
-    [org.httpkit.client :as http])
-  (:import
-    (org.jsoup
-      Jsoup)))
+    #?@(:cljs [[cljs.reader :as edn]]
+        :default [[clojure.edn :as edn]])
+    #?@(:cljd []
+        :cljs []
+        :clj [[clojure.pprint :as pprint]])
+    [clojure.string :as str]
+    [dao.stream :as ds]
+    [dao.stream.http])
+  #?@(:cljd []
+      :cljs []
+      :clj [(:import (org.jsoup Jsoup))]))
 
 
-(defn- api-key
+(defn api-key
   []
-  (or
-    (System/getenv "DEEPSEEK_API_KEY")
-    (throw
-      (ex-info
-        "DEEPSEEK_API_KEY is not set in this process's environment. Export it in the shell that launched the REPL/CLI."
-        {}))))
+  #?(:clj (System/getenv "DEEPSEEK_API_KEY")
+     :cljs (some-> js/process .-env .-DEEPSEEK_API_KEY)
+     :cljd (throw (ex-info "API key must be provided via binding on CLJD" {})))
+
+  )
+
+
+#?(:clj
+   (defn- deepseek-completion
+     [prompt]
+     (let [key (api-key)
+           _ (when-not key (throw (ex-info "DEEPSEEK_API_KEY not set" {})))
+           json-write-str (requiring-resolve 'clojure.data.json/write-str)
+           json-read-str (requiring-resolve 'clojure.data.json/read-str)
+           stream (ds/open! {:type :http,
+                             :url "https://api.deepseek.com/chat/completions",
+                             :method :post,
+                             :headers {"Authorization" (str "Bearer " key),
+                                       "Content-Type" "application/json"},
+                             :body (json-write-str {:model "deepseek-chat",
+                                                    :max_tokens 8192,
+                                                    :messages [{:role "user",
+                                                                :content prompt}]})})
+           {:keys [status body error]} (ds/take!! stream)]
+       (when error (throw (ex-info "DeepSeek request failed" {:error error})))
+       (when (not= 200 status)
+         (throw (ex-info (str "DeepSeek HTTP " status)
+                         {:status status, :body body})))
+       (let [choice (-> body
+                        (json-read-str :key-fn keyword)
+                        (get-in [:choices 0]))]
+         {:content (get-in choice [:message :content]),
+          :finish-reason (:finish_reason choice)})))
+   :default nil)
+
+
+
+(defn unsupported-completion
+  [prompt]
+  (throw (ex-info "agent.tzu needs an explicit completion client on this runtime"
+                  {:prompt-preview (subs prompt 0 (min 200 (count prompt)))})))
+
+
+(def ^:dynamic *completion-client*
+  "Synchronous completion function from prompt string to
+   {:content string :finish-reason string-or-nil}.
+
+   The JVM default uses DeepSeek over http-kit. JS and Dart callers bind this
+  value at the stream boundary where their host runtime performs IO."
+  #?(:cljd unsupported-completion
+     :cljs unsupported-completion
+     :clj deepseek-completion))
 
 
 (defn ask*
   [prompt]
-  (let [{:keys [status body error]}
-        @(http/post "https://api.deepseek.com/chat/completions"
-                    {:headers {"Authorization" (str "Bearer " (api-key)),
-                               "Content-Type" "application/json"},
-                     :body (json/write-str {:model "deepseek-chat",
-                                            :max_tokens 8192,
-                                            :messages [{:role "user",
-                                                        :content prompt}]})})]
-    (when error (throw (ex-info "DeepSeek request failed" {:error error})))
-    (when (not= 200 status)
-      (throw (ex-info (str "DeepSeek HTTP " status)
-                      {:status status, :body body})))
-    (let [choice (-> body
-                     (json/read-str :key-fn keyword)
-                     (get-in [:choices 0]))]
-      {:content (get-in choice [:message :content]),
-       :finish-reason (:finish_reason choice)})))
+  (*completion-client* prompt))
 
 
 (defn ask
@@ -95,23 +130,39 @@
 
 (defn- fetch
   [url]
-  (:body @(http/get url
-                    {:headers {"User-Agent" "Mozilla/5.0 (agent.tzu)"},
-                     :follow-redirects true})))
+  #?(:clj (let [stream (ds/open! {:type :http,
+                                  :url url,
+                                  :headers {"User-Agent" "Mozilla/5.0 (agent.tzu)"},
+                                  :follow-redirects true})]
+            (:body (ds/take!! stream)))
+     :default (throw (ex-info "agent.tzu/fetch is only available on the JVM"
+                              {:url url}))))
 
 
 (defn- strip-html
-  [^String s]
-  (.text (Jsoup/parse s "")))
+  [s]
+  #?(:cljd (-> s
+               (str/replace #"<script\b[^>]*>[\s\S]*?</script>" "")
+               (str/replace #"<style\b[^>]*>[\s\S]*?</style>" "")
+               (str/replace #"<[^>]+>" " ")
+               (str/replace #"\s+" " ")
+               str/trim)
+     :cljs (-> s
+               (str/replace #"<script\b[^>]*>[\s\S]*?</script>" "")
+               (str/replace #"<style\b[^>]*>[\s\S]*?</style>" "")
+               (str/replace #"<[^>]+>" " ")
+               (str/replace #"\s+" " ")
+               str/trim)
+     :clj (.text (Jsoup/parse ^String s ""))))
 
 
 (defn- strip-fences
   [s]
   (-> s
-      clojure.string/trim
-      (clojure.string/replace #"(?s)^```(?:edn|clojure)?\s*" "")
-      (clojure.string/replace #"```\s*$" "")
-      clojure.string/trim))
+      str/trim
+      (str/replace #"^```(?:edn|clojure)?\s*" "")
+      (str/replace #"```\s*$" "")
+      str/trim))
 
 
 (defn- catalog-str
@@ -121,7 +172,7 @@
     (->> entities
          (sort-by key >)
          (map (fn [[tid name]] (str "  " tid " = " (pr-str name))))
-         (clojure.string/join "\n"))))
+         (str/join "\n"))))
 
 
 (defn- context-preamble
@@ -170,7 +221,7 @@
 
 (defn- chunk-text
   [^String s chunk-size]
-  (let [paragraphs (clojure.string/split s #"\n\n+|(?<=\. )(?=[A-Z])")]
+  (let [paragraphs (str/split s #"\n\n+|(?<=\. )(?=[A-Z])")]
     (loop [ps paragraphs
            buf ""
            acc []]
@@ -230,12 +281,75 @@
   (mapv (fn [[e a v]] [:db/add e a v]) datoms))
 
 
-(defn -main
-  [& args]
-  (let [input (cond (= "-url" (first args)) (strip-html (fetch (second args)))
-                    (seq args) (clojure.string/join " " args)
-                    :else (slurp *in*))]
-    (clojure.pprint/pprint (text->datoms input))))
+(def ^:private frames-prompt
+  (str
+    "Generate a dao.postgraphics animation from the user's prompt.\n"
+    "\n"
+    "OUTPUT SHAPE: a Clojure EDN vector of frames. Each frame is a vector of op-maps. A static scene is a one-element vector; an animation has many frames (default ~24). Return ONLY the EDN, no prose, no code fences.\n"
+    "\n"
+    "Top-level form:\n"
+    "  [[<ops for frame 0>] [<ops for frame 1>] ... [<ops for frame N-1>]]\n"
+    "\n"
+    "Each op is a map with a :op/kind key and op-specific fields. SUPPORTED OPS (2D only):\n"
+    "  {:op/kind :frame/clear        :color [r g b a]}\n"
+    "  {:op/kind :draw/fill-rect     :rect [x y w h] :color [r g b a]}\n"
+    "  {:op/kind :draw/stroke-rect   :rect [x y w h] :color [r g b a] :stroke-width 1.5}\n"
+    "  {:op/kind :draw/fill-circle   :center [x y] :radius r :color [r g b a]}\n"
+    "  {:op/kind :draw/stroke-circle :center [x y] :radius r :color [r g b a] :stroke-width 1.0}\n"
+    "  {:op/kind :draw/path          :segments [[:move-to x y] [:line-to x y] [:close]] :fill [r g b a] :stroke [r g b a]}\n"
+    "  {:op/kind :draw/text          :text \"...\" :position [x y] :color [r g b a] :font-size 13 :align :center}\n"
+    "  {:op/kind :transform/push     :translate [tx ty] :rotate radians :scale [sx sy]}\n"
+    "  {:op/kind :transform/pop}\n"
+    "  {:op/kind :clip/push-rect     :rect [x y w h]}\n"
+    "  {:op/kind :clip/pop}\n"
+    "\n"
+    "CONVENTIONS:\n"
+    "  - Canvas is 400x400 unless the prompt implies otherwise. Origin is top-left, x grows right, y grows down. Units are pixels.\n"
+    "  - Colors are [r g b a] floats in [0.0, 1.0]. Use 1.0 for full alpha unless transparency is needed.\n"
+    "  - Numbers must be plain Clojure literals (e.g. 200, 0.5, -1.2). No expressions, no math operators.\n"
+    "  - For animations, derive each frame's values from the frame index. Compute the values yourself and emit the resulting literal numbers; do NOT emit code or symbols.\n"
+    "  - Every frame should begin with :frame/clear so prior frames do not ghost.\n"
+    "  - :transform/push and :transform/pop must balance within a frame. Same for :clip/push-rect and :clip/pop.\n"
+    "  - Use ONLY the op kinds listed above. Do not invent new ones.\n"
+    "  - No 3D ops, no lighting, no render targets, no cameras in this iteration.\n"
+    "\n"
+    "EXAMPLE prompt: \"a red circle moving from left to right across 3 frames\"\n"
+    "EXAMPLE output:\n"
+    "[[{:op/kind :frame/clear :color [0.0 0.0 0.0 1.0]}\n"
+    "  {:op/kind :draw/fill-circle :center [80 200] :radius 30 :color [1.0 0.0 0.0 1.0]}]\n"
+    " [{:op/kind :frame/clear :color [0.0 0.0 0.0 1.0]}\n"
+    "  {:op/kind :draw/fill-circle :center [200 200] :radius 30 :color [1.0 0.0 0.0 1.0]}]\n"
+    " [{:op/kind :frame/clear :color [0.0 0.0 0.0 1.0]}\n"
+    "  {:op/kind :draw/fill-circle :center [320 200] :radius 30 :color [1.0 0.0 0.0 1.0]}]]\n"
+    "\n"
+    "User prompt: "))
+
+
+(defn prompt->frames
+  "Generate a sequence of dao.postgraphics frames from a natural-language prompt.
+   Returns [[ops-for-frame-0] [ops-for-frame-1] ...]. A static scene is a
+   one-element vector; an animation has many."
+  [prompt]
+  (let [{:keys [content finish-reason]} (ask* (str frames-prompt prompt))]
+    (when (= "length" finish-reason)
+      (throw
+        (ex-info
+          "LLM output truncated — animation too large for 8K-token response. Ask for fewer frames or a simpler scene."
+          {:prompt-preview (subs prompt 0 (min 200 (count prompt)))})))
+    (-> content
+        strip-fences
+        edn/read-string)))
+
+
+#?(:cljd nil
+   :cljs nil
+   :clj
+   (defn -main
+     [& args]
+     (let [input (cond (= "-url" (first args)) (strip-html (fetch (second args)))
+                       (seq args) (str/join " " args)
+                       :else (slurp *in*))]
+       (pprint/pprint (text->datoms input)))))
 
 
 (comment
@@ -244,4 +358,7 @@
         fetch
         strip-html
         text->datoms))
-  (def o (datoms->text d)))
+  (def o (datoms->text d))
+
+  (prompt->frames "a single static red circle in the center of a 400x400 canvas")
+  )

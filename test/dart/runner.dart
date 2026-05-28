@@ -1,3 +1,5 @@
+import '../cljd-out/agent/tzu-test_test.dart' as agent_tzu;
+import '../cljd-out/dao/stream/http-test_test.dart' as http;
 import '../cljd-out/dao/stream-test_test.dart' as stream;
 import '../cljd-out/yin/vm/parity-test_test.dart' as parity;
 import '../cljd-out/dao/db-test_test.dart' as db;
@@ -19,6 +21,8 @@ import '../cljd-out/datomworld/demo/continuation-handoff-test_test.dart' as cont
 void main() {
   print('Starting Dart Runner...');
   
+  agent_tzu.main();
+  http.main();
   stream.main();
   parity.main();
   db.main();
