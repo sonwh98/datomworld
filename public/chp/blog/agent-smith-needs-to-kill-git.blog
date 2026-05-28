@@ -271,7 +271,7 @@
            [:a
             {:href "/blog/ide-edits-ast-not-text.blog"}
             "text is a projection over the AST"]
-            "."]
+           "."]
           [:p
            "An agent can emit a Git patch for a reviewer. A reviewer can approve the patch. Behind the scenes the patch is a packaging of the underlying datom transactions. Git is demoted from substrate to serialization."]
           [:h2 "The Line That Matters"]
@@ -282,7 +282,7 @@
           [:p "Killing Git is not hostility. It is promotion. Git did its job. The job changed."]
           [:p [:strong "See also:"]]
           [:ul.bulleted
-          [:li
+           [:li
             [:a {:href "/dao-space.chp"} "DaoSpace Documentation"]]
            [:li
             [:a

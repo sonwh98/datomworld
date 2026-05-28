@@ -195,10 +195,9 @@
           scheduler-calls (atom [])
           seen (atom nil)]
       (with-redefs-fn {#'dao.gui.runtime/create-snapshot (fn [[a b]]
-                                                                (let [a-val @a]
-                                                                  (reset! b 1)
-                                                                  {a a-val,
-                                                                   b @b}))}
+                                                           (let [a-val @a]
+                                                             (reset! b 1)
+                                                             {a a-val, b @b}))}
         (fn []
           (runtime/create-runtime
             {:root-form (fn []

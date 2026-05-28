@@ -198,8 +198,7 @@
   (testing
     "when zero-arity introspection is unavailable, a bare zero-arity root should still compile"
     (let [root (fn [] [:rect {:width 11, :height 12}])]
-      (with-redefs-fn {#'dao.gui.compiler/fn-accepts-zero-arity? (fn [_]
-                                                                        false)}
+      (with-redefs-fn {#'dao.gui.compiler/fn-accepts-zero-arity? (fn [_] false)}
         (fn []
           (is (= [{:op/kind :draw/fill-rect, :rect [0 0 11 12]}]
                  (compiler/compile-ui root nil {} {}))))))))
@@ -226,10 +225,8 @@
     "non-JVM root fallback should not swallow a real unary-root compile exception"
     (let [root (fn [_props]
                  (throw (ex-info "boom from unary root" {:phase :root})))]
-      (with-redefs-fn {#'dao.gui.compiler/fn-accepts-one-arity? (fn [_]
-                                                                       false),
-                       #'dao.gui.compiler/fn-accepts-zero-arity? (fn [_]
-                                                                        false)}
+      (with-redefs-fn {#'dao.gui.compiler/fn-accepts-one-arity? (fn [_] false),
+                       #'dao.gui.compiler/fn-accepts-zero-arity? (fn [_] false)}
         (fn []
           (is (thrown-with-msg? clojure.lang.ExceptionInfo
                                 #"boom from unary root"
@@ -455,8 +452,7 @@
       (compiler/compile-ui [:column [my-comp] [my-comp]] {} {} {})
       (is (= 2 (count @paths)))
       (is (= [:column 0 "dao.gui.compiler-test/my-comp"] (first @paths)))
-      (is (= [:column 1 "dao.gui.compiler-test/my-comp"]
-             (second @paths)))))
+      (is (= [:column 1 "dao.gui.compiler-test/my-comp"] (second @paths)))))
   (testing ":clip and :transform should also conj child indices onto the path"
     (let [paths (atom [])
           my-comp (fn []
@@ -473,10 +469,8 @@
                            {}
                            {}
                            {})
-      (is (= [:transform 0 "dao.gui.compiler-test/my-comp"]
-             (first @paths)))
-      (is (= [:transform 1 "dao.gui.compiler-test/my-comp"]
-             (second @paths))))))
+      (is (= [:transform 0 "dao.gui.compiler-test/my-comp"] (first @paths)))
+      (is (= [:transform 1 "dao.gui.compiler-test/my-comp"] (second @paths))))))
 
 
 (deftest direct-contribution-preserves-size-in-layout

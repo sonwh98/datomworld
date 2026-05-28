@@ -25,9 +25,9 @@
            [:h3 "Persistent history"]
            [:p "The entire coordination log is available for replay, debugging, and audit trails."]]]]]
        [:section.section-light
-       [:div.section-inner
-        [:h2 "Stigmergy: Coordination via Traces"]
-        [:p
+        [:div.section-inner
+         [:h2 "Stigmergy: Coordination via Traces"]
+         [:p
           "The core concept of DaoSpace is " [:strong "Tuple Space = DaoStream of Datoms + DaoDB Query Engine"] ". "
           "Agents see a shared log of facts that they can query using Datalog. "
           "When an agent needs to coordinate, it appends a new datom to the stream. "
@@ -40,16 +40,16 @@
           [:li [:strong "Time Travel"] " — Query the coordination state at any historical point via " [:code "as-of-time"] "."]
           [:li [:strong "Fault Tolerance"] " — If an agent crashes, its traces remain in the stream for others to audit or recover."]]
          [:p
-         "DaoSpace is inspired by the "
-         [:a {:href "https://en.wikipedia.org/wiki/Linda_(coordination_language)"
-              :target "_blank"}
-          [:strong "Linda"]]
-         " coordination language and "
-         [:a {:href "https://www.oracle.com/technical-resources/articles/javase/javaspaces.html"
-              :target "_blank"}
-          [:strong "JavaSpace"]]
-         ", but modernized for the datom-stream paradigm. "
-         "By replacing positional tuples with named datoms and wildcard matching with Datalog, DaoSpace removes the fragility and opacity that limited earlier tuple space implementations."]]]
+          "DaoSpace is inspired by the "
+          [:a {:href "https://en.wikipedia.org/wiki/Linda_(coordination_language)"
+               :target "_blank"}
+           [:strong "Linda"]]
+          " coordination language and "
+          [:a {:href "https://www.oracle.com/technical-resources/articles/javase/javaspaces.html"
+               :target "_blank"}
+           [:strong "JavaSpace"]]
+          ", but modernized for the datom-stream paradigm. "
+          "By replacing positional tuples with named datoms and wildcard matching with Datalog, DaoSpace removes the fragility and opacity that limited earlier tuple space implementations."]]]
        [:section.section-dark
         [:div.section-inner
          [:h2 "Code Can Live in DaoSpace"]
