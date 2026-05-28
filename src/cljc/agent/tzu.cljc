@@ -1,13 +1,14 @@
 (ns agent.tzu
   (:require
+    #?@(:cljd [["dart:convert" :as convert]]
+        :cljs []
+        :clj [[clojure.pprint :as pprint]
+              [clojure.data.json :as json]])
     #?@(:cljs [[cljs.reader :as edn]]
         :default [[clojure.edn :as edn]])
     [clojure.string :as str]
     [dao.stream :as ds]
-    [dao.stream.http]
-    #?@(:cljd []
-        :cljs []
-        :clj [[clojure.pprint :as pprint]]))
+    [dao.stream.http])
   #?@(:clj
       [(:import (org.jsoup Jsoup))]
       :cljd
@@ -25,62 +26,65 @@
      :cljd (throw (ex-info "API key must be provided via binding on CLJD" {}))))
 
 
-#?(:clj
-   (defn- deepseek-completion
-     [prompt]
-     (let [key (api-key)
-           _ (when-not key (throw (ex-info "DEEPSEEK_API_KEY not set" {})))
-           json-write-str (requiring-resolve 'clojure.data.json/write-str)
-           json-read-str (requiring-resolve 'clojure.data.json/read-str)
-           stream (ds/open! {:type :http,
-                             :url "https://api.deepseek.com/chat/completions",
-                             :method :post,
-                             :headers {"Authorization" (str "Bearer " key),
-                                       "Content-Type" "application/json"},
-                             :body (json-write-str {:model "deepseek-chat",
-                                                    :max_tokens 8192,
-                                                    :messages [{:role "user",
-                                                                :content
-                                                                prompt}]})})
-           {:keys [status body error]} (ds/take!! stream)]
-       (when error (throw (ex-info "DeepSeek request failed" {:error error})))
-       (when (not= 200 status)
-         (throw (ex-info (str "DeepSeek HTTP " status)
-                         {:status status, :body body})))
-       (let [choice (-> body
-                        (json-read-str :key-fn keyword)
-                        (get-in [:choices 0]))]
-         {:content (get-in choice [:message :content]),
-          :finish-reason (:finish_reason choice)})))
-   :default nil)
+(defn- json-encode
+  [x]
+  #?(:clj (json/write-str x)
+     :cljs (js/JSON.stringify (clj->js x))
+     :cljd (convert/jsonEncode x)))
 
 
-(defn unsupported-completion
-  [prompt]
-  (throw (ex-info
-           "agent.tzu needs an explicit completion client on this runtime"
-           {:prompt-preview (subs prompt 0 (min 200 (count prompt)))})))
+#?(:cljd (defn- dart->clj
+           [x]
+           (cond (dart/is? x Map)
+                 (into {} (map (fn [e] [(key e) (dart->clj (val e))])) x)
+                 (dart/is? x List) (mapv dart->clj x)
+                 :else x)))
 
 
-(def ^:dynamic *completion-client*
-  "Synchronous completion function from prompt string to
-   {:content string :finish-reason string-or-nil}.
-
-   The JVM default uses DeepSeek over http-kit. JS and Dart callers bind this
-  value at the stream boundary where their host runtime performs IO."
-  #?(:cljd unsupported-completion
-     :cljs unsupported-completion
-     :clj deepseek-completion))
+(defn- json-decode
+  [s]
+  #?(:clj (json/read-str s)
+     :cljs (js->clj (js/JSON.parse s))
+     :cljd (dart->clj (convert/jsonDecode s))))
 
 
-(defn ask*
-  [prompt]
-  (*completion-client* prompt))
+(defn prompt
+  "Prompt DeepSeek and return the completion content (a string). Opens an HTTP
+   stream, reads the response off it (JVM-blocking via ds/take!!), and returns
+   the message content. Throws on transport error, non-200 status, or a response
+   truncated by the token cap.
 
-
-(defn ask
-  [prompt]
-  (:content (ask* prompt)))
+   The JVM and JS read the key from DEEPSEEK_API_KEY via `api-key`; any runtime
+   may pass it explicitly through the 2-arity (required on Dart)."
+  ([prompt-txt] (prompt prompt-txt (api-key)))
+  ([prompt-txt key]
+   (when-not key (throw (ex-info "DEEPSEEK_API_KEY not set" {})))
+   (let [{:keys [status body error]}
+         (ds/take!! (ds/open!
+                      {:type :http,
+                       :url "https://api.deepseek.com/chat/completions",
+                       :method :post,
+                       :headers {"Authorization" (str "Bearer " key),
+                                 "Content-Type" "application/json"},
+                       :body (json-encode {"model" "deepseek-chat",
+                                           "max_tokens" 8192,
+                                           "messages" [{"role" "user",
+                                                        "content"
+                                                        prompt-txt}]})}))]
+     (when error (throw (ex-info "DeepSeek request failed" {:error error})))
+     (when (not= 200 status)
+       (throw (ex-info (str "DeepSeek HTTP " status)
+                       {:status status, :body body})))
+     (let [choice (-> body
+                      json-decode
+                      (get-in ["choices" 0]))]
+       (when (= "length" (get choice "finish_reason"))
+         (throw
+           (ex-info
+             "DeepSeek output truncated — response hit the 8K-token cap; reduce input"
+             {:prompt-preview
+              (subs prompt-txt 0 (min 200 (count prompt-txt)))})))
+       (get-in choice ["message" "content"])))))
 
 
 (def ^:private datom-prompt
@@ -212,16 +216,9 @@
 
 (defn- extract
   [s next-tid entities]
-  (let [preamble (context-preamble next-tid entities)
-        {:keys [content finish-reason]} (ask* (str datom-prompt preamble s))]
-    (when (= "length" finish-reason)
-      (throw
-        (ex-info
-          "LLM output truncated — chunk too large for 8K-token response. Reduce :chunk-size."
-          {:chunk-preview (subs s 0 (min 200 (count s)))})))
-    (-> content
-        strip-fences
-        edn/read-string)))
+  (-> (prompt (str datom-prompt (context-preamble next-tid entities) s))
+      strip-fences
+      edn/read-string))
 
 
 (defn- chunk-text
@@ -270,14 +267,7 @@
 
 (defn datoms->text
   [datoms]
-  (let [{:keys [content finish-reason]} (ask* (str text-prompt
-                                                   (pr-str datoms)))]
-    (when (= "length" finish-reason)
-      (throw
-        (ex-info
-          "LLM output truncated — datom set too large for 8K-token response. Reduce input or paginate."
-          {:datom-count (count datoms)})))
-    content))
+  (prompt (str text-prompt (pr-str datoms))))
 
 
 (defn datoms->tx-data
@@ -331,16 +321,10 @@
   "Generate a sequence of dao.postgraphics frames from a natural-language prompt.
    Returns [[ops-for-frame-0] [ops-for-frame-1] ...]. A static scene is a
    one-element vector; an animation has many."
-  [prompt]
-  (let [{:keys [content finish-reason]} (ask* (str frames-prompt prompt))]
-    (when (= "length" finish-reason)
-      (throw
-        (ex-info
-          "LLM output truncated — animation too large for 8K-token response. Ask for fewer frames or a simpler scene."
-          {:prompt-preview (subs prompt 0 (min 200 (count prompt)))})))
-    (-> content
-        strip-fences
-        edn/read-string)))
+  [prompt-txt]
+  (-> (prompt (str frames-prompt prompt-txt))
+      strip-fences
+      edn/read-string))
 
 
 #?(:cljd nil
