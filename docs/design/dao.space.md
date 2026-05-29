@@ -2,7 +2,7 @@
 
 **Related documents:**
 - `docs/design/daostream-design.md` — the stream transport foundation
-- `docs/design/daodb-design.md` — queryable database that indexes the datom stream
+- `docs/design/dao.db.md` — queryable database that indexes the datom stream
 
 ## Overview
 
