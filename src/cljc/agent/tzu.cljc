@@ -2,8 +2,7 @@
   (:require
     #?@(:cljd [["dart:convert" :as convert]]
         :cljs []
-        :clj [[clojure.pprint :as pprint]
-              [clojure.data.json :as json]])
+        :clj [[clojure.pprint :as pprint] [clojure.data.json :as json]])
     #?@(:cljs [[cljs.reader :as edn]]
         :default [[clojure.edn :as edn]])
     [clojure.string :as str]
@@ -110,28 +109,29 @@
     "  15. MECHANISMS: how it works — steps, components, inputs, outputs, side-effects.\n"
     "\n"
     "Coverage standard: if a sentence in the input contains a fact and you have NOT emitted a corresponding datom, you have failed the task. Re-read each sentence and ask: 'have I captured every fact here?'\n"
-    "\n"
-    "What to skip:\n"
+    "\n" "What to skip:\n"
     "  - Document metadata: URLs, ISBNs, page titles, revision IDs, edit history.\n"
     "  - Bibliographic references, citation lists, 'see also' links, category tags, navigation cruft.\n"
     "  - Vague meta-attributes like :type \"concept\" or :domain \"computing\" that add no information.\n"
-    "\n" "Triple format:\n"
-    "  e = entity (negative integer tempid; reuse the same id for facts about the same entity)\n"
-    "  a = attribute (simple lowercase keyword with hyphens; use specific predicates like :invented-by :released-in :implements, NOT generic ones like :mentioned :related :includes)\n"
-    "  v = value: string, number, boolean, simple keyword, or a negative integer referencing another entity\n"
     "\n"
-    "Rules:\n" "  - Use the subject of the article as entity -1.\n"
-    "  - CONNECTEDNESS: every entity you introduce (-2, -3, ...) MUST be the value of at least one datom whose entity is another tempid. No orphan entities. If you create [-7 :name \"JavaSpaces\"] you must also emit a datom like [-1 :has-implementation -7] that links it into the graph.\n"
+    "Triple format:\n"
+    "  e = entity (negative integer tempid; reuse the same id for facts about the same entity)\n"
+    "  a = attribute: a Schema.org property as a namespaced keyword in Schema.org's camelCase, :schema/<property> (e.g. :schema/name, :schema/author, :schema/creator, :schema/birthDate, :schema/datePublished, :schema/publisher, :schema/location, :schema/memberOf). Pick the most specific Schema.org property that fits the fact. If NO Schema.org property expresses the relation, fall back to a plain hyphenated keyword WITHOUT the schema/ namespace (e.g. :influenced-by, :implements) so non-standard predicates stay distinguishable.\n"
+    "  v = value: string, number, boolean, simple keyword, or a negative integer referencing another entity\n"
+    "\n" "Rules:\n"
+    "  - Use the subject of the article as entity -1.\n"
+    "  - TYPE EVERY ENTITY: give each entity its own :schema/type datom whose value is the most specific Schema.org Type name as a string (e.g. \"Person\", \"Organization\", \"Place\", \"CollegeOrUniversity\", \"CreativeWork\", \"Book\", \"SoftwareApplication\", \"Event\"); default to \"Thing\" when none fits.\n"
+    "  - CONNECTEDNESS: every entity you introduce (-2, -3, ...) MUST be the value of at least one datom whose entity is another tempid. No orphan entities. If you create [-7 :schema/name \"JavaSpaces\"] you must also emit a datom like [-1 :has-implementation -7] that links it into the graph.\n"
     "  - PROMOTE TO ENTITIES: any person, organization, place, or named work you encounter must be its own tempid linked into the graph, not just a string value duplicated across datoms.\n"
     "  - Before finalizing, mentally trace every tempid: can it be reached from -1 by following datom values? If not, either add the linking datom or drop the entity.\n"
     "  - Multi-word values, proper nouns, and anything with '/', '.', '?', '!', or digits must be strings, not keywords.\n"
-    "  - Prefer specific, verb-derived attributes over generic ones.\n"
+    "  - Prefer the most specific Schema.org property; avoid generic ones like :schema/about or :schema/subjectOf when a precise property applies.\n"
     "  - If a relationship is between two entities, reference them by tempid rather than duplicating their names as strings.\n"
     "  - When the article lists items of the same kind (e.g. implementations in many languages), promote each to its own entity and link it back, rather than emitting many string-valued datoms on -1.\n"
     "\n"
     "Return ONLY the EDN vector, no prose, no code fences.\n" "\n"
     "Example input: \"The Linda coordination language was created by David Gelernter at Yale in 1986. It introduced tuple spaces, a form of associative shared memory used for parallel programming.\"\n"
-    "Example output: [[-1 :name \"Linda\"] [-1 :kind \"coordination language\"] [-1 :created-by -2] [-1 :created-at -3] [-1 :created-in-year 1986] [-1 :introduced -4] [-2 :name \"David Gelernter\"] [-3 :name \"Yale University\"] [-4 :name \"tuple space\"] [-4 :kind \"associative shared memory\"] [-4 :used-for \"parallel programming\"]]\n\n"
+    "Example output: [[-1 :schema/name \"Linda\"] [-1 :schema/type \"ComputerLanguage\"] [-1 :schema/creator -2] [-1 :schema/dateCreated \"1986\"] [-1 :introduced -4] [-2 :schema/name \"David Gelernter\"] [-2 :schema/type \"Person\"] [-2 :schema/affiliation -3] [-3 :schema/name \"Yale University\"] [-3 :schema/type \"CollegeOrUniversity\"] [-4 :schema/name \"tuple space\"] [-4 :schema/type \"Thing\"] [-4 :schema/description \"associative shared memory\"] [-4 :used-for \"parallel programming\"]]\n\n"
     "FINAL REMINDER: extract EVERY fact, not a representative sample. If your output is shorter than roughly 70% of the input's character count, you are summarizing — go back and emit more datoms until coverage is complete.\n\n"
     "Input: "))
 
@@ -200,7 +200,7 @@
 
 (defn- entities-from
   [datoms]
-  (into {} (keep (fn [[e a v]] (when (= :name a) [e v])) datoms)))
+  (into {} (keep (fn [[e a v]] (when (= :schema/name a) [e v])) datoms)))
 
 
 (defn- min-tempid
@@ -258,7 +258,7 @@
     "\n"
     "FULL COVERAGE: every datom must appear as an assertion in the output. Do not omit, merge, or summarize datoms. After drafting, audit your prose against the datom list: every triple must be traceable to at least one sentence.\n"
     "\n" "Rules:\n"
-    "  - Resolve negative-integer tempids to the entity's :name (or another identifying attribute on that entity) when generating prose; never leave the raw integer in the output.\n"
+    "  - Resolve negative-integer tempids to the entity's :schema/name (or another identifying attribute on that entity) when generating prose; never leave the raw integer in the output.\n"
     "  - Group facts about the same entity into coherent sentences, but never at the cost of dropping a datom.\n"
     "  - Use the attribute keyword as a guide for the verb (e.g. :created-by -> \"was created by\", :released-in -> \"was released in\"). Do not invent stronger verbs than the attribute warrants.\n"
     "  - Return ONLY the prose. No headers, no commentary, no markdown, no code fences.\n"
@@ -339,11 +339,8 @@
 
 
 (comment
-  (def d
-    (-> "https://www.galactanet.com/oneoff/theegg.html"
-        fetch
-        strip-html
-        text->datoms))
-  (def o (datoms->text d))
+  (def t (prompt "what is symmetry?"))
+  (def d (text->datoms t))
+  (def t2 (datoms->text d))
   (prompt->frames
     "a single static red circle in the center of a 400x400 canvas"))
