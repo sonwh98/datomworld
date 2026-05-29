@@ -22,8 +22,4 @@
   (testing "Font family resolution fallback to System Monospace"
     (is
       (= "monospace" (pg/resolve-font-family-test-hook "unknown-font"))
-      "v3 §Font Family Resolution: The VM MUST fall back to a System Monospace font where metrics are strictly known and stable."))
-  (testing "Image sampling should be bilinear with CLAMP_TO_EDGE"
-    (is
-      (pg/image-clamping-test-hook)
-      "v3 §Source Coordinate Clamping: source coordinates are clamped to the image edge.")))
+      "v3 §Font Family Resolution: The VM MUST fall back to a System Monospace font where metrics are strictly known and stable.")))

@@ -10,6 +10,8 @@ clj -M:cljd compile \
     dao.test-utils \
     yin.vm.test-utils \
     datomworld.demo.continuation-handoff \
+    agent.tzu-test \
+    dao.stream.http-test \
     dao.stream-test \
     dao.db-test \
     dao.db.in-memory-test \

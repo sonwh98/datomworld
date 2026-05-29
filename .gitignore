@@ -42,3 +42,7 @@ dep-graph.svg
 # Shader build intermediates
 *.spirv
 *.iplr
+
+# Local secrets / scratch (hold API keys — never commit)
+env.sh
+

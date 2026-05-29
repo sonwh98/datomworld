@@ -485,3 +485,28 @@
       (is (= 1 (count s)) "After draining 1, count is 1")
       (ds/drain-one! s)
       (is (= 0 (count s)) "After draining all, count is 0"))))
+
+
+(deftest blocking-take-test
+  #?(:clj
+     (do
+       (testing "take!! returns a value already at the stream head"
+         (let [s (make-stream)]
+           (ds/put! s :present)
+           (is (= :present (ds/take!! s)))))
+       (testing "take!! returns nil when the stream closes without a value"
+         (let [s (make-stream)]
+           (ds/close! s)
+           (is (nil? (ds/take!! s)))))
+       (testing "take!! blocks until a value is delivered from another thread"
+         (let [s (make-stream)
+               writer (future (Thread/sleep 50) (ds/put! s :delayed))]
+           (is (= :delayed (ds/take!! s)))
+           @writer))
+       (testing "take!! throws when the head position has been evicted (gap)"
+         (let [s (ds/open! {:type :ringbuffer,
+                            :capacity 1,
+                            :eviction-policy :evict-oldest})]
+           (ds/put! s :a)
+           (ds/put! s :b)
+           (is (thrown? Exception (ds/take!! s))))))))

@@ -97,6 +97,45 @@
   (fn [descriptor] (:type descriptor)))
 
 
+#?(:clj
+   (defmacro defopen
+     "Register an `open!` implementation for descriptors of `{:type dispatch-val}`.
+
+      Reads like `defmethod`:
+
+        (defopen :http [descriptor] ...body...)
+
+      On clj/cljs this expands to `(defmethod open! dispatch-val ...)`.
+      On ClojureDart, where `defmethod` cannot extend a multimethod defined in
+      another namespace (the generated type name is munged from the multifn
+      symbol and fails to resolve), it expands to the equivalent :type-only
+      deftype + `contribute*` registration."
+     [dispatch-val argv & body]
+     ;; This body is selected at macro-load time: the ClojureDart host
+     ;; pass reads with :cljd active, every other host reads :default.
+     #?(:cljd (let [s (name dispatch-val)
+                    tname (symbol (str (.toUpperCase (subs s 0 1))
+                                       (subs s 1)
+                                       "OpenMethod"))
+                    ;; contribute* needs a fully-qualified contributing
+                    ;; type; the compiling namespace is exposed on &env
+                    ;; by ClojureDart.
+                    qname (symbol (name (get-in &env [:nses :current-ns]))
+                                  (name tname))]
+                `(do (deftype ~tname
+                       []
+                       :type-only
+                       true
+
+                       cljd.core/IFn
+
+                       (~'-invoke
+                         [_# tm#]
+                         (assoc! tm# ~dispatch-val (fn ~argv ~@body))))
+                     (~'contribute* :multi-method open! ~qname ~qname)))
+        :default `(~'defmethod open! ~dispatch-val ~argv ~@body))))
+
+
 ;; =============================================================================
 ;; Utilities (Non-Protocol)
 ;; =============================================================================
@@ -141,3 +180,27 @@
                                 (#{:blocked :end :daostream/gap} result) nil
                                 :else nil))))]
       (walk {:position 0}))))
+
+
+(defn take!!
+  "Block until one value is available at the stream head, then return it.
+
+   Cursor-based and non-destructive: reads position 0 via (next stream ...),
+   polling every 10ms while the stream is open but empty (:blocked). Returns the
+   value on success, nil when the stream closes without a value (:end), and throws
+   on :daostream/gap (the position was evicted before it could be read).
+
+   JVM only — blocks the calling thread. Intended for CLI / REPL / test code; in
+   the async runtime, consume streams via dao.runtime instead."
+  [stream]
+  #?(:clj (loop [cursor {:position 0}]
+            (let [result (next stream cursor)]
+              (cond (map? result) (:ok result)
+                    (= :end result) nil
+                    (= :daostream/gap result)
+                    (throw (ex-info
+                             "take!! cursor gap: position evicted before read"
+                             {:stream stream, :cursor cursor}))
+                    :else (do (Thread/sleep 10) (recur cursor)))))
+     :default (throw (ex-info "dao.stream/take!! is only available on the JVM"
+                              {:stream stream}))))
