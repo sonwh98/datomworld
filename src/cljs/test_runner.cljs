@@ -2,6 +2,7 @@
   (:require
     [agent.tzu-test]
     [cljs.test :as t :refer-macros [run-tests]]
+    [dao.await-test]
     [dao.db.file-test]
     [dao.gui.compiler-cljs-test]
     [dao.postgraphics.webgpu-test]
@@ -33,7 +34,8 @@
 
 (defn -main
   []
-  (run-tests 'dao.db.file-test
+  (run-tests 'dao.await-test
+             'dao.db.file-test
              'dao.runtime.driver-cljs-test
              'agent.tzu-test
              'dao.stream.http-test
