@@ -314,15 +314,18 @@
 (defn run-agent
   "Execute an autonomous Agent Tzu loop with access to a registry of streams.
    The agent can call stream_read and stream_write tools via OpenAI-compatible
-   function calling. Returns {:content string :stream-registry map}.
+   function calling. Returns {:content string :messages vector :stream-registry map}.
 
    stream-registry is a map of string id -> dao.stream instance.
+   history is an optional vector of previous message maps.
    Safeguard: loops at most 20 iterations, then throws."
   ([prompt-txt stream-registry]
-   (run-agent prompt-txt stream-registry (api-key)))
+   (run-agent prompt-txt stream-registry (api-key) nil))
   ([prompt-txt stream-registry api-key]
+   (run-agent prompt-txt stream-registry api-key nil))
+  ([prompt-txt stream-registry api-key history]
    (when-not api-key (throw (ex-info "OPENAI_API_KEY not set" {})))
-   (loop [messages [{"role" "user", "content" prompt-txt}]
+   (loop [messages (conj (or history []) {"role" "user", "content" prompt-txt})
           iter 0]
      (when (>= iter 20)
        (throw (ex-info "run-agent exceeded max iterations" {:iter iter})))
@@ -331,8 +334,13 @@
            choice (get-in resp ["choices" 0])
            finish-reason (get choice "finish_reason")]
        (case finish-reason
-         "stop" {:content (get-in choice ["message" "content"]),
-                 :stream-registry stream-registry}
+         "stop" (let [content (get-in choice ["message" "content"])
+                      assistant-msg (get choice "message")]
+                  {:content content,
+                   :messages (conj messages
+                                   (select-keys assistant-msg
+                                                ["role" "content"])),
+                   :stream-registry stream-registry})
          "tool_calls"
          (let [assistant-msg (get choice "message")
                tool-calls (get assistant-msg "tool_calls")
@@ -359,7 +367,7 @@
           (let [registry {"io" (ds/open! {:type :ringbuffer, :capacity 10})}]
             (println "Agent Tzu REPL. Type your prompt, or /exit to quit.")
             (println "Available streams in registry: " (keys registry))
-            (loop []
+            (loop [history []]
               (print "\ntzu> ")
               (flush)
               (let [input (read-line)
@@ -367,12 +375,18 @@
                 (when (and cmd
                            (not (contains? #{"exit" "quit" "/exit" "/quit"}
                                            (str/lower-case cmd))))
-                  (try (let [result (run-agent cmd registry)]
-                         (println "\nAgent:" (:content result)))
-                       (catch Exception e
-                         (println "\nError:" (ex-message e))
-                         (when-let [edata (ex-data e)] (pprint/pprint edata))))
-                  (recur)))))))
+                  (let [new-history
+                        (try
+                          (let [result
+                                (run-agent cmd registry (api-key) history)]
+                            (println "\nAgent:" (:content result))
+                            (:messages result))
+                          (catch Exception e
+                            (println "\nError:" (ex-message e))
+                            (when-let [edata (ex-data e)]
+                              (pprint/pprint edata))
+                            history))]
+                    (recur new-history))))))))
 
 
 (comment
