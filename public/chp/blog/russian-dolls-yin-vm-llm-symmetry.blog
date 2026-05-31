@@ -19,9 +19,9 @@
 
                    [:pre [:code "{:effect :io/http\n :url \"https://example.com\"}"]]
 
-                   [:p "This is a platform-agnostic, pure data value. The Clojure, Dart, or JS host intercepts this map, executes the side effect using its native networking libraries, and feeds the resulting bytes back to the VM, un-parking the continuation so the script can proceed."]
+                   [:p "This is a platform-agnostic, pure data value. The Clojure, Dart, or JS host intercepts this map, executes the side effect using its native networking libraries, and feeds the resulting bytes back to the VM, un-parking (resuming) the suspended continuation so the agent can proceed."]
 
-                   [:p "Now, consider how an LLM agent (like our " [:code "Agent Tzu"] ") uses tools via the OpenAI-compatible Chat Completions API. When the LLM decides it needs to fetch a webpage, it halts generation. It emits a JSON structure representing its intent:"]
+                   [:p "Now, consider how an LLM agent (like " [:code "Agent Tzu"] ") uses tools via the OpenAI-compatible Chat Completions API. When the LLM decides it needs to fetch a webpage, it halts generation and emits a JSON structure representing its intent. While the LLM emits JSON rather than the EDN map shown above, the mechanism is the same:"]
 
                    [:pre [:code "{\n  \"name\": \"http_fetch\",\n  \"arguments\": \"{\\\"url\\\": \\\"https://example.com\\\"}\"\n}"]]
 
@@ -31,25 +31,25 @@
 
                    [:p "Traditional software architecture is built on " [:em "abstraction"] ". When you write a function like " [:code "(fetch-url \"https://example.com\")"] ", the intent and the execution are collapsed into a single, opaque black box. You cannot easily serialize that function call, send it across a network, or pause it mid-flight. The causal link between the call and the result is hidden inside the language runtime's call stack."]
 
-                   [:p "In " [:code "datom.world"] ", we favor " [:em "interpretation"] ". By reifying intent as observable data—a glass box—we keep the system's machinery visible. The agent doesn't \"call a function\"; it " [:strong "emits a fact"] " about what it wants to do. This separation of intent from implementation is what allows the Russian doll stack to function: each layer is a specialized engine designed to process the symbols of the layer beneath it."]
+                   [:p "In " [:code "datom.world"] ", we favor " [:em "interpretation"] ". By reifying intent as observable data, a glass box, we keep the system's machinery visible. The agent doesn't \"call a function\"; it " [:strong "emits a fact"] " about what it wants to do. This separation of intent from implementation is what allows the Russian doll stack to function: each layer is a specialized engine designed to process the symbols of the layer beneath it."]
 
                    [:h2 "Stigmergy at Multiple Scales"]
 
-                   [:p "The architectural pattern here is " [:strong "stigmergy"] "—coordination without direct communication, achieved by modifying a shared environment. There is no direct function-to-function coupling without a stream boundary. Everything is data. Explicit causality is favored over implicit assumptions."]
+                   [:p "The architectural pattern here is " [:strong "stigmergy"] ": coordination without direct communication, achieved by modifying a shared environment. Everything is data, and explicit causality is favored over implicit assumptions."]
 
-                   [:p "Because of this symmetry, when we port an LLM agent like Agent Tzu to run " [:em "inside"] " the Yin.VM, we create a fascinating nested architecture—a Russian doll of interpreters:"]
+                   [:p "Because of this symmetry, when we port an LLM agent like " [:code "Agent Tzu"] " to run " [:em "inside"] " the Yin.VM, we create a layered chain of interpreters:"]
 
                    [:ol
-                    [:li "The " [:strong "Host OS"] " (Clojure/JS/Dart) interprets the Yin.VM data effects (performing actual network I/O)."]
-                    [:li "The " [:strong "Yin.VM"] " interprets the " [:strong "Universal AST datoms"] " (suspending and resuming continuations based on the Host's responses)."]
-                    [:li "The " [:strong "Agent Logic"] " (compiled to AST) interprets the LLM's JSON tool calls (mapping them to Yin effects)."]
-                    [:li "The " [:strong "LLM"] " interprets the human's prompt (generating JSON tool calls)."]]
+                    [:li "The " [:strong "host OS"] " (Clojure/JS/Dart) interprets the Yin.VM data effects (performing actual network I/O)."]
+                    [:li "The " [:strong "Yin.VM"] " interprets the " [:strong "Universal AST datoms"] " (suspending and resuming continuations based on the host's responses)."]
+                    [:li "The " [:strong "Agent Logic"] " (compiled to AST) interprets the LLM's JSON tool calls."]
+                    [:li "The " [:strong "LLM"] " (on the other side of the API boundary) interprets the human's prompt."]]
 
-                   [:p "At every boundary layer, the rule is the same: communication happens only by emitting data (pheromones) for an outer interpreter to act upon. The LLM isn't \"calling a function\"; it is generating a projection of its internal state into a defined coordinate system. The Yin.VM isn't \"executing IO\"; it is yielding a data structure."]
+                   [:p "At every boundary layer, the rule is the same: communication happens only by emitting data for an outer interpreter to act upon. The LLM isn't \"calling a function\"; it is generating a projection of its internal state into a defined coordinate system. The Yin.VM isn't \"executing IO\"; it is yielding a data structure."]
 
                    [:h2 "The Power of the Sandbox"]
 
-                   [:p "This strict adherence to " [:em "Interpretation > Abstraction"] " guarantees that the agent's network requests, file reads, and API calls are asynchronous, suspendable, and perfectly observable data effects. If a process crashes while waiting for the LLM to reply, the agent's continuation sits safely in the database, ready to be resumed later—or even migrated to another node."]
+                   [:p "This strict adherence to " [:em "Interpretation > Abstraction"] " guarantees that the agent's network requests, file reads, and API calls are asynchronous, suspendable, and perfectly observable data effects. If a process crashes while waiting for the LLM to reply, the agent's continuation sits safely in the database, ready to be resumed later, or even migrated to another node."]
 
-                   [:p "By aligning the architecture of our agents with the architecture of our virtual machine, we ensure that as intelligence scales, it remains grounded in explicit, causal data streams."]
+                   [:p "By aligning the architecture of our agents with the architecture of our virtual machine, we ensure that the entire stack remains a " [:em "glass box"] ". As intelligence scales, that intelligence remains grounded in explicit, causal data streams."]
                    ]]]}
