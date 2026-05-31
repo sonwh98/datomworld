@@ -3,25 +3,21 @@
     #?@(:cljd [["dart:convert" :as convert]]
         :cljs []
         :clj [[clojure.pprint :as pprint] [clojure.data.json :as json]])
+    [agent.tools :as tools]
     #?@(:cljs [[cljs.reader :as edn]]
         :default [[clojure.edn :as edn]])
     [clojure.string :as str]
     [dao.stream :as ds]
-    [dao.stream.http])
-  #?@(:clj
-      [(:import (org.jsoup Jsoup))]
-      :cljd
-      []
-      :cljs
-      []))
+    [dao.stream.http]
+    #?(:clj [dao.stream.ringbuffer])))
 
 
 (defn api-key
   []
-  #?(:clj (System/getenv "DEEPSEEK_API_KEY")
+  #?(:clj (System/getenv "OPENAI_API_KEY")
      :cljs (some-> js/process
                    .-env
-                   .-DEEPSEEK_API_KEY)
+                   .-OPENAI_API_KEY)
      :cljd (throw (ex-info "API key must be provided via binding on CLJD" {}))))
 
 
@@ -47,43 +43,60 @@
      :cljd (dart->clj (convert/jsonDecode s))))
 
 
-(defn prompt
-  "Prompt DeepSeek and return the completion content (a string). Opens an HTTP
-   stream, reads the response off it (JVM-blocking via ds/take!!), and returns
-   the message content. Throws on transport error, non-200 status, or a response
-   truncated by the token cap.
+(defn chat-completion
+  "Send messages vector to an OpenAI-compatible chat/completions endpoint.
+   Optional :tools vector of tool definitions enables function calling. Returns
+   the full parsed response body as Clojure data.
 
-   The JVM and JS read the key from DEEPSEEK_API_KEY via `api-key`; any runtime
+   Throws on transport error or non-200 status."
+  [messages & {:keys [tools key]}]
+  (let [k (or key (api-key))
+        url (or #?(:clj (System/getenv "OPENAI_BASE_URL")
+                   :cljs (some-> js/process
+                                 .-env
+                                 .-OPENAI_BASE_URL)
+                   :cljd nil)
+                "https://api.openai.com/v1/chat/completions")
+        model (or #?(:clj (System/getenv "OPENAI_MODEL")
+                     :cljs (some-> js/process
+                                   .-env
+                                   .-OPENAI_MODEL)
+                     :cljd nil)
+                  "gpt-4o")
+        body-map (cond-> {"model" model, "max_tokens" 8192, "messages" messages}
+                   tools (assoc "tools" tools))
+        {:keys [status body error]}
+        (ds/take!! (ds/open! {:type :http,
+                              :url url,
+                              :method :post,
+                              :headers {"Authorization" (str "Bearer " k),
+                                        "Content-Type" "application/json"},
+                              :body (json-encode body-map)}))]
+    (when error (throw (ex-info "LLM API request failed" {:error error})))
+    (when (not= 200 status)
+      (throw (ex-info (str "LLM API HTTP " status)
+                      {:status status, :body body})))
+    (json-decode body)))
+
+
+(defn prompt
+  "Prompt an OpenAI-compatible LLM and return the completion content (a string).
+   Wraps chat-completion with a single user message. Throws on transport error,
+   non-200 status, or a response truncated by the token cap.
+
+   The JVM and JS read the key from OPENAI_API_KEY via `api-key`; any runtime
    may pass it explicitly through the 2-arity (required on Dart)."
   ([prompt-txt] (prompt prompt-txt (api-key)))
   ([prompt-txt key]
-   (when-not key (throw (ex-info "DEEPSEEK_API_KEY not set" {})))
-   (let [{:keys [status body error]}
-         (ds/take!! (ds/open!
-                      {:type :http,
-                       :url "https://api.deepseek.com/chat/completions",
-                       :method :post,
-                       :headers {"Authorization" (str "Bearer " key),
-                                 "Content-Type" "application/json"},
-                       :body (json-encode {"model" "deepseek-chat",
-                                           "max_tokens" 8192,
-                                           "messages" [{"role" "user",
-                                                        "content"
-                                                        prompt-txt}]})}))]
-     (when error (throw (ex-info "DeepSeek request failed" {:error error})))
-     (when (not= 200 status)
-       (throw (ex-info (str "DeepSeek HTTP " status)
-                       {:status status, :body body})))
-     (let [choice (-> body
-                      json-decode
-                      (get-in ["choices" 0]))]
-       (when (= "length" (get choice "finish_reason"))
-         (throw
-           (ex-info
-             "DeepSeek output truncated — response hit the 8K-token cap; reduce input"
-             {:prompt-preview
-              (subs prompt-txt 0 (min 200 (count prompt-txt)))})))
-       (get-in choice ["message" "content"])))))
+   (when-not key (throw (ex-info "OPENAI_API_KEY not set" {})))
+   (let [resp (chat-completion [{"role" "user", "content" prompt-txt}] :key key)
+         choice (get-in resp ["choices" 0])]
+     (when (= "length" (get choice "finish_reason"))
+       (throw
+         (ex-info
+           "LLM output truncated — response hit the token cap; reduce input"
+           {:prompt-preview (subs prompt-txt 0 (min 200 (count prompt-txt)))})))
+     (get-in choice ["message" "content"]))))
 
 
 (def ^:private datom-prompt
@@ -134,35 +147,6 @@
     "Example output: [[-1 :schema/name \"Linda\"] [-1 :schema/type \"ComputerLanguage\"] [-1 :schema/creator -2] [-1 :schema/dateCreated \"1986\"] [-1 :introduced -4] [-2 :schema/name \"David Gelernter\"] [-2 :schema/type \"Person\"] [-2 :schema/affiliation -3] [-3 :schema/name \"Yale University\"] [-3 :schema/type \"CollegeOrUniversity\"] [-4 :schema/name \"tuple space\"] [-4 :schema/type \"Thing\"] [-4 :schema/description \"associative shared memory\"] [-4 :used-for \"parallel programming\"]]\n\n"
     "FINAL REMINDER: extract EVERY fact, not a representative sample. If your output is shorter than roughly 70% of the input's character count, you are summarizing — go back and emit more datoms until coverage is complete.\n\n"
     "Input: "))
-
-
-(defn- fetch
-  [url]
-  #?(:clj (let [stream (ds/open! {:type :http,
-                                  :url url,
-                                  :headers {"User-Agent"
-                                            "Mozilla/5.0 (agent.tzu)"},
-                                  :follow-redirects true})]
-            (:body (ds/take!! stream)))
-     :default (throw (ex-info "agent.tzu/fetch is only available on the JVM"
-                              {:url url}))))
-
-
-(defn- strip-html
-  [s]
-  #?(:cljd (-> s
-               (str/replace #"<script\b[^>]*>[\s\S]*?</script>" "")
-               (str/replace #"<style\b[^>]*>[\s\S]*?</style>" "")
-               (str/replace #"<[^>]+>" " ")
-               (str/replace #"\s+" " ")
-               str/trim)
-     :cljs (-> s
-               (str/replace #"<script\b[^>]*>[\s\S]*?</script>" "")
-               (str/replace #"<style\b[^>]*>[\s\S]*?</style>" "")
-               (str/replace #"<[^>]+>" " ")
-               (str/replace #"\s+" " ")
-               str/trim)
-     :clj (.text (Jsoup/parse ^String s ""))))
 
 
 (defn- strip-fences
@@ -327,15 +311,68 @@
       edn/read-string))
 
 
+(defn run-agent
+  "Execute an autonomous Agent Tzu loop with access to a registry of streams.
+   The agent can call stream_read and stream_write tools via OpenAI-compatible
+   function calling. Returns {:content string :stream-registry map}.
+
+   stream-registry is a map of string id -> dao.stream instance.
+   Safeguard: loops at most 20 iterations, then throws."
+  ([prompt-txt stream-registry]
+   (run-agent prompt-txt stream-registry (api-key)))
+  ([prompt-txt stream-registry api-key]
+   (when-not api-key (throw (ex-info "OPENAI_API_KEY not set" {})))
+   (loop [messages [{"role" "user", "content" prompt-txt}]
+          iter 0]
+     (when (>= iter 20)
+       (throw (ex-info "run-agent exceeded max iterations" {:iter iter})))
+     (let [resp
+           (chat-completion messages :tools tools/stream-tools :key api-key)
+           choice (get-in resp ["choices" 0])
+           finish-reason (get choice "finish_reason")]
+       (case finish-reason
+         "stop" {:content (get-in choice ["message" "content"]),
+                 :stream-registry stream-registry}
+         "tool_calls"
+         (let [assistant-msg (get choice "message")
+               tool-calls (get assistant-msg "tool_calls")
+               tool-results (mapv #(tools/execute-tool-call % stream-registry)
+                                  tool-calls)]
+           (recur (-> messages
+                      (conj (select-keys assistant-msg
+                                         ["role" "content" "tool_calls"]))
+                      (into tool-results))
+                  (inc iter)))
+         "length"
+         (throw
+           (ex-info
+             "LLM output truncated — response hit the token cap; reduce input"
+             {}))
+         (throw (ex-info (str "Unexpected finish_reason: " finish-reason)
+                         {:response resp})))))))
+
+
 #?(:cljd nil
    :cljs nil
    :clj (defn -main
-          [& args]
-          (let [input (cond (= "-url" (first args)) (strip-html (fetch (second
-                                                                         args)))
-                            (seq args) (str/join " " args)
-                            :else (slurp *in*))]
-            (pprint/pprint (text->datoms input)))))
+          [& _args]
+          (let [registry {"io" (ds/open! {:type :ringbuffer, :capacity 10})}]
+            (println "Agent Tzu REPL. Type your prompt, or /exit to quit.")
+            (println "Available streams in registry: " (keys registry))
+            (loop []
+              (print "\ntzu> ")
+              (flush)
+              (let [input (read-line)
+                    cmd (when input (str/trim input))]
+                (when (and cmd
+                           (not (contains? #{"exit" "quit" "/exit" "/quit"}
+                                           (str/lower-case cmd))))
+                  (try (let [result (run-agent cmd registry)]
+                         (println "\nAgent:" (:content result)))
+                       (catch Exception e
+                         (println "\nError:" (ex-message e))
+                         (when-let [edata (ex-data e)] (pprint/pprint edata))))
+                  (recur)))))))
 
 
 (comment
