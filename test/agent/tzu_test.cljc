@@ -2,12 +2,12 @@
   (:require
     [agent.tzu :as tzu]
     [clojure.test :refer [deftest is testing]]
-    #?(:clj [dao.stream :as ds])))
+    #?(:clj [dao.stream :as ds])
+    #?(:clj [dao.stream.ringbuffer])))
 
 
 ;; `prompt` blocks on the stream (ds/take!!), so it is JVM-only; mock the
-;; DeepSeek
-;; IO with-redefs (unavailable on ClojureDart).
+;; LLM IO with-redefs (unavailable on ClojureDart).
 #?(:clj (defn- response-stream
           [resp]
           (doto (ds/open! {:type :ringbuffer, :capacity 1})
@@ -394,6 +394,7 @@
                        {"choices" [{"message"
                                     {"content"
                                      "[[-1 :schema/name \"Linda\"]]"},
-                                    "finish_reason" "stop"}]})]
+                                    "finish_reason" "stop"}]})
+                     tzu/api-key (constantly "fake-key")]
          (is (= [[-1 :schema/name "Linda"]]
                 (tzu/text->datoms "Linda exists." 500)))))))
