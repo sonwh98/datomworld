@@ -27,6 +27,12 @@
 
                    [:p "The agent loop intercepts this JSON, executes the side effect on the host machine, and appends the result to the context window as a " [:code "\"role\": \"tool\""] " message, resuming the LLM's inference."]
 
+                   [:h2 "Interpretation > Abstraction"]
+
+                   [:p "Traditional software architecture is built on " [:em "abstraction"] ". When you write a function like " [:code "(fetch-url \"https://example.com\")"] ", the intent and the execution are collapsed into a single, opaque black box. You cannot easily serialize that function call, send it across a network, or pause it mid-flight. The causal link between the call and the result is hidden inside the language runtime's call stack."]
+
+                   [:p "In " [:code "datom.world"] ", we favor " [:em "interpretation"] ". By reifying intent as observable data—a glass box—we keep the system's machinery visible. The agent doesn't \"call a function\"; it " [:strong "emits a fact"] " about what it wants to do. This separation of intent from implementation is what allows the Russian doll stack to function: each layer is a specialized engine designed to process the symbols of the layer beneath it."]
+
                    [:h2 "Stigmergy at Multiple Scales"]
 
                    [:p "The architectural pattern here is " [:strong "stigmergy"] "—coordination without direct communication, achieved by modifying a shared environment. There is no direct function-to-function coupling without a stream boundary. Everything is data. Explicit causality is favored over implicit assumptions."]
