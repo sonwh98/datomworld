@@ -1,6 +1,7 @@
 (ns agent.tools-test
   (:require
     [agent.tools :as tools]
+    #?(:clj [clojure.java.io :as io])
     [clojure.test :refer [deftest is testing]]
     #?(:clj [dao.stream :as ds])
     #?(:clj [dao.stream.ringbuffer])))
@@ -276,3 +277,33 @@
                            (tools/execute-tool-call tool-call {}))]
               (let [content (get result "content")]
                 (is (.contains ^String content "timeout")))))))
+
+
+;; =============================================================================
+;; file_read and file_write tool tests
+;; =============================================================================
+
+
+#?(:clj (deftest execute-tool-call-file-read-write-test
+          (testing "file_write and file_read tool calls work together"
+            (let [path "target/test-file.txt"
+                  _ (when (.exists (io/file path)) (io/delete-file path))
+                  content "hello from Agent Tzu"
+                  write-call {"id" "call_file_1",
+                              "type" "function",
+                              "function" {"name" "file_write",
+                                          "arguments" (str "{\"path\":\""
+                                                           path
+                                                           "\",\"content\":\""
+                                                           content
+                                                           "\"}")}}
+                  write-result (tools/execute-tool-call write-call {})]
+              (is (= "ok" (get write-result "content")))
+              (let [read-call {"id" "call_file_2",
+                               "type" "function",
+                               "function" {"name" "file_read",
+                                           "arguments"
+                                           (str "{\"path\":\"" path "\"}")}}
+                    read-result (tools/execute-tool-call read-call {})]
+                (is (= (pr-str {:status 200, :body content})
+                       (get read-result "content"))))))))

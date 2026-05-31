@@ -7,6 +7,8 @@
         :default [[clojure.edn :as edn]])
     [clojure.string :as str]
     [dao.stream :as ds]
+    #?(:clj [dao.stream.file-input-stream])
+    #?(:clj [dao.stream.file-output-stream])
     [dao.stream.http]))
 
 
@@ -81,7 +83,29 @@
         "Optional request headers as a JSON object string, e.g. \"{\\\"Accept\\\":\\\"application/json\\\"}\"."},
        "body" {"type" "string",
                "description" "Optional request body string."}},
-      "required" ["url"]}}}])
+      "required" ["url"]}}}
+   {"type" "function",
+    "function"
+    {"name" "file_read",
+     "description"
+     "Read the entire contents of a file from the local filesystem as a UTF-8 string.",
+     "parameters" {"type" "object",
+                   "properties" {"path" {"type" "string",
+                                         "description"
+                                         "The path to the file."}},
+                   "required" ["path"]}}}
+   {"type" "function",
+    "function"
+    {"name" "file_write",
+     "description"
+     "Append a UTF-8 string to a file on the local filesystem. Creates the file and parent directories if they don't exist.",
+     "parameters"
+     {"type" "object",
+      "properties"
+      {"path" {"type" "string", "description" "The path to the file."},
+       "content" {"type" "string",
+                  "description" "The string content to write."}},
+      "required" ["path" "content"]}}}])
 
 
 (defn execute-tool-call
@@ -142,6 +166,44 @@
                 {"role" "tool",
                  "tool_call_id" call-id,
                  "content" (pr-str result)}))))
+        "file_read"
+        #?(:clj (let [path (get args "path")
+                      s (ds/open! {:type :file-input-stream, :path path})
+                      chunks (loop [acc []
+                                    pos 0]
+                               (let [res (ds/next s {:position pos})]
+                                 (if (map? res)
+                                   (recur (conj acc (:ok res))
+                                          (get-in res [:cursor :position]))
+                                   acc)))
+                      total-size (reduce + (map alength chunks))
+                      result-bytes (byte-array total-size)]
+                  (loop [cs chunks
+                         offset 0]
+                    (when (seq cs)
+                      (let [c (first cs)
+                            len (alength c)]
+                        (System/arraycopy c 0 result-bytes offset len)
+                        (recur (rest cs) (+ offset len)))))
+                  {"role" "tool",
+                   "tool_call_id" call-id,
+                   "content" (pr-str {:status 200,
+                                      :body (String. result-bytes "UTF-8")})})
+           :default {"role" "tool",
+                     "tool_call_id" call-id,
+                     "content" "file_read is only supported on the JVM"})
+        "file_write"
+        #?(:clj (let [path (get args "path")
+                      content (get args "content")
+                      s (ds/open! {:type :file-output-stream, :path path})
+                      res (ds/put! s (.getBytes ^String content "UTF-8"))]
+                  (ds/close! s)
+                  {"role" "tool",
+                   "tool_call_id" call-id,
+                   "content" (if (= (:result res) :ok) "ok" (pr-str res))})
+           :default {"role" "tool",
+                     "tool_call_id" call-id,
+                     "content" "file_write is only supported on the JVM"})
         "http_fetch" (let [url (get args "url")
                            method (some-> (get args "method")
                                           str/lower-case
