@@ -47,43 +47,51 @@
      :cljd (dart->clj (convert/jsonDecode s))))
 
 
+(defn chat-completion
+  "Send messages vector to DeepSeek chat/completions. Optional :tools vector
+   of tool definitions enables function calling. Returns the full parsed
+   response body as Clojure data.
+
+   Throws on transport error or non-200 status."
+  [messages & {:keys [tools key]}]
+  (let [k (or key (api-key))
+        body-map (cond-> {"model" "deepseek-chat",
+                          "max_tokens" 8192,
+                          "messages" messages}
+                   tools (assoc "tools" tools))
+        {:keys [status body error]}
+        (ds/take!! (ds/open! {:type :http,
+                              :url
+                              "https://api.deepseek.com/chat/completions",
+                              :method :post,
+                              :headers {"Authorization" (str "Bearer " k),
+                                        "Content-Type" "application/json"},
+                              :body (json-encode body-map)}))]
+    (when error (throw (ex-info "DeepSeek request failed" {:error error})))
+    (when (not= 200 status)
+      (throw (ex-info (str "DeepSeek HTTP " status)
+                      {:status status, :body body})))
+    (json-decode body)))
+
+
 (defn prompt
-  "Prompt DeepSeek and return the completion content (a string). Opens an HTTP
-   stream, reads the response off it (JVM-blocking via ds/take!!), and returns
-   the message content. Throws on transport error, non-200 status, or a response
-   truncated by the token cap.
+  "Prompt DeepSeek and return the completion content (a string). Wraps
+   chat-completion with a single user message. Throws on transport error,
+   non-200 status, or a response truncated by the token cap.
 
    The JVM and JS read the key from DEEPSEEK_API_KEY via `api-key`; any runtime
    may pass it explicitly through the 2-arity (required on Dart)."
   ([prompt-txt] (prompt prompt-txt (api-key)))
   ([prompt-txt key]
    (when-not key (throw (ex-info "DEEPSEEK_API_KEY not set" {})))
-   (let [{:keys [status body error]}
-         (ds/take!! (ds/open!
-                      {:type :http,
-                       :url "https://api.deepseek.com/chat/completions",
-                       :method :post,
-                       :headers {"Authorization" (str "Bearer " key),
-                                 "Content-Type" "application/json"},
-                       :body (json-encode {"model" "deepseek-chat",
-                                           "max_tokens" 8192,
-                                           "messages" [{"role" "user",
-                                                        "content"
-                                                        prompt-txt}]})}))]
-     (when error (throw (ex-info "DeepSeek request failed" {:error error})))
-     (when (not= 200 status)
-       (throw (ex-info (str "DeepSeek HTTP " status)
-                       {:status status, :body body})))
-     (let [choice (-> body
-                      json-decode
-                      (get-in ["choices" 0]))]
-       (when (= "length" (get choice "finish_reason"))
-         (throw
-           (ex-info
-             "DeepSeek output truncated — response hit the 8K-token cap; reduce input"
-             {:prompt-preview
-              (subs prompt-txt 0 (min 200 (count prompt-txt)))})))
-       (get-in choice ["message" "content"])))))
+   (let [resp (chat-completion [{"role" "user", "content" prompt-txt}] :key key)
+         choice (get-in resp ["choices" 0])]
+     (when (= "length" (get choice "finish_reason"))
+       (throw
+         (ex-info
+           "DeepSeek output truncated — response hit the 8K-token cap; reduce input"
+           {:prompt-preview (subs prompt-txt 0 (min 200 (count prompt-txt)))})))
+     (get-in choice ["message" "content"]))))
 
 
 (def ^:private datom-prompt
@@ -325,6 +333,153 @@
   (-> (prompt (str frames-prompt prompt-txt))
       strip-fences
       edn/read-string))
+
+
+(def ^:private stream-tools
+  "Tool definitions for dao.stream access via DeepSeek function calling."
+  [{"type" "function",
+    "function"
+    {"name" "stream_list",
+     "description"
+     "List all available streams in the registry. Returns a list of stream identifiers. Use this first if you don't know which streams are available.",
+     "parameters" {"type" "object", "properties" {}}}}
+   {"type" "function",
+    "function"
+    {"name" "stream_read",
+     "description"
+     "Read the next value from a named stream at the given cursor position. Returns a value and the next cursor position so you can iterate. For blocked/end/gap, returns a status string.",
+     "parameters"
+     {"type" "object",
+      "properties"
+      {"stream_id" {"type" "string",
+                    "description"
+                    "The identifier of the stream in the registry."},
+       "position" {"type" "integer",
+                   "description" "The cursor position to read from."}},
+      "required" ["stream_id" "position"]}}}
+   {"type" "function",
+    "function"
+    {"name" "stream_write",
+     "description"
+     "Append a Clojure EDN value to a named stream. Provide the value as a Clojure EDN literal string (e.g. \"42\", \"\\\"hello\\\"\", \"[1 2 3]\", \"{:op/kind :frame/clear :color [0.0 0.0 0.0 1.0]}\").",
+     "parameters"
+     {"type" "object",
+      "properties"
+      {"stream_id" {"type" "string",
+                    "description"
+                    "The identifier of the stream in the registry."},
+       "value" {"type" "string",
+                "description"
+                "The Clojure EDN value to write, as a string."}},
+      "required" ["stream_id" "value"]}}}])
+
+
+(defn execute-tool-call
+  "Resolve a single tool_call from the LLM against the stream-registry.
+   Returns a tool response message map compatible with the chat API."
+  [tool-call stream-registry]
+  (let [call-id (get tool-call "id")
+        {:strs [name arguments]} (get tool-call "function")
+        args (json-decode arguments)]
+    (try
+      (case name
+        "stream_list" {"role" "tool",
+                       "tool_call_id" call-id,
+                       "content" (pr-str (vec (sort (keys stream-registry))))}
+        "stream_read"
+        (let [stream (get stream-registry (get args "stream_id"))
+              pos (get args "position")
+              result (ds/next stream {:position pos})]
+          (cond (map? result)
+                {"role" "tool",
+                 "tool_call_id" call-id,
+                 "content" (pr-str {:value (:ok result),
+                                    :next-position
+                                    (get-in result [:cursor :position])})}
+                (= result :blocked)
+                {"role" "tool",
+                 "tool_call_id" call-id,
+                 "content" "(blocked: stream open, no value available)"}
+                (= result :end) {"role" "tool",
+                                 "tool_call_id" call-id,
+                                 "content" "(end of stream)"}
+                (= result :daostream/gap)
+                {"role" "tool",
+                 "tool_call_id" call-id,
+                 "content" "(gap: position has been evicted)"}
+                :else {"role" "tool",
+                       "tool_call_id" call-id,
+                       "content" (str "unexpected result: " result)}))
+        "stream_write"
+        (let [stream (get stream-registry (get args "stream_id"))
+              val-str (get args "value")
+              val (try (edn/read-string val-str)
+                       (catch #?(:clj Exception
+                                 :cljs js/Error
+                                 :cljd Exception)
+                              _
+                         ::invalid-edn))]
+          (if (= val ::invalid-edn)
+            {"role" "tool",
+             "tool_call_id" call-id,
+             "content" "(error: malformed EDN)"}
+            (let [result (ds/put! stream val)]
+              (case (:result result)
+                :ok {"role" "tool", "tool_call_id" call-id, "content" "ok"}
+                :full {"role" "tool",
+                       "tool_call_id" call-id,
+                       "content" "(full: retry later)"}
+                {"role" "tool",
+                 "tool_call_id" call-id,
+                 "content" (pr-str result)}))))
+        {"role" "tool",
+         "tool_call_id" call-id,
+         "content" (str "unknown tool: " name)})
+      (catch #?(:clj Exception
+                :cljs js/Error
+                :cljd Exception)
+             e
+        {"role" "tool", "tool_call_id" call-id, "content" (str "error: " e)}))))
+
+
+(defn run-agent
+  "Execute an autonomous Agent Tzu loop with access to a registry of streams.
+   The agent can call stream_read and stream_write tools via DeepSeek function
+   calling. Returns {:content string :stream-registry map}.
+
+   stream-registry is a map of string id -> dao.stream instance.
+   Safeguard: loops at most 20 iterations, then throws."
+  ([prompt-txt stream-registry]
+   (run-agent prompt-txt stream-registry (api-key)))
+  ([prompt-txt stream-registry api-key]
+   (when-not api-key (throw (ex-info "DEEPSEEK_API_KEY not set" {})))
+   (loop [messages [{"role" "user", "content" prompt-txt}]
+          iter 0]
+     (when (>= iter 20)
+       (throw (ex-info "run-agent exceeded max iterations" {:iter iter})))
+     (let [resp (chat-completion messages :tools stream-tools :key api-key)
+           choice (get-in resp ["choices" 0])
+           finish-reason (get choice "finish_reason")]
+       (case finish-reason
+         "stop" {:content (get-in choice ["message" "content"]),
+                 :stream-registry stream-registry}
+         "tool_calls"
+         (let [assistant-msg (get choice "message")
+               tool-calls (get assistant-msg "tool_calls")
+               tool-results (mapv #(execute-tool-call % stream-registry)
+                                  tool-calls)]
+           (recur (-> messages
+                      (conj (select-keys assistant-msg
+                                         ["role" "content" "tool_calls"]))
+                      (into tool-results))
+                  (inc iter)))
+         "length"
+         (throw
+           (ex-info
+             "DeepSeek output truncated — response hit the 8K-token cap; reduce input"
+             {}))
+         (throw (ex-info (str "Unexpected finish_reason: " finish-reason)
+                         {:response resp})))))))
 
 
 #?(:cljd nil
