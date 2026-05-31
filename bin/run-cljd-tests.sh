@@ -11,6 +11,7 @@ clj -M:cljd compile \
     yin.vm.test-utils \
     datomworld.demo.continuation-handoff \
     agent.tzu-test \
+    agent.tools-test \
     dao.stream.http-test \
     dao.stream-test \
     dao.db-test \

@@ -1,5 +1,6 @@
 (ns test-runner
   (:require
+    [agent.tools-test]
     [agent.tzu-test]
     [cljs.test :as t :refer-macros [run-tests]]
     [dao.await-test]
@@ -37,6 +38,7 @@
   (run-tests 'dao.await-test
              'dao.db.file-test
              'dao.runtime.driver-cljs-test
+             'agent.tools-test
              'agent.tzu-test
              'dao.stream.http-test
              'dao.gui.compiler-cljs-test
