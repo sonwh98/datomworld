@@ -9,7 +9,8 @@
     [clojure.string :as str]
     [dao.stream :as ds]
     [dao.stream.http]
-    #?(:clj [dao.stream.ringbuffer])))
+    #?(:clj [dao.stream.ringbuffer])
+    [dao.stream.ws]))
 
 
 (defn api-key
@@ -313,10 +314,14 @@
 
 (defn run-agent
   "Execute an autonomous Agent Tzu loop with access to a registry of streams.
-   The agent can call stream_read and stream_write tools via OpenAI-compatible
-   function calling. Returns {:content string :messages vector :stream-registry map}.
+   The agent can call stream_read, stream_write, ws_open, etc. via OpenAI-
+   compatible function calling. Returns {:content string :messages vector
+   :stream-registry atom}.
 
-   stream-registry is a map of string id -> dao.stream instance.
+   stream-registry is an atom holding a map of string id -> dao.stream
+   instance. ws_open mutates this atom; the same atom must persist across
+   iterations so newly opened connections survive between user turns.
+
    history is an optional vector of previous message maps.
    Safeguard: loops at most 20 iterations, then throws."
   ([prompt-txt stream-registry]
@@ -325,25 +330,37 @@
    (run-agent prompt-txt stream-registry api-key nil))
   ([prompt-txt stream-registry api-key history]
    (when-not api-key (throw (ex-info "OPENAI_API_KEY not set" {})))
+   (prn :tzu/run-agent-enter
+        {:prompt prompt-txt, :history-len (count (or history []))})
    (loop [messages (conj (or history []) {"role" "user", "content" prompt-txt})
           iter 0]
      (when (>= iter 20)
        (throw (ex-info "run-agent exceeded max iterations" {:iter iter})))
+     (prn :tzu/iter {:iter iter, :messages-len (count messages)})
      (let [resp
            (chat-completion messages :tools tools/stream-tools :key api-key)
            choice (get-in resp ["choices" 0])
            finish-reason (get choice "finish_reason")]
+       (prn :tzu/llm-response {:iter iter, :finish-reason finish-reason})
        (case finish-reason
-         "stop" (let [content (get-in choice ["message" "content"])
-                      assistant-msg (get choice "message")]
-                  {:content content,
-                   :messages (conj messages
-                                   (select-keys assistant-msg
-                                                ["role" "content"])),
-                   :stream-registry stream-registry})
+         "stop"
+         (let [content (get-in choice ["message" "content"])
+               assistant-msg (get choice "message")]
+           (prn :tzu/stop
+                {:content-preview
+                 (when content (subs content 0 (min 80 (count content))))})
+           {:content content,
+            :messages (conj messages
+                            (select-keys assistant-msg ["role" "content"])),
+            :stream-registry stream-registry})
          "tool_calls"
          (let [assistant-msg (get choice "message")
                tool-calls (get assistant-msg "tool_calls")
+               _ (prn :tzu/tool-calls
+                      {:iter iter,
+                       :count (count tool-calls),
+                       :names (mapv #(get-in % ["function" "name"])
+                                    tool-calls)})
                tool-results (mapv #(tools/execute-tool-call % stream-registry)
                                   tool-calls)]
            (recur (-> messages
@@ -364,9 +381,15 @@
    :cljs nil
    :clj (defn -main
           [& _args]
-          (let [registry {"io" (ds/open! {:type :ringbuffer, :capacity 10})}]
+          ;; Force System.out to autoflush so prn traces appear in real
+          ;; time when stdout is a pipe (e.g. Emacs M-x shell), not a TTY.
+          ;; Under a pipe the JVM block-buffers ~8 KB; autoflush makes each
+          ;; print visible immediately.
+          (System/setOut (java.io.PrintStream. System/out true))
+          (let [registry (atom {"io" (ds/open! {:type :ringbuffer,
+                                                :capacity 10})})]
             (println "Agent Tzu REPL. Type your prompt, or /exit to quit.")
-            (println "Available streams in registry: " (keys registry))
+            (println "Available streams in registry: " (keys @registry))
             (loop [history []]
               (print "\ntzu> ")
               (flush)

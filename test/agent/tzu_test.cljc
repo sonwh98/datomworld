@@ -146,7 +146,7 @@
    (deftest run-agent-writes-to-stream-test
      (testing "agent writes to stream when LLM requests stream_write"
        (let [s (ds/open! {:type :ringbuffer, :capacity 5})
-             registry {"render" s}
+             registry (atom {"render" s})
              call-count (atom 0)]
          (with-redefs
            [tzu/chat-completion
@@ -179,7 +179,7 @@
      (testing "agent reads from stream when LLM requests stream_read"
        (let [s (doto (ds/open! {:type :ringbuffer, :capacity 5})
                  (ds/put! :hello))
-             registry {"input" s}
+             registry (atom {"input" s})
              call-count (atom 0)]
          (with-redefs
            [tzu/chat-completion
@@ -208,7 +208,7 @@
    (deftest run-agent-max-iterations-test
      (testing "run-agent throws after exceeding max iterations"
        (let [s (ds/open! {:type :ringbuffer, :capacity 5})
-             registry {"s" s}]
+             registry (atom {"s" s})]
          (with-redefs
            [tzu/chat-completion
             (fn [_messages & _]
@@ -231,7 +231,7 @@
    (deftest run-agent-http-fetch-test
      (testing "agent can call http_fetch to retrieve web data"
        (let [orig-open ds/open!
-             registry {}
+             registry (atom {})
              call-count (atom 0)]
          (with-redefs
            [tzu/chat-completion

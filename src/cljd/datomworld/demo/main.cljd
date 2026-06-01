@@ -3,6 +3,7 @@
             [datomworld.demo.dao-gui :as dao-gui-demo]
             [datomworld.demo.earth-moon :as earth-moon-demo]
             [datomworld.demo.solar-system :as solar-system-demo]
+            [datomworld.demo.story :as story-demo]
             [datomworld.demo.voxel :as voxel-demo]))
 
 
@@ -91,6 +92,25 @@
                                        .style
                                        (m/TextStyle .fontSize 18.0))))
                  (m/SizedBox .height 24.0)
+                 (m/SizedBox
+                   .width
+                   240.0
+                   .height
+                   60.0
+                   .child
+                   (m/ElevatedButton
+                     .onPressed
+                     (fn []
+                       (voxel-demo/start!)
+                       (.then (m/Navigator.push context
+                                                (m/MaterialPageRoute
+                                                  .builder
+                                                  (fn [_] (voxel-demo/view))))
+                              (fn [_] (voxel-demo/stop!)))
+                       nil)
+                     .child
+                     (m/Text "Voxel Demo" .style (m/TextStyle .fontSize 18.0))))
+                 (m/SizedBox .height 24.0)
                  (m/SizedBox .width
                              240.0
                              .height
@@ -99,15 +119,15 @@
                              (m/ElevatedButton
                                .onPressed
                                (fn []
-                                 (voxel-demo/start!)
+                                 (story-demo/start!)
                                  (.then (m/Navigator.push
                                           context
                                           (m/MaterialPageRoute
                                             .builder
-                                            (fn [_] (voxel-demo/view))))
-                                        (fn [_] (voxel-demo/stop!)))
+                                            (fn [_] (story-demo/view))))
+                                        (fn [_] (story-demo/stop!)))
                                  nil)
                                .child
-                               (m/Text "Voxel Demo"
+                               (m/Text "Story Demo"
                                        .style
                                        (m/TextStyle .fontSize 18.0))))]))))))))

@@ -1,0 +1,238 @@
+(ns datomworld.demo.story
+  "Postgraphics canvas served over WebSocket. An LLM-driven agent connects
+   from outside the device and streams dao.postgraphics frame ops; the
+   widget below the URL card renders them live."
+  (:require ["dart:async" :as async]
+            ["dart:core" :as core]
+            ["dart:io" :as io]
+            ["package:flutter/material.dart" :as m]
+            [clojure.string :as str]
+            [dao.postgraphics.flutter :as pg]
+            [dao.stream :as ds]
+            [dao.stream.ringbuffer]
+            [dao.stream.ws]))
+
+
+(def device-ip (m/ValueNotifier "..."))
+(def interface-addresses (m/ValueNotifier []))
+(def server-status (m/ValueNotifier "starting"))
+(def current-stream (#/ (m/ValueNotifier dynamic) nil))
+(def ^:private server* (atom nil))
+(def ^:private pacer-timer* (atom nil))
+
+
+(def default-port (if io/Platform.isIOS 8766 8765))
+
+
+;; The agent dumps every stream_write tool call in one assistant turn, so all
+;; 16 frames land in the WebSocketStream within microseconds. If we let
+;; postgraphics-widget read them at consumer speed, Flutter coalesces the 16
+;; ValueNotifier set! calls into one rebuild and we only see the last frame.
+;; The pacer reads one frame per frame-interval-ms from the WebSocket source
+;; and re-emits it into a fresh ringbuffer that postgraphics-widget binds to.
+(def ^:private frame-interval-ms 800)
+
+
+(defn load-device-ip!
+  []
+  (.then
+    ^async/Future (io/NetworkInterface.list)
+    (fn [interfaces]
+      (let [found (atom nil)
+            rows (atom [])]
+        (doseq [iface (seq interfaces)]
+          (let [ips (keep (fn [addr]
+                            (let [a (.-address ^io/InternetAddress addr)]
+                              (when (str/includes? a ".")
+                                (when (and (nil? @found)
+                                           (not (str/starts-with? a "127.")))
+                                  (reset! found a))
+                                a)))
+                          (seq (.-addresses ^io/NetworkInterface iface)))]
+            (when (seq ips)
+              (swap! rows conj [(.-name ^io/NetworkInterface iface) ips]))))
+        (set! (.-value ^m/ValueNotifier device-ip) (or @found "localhost"))
+        (set! (.-value ^m/ValueNotifier interface-addresses) @rows)))))
+
+
+(defn- stop-pacer!
+  []
+  (when-let [t @pacer-timer*]
+    (.cancel ^async/Timer t)
+    (reset! pacer-timer* nil)))
+
+
+(defn- start-pacer!
+  "Read frames from source-stream at a fixed cadence and re-emit them into
+   a fresh paced ringbuffer. Returns the paced stream.
+
+   Uses pg/put-frame! (not ds/put!) so the reader-waiter that
+   postgraphics-widget's bind-stream! registers on the paced ringbuffer
+   actually wakes when a paced frame lands. ds/put! returns a :woke list
+   that the caller must drain; pg/put-frame! drains it for us."
+  [source-stream]
+  (stop-pacer!)
+  (let [paced (ds/open! {:type :ringbuffer,
+                         :capacity 64,
+                         :eviction-policy :evict-oldest})
+        cursor (atom {:position 0})]
+    (reset! pacer-timer* (async/Timer.periodic
+                           (core/Duration .milliseconds frame-interval-ms)
+                           (fn [_]
+                             (let [r (ds/next source-stream @cursor)]
+                               (when (map? r)
+                                 (pg/put-frame! paced (:ok r))
+                                 (reset! cursor (:cursor r)))))))
+    paced))
+
+
+(defn stop!
+  []
+  (prn :story/stop!-enter)
+  (stop-pacer!)
+  (reset! active-source* nil)
+  (when-let [server @server*]
+    (when-let [stop-fn (:stop-fn server)] (stop-fn))
+    (reset! server* nil))
+  (set! (.-value ^m/ValueNotifier current-stream) nil)
+  (set! (.-value ^m/ValueNotifier server-status) "stopped")
+  (prn :story/stop!-done)
+  :stopped)
+
+
+(defn- on-connect
+  [stream]
+  (prn :story/on-connect-fired {:stream stream})
+  (stop-pacer!)
+  (reset! active-source* stream)
+  (let [paced (start-pacer! stream)]
+    (set! (.-value ^m/ValueNotifier current-stream) paced))
+  (set! (.-value ^m/ValueNotifier server-status) "connected")
+  (prn :story/on-connect-status-connected))
+
+
+(def ^:private active-source* (atom nil))
+
+
+(defn- on-disconnect
+  [stream]
+  (prn :story/on-disconnect-fired {:stream stream})
+  ;; Only react if the disconnecting stream is the one the pacer is
+  ;; reading.
+  ;; A late on-disconnect from a previously-replaced client must not stop a
+  ;; pacer that is already serving a newer connection.
+  (when (= stream @active-source*)
+    (stop-pacer!)
+    (reset! active-source* nil)
+    (set! (.-value ^m/ValueNotifier current-stream) nil)
+    (set! (.-value ^m/ValueNotifier server-status) "listening")
+    (prn :story/on-disconnect-status-listening)))
+
+
+(defn start!
+  []
+  (prn :story/start!-enter {:port default-port})
+  (stop!)
+  (reset! server* (ds/open! {:type :websocket,
+                             :mode :listen,
+                             :port default-port,
+                             :capacity 64,
+                             :eviction-policy :evict-oldest,
+                             :on-connect on-connect,
+                             :on-disconnect on-disconnect}))
+  (set! (.-value ^m/ValueNotifier server-status) "listening")
+  (prn :story/start!-server-bound-status-listening)
+  (load-device-ip!)
+  :started)
+
+
+(defn- mono
+  ([text] (mono text 12.0))
+  ([text size]
+   (m/Text text .style (m/TextStyle .fontFamily "monospace" .fontSize size))))
+
+
+(defn- info-card
+  [{:keys [port], :or {port default-port}}]
+  (m/Card
+    .child
+    (m/Padding .padding
+               (m/EdgeInsets.all 12.0)
+               .child
+               (m/Column
+                 .crossAxisAlignment
+                 m/CrossAxisAlignment.start
+                 .children
+                 [(m/Text "Postgraphics Canvas"
+                          .style
+                          (m/TextStyle .fontWeight m/FontWeight.bold))
+                  (m/SizedBox .height 6.0) (mono (str "ws://0.0.0.0:" port))
+                  (m/SizedBox .height 2.0)
+                  (m/ValueListenableBuilder .valueListenable
+                                            device-ip
+                                            .builder
+                                            (fn [_ ip _]
+                                              (mono (str "ws://" ip ":" port))))
+                  (m/SizedBox .height 10.0)
+                  (m/Text "Interface IPs"
+                          .style
+                          (m/TextStyle .fontWeight m/FontWeight.bold))
+                  (m/SizedBox .height 4.0)
+                  (m/ValueListenableBuilder
+                    .valueListenable
+                    interface-addresses
+                    .builder
+                    (fn [_ rows _]
+                      (m/Column
+                        .crossAxisAlignment
+                        m/CrossAxisAlignment.start
+                        .children
+                        (if (seq rows)
+                          (mapv (fn [[iface ips]]
+                                  (mono (str iface ": " (str/join ", " ips))))
+                                rows)
+                          [(mono "loading...")])))) (m/SizedBox .height 6.0)
+                  (m/ValueListenableBuilder
+                    .valueListenable
+                    server-status
+                    .builder
+                    (fn [_ status _] (mono (str "status: " status))))]))))
+
+
+(defn- canvas-widget
+  []
+  (m/SizedBox .width
+              720.0
+              .height
+              540.0
+              .child
+              (m/ValueListenableBuilder
+                .valueListenable
+                current-stream
+                .builder
+                (fn [_ stream _]
+                  (prn :story/canvas-rebuild {:stream stream})
+                  (if stream
+                    (pg/postgraphics-widget
+                      stream
+                      :on-error
+                      (fn [e] (prn :story/frame-rejected {:error e})))
+                    (m/Center .child (mono "waiting for connection...")))))))
+
+
+(defn view
+  []
+  (m/Scaffold .appBar
+              (m/AppBar .title (m/Text "Story Demo"))
+              .body
+              (m/SingleChildScrollView
+                .child
+                (m/Padding .padding
+                           (m/EdgeInsets.all 12.0)
+                           .child
+                           (m/Column .crossAxisAlignment
+                                     m/CrossAxisAlignment.start
+                                     .children
+                                     [(info-card {:port default-port})
+                                      (m/SizedBox .height 12.0)
+                                      (canvas-widget)])))))

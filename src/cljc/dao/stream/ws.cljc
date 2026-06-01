@@ -61,7 +61,23 @@
     {:woke []})
 
 
-  (closed? [_] (= :closed (:status @link-state-atom))))
+  (closed? [_] (= :closed (:status @link-state-atom)))
+
+
+  ds/IDaoStreamWaitable
+
+  (register-reader-waiter!
+    [_ position entry]
+    (ds/register-reader-waiter! (:remote-stream @link-state-atom)
+                                position
+                                entry))
+
+
+  (register-writer-waiter!
+    [_ _entry]
+    ;; ws.put! never blocks: link buffers locally until the socket is
+    ;; ready, so writer-waiter registration is a no-op.
+    nil))
 
 
 ;; =============================================================================

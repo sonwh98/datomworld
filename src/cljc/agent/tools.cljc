@@ -9,7 +9,8 @@
     [dao.stream :as ds]
     #?(:clj [dao.stream.file-input-stream])
     #?(:clj [dao.stream.file-output-stream])
-    [dao.stream.http]))
+    [dao.stream.http]
+    [dao.stream.ws]))
 
 
 #?(:cljd (defn- dart->clj
@@ -105,23 +106,43 @@
       {"path" {"type" "string", "description" "The path to the file."},
        "content" {"type" "string",
                   "description" "The string content to write."}},
-      "required" ["path" "content"]}}}])
+      "required" ["path" "content"]}}}
+   {"type" "function",
+    "function"
+    {"name" "ws_open",
+     "description"
+     "Open a WebSocket connection to the given URL and register it as a named stream in the registry. Subsequent stream_write calls on this stream send the value to the remote peer over dao.stream.ws (transit-encoded link envelope). Typical use: push dao.postgraphics frame op-vectors to a renderer.",
+     "parameters"
+     {"type" "object",
+      "properties"
+      {"url" {"type" "string",
+              "description" "WebSocket URL, e.g. ws://localhost:8765"},
+       "stream_id"
+       {"type" "string",
+        "description"
+        "Id to register the connection under. Reuse it in subsequent stream_write calls."}},
+      "required" ["url" "stream_id"]}}}])
 
 
 (defn execute-tool-call
-  "Resolve a single tool_call from the LLM against the stream-registry.
-   Returns a tool response message map compatible with the chat API."
+  "Resolve a single tool_call from the LLM against the stream-registry atom.
+   Returns a tool response message map compatible with the chat API.
+
+   stream-registry is an atom holding a map of id -> dao.stream. ws_open
+   mutates this atom; pass the same atom across iterations so newly opened
+   connections persist."
   [tool-call stream-registry]
   (let [call-id (get tool-call "id")
         {:strs [name arguments]} (get tool-call "function")
         args (json-decode arguments)]
+    (prn :tools/execute {:tool name, :call-id call-id, :args args})
     (try
       (case name
         "stream_list" {"role" "tool",
                        "tool_call_id" call-id,
-                       "content" (pr-str (vec (sort (keys stream-registry))))}
+                       "content" (pr-str (vec (sort (keys @stream-registry))))}
         "stream_read"
-        (let [stream (get stream-registry (get args "stream_id"))
+        (let [stream (get @stream-registry (get args "stream_id"))
               pos (get args "position")
               result (ds/next stream {:position pos})]
           (cond (map? result)
@@ -145,7 +166,8 @@
                        "tool_call_id" call-id,
                        "content" (str "unexpected result: " result)}))
         "stream_write"
-        (let [stream (get stream-registry (get args "stream_id"))
+        (let [sid (get args "stream_id")
+              stream (get @stream-registry sid)
               val-str (get args "value")
               val (try (edn/read-string val-str)
                        (catch #?(:clj Exception
@@ -153,11 +175,17 @@
                                  :cljd Exception)
                               _
                          ::invalid-edn))]
+          (prn :tools/stream-write
+               {:stream-id sid,
+                :stream-found? (some? stream),
+                :val-preview (subs val-str 0 (min 400 (count val-str)))})
           (if (= val ::invalid-edn)
             {"role" "tool",
              "tool_call_id" call-id,
              "content" "(error: malformed EDN)"}
             (let [result (ds/put! stream val)]
+              (prn :tools/stream-write-result
+                   {:stream-id sid, :result (:result result)})
               (case (:result result)
                 :ok {"role" "tool", "tool_call_id" call-id, "content" "ok"}
                 :full {"role" "tool",
@@ -225,6 +253,21 @@
                           "tool_call_id" call-id,
                           "content" (pr-str {:status (:status resp),
                                              :body (:body resp)})}))
+        "ws_open"
+        (let [url (get args "url")
+              sid (get args "stream_id")
+              _ (prn :tools/ws-open-connecting {:url url, :stream-id sid})
+              stream (ds/open! {:type :websocket,
+                                :mode :connect,
+                                :url url,
+                                :capacity 64,
+                                :eviction-policy :evict-oldest})]
+          (swap! stream-registry assoc sid stream)
+          (prn :tools/ws-open-registered
+               {:stream-id sid, :registry-keys (keys @stream-registry)})
+          {"role" "tool",
+           "tool_call_id" call-id,
+           "content" (str "ok: registered '" sid "' for " url)})
         {"role" "tool",
          "tool_call_id" call-id,
          "content" (str "unknown tool: " name)})

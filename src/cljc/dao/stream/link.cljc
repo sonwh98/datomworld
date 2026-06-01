@@ -80,10 +80,26 @@
     [(update state :local-pos inc) (put-msg [datom] pos)]))
 
 
+(defn- wake-reader-waiters!
+  [woke]
+  (doseq [{:keys [entry value position]} woke]
+    (let [ready (assoc entry
+                       :value value
+                       :status :ok
+                       :position position)]
+      ((:resume ready) nil ready value))))
+
+
 (defn handle-put
-  "Append incoming datoms to remote-stream. Returns state'."
+  "Append incoming datoms to remote-stream. Returns state'.
+   Fires any reader-waiters woken by the appends so transport adapters do
+   not need to know about the waiter contract."
   [state msg]
-  (doseq [d (:datoms msg)] (ds/put! (:remote-stream state) d))
+  (doseq [d (:datoms msg)]
+    (prn :link/handle-put-datom
+         {:vector? (vector? d), :map? (map? d), :preview d})
+    (let [{:keys [woke]} (ds/put! (:remote-stream state) d)]
+      (wake-reader-waiters! woke)))
   (update state :remote-pos + (count (:datoms msg))))
 
 
@@ -99,7 +115,9 @@
 (defn handle-sync-response
   "Append incoming datoms to remote-stream, set :status :connected. Returns state'."
   [state msg]
-  (doseq [d (:datoms msg)] (ds/put! (:remote-stream state) d))
+  (doseq [d (:datoms msg)]
+    (let [{:keys [woke]} (ds/put! (:remote-stream state) d)]
+      (wake-reader-waiters! woke)))
   (-> state
       (assoc :remote-pos (:to-pos msg))
       (assoc :status :connected)))

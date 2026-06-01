@@ -15,7 +15,7 @@
 #?(:clj (deftest execute-tool-call-stream-write-test
           (testing "stream_write tool call invokes ds/put! on the right stream"
             (let [s (ds/open! {:type :ringbuffer, :capacity 5})
-                  registry {"target" s}
+                  registry (atom {"target" s})
                   tool-call
                   {"id" "call_1",
                    "type" "function",
@@ -35,7 +35,7 @@
           (testing "stream_read tool call reads from the right stream"
             (let [s (doto (ds/open! {:type :ringbuffer, :capacity 5})
                       (ds/put! :hello))
-                  registry {"input" s}
+                  registry (atom {"input" s})
                   tool-call {"id" "call_2",
                              "type" "function",
                              "function"
@@ -56,7 +56,7 @@
                              "type" "function",
                              "function" {"name" "nonexistent",
                                          "arguments" "{}"}}
-                  result (tools/execute-tool-call tool-call {"s" s})]
+                  result (tools/execute-tool-call tool-call (atom {"s" s}))]
               (is (= {"role" "tool",
                       "tool_call_id" "call_3",
                       "content" "unknown tool: nonexistent"}
@@ -78,7 +78,7 @@
                    {"name" "stream_read",
                     "arguments"
                     "{\"stream_id\":\"nonexistent\",\"position\":0}"}}
-                  result (tools/execute-tool-call tool-call {"other" s})]
+                  result (tools/execute-tool-call tool-call (atom {"other" s}))]
               (is (= {"role" "tool", "tool_call_id" "call_4"}
                      (select-keys result ["role" "tool_call_id"])))
               (is (.startsWith ^String (get result "content") "error:"))))))
@@ -93,7 +93,7 @@
                              {"name" "stream_read",
                               "arguments"
                               "{\"stream_id\":\"s\",\"position\":0}"}}
-                  result (tools/execute-tool-call tool-call {"s" s})]
+                  result (tools/execute-tool-call tool-call (atom {"s" s}))]
               (is (= {"role" "tool",
                       "tool_call_id" "call_5",
                       "content" "(blocked: stream open, no value available)"}
@@ -109,7 +109,7 @@
                              {"name" "stream_read",
                               "arguments"
                               "{\"stream_id\":\"s\",\"position\":0}"}}
-                  result (tools/execute-tool-call tool-call {"s" s})]
+                  result (tools/execute-tool-call tool-call (atom {"s" s}))]
               (is (= {"role" "tool",
                       "tool_call_id" "call_6",
                       "content" "(end of stream)"}
@@ -129,7 +129,7 @@
                              {"name" "stream_read",
                               "arguments"
                               "{\"stream_id\":\"s\",\"position\":0}"}}
-                  result (tools/execute-tool-call tool-call {"s" s})]
+                  result (tools/execute-tool-call tool-call (atom {"s" s}))]
               (is (= {"role" "tool",
                       "tool_call_id" "call_7",
                       "content" "(gap: position has been evicted)"}
@@ -146,7 +146,7 @@
                              {"name" "stream_write",
                               "arguments"
                               "{\"stream_id\":\"s\",\"value\":\":b\"}"}}
-                  result (tools/execute-tool-call tool-call {"s" s})]
+                  result (tools/execute-tool-call tool-call (atom {"s" s}))]
               (is (= {"role" "tool",
                       "tool_call_id" "call_8",
                       "content" "(full: retry later)"}
@@ -163,26 +163,27 @@
                    {"name" "stream_write",
                     "arguments"
                     "{\"stream_id\":\"s\",\"value\":\"{:unclosed\"}"}}
-                  result (tools/execute-tool-call tool-call {"s" s})]
+                  result (tools/execute-tool-call tool-call (atom {"s" s}))]
               (is (= {"role" "tool",
                       "tool_call_id" "call_9",
                       "content" "(error: malformed EDN)"}
                      result))))))
 
 
-#?(:clj
-   (deftest execute-tool-call-stream-list-test
-     (testing "stream_list returns the keys of the registry"
-       (let [s1 (ds/open! {:type :ringbuffer, :capacity 1})
-             s2 (ds/open! {:type :ringbuffer, :capacity 1})
-             tool-call {"id" "call_10",
-                        "type" "function",
-                        "function" {"name" "stream_list", "arguments" "{}"}}
-             result (tools/execute-tool-call tool-call {"foo" s1, "bar" s2})]
-         (is (= {"role" "tool",
-                 "tool_call_id" "call_10",
-                 "content" (pr-str ["bar" "foo"])}
-                result))))))
+#?(:clj (deftest execute-tool-call-stream-list-test
+          (testing "stream_list returns the keys of the registry"
+            (let [s1 (ds/open! {:type :ringbuffer, :capacity 1})
+                  s2 (ds/open! {:type :ringbuffer, :capacity 1})
+                  tool-call {"id" "call_10",
+                             "type" "function",
+                             "function" {"name" "stream_list",
+                                         "arguments" "{}"}}
+                  result (tools/execute-tool-call tool-call
+                                                  (atom {"foo" s1, "bar" s2}))]
+              (is (= {"role" "tool",
+                      "tool_call_id" "call_10",
+                      "content" (pr-str ["bar" "foo"])}
+                     result))))))
 
 
 ;; =============================================================================
@@ -210,7 +211,7 @@
                                                       (ds/put! fake-resp)
                                                       ds/close!)
                                                     (orig-open desc)))]
-                           (tools/execute-tool-call tool-call {}))]
+                           (tools/execute-tool-call tool-call (atom {})))]
               (is (= "call_http_1" (get result "tool_call_id")))
               (is (= "tool" (get result "role")))
               (let [content (get result "content")]
@@ -245,7 +246,7 @@
                                                   (ds/put! fake-resp)
                                                   ds/close!))
                                             (orig-open desc)))]
-                   (tools/execute-tool-call tool-call {}))]
+                   (tools/execute-tool-call tool-call (atom {})))]
          (is (= :post (:method @captured-desc)))
          (is (= "https://api.example.com/data" (:url @captured-desc)))
          (is (= {"Content-Type" "application/json"}
@@ -274,7 +275,7 @@
                                                       (ds/put! fake-resp)
                                                       ds/close!)
                                                     (orig-open desc)))]
-                           (tools/execute-tool-call tool-call {}))]
+                           (tools/execute-tool-call tool-call (atom {})))]
               (let [content (get result "content")]
                 (is (.contains ^String content "timeout")))))))
 
@@ -297,13 +298,13 @@
                                                            "\",\"content\":\""
                                                            content
                                                            "\"}")}}
-                  write-result (tools/execute-tool-call write-call {})]
+                  write-result (tools/execute-tool-call write-call (atom {}))]
               (is (= "ok" (get write-result "content")))
               (let [read-call {"id" "call_file_2",
                                "type" "function",
                                "function" {"name" "file_read",
                                            "arguments"
                                            (str "{\"path\":\"" path "\"}")}}
-                    read-result (tools/execute-tool-call read-call {})]
+                    read-result (tools/execute-tool-call read-call (atom {}))]
                 (is (= (pr-str {:status 200, :body content})
                        (get read-result "content"))))))))

@@ -40,7 +40,23 @@
     {:woke []})
 
 
-  (closed? [_] (= :closed (:status @link-state-atom))))
+  (closed? [_] (= :closed (:status @link-state-atom)))
+
+
+  ds/IDaoStreamWaitable
+
+  (register-reader-waiter!
+    [_ position entry]
+    (ds/register-reader-waiter! (:remote-stream @link-state-atom)
+                                position
+                                entry))
+
+
+  (register-writer-waiter!
+    [_ _entry]
+    ;; ws.put! never blocks: link buffers locally until the socket is
+    ;; ready, so writer-waiter registration is a no-op.
+    nil))
 
 
 (defn- make-ws-stream
@@ -89,6 +105,7 @@
 (defn- on-message!
   [ws-stream raw]
   (let [msg (transit/decode raw)
+        _ (prn :ws/on-message {:type (:type msg)})
         state @(:link-state-atom ws-stream)
         [state' resp] (link/dispatch state msg)]
     (reset! (:link-state-atom ws-stream) state')
@@ -131,9 +148,13 @@
 (defn- maybe-upgrade-request!
   [request opts conns]
   (let [request ^io/HttpRequest request]
+    (prn :ws/request-received
+         {:uri (.-uri request),
+          :upgrade? (io/WebSocketTransformer.isUpgradeRequest request)})
     (when (io/WebSocketTransformer.isUpgradeRequest request)
       (.then (io/WebSocketTransformer.upgrade request)
              (fn [ws]
+               (prn :ws/upgrade-resolved)
                (let [local (ds/open! {:type :ringbuffer,
                                       :capacity (:capacity opts),
                                       :eviction-policy (:eviction-policy opts)})
