@@ -1,0 +1,1016 @@
+(ns dao.postgraphics.flutter.canvas
+  "Flutter Canvas software backend for dao.postgraphics. Used when no
+   Flutter GPU is present. This is the proven CPU rasterizer that predates
+   the Flutter GPU transition (restored from history): triangles are
+   clipped against the near frustum, projected, and rasterized with a
+   software depth buffer; lit meshes evaluate Blinn-Phong per fragment,
+   unlit geometry fills via drawPath. It consumes the canonical lowered
+   frame (dao.postgraphics.lowering); the dispatcher handles clear and the
+   2D/text overlay.
+
+   Texture sampling is not yet wired through the new gpu/Texture source
+   model, so textured meshes render as lit (or flat) using their :fill /
+   :colors. (Texture support is a follow-up.)"
+  (:require ["dart:math" :as math]
+            ["dart:typed_data" :as type]
+            ["dart:ui" :as ui]
+            ["package:vector_math/vector_math_64.dart" :as vm]
+            [dao.postgraphics.flutter.texture :as tex]))
+
+
+(def ^:private EPSILON 1.0e-6)
+
+
+(defn- abs-d
+  ^double [^double x]
+  (if (< x 0.0) (- x) x))
+
+
+;; --- color space ---
+
+(defn- srgb-to-linear
+  ^double [^double v]
+  (if (<= v 0.04045) (/ v 12.92) (math/pow (/ (+ v 0.055) 1.055) 2.4)))
+
+
+(defn- linear-to-srgb
+  ^double [^double v]
+  (if (<= v 0.0031308)
+    (* v 12.92)
+    (- (* 1.055 (math/pow v (/ 1.0 2.4))) 0.055)))
+
+
+(defn- ->flutter-color
+  [[r g b a]]
+  (ui/Color.fromARGB (int (* (or a 1.0) 255))
+                     (int (* (or r 0.0) 255))
+                     (int (* (or g 0.0) 255))
+                     (int (* (or b 0.0) 255))))
+
+
+(defn- fill-paint
+  [color]
+  (let [p (ui/Paint.)]
+    (set! (.-style p) ui/PaintingStyle.fill)
+    (set! (.-color p) (->flutter-color color))
+    p))
+
+
+;; --- matrix helpers ---
+
+(defn- ->mat4
+  "Builds a vector_math Matrix4 from a 16-element column-major vector."
+  ^vm/Matrix4 [m]
+  (let [^type/Float64List fl (type/Float64List. 16)]
+    (dotimes [i 16] (aset fl i (double (nth m i))))
+    (vm/Matrix4.fromList fl)))
+
+
+(defn- transform-vertex
+  [^vm/Matrix4 mvp [x y z]]
+  (let [st (.-storage mvp)
+        xc
+        (+ (* x (aget st 0)) (* y (aget st 4)) (* z (aget st 8)) (aget st 12))
+        yc
+        (+ (* x (aget st 1)) (* y (aget st 5)) (* z (aget st 9)) (aget st 13))
+        zc (+ (* x (aget st 2))
+              (* y (aget st 6))
+              (* z (aget st 10))
+              (aget st 14))
+        wc (+ (* x (aget st 3))
+              (* y (aget st 7))
+              (* z (aget st 11))
+              (aget st 15))]
+    [xc yc zc wc]))
+
+
+;; --- near-plane clipping (clip space) ---
+
+(defn- interp-clip-vertex
+  [va vb ^double t]
+  (let [[xa ya za wa] va
+        [xb yb zb wb] vb]
+    [(+ (double xa) (* t (- (double xb) (double xa))))
+     (+ (double ya) (* t (- (double yb) (double ya))))
+     (+ (double za) (* t (- (double zb) (double za))))
+     (+ (double wa) (* t (- (double wb) (double wa))))]))
+
+
+(defn- clip-line-against-plane
+  [v1 v2 d-fn]
+  (let [d1 (double (d-fn v1))
+        d2 (double (d-fn v2))
+        in1 (> d1 0.0)
+        in2 (> d2 0.0)]
+    (cond (and in1 in2) [v1 v2]
+          (and (not in1) (not in2)) nil
+          :else (let [t (/ d1 (- d1 d2))
+                      vi (interp-clip-vertex v1 v2 t)]
+                  (if in1 [v1 vi] [vi v2])))))
+
+
+(defn- clip-triangle-against-plane
+  [v1 v2 v3 d-fn]
+  (let [d1 (double (d-fn v1))
+        d2 (double (d-fn v2))
+        d3 (double (d-fn v3))
+        in1 (> d1 0.0)
+        in2 (> d2 0.0)
+        in3 (> d3 0.0)
+        in-count (+ (if in1 1 0) (if in2 1 0) (if in3 1 0))]
+    (case in-count
+      3 [[v1 v2 v3]]
+      0 []
+      1 (let [[in-v out-v1 out-v2 d-in d-o1 d-o2] (cond in1 [v1 v2 v3 d1 d2 d3]
+                                                        in2 [v2 v3 v1 d2 d3 d1]
+                                                        in3 [v3 v1 v2 d3 d1 d2])
+              i1 (interp-clip-vertex in-v out-v1 (/ d-in (- d-in d-o1)))
+              i2 (interp-clip-vertex in-v out-v2 (/ d-in (- d-in d-o2)))]
+          [[in-v i1 i2]])
+      2 (let [[out-v in-v1 in-v2 d-out d-i1 d-i2]
+              (cond (not in1) [v1 v2 v3 d1 d2 d3]
+                    (not in2) [v2 v3 v1 d2 d3 d1]
+                    (not in3) [v3 v1 v2 d3 d1 d2])
+              i1 (interp-clip-vertex in-v1 out-v (/ d-i1 (- d-i1 d-out)))
+              i2 (interp-clip-vertex in-v2 out-v (/ d-i2 (- d-i2 d-out)))]
+          [[in-v1 i1 in-v2] [in-v2 i1 i2]]))))
+
+
+(defn- w-distance
+  ^double [v]
+  (- (double (nth v 3)) EPSILON))
+
+
+(defn- z-distance
+  ^double [v]
+  (+ (double (nth v 2)) EPSILON))
+
+
+(defn- clip-line-near
+  [v1 v2]
+  (when-let [pair (clip-line-against-plane v1 v2 w-distance)]
+    (clip-line-against-plane (nth pair 0) (nth pair 1) z-distance)))
+
+
+(defn- clip-triangle-near
+  [v1 v2 v3]
+  (let [after-w (clip-triangle-against-plane v1 v2 v3 w-distance)]
+    (reduce (fn [acc [a b c]]
+              (into acc (clip-triangle-against-plane a b c z-distance)))
+            []
+            after-w)))
+
+
+;; --- per-vertex attribute clipping (lit meshes) ---
+
+(defn- interp-attr
+  [attr-a attr-b ^double t]
+  (mapv (fn [a b] (+ (double a) (* t (- (double b) (double a)))))
+        attr-a
+        attr-b))
+
+
+(defn- interp-attrs-bundle
+  [in-bundle out-bundle ^double t]
+  (mapv (fn [a b] (interp-attr a b t)) in-bundle out-bundle))
+
+
+(defn- clip-triangle-against-plane-with-attrs
+  [v1 v2 v3 b1 b2 b3 d-fn]
+  (let [d1 (double (d-fn v1))
+        d2 (double (d-fn v2))
+        d3 (double (d-fn v3))
+        in1 (> d1 0.0)
+        in2 (> d2 0.0)
+        in3 (> d3 0.0)
+        in-count (+ (if in1 1 0) (if in2 1 0) (if in3 1 0))]
+    (case in-count
+      3 [{:verts [v1 v2 v3], :attrs [b1 b2 b3]}]
+      0 []
+      1 (let [[in-v out-v1 out-v2 in-b out-b1 out-b2 d-in d-o1 d-o2]
+              (cond in1 [v1 v2 v3 b1 b2 b3 d1 d2 d3]
+                    in2 [v2 v3 v1 b2 b3 b1 d2 d3 d1]
+                    in3 [v3 v1 v2 b3 b1 b2 d3 d1 d2])
+              t1 (/ d-in (- d-in d-o1))
+              t2 (/ d-in (- d-in d-o2))
+              i1 (interp-clip-vertex in-v out-v1 t1)
+              i2 (interp-clip-vertex in-v out-v2 t2)
+              ib1 (interp-attrs-bundle in-b out-b1 t1)
+              ib2 (interp-attrs-bundle in-b out-b2 t2)]
+          [{:verts [in-v i1 i2], :attrs [in-b ib1 ib2]}])
+      2 (let [[out-v in-v1 in-v2 out-b in-b1 in-b2 d-out d-i1 d-i2]
+              (cond (not in1) [v1 v2 v3 b1 b2 b3 d1 d2 d3]
+                    (not in2) [v2 v3 v1 b2 b3 b1 d2 d3 d1]
+                    (not in3) [v3 v1 v2 b3 b1 b2 d3 d1 d2])
+              t1 (/ d-i1 (- d-i1 d-out))
+              t2 (/ d-i2 (- d-i2 d-out))
+              i1 (interp-clip-vertex in-v1 out-v t1)
+              i2 (interp-clip-vertex in-v2 out-v t2)
+              ib1 (interp-attrs-bundle in-b1 out-b t1)
+              ib2 (interp-attrs-bundle in-b2 out-b t2)]
+          [{:verts [in-v1 i1 in-v2], :attrs [in-b1 ib1 in-b2]}
+           {:verts [in-v2 i1 i2], :attrs [in-b2 ib1 ib2]}]))))
+
+
+(defn- clip-triangle-near-with-attrs
+  [v1 v2 v3 b1 b2 b3]
+  (let [after-w
+        (clip-triangle-against-plane-with-attrs v1 v2 v3 b1 b2 b3 w-distance)]
+    (reduce (fn [acc {verts :verts, attrs :attrs}]
+              (let [[a b c] verts
+                    [ab bb cb] attrs]
+                (into acc
+                      (clip-triangle-against-plane-with-attrs a
+                                                              b
+                                                              c
+                                                              ab
+                                                              bb
+                                                              cb
+                                                              z-distance))))
+            []
+            after-w)))
+
+
+(defn- ndc->screen
+  [[xc yc zc wc] width height]
+  (let [ndc-x (/ xc wc)
+        ndc-y (/ yc wc)
+        ndc-z (/ zc wc)
+        sx (* (+ ndc-x 1.0) 0.5 width)
+        sy (* (- 1.0 ndc-y) 0.5 height)]
+    [sx sy ndc-z]))
+
+
+;; --- vector helpers ---
+
+(defn- vec3-normalize
+  [v]
+  (let [x (double (nth v 0))
+        y (double (nth v 1))
+        z (double (nth v 2))
+        len (math/sqrt (+ (* x x) (* y y) (* z z)))]
+    (if (< len EPSILON) [0.0 0.0 0.0] [(/ x len) (/ y len) (/ z len)])))
+
+
+(defn- vec3-dot
+  ^double [a b]
+  (+ (* (double (nth a 0)) (double (nth b 0)))
+     (* (double (nth a 1)) (double (nth b 1)))
+     (* (double (nth a 2)) (double (nth b 2)))))
+
+
+(defn- vec3-sub
+  [a b]
+  [(- (double (nth a 0)) (double (nth b 0)))
+   (- (double (nth a 1)) (double (nth b 1)))
+   (- (double (nth a 2)) (double (nth b 2)))])
+
+
+(defn- vec3-add
+  [a b]
+  [(+ (double (nth a 0)) (double (nth b 0)))
+   (+ (double (nth a 1)) (double (nth b 1)))
+   (+ (double (nth a 2)) (double (nth b 2)))])
+
+
+(defn- vec3-scale
+  [v ^double s]
+  [(* (double (nth v 0)) s) (* (double (nth v 1)) s) (* (double (nth v 2)) s)])
+
+
+(defn- srgb-rgb-to-linear
+  [c]
+  [(srgb-to-linear (double (nth c 0))) (srgb-to-linear (double (nth c 1)))
+   (srgb-to-linear (double (nth c 2)))])
+
+
+(defn- mat4-apply-point
+  [^vm/Matrix4 m4 [x y z]]
+  (let [st (.-storage m4)
+        xd (double x)
+        yd (double y)
+        zd (double z)]
+    [(+ (* (aget st 0) xd) (* (aget st 4) yd) (* (aget st 8) zd) (aget st 12))
+     (+ (* (aget st 1) xd) (* (aget st 5) yd) (* (aget st 9) zd) (aget st 13))
+     (+ (* (aget st 2) xd)
+        (* (aget st 6) yd)
+        (* (aget st 10) zd)
+        (aget st 14))]))
+
+
+(defn- mat4-apply-3x3
+  [^vm/Matrix4 m4 [x y z]]
+  (let [st (.-storage m4)
+        xd (double x)
+        yd (double y)
+        zd (double z)]
+    [(+ (* (aget st 0) xd) (* (aget st 4) yd) (* (aget st 8) zd))
+     (+ (* (aget st 1) xd) (* (aget st 5) yd) (* (aget st 9) zd))
+     (+ (* (aget st 2) xd) (* (aget st 6) yd) (* (aget st 10) zd))]))
+
+
+;; --- mesh fragment shading ---
+
+(defrecord MeshVertex
+  [cp inv-w attrs])
+
+
+(defn- prepare-mesh-vertex
+  [^vm/Matrix4 mvp ^vm/Matrix4 model-m ^vm/Matrix4 normal-m v uv n c lit?
+   textured? has-vcols?]
+  (let [cp (transform-vertex mvp v)
+        wc (double (nth cp 3))
+        inv-w (if (< (abs-d wc) EPSILON) 0.0 (/ 1.0 wc))
+        uvv (if textured? uv [0.0 0.0])
+        wp (if lit? (mat4-apply-point model-m v) [0.0 0.0 0.0])
+        nrm (if lit? (vec3-normalize (mat4-apply-3x3 normal-m n)) [0.0 0.0 0.0])
+        color (if has-vcols? c [0.0 0.0 0.0 0.0])]
+    (->MeshVertex
+      cp
+      inv-w
+      [inv-w (* inv-w (double (nth uvv 0))) (* inv-w (double (nth uvv 1)))
+       (* inv-w (double (nth wp 0))) (* inv-w (double (nth wp 1)))
+       (* inv-w (double (nth wp 2))) (* inv-w (double (nth nrm 0)))
+       (* inv-w (double (nth nrm 1))) (* inv-w (double (nth nrm 2)))
+       (* inv-w (double (nth color 0))) (* inv-w (double (nth color 1)))
+       (* inv-w (double (nth color 2))) (* inv-w (double (nth color 3)))])))
+
+
+(defn- reconstruct-fragment
+  [a1 a2 a3 ^double w1n ^double w2n ^double w3n has-vcols? fill-srgb]
+  (let [inv-w (+ (* w1n (double (nth a1 0)))
+                 (* w2n (double (nth a2 0)))
+                 (* w3n (double (nth a3 0))))
+        frag-w (if (< (abs-d inv-w) EPSILON) 0.0 (/ 1.0 inv-w))
+        interp (fn [idx]
+                 (* frag-w
+                    (+ (* w1n (double (nth a1 idx)))
+                       (* w2n (double (nth a2 idx)))
+                       (* w3n (double (nth a3 idx))))))]
+    {:uv [(interp 1) (interp 2)],
+     :wp [(interp 3) (interp 4) (interp 5)],
+     :n (vec3-normalize [(interp 6) (interp 7) (interp 8)]),
+     :diffuse (if has-vcols?
+                [(interp 9) (interp 10) (interp 11) (interp 12)]
+                fill-srgb)}))
+
+
+(defn- blinn-phong-fragment
+  "v4 lighting equation for one fragment, in LINEAR sRGB. Returns [r g b]."
+  [p n view kd ks ^double shininess ke lights]
+  (loop [ls lights
+         r 0.0
+         g 0.0
+         b 0.0]
+    (if-let [light (first ls)]
+      (case (:kind light)
+        :ambient
+        (let [lc (srgb-rgb-to-linear (:color light))
+              intensity (double (get light :intensity 1.0))]
+          (recur (next ls)
+                 (+ r (* (double (nth lc 0)) intensity (double (nth kd 0))))
+                 (+ g (* (double (nth lc 1)) intensity (double (nth kd 1))))
+                 (+ b (* (double (nth lc 2)) intensity (double (nth kd 2))))))
+        :directional (let [lc (srgb-rgb-to-linear (:color light))
+                           intensity (double (:intensity light))
+                           li-r (* (double (nth lc 0)) intensity)
+                           li-g (* (double (nth lc 1)) intensity)
+                           li-b (* (double (nth lc 2)) intensity)
+                           l (vec3-normalize (vec3-scale (:direction light)
+                                                         -1.0))
+                           h (vec3-normalize (vec3-add l view))
+                           ndotl (math/max 0.0 (vec3-dot n l))
+                           ndoth (math/max 0.0 (vec3-dot n h))
+                           spec (math/pow ndoth shininess)]
+                       (recur (next ls)
+                              (+ r
+                                 (* ndotl li-r (double (nth kd 0)))
+                                 (* spec li-r (double (nth ks 0))))
+                              (+ g
+                                 (* ndotl li-g (double (nth kd 1)))
+                                 (* spec li-g (double (nth ks 1))))
+                              (+ b
+                                 (* ndotl li-b (double (nth kd 2)))
+                                 (* spec li-b (double (nth ks 2))))))
+        :point (let [lpos (:position light)
+                     diff (vec3-sub lpos p)
+                     d (math/sqrt (vec3-dot diff diff))
+                     range-v (double (:range light))]
+                 (if (>= d range-v)
+                   (recur (next ls) r g b)
+                   (let [t (- 1.0 (/ d range-v))
+                         att (* t t)
+                         lc (srgb-rgb-to-linear (:color light))
+                         intensity (double (:intensity light))
+                         li-r (* (double (nth lc 0)) intensity att)
+                         li-g (* (double (nth lc 1)) intensity att)
+                         li-b (* (double (nth lc 2)) intensity att)
+                         l (vec3-normalize diff)
+                         h (vec3-normalize (vec3-add l view))
+                         ndotl (math/max 0.0 (vec3-dot n l))
+                         ndoth (math/max 0.0 (vec3-dot n h))
+                         spec (math/pow ndoth shininess)]
+                     (recur (next ls)
+                            (+ r
+                               (* ndotl li-r (double (nth kd 0)))
+                               (* spec li-r (double (nth ks 0))))
+                            (+ g
+                               (* ndotl li-g (double (nth kd 1)))
+                               (* spec li-g (double (nth ks 1))))
+                            (+ b
+                               (* ndotl li-b (double (nth kd 2)))
+                               (* spec li-b (double (nth ks 2))))))))
+        (recur (next ls) r g b))
+      [(+ r (double (nth ke 0))) (+ g (double (nth ke 1)))
+       (+ b (double (nth ke 2)))])))
+
+
+;; --- texture sampling (CPU) ---
+
+(defn- wrap-coord
+  "Maps a texture coordinate into [0, 1] per the addressing mode."
+  ^double [^double t mode]
+  (case mode
+    :repeat (let [f (- t (.floorToDouble t))] f)
+    :mirror (let [f (- t (* 2.0 (.floorToDouble (/ t 2.0))))]
+              (if (> f 1.0) (- 2.0 f) f))
+    (math/max 0.0 (math/min 1.0 t))))
+
+
+(defn- sample-texture
+  "Samples a PgTexture's RGBA8 bytes at (u, v). Returns [r g b a] in [0, 1]
+   (sRGB-encoded, as stored). Honors :clamp/:repeat/:mirror wrap and
+   :nearest/:linear filtering (bilinear, single level)."
+  [^tex/PgTexture t ^double u ^double v wrap filter]
+  (let [w (int (:width t))
+        h (int (:height t))
+        ^type/Uint8List bytes (:rgba t)
+        uu (wrap-coord u wrap)
+        vv (wrap-coord v wrap)
+        clampx (fn ^int [^int x] (int (math/max 0 (math/min (dec w) x))))
+        clampy (fn ^int [^int y] (int (math/max 0 (math/min (dec h) y))))]
+    (if (= filter :nearest)
+      (let [tx (clampx (int (* uu w)))
+            ty (clampy (int (* vv h)))
+            idx (* (+ (* ty w) tx) 4)]
+        [(/ (aget bytes idx) 255.0) (/ (aget bytes (+ idx 1)) 255.0)
+         (/ (aget bytes (+ idx 2)) 255.0) (/ (aget bytes (+ idx 3)) 255.0)])
+      (let [fx (- (* uu w) 0.5)
+            fy (- (* vv h) 0.5)
+            x0 (int (.floorToDouble fx))
+            y0 (int (.floorToDouble fy))
+            dx (- fx x0)
+            dy (- fy y0)
+            cx0 (clampx x0)
+            cx1 (clampx (inc x0))
+            cy0 (clampy y0)
+            cy1 (clampy (inc y0))
+            chan (fn ^double [^int ci]
+                   (let [i00 (+ (* (+ (* cy0 w) cx0) 4) ci)
+                         i10 (+ (* (+ (* cy0 w) cx1) 4) ci)
+                         i01 (+ (* (+ (* cy1 w) cx0) 4) ci)
+                         i11 (+ (* (+ (* cy1 w) cx1) 4) ci)
+                         top (+ (aget bytes i00)
+                                (* dx (- (aget bytes i10) (aget bytes i00))))
+                         bot (+ (aget bytes i01)
+                                (* dx (- (aget bytes i11) (aget bytes i01))))]
+                     (/ (+ top (* dy (- bot top))) 255.0)))]
+        [(chan 0) (chan 1) (chan 2) (chan 3)]))))
+
+
+(defn- shade-fragment
+  "Shades one fragment. Texture (when present) modulates the diffuse base
+   (sRGB × sRGB, v4 §Texture Modulation); lit fragments then evaluate
+   Blinn-Phong in linear space. Returns [r g b a] in sRGB."
+  [{:keys [uv wp n diffuse]}
+   {:keys [tex textured? lit? wrap filter ks-linear shininess ke-linear
+           camera-pos lights]}]
+  (let [ts (when (and textured? tex)
+             (sample-texture tex
+                             (double (nth uv 0))
+                             (double (nth uv 1))
+                             wrap
+                             filter))
+        diff-r (if ts
+                 (* (double (nth ts 0)) (double (nth diffuse 0)))
+                 (double (nth diffuse 0)))
+        diff-g (if ts
+                 (* (double (nth ts 1)) (double (nth diffuse 1)))
+                 (double (nth diffuse 1)))
+        diff-b (if ts
+                 (* (double (nth ts 2)) (double (nth diffuse 2)))
+                 (double (nth diffuse 2)))
+        diff-a (if ts
+                 (* (double (nth ts 3)) (double (nth diffuse 3)))
+                 (double (nth diffuse 3)))
+        [out-r out-g out-b]
+        (if lit?
+          (let [kd [(srgb-to-linear diff-r) (srgb-to-linear diff-g)
+                    (srgb-to-linear diff-b)]
+                view (vec3-normalize (vec3-sub camera-pos wp))
+                lit-rgb (blinn-phong-fragment wp
+                                              n
+                                              view
+                                              kd
+                                              ks-linear
+                                              shininess
+                                              ke-linear
+                                              lights)]
+            [(linear-to-srgb
+               (math/min 1.0 (math/max 0.0 (double (nth lit-rgb 0)))))
+             (linear-to-srgb
+               (math/min 1.0 (math/max 0.0 (double (nth lit-rgb 1)))))
+             (linear-to-srgb
+               (math/min 1.0 (math/max 0.0 (double (nth lit-rgb 2)))))])
+          [diff-r diff-g diff-b])]
+    [(math/min 1.0 (math/max 0.0 out-r)) (math/min 1.0 (math/max 0.0 out-g))
+     (math/min 1.0 (math/max 0.0 out-b)) (math/min 1.0 (math/max 0.0 diff-a))]))
+
+
+;; --- rasterizers ---
+
+(defn- rasterize-triangle
+  "Flat (unlit) triangle: depth-tested coverage accumulated into path as
+   1-pixel-tall span rects, drawn once per primitive."
+  [^ui/Path path ^type/Float32List depth-buffer int-width int-height s1 s2 s3
+   depth-test depth-write clip-rects]
+  (let [x1 (double (nth s1 0))
+        y1 (double (nth s1 1))
+        z1 (double (nth s1 2))
+        x2 (double (nth s2 0))
+        y2 (double (nth s2 1))
+        z2 (double (nth s2 2))
+        x3 (double (nth s3 0))
+        y3 (double (nth s3 1))
+        z3 (double (nth s3 2))
+        area (- (* (- x2 x1) (- y3 y1)) (* (- y2 y1) (- x3 x1)))]
+    (when (not= area 0.0)
+      (let [[x1 y1 z1 x2 y2 z2 x3 y3 z3 area]
+            (if (< area 0.0)
+              [x1 y1 z1 x3 y3 z3 x2 y2 z2 (- area)]
+              [x1 y1 z1 x2 y2 z2 x3 y3 z3 area])
+            min-x (int
+                    (math/max 0 (.ceil (- (math/min x1 (math/min x2 x3)) 0.5))))
+            max-x (int (math/min (dec int-width)
+                                 (dec (.ceil (- (math/max x1 (math/max x2 x3))
+                                                0.5)))))
+            min-y (int
+                    (math/max 0 (.ceil (- (math/min y1 (math/min y2 y3)) 0.5))))
+            max-y (int (math/min (dec int-height)
+                                 (dec (.ceil (- (math/max y1 (math/max y2 y3))
+                                                0.5)))))
+            dx12 (- x1 x2)
+            dy12 (- y1 y2)
+            dx23 (- x2 x3)
+            dy23 (- y2 y3)
+            dx31 (- x3 x1)
+            dy31 (- y3 y1)
+            tl3 (if (or (> dy12 0.0) (and (== dy12 0.0) (< dx12 0.0)))
+                  (- EPSILON)
+                  0.0)
+            tl1 (if (or (> dy23 0.0) (and (== dy23 0.0) (< dx23 0.0)))
+                  (- EPSILON)
+                  0.0)
+            tl2 (if (or (> dy31 0.0) (and (== dy31 0.0) (< dx31 0.0)))
+                  (- EPSILON)
+                  0.0)]
+        (loop [y min-y]
+          (when (<= y max-y)
+            (let [yf (+ (double y) 0.5)]
+              (loop [x min-x
+                     span-start -1]
+                (if (<= x max-x)
+                  (let [xf (+ (double x) 0.5)
+                        w1 (- (* (- x2 xf) (- y3 yf)) (* (- y2 yf) (- x3 xf)))
+                        w2 (- (* (- x3 xf) (- y1 yf)) (* (- y3 yf) (- x1 xf)))
+                        w3 (- (* (- x1 xf) (- y2 yf)) (* (- y1 yf) (- x2 xf)))]
+                    (if (and (> w1 tl1) (> w2 tl2) (> w3 tl3))
+                      (let [w1-norm (/ w1 area)
+                            w2-norm (/ w2 area)
+                            w3-norm (/ w3 area)
+                            z (+ (* w1-norm z1) (* w2-norm z2) (* w3-norm z3))
+                            idx (+ (* y int-width) x)]
+                        (if (and (>= z (- EPSILON)) (<= z (+ 1.0 EPSILON)))
+                          (let [curr-z (aget depth-buffer idx)
+                                pass? (or (not depth-test) (<= z curr-z))
+                                in-clip? (if (empty? clip-rects)
+                                           true
+                                           (every? (fn [^ui/Rect r]
+                                                     (and (>= xf (.-left r))
+                                                          (< xf (.-right r))
+                                                          (>= yf (.-top r))
+                                                          (< yf (.-bottom r))))
+                                                   clip-rects))]
+                            (if (and pass? in-clip?)
+                              (do (when depth-write (aset depth-buffer idx z))
+                                  (recur (inc x)
+                                         (if (= span-start -1) x span-start)))
+                              (do (when (not= span-start -1)
+                                    (.addRect path
+                                              (ui/Rect.fromLTWH
+                                                (double span-start)
+                                                (double y)
+                                                (double (- x span-start))
+                                                1.0)))
+                                  (recur (inc x) -1))))
+                          (do (when (not= span-start -1)
+                                (.addRect path
+                                          (ui/Rect.fromLTWH (double span-start)
+                                                            (double y)
+                                                            (double
+                                                              (- x span-start))
+                                                            1.0)))
+                              (recur (inc x) -1))))
+                      (do (when (not= span-start -1)
+                            (.addRect path
+                                      (ui/Rect.fromLTWH (double span-start)
+                                                        (double y)
+                                                        (double (- x
+                                                                   span-start))
+                                                        1.0)))
+                          (recur (inc x) -1))))
+                  (when (not= span-start -1)
+                    (.addRect path
+                              (ui/Rect.fromLTWH (double span-start)
+                                                (double y)
+                                                (double (- (inc max-x)
+                                                           span-start))
+                                                1.0))))))
+            (recur (inc y))))))))
+
+
+(defn- rasterize-mesh-triangle-shaded
+  "Lit triangle: per-fragment Blinn-Phong with perspective-correct attribute
+   reconstruction and a software depth buffer. One Paint is reused across
+   the triangle's covered pixels."
+  [^ui/Canvas canvas ^type/Float32List depth-buffer int-width int-height s1 s2
+   s3 attrs1 attrs2 attrs3 fill-srgb ks-linear ^double shininess ke-linear
+   camera-pos lights depth-test depth-write clip-rects has-vcols? tex textured?
+   lit? wrap filter]
+  (let [x1 (double (nth s1 0))
+        y1 (double (nth s1 1))
+        z1 (double (nth s1 2))
+        x2 (double (nth s2 0))
+        y2 (double (nth s2 1))
+        z2 (double (nth s2 2))
+        x3 (double (nth s3 0))
+        y3 (double (nth s3 1))
+        z3 (double (nth s3 2))
+        area-raw (- (* (- x2 x1) (- y3 y1)) (* (- y2 y1) (- x3 x1)))]
+    (when (not= area-raw 0.0)
+      (let [flip? (< area-raw 0.0)
+            [x1 y1 z1 attrs1 x2 y2 z2 attrs2 x3 y3 z3 attrs3 area]
+            (if flip?
+              [x1 y1 z1 attrs1 x3 y3 z3 attrs3 x2 y2 z2 attrs2 (- area-raw)]
+              [x1 y1 z1 attrs1 x2 y2 z2 attrs2 x3 y3 z3 attrs3 area-raw])
+            min-x (int
+                    (math/max 0 (.ceil (- (math/min x1 (math/min x2 x3)) 0.5))))
+            max-x (int (math/min (dec int-width)
+                                 (dec (.ceil (- (math/max x1 (math/max x2 x3))
+                                                0.5)))))
+            min-y (int
+                    (math/max 0 (.ceil (- (math/min y1 (math/min y2 y3)) 0.5))))
+            max-y (int (math/min (dec int-height)
+                                 (dec (.ceil (- (math/max y1 (math/max y2 y3))
+                                                0.5)))))
+            dx12 (- x1 x2)
+            dy12 (- y1 y2)
+            dx23 (- x2 x3)
+            dy23 (- y2 y3)
+            dx31 (- x3 x1)
+            dy31 (- y3 y1)
+            tl3 (if (or (> dy12 0.0) (and (== dy12 0.0) (< dx12 0.0)))
+                  (- EPSILON)
+                  0.0)
+            tl1 (if (or (> dy23 0.0) (and (== dy23 0.0) (< dx23 0.0)))
+                  (- EPSILON)
+                  0.0)
+            tl2 (if (or (> dy31 0.0) (and (== dy31 0.0) (< dx31 0.0)))
+                  (- EPSILON)
+                  0.0)
+            paint (ui/Paint.)
+            shade-ctx {:tex tex,
+                       :textured? textured?,
+                       :lit? lit?,
+                       :wrap wrap,
+                       :filter filter,
+                       :ks-linear ks-linear,
+                       :shininess shininess,
+                       :ke-linear ke-linear,
+                       :camera-pos camera-pos,
+                       :lights lights}]
+        (loop [y min-y]
+          (when (<= y max-y)
+            (let [yf (+ (double y) 0.5)]
+              (loop [x min-x]
+                (when (<= x max-x)
+                  (let [xf (+ (double x) 0.5)
+                        w1 (- (* (- x2 xf) (- y3 yf)) (* (- y2 yf) (- x3 xf)))
+                        w2 (- (* (- x3 xf) (- y1 yf)) (* (- y3 yf) (- x1 xf)))
+                        w3 (- (* (- x1 xf) (- y2 yf)) (* (- y1 yf) (- x2 xf)))]
+                    (when (and (> w1 tl1) (> w2 tl2) (> w3 tl3))
+                      (let [w1n (/ w1 area)
+                            w2n (/ w2 area)
+                            w3n (/ w3 area)
+                            z (+ (* w1n z1) (* w2n z2) (* w3n z3))
+                            idx (+ (* y int-width) x)]
+                        (when (and (>= z (- EPSILON)) (<= z (+ 1.0 EPSILON)))
+                          (let [curr-z (aget depth-buffer idx)
+                                pass? (or (not depth-test) (<= z curr-z))
+                                in-clip? (or (empty? clip-rects)
+                                             (every? (fn [^ui/Rect r]
+                                                       (and (>= xf (.-left r))
+                                                            (< xf (.-right r))
+                                                            (>= yf (.-top r))
+                                                            (< yf
+                                                               (.-bottom r))))
+                                                     clip-rects))]
+                            (when (and pass? in-clip?)
+                              (let [frag (reconstruct-fragment attrs1
+                                                               attrs2
+                                                               attrs3
+                                                               w1n
+                                                               w2n
+                                                               w3n
+                                                               has-vcols?
+                                                               fill-srgb)
+                                    shaded (shade-fragment frag shade-ctx)]
+                                (when depth-write (aset depth-buffer idx z))
+                                (set! (.-color paint)
+                                      (ui/Color.fromARGB
+                                        (int (* (double (nth shaded 3)) 255))
+                                        (int (* (double (nth shaded 0)) 255))
+                                        (int (* (double (nth shaded 1)) 255))
+                                        (int (* (double (nth shaded 2)) 255))))
+                                (.drawRect canvas
+                                           (ui/Rect.fromLTWH (double x)
+                                                             (double y)
+                                                             1.0
+                                                             1.0)
+                                           paint))))))))
+                  (recur (inc x))))
+              (recur (inc y)))))))))
+
+
+;; --- op execution ---
+
+(defn- exec-mesh!
+  "Renders one :draw3d/mesh. Lit, textured, or vertex-colored meshes use the
+   per-fragment shaded rasterizer (with CPU texture sampling); plain unlit
+   untextured meshes use flat-filled triangles."
+  [^ui/Canvas canvas op ^vm/Matrix4 mvp ^vm/Matrix4 model-m ^double width
+   ^double height ^type/Float32List depth-buffer clip-rects depth-test
+   depth-write lighting]
+  (let [int-width (int (.ceil width))
+        int-height (int (.ceil height))
+        verts (:vertices op)
+        indices (:indices op)
+        normals (:normals op)
+        uvs (:uvs op)
+        vcols (:colors op)
+        has-vcols? (some? vcols)
+        enabled? (boolean (:enabled lighting))
+        lit? (and enabled? (some? normals))
+        tex (:texture/source op)
+        textured? (some? tex)
+        fill (get op :fill [1.0 1.0 1.0 1.0])]
+    (if (or lit? textured? has-vcols?)
+      (let [wrap (get op :texture/wrap :clamp)
+            filter (get op :texture/filter :linear)
+            normal-m (when lit?
+                       (let [m (vm/Matrix4.copy model-m)]
+                         (.invert m)
+                         (.transpose m)
+                         m))
+            ks-linear (srgb-rgb-to-linear
+                        (get op :material/specular [0.0 0.0 0.0]))
+            shininess (double (get op :material/shininess 32.0))
+            ke-linear (srgb-rgb-to-linear
+                        (get op :material/emissive [0.0 0.0 0.0]))
+            camera-pos (:camera-pos lighting)
+            lights (:lights lighting)]
+        (doseq [[i j k] indices]
+          (let [mv1 (prepare-mesh-vertex mvp
+                                         model-m
+                                         normal-m
+                                         (nth verts i)
+                                         (when textured? (nth uvs i))
+                                         (when lit? (nth normals i))
+                                         (when has-vcols? (nth vcols i))
+                                         lit?
+                                         textured?
+                                         has-vcols?)
+                mv2 (prepare-mesh-vertex mvp
+                                         model-m
+                                         normal-m
+                                         (nth verts j)
+                                         (when textured? (nth uvs j))
+                                         (when lit? (nth normals j))
+                                         (when has-vcols? (nth vcols j))
+                                         lit?
+                                         textured?
+                                         has-vcols?)
+                mv3 (prepare-mesh-vertex mvp
+                                         model-m
+                                         normal-m
+                                         (nth verts k)
+                                         (when textured? (nth uvs k))
+                                         (when lit? (nth normals k))
+                                         (when has-vcols? (nth vcols k))
+                                         lit?
+                                         textured?
+                                         has-vcols?)
+                clipped (clip-triangle-near-with-attrs (:cp mv1)
+                                                       (:cp mv2)
+                                                       (:cp mv3)
+                                                       [(:attrs mv1)]
+                                                       [(:attrs mv2)]
+                                                       [(:attrs mv3)])]
+            (doseq [{tri :verts, attrs :attrs} clipped]
+              (let [[[a1] [a2] [a3]] attrs
+                    s1 (ndc->screen (nth tri 0) width height)
+                    s2 (ndc->screen (nth tri 1) width height)
+                    s3 (ndc->screen (nth tri 2) width height)]
+                (rasterize-mesh-triangle-shaded
+                  canvas
+                  depth-buffer
+                  int-width
+                  int-height
+                  s1
+                  s2
+                  s3
+                  a1
+                  a2
+                  a3
+                  fill
+                  ks-linear
+                  shininess
+                  ke-linear
+                  camera-pos
+                  lights
+                  depth-test
+                  depth-write
+                  clip-rects
+                  has-vcols?
+                  tex
+                  textured?
+                  lit?
+                  wrap
+                  filter))))))
+      (let [paint (fill-paint fill)
+            path (ui/Path.)]
+        (doseq [[i j k] indices]
+          (let [v1 (transform-vertex mvp (nth verts i))
+                v2 (transform-vertex mvp (nth verts j))
+                v3 (transform-vertex mvp (nth verts k))]
+            (doseq [tri (clip-triangle-near v1 v2 v3)]
+              (let [s1 (ndc->screen (nth tri 0) width height)
+                    s2 (ndc->screen (nth tri 1) width height)
+                    s3 (ndc->screen (nth tri 2) width height)]
+                (rasterize-triangle path
+                                    depth-buffer
+                                    int-width
+                                    int-height
+                                    s1
+                                    s2
+                                    s3
+                                    depth-test
+                                    depth-write
+                                    clip-rects)))))
+        (.drawPath canvas path paint)))))
+
+
+(defn- exec-3d!
+  "Renders :draw3d/triangles and :draw3d/lines (unlit) via flat coverage."
+  [^ui/Canvas canvas op ^vm/Matrix4 mvp ^double width ^double height
+   ^type/Float32List depth-buffer clip-rects depth-test depth-write]
+  (let [int-width (int (.ceil width))
+        int-height (int (.ceil height))
+        kind (:op/kind op)
+        verts (:vertices op)]
+    (case kind
+      :draw3d/lines
+      (let [edges (or (:edges op)
+                      (mapv vector
+                            (range (dec (count verts)))
+                            (range 1 (count verts))))
+            color (get op :color [1.0 1.0 1.0 1.0])
+            sw (double (get op :stroke-width 1.0))
+            [w alpha-mod] (if (< sw 1.0) [1.0 sw] [sw 1.0])
+            c-mod [(nth color 0) (nth color 1) (nth color 2)
+                   (* (nth color 3) alpha-mod)]
+            paint (fill-paint c-mod)
+            path (ui/Path.)]
+        (doseq [[i j] edges]
+          (let [v1 (transform-vertex mvp (nth verts i))
+                v2 (transform-vertex mvp (nth verts j))
+                clipped (clip-line-near v1 v2)]
+            (when clipped
+              (let [s1 (ndc->screen (first clipped) width height)
+                    s2 (ndc->screen (second clipped) width height)
+                    dx (- (nth s2 0) (nth s1 0))
+                    dy (- (nth s2 1) (nth s1 1))
+                    len (math/sqrt (+ (* dx dx) (* dy dy)))]
+                (when (> len 0.0)
+                  (let [nx (/ (- dy) len)
+                        ny (/ dx len)
+                        hx (* nx (/ w 2.0))
+                        hy (* ny (/ w 2.0))
+                        p1 [(+ (nth s1 0) hx) (+ (nth s1 1) hy) (nth s1 2)]
+                        p2 [(+ (nth s2 0) hx) (+ (nth s2 1) hy) (nth s2 2)]
+                        p3 [(- (nth s2 0) hx) (- (nth s2 1) hy) (nth s2 2)]
+                        p4 [(- (nth s1 0) hx) (- (nth s1 1) hy) (nth s1 2)]]
+                    (rasterize-triangle path
+                                        depth-buffer
+                                        int-width
+                                        int-height
+                                        p1
+                                        p2
+                                        p3
+                                        depth-test
+                                        depth-write
+                                        clip-rects)
+                    (rasterize-triangle path
+                                        depth-buffer
+                                        int-width
+                                        int-height
+                                        p1
+                                        p3
+                                        p4
+                                        depth-test
+                                        depth-write
+                                        clip-rects)))))))
+        (.drawPath canvas path paint))
+      :draw3d/triangles (let [indices (:indices op)
+                              fill (get op :fill [1.0 1.0 1.0 1.0])
+                              paint (fill-paint fill)
+                              path (ui/Path.)]
+                          (doseq [[i j k] indices]
+                            (let [v1 (transform-vertex mvp (nth verts i))
+                                  v2 (transform-vertex mvp (nth verts j))
+                                  v3 (transform-vertex mvp (nth verts k))]
+                              (doseq [tri (clip-triangle-near v1 v2 v3)]
+                                (let [s1 (ndc->screen (nth tri 0) width height)
+                                      s2 (ndc->screen (nth tri 1) width height)
+                                      s3 (ndc->screen (nth tri 2) width height)]
+                                  (rasterize-triangle path
+                                                      depth-buffer
+                                                      int-width
+                                                      int-height
+                                                      s1
+                                                      s2
+                                                      s3
+                                                      depth-test
+                                                      depth-write
+                                                      clip-rects)))))
+                          (.drawPath canvas path paint))
+      nil)))
+
+
+;; --- public entry ---
+
+(defn- clips->rects
+  [clips]
+  (mapv (fn [[x y w h]]
+          (ui/Rect.fromLTWH (double x) (double y) (double w) (double h)))
+        clips))
+
+
+(defn paint-3d!
+  "Rasterizes the 3D draws of a canonical lowered frame onto canvas using a
+   software depth buffer. Only the :default render target is supported. The
+   dispatcher draws the clear and the 2D/text overlay."
+  [^ui/Canvas canvas lowered ^double width ^double height]
+  (let [int-width (int (.ceil width))
+        int-height (int (.ceil height))
+        ^type/Float32List depth-buffer (type/Float32List. (* int-width
+                                                             int-height))]
+    (.fillRange depth-buffer 0 (.-length depth-buffer) 1.0)
+    (doseq [pass (:passes lowered)
+            :when (= :default (:target-id pass))
+            draw (:draws pass)]
+      (case (:pipeline draw)
+        :camera-reset (.fillRange depth-buffer 0 (.-length depth-buffer) 1.0)
+        :mesh-3d (exec-mesh! canvas
+                             (:op draw)
+                             (->mat4 (:mvp draw))
+                             (->mat4 (:model-m draw))
+                             width
+                             height
+                             depth-buffer
+                             (clips->rects (:clips draw))
+                             (:depth-test draw)
+                             (:depth-write draw)
+                             {:enabled (:lighting-enabled draw),
+                              :lights (:lights draw),
+                              :camera-pos (:camera-pos draw)})
+        (:draw-3d :line-3d) (exec-3d! canvas
+                                      (:op draw)
+                                      (->mat4 (:mvp draw))
+                                      width
+                                      height
+                                      depth-buffer
+                                      (clips->rects (:clips draw))
+                                      (:depth-test draw)
+                                      (:depth-write draw))
+        nil))))

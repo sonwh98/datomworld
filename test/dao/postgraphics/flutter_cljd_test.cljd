@@ -76,11 +76,11 @@
       (is (some #(= eps (nth % 3)) (mapcat seq tris))))))
 
 
-(deftest default-flutter-renderer-is-gpu-only
-  (testing "the production submitter does not silently fall back to Canvas"
+(deftest flutter-renderer-falls-back-to-canvas-software
+  (testing "the dispatcher renders via Canvas software when no GPU is present"
     (let [policy (pg/gpu-renderer-policy-test-hook)]
-      (is (false? (:canvas-fallback? policy)))
-      (is (false? (:software-renderer? policy)))
+      (is (true? (:canvas-fallback? policy)))
+      (is (true? (:software-renderer? policy)))
       (is (true? (:texture-rendering? policy)))
       (is (= :flutter-gpu-texture (:texture-source policy)))
       (is (= #{:clear :camera-reset :mesh-3d :draw-3d :draw-2d :text}
