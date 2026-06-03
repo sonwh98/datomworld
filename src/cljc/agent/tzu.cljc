@@ -312,6 +312,58 @@
       edn/read-string))
 
 
+(def ^:private illustrate-prompt
+  (str
+    "You illustrate a user-supplied story on a Flutter canvas by streaming dao.postgraphics frames over WebSocket. Follow this protocol exactly.\n"
+    "\n"
+    "STEP 1: Call ws_open with stream_id=\"flutter\" and the URL given below.\n"
+    "STEP 2: Emit one stream_write call per frame, every call with stream_id=\"flutter\" (never \"io\"). Batch as many stream_write calls as you can into a single assistant turn (aim for 8-10 frames per turn, never fewer than 4) so the whole animation finishes in a handful of turns. Do NOT pause to narrate or explain between frames. After the final frame, reply \"done\".\n"
+    "\n"
+    "Each stream_write value MUST be the EDN string of a VECTOR (it starts with \"[\" and ends with \"]\"). Each element is an op-map keyed by :op/kind.\n"
+    "\n"
+    "Allowed op kinds (use these spellings exactly):\n"
+    "  {:op/kind :frame/clear        :color [r g b a]}            background fill, REQUIRED as first op of every frame\n"
+    "  {:op/kind :draw/fill-rect     :rect [x y w h] :color [r g b a]}\n"
+    "  {:op/kind :draw/stroke-rect   :rect [x y w h] :color [r g b a] :stroke-width 1.5}\n"
+    "  {:op/kind :draw/fill-circle   :center [x y] :radius r :color [r g b a]}\n"
+    "  {:op/kind :draw/stroke-circle :center [x y] :radius r :color [r g b a] :stroke-width 1.0}\n"
+    "  {:op/kind :draw/path          :segments [[:move-to x y] [:line-to x y] [:close]] :fill [r g b a] :stroke [r g b a]}\n"
+    "  {:op/kind :draw/text          :text \"...\" :position [x y] :color [r g b a] :font-size 13 :align :center}\n"
+    "  {:op/kind :transform/push     :translate [tx ty] :rotate radians :scale [sx sy]}\n"
+    "  {:op/kind :transform/pop}\n"
+    "  {:op/kind :clip/push-rect     :rect [x y w h]}\n"
+    "  {:op/kind :clip/pop}\n"
+    "\n"
+    "Forbidden op kinds (the validator rejects them): :frame/circle :frame/rect :frame/line :frame/path :draw/line :draw/image :target/push :target/pop. Do not invent new op kinds.\n"
+    "\n" "Conventions:\n"
+    "  - Canvas is 400x400, origin top-left, x grows right, y grows down. Units are pixels.\n"
+    "  - Colors are 4-tuples [r g b a] of floats in [0,1]. Numbers must be plain literals (no math, no expressions, no symbols).\n"
+    "  - Every :transform/push must be matched by a :transform/pop in the same frame; same for :clip/push-rect and :clip/pop.\n"
+    "  - Reach for :draw/path for organic silhouettes, :transform/push with :rotate or :scale for motion, :clip/push-rect for reveal effects. A static circle with a text label is the FLOOR of what this vocabulary can express, not the ceiling.\n"
+    "\n"
+    "Depicting people (IMPORTANT): NEVER represent a human as a bare circle. A lone :draw/fill-circle is a head, never a whole person. Every human MUST be a STICK FIGURE made of TWO ops drawn together: a small :draw/fill-circle (radius ~9) for the head, AND a :draw/path whose segments trace the spine (neck to hips) and branch into two arms and two legs as separate :move-to/:line-to strokes. Give the path :stroke and :stroke-width ~3 so the limbs read clearly; do not give the limbs a :fill. Bend the joints and shift them between frames to convey posture, gesture, walking, reaching, or falling; a standing, a sitting, and a running figure must have visibly different limb angles.\n"
+    "\n"
+    "Stick-figure template (copy this shape for EVERY person, then reposition and angle the limbs):\n"
+    "  {:op/kind :draw/fill-circle :center [200 120] :radius 9 :color [0.1 0.1 0.1 1.0]}\n"
+    "  {:op/kind :draw/path :stroke [0.1 0.1 0.1 1.0] :stroke-width 3 :segments [[:move-to 200 129] [:line-to 200 175] [:move-to 200 142] [:line-to 178 162] [:move-to 200 142] [:line-to 222 162] [:move-to 200 175] [:line-to 184 210] [:move-to 200 175] [:line-to 216 210]]}\n"
+    "(head, then spine + left arm + right arm + left leg + right leg as five strokes in one path.)\n"
+    "\n"
+    "Realism and scene composition:\n"
+    "  - Build a setting, not just a subject: include a ground line or floor (:draw/fill-rect), a horizon or sky gradient (stacked rects of shifting color), and a few context props (trees, doorways, furniture, stars) drawn with paths and rects.\n"
+    "  - Use light and depth: darker colors and larger scale for foreground, lighter/desaturated colors and smaller scale for background. Add a soft shadow under figures with a low-alpha dark ellipse-like circle.\n"
+    "  - Keep proportions human: head much smaller than torso, limbs roughly torso-length. Avoid lollipop figures.\n"
+    "  - Let the scene evolve frame to frame: characters move across the canvas, gesture, and react, while the background stays coherent so the eye reads continuous space.\n"
+    "\n"))
+
+
+(defn- build-illustrate-prompt
+  [url story]
+  (str illustrate-prompt
+       "WebSocket URL: " url
+       "\n" "\n"
+       "Story to illustrate: " story))
+
+
 (defn run-agent
   "Execute an autonomous Agent Tzu loop with access to a registry of streams.
    The agent can call stream_read, stream_write, ws_open, etc. via OpenAI-
@@ -323,7 +375,9 @@
    iterations so newly opened connections survive between user turns.
 
    history is an optional vector of previous message maps.
-   Safeguard: loops at most 20 iterations, then throws."
+   The loop runs until the agent stops (finish_reason \"stop\"); there is no
+   iteration cap, so a multi-frame illustration streams every frame however
+   many round-trips that takes."
   ([prompt-txt stream-registry]
    (run-agent prompt-txt stream-registry (api-key) nil))
   ([prompt-txt stream-registry api-key]
@@ -334,8 +388,6 @@
         {:prompt prompt-txt, :history-len (count (or history []))})
    (loop [messages (conj (or history []) {"role" "user", "content" prompt-txt})
           iter 0]
-     (when (>= iter 20)
-       (throw (ex-info "run-agent exceeded max iterations" {:iter iter})))
      (prn :tzu/iter {:iter iter, :messages-len (count messages)})
      (let [resp
            (chat-completion messages :tools tools/stream-tools :key api-key)
@@ -375,6 +427,21 @@
              {}))
          (throw (ex-info (str "Unexpected finish_reason: " finish-reason)
                          {:response resp})))))))
+
+
+(defn illustrate!
+  "Drive an agent.tzu run that connects to the Flutter Story Demo and
+   streams a postgraphics illustration of `story`. The agent calls
+   ws_open then emits one stream_write per frame.
+
+   stream-registry is an atom holding the same id->stream map run-agent
+   expects; pass (atom {}) for a fresh registry.
+
+   url defaults to ws://localhost:8765 (the Story Demo default port)."
+  ([story stream-registry]
+   (illustrate! story stream-registry "ws://localhost:8765"))
+  ([story stream-registry url]
+   (run-agent (build-illustrate-prompt url story) stream-registry)))
 
 
 #?(:cljd nil
@@ -417,4 +484,5 @@
   (def d (text->datoms t))
   (def t2 (datoms->text d))
   (prompt->frames
-    "a single static red circle in the center of a 400x400 canvas"))
+    "a single static red circle in the center of a 400x400 canvas")
+  (illustrate! "the egg by andy weir, 30 frames" (atom {})))
