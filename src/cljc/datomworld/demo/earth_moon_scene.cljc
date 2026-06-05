@@ -162,11 +162,7 @@
                      {:op/kind :state/lighting-enable, :enabled true}
                      {:op/kind :light/ambient, :color [0.08 0.1 0.14]}
                      {:op/kind :light/directional,
-                      ;; Light travels toward -z so the camera-facing
-                      ;; hemisphere (the day side) is lit under the
-                      ;; software renderer. The GPU shaders are unlit and
-                      ;; unaffected.
-                      :direction [-0.4 0.7 -0.9],
+                      :direction [-0.4 0.7 0.9],
                       :color [1.0 0.96 0.86],
                       :intensity 1.55}]
          earth-op (cond-> (assoc earth
