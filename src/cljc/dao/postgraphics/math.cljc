@@ -25,7 +25,7 @@
      :cljd (math/sin (double x))))
 
 
-(defn- msqrt
+(defn msqrt
   [x]
   #?(:clj (Math/sqrt (double x))
      :cljs (js/Math.sqrt (double x))
@@ -39,11 +39,25 @@
      :cljd (math/tan (double x))))
 
 
-(defn- mabs
+(defn mabs
   [x]
   #?(:clj (Math/abs (double x))
      :cljs (js/Math.abs (double x))
      :cljd (let [d (double x)] (if (< d 0.0) (- d) d))))
+
+
+(defn mpow
+  [x e]
+  #?(:clj (Math/pow (double x) (double e))
+     :cljs (js/Math.pow (double x) (double e))
+     :cljd (math/pow (double x) (double e))))
+
+
+(defn mfloor
+  [x]
+  #?(:clj (long (Math/floor (double x)))
+     :cljs (js/Math.floor (double x))
+     :cljd (.floor (double x))))
 
 
 (def PI
@@ -404,28 +418,25 @@
 ;; Projection
 ;; ---------------------------------------------------------------------------
 
-(defn project
-  "Project vertex v through mvp, returning screen coords, NDC z, and 1/w
-   for perspective-correct interpolation."
-  [mvp v viewport-width viewport-height]
-  (let [[vx vy vz] (mapv double v)
-        x (+ (* (nth mvp 0) vx)
-             (* (nth mvp 4) vy)
-             (* (nth mvp 8) vz)
-             (nth mvp 12))
-        y (+ (* (nth mvp 1) vx)
-             (* (nth mvp 5) vy)
-             (* (nth mvp 9) vz)
-             (nth mvp 13))
-        z (+ (* (nth mvp 2) vx)
-             (* (nth mvp 6) vy)
-             (* (nth mvp 10) vz)
-             (nth mvp 14))
-        w (+ (* (nth mvp 3) vx)
-             (* (nth mvp 7) vy)
-             (* (nth mvp 11) vz)
-             (nth mvp 15))
-        inv-w (/ 1.0 w)
+(defn clip-coords
+  "Transform object-space vertex v (vec3) through 16-vec mvp into
+   homogeneous clip space, returning [x y z w] (no perspective divide)."
+  [mvp v]
+  (let [[vx vy vz] (mapv double v)]
+    [(+ (* (nth mvp 0) vx) (* (nth mvp 4) vy) (* (nth mvp 8) vz) (nth mvp 12))
+     (+ (* (nth mvp 1) vx) (* (nth mvp 5) vy) (* (nth mvp 9) vz) (nth mvp 13))
+     (+ (* (nth mvp 2) vx) (* (nth mvp 6) vy) (* (nth mvp 10) vz) (nth mvp 14))
+     (+ (* (nth mvp 3) vx)
+        (* (nth mvp 7) vy)
+        (* (nth mvp 11) vz)
+        (nth mvp 15))]))
+
+
+(defn clip->screen
+  "Perspective-divide a clip-space [x y z w] and map to the viewport,
+   returning screen coords, NDC z, and 1/w for perspective-correct interp."
+  [[x y z w] viewport-width viewport-height]
+  (let [inv-w (/ 1.0 w)
         ndc-x (* x inv-w)
         ndc-y (* y inv-w)
         ndc-z (* z inv-w)]
@@ -435,9 +446,31 @@
      :inv-w inv-w}))
 
 
+(defn project
+  "Project vertex v through mvp, returning screen coords, NDC z, and 1/w
+   for perspective-correct interpolation."
+  [mvp v viewport-width viewport-height]
+  (clip->screen (clip-coords mvp v) viewport-width viewport-height))
+
+
 ;; ---------------------------------------------------------------------------
 ;; Vec3
 ;; ---------------------------------------------------------------------------
+
+(defn vec3-sub
+  [a b]
+  [(- (nth a 0) (nth b 0)) (- (nth a 1) (nth b 1)) (- (nth a 2) (nth b 2))])
+
+
+(defn vec3-add
+  [a b]
+  [(+ (nth a 0) (nth b 0)) (+ (nth a 1) (nth b 1)) (+ (nth a 2) (nth b 2))])
+
+
+(defn dot3
+  [a b]
+  (+ (* (nth a 0) (nth b 0)) (* (nth a 1) (nth b 1)) (* (nth a 2) (nth b 2))))
+
 
 (defn vec3-normalize
   [v]
@@ -452,17 +485,31 @@
 ;; Normal transform (inverse-transpose of model 3x3)
 ;; ---------------------------------------------------------------------------
 
-(defn inverse-transpose-3x3
-  "Transforms a vec3 normal by the inverse-transpose of the upper-left
-   3x3 of the given 16-vec model matrix.  Result is NOT renormalised."
-  [m normal]
-  (let [inv (mat4-invert m)
-        x (double (nth normal 0))
+(defn normal-matrix
+  "Precompute the model matrix inverse for repeated normal transforms.
+   Returns a 16-vec to pass to apply-normal-matrix once per vertex,
+   so the 4x4 inversion is done once per draw rather than per vertex."
+  [m]
+  (mat4-invert m))
+
+
+(defn apply-normal-matrix
+  "Transforms a vec3 normal by the inverse-transpose of the upper-left 3x3,
+   given a precomputed inverse from normal-matrix.  NOT renormalised."
+  [inv normal]
+  (let [x (double (nth normal 0))
         y (double (nth normal 1))
         z (double (nth normal 2))]
     [(+ (* (nth inv 0) x) (* (nth inv 1) y) (* (nth inv 2) z))
      (+ (* (nth inv 4) x) (* (nth inv 5) y) (* (nth inv 6) z))
      (+ (* (nth inv 8) x) (* (nth inv 9) y) (* (nth inv 10) z))]))
+
+
+(defn inverse-transpose-3x3
+  "Transforms a vec3 normal by the inverse-transpose of the upper-left
+   3x3 of the given 16-vec model matrix.  Result is NOT renormalised."
+  [m normal]
+  (apply-normal-matrix (mat4-invert m) normal))
 
 
 ;; ---------------------------------------------------------------------------
@@ -543,3 +590,100 @@
               (into acc (clip-triangle-against-plane a b c z-distance)))
             []
             after-w)))
+
+
+;; ---------------------------------------------------------------------------
+;; Attribute-carrying near-plane clipping
+;;
+;; Same Sutherland-Hodgman against the homogeneous near frustum (w-plane then
+;; z-plane), but carrying a per-vertex attribute bundle (a vector of attribute
+;; vectors, e.g. [uv normal world-pos color]) through, interpolating every
+;; attribute at synthesized vertices by the same t as the clip-space
+;; intersection so all per-vertex data stays continuous across the boundary.
+;; ---------------------------------------------------------------------------
+
+(defn- interp-attr
+  [attr-a attr-b t]
+  (let [td (double t)]
+    (mapv (fn [a b] (+ (double a) (* td (- (double b) (double a)))))
+          attr-a
+          attr-b)))
+
+
+(defn- interp-bundle
+  [bundle-a bundle-b t]
+  (mapv (fn [a b] (interp-attr a b t)) bundle-a bundle-b))
+
+
+(defn- clip-triangle-plane-attrs
+  "Returns a vector of {:verts [v1 v2 v3] :attrs [b1 b2 b3]} for the clip of
+   triangle (v1 v2 v3) with bundles (b1 b2 b3) against one plane."
+  [v1 v2 v3 b1 b2 b3 d-fn]
+  (let [d1 (double (d-fn v1))
+        d2 (double (d-fn v2))
+        d3 (double (d-fn v3))
+        in1 (> d1 0.0)
+        in2 (> d2 0.0)
+        in3 (> d3 0.0)
+        in-count (+ (if in1 1 0) (if in2 1 0) (if in3 1 0))]
+    (case in-count
+      3 [{:verts [v1 v2 v3], :attrs [b1 b2 b3]}]
+      0 []
+      1 (let [[in-v out-v1 out-v2 in-b out-b1 out-b2 d-in d-o1 d-o2]
+              (cond in1 [v1 v2 v3 b1 b2 b3 d1 d2 d3]
+                    in2 [v2 v3 v1 b2 b3 b1 d2 d3 d1]
+                    in3 [v3 v1 v2 b3 b1 b2 d3 d1 d2])
+              t1 (/ d-in (- d-in d-o1))
+              t2 (/ d-in (- d-in d-o2))]
+          [{:verts [in-v (interp-clip-vertex in-v out-v1 t1)
+                    (interp-clip-vertex in-v out-v2 t2)],
+            :attrs [in-b (interp-bundle in-b out-b1 t1)
+                    (interp-bundle in-b out-b2 t2)]}])
+      2 (let [[out-v in-v1 in-v2 out-b in-b1 in-b2 d-out d-i1 d-i2]
+              (cond (not in1) [v1 v2 v3 b1 b2 b3 d1 d2 d3]
+                    (not in2) [v2 v3 v1 b2 b3 b1 d2 d3 d1]
+                    (not in3) [v3 v1 v2 b3 b1 b2 d3 d1 d2])
+              t1 (/ d-i1 (- d-i1 d-out))
+              t2 (/ d-i2 (- d-i2 d-out))
+              i1 (interp-clip-vertex in-v1 out-v t1)
+              i2 (interp-clip-vertex in-v2 out-v t2)
+              ib1 (interp-bundle in-b1 out-b t1)
+              ib2 (interp-bundle in-b2 out-b t2)]
+          [{:verts [in-v1 i1 in-v2], :attrs [in-b1 ib1 in-b2]}
+           {:verts [in-v2 i1 i2], :attrs [in-b2 ib1 ib2]}]))))
+
+
+(defn clip-triangle-near-attrs
+  "Near-clip triangle (v1 v2 v3 clip-space [x y z w]) carrying per-vertex
+   bundles (b1 b2 b3).  Returns a vector of {:verts :attrs} maps."
+  [v1 v2 v3 b1 b2 b3]
+  (let [after-w (clip-triangle-plane-attrs v1 v2 v3 b1 b2 b3 w-distance)]
+    (reduce (fn [acc {[a b c] :verts, [ab bb cb] :attrs}]
+              (into acc (clip-triangle-plane-attrs a b c ab bb cb z-distance)))
+            []
+            after-w)))
+
+
+(defn- clip-line-plane-attrs
+  [v1 v2 b1 b2 d-fn]
+  (let [d1 (double (d-fn v1))
+        d2 (double (d-fn v2))
+        in1 (> d1 0.0)
+        in2 (> d2 0.0)]
+    (cond (and in1 in2) {:verts [v1 v2], :attrs [b1 b2]}
+          (and (not in1) (not in2)) nil
+          :else (let [t (/ d1 (- d1 d2))
+                      vi (interp-clip-vertex v1 v2 t)
+                      bi (interp-bundle b1 b2 t)]
+                  (if in1
+                    {:verts [v1 vi], :attrs [b1 bi]}
+                    {:verts [vi v2], :attrs [bi b2]})))))
+
+
+(defn clip-line-near-attrs
+  "Near-clip line (v1 v2 clip-space [x y z w]) carrying bundles (b1 b2).
+   Returns {:verts :attrs} or nil if fully clipped."
+  [v1 v2 b1 b2]
+  (when-let [{[a b] :verts, [ab bb] :attrs}
+             (clip-line-plane-attrs v1 v2 b1 b2 w-distance)]
+    (clip-line-plane-attrs a b ab bb z-distance)))
