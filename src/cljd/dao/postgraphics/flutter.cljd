@@ -1,14 +1,13 @@
 (ns dao.postgraphics.flutter
   (:require ["dart:core" :as dart]
-            ["dart:math" :as math]
             ["dart:typed_data" :as type]
             ["dart:ui" :as ui]
             ["package:flutter/material.dart" :as m]
             ["package:flutter_gpu/gpu.dart" :as gpu]
             [dao.postgraphics.flutter.gpu :as gpu-render]
+            [dao.postgraphics.lowering :as lower]
             [dao.postgraphics.math :as pmath]
-            [dao.postgraphics.terminal :as terminal]
-            [dao.postgraphics.validation :as v]))
+            [dao.postgraphics.terminal :as terminal]))
 
 
 (defn- ->f64-list
@@ -17,373 +16,6 @@
     (loop [i 0
            s (seq args)]
       (if s (do (aset fl i (double (first s))) (recur (inc i) (next s))) fl))))
-
-
-(defn- valid-2d-affine?
-  [mat16]
-  (pmath/matrix4-affine? mat16))
-
-
-;; --- validation ---
-
-(defn- validate-frame!
-  [frame]
-  (when-not (vector? frame) (v/reject! "Frame must be a vector"))
-  (loop [ops frame
-         m-stack (list (pmath/identity-mat4))
-         c-stack 0
-         has-cam false
-         lit? false]
-    (if (empty? ops)
-      (do (when (> (count m-stack) 1)
-            (v/reject! "Frame ended with non-empty transform stack"))
-          (when (not= c-stack 0)
-            (v/reject! "Frame ended with non-empty clip stack")))
-      (let [op (first ops)
-            kind (:op/kind op)]
-        (when-not (map? op) (v/reject! "Op must be a map"))
-        (when-not kind (v/reject! "Op missing :op/kind"))
-        (case kind
-          :frame/clear (do (v/check-color! op :color)
-                           (recur (rest ops) m-stack c-stack has-cam lit?))
-          :transform/push
-          (let [top (first m-stack)]
-            (recur (rest ops)
-                   (conj m-stack (pmath/mat4-mul top (pmath/op->mat4 op)))
-                   c-stack
-                   has-cam
-                   lit?))
-          :transform/pop (if (<= (count m-stack) 1)
-                           (v/reject! "Transform pop without push")
-                           (recur (rest ops)
-                                  (or (next m-stack)
-                                      (list (pmath/identity-mat4)))
-                                  c-stack
-                                  has-cam
-                                  lit?))
-          :clip/push-rect
-          (do (when-not (v/positive-rect? (:rect op))
-                (v/reject!
-                  "clip/push-rect :rect must be [x y w h] with w>0, h>0"))
-              (when-not (valid-2d-affine? (first m-stack))
-                (v/reject! "clip/push-rect under non-2D-affine transform"))
-              (recur (rest ops) m-stack (inc c-stack) has-cam lit?))
-          :clip/pop (if (<= c-stack 0)
-                      (v/reject! "Clip pop without push")
-                      (recur (rest ops) m-stack (dec c-stack) has-cam lit?))
-          :meta/region
-          (do (when-not (v/positive-rect? (:rect op))
-                (v/reject!
-                  "meta/region :rect must be [x y w h] with w>0, h>0"))
-              (when-not (contains? op :op/meta)
-                (v/reject! "meta/region missing :op/meta"))
-              (when-not (valid-2d-affine? (first m-stack))
-                (v/reject! "meta/region under non-2D-affine transform"))
-              (recur (rest ops) m-stack c-stack has-cam lit?))
-          :camera3d/set
-          (let [proj (:camera3d/projection op)]
-            (case proj
-              :perspective
-              (let [fov (:camera3d/fov op)
-                    near (:camera3d/near op)
-                    far (:camera3d/far op)
-                    aspect (:camera3d/aspect op)]
-                (when-not (and (number? fov) (number? near) (number? far))
-                  (v/reject!
-                    "Perspective camera missing numeric fov, near, or far"))
-                (when-not (and (> (double fov) 0.0) (< (double fov) 180.0))
-                  (v/reject! "FOV must be in (0, 180)"))
-                (when-not (> (double near) 0.0)
-                  (v/reject! "Near must be > 0"))
-                (when-not (> (- (double far) (double near)) v/EPSILON)
-                  (v/reject! "Far must exceed near by more than EPSILON"))
-                (when (and aspect (<= (double aspect) 0.0))
-                  (v/reject! "Aspect must be positive")))
-              :orthographic
-              (let [l (:camera3d/left op)
-                    r (:camera3d/right op)
-                    b (:camera3d/bottom op)
-                    t (:camera3d/top op)
-                    near (:camera3d/near op)
-                    far (:camera3d/far op)]
-                (when-not (and (number? l)
-                               (number? r)
-                               (number? b)
-                               (number? t)
-                               (number? near)
-                               (number? far))
-                  (v/reject! "Orthographic camera missing numeric bounds"))
-                (when-not (> (double r) (double l))
-                  (v/reject! "Right must be > left"))
-                (when-not (> (double t) (double b))
-                  (v/reject! "Top must be > bottom")))
-              (v/reject! (str "Unknown projection: " proj)))
-            (when-let [pos (:camera3d/position op)]
-              (when-not (v/vec3? pos)
-                (v/reject! "camera3d/position must be vec3")))
-            (when-let [rot (:camera3d/rotation op)]
-              (when-not (v/vec3? rot)
-                (v/reject! "camera3d/rotation must be vec3")))
-            (when-let [vmat (:camera3d/view-matrix op)]
-              (when-not (pmath/matrix-valid-numbers? vmat 16)
-                (v/reject!
-                  "camera3d/view-matrix must be 16-element numeric vector")))
-            (recur (rest ops) m-stack c-stack true lit?))
-          :state/depth-test
-          (do (when-not (contains? op :enabled)
-                (v/reject! "state/depth-test missing :enabled"))
-              (when-not (boolean? (:enabled op))
-                (v/reject! "state/depth-test :enabled must be boolean"))
-              (recur (rest ops) m-stack c-stack has-cam lit?))
-          :state/depth-write
-          (do (when-not (contains? op :enabled)
-                (v/reject! "state/depth-write missing :enabled"))
-              (when-not (boolean? (:enabled op))
-                (v/reject! "state/depth-write :enabled must be boolean"))
-              (recur (rest ops) m-stack c-stack has-cam lit?))
-          :state/lighting-enable
-          (do (when-not (contains? op :enabled)
-                (v/reject! "state/lighting-enable missing :enabled"))
-              (when-not (boolean? (:enabled op))
-                (v/reject! "state/lighting-enable :enabled must be boolean"))
-              (recur (rest ops)
-                     m-stack
-                     c-stack
-                     has-cam
-                     (boolean (:enabled op))))
-          :light/ambient
-          (do (when-not (v/valid-light-color? (:color op))
-                (v/reject!
-                  "light/ambient :color must be [r g b] each in [0, 1]"))
-              (recur (rest ops) m-stack c-stack has-cam lit?))
-          :light/directional
-          (do
-            (when-not (v/valid-light-color? (:color op))
-              (v/reject!
-                "light/directional :color must be [r g b] each in [0, 1]"))
-            (when-not (v/vec3? (:direction op))
-              (v/reject! "light/directional :direction must be [x y z]"))
-            (let [[dx dy dz] (:direction op)
-                  mag (math/sqrt (+ (* (double dx) (double dx))
-                                    (* (double dy) (double dy))
-                                    (* (double dz) (double dz))))]
-              (when (< mag v/EPSILON)
-                (v/reject! "light/directional :direction magnitude is zero")))
-            (when-let [intensity (:intensity op)]
-              (when-not (number? intensity)
-                (v/reject! "light/directional :intensity must be a number")))
-            (recur (rest ops) m-stack c-stack has-cam lit?))
-          :light/point
-          (do (when-not (v/valid-light-color? (:color op))
-                (v/reject!
-                  "light/point :color must be [r g b] each in [0, 1]"))
-              (when-not (v/vec3? (:position op))
-                (v/reject! "light/point :position must be [x y z]"))
-              (when-let [intensity (:intensity op)]
-                (when-not (number? intensity)
-                  (v/reject! "light/point :intensity must be a number")))
-              (when-let [range-v (:range op)]
-                (when-not (and (number? range-v) (> (double range-v) 0.0))
-                  (v/reject! "light/point :range must be a positive number")))
-              (recur (rest ops) m-stack c-stack has-cam lit?))
-          :light/clear (recur (rest ops) m-stack c-stack has-cam lit?)
-          :draw3d/mesh
-          (let [verts (:vertices op)
-                vl (count verts)
-                inds (:indices op)
-                norms (:normals op)
-                uvs (:uvs op)
-                vcols (:colors op)
-                tex-src (:texture/source op)]
-            (when-not has-cam
-              (v/reject! "3D draw without prior camera3d/set"))
-            (when-not (vector? verts)
-              (v/reject! "draw3d/mesh missing or non-vector :vertices"))
-            (when-not (every? v/vec3? verts)
-              (v/reject! "draw3d/mesh all :vertices must be [x y z]"))
-            (when-not (vector? inds)
-              (v/reject! "draw3d/mesh missing or non-vector :indices"))
-            (when-not (every? (fn [v]
-                                (and (vector? v)
-                                     (= 3 (count v))
-                                     (every? #(and (int? %) (>= % 0) (< % vl))
-                                             v)))
-                              inds)
-              (v/reject! "draw3d/mesh :indices invalid"))
-            (v/check-color! op :fill)
-            (when (and lit? (not norms))
-              (v/reject!
-                "draw3d/mesh under lighting-enabled requires :normals (v4 §Lighting Mode)"))
-            (when norms
-              (when (not= (count norms) vl)
-                (v/reject!
-                  "draw3d/mesh :normals length must equal vertices length"))
-              (when-not (every? v/vec3? norms)
-                (v/reject! "draw3d/mesh all :normals must be [x y z]")))
-            (when uvs
-              (when (not= (count uvs) vl)
-                (v/reject!
-                  "draw3d/mesh :uvs length must equal vertices length"))
-              (when-not (every? v/vec2? uvs)
-                (v/reject! "draw3d/mesh all :uvs must be [u v]")))
-            (when vcols
-              (when (not= (count vcols) vl)
-                (v/reject!
-                  "draw3d/mesh :colors length must equal vertices length"))
-              (when-not (every? v/valid-color? vcols)
-                (v/reject!
-                  "draw3d/mesh :colors entries must be [r g b a] each in [0, 1]")))
-            (when-let [spec (:material/specular op)]
-              (when-not (v/valid-light-color? spec)
-                (v/reject!
-                  "draw3d/mesh :material/specular must be [r g b] each in [0, 1]")))
-            (when-let [shin (:material/shininess op)]
-              (when-not (and (number? shin) (> (double shin) 0.0))
-                (v/reject!
-                  "draw3d/mesh :material/shininess must be a positive number")))
-            (when-let [emis (:material/emissive op)]
-              (when-not (v/valid-light-color? emis)
-                (v/reject!
-                  "draw3d/mesh :material/emissive must be [r g b] each in [0, 1]")))
-            (when tex-src
-              (when-not (instance? gpu/Texture tex-src)
-                (v/reject!
-                  :unloadable-image
-                  "draw3d/mesh :texture/source must be a Flutter GPU Texture"))
-              (when-not uvs
-                (v/reject!
-                  "draw3d/mesh with :texture/source must also provide :uvs")))
-            (when-let [wrap (:texture/wrap op)]
-              (when-not (#{:clamp :repeat :mirror} wrap)
-                (v/reject!
-                  "draw3d/mesh :texture/wrap must be :clamp, :repeat, or :mirror")))
-            (when-let [filter (:texture/filter op)]
-              (when-not (#{:linear :nearest} filter)
-                (v/reject!
-                  "draw3d/mesh :texture/filter must be :linear or :nearest")))
-            (when (contains? op :texture/mipmap)
-              (when-not (boolean? (:texture/mipmap op))
-                (v/reject! "draw3d/mesh :texture/mipmap must be a boolean")))
-            (recur (rest ops) m-stack c-stack has-cam lit?))
-          (:target/push :target/pop)
-          (v/reject! :unsupported-op
-                     (str kind
-                          " not supported by this VM: render targets require"
-                          " offscreen rendering, which the Flutter Canvas"
-                          " backend cannot perform synchronously"))
-          (:draw3d/lines :draw3d/triangles)
-          (let [verts (:vertices op)
-                vl (count verts)]
-            (when-not has-cam
-              (v/reject! "3D draw without prior camera3d/set"))
-            (when-not (vector? verts)
-              (v/reject! "Missing or non-vector :vertices"))
-            (when-not (every? v/vec3? verts)
-              (v/reject! "All :vertices must be vec3"))
-            (if (= kind :draw3d/triangles)
-              (let [inds (:indices op)]
-                (when-not (vector? inds)
-                  (v/reject!
-                    "draw3d/triangles missing or non-vector :indices"))
-                (when-not (every? (fn [v]
-                                    (and (vector? v)
-                                         (= 3 (count v))
-                                         (every?
-                                           #(and (int? %) (>= % 0) (< % vl))
-                                           v)))
-                                  inds)
-                  (v/reject! "draw3d/triangles indices invalid"))
-                (v/check-color! op :fill))
-              (let [edges (:edges op)
-                    sw (:stroke-width op)]
-                (when (and edges
-                           (not (every? (fn [v]
-                                          (and (vector? v)
-                                               (= 2 (count v))
-                                               (every? #(and (int? %)
-                                                             (>= % 0)
-                                                             (< % vl))
-                                                       v)))
-                                        edges)))
-                  (v/reject! "draw3d/lines :edges invalid"))
-                (v/check-color! op :color)
-                (when sw
-                  (when-not (number? sw)
-                    (v/reject! ":stroke-width must be a number"))
-                  (when (< (double sw) 0.0)
-                    (v/reject! ":stroke-width must be non-negative")))))
-            (when-let [norms (:normals op)]
-              (when (not= (count norms) vl)
-                (v/reject! "Normals length must equal vertices length"))
-              (when-not (every? v/vec3? norms)
-                (v/reject! "All normals must be vec3")))
-            (recur (rest ops) m-stack c-stack has-cam lit?))
-          (:draw/fill-rect :draw/stroke-rect :draw/fill-circle
-                           :draw/stroke-circle :draw/text
-                           :draw/path :draw/image)
-          (do
-            (when-not (valid-2d-affine? (first m-stack))
-              (v/reject! (str "Invalid 2D affine matrix for 2D draw op "
-                              kind)))
-            (case kind
-              (:draw/fill-rect :draw/stroke-rect)
-              (do (when-not (v/positive-rect? (:rect op))
-                    (v/reject!
-                      (str kind " :rect must be [x y w h] with w>0, h>0")))
-                  (v/check-color! op :color)
-                  (when-let [sw (:stroke-width op)]
-                    (when-not (number? sw)
-                      (v/reject! ":stroke-width must be a number"))
-                    (when (< (double sw) 0.0)
-                      (v/reject! ":stroke-width must be non-negative"))))
-              (:draw/fill-circle :draw/stroke-circle)
-              (do (when-not (v/vec2? (:center op))
-                    (v/reject! (str kind " :center must be [x y]")))
-                  (when-not (number? (:radius op))
-                    (v/reject! (str kind " :radius must be a number")))
-                  (when-not (> (double (:radius op)) 0.0)
-                    (v/reject! (str kind " :radius must be > 0")))
-                  (v/check-color! op :color)
-                  (when-let [sw (:stroke-width op)]
-                    (when-not (number? sw)
-                      (v/reject! ":stroke-width must be a number"))
-                    (when (< (double sw) 0.0)
-                      (v/reject! ":stroke-width must be non-negative"))))
-              :draw/text
-              (do
-                (when-not (string? (:text op))
-                  (v/reject! "draw/text missing or invalid :text"))
-                (when-not (v/vec2? (:position op))
-                  (v/reject! "draw/text :position must be [x y]"))
-                (v/check-color! op :color)
-                (when-let [fs (:font-size op)]
-                  (when-not (number? fs)
-                    (v/reject! "draw/text :font-size must be a number"))
-                  (when-not (> (double fs) 0.0)
-                    (v/reject! "draw/text :font-size must be > 0")))
-                (when-let [ff (:font-family op)]
-                  (when-not (string? ff)
-                    (v/reject! "draw/text :font-family must be a string")))
-                (when (contains? op :align)
-                  (when-not (#{:start :center :end} (:align op))
-                    (v/reject!
-                      "draw/text :align must be :start, :center, or :end"))))
-              :draw/path
-              (do (when-not (vector? (:segments op))
-                    (v/reject! "draw/path missing or invalid :segments"))
-                  (v/check-color! op :fill)
-                  (v/check-color! op :stroke)
-                  (when-let [sw (:stroke-width op)]
-                    (when-not (number? sw)
-                      (v/reject! ":stroke-width must be a number"))
-                    (when (< (double sw) 0.0)
-                      (v/reject! ":stroke-width must be non-negative"))))
-              :draw/image
-              (v/reject!
-                :unsupported-op
-                "draw/image requires a Flutter GPU image pipeline"))
-            (recur (rest ops) m-stack c-stack has-cam lit?))
-          (v/reject! :unsupported-op (str "Unknown op kind: " kind)))))))
 
 
 ;; Standard line-height multiplier per v3 §Line Height: a text run occupies a
@@ -466,173 +98,9 @@
    :software-renderer? false,
    :texture-rendering? true,
    :texture-source :flutter-gpu-texture,
-   :supported-pipelines #{:clear :camera-reset :mesh-3d :draw-3d :draw-2d
-                          :text},
+   :supported-pipelines #{:clear :camera-reset :mesh-3d :draw-3d :line-3d
+                          :draw-2d :text},
    :supported-3d-ops #{:draw3d/mesh :draw3d/triangles :draw3d/lines}})
-
-
-;; --- lowering ---
-
-(defn lower-frame
-  [frame ^double width ^double height]
-  (validate-frame! frame)
-  (loop [ops (seq frame)
-         state {:model-stack (list (pmath/identity-mat4)),
-                :clip-stack (list),
-                :camera-matrix nil,
-                :depth-test false,
-                :depth-write false,
-                :lighting-state
-                {:enabled false, :lights [], :camera-pos [0.0 0.0 0.0]},
-                :draws []}]
-    (if-not ops
-      {:viewport {:width width, :height height}, :draws (:draws state)}
-      (let [op (first ops)
-            kind (:op/kind op)
-            next-ops (next ops)]
-        (recur
-          next-ops
-          (case kind
-            :frame/clear (update state
-                                 :draws
-                                 conj
-                                 {:pipeline :clear,
-                                  :color (get op :color [0.0 0.0 0.0 1.0])})
-            :transform/push (let [top (first (:model-stack state))]
-                              (update state
-                                      :model-stack
-                                      conj
-                                      (pmath/mat4-mul top (pmath/op->mat4 op))))
-            :transform/pop (update state
-                                   :model-stack
-                                   (fn [stack]
-                                     (or (next stack)
-                                         (list (pmath/identity-mat4)))))
-            :clip/push-rect (let [[x y w h] (:rect op)
-                                  top (first (:model-stack state))
-                                  tx (nth top 12)
-                                  ty (nth top 13)
-                                  wx (+ (double x) tx)
-                                  wy (+ (double y) ty)
-                                  r [wx (- height wy (double h)) (double w)
-                                     (double h)]]
-                              (update state :clip-stack conj r))
-            :clip/pop
-            (update state :clip-stack (fn [stack] (or (next stack) (list))))
-            :meta/region state
-            :camera3d/set
-            (let [cam (pmath/build-camera op width height)
-                  pos (if-let [vmat (:camera3d/view-matrix op)]
-                        (pmath/camera-pos-from-view-matrix vmat)
-                        (mapv double
-                              (get op :camera3d/position [0.0 0.0 0.0])))]
-              (-> state
-                  (assoc :camera-matrix cam)
-                  (update :lighting-state assoc :camera-pos pos)
-                  (update :draws conj {:pipeline :camera-reset})))
-            :state/depth-test (assoc state :depth-test (boolean (:enabled op)))
-            :state/depth-write (assoc state
-                                      :depth-write (boolean (:enabled op)))
-            :state/lighting-enable (update state
-                                           :lighting-state assoc
-                                           :enabled (boolean (:enabled op)))
-            :light/ambient (update-in state
-                                      [:lighting-state :lights]
-                                      conj
-                                      {:kind :ambient,
-                                       :color (mapv double (:color op))})
-            :light/directional (update-in
-                                 state
-                                 [:lighting-state :lights]
-                                 conj
-                                 {:kind :directional,
-                                  :direction (mapv double (:direction op)),
-                                  :color (mapv double (:color op)),
-                                  :intensity (double (get op :intensity 1.0))})
-            :light/point (update-in state
-                                    [:lighting-state :lights]
-                                    conj
-                                    {:kind :point,
-                                     :position (mapv double (:position op)),
-                                     :color (mapv double (:color op)),
-                                     :intensity (double
-                                                  (get op :intensity 1.0)),
-                                     :range (double (get op :range 100.0))})
-            :light/clear (assoc-in state [:lighting-state :lights] [])
-            :draw/text
-            (do (when-not (valid-2d-affine? (first (:model-stack state)))
-                  (v/reject! "Invalid 2D affine matrix for 2D draw op"))
-                (let [[lx ly] (:position op)
-                      top (first (:model-stack state))
-                      cart-x (+ (* (nth top 0) (double lx))
-                                (* (nth top 4) (double ly))
-                                (nth top 12))
-                      cart-y (+ (* (nth top 1) (double lx))
-                                (* (nth top 5) (double ly))
-                                (nth top 13))
-                      screen-x cart-x
-                      screen-y (- height cart-y)]
-                  (update state
-                          :draws
-                          conj
-                          {:pipeline :text,
-                           :op op,
-                           :screen-x screen-x,
-                           :screen-y screen-y,
-                           :clips (vec (:clip-stack state))})))
-            (:draw/fill-rect :draw/stroke-rect
-                             :draw/fill-circle :draw/stroke-circle
-                             :draw/path :draw/image)
-            (do (when-not (valid-2d-affine? (first (:model-stack state)))
-                  (v/reject! "Invalid 2D affine matrix for 2D draw op"))
-                (let [top (first (:model-stack state))
-                      a00 (nth top 0)
-                      a01 (nth top 1)
-                      sx (math/sqrt (+ (* a00 a00) (* a01 a01)))]
-                  (update state
-                          :draws
-                          conj
-                          {:pipeline :draw-2d,
-                           :op op,
-                           :model-m top,
-                           :sx sx,
-                           :clips (vec (:clip-stack state))})))
-            :draw3d/mesh
-            (do (when-not (:camera-matrix state)
-                  (v/reject! "No camera matrix set before 3D draw op"))
-                (let [cam-m (:camera-matrix state)
-                      model-m (first (:model-stack state))
-                      mvp (pmath/mat4-mul cam-m model-m)]
-                  (update state
-                          :draws
-                          conj
-                          {:pipeline :mesh-3d,
-                           :op op,
-                           :mvp mvp,
-                           :model-m model-m,
-                           :clips (vec (:clip-stack state)),
-                           :depth-test (:depth-test state),
-                           :depth-write (:depth-write state),
-                           :lighting-state (clojure.core/merge
-                                             {}
-                                             (:lighting-state state))})))
-            (:draw3d/lines :draw3d/triangles)
-            (do (when-not (:camera-matrix state)
-                  (v/reject! "No camera matrix set before 3D draw op"))
-                (let [cam-m (:camera-matrix state)
-                      model-m (first (:model-stack state))
-                      mvp (pmath/mat4-mul cam-m model-m)]
-                  (update state
-                          :draws
-                          conj
-                          {:pipeline :draw-3d,
-                           :op op,
-                           :mvp mvp,
-                           :model-m model-m,
-                           :clips (vec (:clip-stack state)),
-                           :depth-test (:depth-test state),
-                           :depth-write (:depth-write state)})))
-            state))))))
 
 
 (defn- ->paint
@@ -693,34 +161,51 @@
     (.restore canvas)))
 
 
+(defn- text-render-fields
+  [draw]
+  {:text (str (:text draw)),
+   :color (or (:color draw) [0.0 0.0 0.0 1.0]),
+   :font-size (double (get draw :font-size 14.0)),
+   :font-family (or (:font-family draw) "monospace"),
+   :screen-x (:screen-x draw),
+   :screen-y (:screen-y draw)})
+
+
 (defn- paint-text!
   "Renders one :text op. screen-x/screen-y are already in y-down screen
    space (pre-flipped by the lowering); shifted up by font-size so the
    baseline rests at screen-y (Paragraph's natural anchor is the top of
    the first line, not the baseline)."
   [^ui/Canvas canvas draw]
-  (let [op (:op draw)
-        [r g b a] (or (:color op) [0.0 0.0 0.0 1.0])
-        font-size (double (get op :font-size 14.0))
-        font-family (or (:font-family op) "monospace")
-        color (m/Color.fromARGB (int (* 255.0 (double (or a 1.0))))
-                                (int (* 255.0 (double r)))
-                                (int (* 255.0 (double g)))
-                                (int (* 255.0 (double b))))
+  (let [{:keys [text color font-size font-family screen-x screen-y]}
+        (text-render-fields draw)
+        [r g b a] color
+        text-color (m/Color.fromARGB (int (* 255.0 (double (or a 1.0))))
+                                     (int (* 255.0 (double r)))
+                                     (int (* 255.0 (double g)))
+                                     (int (* 255.0 (double b))))
         builder
         (ui/ParagraphBuilder.
           (ui/ParagraphStyle. .fontSize font-size .fontFamily font-family))]
-    (.pushStyle builder (ui/TextStyle. .color color))
-    (.addText builder (str (:text op)))
+    (.pushStyle builder (ui/TextStyle. .color text-color))
+    (.addText builder text)
     (let [^ui/Paragraph para (.build builder)]
       (.layout para (ui/ParagraphConstraints. .width 1.0e6))
       (.save canvas)
       (apply-clips! canvas (:clips draw))
       (.drawParagraph canvas
                       para
-                      (ui/Offset. (double (:screen-x draw))
-                                  (- (double (:screen-y draw)) font-size)))
+                      (ui/Offset. (double screen-x)
+                                  (- (double screen-y) font-size)))
       (.restore canvas))))
+
+
+(defn text-render-fields-test-hook
+  "Exposes the fields paint-text! extracts from a lowered :text draw, so the
+   painter's reading can be checked against the canonical lowering shape
+   without a live Canvas."
+  [draw]
+  (text-render-fields draw))
 
 
 (deftype PostgraphicsPainter
@@ -734,10 +219,18 @@
           ^double width (.-width size)
           ^double height (.-height size)]
       (when (seq frame)
-        (try (let [lowered (lower-frame frame width height)
+        (try (let [lowered (lower/lower-frame
+                             frame
+                             {:viewport-width width,
+                              :viewport-height height,
+                              :supports-render-targets? false,
+                              :supports-image? false,
+                              :texture-source-valid?
+                              (fn [s] (instance? gpu/Texture s))})
                    image (submit! lowered width height)]
                (.drawImage canvas image (ui/Offset. 0.0 0.0) (ui/Paint.))
-               (doseq [draw (:draws lowered)]
+               (doseq [pass (:passes lowered)
+                       draw (:draws pass)]
                  (case (:pipeline draw)
                    :draw-2d (paint-2d-draw! canvas draw height)
                    :text (paint-text! canvas draw)
@@ -774,7 +267,12 @@
   (let [notifier (m/ValueNotifier. [])]
     (terminal/bind-stream!
       frame-stream
-      {:validate-frame! validate-frame!,
+      {:validate-frame! #(lower/validate-frame!
+                           %
+                           {:supports-render-targets? false,
+                            :supports-image? false,
+                            :texture-source-valid?
+                            (fn [s] (instance? gpu/Texture s))}),
        :present-frame! (fn [frame] (set! (.-value notifier) frame)),
        :signal-stream signal-stream,
        :on-error (or on-error

@@ -1,12 +1,12 @@
 (ns dao.postgraphics.flutter.gpu
   (:require ["dart:async" :as async]
             ["dart:core" :as dart]
+            ["dart:io" :as io]
             ["dart:typed_data" :as type]
             ["dart:ui" :as ui]
             ["package:flutter/services.dart" :as services]
             ["package:flutter_gpu/gpu.dart" :as gpu]
             ["package:vector_math/vector_math.dart" :as vm32]
-            ["package:vector_math/vector_math_64.dart" :as vm]
             [dao.postgraphics.validation :as v]))
 
 
@@ -152,14 +152,25 @@
                          address-mode)))
 
 
-(defn gpu-available?
-  "True when Flutter GPU (Impeller) exposes a context on this device. A
-   synchronous probe of gpu/gpuContext, the Flutter-GPU counterpart to the
-   browser's navigator.gpu check. Presence of a context does not guarantee that
-   a given pipeline actually renders (see the emulator caveat in
-   docs/design/dao.postgraphics.software.md)."
+(defn- is-emulator?
+  "Synchronous emulator/simulator detection.  iOS: SIMULATOR_DEVICE_NAME
+   env var.  Android: getprop ro.kernel.qemu returns \"1\" on emulators."
   []
-  (some? gpu/gpuContext))
+  (or (.containsKey (.-environment io/Platform) "SIMULATOR_DEVICE_NAME")
+      (try (= "1"
+              (-> (.runSync io/Process "getprop" ["ro.kernel.qemu"])
+                  .-stdout
+                  (.trim)))
+           (catch Object _ false))))
+
+
+(defn gpu-available?
+  "True when Flutter GPU (Impeller) exposes a context AND the device is not an
+   emulator or simulator.  Emulators run Impeller through software Vulkan
+   (Swiftshader), which satisfies context creation but silently fails to render
+   custom mesh pipelines — so we exclude them via synchronous detection."
+  []
+  (and (some? gpu/gpuContext) (not (is-emulator?))))
 
 
 (defn- init-gpu!
@@ -274,8 +285,10 @@
 
 (defn- gpu-clear-color
   [lowered]
-  (or (some (fn [draw] (when (= :clear (:pipeline draw)) (:color draw)))
-            (:draws lowered))
+  (or (some (fn [pass]
+              (some (fn [draw] (when (= :clear (:pipeline draw)) (:color draw)))
+                    (:draws pass)))
+            (:passes lowered))
       [0.0 0.0 0.0 1.0]))
 
 
@@ -287,7 +300,7 @@
    draws'."
   [draw]
   (case (:pipeline draw)
-    (:clear :camera-reset :mesh-3d :draw-2d :text) true
+    (:clear :camera-reset :mesh-3d :line-3d :draw-2d :text) true
     :draw-3d (contains? #{:draw3d/triangles :draw3d/lines}
                         (get-in draw [:op :op/kind]))
     false))
@@ -295,8 +308,11 @@
 
 (defn- reject-non-gpu-draws!
   [lowered]
-  (when-let [draw (some (fn [draw] (when-not (gpu-supported-draw? draw) draw))
-                        (:draws lowered))]
+  (when-let [draw (some (fn [pass]
+                          (some (fn [draw]
+                                  (when-not (gpu-supported-draw? draw) draw))
+                                (:draws pass)))
+                        (:passes lowered))]
     (v/reject! :unsupported-op
                (str "Flutter GPU renderer does not support pipeline " (:pipeline
                                                                         draw)
@@ -352,9 +368,11 @@
         (.setDepthWriteEnable render-pass true)
         (.reset host-buffer)
         ;; TODO: implement other pipelines (clear, text, 2D)
-        (doseq [draw (:draws lowered)]
+        (doseq [pass (:passes lowered)
+                draw (:draws pass)]
           (case (:pipeline draw)
             :mesh-3d (render-mesh-gpu! render-pass draw pipeline host-buffer)
+            :line-3d (render-lines-gpu! render-pass draw pipeline host-buffer)
             :draw-3d
             (case (get-in draw [:op :op/kind])
               :draw3d/triangles

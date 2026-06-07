@@ -1,6 +1,7 @@
 (ns dao.postgraphics.web.gpu-test
   (:require
     [cljs.test :refer-macros [deftest is testing]]
+    [dao.postgraphics.lowering :as lower]
     [dao.postgraphics.terminal :as terminal]
     [dao.postgraphics.web.gpu :as webgpu]
     [dao.stream :as ds]
@@ -22,30 +23,40 @@
   (and (= (count a) (count b)) (every? true? (map approx= a b))))
 
 
+(defn- lower-opts
+  ([] (lower-opts 200 100))
+  ([w h]
+   {:viewport-width w,
+    :viewport-height h,
+    :supports-render-targets? true,
+    :supports-image? true}))
+
+
 (deftest rects-are-lowered-into-browser-screen-space
-  (let [lowered (webgpu/lower-frame [{:op/kind :draw/fill-rect,
-                                      :rect [10 20 30 40],
-                                      :color [1 0 0 1]}]
-                                    {:viewport-width 200, :viewport-height 100})
+  (let [lowered (lower/lower-frame [{:op/kind :draw/fill-rect,
+                                     :rect [10 20 30 40],
+                                     :color [1 0 0 1]}]
+                                   (lower-opts))
         draw (first (get-in lowered [:passes 0 :draws]))]
-    (is (= :solid-2d (:pipeline draw)))
-    (is (= [10 40 30 40] (:screen-rect draw)))))
+    (is (= :draw-2d (:pipeline draw)))
+    (is (vector? (:model-m draw)))
+    (is (= 16 (count (:model-m draw))))))
 
 
 (deftest clips-resolve-through-translate-only-ancestry
   (let [lowered
-        (webgpu/lower-frame
+        (lower/lower-frame
           [{:op/kind :transform/push, :translate [5 10]}
            {:op/kind :clip/push-rect, :rect [10 20 30 40]}
            {:op/kind :draw/fill-rect, :rect [0 0 10 10], :color [1 1 1 1]}
            {:op/kind :clip/pop} {:op/kind :transform/pop}]
-          {:viewport-width 200, :viewport-height 100})
+          (lower-opts))
         draw (first (get-in lowered [:passes 0 :draws]))]
     (is (= [[15 30 30 40]] (:clips draw)))))
 
 
 (deftest text-anchor-is-transformed-but-glyphs-remain-screen-space
-  (let [lowered (webgpu/lower-frame
+  (let [lowered (lower/lower-frame
                   [{:op/kind :transform/push, :translate [3 4], :scale [2 3]}
                    {:op/kind :draw/text,
                     :text "dao",
@@ -53,10 +64,11 @@
                     :font-size 12,
                     :align :start,
                     :color [0 0 0 1]} {:op/kind :transform/pop}]
-                  {:viewport-width 200, :viewport-height 100})
+                  (lower-opts))
         draw (first (get-in lowered [:passes 0 :draws]))]
     (is (= :text (:pipeline draw)))
-    (is (= [13 78] (:screen-position draw)))
+    (is (approx= 13 (:screen-x draw)))
+    (is (approx= 78 (:screen-y draw)))
     (is (= false (:glyphs-transformed? draw)))))
 
 
@@ -78,8 +90,8 @@
                 :indices [[0 1 2]],
                 :normals [[0.0 0.0 1.0] [0.0 0.0 1.0] [0.0 0.0 1.0]],
                 :fill [1.0 1.0 1.0 1.0]} {:op/kind :transform/pop}]
-        lowered (webgpu/lower-frame frame
-                                    {:viewport-width 100, :viewport-height 50})
+        lowered (lower/lower-frame frame
+                                   {:viewport-width 100, :viewport-height 50})
         draw (second (get-in lowered [:passes 0 :draws]))]
     (is (= :camera-reset (get-in lowered [:passes 0 :draws 0 :pipeline])))
     (is (= :mesh-3d (:pipeline draw)))
@@ -98,7 +110,7 @@
 
 (deftest custom-view-matrix-drives-camera-position
   (let [view [1.0 0.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 1.0 0.0 -3.0 2.0 -5.0 1.0]
-        lowered (webgpu/lower-frame
+        lowered (lower/lower-frame
                   [{:op/kind :camera3d/set,
                     :camera3d/projection :perspective,
                     :camera3d/fov 45.0,
@@ -117,55 +129,61 @@
 
 
 (deftest render-targets-produce-addressable-passes
-  (let [lowered (webgpu/lower-frame [{:op/kind :target/push,
-                                      :target/id :shadow,
-                                      :target/size [64 64],
-                                      :target/format :rgba8unorm}
-                                     {:op/kind :frame/clear, :color [0 0 0 1]}
-                                     {:op/kind :target/pop}
-                                     {:op/kind :draw/image,
-                                      :image/source [:target/id :shadow],
-                                      :rect [0 0 16 16]}]
-                                    {:viewport-width 128,
-                                     :viewport-height 128,
-                                     :resolve-resource
-                                     (fn [source _state]
-                                       (when (= source [:target/id :shadow])
-                                         {:resource/kind :target-texture,
-                                          :target/id :shadow}))})]
+  (let [lowered (lower/lower-frame [{:op/kind :target/push,
+                                     :target/id :shadow,
+                                     :target/size [64 64],
+                                     :target/format :rgba8unorm}
+                                    {:op/kind :frame/clear, :color [0 0 0 1]}
+                                    {:op/kind :target/pop}
+                                    {:op/kind :draw/image,
+                                     :image/source [:target/id :shadow],
+                                     :rect [0 0 16 16]}]
+                                   {:viewport-width 128,
+                                    :viewport-height 128,
+                                    :supports-render-targets? true,
+                                    :supports-image? true,
+                                    :resolve-resource
+                                    (fn [source _state]
+                                      (when (= source [:target/id :shadow])
+                                        {:resource/kind :target-texture,
+                                         :target/id :shadow}))})]
     (is (= [:default :shadow] (mapv :target-id (:passes lowered))))
     (is (= :clear (get-in lowered [:passes 1 :draws 0 :pipeline])))
-    (is (= :texture-2d (get-in lowered [:passes 0 :draws 0 :pipeline])))))
+    (is (= :draw-2d (get-in lowered [:passes 0 :draws 0 :pipeline])))))
 
 
 (deftest invalid-target-sampling-is-rejected-canonically
   (testing "missing produced target"
     (is (= :validation-failure
-           (try (webgpu/validate-frame! [{:op/kind :draw/image,
-                                          :image/source [:target/id :missing],
-                                          :rect [0 0 10 10]}])
+           (try (lower/validate-frame! [{:op/kind :draw/image,
+                                         :image/source [:target/id :missing],
+                                         :rect [0 0 10 10]}]
+                                       {:supports-image? true})
                 nil
                 (catch js/Error e (terminal/rejection-reason e))))))
   (testing "self-sampling active target"
     (is (= :validation-failure
-           (try (webgpu/validate-frame! [{:op/kind :target/push,
-                                          :target/id :shadow,
-                                          :target/size [64 64],
-                                          :target/format :rgba8unorm}
-                                         {:op/kind :draw/image,
-                                          :image/source [:target/id :shadow],
-                                          :rect [0 0 10 10]}
-                                         {:op/kind :target/pop}])
+           (try (lower/validate-frame!
+                  [{:op/kind :target/push,
+                    :target/id :shadow,
+                    :target/size [64 64],
+                    :target/format :rgba8unorm}
+                   {:op/kind :draw/image,
+                    :image/source [:target/id :shadow],
+                    :rect [0 0 10 10]} {:op/kind :target/pop}]
+                  {:supports-render-targets? true, :supports-image? true})
                 nil
                 (catch js/Error e (terminal/rejection-reason e)))))))
 
 
 (deftest unresolved-image-resources-are-unloadable
   (is (= :unloadable-image
-         (try (webgpu/lower-frame [{:op/kind :draw/image,
-                                    :image/source :asset/not-ready,
-                                    :rect [0 0 10 10]}]
-                                  {:viewport-width 100, :viewport-height 100})
+         (try (lower/lower-frame [{:op/kind :draw/image,
+                                   :image/source :asset/not-ready,
+                                   :rect [0 0 10 10]}]
+                                 {:viewport-width 100,
+                                  :viewport-height 100,
+                                  :supports-image? true})
               nil
               (catch js/Error e (terminal/rejection-reason e))))))
 
@@ -190,8 +208,7 @@
     (terminal/put-frame! frames [{:op/kind :draw/fill-rect, :rect [0 0 -1 1]}])
     (is (= "webgpu-test" (:generation-id handle)))
     (is (= 1 (count @submissions)))
-    (is (= [0 40 10 10]
-           (get-in @submissions [0 :passes 0 :draws 0 :screen-rect])))
+    (is (= :draw-2d (get-in @submissions [0 :passes 0 :draws 0 :pipeline])))
     (is (= 1 (count @errors)))
     (is (= :dao.terminal/reset
            (:message/kind (:ok (ds/next signals {:position 0})))))
@@ -204,9 +221,7 @@
 (deftest texture-upload-mode-prefers-automatic-rasterization-for-image-sources
   (is (= :white (webgpu/texture-upload-mode nil)))
   (is (= :white (webgpu/texture-upload-mode {:image :x})))
-  (is (= :rgba (webgpu/texture-upload-mode {:rgba (js/Uint8Array. #js [1 2 3 4])
-                                            :width 1
-                                            :height 1})))
-  (is (= :image (webgpu/texture-upload-mode {:image {}
-                                             :width 8
-                                             :height 4}))))
+  (is (= :rgba
+         (webgpu/texture-upload-mode
+           {:rgba (js/Uint8Array. #js [1 2 3 4]), :width 1, :height 1})))
+  (is (= :image (webgpu/texture-upload-mode {:image {}, :width 8, :height 4}))))
