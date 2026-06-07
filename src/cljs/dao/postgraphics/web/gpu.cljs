@@ -2,9 +2,9 @@
   (:require
     [dao.postgraphics.math :refer
      [build-camera camera-pos-from-view-matrix cart-rect->screen
-      identity-mat4 mat4-mul matrix-valid-numbers? matrix4->affine
-      matrix4-translation-only? op->mat4 resolve-clip-rect
-      transform-point transformed-rect]]
+      identity-mat4 mat4-mul matrix-valid-numbers? matrix4-affine?
+      matrix4->affine matrix4-translation-only? op->mat4
+      resolve-clip-rect transform-point transformed-rect]]
     [dao.postgraphics.terminal :as terminal]
     [dao.postgraphics.validation :as v]
     [reagent.core :as r]))
@@ -95,9 +95,8 @@
 
 (defn- validate-2d-draw!
   [op model-stack target-stack produced-targets]
-  (let [kind (:op/kind op)
-        top (matrix4->affine (first model-stack))]
-    (when-not (:affine-2d? top)
+  (let [kind (:op/kind op)]
+    (when-not (matrix4-affine? (first model-stack))
       (v/reject! (str "Invalid 2D affine matrix for " kind)))
     (case kind
       (:draw/fill-rect :draw/stroke-rect)
