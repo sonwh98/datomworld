@@ -1,0 +1,357 @@
+(ns dao.postgraphics.flutter.gpu
+  (:require ["dart:async" :as async]
+            ["dart:core" :as dart]
+            ["dart:typed_data" :as type]
+            ["dart:ui" :as ui]
+            ["package:flutter/services.dart" :as services]
+            ["package:flutter_gpu/gpu.dart" :as gpu]
+            ["package:vector_math/vector_math.dart" :as vm32]
+            ["package:vector_math/vector_math_64.dart" :as vm]
+            [dao.postgraphics.validation :as v]))
+
+
+;; --- GPU helpers ---
+
+(defn- vertices->float32-list
+  ^type/Float32List [verts uvs normals colors]
+  (let [n (count verts)
+        ^type/Float32List data (type/Float32List. (* n 12))]
+    (dotimes [i n]
+      (let [off (* i 12)
+            v (nth verts i)
+            uv (nth uvs i [0.0 0.0])
+            norm (nth normals i [0.0 0.0 0.0])
+            col (nth colors i [1.0 1.0 1.0 1.0])]
+        (aset data off (double (nth v 0)))
+        (aset data (+ off 1) (double (nth v 1)))
+        (aset data (+ off 2) (double (nth v 2)))
+        (aset data (+ off 3) (double (nth uv 0)))
+        (aset data (+ off 4) (double (nth uv 1)))
+        (aset data (+ off 5) (double (nth norm 0)))
+        (aset data (+ off 6) (double (nth norm 1)))
+        (aset data (+ off 7) (double (nth norm 2)))
+        (aset data (+ off 8) (double (nth col 0)))
+        (aset data (+ off 9) (double (nth col 1)))
+        (aset data (+ off 10) (double (nth col 2)))
+        (aset data (+ off 11) (double (nth col 3)))))
+    data))
+
+
+(defn- indices->uint16-list
+  ^type/Uint16List [indices]
+  (let [flat (flatten indices)
+        n (count flat)
+        ^type/Uint16List data (type/Uint16List. n)]
+    (loop [i 0
+           s (seq flat)]
+      (if s (do (aset data i (int (first s))) (recur (inc i) (next s))) data))))
+
+
+(defonce ^:private gpu-state
+  (atom {:context nil, :pipeline nil, :host-buffer nil, :white-texture nil}))
+
+
+(defn- require-rgba-byte-size!
+  [^int width ^int height ^type/ByteData rgba]
+  (let [expected (* width height 4)
+        actual (.-lengthInBytes rgba)]
+    (when (not= expected actual)
+      (v/reject! :validation-failure
+                 (str
+                   "RGBA texture byte length must be width*height*4; expected "
+                   expected
+                   ", got " actual)))))
+
+
+(declare init-gpu!)
+
+
+(defn create-rgba-texture!
+  "Creates a Flutter GPU texture from tightly packed RGBA8 host bytes.
+
+   The returned gpu/Texture is the value to place in draw3d/mesh
+   :texture/source. Texture bytes enter the VM as data; sampling remains a
+   Flutter GPU shader operation."
+  ^gpu/Texture [^int width ^int height ^type/ByteData rgba]
+  (when-not (and (> width 0) (> height 0))
+    (v/reject! :validation-failure "Texture width and height must be positive"))
+  (require-rgba-byte-size! width height rgba)
+  (init-gpu!)
+  (let [^gpu/GpuContext context (:context @gpu-state)]
+    (if context
+      (let [^gpu/Texture texture
+            (.createTexture context gpu/StorageMode.hostVisible width height)]
+        (.overwrite texture rgba)
+        texture)
+      (v/reject! :unsupported-op
+                 "Flutter GPU is not available; cannot create texture"))))
+
+
+(defn load-rgba-texture-from-asset!
+  "Asynchronously loads a PNG/JPG asset, decodes it to RGBA8 bytes, and
+   uploads the result to a Flutter GPU texture. Returns a Future that
+   resolves to a gpu/Texture suitable for use as :texture/source."
+  ^async/Future [^String asset-path]
+  (.then
+    ^async/Future (.load services/rootBundle asset-path)
+    (fn [^type/ByteData asset-bytes]
+      (.then
+        ^async/Future
+        (ui/instantiateImageCodec (.asUint8List (.-buffer asset-bytes)))
+        (fn [^ui/Codec codec]
+          (.then
+            ^async/Future (.getNextFrame codec)
+            (fn [^ui/FrameInfo frame]
+              (let [^ui/Image image (.-image frame)
+                    w (.-width image)
+                    h (.-height image)]
+                (.then
+                  ^async/Future
+                  (.toByteData image .format ui/ImageByteFormat.rawRgba)
+                  (fn [rgba]
+                    (if (nil? rgba)
+                      (throw (dart/Exception. (str "Failed to decode asset: "
+                                                   asset-path)))
+                      (create-rgba-texture! w h ^type/ByteData rgba))))))))))))
+
+
+(defn- sampler-filter
+  [filter]
+  (case filter
+    :nearest gpu/MinMagFilter.nearest
+    gpu/MinMagFilter.linear))
+
+
+(defn- sampler-mip-filter
+  [mipmap?]
+  (if mipmap? gpu/MipFilter.linear gpu/MipFilter.nearest))
+
+
+(defn- sampler-address-mode
+  [wrap]
+  (case wrap
+    :repeat gpu/SamplerAddressMode.repeat
+    :mirror gpu/SamplerAddressMode.mirror
+    gpu/SamplerAddressMode.clampToEdge))
+
+
+(defn- sampler-options
+  [op]
+  (let [filter (sampler-filter (get op :texture/filter :linear))
+        mip-filter (sampler-mip-filter (true? (:texture/mipmap op)))
+        address-mode (sampler-address-mode (get op :texture/wrap :clamp))]
+    (gpu/SamplerOptions. .minFilter
+                         filter
+                         .magFilter
+                         filter
+                         .mipFilter
+                         mip-filter
+                         .widthAddressMode
+                         address-mode
+                         .heightAddressMode
+                         address-mode)))
+
+
+(defn- init-gpu!
+  []
+  (when-not (:context @gpu-state)
+    (let [ctx gpu/gpuContext]
+      (if (nil? ctx)
+        (dart/print "Flutter GPU is not available on this device.")
+        (try
+          (let [lib (gpu/ShaderLibrary.fromAsset
+                      "assets/shaders/simple_mesh.shaderbundle")
+                _ (when (nil? lib)
+                    (throw (dart/Exception. "Failed to load shader library")))
+                vert (. ^gpu/ShaderLibrary lib "[]" "SimpleVertex")
+                frag (. ^gpu/ShaderLibrary lib "[]" "SimpleFragment")]
+            (if (and vert frag)
+              (let [pipeline (.createRenderPipeline ctx vert frag)
+                    white-texture (let [bytes (type/ByteData. 4)]
+                                    (.setUint8 bytes 0 255)
+                                    (.setUint8 bytes 1 255)
+                                    (.setUint8 bytes 2 255)
+                                    (.setUint8 bytes 3 255)
+                                    (let [texture (.createTexture
+                                                    ctx
+                                                    gpu/StorageMode.hostVisible
+                                                    1
+                                                    1)]
+                                      (.overwrite texture bytes)
+                                      texture))]
+                (swap! gpu-state assoc
+                       :context ctx
+                       :pipeline pipeline
+                       :host-buffer (.createHostBuffer ctx)
+                       :white-texture white-texture))
+              (dart/print "GPU shaders not found in bundle.")))
+          (catch Object e
+            (dart/print (str "Failed to load GPU shaders: " e))))))))
+
+
+(defn- render-mesh-gpu!
+  [^gpu/RenderPass pass draw ^gpu/RenderPipeline pipeline
+   ^gpu/HostBuffer host-buffer]
+  (let [{:keys [op mvp model-m]} draw
+        verts (:vertices op)
+        uvs (:uvs op)
+        normals (:normals op)
+        fill (get op :fill [1.0 1.0 1.0 1.0])
+        colors (or (:colors op) (vec (repeat (count verts) fill)))
+        indices (:indices op)
+        texture (or (:texture/source op) (:white-texture @gpu-state))
+        sampler (sampler-options op)
+        v-data (vertices->float32-list verts uvs normals colors)
+        i-data (indices->uint16-list indices)
+        ;; Upload vertex and index data via HostBuffer
+        v-view (.emplace host-buffer (.asByteData (.-buffer v-data)))
+        i-view (.emplace host-buffer (.asByteData (.-buffer i-data)))
+        ;; Uniforms
+        u-data (type/Float32List. 32)
+        _ (.setAll u-data 0 (.-storage ^vm/Matrix4 mvp))
+        _ (.setAll u-data 16 (.-storage ^vm/Matrix4 model-m))
+        u-view (.emplace host-buffer (.asByteData (.-buffer u-data)))
+        vert-shader (.-vertexShader pipeline)
+        frag-shader (.-fragmentShader pipeline)
+        u-slot (.getUniformSlot vert-shader "Uniforms")
+        tex-slot (.getUniformSlot frag-shader "tex")]
+    (.bindPipeline pass pipeline)
+    (.setPrimitiveType pass gpu/PrimitiveType.triangle)
+    (.bindVertexBuffer pass v-view (count verts))
+    (.bindIndexBuffer pass i-view gpu/IndexType.int16 (.-length i-data))
+    (.bindUniform pass u-slot u-view)
+    (.bindTexture pass tex-slot texture .sampler sampler)
+    (.draw pass)))
+
+
+(defn- render-lines-gpu!
+  "Renders a :draw3d/lines op as a GPU line list. Reuses the textured-mesh
+   shader by binding the 1x1 white texture and a per-op constant vertex
+   color, so the lit fragment becomes (1,1,1,1) * color. setPrimitiveType
+   is set on every draw because RenderPass topology is sticky and could
+   leak from a prior lines/triangles draw in the same pass."
+  [^gpu/RenderPass pass draw ^gpu/RenderPipeline pipeline
+   ^gpu/HostBuffer host-buffer]
+  (let [{:keys [op mvp model-m]} draw
+        verts (:vertices op)
+        edges (:edges op)
+        color (get op :color [1.0 1.0 1.0 1.0])
+        colors (vec (repeat (count verts) color))
+        texture (:white-texture @gpu-state)
+        sampler (sampler-options op)
+        v-data (vertices->float32-list verts nil nil colors)
+        i-data (indices->uint16-list edges)
+        v-view (.emplace host-buffer (.asByteData (.-buffer v-data)))
+        i-view (.emplace host-buffer (.asByteData (.-buffer i-data)))
+        u-data (type/Float32List. 32)
+        _ (.setAll u-data 0 (.-storage ^vm/Matrix4 mvp))
+        _ (.setAll u-data 16 (.-storage ^vm/Matrix4 model-m))
+        u-view (.emplace host-buffer (.asByteData (.-buffer u-data)))
+        vert-shader (.-vertexShader pipeline)
+        frag-shader (.-fragmentShader pipeline)
+        u-slot (.getUniformSlot vert-shader "Uniforms")
+        tex-slot (.getUniformSlot frag-shader "tex")]
+    (.bindPipeline pass pipeline)
+    (.setPrimitiveType pass gpu/PrimitiveType.line)
+    (.bindVertexBuffer pass v-view (count verts))
+    (.bindIndexBuffer pass i-view gpu/IndexType.int16 (.-length i-data))
+    (.bindUniform pass u-slot u-view)
+    (.bindTexture pass tex-slot texture .sampler sampler)
+    (.draw pass)))
+
+
+(defn- gpu-clear-color
+  [lowered]
+  (or (some (fn [draw] (when (= :clear (:pipeline draw)) (:color draw)))
+            (:draws lowered))
+      [0.0 0.0 0.0 1.0]))
+
+
+(defn- gpu-supported-draw?
+  "True when a lowered draw is one this Flutter renderer can paint — either
+   directly via Flutter GPU (clear, camera-reset, mesh-3d, draw-3d) or via
+   the 2D Canvas overlay in PostgraphicsPainter (draw-2d, text). The name
+   is historical; reject-non-gpu-draws! is really 'reject unrenderable
+   draws'."
+  [draw]
+  (case (:pipeline draw)
+    (:clear :camera-reset :mesh-3d :draw-2d :text) true
+    :draw-3d (contains? #{:draw3d/triangles :draw3d/lines}
+                        (get-in draw [:op :op/kind]))
+    false))
+
+
+(defn- reject-non-gpu-draws!
+  [lowered]
+  (when-let [draw (some (fn [draw] (when-not (gpu-supported-draw? draw) draw))
+                        (:draws lowered))]
+    (v/reject! :unsupported-op
+               (str "Flutter GPU renderer does not support pipeline " (:pipeline
+                                                                        draw)
+                    "; add a Flutter GPU pipeline for this op instead of "
+                    "falling back to Canvas"))))
+
+
+(defn submit-gpu!
+  [lowered ^double width ^double height]
+  (reject-non-gpu-draws! lowered)
+  (init-gpu!)
+  (let [state @gpu-state
+        ^gpu/GpuContext context (:context state)
+        ^gpu/RenderPipeline pipeline (:pipeline state)
+        ^gpu/HostBuffer host-buffer (:host-buffer state)]
+    (if (and context pipeline host-buffer)
+      (let [[r g b a] (gpu-clear-color lowered)
+            ^gpu/CommandBuffer command-buffer (.createCommandBuffer context)
+            ^gpu/Texture texture (.createTexture context
+                                                 gpu/StorageMode.devicePrivate
+                                                 (int width)
+                                                 (int height))
+            ^gpu/Texture depth-texture (.createTexture
+                                         context
+                                         gpu/StorageMode.devicePrivate
+                                         (int width)
+                                         (int height)
+                                         .format
+                                         gpu/PixelFormat.d24UnormS8Uint)
+            render-target
+            (gpu/RenderTarget.singleColor
+              (gpu/ColorAttachment.
+                .texture
+                texture
+                .clearValue
+                (vm32/Vector4. (double r) (double g) (double b) (double a))
+                .loadAction
+                gpu/LoadAction.clear
+                .storeAction
+                gpu/StoreAction.store)
+              .depthStencilAttachment
+              (gpu/DepthStencilAttachment. .texture
+                                           depth-texture
+                                           .depthLoadAction
+                                           gpu/LoadAction.clear
+                                           .depthStoreAction
+                                           gpu/StoreAction.dontCare
+                                           .depthClearValue
+                                           1.0))
+            ^gpu/RenderPass render-pass (.createRenderPass command-buffer
+                                                           render-target)]
+        (.setDepthCompareOperation render-pass gpu/CompareFunction.less)
+        (.setDepthWriteEnable render-pass true)
+        (.reset host-buffer)
+        ;; TODO: implement other pipelines (clear, text, 2D)
+        (doseq [draw (:draws lowered)]
+          (case (:pipeline draw)
+            :mesh-3d (render-mesh-gpu! render-pass draw pipeline host-buffer)
+            :draw-3d
+            (case (get-in draw [:op :op/kind])
+              :draw3d/triangles
+              (render-mesh-gpu! render-pass draw pipeline host-buffer)
+              :draw3d/lines
+              (render-lines-gpu! render-pass draw pipeline host-buffer)
+              nil)
+            nil))
+        (.submit command-buffer)
+        (.asImage texture))
+      (v/reject! :unsupported-op
+                 "Flutter GPU is not available; Canvas fallback is disabled"))))

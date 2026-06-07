@@ -4,6 +4,7 @@
             ["dart:typed_data" :as type]
             ["package:flutter/material.dart" :as m]
             [dao.postgraphics.flutter :as pg]
+            [dao.postgraphics.flutter.gpu :as pg-gpu]
             [datomworld.demo.earth-moon-runner :as runner]
             [datomworld.demo.earth-moon-scene :as scene]))
 
@@ -24,7 +25,7 @@
 
 (defn- ensure-asset-texture!
   [setter! asset-path]
-  (.then ^async/Future (pg/load-rgba-texture-from-asset! asset-path)
+  (.then ^async/Future (pg-gpu/load-rgba-texture-from-asset! asset-path)
          (fn [tex] (setter! tex))))
 
 
@@ -48,11 +49,11 @@
 
 (defn- ensure-ring-texture!
   []
-  (try (runner/set-ring-texture! (pg/create-rgba-texture! ring-tex-width
-                                                          ring-tex-height
-                                                          (ring-texture-bytes
-                                                            ring-tex-width
-                                                            ring-tex-height)))
+  (try (runner/set-ring-texture! (pg-gpu/create-rgba-texture!
+                                   ring-tex-width
+                                   ring-tex-height
+                                   (ring-texture-bytes ring-tex-width
+                                                       ring-tex-height)))
        (catch Object e (core/print (str "Ring texture creation failed: " e)))))
 
 
