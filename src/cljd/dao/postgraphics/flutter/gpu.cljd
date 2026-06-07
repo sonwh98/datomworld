@@ -152,6 +152,16 @@
                          address-mode)))
 
 
+(defn gpu-available?
+  "True when Flutter GPU (Impeller) exposes a context on this device. A
+   synchronous probe of gpu/gpuContext, the Flutter-GPU counterpart to the
+   browser's navigator.gpu check. Presence of a context does not guarantee that
+   a given pipeline actually renders (see the emulator caveat in
+   docs/design/dao.postgraphics.software.md)."
+  []
+  (some? gpu/gpuContext))
+
+
 (defn- init-gpu!
   []
   (when-not (:context @gpu-state)

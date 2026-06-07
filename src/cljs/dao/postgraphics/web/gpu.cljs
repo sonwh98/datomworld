@@ -1158,9 +1158,7 @@
 
 (defn texture-upload-mode
   [texture]
-  (cond (or (nil? texture)
-            (nil? (:width texture))
-            (nil? (:height texture)))
+  (cond (or (nil? texture) (nil? (:width texture)) (nil? (:height texture)))
         :white
         (:rgba texture) :rgba
         (:image texture) :image
@@ -1187,8 +1185,8 @@
         texture-cache (:texture-cache state)
         source-id (:source-id texture)
         upload-mode (texture-upload-mode texture)]
-    (cond (= :white upload-mode)
-          {:texture white-texture, :view (.createView white-texture)}
+    (cond (= :white upload-mode) {:texture white-texture,
+                                  :view (.createView white-texture)}
           (and source-id (get texture-cache source-id)) (get texture-cache
                                                              source-id)
           :else
@@ -1500,8 +1498,7 @@
           (case (:pipeline draw)
             (:mesh-3d :mesh-textured-3d)
             (encode-mesh! state-atom pass device draw)
-            :line-3d
-            (encode-lines! state-atom pass device draw)
+            :line-3d (encode-lines! state-atom pass device draw)
             nil))
         (.end pass)
         (.submit (.-queue device) #js [(.finish encoder)])
@@ -1513,10 +1510,11 @@
   (submit-webgpu! canvas lowered))
 
 
-(defn- webgpu-supported?
-  "Synchronous capability probe. The WebGPU spec exposes the `gpu` getter
-   on `navigator` only when the browser ships an implementation, so a
-   nil-check is enough to detect the unsupported case without going async."
+(defn gpu-available?
+  "Synchronous capability probe, the browser counterpart to
+   dao.postgraphics.flutter.gpu/gpu-available?. The WebGPU spec exposes the
+   `gpu` getter on `navigator` only when the browser ships an implementation,
+   so a nil-check is enough to detect the unsupported case without going async."
   []
   (boolean (and (exists? js/navigator) (.-gpu js/navigator))))
 
@@ -1623,7 +1621,7 @@
                                  (reset! terminal-handle nil)
                                  (reset! canvas-ref nil)),
        :reagent-render (fn []
-                         (if (webgpu-supported?)
+                         (if (gpu-available?)
                            [:canvas
                             (assoc canvas-attrs :ref #(reset! canvas-ref %))]
                            [webgpu-unsupported-view canvas-attrs]))})))
