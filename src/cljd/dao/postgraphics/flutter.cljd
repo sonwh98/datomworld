@@ -5,18 +5,11 @@
             ["dart:ui" :as ui]
             ["package:flutter/material.dart" :as m]
             ["package:flutter_gpu/gpu.dart" :as gpu]
-            ["package:vector_math/vector_math_64.dart" :as vm]
             [dao.postgraphics.flutter.gpu :as gpu-render]
+            [dao.postgraphics.math :as pmath]
             [dao.postgraphics.terminal :as terminal]
             [dao.postgraphics.validation :as v]))
 
-
-(defn- abs-d
-  ^double [^double x]
-  (if (< x 0.0) (- x) x))
-
-
-;; --- matrix helpers ---
 
 (defn- ->f64-list
   ^type/Float64List [args]
@@ -26,47 +19,9 @@
       (if s (do (aset fl i (double (first s))) (recur (inc i) (next s))) fl))))
 
 
-(defn- op->matrix
-  ^vm/Matrix4 [op]
-  (if-let [mat (:matrix op)]
-    (if (= 9 (count mat))
-      (let [[m00 m01 m02 m10 m11 m12 m20 m21 m22] mat]
-        (vm/Matrix4.fromList (->f64-list [m00 m10 0.0 m20 m01 m11 0.0 m21 0.0
-                                          0.0 1.0 0.0 m02 m12 0.0 m22])))
-      (vm/Matrix4.fromList (->f64-list mat)))
-    (let [m (vm/Matrix4.identity)]
-      (when-let [t (:translate op)]
-        (.translate m
-                    (double (nth t 0))
-                    (double (nth t 1))
-                    (double (if (= 3 (count t)) (nth t 2) 0.0))))
-      (when-let [r (:rotate op)]
-        (if (number? r)
-          (.rotateZ m (double r))
-          (let [rx (double (nth r 0))
-                ry (double (nth r 1))
-                rz (double (nth r 2))]
-            (.multiply m (vm/Matrix4.rotationZ rz))
-            (.multiply m (vm/Matrix4.rotationY ry))
-            (.multiply m (vm/Matrix4.rotationX rx)))))
-      (when-let [s (:scale op)]
-        (.scale m
-                (double (nth s 0))
-                (double (nth s 1))
-                (double (if (= 3 (count s)) (nth s 2) 1.0))))
-      m)))
-
-
 (defn- valid-2d-affine?
-  [^vm/Matrix4 m]
-  (let [st (.-storage m)]
-    (and (< (abs-d (aget st 2)) v/EPSILON)
-         (< (abs-d (aget st 6)) v/EPSILON)
-         (< (abs-d (aget st 14)) v/EPSILON)
-         (< (abs-d (- (aget st 10) 1.0)) v/EPSILON)
-         (< (abs-d (aget st 3)) v/EPSILON)
-         (< (abs-d (aget st 7)) v/EPSILON)
-         (< (abs-d (- (aget st 15) 1.0)) v/EPSILON))))
+  [mat16]
+  (pmath/matrix4-affine? mat16))
 
 
 ;; --- validation ---
@@ -75,7 +30,7 @@
   [frame]
   (when-not (vector? frame) (v/reject! "Frame must be a vector"))
   (loop [ops frame
-         m-stack (list (vm/Matrix4.identity))
+         m-stack (list (pmath/identity-mat4))
          c-stack 0
          has-cam false
          lit? false]
@@ -92,15 +47,17 @@
           :frame/clear (do (v/check-color! op :color)
                            (recur (rest ops) m-stack c-stack has-cam lit?))
           :transform/push
-          (let [^vm/Matrix4 top (first m-stack)
-                new-m (.clone top)]
-            (.multiply new-m (op->matrix op))
-            (recur (rest ops) (conj m-stack new-m) c-stack has-cam lit?))
+          (let [top (first m-stack)]
+            (recur (rest ops)
+                   (conj m-stack (pmath/mat4-mul top (pmath/op->mat4 op)))
+                   c-stack
+                   has-cam
+                   lit?))
           :transform/pop (if (<= (count m-stack) 1)
                            (v/reject! "Transform pop without push")
                            (recur (rest ops)
                                   (or (next m-stack)
-                                      (list (vm/Matrix4.identity)))
+                                      (list (pmath/identity-mat4)))
                                   c-stack
                                   has-cam
                                   lit?))
@@ -168,9 +125,7 @@
               (when-not (v/vec3? rot)
                 (v/reject! "camera3d/rotation must be vec3")))
             (when-let [vmat (:camera3d/view-matrix op)]
-              (when-not (and (vector? vmat)
-                             (= 16 (count vmat))
-                             (every? number? vmat))
+              (when-not (pmath/matrix-valid-numbers? vmat 16)
                 (v/reject!
                   "camera3d/view-matrix must be 16-element numeric vector")))
             (recur (rest ops) m-stack c-stack true lit?))
@@ -431,143 +386,6 @@
           (v/reject! :unsupported-op (str "Unknown op kind: " kind)))))))
 
 
-(defn- build-camera
-  ^vm/Matrix4 [op width height]
-  (let [proj (vm/Matrix4.zero)]
-    (case (:camera3d/projection op)
-      :perspective (let [fov (double (:camera3d/fov op))
-                         near (double (:camera3d/near op))
-                         far (double (:camera3d/far op))
-                         aspect (double
-                                  (get op :camera3d/aspect (/ width height)))
-                         f (/ 1.0 (math/tan (/ (* fov math/pi) 360.0)))
-                         ^type/Float64List st (.-storage proj)]
-                     (aset st 0 (/ f aspect))
-                     (aset st 5 f)
-                     (aset st 10 (/ far (- near far)))
-                     (aset st 11 -1.0)
-                     (aset st 14 (/ (* near far) (- near far))))
-      :orthographic (let [left (double (:camera3d/left op))
-                          right (double (:camera3d/right op))
-                          bottom (double (:camera3d/bottom op))
-                          top (double (:camera3d/top op))
-                          near (double (:camera3d/near op))
-                          far (double (:camera3d/far op))
-                          ^type/Float64List st (.-storage proj)]
-                      (aset st 0 (/ 2.0 (- right left)))
-                      (aset st 5 (/ 2.0 (- top bottom)))
-                      (aset st 10 (/ 1.0 (- near far)))
-                      (aset st 12 (- (/ (+ right left) (- right left))))
-                      (aset st 13 (- (/ (+ top bottom) (- top bottom))))
-                      (aset st 14 (/ near (- near far)))
-                      (aset st 15 1.0)))
-    (if-let [vmat (:camera3d/view-matrix op)]
-      (let [v (vm/Matrix4.fromList (type/Float64List.fromList
-                                     (to-array (map double vmat))))]
-        (.multiply proj v))
-      (let [pos (get op :camera3d/position [0.0 0.0 0.0])
-            rot (get op :camera3d/rotation [0.0 0.0 0.0])
-            vmat (vm/Matrix4.identity)]
-        (.translate vmat
-                    (double (nth pos 0))
-                    (double (nth pos 1))
-                    (double (nth pos 2)))
-        (.multiply vmat (vm/Matrix4.rotationZ (double (nth rot 2))))
-        (.multiply vmat (vm/Matrix4.rotationY (double (nth rot 1))))
-        (.multiply vmat (vm/Matrix4.rotationX (double (nth rot 0))))
-        (.invert vmat)
-        (.multiply proj vmat)))
-    proj))
-
-
-;; Near-plane clipping in clip space.
-;;
-;; A vertex is in front of the homogeneous near plane when w_c > v/EPSILON
-;; AND z_c > -v/EPSILON (per v3 §Numeric Epsilon Policy, inheriting v2's two-
-;; clause inside test). The feasible region is the intersection of two
-;; half-spaces; clip against each plane in turn (Sutherland-Hodgman). For
-;; the standard perspective matrix the two clauses collapse to z_c >= 0,
-;; but custom :camera3d/view-matrix inputs can fail one clause without the
-;; other, so both planes must be honoured to avoid synthesising vertices
-;; with invalid w_c.
-;;
-;; d-fn returns the signed distance to a plane; positive = inside.
-
-(defn- interp-clip-vertex
-  [va vb ^double t]
-  (let [[xa ya za wa] va
-        [xb yb zb wb] vb]
-    [(+ (double xa) (* t (- (double xb) (double xa))))
-     (+ (double ya) (* t (- (double yb) (double ya))))
-     (+ (double za) (* t (- (double zb) (double za))))
-     (+ (double wa) (* t (- (double wb) (double wa))))]))
-
-
-(defn- clip-line-against-plane
-  [v1 v2 d-fn]
-  (let [d1 (double (d-fn v1))
-        d2 (double (d-fn v2))
-        in1 (> d1 0.0)
-        in2 (> d2 0.0)]
-    (cond (and in1 in2) [v1 v2]
-          (and (not in1) (not in2)) nil
-          :else (let [t (/ d1 (- d1 d2))
-                      vi (interp-clip-vertex v1 v2 t)]
-                  (if in1 [v1 vi] [vi v2])))))
-
-
-(defn- clip-triangle-against-plane
-  [v1 v2 v3 d-fn]
-  (let [d1 (double (d-fn v1))
-        d2 (double (d-fn v2))
-        d3 (double (d-fn v3))
-        in1 (> d1 0.0)
-        in2 (> d2 0.0)
-        in3 (> d3 0.0)
-        in-count (+ (if in1 1 0) (if in2 1 0) (if in3 1 0))]
-    (case in-count
-      3 [[v1 v2 v3]]
-      0 []
-      1 (let [[in-v out-v1 out-v2 d-in d-o1 d-o2] (cond in1 [v1 v2 v3 d1 d2 d3]
-                                                        in2 [v2 v3 v1 d2 d3 d1]
-                                                        in3 [v3 v1 v2 d3 d1 d2])
-              i1 (interp-clip-vertex in-v out-v1 (/ d-in (- d-in d-o1)))
-              i2 (interp-clip-vertex in-v out-v2 (/ d-in (- d-in d-o2)))]
-          [[in-v i1 i2]])
-      2 (let [[out-v in-v1 in-v2 d-out d-i1 d-i2]
-              (cond (not in1) [v1 v2 v3 d1 d2 d3]
-                    (not in2) [v2 v3 v1 d2 d3 d1]
-                    (not in3) [v3 v1 v2 d3 d1 d2])
-              i1 (interp-clip-vertex in-v1 out-v (/ d-i1 (- d-i1 d-out)))
-              i2 (interp-clip-vertex in-v2 out-v (/ d-i2 (- d-i2 d-out)))]
-          [[in-v1 i1 in-v2] [in-v2 i1 i2]]))))
-
-
-(defn- w-distance
-  ^double [v]
-  (- (double (nth v 3)) v/EPSILON))
-
-
-(defn- z-distance
-  ^double [v]
-  (+ (double (nth v 2)) v/EPSILON))
-
-
-(defn- clip-line-near
-  [v1 v2]
-  (when-let [pair (clip-line-against-plane v1 v2 w-distance)]
-    (clip-line-against-plane (nth pair 0) (nth pair 1) z-distance)))
-
-
-(defn- clip-triangle-near
-  [v1 v2 v3]
-  (let [after-w (clip-triangle-against-plane v1 v2 v3 w-distance)]
-    (reduce (fn [acc [a b c]]
-              (into acc (clip-triangle-against-plane a b c z-distance)))
-            []
-            after-w)))
-
-
 ;; Standard line-height multiplier per v3 §Line Height: a text run occupies a
 ;; spatial block of `font-size × LINE_HEIGHT` anchored on the alphabetic
 ;; baseline. Pinned on TextStyle/ParagraphStyle so behavior is
@@ -586,74 +404,26 @@
         :else "monospace"))
 
 
-(defn- camera-pos-from-view-matrix
-  "Derives the world-space eye position from a custom 4x4 column-major view
-   matrix. The view matrix maps world → view space, so the eye in world is
-   inverse(V) applied to the origin, which is just the translation column of
-   the inverse matrix."
-  [view-matrix-16]
-  (let [m (vm/Matrix4.fromList (->f64-list (mapv double view-matrix-16)))
-        inv (vm/Matrix4.copy m)]
-    (.invert inv)
-    (let [st (.-storage inv)] [(aget st 12) (aget st 13) (aget st 14)])))
-
-
-(defn- vec3-normalize
-  [v]
-  (let [x (double (nth v 0))
-        y (double (nth v 1))
-        z (double (nth v 2))
-        len (math/sqrt (+ (* x x) (* y y) (* z z)))]
-    (if (< len v/EPSILON) [0.0 0.0 0.0] [(/ x len) (/ y len) (/ z len)])))
-
-
-(defn- mat4-apply-normal
-  [^vm/Matrix4 model-m normal]
-  (let [nm (vm/Matrix4.copy model-m)]
-    (.invert nm)
-    (.transpose nm)
-    (let [st (.-storage nm)
-          [x y z] normal
-          xd (double x)
-          yd (double y)
-          zd (double z)]
-      [(+ (* (aget st 0) xd) (* (aget st 4) yd) (* (aget st 8) zd))
-       (+ (* (aget st 1) xd) (* (aget st 5) yd) (* (aget st 9) zd))
-       (+ (* (aget st 2) xd) (* (aget st 6) yd) (* (aget st 10) zd))])))
-
-
 (defn clip-line-near-test-hook
   "Test hook for verifying clip-space near-plane clipping behavior."
   [v1 v2]
-  (clip-line-near v1 v2))
+  (pmath/clip-line-near v1 v2))
 
 
 (defn clip-triangle-near-test-hook
   "Test hook for verifying clip-space near-plane clipping behavior."
   [v1 v2 v3]
-  (clip-triangle-near v1 v2 v3))
+  (pmath/clip-triangle-near v1 v2 v3))
 
 
 (defn normal-transform-test-hook
   "Test hook exposing the current normal transform versus the v4-required
    inverse-transpose transform under a supplied model matrix."
   [model-matrix-16 normal]
-  (let [m (vm/Matrix4.fromList (->f64-list (mapv double model-matrix-16)))
-        current (vec3-normalize (mat4-apply-normal m normal))
-        inv (vm/Matrix4.copy m)]
-    (.invert inv)
-    (.transpose inv)
-    (let [st (.-storage inv)
-          [x y z] normal
-          xd (double x)
-          yd (double y)
-          zd (double z)
-          expected
-          (vec3-normalize
-            [(+ (* (aget st 0) xd) (* (aget st 4) yd) (* (aget st 8) zd))
-             (+ (* (aget st 1) xd) (* (aget st 5) yd) (* (aget st 9) zd))
-             (+ (* (aget st 2) xd) (* (aget st 6) yd) (* (aget st 10) zd))])]
-      {:current current, :expected expected})))
+  (let [m (mapv double model-matrix-16)
+        current (pmath/vec3-normalize (pmath/inverse-transpose-3x3 m normal))
+        expected (pmath/vec3-normalize (pmath/inverse-transpose-3x3 m normal))]
+    {:current current, :expected expected}))
 
 
 (defn lighting-camera-pos-test-hook
@@ -661,8 +431,8 @@
    current painter. Prefers :camera3d/view-matrix (inverted, origin column)
    over :camera3d/position when both are present, matching the painter."
   [camera-op]
-  (if-let [vm (:camera3d/view-matrix camera-op)]
-    (camera-pos-from-view-matrix vm)
+  (if-let [vmat (:camera3d/view-matrix camera-op)]
+    (pmath/camera-pos-from-view-matrix vmat)
     (mapv double (get camera-op :camera3d/position [0.0 0.0 0.0]))))
 
 
@@ -707,7 +477,7 @@
   [frame ^double width ^double height]
   (validate-frame! frame)
   (loop [ops (seq frame)
-         state {:model-stack (list (vm/Matrix4.identity)),
+         state {:model-stack (list (pmath/identity-mat4)),
                 :clip-stack (list),
                 :camera-matrix nil,
                 :depth-test false,
@@ -728,20 +498,20 @@
                                  conj
                                  {:pipeline :clear,
                                   :color (get op :color [0.0 0.0 0.0 1.0])})
-            :transform/push (let [^vm/Matrix4 top (first (:model-stack state))
-                                  new-m (.clone top)]
-                              (.multiply new-m (op->matrix op))
-                              (update state :model-stack conj new-m))
+            :transform/push (let [top (first (:model-stack state))]
+                              (update state
+                                      :model-stack
+                                      conj
+                                      (pmath/mat4-mul top (pmath/op->mat4 op))))
             :transform/pop (update state
                                    :model-stack
                                    (fn [stack]
                                      (or (next stack)
-                                         (list (vm/Matrix4.identity)))))
+                                         (list (pmath/identity-mat4)))))
             :clip/push-rect (let [[x y w h] (:rect op)
-                                  ^vm/Matrix4 top (first (:model-stack state))
-                                  st (.-storage top)
-                                  tx (aget st 12)
-                                  ty (aget st 13)
+                                  top (first (:model-stack state))
+                                  tx (nth top 12)
+                                  ty (nth top 13)
                                   wx (+ (double x) tx)
                                   wy (+ (double y) ty)
                                   r [wx (- height wy (double h)) (double w)
@@ -751,9 +521,9 @@
             (update state :clip-stack (fn [stack] (or (next stack) (list))))
             :meta/region state
             :camera3d/set
-            (let [cam (build-camera op width height)
-                  pos (if-let [vm (:camera3d/view-matrix op)]
-                        (camera-pos-from-view-matrix vm)
+            (let [cam (pmath/build-camera op width height)
+                  pos (if-let [vmat (:camera3d/view-matrix op)]
+                        (pmath/camera-pos-from-view-matrix vmat)
                         (mapv double
                               (get op :camera3d/position [0.0 0.0 0.0])))]
               (-> state
@@ -793,14 +563,13 @@
             (do (when-not (valid-2d-affine? (first (:model-stack state)))
                   (v/reject! "Invalid 2D affine matrix for 2D draw op"))
                 (let [[lx ly] (:position op)
-                      ^vm/Matrix4 top (first (:model-stack state))
-                      st (.-storage top)
-                      cart-x (+ (* (aget st 0) (double lx))
-                                (* (aget st 4) (double ly))
-                                (aget st 12))
-                      cart-y (+ (* (aget st 1) (double lx))
-                                (* (aget st 5) (double ly))
-                                (aget st 13))
+                      top (first (:model-stack state))
+                      cart-x (+ (* (nth top 0) (double lx))
+                                (* (nth top 4) (double ly))
+                                (nth top 12))
+                      cart-y (+ (* (nth top 1) (double lx))
+                                (* (nth top 5) (double ly))
+                                (nth top 13))
                       screen-x cart-x
                       screen-y (- height cart-y)]
                   (update state
@@ -816,32 +585,31 @@
                              :draw/path :draw/image)
             (do (when-not (valid-2d-affine? (first (:model-stack state)))
                   (v/reject! "Invalid 2D affine matrix for 2D draw op"))
-                (let [^vm/Matrix4 top (first (:model-stack state))
-                      st (.-storage top)
-                      sx (math/sqrt (+ (* (aget st 0) (aget st 0))
-                                       (* (aget st 1) (aget st 1))))]
+                (let [top (first (:model-stack state))
+                      a00 (nth top 0)
+                      a01 (nth top 1)
+                      sx (math/sqrt (+ (* a00 a00) (* a01 a01)))]
                   (update state
                           :draws
                           conj
                           {:pipeline :draw-2d,
                            :op op,
-                           :matrix-storage (.sublist st 0),
+                           :model-m top,
                            :sx sx,
                            :clips (vec (:clip-stack state))})))
             :draw3d/mesh
             (do (when-not (:camera-matrix state)
                   (v/reject! "No camera matrix set before 3D draw op"))
-                (let [^vm/Matrix4 cam-m (:camera-matrix state)
+                (let [cam-m (:camera-matrix state)
                       model-m (first (:model-stack state))
-                      mvp (vm/Matrix4.copy cam-m)]
-                  (.multiply mvp model-m)
+                      mvp (pmath/mat4-mul cam-m model-m)]
                   (update state
                           :draws
                           conj
                           {:pipeline :mesh-3d,
                            :op op,
                            :mvp mvp,
-                           :model-m (vm/Matrix4.copy model-m),
+                           :model-m model-m,
                            :clips (vec (:clip-stack state)),
                            :depth-test (:depth-test state),
                            :depth-write (:depth-write state),
@@ -851,17 +619,16 @@
             (:draw3d/lines :draw3d/triangles)
             (do (when-not (:camera-matrix state)
                   (v/reject! "No camera matrix set before 3D draw op"))
-                (let [^vm/Matrix4 cam-m (:camera-matrix state)
+                (let [cam-m (:camera-matrix state)
                       model-m (first (:model-stack state))
-                      mvp (vm/Matrix4.copy cam-m)]
-                  (.multiply mvp model-m)
+                      mvp (pmath/mat4-mul cam-m model-m)]
                   (update state
                           :draws
                           conj
                           {:pipeline :draw-3d,
                            :op op,
                            :mvp mvp,
-                           :model-m (vm/Matrix4.copy model-m),
+                           :model-m model-m,
                            :clips (vec (:clip-stack state)),
                            :depth-test (:depth-test state),
                            :depth-write (:depth-write state)})))
@@ -900,7 +667,7 @@
     (apply-clips! canvas (:clips draw))
     (.translate canvas 0.0 height)
     (.scale canvas 1.0 -1.0)
-    (.transform canvas (:matrix-storage draw))
+    (.transform canvas (->f64-list (:model-m draw)))
     (case kind
       (:draw/fill-rect :draw/stroke-rect)
       (let [[x y w h] (:rect op)

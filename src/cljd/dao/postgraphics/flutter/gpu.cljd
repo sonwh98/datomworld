@@ -218,8 +218,9 @@
         i-view (.emplace host-buffer (.asByteData (.-buffer i-data)))
         ;; Uniforms
         u-data (type/Float32List. 32)
-        _ (.setAll u-data 0 (.-storage ^vm/Matrix4 mvp))
-        _ (.setAll u-data 16 (.-storage ^vm/Matrix4 model-m))
+        _ (dotimes [i 16]
+            (aset u-data i (double (nth mvp i)))
+            (aset u-data (+ i 16) (double (nth model-m i))))
         u-view (.emplace host-buffer (.asByteData (.-buffer u-data)))
         vert-shader (.-vertexShader pipeline)
         frag-shader (.-fragmentShader pipeline)
@@ -254,8 +255,9 @@
         v-view (.emplace host-buffer (.asByteData (.-buffer v-data)))
         i-view (.emplace host-buffer (.asByteData (.-buffer i-data)))
         u-data (type/Float32List. 32)
-        _ (.setAll u-data 0 (.-storage ^vm/Matrix4 mvp))
-        _ (.setAll u-data 16 (.-storage ^vm/Matrix4 model-m))
+        _ (dotimes [i 16]
+            (aset u-data i (double (nth mvp i)))
+            (aset u-data (+ i 16) (double (nth model-m i))))
         u-view (.emplace host-buffer (.asByteData (.-buffer u-data)))
         vert-shader (.-vertexShader pipeline)
         frag-shader (.-fragmentShader pipeline)
