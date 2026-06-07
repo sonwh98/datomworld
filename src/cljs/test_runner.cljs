@@ -6,7 +6,7 @@
     [dao.await-test]
     [dao.db.file-test]
     [dao.gui.compiler-cljs-test]
-    [dao.postgraphics.webgpu-test]
+    [dao.postgraphics.web.gpu-test]
     [dao.runtime.driver-cljs-test]
     [dao.stream-test]
     [dao.stream.http-test]
@@ -42,7 +42,7 @@
              'agent.tzu-test
              'dao.stream.http-test
              'dao.gui.compiler-cljs-test
-             'dao.postgraphics.webgpu-test
+             'dao.postgraphics.web.gpu-test
              'datomworld.continuation-transport-test
              'datomworld.demo.yin-repl-test
              'datomworld.demo.continuation-handoff-test

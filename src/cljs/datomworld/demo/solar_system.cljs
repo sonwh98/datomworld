@@ -1,7 +1,7 @@
 (ns datomworld.demo.solar-system
   (:require
     [dao.postgraphics.terminal :as terminal]
-    [dao.postgraphics.webgpu :as pg]
+    [dao.postgraphics.web.gpu :as pg]
     [dao.stream :as ds]
     [dao.stream.ringbuffer]
     [datomworld.demo.responsive :as responsive]
@@ -27,8 +27,7 @@
 
 (defn dispose!
   []
-  (stop!)
-  :disposed)
+  (stop!) :disposed)
 
 
 (defn- emit-frame!
@@ -40,12 +39,11 @@
   []
   (when-not @interval-id
     (emit-frame!)
-    (reset! interval-id
-            (js/setInterval (fn []
-                              (swap! scene-state scene/advance-state
-                                     scene/frame-step-seconds)
-                              (emit-frame!))
-                            scene/frame-interval-ms)))
+    (reset! interval-id (js/setInterval (fn []
+                                          (swap! scene-state scene/advance-state
+                                                 scene/frame-step-seconds)
+                                          (emit-frame!))
+                                        scene/frame-interval-ms)))
   :started)
 
 
@@ -60,25 +58,22 @@
   []
   (r/create-class
     {:display-name "solar-system-postgraphics-widget",
-     :component-did-mount
-     (fn [_]
-       (start!)
-       (emit-frame!))
-     :component-will-unmount (fn [_] (dispose!))
+     :component-did-mount (fn [_] (start!) (emit-frame!)),
+     :component-will-unmount (fn [_] (dispose!)),
      :reagent-render
      (fn []
        [pg/postgraphics-widget frame-stream :canvas-attrs
-        {:style (responsive/canvas-frame-style {:max-width 900,
-                                                :min-height 300,
-                                                :height-vh 62,
-                                                :max-height 720,
-                                                :border-color
-                                                "rgba(160,190,255,0.28)",
-                                                :border-radius 18,
-                                                :background "#050711",
-                                                :box-shadow
-                                                "0 28px 90px rgba(0,0,0,0.48)"})}
-        :on-error #(js/console.error "postgraphics frame rejected" %)])}))
+        {:style (responsive/canvas-frame-style
+                  {:max-width 900,
+                   :min-height 300,
+                   :height-vh 62,
+                   :max-height 720,
+                   :border-color "rgba(160,190,255,0.28)",
+                   :border-radius 18,
+                   :background "#050711",
+                   :box-shadow "0 28px 90px rgba(0,0,0,0.48)"})}
+        :on-error
+        #(js/console.error "postgraphics frame rejected" %)])}))
 
 
 (defn main-view
@@ -105,7 +100,7 @@
          {:style {:letter-spacing "0.18em",
                   :text-transform "uppercase",
                   :color "#8eb6ff",
-                  :font-size "12px"}} "dao.postgraphics.webgpu"]
+                  :font-size "12px"}} "dao.postgraphics.web.gpu"]
         [:h1
          {:style {:font-size "clamp(34px, 5vw, 68px)",
                   :line-height "0.95",
@@ -144,10 +139,8 @@
          "postgraphics program from "
          [:code "datomworld.demo.solar-system-scene"]
          ". The browser terminal consumes that stream through "
-         [:code "postgraphics-widget"]
-         " and presents it via "
-         [:code "dao.postgraphics.webgpu/submit-webgpu!"]
-         "."]
+         [:code "postgraphics-widget"] " and presents it via "
+         [:code "dao.postgraphics.web.gpu/submit-webgpu!"] "."]
         [:p {:style {:color "#7f91bd", :font-size "13px", :margin "0"}}
          "This surface renders GPU wireframe line payloads only. The old "
          "canvas 2D line submitter has been removed so the scene contract stays "

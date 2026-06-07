@@ -1,4 +1,4 @@
-(ns dao.postgraphics.webgpu
+(ns dao.postgraphics.web.gpu
   (:require
     [dao.postgraphics.terminal :as terminal]
     [dao.postgraphics.validation :as v]
@@ -1609,7 +1609,7 @@
   (let [canvas-ref (atom nil)
         terminal-handle (atom nil)]
     (r/create-class
-      {:display-name "dao-postgraphics-webgpu-widget",
+      {:display-name "dao-postgraphics-web-gpu-widget",
        :component-did-mount (fn [_]
                               (when-let [canvas @canvas-ref]
                                 (reset! terminal-handle (bind-frame-stream!

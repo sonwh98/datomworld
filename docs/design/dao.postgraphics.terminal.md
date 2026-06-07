@@ -392,4 +392,4 @@ This lets hosts vary their realization without forking the bytecode contract.
 Concrete designs built on this contract:
 
 - `dao.postgraphics.flutter.md`
-- `dao.postgraphics.webgpu.md`
+- `dao.postgraphics.web.gpu.md`

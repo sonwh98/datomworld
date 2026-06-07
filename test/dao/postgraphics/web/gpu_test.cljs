@@ -1,8 +1,8 @@
-(ns dao.postgraphics.webgpu-test
+(ns dao.postgraphics.web.gpu-test
   (:require
     [cljs.test :refer-macros [deftest is testing]]
     [dao.postgraphics.terminal :as terminal]
-    [dao.postgraphics.webgpu :as webgpu]
+    [dao.postgraphics.web.gpu :as webgpu]
     [dao.stream :as ds]
     [dao.stream.ringbuffer]))
 

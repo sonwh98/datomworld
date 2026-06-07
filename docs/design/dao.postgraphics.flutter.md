@@ -9,7 +9,7 @@ preserving the bytecode model's ordering and state semantics.
 `dao.postgraphics` itself is terminal-neutral. The shared terminal-VM contract
 is defined in `dao.postgraphics.terminal.md`. This document defines the
 Flutter-specific realization of that contract. The WebGPU terminal is
-documented separately in `dao.postgraphics.webgpu.md`.
+documented separately in `dao.postgraphics.web.gpu.md`.
 
 ## Responsibilities
 
