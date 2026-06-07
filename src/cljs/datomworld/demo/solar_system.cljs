@@ -58,7 +58,8 @@
   []
   (r/create-class
     {:display-name "solar-system-postgraphics-widget",
-     :component-did-mount (fn [_] (start!) (emit-frame!)),
+     :component-did-mount (fn [_]
+                            (when (pg/gpu-available?) (start!) (emit-frame!))),
      :component-will-unmount (fn [_] (dispose!)),
      :reagent-render
      (fn []

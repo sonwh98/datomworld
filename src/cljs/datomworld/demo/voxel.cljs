@@ -85,9 +85,10 @@
     {:display-name "voxel-postgraphics-widget",
      :component-did-mount
      (fn [_]
-       (start!)
-       (.addEventListener js/window "keydown" handle-key-down)
-       (.addEventListener js/window "keyup" handle-key-up)),
+       (when (pg/gpu-available?)
+         (start!)
+         (.addEventListener js/window "keydown" handle-key-down)
+         (.addEventListener js/window "keyup" handle-key-up))),
      :component-will-unmount
      (fn [_]
        (.removeEventListener js/window "keydown" handle-key-down)

@@ -4,6 +4,7 @@
             ["package:flutter/material.dart" :as m]
             ["package:flutter/services.dart" :as services]
             [dao.postgraphics.flutter :as pg]
+            [dao.postgraphics.flutter.gpu :as pg-gpu]
             [datomworld.demo.voxel-runner :as runner]
             [datomworld.demo.voxel-scene :as scene]))
 
@@ -67,14 +68,55 @@
 (defn start!
   []
   (stop!)
-  (runner/ensure-chunk-mesh!)
-  (runner/reset-player!)
-  (reset! last-tick* nil)
-  (tick!)
-  (reset! timer* (async/Timer.periodic (core/Duration .milliseconds
-                                                      scene/frame-interval-ms)
-                                       (fn [_] (tick!))))
-  :started)
+  (when (pg-gpu/gpu-available?)
+    (runner/ensure-chunk-mesh!)
+    (runner/reset-player!)
+    (reset! last-tick* nil)
+    (tick!)
+    (reset! timer* (async/Timer.periodic (core/Duration .milliseconds
+                                                        scene/frame-interval-ms)
+                                         (fn [_] (tick!))))
+    :started))
+
+
+(defn- gpu-unsupported-view
+  [width height]
+  (m/Center
+    .child
+    (m/Container
+      .width
+      width
+      .height
+      height
+      .decoration
+      (m/BoxDecoration .color
+                       (m/Color.fromARGB 150 40 12 12)
+                       .border
+                       (m/Border.all .color (m/Color.fromARGB 100 255 140 140))
+                       .borderRadius
+                       (m/BorderRadius.circular 16))
+      .padding
+      (m/EdgeInsets.all 22)
+      .child
+      (m/Column
+        .crossAxisAlignment
+        m/CrossAxisAlignment.start
+        .mainAxisSize
+        m/MainAxisSize.min
+        .children
+        [(m/Text "Flutter GPU not available"
+                 .style
+                 (m/TextStyle .fontSize
+                              18
+                              .fontWeight
+                              m/FontWeight.bold
+                              .color
+                              (m/Color.fromARGB 255 255 212 212)))
+         (m/SizedBox .height 8)
+         (m/Text
+           "This demo requires Impeller and Flutter GPU support. Please check your device settings or run on a supported platform."
+           .style
+           (m/TextStyle .color (m/Color.fromARGB 255 255 228 228)))]))))
 
 
 (defn view
@@ -92,20 +134,21 @@
           .mainAxisAlignment
           m/MainAxisAlignment.center
           .children
-          [(m/Focus .focusNode
-                    focus-node
-                    .autofocus
-                    true
-                    .onKeyEvent
-                    handle-key-event
-                    .child
-                    (m/SizedBox .width
-                                W
-                                .height
-                                H
-                                .child
-                                (pg/postgraphics-widget runner/frame-stream)))
-           (m/SizedBox .height 12.0)
+          [(if (pg-gpu/gpu-available?)
+             (m/Focus .focusNode
+                      focus-node
+                      .autofocus
+                      true
+                      .onKeyEvent
+                      handle-key-event
+                      .child
+                      (m/SizedBox .width
+                                  W
+                                  .height
+                                  H
+                                  .child
+                                  (pg/postgraphics-widget runner/frame-stream)))
+             (gpu-unsupported-view W H)) (m/SizedBox .height 12.0)
            (m/Text "WASD to move, Space/Shift to fly, arrows to look"
                    .style
                    (m/TextStyle .color m.Colors/white70 .fontSize 14.0))])))))

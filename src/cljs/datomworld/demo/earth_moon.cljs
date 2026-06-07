@@ -93,7 +93,9 @@
   []
   (r/create-class
     {:display-name "earth-moon-postgraphics-widget",
-     :component-did-mount (fn [_] (start!) (runner/tick! (js/Date.now))),
+     :component-did-mount
+     (fn [_]
+       (when (pg/gpu-available?) (start!) (runner/tick! (js/Date.now)))),
      :component-will-unmount (fn [_] (dispose!)),
      :reagent-render
      (fn []
