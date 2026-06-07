@@ -53,115 +53,74 @@
 (defn start!
   []
   (stop-frame-timer!)
-  (when (pg-gpu/gpu-available?)
-    (reset! scene-state scene/initial-state)
-    (let [port flutter-repl/default-port
-          sched (fn [period-ms tick!]
-                  (let [timer (async/Timer.periodic (core/Duration .milliseconds
-                                                                   period-ms)
-                                                    (fn [_] (tick!)))]
-                    (fn [] (.cancel ^async/Timer timer))))
-          frame-stop-fn (sched scene/frame-interval-ms
-                               (fn []
-                                 (swap! scene-state scene/advance-state
-                                        scene/frame-step-seconds)
-                                 (emit-frame!)))
-          extra-prims
-          {'bodies (fn []
-                     (->> (:bodies @scene-state)
-                          (remove (fn [[_ body]] (= (:kind body) :group)))
-                          (map first)
-                          sort
-                          vec)),
-           'translate! (fn [id x y z]
+  (reset! scene-state scene/initial-state)
+  (let [port flutter-repl/default-port
+        sched (fn [period-ms tick!]
+                (let [timer (async/Timer.periodic (core/Duration .milliseconds
+                                                                 period-ms)
+                                                  (fn [_] (tick!)))]
+                  (fn [] (.cancel ^async/Timer timer))))
+        frame-stop-fn (sched scene/frame-interval-ms
+                             (fn []
+                               (swap! scene-state scene/advance-state
+                                      scene/frame-step-seconds)
+                               (emit-frame!)))
+        extra-prims
+        {'bodies (fn []
+                   (->> (:bodies @scene-state)
+                        (remove (fn [[_ body]] (= (:kind body) :group)))
+                        (map first)
+                        sort
+                        vec)),
+         'translate! (fn [id x y z]
+                       (swap! scene-state assoc-in
+                              [:bodies (keyword id) :translate]
+                              [(double x) (double y) (double z)])
+                       (emit-frame!)
+                       :translated),
+         'rotate-body! (fn [id rx ry rz]
                          (swap! scene-state assoc-in
-                                [:bodies (keyword id) :translate]
-                                [(double x) (double y) (double z)])
+                                [:bodies (keyword id) :rotate]
+                                [(double rx) (double ry) (double rz)])
                          (emit-frame!)
-                         :translated),
-           'rotate-body! (fn [id rx ry rz]
+                         :rotated),
+         'color! (fn [id r g b]
+                   (swap! scene-state assoc-in
+                          [:bodies (keyword id) :color]
+                          [(double r) (double g) (double b) 1.0])
+                   (emit-frame!)
+                   :colored),
+         'scale! (fn [id s]
+                   (swap! scene-state assoc-in
+                          [:bodies (keyword id) :scale]
+                          [(double s) (double s) (double s)])
+                   (emit-frame!)
+                   :scaled),
+         'camera! (fn [x y z]
+                    (swap! scene-state assoc-in
+                           [:camera :translate]
+                           [(double x) (double y) (double z)])
+                    (emit-frame!)
+                    :camera-moved),
+         'camera-rotate! (fn [rx ry rz]
                            (swap! scene-state assoc-in
-                                  [:bodies (keyword id) :rotate]
+                                  [:camera :rotate]
                                   [(double rx) (double ry) (double rz)])
                            (emit-frame!)
-                           :rotated),
-           'color! (fn [id r g b]
-                     (swap! scene-state assoc-in
-                            [:bodies (keyword id) :color]
-                            [(double r) (double g) (double b) 1.0])
-                     (emit-frame!)
-                     :colored),
-           'scale! (fn [id s]
-                     (swap! scene-state assoc-in
-                            [:bodies (keyword id) :scale]
-                            [(double s) (double s) (double s)])
-                     (emit-frame!)
-                     :scaled),
-           'camera! (fn [x y z]
-                      (swap! scene-state assoc-in
-                             [:camera :translate]
-                             [(double x) (double y) (double z)])
-                      (emit-frame!)
-                      :camera-moved),
-           'camera-rotate! (fn [rx ry rz]
-                             (swap! scene-state assoc-in
-                                    [:camera :rotate]
-                                    [(double rx) (double ry) (double rz)])
-                             (emit-frame!)
-                             :camera-rotated),
-           'camera-fov!
-           (fn [fov]
-             (swap! scene-state assoc-in [:camera :fov] (double fov))
-             (emit-frame!)
-             :camera-fov),
-           'animate!
-           (fn [] (swap! scene-state assoc :animating? true) :animating),
-           'pause! pause!,
-           'reset! reset-scene!}]
-      (reset! frame-timer-stop-fn frame-stop-fn)
-      (flutter-repl/start-server! {:port port, :extra-primitives extra-prims})
-      (emit-frame!)
-      :started)))
-
-
-(defn- gpu-unsupported-view
-  [side]
-  (m/Center
-    .child
-    (m/Container
-      .width
-      side
-      .height
-      side
-      .decoration
-      (m/BoxDecoration .color
-                       (m/Color.fromARGB 150 40 12 12)
-                       .border
-                       (m/Border.all .color (m/Color.fromARGB 100 255 140 140))
-                       .borderRadius
-                       (m/BorderRadius.circular 16))
-      .padding
-      (m/EdgeInsets.all 22)
-      .child
-      (m/Column
-        .crossAxisAlignment
-        m/CrossAxisAlignment.start
-        .mainAxisSize
-        m/MainAxisSize.min
-        .children
-        [(m/Text "Flutter GPU not available"
-                 .style
-                 (m/TextStyle .fontSize
-                              18
-                              .fontWeight
-                              m/FontWeight.bold
-                              .color
-                              (m/Color.fromARGB 255 255 212 212)))
-         (m/SizedBox .height 8)
-         (m/Text
-           "This demo requires Impeller and Flutter GPU support. Please check your device settings or run on a supported platform."
-           .style
-           (m/TextStyle .color (m/Color.fromARGB 255 255 228 228)))]))))
+                           :camera-rotated),
+         'camera-fov!
+         (fn [fov]
+           (swap! scene-state assoc-in [:camera :fov] (double fov))
+           (emit-frame!)
+           :camera-fov),
+         'animate!
+         (fn [] (swap! scene-state assoc :animating? true) :animating),
+         'pause! pause!,
+         'reset! reset-scene!}]
+    (reset! frame-timer-stop-fn frame-stop-fn)
+    (flutter-repl/start-server! {:port port, :extra-primitives extra-prims})
+    (emit-frame!)
+    :started))
 
 
 (defn view
@@ -176,17 +135,14 @@
                                  (let [max-w (.-maxWidth constraints)
                                        max-h (.-maxHeight constraints)
                                        side (if (< max-w max-h) max-w max-h)]
-                                   (m/Center
-                                     .child
-                                     (m/SizedBox
-                                       .width
-                                       side
-                                       .height
-                                       side
-                                       .child
-                                       (if (pg-gpu/gpu-available?)
-                                         (pg/postgraphics-widget frame-stream)
-                                         (gpu-unsupported-view side)))))))))
+                                   (m/Center .child
+                                             (m/SizedBox .width
+                                                         side
+                                                         .height
+                                                         side
+                                                         .child
+                                                         (pg/postgraphics-widget
+                                                           frame-stream))))))))
 
 
 (defn main

@@ -74,7 +74,12 @@
 ;; sample-texture
 ;; ---------------------------------------------------------------------------
 
-(def test-tex {:width 2, :height 2, :rgba [1 0 0 1 0 1 0 1 0 0 1 1 1 1 1 1]})
+;; :rgba holds 0–255 byte values (the real Uint8List texture contract); the
+;; sampler normalizes to [0,1].
+(def test-tex
+  {:width 2,
+   :height 2,
+   :rgba [255 0 0 255 0 255 0 255 0 0 255 255 255 255 255 255]})
 
 
 (deftest sample-texture-nearest
@@ -221,6 +226,40 @@
     (s/rasterize-triangle! v0 v1 v2 sink-a)
     (s/rasterize-triangle! v0 v2 v1 sink-b)
     (is (= (count @pixels-a) (count @pixels-b)))))
+
+
+(deftest rasterize-triangle-top-left-no-double-cover
+  (testing "two triangles sharing an edge cover each pixel exactly once"
+    (let [counts (atom {})
+          sink {:put-pixel! (fn [x y _r _g _b _a]
+                              (swap! counts update [x y] (fnil inc 0))),
+                :depth-get (fn [_x _y] 1.0),
+                :depth-set! (fn [_x _y _z] nil),
+                :viewport-w 100,
+                :viewport-h 100,
+                :clips [],
+                :depth-test? false,
+                :depth-write? false,
+                :shade-fn (fn [_uv _n _wp _c] [1 0 0 1])}
+          vtx (fn [x y]
+                {:x x,
+                 :y y,
+                 :z 0,
+                 :inv-w 1,
+                 :uv [0 0],
+                 :normal [0 0 1],
+                 :world-pos [0 0 0],
+                 :color [1 1 1 1]})
+          ;; square split into two triangles sharing the diagonal b-c
+          a (vtx 0 0)
+          b (vtx 20 0)
+          c (vtx 0 20)
+          d (vtx 20 20)]
+      (s/rasterize-triangle! a b c sink)
+      (s/rasterize-triangle! b d c sink)
+      (is (pos? (count @counts)) "the quad should produce fragments")
+      (is (every? #(= 1 %) (vals @counts))
+          "no pixel should be covered by both triangles (top-left rule)"))))
 
 
 (deftest rasterize-triangle-clip-rect
@@ -471,6 +510,47 @@
     (is (approx= 1.0 (nth result 3)))))
 
 
+(deftest shade-mesh-fragment-texture-modulation
+  (testing "textured fragment = texture.rgba × vertex/fill color.rgba"
+    ;; texel 51/255 = 0.2 (byte storage); red fill tints it
+    (let [gray-tex {:width 1, :height 1, :rgba [51 51 51 255]}
+          draw {:op {}, :texture gray-tex, :lighting-enabled false}
+          result (s/shade-mesh-fragment draw
+                                        [0 0]
+                                        [0 0 1]
+                                        [0 0 0]
+                                        [1.0 0.0 0.0 1.0])]
+      (is (approx-vec4= [0.2 0.0 0.0 1.0] result)
+          "texture should be modulated by the colour, not replace it"))))
+
+
+(deftest shade-mesh-fragment-clamps-hdr-lighting
+  (testing "bright (intensity > 1) lighting is clamped to [0,1], not wrapped"
+    (let [draw {:op {},
+                :lights [{:kind :directional,
+                          :color [1 1 1],
+                          :direction [0 0 1],
+                          :intensity 5.0}],
+                :camera-pos [0 0 5],
+                :lighting-enabled true}
+          result (s/shade-mesh-fragment draw [0 0] [0 0 1] [0 0 0] [1 1 1 1])]
+      (is (every? (fn [c] (<= 0.0 c 1.0)) result)
+          "no channel should exceed 1.0 after HDR lighting"))))
+
+
+(deftest shade-mesh-fragment-white-texture-passthrough
+  (testing "a white texture leaves the vertex/fill colour unchanged"
+    (let [white-tex {:width 1, :height 1, :rgba [255 255 255 255]}
+          draw {:op {}, :texture white-tex, :lighting-enabled false}
+          result (s/shade-mesh-fragment draw
+                                        [0 0]
+                                        [0 0 1]
+                                        [0 0 0]
+                                        [0.25 0.5 0.75 1.0])]
+      (is (approx-vec4= [0.25 0.5 0.75 1.0] result)
+          "white texture × colour = colour"))))
+
+
 ;; ---------------------------------------------------------------------------
 ;; render-3d! integration
 ;; ---------------------------------------------------------------------------
@@ -521,8 +601,8 @@
           "world-pos should be vertex transformed by model-m")
       ;; normal uses inverse-transpose: [1 1 0] -> [0.5 1 0] normalized.
       ;; A naive model-m transform would give [2 1 0] normalized ->
-      ;; distinct,
-      ;; so this asserts the inverse-transpose path specifically.
+      ;; distinct, so this asserts the inverse-transpose path
+      ;; specifically.
       (is (approx= 0.4472136 (nth normal 0)))
       (is (approx= 0.8944272 (nth normal 1)))
       (is (approx= 0.0 (nth normal 2))))))

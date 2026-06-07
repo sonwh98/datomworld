@@ -1,0 +1,84 @@
+(ns dao.postgraphics.flutter.canvas
+  (:require ["dart:core" :as core]
+            ["dart:typed_data" :as type]
+            ["dart:ui" :as ui]
+            [dao.postgraphics.software :as s]))
+
+
+(defonce ^:private last-image* (atom nil))
+
+
+(defn- byte255
+  "Quantize a [0,1] channel to an 8-bit value, clamping out-of-range inputs.
+   Without the clamp, HDR lighting (value > 1) would wrap modulo 256 when
+   written into the Uint8List, corrupting bright pixels."
+  ^int [c]
+  (let [v (* 255.0 (max 0.0 (min 1.0 (double c))))] (int v)))
+
+
+(defn- put-pixel!
+  [^type/Uint8List rgba ^int w x y r g b a]
+  (let [off (* 4 (+ (* (int y) (int w)) (int x)))]
+    (aset rgba off (byte255 r))
+    (aset rgba (+ off 1) (byte255 g))
+    (aset rgba (+ off 2) (byte255 b))
+    (aset rgba (+ off 3) (byte255 a))))
+
+
+(defn- depth-get
+  [^type/Float64List depth ^int w x y]
+  (aget depth (+ (* (int y) (int w)) (int x))))
+
+
+(defn- depth-set!
+  [^type/Float64List depth ^int w x y z]
+  (aset depth (+ (* (int y) (int w)) (int x)) (double z)))
+
+
+(defn- clear!
+  [^type/Uint8List rgba ^type/Float64List depth [r g b a]]
+  (let [ir (int (* 255.0 (double r)))
+        ig (int (* 255.0 (double g)))
+        ib (int (* 255.0 (double b)))
+        ia (int (* 255.0 (double (or a 1.0))))]
+    (dotimes [i (quot (.-length rgba) 4)]
+      (let [off (* i 4)]
+        (aset rgba off ir)
+        (aset rgba (+ off 1) ig)
+        (aset rgba (+ off 2) ib)
+        (aset rgba (+ off 3) ia))))
+  (.fillRange depth 0 (.-length depth) 1.0))
+
+
+(defn paint-3d!
+  [^ui/Canvas canvas lowered ^double width ^double height]
+  (let [w (int width)
+        h (int height)
+        rgba (type/Uint8List. (* w h 4))
+        depth (type/Float64List. (* w h))
+        ;; Find clear color
+        clear-color (or (some (fn [pass]
+                                (some (fn [draw]
+                                        (when (= :clear (:pipeline draw))
+                                          (:color draw)))
+                                      (:draws pass)))
+                              (:passes lowered))
+                        [0.0 0.0 0.0 1.0])]
+    (clear! rgba depth clear-color)
+    (doseq [pass (:passes lowered)]
+      (s/render-3d! pass
+                    {:put-pixel! (fn [x y r g b a]
+                                   (put-pixel! rgba w x y r g b a)),
+                     :depth-get (fn [x y] (depth-get depth w x y)),
+                     :depth-set! (fn [x y z] (depth-set! depth w x y z)),
+                     :viewport-w w,
+                     :viewport-h h}))
+    ;; Async decode to ui.Image
+    (ui/decodeImageFromPixels rgba
+                              w
+                              h
+                              ui/PixelFormat.rgba8888
+                              (fn [^ui/Image image] (reset! last-image* image)))
+    ;; Draw last successfully decoded image
+    (when-let [^ui/Image img @last-image*]
+      (.drawImage canvas img ui/Offset.zero (ui/Paint.)))))

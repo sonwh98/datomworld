@@ -5,6 +5,8 @@
             ["package:flutter/material.dart" :as m]
             ["package:flutter_gpu/gpu.dart" :as gpu]
             [dao.postgraphics.flutter.gpu :as gpu-render]
+            [dao.postgraphics.flutter.canvas :as canvas-render]
+            [dao.postgraphics.flutter.texture :as tex]
             [dao.postgraphics.lowering :as lower]
             [dao.postgraphics.math :as pmath]
             [dao.postgraphics.terminal :as terminal]))
@@ -94,8 +96,8 @@
    Flutter GPU for supported pipelines and rejects unsupported draw records
    instead of falling back to Canvas rendering."
   []
-  {:canvas-fallback? false,
-   :software-renderer? false,
+  {:canvas-fallback? true,
+   :software-renderer? true,
    :texture-rendering? true,
    :texture-source :flutter-gpu-texture,
    :supported-pipelines #{:clear :camera-reset :mesh-3d :draw-3d :line-3d
@@ -226,9 +228,17 @@
                               :supports-render-targets? false,
                               :supports-image? false,
                               :texture-source-valid?
-                              (fn [s] (instance? gpu/Texture s))})
-                   image (submit! lowered width height)]
-               (.drawImage canvas image (ui/Offset. 0.0 0.0) (ui/Paint.))
+                              (fn [s]
+                                (or (instance? gpu/Texture s)
+                                    (instance? tex/PgTexture s)))})
+                   image
+                   (if (gpu-render/gpu-available?)
+                     (submit! lowered width height)
+                     (do
+                       (canvas-render/paint-3d! canvas lowered width height)
+                       nil))]
+               (when image
+                 (.drawImage canvas image (ui/Offset. 0.0 0.0) (ui/Paint.)))
                (doseq [pass (:passes lowered)
                        draw (:draws pass)]
                  (case (:pipeline draw)
@@ -272,7 +282,9 @@
                            {:supports-render-targets? false,
                             :supports-image? false,
                             :texture-source-valid?
-                            (fn [s] (instance? gpu/Texture s))}),
+                            (fn [s]
+                              (or (instance? gpu/Texture s)
+                                  (instance? tex/PgTexture s)))}),
        :present-frame! (fn [frame] (set! (.-value notifier) frame)),
        :signal-stream signal-stream,
        :on-error (or on-error

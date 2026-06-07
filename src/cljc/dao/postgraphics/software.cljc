@@ -63,16 +63,20 @@
 
 
 (defn- sample-rgba-at
-  "Sample a single pixel from an RGBA flat array at integer texel coords."
+  "Sample a single pixel from an RGBA flat array at integer texel coords.
+   The array holds 0–255 byte values (the natural image/Uint8List storage);
+   the result is normalized to [0,1]."
   [rgba w x y]
   (let [idx (* 4 (+ (* (int y) (int w)) (int x)))]
-    [(nth rgba idx) (nth rgba (+ idx 1)) (nth rgba (+ idx 2))
-     (nth rgba (+ idx 3))]))
+    [(/ (double (nth rgba idx)) 255.0) (/ (double (nth rgba (+ idx 1))) 255.0)
+     (/ (double (nth rgba (+ idx 2))) 255.0)
+     (/ (double (nth rgba (+ idx 3))) 255.0)]))
 
 
 (defn sample-texture
   "Sample {:rgba [r g b a …] :width w :height h} at UV (u, v) with given
-   :wrap and :filter.  Returns [r g b a]."
+   :wrap and :filter.  :rgba holds 0–255 byte values; returns [r g b a] in
+   [0,1]."
   [{:keys [rgba width height]} u v
    {:keys [wrap filter], :or {wrap :clamp, filter :nearest}}]
   (let [w (int width)
@@ -165,20 +169,35 @@
 ;; Fragment shading
 ;; ---------------------------------------------------------------------------
 
+(defn- clamp01
+  [c]
+  (max 0.0 (min 1.0 (double c))))
+
+
 (defn shade-mesh-fragment
-  "Shade a single fragment for a mesh draw.  Returns [r g b a] in sRGB.
+  "Shade a single fragment for a mesh draw.  Returns [r g b a] in sRGB,
+   clamped to [0,1] so HDR lighting does not overflow the 8-bit sink.
    draw keys used: :op, :lights, :camera-pos, :lighting-enabled, :texture.
    Texture sampling :texture/wrap and :texture/filter are read from :op."
   [draw uv normal world-pos color]
   (let [op (:op draw)
         tex-source (:texture draw)
-        tex-result (if tex-source
+        tex-sample (when tex-source
                      (sample-texture tex-source
                                      (nth uv 0)
                                      (nth uv 1)
                                      {:wrap (get op :texture/wrap :clamp),
                                       :filter
-                                      (get op :texture/filter :nearest)})
+                                      (get op :texture/filter :nearest)}))
+        ;; v4 §Texture Modulation: fragment.rgba = texture.rgba ×
+        ;; color.rgba
+        ;; (matches the GPU shader's `texColor * input.color`).  Untextured
+        ;; fragments fall through to the per-vertex/fill colour unchanged.
+        tex-result (if tex-sample
+                     [(* (nth tex-sample 0) (nth color 0))
+                      (* (nth tex-sample 1) (nth color 1))
+                      (* (nth tex-sample 2) (nth color 2))
+                      (* (nth tex-sample 3) (nth color 3))]
                      color)
         linear-color (srgb->linear tex-result)]
     (if (:lighting-enabled draw)
@@ -194,9 +213,12 @@
                              (:camera-pos draw)
                              normal
                              world-pos)
-            result [(nth lit 0) (nth lit 1) (nth lit 2) (nth linear-color 3)]]
-        (linear->srgb result))
-      tex-result)))
+            result [(nth lit 0) (nth lit 1) (nth lit 2) (nth linear-color 3)]
+            srgb (linear->srgb result)]
+        [(clamp01 (nth srgb 0)) (clamp01 (nth srgb 1)) (clamp01 (nth srgb 2))
+         (clamp01 (nth srgb 3))])
+      [(clamp01 (nth tex-result 0)) (clamp01 (nth tex-result 1))
+       (clamp01 (nth tex-result 2)) (clamp01 (nth tex-result 3))])))
 
 
 ;; ---------------------------------------------------------------------------
@@ -217,38 +239,50 @@
   [v0 v1 v2
    {:keys [put-pixel! depth-get depth-set! viewport-w viewport-h clips
            depth-test? depth-write? shade-fn]}]
-  (let [x0 (:x v0)
-        y0 (:y v0)
-        z0 (:z v0)
-        iw0 (:inv-w v0)
-        x1 (:x v1)
-        y1 (:y v1)
-        z1 (:z v1)
-        iw1 (:inv-w v1)
-        x2 (:x v2)
-        y2 (:y v2)
-        z2 (:z v2)
-        iw2 (:inv-w v2)
-        ;; axis-aligned bounding box
-        min-x (max 0.0 (math/mfloor (min x0 x1 x2)))
-        max-x (min (dec viewport-w) (math/mfloor (max x0 x1 x2)))
-        min-y (max 0.0 (math/mfloor (min y0 y1 y2)))
-        max-y (min (dec viewport-h) (math/mfloor (max y0 y1 y2)))
-        ;; edge function area (normalized, so both windings render)
-        area (edge-fn x0 y0 x1 y1 x2 y2)]
-    (when (> (math/mabs area) v/EPSILON)
-      (let [scale (if (neg? area) -1.0 1.0)
-            area-abs (math/mabs area)]
+  (let [raw-area (edge-fn (:x v0) (:y v0) (:x v1) (:y v1) (:x v2) (:y v2))]
+    (when (> (math/mabs raw-area) v/EPSILON)
+      ;; Normalize to positive winding by swapping v1/v2 when needed, so
+      ;; the top-left fill rule below applies consistently; both input
+      ;; windings still rasterize identically.
+      (let [[v0 v1 v2 area]
+            (if (neg? raw-area) [v0 v2 v1 (- raw-area)] [v0 v1 v2 raw-area])
+            x0 (:x v0)
+            y0 (:y v0)
+            z0 (:z v0)
+            iw0 (:inv-w v0)
+            x1 (:x v1)
+            y1 (:y v1)
+            z1 (:z v1)
+            iw1 (:inv-w v1)
+            x2 (:x v2)
+            y2 (:y v2)
+            z2 (:z v2)
+            iw2 (:inv-w v2)
+            ;; axis-aligned bounding box
+            min-x (max 0.0 (math/mfloor (min x0 x1 x2)))
+            max-x (min (dec viewport-w) (math/mfloor (max x0 x1 x2)))
+            min-y (max 0.0 (math/mfloor (min y0 y1 y2)))
+            max-y (min (dec viewport-h) (math/mfloor (max y0 y1 y2)))
+            ;; Top-left fill rule: boundary pixels of a shared edge belong
+            ;; to exactly one of the adjacent triangles.  Include the
+            ;; boundary
+            ;; (bias -EPSILON) for top/left edges, exclude it (strict >,
+            ;; bias 0)
+            ;; otherwise — so seams render once, not twice.
+            top-left? (fn [dx dy] (or (> dy 0.0) (and (= dy 0.0) (< dx 0.0))))
+            bias0 (if (top-left? (- x1 x2) (- y1 y2)) (- v/EPSILON) 0.0)
+            bias1 (if (top-left? (- x2 x0) (- y2 y0)) (- v/EPSILON) 0.0)
+            bias2 (if (top-left? (- x0 x1) (- y0 y1)) (- v/EPSILON) 0.0)]
         (loop [py (int min-y)]
           (when (<= py (int max-y))
             (loop [px (int min-x)]
               (when (<= px (int max-x))
                 (let [cx (+ 0.5 (double px))
                       cy (+ 0.5 (double py))
-                      w0 (* scale (edge-fn x1 y1 x2 y2 cx cy))
-                      w1 (* scale (edge-fn x2 y2 x0 y0 cx cy))
-                      w2 (* scale (edge-fn x0 y0 x1 y1 cx cy))]
-                  (when (and (>= w0 0.0) (>= w1 0.0) (>= w2 0.0))
+                      w0 (edge-fn x1 y1 x2 y2 cx cy)
+                      w1 (edge-fn x2 y2 x0 y0 cx cy)
+                      w2 (edge-fn x0 y0 x1 y1 cx cy)]
+                  (when (and (> w0 bias0) (> w1 bias1) (> w2 bias2))
                     (when (or (empty? clips)
                               (some (fn [[cx' cy' cw ch]]
                                       (and (>= px cx')
@@ -256,9 +290,9 @@
                                            (< px (+ cx' cw))
                                            (< py (+ cy' ch))))
                                     clips))
-                      (let [b0 (/ w0 area-abs)
-                            b1 (/ w1 area-abs)
-                            b2 (/ w2 area-abs)
+                      (let [b0 (/ w0 area)
+                            b1 (/ w1 area)
+                            b2 (/ w2 area)
                             z-interp (+ (* b0 z0) (* b1 z1) (* b2 z2))]
                         (when (or (not depth-test?)
                                   (let [current (depth-get px py)]
@@ -293,8 +327,8 @@
                                             [0 1 2 3])
                                 [r g b a] (shade-fn uv normal world-pos color)]
                             (put-pixel! px py r g b a))))))
-                  (recur (unchecked-inc px)))))
-            (recur (unchecked-inc py))))))))
+                  (recur (inc px)))))
+            (recur (inc py))))))))
 
 
 ;; ---------------------------------------------------------------------------

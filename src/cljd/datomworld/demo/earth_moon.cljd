@@ -68,55 +68,14 @@
 (defn start!
   []
   (stop!)
-  (when (pg-gpu/gpu-available?)
-    (runner/reset-scene! (now-ms))
-    (ensure-asset-texture! runner/set-earth-texture! earth-asset)
-    (ensure-asset-texture! runner/set-moon-texture! moon-asset)
-    (ensure-ring-texture!)
-    (reset! timer* (async/Timer.periodic (core/Duration .milliseconds
-                                                        scene/frame-interval-ms)
-                                         (fn [_] (runner/tick! (now-ms)))))
-    :started))
-
-
-(defn- gpu-unsupported-view
-  [side]
-  (m/Center
-    .child
-    (m/Container
-      .width
-      side
-      .height
-      side
-      .decoration
-      (m/BoxDecoration .color
-                       (m/Color.fromARGB 150 40 12 12)
-                       .border
-                       (m/Border.all .color (m/Color.fromARGB 100 255 140 140))
-                       .borderRadius
-                       (m/BorderRadius.circular 16))
-      .padding
-      (m/EdgeInsets.all 22)
-      .child
-      (m/Column
-        .crossAxisAlignment
-        m/CrossAxisAlignment.start
-        .mainAxisSize
-        m/MainAxisSize.min
-        .children
-        [(m/Text "Flutter GPU not available"
-                 .style
-                 (m/TextStyle .fontSize
-                              18
-                              .fontWeight
-                              m/FontWeight.bold
-                              .color
-                              (m/Color.fromARGB 255 255 212 212)))
-         (m/SizedBox .height 8)
-         (m/Text
-           "This demo requires Impeller and Flutter GPU support. Please check your device settings or run on a supported platform."
-           .style
-           (m/TextStyle .color (m/Color.fromARGB 255 255 228 228)))]))))
+  (runner/reset-scene! (now-ms))
+  (ensure-asset-texture! runner/set-earth-texture! earth-asset)
+  (ensure-asset-texture! runner/set-moon-texture! moon-asset)
+  (ensure-ring-texture!)
+  (reset! timer* (async/Timer.periodic (core/Duration .milliseconds
+                                                      scene/frame-interval-ms)
+                                       (fn [_] (runner/tick! (now-ms)))))
+  :started)
 
 
 (defn view
@@ -126,19 +85,17 @@
               .backgroundColor
               (m/Color.fromARGB 255 6 5 16)
               .body
-              (m/LayoutBuilder
-                .builder
-                (fn [_context ^m/BoxConstraints constraints]
-                  (let [max-w (.-maxWidth constraints)
-                        max-h (.-maxHeight constraints)
-                        side (if (< max-w max-h) max-w max-h)]
-                    (m/Center .child
-                              (m/SizedBox .width
-                                          side
-                                          .height
-                                          side
-                                          .child
-                                          (if (pg-gpu/gpu-available?)
-                                            (pg/postgraphics-widget
-                                              runner/frame-stream)
-                                            (gpu-unsupported-view side)))))))))
+              (m/LayoutBuilder .builder
+                               (fn [_context ^m/BoxConstraints constraints]
+                                 (let [max-w (.-maxWidth constraints)
+                                       max-h (.-maxHeight constraints)
+                                       side (if (< max-w max-h) max-w max-h)]
+                                   (m/Center .child
+                                             (m/SizedBox
+                                               .width
+                                               side
+                                               .height
+                                               side
+                                               .child
+                                               (pg/postgraphics-widget
+                                                 runner/frame-stream))))))))

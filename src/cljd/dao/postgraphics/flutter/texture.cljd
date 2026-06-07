@@ -1,0 +1,6 @@
+(ns dao.postgraphics.flutter.texture
+  (:require ["package:flutter_gpu/gpu.dart" :as gpu]))
+
+
+(defrecord PgTexture
+  [gpu rgba width height])

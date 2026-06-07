@@ -7,6 +7,7 @@
             ["package:flutter/services.dart" :as services]
             ["package:flutter_gpu/gpu.dart" :as gpu]
             ["package:vector_math/vector_math.dart" :as vm32]
+            [dao.postgraphics.flutter.texture :as tex]
             [dao.postgraphics.validation :as v]))
 
 
@@ -67,30 +68,35 @@
 
 
 (defn create-rgba-texture!
-  "Creates a Flutter GPU texture from tightly packed RGBA8 host bytes.
+  "Creates a PgTexture carrying both a Flutter GPU texture and the host bytes.
 
-   The returned gpu/Texture is the value to place in draw3d/mesh
-   :texture/source. Texture bytes enter the VM as data; sampling remains a
-   Flutter GPU shader operation."
-  ^gpu/Texture [^int width ^int height ^type/ByteData rgba]
+   The returned PgTexture is the value to place in draw3d/mesh
+   :texture/source. GPU sampling uses the .gpu field; software sampling uses
+   the .rgba field."
+  ^tex/PgTexture [^int width ^int height ^type/ByteData rgba]
   (when-not (and (> width 0) (> height 0))
     (v/reject! :validation-failure "Texture width and height must be positive"))
   (require-rgba-byte-size! width height rgba)
-  (init-gpu!)
-  (let [^gpu/GpuContext context (:context @gpu-state)]
-    (if context
-      (let [^gpu/Texture texture
-            (.createTexture context gpu/StorageMode.hostVisible width height)]
-        (.overwrite texture rgba)
-        texture)
-      (v/reject! :unsupported-op
-                 "Flutter GPU is not available; cannot create texture"))))
+  (let [rgba-list (.asUint8List (.-buffer rgba)
+                                (.-offsetInBytes rgba)
+                                (.-lengthInBytes rgba))]
+    (init-gpu!)
+    (let [^gpu/GpuContext context (:context @gpu-state)
+          gpu-tex (when context
+                    (let [^gpu/Texture texture (.createTexture
+                                                 context
+                                                 gpu/StorageMode.hostVisible
+                                                 width
+                                                 height)]
+                      (.overwrite texture rgba)
+                      texture))]
+      (tex/->PgTexture gpu-tex rgba-list width height))))
 
 
 (defn load-rgba-texture-from-asset!
   "Asynchronously loads a PNG/JPG asset, decodes it to RGBA8 bytes, and
-   uploads the result to a Flutter GPU texture. Returns a Future that
-   resolves to a gpu/Texture suitable for use as :texture/source."
+   uploads the result to a PgTexture. Returns a Future that resolves to a
+   PgTexture suitable for use as :texture/source."
   ^async/Future [^String asset-path]
   (.then
     ^async/Future (.load services/rootBundle asset-path)
@@ -220,7 +226,10 @@
         fill (get op :fill [1.0 1.0 1.0 1.0])
         colors (or (:colors op) (vec (repeat (count verts) fill)))
         indices (:indices op)
-        texture (or (:texture/source op) (:white-texture @gpu-state))
+        pg-tex (:texture/source op)
+        texture (or (when (instance? tex/PgTexture pg-tex)
+                      (.-gpu ^tex/PgTexture pg-tex))
+                    (:white-texture @gpu-state))
         sampler (sampler-options op)
         v-data (vertices->float32-list verts uvs normals colors)
         i-data (indices->uint16-list indices)
@@ -329,7 +338,11 @@
         ^gpu/RenderPipeline pipeline (:pipeline state)
         ^gpu/HostBuffer host-buffer (:host-buffer state)]
     (if (and context pipeline host-buffer)
-      (let [[r g b a] (gpu-clear-color lowered)
+      (let [clear-col (gpu-clear-color lowered)
+            ^double r (double (nth clear-col 0))
+            ^double g (double (nth clear-col 1))
+            ^double b (double (nth clear-col 2))
+            ^double a (double (or (nth clear-col 3) 1.0))
             ^gpu/CommandBuffer command-buffer (.createCommandBuffer context)
             ^gpu/Texture texture (.createTexture context
                                                  gpu/StorageMode.devicePrivate
@@ -342,26 +355,25 @@
                                          (int height)
                                          .format
                                          gpu/PixelFormat.d24UnormS8Uint)
-            render-target
-            (gpu/RenderTarget.singleColor
-              (gpu/ColorAttachment.
-                .texture
-                texture
-                .clearValue
-                (vm32/Vector4. (double r) (double g) (double b) (double a))
-                .loadAction
-                gpu/LoadAction.clear
-                .storeAction
-                gpu/StoreAction.store)
-              .depthStencilAttachment
-              (gpu/DepthStencilAttachment. .texture
-                                           depth-texture
-                                           .depthLoadAction
-                                           gpu/LoadAction.clear
-                                           .depthStoreAction
-                                           gpu/StoreAction.dontCare
-                                           .depthClearValue
-                                           1.0))
+            render-target (gpu/RenderTarget.singleColor
+                            (gpu/ColorAttachment. .texture
+                                                  texture
+                                                  .clearValue
+                                                  (vm32/Vector4. r g b a)
+                                                  .loadAction
+                                                  gpu/LoadAction.clear
+                                                  .storeAction
+                                                  gpu/StoreAction.store)
+                            .depthStencilAttachment
+                            (gpu/DepthStencilAttachment.
+                              .texture
+                              depth-texture
+                              .depthLoadAction
+                              gpu/LoadAction.clear
+                              .depthStoreAction
+                              gpu/StoreAction.dontCare
+                              .depthClearValue
+                              1.0))
             ^gpu/RenderPass render-pass (.createRenderPass command-buffer
                                                            render-target)]
         (.setDepthCompareOperation render-pass gpu/CompareFunction.less)
