@@ -138,6 +138,18 @@
     (is (approx-vec= [0.0 0.0 0.0] result))))
 
 
+(deftest blinn-phong-emissive
+  (testing
+    "emissive adds independent of lights (no lights -> output = emissive)"
+    (let [result (s/blinn-phong {:diffuse [1 1 1], :emissive [0.5 0.2 0.1]}
+                                []
+                                [0 0 5]
+                                [0 0 1]
+                                [0 0 0])]
+      (is (approx-vec= [0.5 0.2 0.1] result)
+          "with no lights the only contribution is the emissive term"))))
+
+
 ;; ---------------------------------------------------------------------------
 ;; rasterize-triangle!
 ;; ---------------------------------------------------------------------------

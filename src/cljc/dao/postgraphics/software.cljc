@@ -78,7 +78,7 @@
    :wrap and :filter.  :rgba holds 0–255 byte values; returns [r g b a] in
    [0,1]."
   [{:keys [rgba width height]} u v
-   {:keys [wrap filter], :or {wrap :clamp, filter :nearest}}]
+   {:keys [wrap filter], :or {wrap :clamp, filter :linear}}]
   (let [w (int width)
         h (int height)
         u' (wrap-coord u wrap)
@@ -111,13 +111,14 @@
 
 (defn blinn-phong
   "Compute Blinn-Phong lighting in linear space.  Returns [r g b] (no alpha).
-   material: {:diffuse [r g b] :specular [r g b]? :shininess n?}
+   material: {:diffuse [r g b] :specular [r g b]? :shininess n? :emissive [r g b]?}
    lights:   sequence of {:kind :ambient|:directional|:point …}
    normal, world-pos: vec3.  camera-pos: vec3."
-  [{:keys [diffuse specular shininess], :or {shininess 32.0}} lights camera-pos
-   normal world-pos]
+  [{:keys [diffuse specular shininess emissive], :or {shininess 32.0}} lights
+   camera-pos normal world-pos]
   (let [Kd (or diffuse [1.0 1.0 1.0])
         Ks (or specular [0.0 0.0 0.0])
+        Ke (or emissive [0.0 0.0 0.0])
         view-dir (math/vec3-normalize (math/vec3-sub camera-pos world-pos))
         [ar ag ab dr dg db sr sg sb]
         (reduce
@@ -160,9 +161,9 @@
                 [ar ag ab dr dg db sr sg sb])))
           [0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0]
           lights)]
-    [(+ (* (nth Kd 0) ar) (* (nth Kd 0) dr) (* (nth Ks 0) sr))
-     (+ (* (nth Kd 1) ag) (* (nth Kd 1) dg) (* (nth Ks 1) sg))
-     (+ (* (nth Kd 2) ab) (* (nth Kd 2) db) (* (nth Ks 2) sb))]))
+    [(+ (* (nth Kd 0) ar) (* (nth Kd 0) dr) (* (nth Ks 0) sr) (nth Ke 0))
+     (+ (* (nth Kd 1) ag) (* (nth Kd 1) dg) (* (nth Ks 1) sg) (nth Ke 1))
+     (+ (* (nth Kd 2) ab) (* (nth Kd 2) db) (* (nth Ks 2) sb) (nth Ke 2))]))
 
 
 ;; ---------------------------------------------------------------------------
@@ -188,7 +189,7 @@
                                      (nth uv 1)
                                      {:wrap (get op :texture/wrap :clamp),
                                       :filter
-                                      (get op :texture/filter :nearest)}))
+                                      (get op :texture/filter :linear)}))
         ;; v4 §Texture Modulation: fragment.rgba = texture.rgba ×
         ;; color.rgba
         ;; (matches the GPU shader's `texColor * input.color`).  Untextured
@@ -207,7 +208,11 @@
                        (get op :material/specular)
                        (assoc :specular (get op :material/specular))
                        (get op :material/shininess)
-                       (assoc :shininess (get op :material/shininess)))
+                       (assoc :shininess (get op :material/shininess))
+                       (get op :material/emissive)
+                       (assoc :emissive
+                              (srgb->linear (conj (vec (get op :material/emissive))
+                                                  1.0))))
             lit (blinn-phong material
                              (:lights draw)
                              (:camera-pos draw)
@@ -258,6 +263,45 @@
             y2 (:y v2)
             z2 (:z v2)
             iw2 (:inv-w v2)
+            ;; Pre-extract per-vertex attribute components outside the
+            ;; pixel loop so the hot path below uses direct scalar
+            ;; arithmetic — no closures, no mapv/range allocations.
+            uv0-0 (nth (:uv v0) 0)
+            uv0-1 (nth (:uv v0) 1)
+            uv1-0 (nth (:uv v1) 0)
+            uv1-1 (nth (:uv v1) 1)
+            uv2-0 (nth (:uv v2) 0)
+            uv2-1 (nth (:uv v2) 1)
+            n0-0 (nth (:normal v0) 0)
+            n0-1 (nth (:normal v0) 1)
+            n0-2 (nth (:normal v0) 2)
+            n1-0 (nth (:normal v1) 0)
+            n1-1 (nth (:normal v1) 1)
+            n1-2 (nth (:normal v1) 2)
+            n2-0 (nth (:normal v2) 0)
+            n2-1 (nth (:normal v2) 1)
+            n2-2 (nth (:normal v2) 2)
+            p0-0 (nth (:world-pos v0) 0)
+            p0-1 (nth (:world-pos v0) 1)
+            p0-2 (nth (:world-pos v0) 2)
+            p1-0 (nth (:world-pos v1) 0)
+            p1-1 (nth (:world-pos v1) 1)
+            p1-2 (nth (:world-pos v1) 2)
+            p2-0 (nth (:world-pos v2) 0)
+            p2-1 (nth (:world-pos v2) 1)
+            p2-2 (nth (:world-pos v2) 2)
+            c0-0 (nth (:color v0) 0)
+            c0-1 (nth (:color v0) 1)
+            c0-2 (nth (:color v0) 2)
+            c0-3 (nth (:color v0) 3)
+            c1-0 (nth (:color v1) 0)
+            c1-1 (nth (:color v1) 1)
+            c1-2 (nth (:color v1) 2)
+            c1-3 (nth (:color v1) 3)
+            c2-0 (nth (:color v2) 0)
+            c2-1 (nth (:color v2) 1)
+            c2-2 (nth (:color v2) 2)
+            c2-3 (nth (:color v2) 3)
             ;; axis-aligned bounding box
             min-x (max 0.0 (math/mfloor (min x0 x1 x2)))
             max-x (min (dec viewport-w) (math/mfloor (max x0 x1 x2)))
@@ -265,10 +309,9 @@
             max-y (min (dec viewport-h) (math/mfloor (max y0 y1 y2)))
             ;; Top-left fill rule: boundary pixels of a shared edge belong
             ;; to exactly one of the adjacent triangles.  Include the
-            ;; boundary
-            ;; (bias -EPSILON) for top/left edges, exclude it (strict >,
-            ;; bias 0)
-            ;; otherwise — so seams render once, not twice.
+            ;; boundary (bias -EPSILON) for top/left edges, exclude it
+            ;; (strict >, bias 0) otherwise — so seams render once, not
+            ;; twice.
             top-left? (fn [dx dy] (or (> dy 0.0) (and (= dy 0.0) (< dx 0.0))))
             bias0 (if (top-left? (- x1 x2) (- y1 y2)) (- v/EPSILON) 0.0)
             bias1 (if (top-left? (- x2 x0) (- y2 y0)) (- v/EPSILON) 0.0)
@@ -302,29 +345,26 @@
                                 c0 (/ (* b0 iw0) denom)
                                 c1 (/ (* b1 iw1) denom)
                                 c2 (/ (* b2 iw2) denom)
-                                uv (mapv (fn [i]
-                                           (+ (* c0 (nth (:uv v0) i))
-                                              (* c1 (nth (:uv v1) i))
-                                              (* c2 (nth (:uv v2) i))))
-                                         [0 1])
-                                normal (math/vec3-normalize
-                                         (mapv (fn [i]
-                                                 (+ (* c0 (nth (:normal v0) i))
-                                                    (* c1 (nth (:normal v1) i))
-                                                    (* c2
-                                                       (nth (:normal v2) i))))
-                                               [0 1 2]))
-                                world-pos
-                                (mapv (fn [i]
-                                        (+ (* c0 (nth (:world-pos v0) i))
-                                           (* c1 (nth (:world-pos v1) i))
-                                           (* c2 (nth (:world-pos v2) i))))
-                                      [0 1 2])
-                                color (mapv (fn [i]
-                                              (+ (* c0 (nth (:color v0) i))
-                                                 (* c1 (nth (:color v1) i))
-                                                 (* c2 (nth (:color v2) i))))
-                                            [0 1 2 3])
+                                ;; All per-fragment attribute interpolation
+                                ;; is direct scalar arithmetic — no
+                                ;; closures, no mapv/range allocations in
+                                ;; the hot path.
+                                iu0 (+ (* c0 uv0-0) (* c1 uv1-0) (* c2 uv2-0))
+                                iu1 (+ (* c0 uv0-1) (* c1 uv1-1) (* c2 uv2-1))
+                                in0 (+ (* c0 n0-0) (* c1 n1-0) (* c2 n2-0))
+                                in1 (+ (* c0 n0-1) (* c1 n1-1) (* c2 n2-1))
+                                in2 (+ (* c0 n0-2) (* c1 n1-2) (* c2 n2-2))
+                                ip0 (+ (* c0 p0-0) (* c1 p1-0) (* c2 p2-0))
+                                ip1 (+ (* c0 p0-1) (* c1 p1-1) (* c2 p2-1))
+                                ip2 (+ (* c0 p0-2) (* c1 p1-2) (* c2 p2-2))
+                                ic0 (+ (* c0 c0-0) (* c1 c1-0) (* c2 c2-0))
+                                ic1 (+ (* c0 c0-1) (* c1 c1-1) (* c2 c2-1))
+                                ic2 (+ (* c0 c0-2) (* c1 c1-2) (* c2 c2-2))
+                                ic3 (+ (* c0 c0-3) (* c1 c1-3) (* c2 c2-3))
+                                uv [iu0 iu1]
+                                normal (math/vec3-normalize [in0 in1 in2])
+                                world-pos [ip0 ip1 ip2]
+                                color [ic0 ic1 ic2 ic3]
                                 [r g b a] (shade-fn uv normal world-pos color)]
                             (put-pixel! px py r g b a))))))
                   (recur (inc px)))))
