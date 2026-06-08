@@ -1,7 +1,7 @@
 (ns bench.stream-optimization-bench
   (:require
     [dao.stream :as ds]
-    [dao.stream.ringbuffer :as stream]
+    [dao.stream.ringbuffer]
     [yin.vm.engine :as engine]))
 
 
@@ -77,7 +77,7 @@
                     stream-ref {:type :stream-ref, :id stream-id}
                     val remaining-m
                     ;; 1. Put value
-                    result (stream/handle-put s
+                    result (engine/handle-put s
                                               {:effect :stream/put,
                                                :stream stream-ref,
                                                :val val})
@@ -123,7 +123,7 @@
         (fn [s]
           (let [wait-set (:wait-set s)]
             (reduce (fn [acc entry]
-                      (let [result (stream/handle-next acc
+                      (let [result (engine/handle-next acc
                                                        {:effect :stream/next,
                                                         :cursor (:cursor-ref
                                                                   entry)})]
@@ -156,7 +156,7 @@
                     stream-ref {:type :stream-ref, :id stream-id}
                     val remaining-m
                     ;; 1. Put value (ignores :woke to simulate old way)
-                    result (stream/handle-put s
+                    result (engine/handle-put s
                                               {:effect :stream/put,
                                                :stream stream-ref,
                                                :val val})
