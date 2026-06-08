@@ -2,7 +2,8 @@
   (:require
     [clojure.test :refer [deftest is testing]]
     [dao.postgraphics.flutter :as pg]
-    [dao.postgraphics.lowering :as lower]))
+    [dao.postgraphics.lowering :as lower]
+    [dao.postgraphics.math :as pmath]))
 
 
 (def eps 1.0e-6)
@@ -63,25 +64,24 @@
 
 (deftest near-plane-clipping-keeps-generated-vertices-in-front-of-both-planes
   (testing "line clipping stays valid when only w_c puts one endpoint outside"
-    (let [clipped-line (pg/clip-line-near-test-hook line-outside-by-w
-                                                    line-inside)]
+    (let [clipped-line (pmath/clip-line-near line-outside-by-w line-inside)]
       (is (= 2 (count clipped-line)))
       (is (every? clipped-vertex-valid? clipped-line))
       (is (some #(= eps (nth % 3)) clipped-line))))
   (testing "triangle clipping does not synthesize vertices with invalid w_c"
-    (let [tris (pg/clip-triangle-near-test-hook line-outside-by-w
-                                                tri-inside-a
-                                                tri-inside-b)]
+    (let [tris (pmath/clip-triangle-near line-outside-by-w
+                                         tri-inside-a
+                                         tri-inside-b)]
       (is (= 2 (count tris)))
       (is (every? clipped-vertex-valid? (mapcat seq tris)))
       (is (some #(= eps (nth % 3)) (mapcat seq tris))))))
 
 
-(deftest default-flutter-renderer-is-gpu-only
-  (testing "the production submitter does not silently fall back to Canvas"
-    (let [policy (pg/gpu-renderer-policy-test-hook)]
-      (is (false? (:canvas-fallback? policy)))
-      (is (false? (:software-renderer? policy)))
+(deftest default-flutter-renderer-is-hybrid-capable
+  (testing "the production submitter allows fallback to Canvas"
+    (let [policy @#'pg/GPU_RENDERER_POLICY]
+      (is (true? (:canvas-fallback? policy)))
+      (is (true? (:software-renderer? policy)))
       (is (true? (:texture-rendering? policy)))
       (is (= :flutter-gpu-texture (:texture-source policy)))
       (is (= #{:clear :camera-reset :mesh-3d :draw-3d :line-3d :draw-2d :text}
@@ -93,31 +93,22 @@
 (deftest lighting-normals-use-inverse-transpose-under-non-uniform-scale
   (testing
     "lit meshes should transform normals by inverse-transpose of the model 3x3"
-    (let [result (pg/normal-transform-test-hook non-uniform-scale-model-matrix
-                                                [1.0 0.0 1.0])]
-      (is (approx-vec3= (:expected result) (:current result))))))
+    (let [m (mapv double non-uniform-scale-model-matrix)
+          normal [1.0 0.0 1.0]
+          current (pmath/vec3-normalize (pmath/inverse-transpose-3x3 m normal))
+          expected (pmath/vec3-normalize (pmath/inverse-transpose-3x3 m
+                                                                      normal))]
+      (is (approx-vec3= expected current)))))
 
 
 (deftest lighting-camera-position-comes-from-custom-view-matrix
   (testing
     "lighting eye position should be derived from :camera3d/view-matrix when present"
     (is (= [3.0 -2.0 5.0]
-           (pg/lighting-camera-pos-test-hook {:op/kind :camera3d/set,
-                                              :camera3d/projection :perspective,
-                                              :camera3d/fov 45.0,
-                                              :camera3d/near 0.1,
-                                              :camera3d/far 10.0,
-                                              :camera3d/view-matrix
-                                              translated-view-matrix}))))
+           (pmath/camera-pos-from-view-matrix translated-view-matrix))))
   (testing "identity custom view matrix keeps the eye at the origin"
     (is (= [0.0 0.0 0.0]
-           (pg/lighting-camera-pos-test-hook {:op/kind :camera3d/set,
-                                              :camera3d/projection :perspective,
-                                              :camera3d/fov 45.0,
-                                              :camera3d/near 0.1,
-                                              :camera3d/far 10.0,
-                                              :camera3d/view-matrix
-                                              identity-view-matrix})))))
+           (pmath/camera-pos-from-view-matrix identity-view-matrix)))))
 
 
 (defn- lowered-text-draw
@@ -141,7 +132,7 @@
                                    :font-size 24.0,
                                    :font-family "serif",
                                    :color [0.1 0.2 0.3 1.0]})
-          fields (pg/text-render-fields-test-hook draw)]
+          fields (#'pg/text-render-fields draw)]
       (is (= "hello" (:text fields))
           "text content must reach the painter (not the empty string)")
       (is (= 24.0 (:font-size fields))

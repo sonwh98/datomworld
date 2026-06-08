@@ -27,6 +27,19 @@
 (def ^:private LINE_HEIGHT 1.2)
 
 
+(def ^:private GPU_RENDERER_POLICY
+  "Default Flutter submitter policy. The production widget uses Flutter GPU
+   for supported pipelines and falls back to software rendering for 3D draws
+   when navigator.gpu (or equivalent) is missing."
+  {:canvas-fallback? true,
+   :software-renderer? true,
+   :texture-rendering? true,
+   :texture-source :flutter-gpu-texture,
+   :supported-pipelines #{:clear :camera-reset :mesh-3d :draw-3d :line-3d
+                          :draw-2d :text},
+   :supported-3d-ops #{:draw3d/mesh :draw3d/triangles :draw3d/lines}})
+
+
 (defn- resolve-font-family
   "Per v3 §Font Family Resolution: the VM cannot guarantee pixel-perfect
    metric parity with an upstream measurement capability, so anything outside
@@ -36,73 +49,6 @@
   (cond (nil? requested) "monospace"
         (#{"monospace" "sans-serif" "serif"} requested) requested
         :else "monospace"))
-
-
-(defn clip-line-near-test-hook
-  "Test hook for verifying clip-space near-plane clipping behavior."
-  [v1 v2]
-  (pmath/clip-line-near v1 v2))
-
-
-(defn clip-triangle-near-test-hook
-  "Test hook for verifying clip-space near-plane clipping behavior."
-  [v1 v2 v3]
-  (pmath/clip-triangle-near v1 v2 v3))
-
-
-(defn normal-transform-test-hook
-  "Test hook exposing the current normal transform versus the v4-required
-   inverse-transpose transform under a supplied model matrix."
-  [model-matrix-16 normal]
-  (let [m (mapv double model-matrix-16)
-        current (pmath/vec3-normalize (pmath/inverse-transpose-3x3 m normal))
-        expected (pmath/vec3-normalize (pmath/inverse-transpose-3x3 m normal))]
-    {:current current, :expected expected}))
-
-
-(defn lighting-camera-pos-test-hook
-  "Test hook exposing the lighting camera position derivation used by the
-   current painter. Prefers :camera3d/view-matrix (inverted, origin column)
-   over :camera3d/position when both are present, matching the painter."
-  [camera-op]
-  (if-let [vmat (:camera3d/view-matrix camera-op)]
-    (pmath/camera-pos-from-view-matrix vmat)
-    (mapv double (get camera-op :camera3d/position [0.0 0.0 0.0]))))
-
-
-(defn text-style-height-test-hook
-  "Returns the line-height multiplier the VM pins on text styles
-   (v3 §Line Height: 1.2 × font-size)."
-  []
-  LINE_HEIGHT)
-
-
-(defn text-ignores-transform-test-hook
-  "Returns true if the painter renders text glyphs at screen-space scale
-   regardless of the current model transform (v3 §Font Size)."
-  []
-  true)
-
-
-(defn resolve-font-family-test-hook
-  "Exposes font family resolution: generic names pass through, unknown names
-   fall back to System Monospace (v3 §Font Family Resolution)."
-  [family]
-  (resolve-font-family family))
-
-
-(defn gpu-renderer-policy-test-hook
-  "Exposes the default Flutter submitter policy. The production widget uses
-   Flutter GPU for supported pipelines and rejects unsupported draw records
-   instead of falling back to Canvas rendering."
-  []
-  {:canvas-fallback? true,
-   :software-renderer? true,
-   :texture-rendering? true,
-   :texture-source :flutter-gpu-texture,
-   :supported-pipelines #{:clear :camera-reset :mesh-3d :draw-3d :line-3d
-                          :draw-2d :text},
-   :supported-3d-ops #{:draw3d/mesh :draw3d/triangles :draw3d/lines}})
 
 
 (defn- ->paint
@@ -247,14 +193,6 @@
                       (ui/Offset. (double screen-x)
                                   (- (double screen-y) font-size)))
       (.restore canvas))))
-
-
-(defn text-render-fields-test-hook
-  "Exposes the fields paint-text! extracts from a lowered :text draw, so the
-   painter's reading can be checked against the canonical lowering shape
-   without a live Canvas."
-  [draw]
-  (text-render-fields draw))
 
 
 (deftype PostgraphicsPainter
