@@ -193,15 +193,15 @@
         signals (make-stream)
         submissions (atom [])
         errors (atom [])
-        handle (webgpu/frame-stream-binding-test-hook
-                 nil
-                 frames
-                 {:viewport-size (fn [] [100 50]),
-                  :signal-stream signals,
-                  :generation-id "webgpu-test",
-                  :on-error #(swap! errors conj %),
-                  :submit! (fn [_canvas lowered]
-                             (swap! submissions conj lowered))})]
+        handle (#'webgpu/bind-frame-stream!
+                nil
+                frames
+                {:viewport-size (fn [] [100 50]),
+                 :signal-stream signals,
+                 :generation-id "webgpu-test",
+                 :on-error #(swap! errors conj %),
+                 :submit! (fn [_canvas lowered]
+                            (swap! submissions conj lowered))})]
     (terminal/put-frame!
       frames
       [{:op/kind :draw/fill-rect, :rect [0 0 10 10], :color [1 1 1 1]}])

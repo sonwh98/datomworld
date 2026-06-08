@@ -1,7 +1,7 @@
 (ns datomworld.demo.solar-system
   (:require
     [dao.postgraphics.terminal :as terminal]
-    [dao.postgraphics.web.gpu :as pg]
+    [dao.postgraphics.web :as pg]
     [dao.stream :as ds]
     [dao.stream.ringbuffer]
     [datomworld.demo.responsive :as responsive]
@@ -58,8 +58,7 @@
   []
   (r/create-class
     {:display-name "solar-system-postgraphics-widget",
-     :component-did-mount (fn [_]
-                            (when (pg/gpu-available?) (start!) (emit-frame!))),
+     :component-did-mount (fn [_] (start!) (emit-frame!)),
      :component-will-unmount (fn [_] (dispose!)),
      :reagent-render
      (fn []

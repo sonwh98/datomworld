@@ -1,8 +1,7 @@
 (ns dao.postgraphics.web.gpu
   (:require
     [dao.postgraphics.lowering :as lower]
-    [dao.postgraphics.terminal :as terminal]
-    [reagent.core :as r]))
+    [dao.postgraphics.terminal :as terminal]))
 
 
 ;; --- WebGPU submitter ---
@@ -506,38 +505,6 @@
   (boolean (and (exists? js/navigator) (.-gpu js/navigator))))
 
 
-(defn- webgpu-unsupported-view
-  "Inline notice rendered in place of the canvas when navigator.gpu is
-   missing. Minimum browser versions are spelled out so the user knows
-   what to upgrade to."
-  [canvas-attrs]
-  (let [base-style {:padding "20px 22px",
-                    :border "1px solid rgba(255,140,140,0.35)",
-                    :border-radius "16px",
-                    :background "rgba(40,12,12,0.6)",
-                    :color "#ffe4e4",
-                    :font-family "system-ui, ui-sans-serif, sans-serif",
-                    :line-height "1.55",
-                    :box-sizing "border-box"}
-        style (merge base-style (:style canvas-attrs))]
-    [:div {:style style}
-     [:strong
-      {:style {:display "block",
-               :font-size "18px",
-               :margin-bottom "8px",
-               :color "#ffd4d4"}} "WebGPU not available"]
-     [:p {:style {:margin "0 0 10px"}}
-      "This demo renders through WebGPU and your browser does not expose "
-      [:code "navigator.gpu"] ". You can run it in:"]
-     [:ul {:style {:margin "0", :padding-left "20px"}}
-      [:li "Chrome or Edge " [:strong "113"] " or newer (May 2023)"]
-      [:li "Safari " [:strong "18"]
-       " or newer (macOS Sequoia / iOS 18, Sept 2024)"]
-      [:li "Firefox " [:strong "141"] " or newer on Windows (July 2025); "
-       "other platforms still rolling out, set " [:code "dom.webgpu.enabled"]
-       " in " [:code "about:config"] " on older Nightly builds"]]]))
-
-
 (def put-frame! terminal/put-frame!)
 
 
@@ -557,65 +524,19 @@
 
 (defn- bind-frame-stream!
   [canvas frame-stream
-   {:keys [on-error signal-stream device-options viewport-size submit!
-           resolve-resource generation-id generation-id-fn],
+   {:keys [viewport-size submit! resolve-resource],
+    :as opts,
     :or {submit! default-submit!}}]
-  (let [host {:canvas canvas, :device-options device-options}
+  (let [host {:canvas canvas, :device-options (:device-options opts)}
         viewport-size (or viewport-size #(default-viewport-size canvas))
         lowering-opts (lowering-opts viewport-size resolve-resource host)
         binding (terminal/bind-stream!
                   frame-stream
-                  {:validate-frame! #(lower/validate-frame! % lowering-opts),
-                   :present-frame!
-                   (fn [frame]
-                     (let [lowered (lower/lower-frame frame lowering-opts)]
-                       (submit! canvas lowered))),
-                   :signal-stream signal-stream,
-                   :generation-id generation-id,
-                   :generation-id-fn (or generation-id-fn
-                                         terminal/new-generation-id),
-                   :on-error on-error})]
+                  (merge
+                    opts
+                    {:validate-frame! #(lower/validate-frame! % lowering-opts),
+                     :present-frame!
+                     (fn [frame]
+                       (let [lowered (lower/lower-frame frame lowering-opts)]
+                         (submit! canvas lowered)))}))]
     (merge host binding {:submit! submit!})))
-
-
-(defn frame-stream-binding-test-hook
-  [canvas frame-stream opts]
-  (bind-frame-stream! canvas frame-stream opts))
-
-
-(defn postgraphics-widget
-  "Returns a browser canvas widget that renders frames emitted by frame-stream.
-
-  Options:
-  - :on-error      callback receiving the exception when a frame is rejected
-  - :signal-stream dao.stream to which canonical terminal signals
-                   (:dao.terminal/reset, :dao.terminal/rejection) are emitted;
-                   required for participants in dao.gui.event
-
-  Web options:
-  - :canvas-attrs     Hiccup attrs merged onto the internal canvas
-  - :submit!          host encoder called as (submit! canvas lowered-frame)
-  - :viewport-size    function returning [width height]
-  - :resolve-resource function resolving image/texture resources"
-  [frame-stream & {:keys [canvas-attrs], :as opts}]
-  (let [canvas-ref (atom nil)
-        terminal-handle (atom nil)]
-    (r/create-class
-      {:display-name "dao-postgraphics-web-gpu-widget",
-       :component-did-mount (fn [_]
-                              (when-let [canvas @canvas-ref]
-                                (reset! terminal-handle (bind-frame-stream!
-                                                          canvas
-                                                          frame-stream
-                                                          opts)))),
-       :component-will-unmount (fn [_]
-                                 (when-let [handle @terminal-handle]
-                                   (when-let [close! (:close! handle)]
-                                     (close!)))
-                                 (reset! terminal-handle nil)
-                                 (reset! canvas-ref nil)),
-       :reagent-render (fn []
-                         (if (gpu-available?)
-                           [:canvas
-                            (assoc canvas-attrs :ref #(reset! canvas-ref %))]
-                           [webgpu-unsupported-view canvas-attrs]))})))

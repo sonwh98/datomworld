@@ -130,14 +130,14 @@
                           (+ ag (* (nth lc 1) intensity))
                           (+ ab (* (nth lc 2) intensity)) dr dg db sr sg sb]
                 :directional (let [L (math/vec3-normalize (:direction light))
-                                   N·L (max 0.0 (math/dot3 normal L))
+                                   n-l (max 0.0 (math/dot3 normal L))
                                    H (math/vec3-normalize
                                        (math/vec3-add L view-dir))
-                                   N·H (max 0.0 (math/dot3 normal H))
-                                   spec (math/mpow N·H shininess)]
-                               [ar ag ab (+ dr (* (nth lc 0) N·L intensity))
-                                (+ dg (* (nth lc 1) N·L intensity))
-                                (+ db (* (nth lc 2) N·L intensity))
+                                   n-h (max 0.0 (math/dot3 normal H))
+                                   spec (math/mpow n-h shininess)]
+                               [ar ag ab (+ dr (* (nth lc 0) n-l intensity))
+                                (+ dg (* (nth lc 1) n-l intensity))
+                                (+ db (* (nth lc 2) n-l intensity))
                                 (+ sr (* (nth lc 0) spec intensity))
                                 (+ sg (* (nth lc 1) spec intensity))
                                 (+ sb (* (nth lc 2) spec intensity))])
@@ -146,15 +146,15 @@
                       dist (math/msqrt (math/dot3 to-light to-light))
                       range (double (get light :range 100.0))
                       L (math/vec3-normalize to-light)
-                      N·L (max 0.0 (math/dot3 normal L))
+                      n-l (max 0.0 (math/dot3 normal L))
                       H (math/vec3-normalize (math/vec3-add L view-dir))
-                      N·H (max 0.0 (math/dot3 normal H))
-                      spec (math/mpow N·H shininess)
+                      n-h (max 0.0 (math/dot3 normal H))
+                      spec (math/mpow n-h shininess)
                       atten (let [t (- 1.0 (/ dist range))]
                               (if (pos? t) (* t t) 0.0))]
-                  [ar ag ab (+ dr (* (nth lc 0) N·L intensity atten))
-                   (+ dg (* (nth lc 1) N·L intensity atten))
-                   (+ db (* (nth lc 2) N·L intensity atten))
+                  [ar ag ab (+ dr (* (nth lc 0) n-l intensity atten))
+                   (+ dg (* (nth lc 1) n-l intensity atten))
+                   (+ db (* (nth lc 2) n-l intensity atten))
                    (+ sr (* (nth lc 0) spec intensity atten))
                    (+ sg (* (nth lc 1) spec intensity atten))
                    (+ sb (* (nth lc 2) spec intensity atten))])

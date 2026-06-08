@@ -1,6 +1,6 @@
 (ns datomworld.demo.earth-moon
   (:require
-    [dao.postgraphics.web.gpu :as pg]
+    [dao.postgraphics.web :as pg]
     [datomworld.demo.earth-moon-runner :as runner]
     [datomworld.demo.earth-moon-scene :as scene]
     [datomworld.demo.responsive :as responsive]
@@ -93,9 +93,7 @@
   []
   (r/create-class
     {:display-name "earth-moon-postgraphics-widget",
-     :component-did-mount
-     (fn [_]
-       (when (pg/gpu-available?) (start!) (runner/tick! (js/Date.now)))),
+     :component-did-mount (fn [_] (start!) (runner/tick! (js/Date.now))),
      :component-will-unmount (fn [_] (dispose!)),
      :reagent-render
      (fn []

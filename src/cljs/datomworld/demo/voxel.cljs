@@ -1,6 +1,6 @@
 (ns datomworld.demo.voxel
   (:require
-    [dao.postgraphics.web.gpu :as pg]
+    [dao.postgraphics.web :as pg]
     [datomworld.demo.responsive :as responsive]
     [datomworld.demo.voxel-runner :as runner]
     [datomworld.demo.voxel-scene :as scene]
@@ -85,10 +85,9 @@
     {:display-name "voxel-postgraphics-widget",
      :component-did-mount
      (fn [_]
-       (when (pg/gpu-available?)
-         (start!)
-         (.addEventListener js/window "keydown" handle-key-down)
-         (.addEventListener js/window "keyup" handle-key-up))),
+       (start!)
+       (.addEventListener js/window "keydown" handle-key-down)
+       (.addEventListener js/window "keyup" handle-key-up)),
      :component-will-unmount
      (fn [_]
        (.removeEventListener js/window "keydown" handle-key-down)
