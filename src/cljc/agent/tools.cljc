@@ -7,9 +7,11 @@
         :default [[clojure.edn :as edn]])
     [clojure.string :as str]
     [dao.stream :as ds]
-    #?(:clj [dao.stream.file-input-stream])
-    #?(:clj [dao.stream.file-output-stream])
-    [dao.stream.http]))
+    [dao.stream.http]
+    #?@(:cljd []
+        :cljs []
+        :clj [[dao.stream.file-input-stream]
+              [dao.stream.file-output-stream]])))
 
 
 #?(:cljd (defn- dart->clj

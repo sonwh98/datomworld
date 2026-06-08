@@ -9,7 +9,8 @@
     [clojure.string :as str]
     [dao.stream :as ds]
     [dao.stream.http]
-    #?(:clj [dao.stream.ringbuffer])))
+    #?(:clj [dao.stream.ringbuffer])
+    [dao.stream.whatsapp]))
 
 
 (defn api-key
@@ -358,6 +359,32 @@
              {}))
          (throw (ex-info (str "Unexpected finish_reason: " finish-reason)
                          {:response resp})))))))
+
+
+(defn send-whatsapp!
+  "Send a WhatsApp text message to `to` (recipient phone number in E.164, e.g.
+   \"15551234567\") via the Meta WhatsApp Business Cloud API, blocking until the
+   send is acknowledged.
+
+   Credentials come from `opts` (:phone-number-id, :access-token, and optional
+   :api-url) or, when omitted, the WHATSAPP_PHONE_NUMBER_ID and
+   WHATSAPP_ACCESS_TOKEN environment variables.
+
+   Returns the send event read back off the stream:
+     {:whatsapp/ack   {:id <wamid> :status 200}}        on success
+     {:whatsapp/error {:status .. :body .. :error ..}}  on failure
+
+   JVM only (blocks on the stream via ds/take!!). The Cloud API only delivers
+   free-form text inside the 24h customer-service window; outside it, send a
+   pre-approved template by putting {:raw <payload>} on a :whatsapp stream
+   directly instead."
+  ([to text] (send-whatsapp! to text {}))
+  ([to text opts]
+   (let [wa (ds/open! (merge {:type :whatsapp} opts))]
+     (ds/put! wa {:to to, :text text})
+     (let [ack (ds/take!! wa)]
+       (ds/close! wa)
+       ack))))
 
 
 #?(:cljd nil

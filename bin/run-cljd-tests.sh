@@ -13,6 +13,7 @@ clj -M:cljd compile \
     agent.tzu-test \
     agent.tools-test \
     dao.stream.http-test \
+    dao.stream.whatsapp-test \
     dao.stream-test \
     dao.db-test \
     dao.db.in-memory-test \
