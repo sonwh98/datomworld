@@ -8,21 +8,27 @@
             ["package:flutter_gpu/gpu.dart" :as gpu]
             ["package:vector_math/vector_math.dart" :as vm32]
             [dao.postgraphics.flutter.texture :as tex]
+            [dao.postgraphics.software :as sw]
             [dao.postgraphics.validation :as v]))
 
 
 ;; --- GPU helpers ---
 
 (defn- vertices->float32-list
-  ^type/Float32List [verts uvs normals colors]
-  (let [n (count verts)
+  "Packs (pos uv normal color) per vertex, resolving uv/normal/color through
+   the shared software/vertex-attrs so the per-vertex :colors-over-:fill
+   precedence and defaults live in exactly one place."
+  ^type/Float32List [op]
+  (let [verts (:vertices op)
+        n (count verts)
         ^type/Float32List data (type/Float32List. (* n 12))]
     (dotimes [i n]
       (let [off (* i 12)
             v (nth verts i)
-            uv (nth uvs i [0.0 0.0])
-            norm (nth normals i [0.0 0.0 0.0])
-            col (nth colors i [1.0 1.0 1.0 1.0])]
+            attrs (sw/vertex-attrs op i)
+            uv (nth attrs 0)
+            norm (nth attrs 1)
+            col (nth attrs 3)]
         (aset data off (double (nth v 0)))
         (aset data (+ off 1) (double (nth v 1)))
         (aset data (+ off 2) (double (nth v 2)))
@@ -221,17 +227,13 @@
    ^gpu/HostBuffer host-buffer]
   (let [{:keys [op mvp model-m]} draw
         verts (:vertices op)
-        uvs (:uvs op)
-        normals (:normals op)
-        fill (get op :fill [1.0 1.0 1.0 1.0])
-        colors (or (:colors op) (vec (repeat (count verts) fill)))
         indices (:indices op)
         pg-tex (:texture/source op)
         texture (or (when (instance? tex/PgTexture pg-tex)
                       (.-gpu ^tex/PgTexture pg-tex))
                     (:white-texture @gpu-state))
         sampler (sampler-options op)
-        v-data (vertices->float32-list verts uvs normals colors)
+        v-data (vertices->float32-list op)
         i-data (indices->uint16-list indices)
         ;; Upload vertex and index data via HostBuffer
         v-view (.emplace host-buffer (.asByteData (.-buffer v-data)))
@@ -266,11 +268,17 @@
   (let [{:keys [op mvp model-m]} draw
         verts (:vertices op)
         edges (:edges op)
-        color (get op :color [1.0 1.0 1.0 1.0])
-        colors (vec (repeat (count verts) color))
+        ;; lines carry a single :color; feed it as :fill so vertex-attrs
+        ;; gives every vertex that constant colour (no per-vertex :colors /
+        ;; uvs).
+        line-op (assoc op
+                       :fill (get op :color [1.0 1.0 1.0 1.0])
+                       :colors nil
+                       :normals nil
+                       :uvs nil)
         texture (:white-texture @gpu-state)
         sampler (sampler-options op)
-        v-data (vertices->float32-list verts nil nil colors)
+        v-data (vertices->float32-list line-op)
         i-data (indices->uint16-list edges)
         v-view (.emplace host-buffer (.asByteData (.-buffer v-data)))
         i-view (.emplace host-buffer (.asByteData (.-buffer i-data)))

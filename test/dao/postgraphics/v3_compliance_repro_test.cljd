@@ -8,7 +8,7 @@
 (deftest text-rendering-compliance
   (testing "Standard line-height should be 1.2x font-size"
     (is
-      (= 1.2 @#'pg/LINE_HEIGHT)
+      (= 1.2 pg/LINE_HEIGHT)
       "v3 §Line Height: Standard line-height in v1 is pinned to 1.2x font-size"))
   (testing
     "Font size should be in screen pixels and independent of current transform"
@@ -17,5 +17,5 @@
       "v3 §Font Size: The current 2D transform's scale and rotation do not scale or rotate the glyphs."))
   (testing "Font family resolution fallback to System Monospace"
     (is
-      (= "monospace" (#'pg/resolve-font-family "unknown-font"))
+      (= "monospace" (pg/resolve-font-family "unknown-font"))
       "v3 §Font Family Resolution: The VM MUST fall back to a System Monospace font where metrics are strictly known and stable.")))

@@ -70,3 +70,40 @@
         (is (contains? names :fillRect)
             "the 2D rect reaches the native painter via the dispatcher"))
       (when-let [close! (:close! handle)] (close!)))))
+
+
+(deftest binding-lowers-valid-frames-and-signals-rejections
+  (testing
+    "the dispatcher binding lowers valid frames to the backend submit!
+            and emits reset/rejection signals (backend overridden to capture)"
+    (let [frames (make-stream)
+          signals (make-stream)
+          submissions (atom [])
+          errors (atom [])
+          handle (#'web/bind-frame-stream!
+                  nil
+                  frames
+                  {:viewport-size (fn [] [100 50]),
+                   :signal-stream signals,
+                   :generation-id "web-test",
+                   :on-error #(swap! errors conj %),
+                   :backend {:submit! (fn [_canvas lowered]
+                                        (swap! submissions conj lowered)),
+                             :supports-render-targets? true,
+                             :supports-image? true}})]
+      (terminal/put-frame!
+        frames
+        [{:op/kind :draw/fill-rect, :rect [0 0 10 10], :color [1 1 1 1]}])
+      (terminal/put-frame! frames
+                           [{:op/kind :draw/fill-rect, :rect [0 0 -1 1]}])
+      (is (= "web-test" (:generation-id handle)))
+      (is (= 1 (count @submissions)) "only the valid frame is submitted")
+      (is (= :draw-2d (get-in @submissions [0 :passes 0 :draws 0 :pipeline])))
+      (is (= 1 (count @errors)) "the invalid frame triggers on-error")
+      (is (= :dao.terminal/reset
+             (:message/kind (:ok (ds/next signals {:position 0})))))
+      (is (= {:message/kind :dao.terminal/rejection,
+              :submission-id 1,
+              :reason :validation-failure}
+             (:ok (ds/next signals {:position 1}))))
+      (when-let [close! (:close! handle)] (close!)))))

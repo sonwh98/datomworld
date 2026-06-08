@@ -3,14 +3,7 @@
     [cljs.test :refer-macros [deftest is testing]]
     [dao.postgraphics.lowering :as lower]
     [dao.postgraphics.terminal :as terminal]
-    [dao.postgraphics.web.gpu :as webgpu]
-    [dao.stream :as ds]
-    [dao.stream.ringbuffer]))
-
-
-(defn- make-stream
-  []
-  (ds/open! {:type :ringbuffer, :capacity nil}))
+    [dao.postgraphics.web.gpu :as webgpu]))
 
 
 (defn- approx=
@@ -188,36 +181,6 @@
               (catch js/Error e (terminal/rejection-reason e))))))
 
 
-(deftest postgraphics-widget-binding-submits-lowered-frames
-  (let [frames (make-stream)
-        signals (make-stream)
-        submissions (atom [])
-        errors (atom [])
-        handle (#'webgpu/bind-frame-stream!
-                nil
-                frames
-                {:viewport-size (fn [] [100 50]),
-                 :signal-stream signals,
-                 :generation-id "webgpu-test",
-                 :on-error #(swap! errors conj %),
-                 :submit! (fn [_canvas lowered]
-                            (swap! submissions conj lowered))})]
-    (terminal/put-frame!
-      frames
-      [{:op/kind :draw/fill-rect, :rect [0 0 10 10], :color [1 1 1 1]}])
-    (terminal/put-frame! frames [{:op/kind :draw/fill-rect, :rect [0 0 -1 1]}])
-    (is (= "webgpu-test" (:generation-id handle)))
-    (is (= 1 (count @submissions)))
-    (is (= :draw-2d (get-in @submissions [0 :passes 0 :draws 0 :pipeline])))
-    (is (= 1 (count @errors)))
-    (is (= :dao.terminal/reset
-           (:message/kind (:ok (ds/next signals {:position 0})))))
-    (is (= {:message/kind :dao.terminal/rejection,
-            :submission-id 1,
-            :reason :validation-failure}
-           (:ok (ds/next signals {:position 1}))))))
-
-
 (deftest texture-upload-mode-prefers-automatic-rasterization-for-image-sources
   (is (= :white (webgpu/texture-upload-mode nil)))
   (is (= :white (webgpu/texture-upload-mode {:image :x})))
@@ -225,3 +188,36 @@
          (webgpu/texture-upload-mode
            {:rgba (js/Uint8Array. #js [1 2 3 4]), :width 1, :height 1})))
   (is (= :image (webgpu/texture-upload-mode {:image {}, :width 8, :height 4}))))
+
+
+(deftest interleave-packs-shared-vertex-attrs
+  (testing
+    "GPU vertex packing delegates to software/vertex-attrs (colors > fill)"
+    (let [data (webgpu/interleave-vertex-data {:vertices [[1 2 3]],
+                                               :uvs [[0.5 0.25]],
+                                               :normals [[0 0 1]],
+                                               :fill [0.1 0.1 0.1 1],
+                                               :colors [[0.9 0.8 0.7 0.6]]})]
+      (is (= 12 (.-length data))
+          "one vertex => 12 floats (pos uv normal color)")
+      ;; position
+      (is
+        (and (= 1.0 (aget data 0)) (= 2.0 (aget data 1)) (= 3.0 (aget data 2))))
+      ;; uv
+      (is (and (approx= 0.5 (aget data 3)) (approx= 0.25 (aget data 4))))
+      ;; normal
+      (is
+        (and (= 0.0 (aget data 5)) (= 0.0 (aget data 6)) (= 1.0 (aget data 7))))
+      ;; colour resolved by vertex-attrs: per-vertex :colors win over :fill
+      (is (approx= 0.9 (aget data 8)))
+      (is (approx= 0.8 (aget data 9)))
+      (is (approx= 0.7 (aget data 10)))
+      (is (approx= 0.6 (aget data 11)))))
+  (testing
+    "missing normals default to the vertex position (matches web+flutter)"
+    (let [data (webgpu/interleave-vertex-data {:vertices [[4 5 6]]})]
+      ;; default normal = vertex position
+      (is
+        (and (= 4.0 (aget data 5)) (= 5.0 (aget data 6)) (= 6.0 (aget data 7))))
+      ;; default colour = white
+      (is (and (= 1.0 (aget data 8)) (= 1.0 (aget data 11)))))))

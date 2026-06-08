@@ -10,8 +10,7 @@
     [dao.postgraphics.lowering :as lower]
     [dao.postgraphics.terminal :as terminal]
     [dao.postgraphics.web.canvas :as sw]
-    [dao.postgraphics.web.gpu :as gpu]
-    [reagent.core :as r]))
+    [dao.postgraphics.web.gpu :as gpu]))
 
 
 (def put-frame! terminal/put-frame!)
@@ -107,6 +106,10 @@
   - :resolve-resource function resolving image/texture resources
   - :backend       override {:submit! :supports-render-targets? :supports-image?}"
   [frame-stream & {:keys [canvas-attrs], :as opts}]
+  ;; Form-2 component: the constructor closes over per-instance state
+  ;; (handle, set-ref!) created once; the render fn reuses the captured
+  ;; opts.  The :ref callback binds on mount (canvas non-nil) and tears
+  ;; down on unmount (nil).
   (let [handle (atom nil)
         set-ref!
         (fn [canvas]
@@ -115,7 +118,4 @@
             (do (when-let [h @handle]
                   (when-let [close! (:close! h)] (close!)))
                 (reset! handle nil))))]
-    (fn [frame-stream & {:keys [canvas-attrs], :as opts}]
-      [:canvas
-       (assoc canvas-attrs
-              :ref set-ref!)])))
+    (fn [] [:canvas (assoc canvas-attrs :ref set-ref!)])))

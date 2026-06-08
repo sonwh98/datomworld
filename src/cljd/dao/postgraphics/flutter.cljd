@@ -24,10 +24,10 @@
 ;; spatial block of `font-size × LINE_HEIGHT` anchored on the alphabetic
 ;; baseline. Pinned on TextStyle/ParagraphStyle so behavior is
 ;; host-independent.
-(def ^:private LINE_HEIGHT 1.2)
+(def LINE_HEIGHT 1.2)
 
 
-(def ^:private GPU_RENDERER_POLICY
+(def GPU_RENDERER_POLICY
   "Default Flutter submitter policy. The production widget uses Flutter GPU
    for supported pipelines and falls back to software rendering for 3D draws
    when navigator.gpu (or equivalent) is missing."
@@ -40,7 +40,7 @@
    :supported-3d-ops #{:draw3d/mesh :draw3d/triangles :draw3d/lines}})
 
 
-(defn- resolve-font-family
+(defn resolve-font-family
   "Per v3 §Font Family Resolution: the VM cannot guarantee pixel-perfect
    metric parity with an upstream measurement capability, so anything outside
    the generic family set falls back to a System Monospace font where metrics
@@ -156,7 +156,7 @@
     (.restore canvas)))
 
 
-(defn- text-render-fields
+(defn text-render-fields
   [draw]
   {:text (str (:text draw)),
    :color (or (:color draw) [0.0 0.0 0.0 1.0]),

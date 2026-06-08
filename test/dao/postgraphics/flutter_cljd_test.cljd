@@ -79,7 +79,7 @@
 
 (deftest default-flutter-renderer-is-hybrid-capable
   (testing "the production submitter allows fallback to Canvas"
-    (let [policy @#'pg/GPU_RENDERER_POLICY]
+    (let [policy pg/GPU_RENDERER_POLICY]
       (is (true? (:canvas-fallback? policy)))
       (is (true? (:software-renderer? policy)))
       (is (true? (:texture-rendering? policy)))
@@ -132,7 +132,7 @@
                                    :font-size 24.0,
                                    :font-family "serif",
                                    :color [0.1 0.2 0.3 1.0]})
-          fields (#'pg/text-render-fields draw)]
+          fields (pg/text-render-fields draw)]
       (is (= "hello" (:text fields))
           "text content must reach the painter (not the empty string)")
       (is (= 24.0 (:font-size fields))

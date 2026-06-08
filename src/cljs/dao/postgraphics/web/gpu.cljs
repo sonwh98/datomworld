@@ -1,6 +1,6 @@
 (ns dao.postgraphics.web.gpu
   (:require
-    [dao.postgraphics.lowering :as lower]
+    [dao.postgraphics.software :as s]
     [dao.postgraphics.terminal :as terminal]))
 
 
@@ -87,20 +87,21 @@
     buffer))
 
 
-(defn- interleave-vertex-data
-  "Packs the mesh into the (pos, uv, normal, color) vertex format the
-   shader expects. Per-vertex :colors take precedence over :fill so the
-   voxel demo's pre-baked face shading reaches the GPU; flutter.cljd
-   already honours this precedence."
-  [{:keys [vertices normals uvs colors fill]}]
-  (let [n (count vertices)
-        data (js/Float32Array. (* n 12))
-        [fr fg fb fa] (or fill [1.0 1.0 1.0 1.0])]
+(defn interleave-vertex-data
+  "Packs the mesh op into the (pos, uv, normal, color) vertex format the
+   shader expects.  uv/normal/color are resolved through the shared
+   software/vertex-attrs so the per-vertex :colors-over-:fill precedence and
+   defaults live in exactly one place (matching the software + Flutter paths)."
+  [op]
+  (let [vertices (:vertices op)
+        n (count vertices)
+        data (js/Float32Array. (* n 12))]
     (dotimes [i n]
       (let [[x y z] (nth vertices i)
-            [u v] (nth uvs i [0.0 0.0])
-            [nx ny nz] (nth normals i (nth vertices i))
-            [cr cg cb ca] (or (and colors (nth colors i nil)) [fr fg fb fa])
+            attrs (s/vertex-attrs op i)
+            [u v] (nth attrs 0)
+            [nx ny nz] (nth attrs 1)
+            [cr cg cb ca] (nth attrs 3)
             o (* i 12)]
         (aset data o (double x))
         (aset data (+ o 1) (double y))
@@ -491,11 +492,6 @@
         nil))))
 
 
-(defn- default-submit!
-  [canvas lowered]
-  (submit-webgpu! canvas lowered))
-
-
 (defn gpu-available?
   "Synchronous capability probe, the browser counterpart to
    dao.postgraphics.flutter.gpu/gpu-available?. The WebGPU spec exposes the
@@ -506,37 +502,3 @@
 
 
 (def put-frame! terminal/put-frame!)
-
-
-(defn- default-viewport-size
-  [canvas]
-  [(.-width canvas) (.-height canvas)])
-
-
-(defn- lowering-opts
-  [viewport-size resolve-resource host]
-  {:supports-render-targets? true,
-   :supports-image? true,
-   :viewport-size viewport-size,
-   :resolve-resource resolve-resource,
-   :host host})
-
-
-(defn- bind-frame-stream!
-  [canvas frame-stream
-   {:keys [viewport-size submit! resolve-resource],
-    :as opts,
-    :or {submit! default-submit!}}]
-  (let [host {:canvas canvas, :device-options (:device-options opts)}
-        viewport-size (or viewport-size #(default-viewport-size canvas))
-        lowering-opts (lowering-opts viewport-size resolve-resource host)
-        binding (terminal/bind-stream!
-                  frame-stream
-                  (merge
-                    opts
-                    {:validate-frame! #(lower/validate-frame! % lowering-opts),
-                     :present-frame!
-                     (fn [frame]
-                       (let [lowered (lower/lower-frame frame lowering-opts)]
-                         (submit! canvas lowered)))}))]
-    (merge host binding {:submit! submit!})))
