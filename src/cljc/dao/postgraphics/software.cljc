@@ -62,15 +62,26 @@
     (max 0.0 (min 1.0 c))))
 
 
+(defn- texel-byte
+  "Reads the byte at flat index idx from an RGBA buffer.  Uses aget for JS
+   typed arrays / arrays (the web ImageData buffer, which `nth` would scan
+   linearly), and nth for clj vectors and Dart Uint8List."
+  [rgba idx]
+  #?(:cljs (if (number? (.-length rgba)) (aget rgba idx) (nth rgba idx))
+     :clj (nth rgba idx)
+     :cljd (nth rgba idx)))
+
+
 (defn- sample-rgba-at
   "Sample a single pixel from an RGBA flat array at integer texel coords.
    The array holds 0–255 byte values (the natural image/Uint8List storage);
    the result is normalized to [0,1]."
   [rgba w x y]
   (let [idx (* 4 (+ (* (int y) (int w)) (int x)))]
-    [(/ (double (nth rgba idx)) 255.0) (/ (double (nth rgba (+ idx 1))) 255.0)
-     (/ (double (nth rgba (+ idx 2))) 255.0)
-     (/ (double (nth rgba (+ idx 3))) 255.0)]))
+    [(/ (double (texel-byte rgba idx)) 255.0)
+     (/ (double (texel-byte rgba (+ idx 1))) 255.0)
+     (/ (double (texel-byte rgba (+ idx 2))) 255.0)
+     (/ (double (texel-byte rgba (+ idx 3))) 255.0)]))
 
 
 (defn sample-texture

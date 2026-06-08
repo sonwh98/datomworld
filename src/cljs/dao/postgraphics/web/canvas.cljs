@@ -58,6 +58,65 @@
 
 
 ;; ---------------------------------------------------------------------------
+;; CPU-samplable textures.  Mesh :texture/source on the web arrives as
+;; {:image <HTMLImageElement|HTMLCanvasElement|ImageData> :width :height
+;; :source-id}; the software sampler needs raw 0–255 :rgba bytes.  Convert once
+;; (reading the image through an offscreen 2D context) and cache by :source-id.
+;; ---------------------------------------------------------------------------
+
+(defonce ^:private cpu-texture-cache (atom {}))
+
+
+(defn- image->rgba
+  [^js image width height]
+  (if (some? (.-data image))
+    ;; ImageData (or ImageData-like): bytes are already available.
+    (.-data image)
+    (let [^js c (.createElement js/document "canvas")]
+      (set! (.-width c) width)
+      (set! (.-height c) height)
+      (let [^js cx (.getContext c "2d")]
+        (.drawImage cx image 0 0 width height)
+        (.-data (.getImageData cx 0 0 width height))))))
+
+
+(defn- cpu-texture
+  "Ensures a texture map carries CPU-samplable :rgba bytes for the software
+   sampler.  Passes through textures that already have :rgba; converts an
+   :image source once and caches the result by :source-id."
+  [texture]
+  (cond (or (nil? texture) (:rgba texture)) texture
+        (:image texture)
+        (let [{:keys [source-id image width height]} texture]
+          (or (and source-id (get @cpu-texture-cache source-id))
+              (let [cpu {:rgba (image->rgba image width height),
+                         :width width,
+                         :height height}]
+                (when source-id (swap! cpu-texture-cache assoc source-id cpu))
+                cpu)))
+        :else texture))
+
+
+(defn- prepare-textures
+  "Replaces each draw's :texture with a CPU-samplable version before the
+   software rasterizer reads it."
+  [lowered]
+  (update lowered
+          :passes
+          (fn [passes]
+            (mapv (fn [pass]
+                    (update pass
+                            :draws
+                            (fn [draws]
+                              (mapv (fn [d]
+                                      (if (:texture d)
+                                        (update d :texture cpu-texture)
+                                        d))
+                                    draws))))
+                  passes))))
+
+
+;; ---------------------------------------------------------------------------
 ;; 2D / text overlay (native Canvas2D, mirroring flutter.cljd's painter)
 ;; ---------------------------------------------------------------------------
 
@@ -203,7 +262,8 @@
         w (int (.-width canvas))
         h (int (.-height canvas))]
     (when (and ctx (pos? w) (pos? h))
-      (let [image (.createImageData ctx w h)
+      (let [lowered (prepare-textures lowered)
+            image (.createImageData ctx w h)
             rgba (.-data image)
             depth (js/Float32Array. (* w h))]
         (clear! rgba depth w h (clear-color lowered))

@@ -2,6 +2,7 @@
   (:require
     [cljs.test :refer-macros [deftest is testing]]
     [dao.postgraphics.lowering :as lower]
+    [dao.postgraphics.software :as s]
     [dao.postgraphics.web.canvas :as canvas]))
 
 
@@ -55,15 +56,21 @@
   (set (map first @calls)))
 
 
-(defn- any-red-pixel?
-  "True when any pixel in the ImageData has a non-zero red channel."
-  [^js image]
+(defn- any-pixel-channel?
+  "True when any pixel in the ImageData has a non-zero value in channel ch
+   (0=r 1=g 2=b 3=a)."
+  [^js image ch]
   (let [data (.-data image)
         n (.-length data)]
-    (loop [i 0]
+    (loop [i ch]
       (cond (>= i n) false
             (pos? (aget data i)) true
             :else (recur (+ i 4))))))
+
+
+(defn- any-red-pixel?
+  [^js image]
+  (any-pixel-channel? image 0))
 
 
 (def ^:private identity-mvp [1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1])
@@ -207,3 +214,47 @@
       (canvas/submit-software! canvas lowered)
       (is (contains? (call-names calls) :fillRect)
           "lowered :draw-2d reaches the native painter"))))
+
+
+;; ---------------------------------------------------------------------------
+;; CPU-samplable textures (web :image source -> :rgba bytes for the sampler)
+;; ---------------------------------------------------------------------------
+
+(deftest sample-texture-reads-js-typed-array
+  (testing "the shared sampler reads a Uint8ClampedArray buffer (not just vecs)"
+    (let [tex {:width 1,
+               :height 1,
+               :rgba (js/Uint8ClampedArray. #js [255 0 0 255])}]
+      (is
+        (= [1 0 0 1] (vec (s/sample-texture tex 0 0 {:filter :nearest})))
+        "0–255 typed-array bytes normalize to [0,1] via aget, not slow nth"))))
+
+
+(deftest submit-software-samples-image-texture
+  (testing "a mesh whose :texture is an :image source is converted + sampled"
+    (let [{:keys [canvas image]} (fake-canvas 100 100)
+          ;; ImageData-like green texel; cpu-texture reads (.-data image)
+          green-tex {:image #js {:data (js/Uint8ClampedArray. #js [0 255 0
+                                                                   255])},
+                     :width 1,
+                     :height 1,
+                     :source-id :green-tex}
+          lowered {:passes [{:draws [{:pipeline :mesh-3d,
+                                      :op {:vertices [[0 0 0] [50 0 0]
+                                                      [25 50 0]],
+                                           :indices [[0 1 2]],
+                                           :fill [1 1 1 1]},
+                                      :texture green-tex,
+                                      :mvp identity-mvp,
+                                      :model-m identity-mvp,
+                                      :lights [],
+                                      :camera-pos [0 0 5],
+                                      :lighting-enabled false,
+                                      :depth-test false,
+                                      :depth-write false,
+                                      :clips []}]}]}]
+      (canvas/submit-software! canvas lowered)
+      (is (any-pixel-channel? @image 1)
+          "white mesh × green texture should leave green fragments")
+      (is (not (any-pixel-channel? @image 0))
+          "no red: the texture (green) modulated the white fill"))))

@@ -125,6 +125,33 @@
                (ui/Rect.fromLTWH (double x) (double y) (double w) (double h)))))
 
 
+(defn- build-path
+  "Builds a ui.Path from a :draw/path :segments vector.  Segment vocabulary:
+   [:move-to x y] [:line-to x y] [:quad-to cx cy x y]
+   [:cubic-to cx1 cy1 cx2 cy2 x y] [:close]."
+  ^ui/Path [segments]
+  (let [path (ui/Path.)]
+    (doseq [seg segments]
+      (case (first seg)
+        :move-to (.moveTo path (double (nth seg 1)) (double (nth seg 2)))
+        :line-to (.lineTo path (double (nth seg 1)) (double (nth seg 2)))
+        :quad-to (.quadraticBezierTo path
+                                     (double (nth seg 1))
+                                     (double (nth seg 2))
+                                     (double (nth seg 3))
+                                     (double (nth seg 4)))
+        :cubic-to (.cubicTo path
+                            (double (nth seg 1))
+                            (double (nth seg 2))
+                            (double (nth seg 3))
+                            (double (nth seg 4))
+                            (double (nth seg 5))
+                            (double (nth seg 6)))
+        :close (.close path)
+        nil))
+    path))
+
+
 (defn- paint-2d-draw!
   "Renders one :draw-2d op onto the 2D Canvas. Clips are applied in
    screen-space (the lowering already y-flipped them); then the canvas is
@@ -159,6 +186,26 @@
                      (ui/Offset. (double cx) (double cy))
                      (double (:radius op))
                      p))
+      :draw/path (let [path (build-path (:segments op))]
+                   (when-let [fill (:fill op)]
+                     (.drawPath canvas path (->paint fill false)))
+                   (when-let [stroke (:stroke op)]
+                     (let [^ui/Paint p (->paint stroke true)]
+                       (set! (.-strokeWidth p)
+                             (double (get op :stroke-width 1.0)))
+                       (.drawPath canvas path p))))
+      :draw/image
+      ;; Only the :placeholder resource is concretely specified for the
+      ;; software path today (white fill honouring :opacity); real image
+      ;; sources await the flutter software image-resource contract
+      ;; (orientation under the y-flip, :image/fit, :image/src-rect).
+      (when (= :placeholder (:resource/kind (:resource op)))
+        (let [[x y w h] (:rect op)
+              opacity (double (get op :opacity 1.0))]
+          (.drawRect
+            canvas
+            (ui/Rect.fromLTWH (double x) (double y) (double w) (double h))
+            (->paint [1.0 1.0 1.0 opacity] false))))
       nil)
     (.restore canvas)))
 
