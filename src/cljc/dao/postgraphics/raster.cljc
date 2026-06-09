@@ -680,7 +680,16 @@
                           tri-sink)]
                     (rasterize-triangle! sv0 sv1 sv2 sink''))))))
           :line-3d
-          (let [op (:op draw)
+          ;; Lines are unlit and single-coloured: their colour lives in
+          ;; the op's :color, so collapse it into :fill (clearing
+          ;; per-vertex :colors) before vertex-attrs resolves it.  This
+          ;; mirrors pack/unlit-line-draw, which both GPU backends apply;
+          ;; without it the software path falls back to the white :fill
+          ;; default and every line renders white.
+          (let [base-op (:op draw)
+                op (assoc base-op
+                          :fill (get base-op :color [1.0 1.0 1.0 1.0])
+                          :colors nil)
                 mvp (:mvp draw)
                 model-m (:model-m draw)
                 normal-m (math/normal-matrix model-m)

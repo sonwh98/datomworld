@@ -978,3 +978,37 @@
                     (and (= 1.0 r) (= 0.0 g) (approx= 0.5 b) (= 1.0 a)))
                   @out)
           "channels clamp to [0,1]"))))
+
+
+;; ---------------------------------------------------------------------------
+;; render-3d! — :line-3d honours the op's :color (solar-system regression)
+;; ---------------------------------------------------------------------------
+
+(deftest render-3d-line-uses-op-color
+  (testing
+    ":draw3d/lines carries colour in :color; the software path must
+            resolve it (pack/unlit-line-draw feeds :color through :fill) and
+            not fall back to the white :fill default"
+    (let [pixels (atom [])
+          sink {:put-pixel! (fn [_x _y r g b a] (swap! pixels conj [r g b a])),
+                :depth-get (fn [_x _y] 1.0),
+                :depth-set! (fn [_x _y _z] nil),
+                :viewport-w 100,
+                :viewport-h 100}
+          pass {:draws [{:pipeline :line-3d,
+                         :op {:vertices [[-0.5 0 0] [0.5 0 0]],
+                              :edges [[0 1]],
+                              :color [1.0 0.0 0.0 1.0]},
+                         :mvp [1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1],
+                         :model-m [1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1],
+                         :lights [],
+                         :camera-pos [0 0 5],
+                         :lighting-enabled false,
+                         :depth-test false,
+                         :depth-write false,
+                         :clips []}]}]
+      (raster/render-3d! pass sink)
+      (is (pos? (count @pixels)) "the line should rasterize fragments")
+      (is
+        (every? (fn [[r g b _a]] (and (> r 0.9) (< g 0.1) (< b 0.1))) @pixels)
+        "every line fragment is the op :color (red), not the white default"))))
