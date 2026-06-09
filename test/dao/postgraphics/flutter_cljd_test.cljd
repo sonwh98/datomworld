@@ -82,6 +82,7 @@
     (let [policy pg/GPU_RENDERER_POLICY]
       (is (true? (:canvas-fallback? policy)))
       (is (true? (:software-renderer? policy)))
+      (is (true? (:gpu-lighting? policy)))
       (is (true? (:texture-rendering? policy)))
       (is (= :flutter-gpu-texture (:texture-source policy)))
       (is (= #{:clear :camera-reset :mesh-3d :draw-3d :line-3d :draw-2d :text}

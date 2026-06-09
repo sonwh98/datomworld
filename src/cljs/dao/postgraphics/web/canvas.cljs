@@ -48,15 +48,6 @@
   (.fill depth 1.0))
 
 
-(defn- clear-color
-  [lowered]
-  (or (some (fn [pass]
-              (some (fn [draw] (when (= :clear (:pipeline draw)) (:color draw)))
-                    (:draws pass)))
-            (:passes lowered))
-      [0.0 0.0 0.0 1.0]))
-
-
 ;; ---------------------------------------------------------------------------
 ;; CPU-samplable textures.  Mesh :texture/source on the web arrives as
 ;; {:image <HTMLImageElement|HTMLCanvasElement|ImageData> :width :height
@@ -266,7 +257,7 @@
             image (.createImageData ctx w h)
             rgba (.-data image)
             depth (js/Float32Array. (* w h))]
-        (clear! rgba depth w h (clear-color lowered))
+        (clear! rgba depth w h (s/clear-color lowered))
         (doseq [pass (:passes lowered)]
           (s/render-3d! pass
                         {:put-pixel! (fn [x y r g b a]

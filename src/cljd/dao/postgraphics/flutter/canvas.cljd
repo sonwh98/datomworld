@@ -56,14 +56,7 @@
         h (int height)
         rgba (type/Uint8List. (* w h 4))
         depth (type/Float64List. (* w h))
-        ;; Find clear color
-        clear-color (or (some (fn [pass]
-                                (some (fn [draw]
-                                        (when (= :clear (:pipeline draw))
-                                          (:color draw)))
-                                      (:draws pass)))
-                              (:passes lowered))
-                        [0.0 0.0 0.0 1.0])]
+        clear-color (s/clear-color lowered)]
     (clear! rgba depth clear-color)
     (doseq [pass (:passes lowered)]
       (s/render-3d! pass

@@ -15,12 +15,34 @@
 ;; node so multiple postgraphics widgets do not collide and so a single
 ;; widget keeps its GPU resources across React re-renders.
 
+;; The fragment shader reproduces dao.postgraphics.software/shade-mesh-fragment
+;; (Blinn-Phong in linear space, sRGB encode) so the WebGPU path lights exactly
+;; like the software path.  The uniform layout matches
+;; software/packed-vertex-uniforms
+;; ++ software/packed-lighting-block: three matrices, then
+;; camera/material/lights.
+;; The canvas target is a non-sRGB format, so the shader writes sRGB bytes
+;; itself
+;; (no automatic linear→sRGB), just as the software path writes into ImageData.
+;; The lights array is fixed at software/max-packed-lights (8).
 (def ^:private webgpu-shader
-  "struct Uniforms {
-     mvp : mat4x4<f32>,
+  "struct Light {
+     color : vec4<f32>,      // rgb, intensity (w)
+     vec : vec4<f32>,        // direction|position (xyz), range (w)
+     kind : vec4<f32>,       // 0 ambient, 1 directional, 2 point
    };
 
-   @group(0) @binding(0) var<uniform> uniforms : Uniforms;
+   struct Uniforms {
+     mvp : mat4x4<f32>,
+     model : mat4x4<f32>,
+     modelInv : mat4x4<f32>,
+     cameraPos : vec4<f32>,   // xyz, lightCount (w)
+     material0 : vec4<f32>,   // specular rgb, shininess (w)
+     material1 : vec4<f32>,   // emissive rgb (sRGB), lightingEnabled (w)
+     lights : array<Light, 8>,
+   };
+
+   @group(0) @binding(0) var<uniform> u : Uniforms;
    @group(0) @binding(1) var tex : texture_2d<f32>;
    @group(0) @binding(2) var samp : sampler;
 
@@ -36,14 +58,31 @@
      @location(0) uv : vec2<f32>,
      @location(1) normal : vec3<f32>,
      @location(2) color : vec4<f32>,
+     @location(3) worldPos : vec3<f32>,
    };
+
+   fn srgbToLinear(c : vec3<f32>) -> vec3<f32> {
+     let lo = c / 12.92;
+     let hi = pow((c + vec3<f32>(0.055)) / 1.055, vec3<f32>(2.4));
+     return select(hi, lo, c <= vec3<f32>(0.04045));
+   }
+
+   fn linearToSrgb(c : vec3<f32>) -> vec3<f32> {
+     let lo = c * 12.92;
+     let hi = 1.055 * pow(c, vec3<f32>(1.0 / 2.4)) - vec3<f32>(0.055);
+     return select(hi, lo, c <= vec3<f32>(0.0031308));
+   }
 
    @vertex
    fn vs_main(input : VSIn) -> VSOut {
      var out : VSOut;
-     out.position = uniforms.mvp * vec4<f32>(input.position, 1.0);
+     out.position = u.mvp * vec4<f32>(input.position, 1.0);
+     out.worldPos = (u.model * vec4<f32>(input.position, 1.0)).xyz;
+     let nm = transpose(mat3x3<f32>(u.modelInv[0].xyz,
+                                    u.modelInv[1].xyz,
+                                    u.modelInv[2].xyz));
+     out.normal = normalize(nm * input.normal);
      out.uv = input.uv;
-     out.normal = input.normal;
      out.color = input.color;
      return out;
    }
@@ -51,7 +90,52 @@
    @fragment
    fn fs_main(input : VSOut) -> @location(0) vec4<f32> {
      let texColor = textureSample(tex, samp, input.uv);
-     return texColor * input.color;
+     let texResult = texColor * input.color;
+     if (u.material1.w < 0.5) {
+       return clamp(texResult, vec4<f32>(0.0), vec4<f32>(1.0));
+     }
+     let Kd = srgbToLinear(texResult.rgb);
+     let Ks = u.material0.rgb;
+     let shininess = u.material0.w;
+     let Ke = srgbToLinear(u.material1.rgb);
+     let N = input.normal;
+     let viewDir = normalize(u.cameraPos.xyz - input.worldPos);
+     var amb = vec3<f32>(0.0);
+     var dif = vec3<f32>(0.0);
+     var spec = vec3<f32>(0.0);
+     let count = i32(u.cameraPos.w);
+     for (var i = 0; i < count; i = i + 1) {
+       let L = u.lights[i];
+       let lc = L.color.rgb;
+       let intensity = L.color.w;
+       let kind = L.kind.x;
+       if (kind < 0.5) {
+         amb = amb + lc * intensity;
+       } else if (kind < 1.5) {
+         let Ldir = normalize(L.vec.xyz);
+         let nl = max(0.0, dot(N, Ldir));
+         let H = normalize(Ldir + viewDir);
+         let nh = max(0.0, dot(N, H));
+         let sp = pow(nh, shininess);
+         dif = dif + lc * nl * intensity;
+         spec = spec + lc * sp * intensity;
+       } else {
+         let toLight = L.vec.xyz - input.worldPos;
+         let dist = length(toLight);
+         let Ldir = normalize(toLight);
+         let nl = max(0.0, dot(N, Ldir));
+         let H = normalize(Ldir + viewDir);
+         let nh = max(0.0, dot(N, H));
+         let sp = pow(nh, shininess);
+         let t = 1.0 - dist / L.vec.w;
+         let atten = select(0.0, t * t, t > 0.0);
+         dif = dif + lc * nl * intensity * atten;
+         spec = spec + lc * sp * intensity * atten;
+       }
+     }
+     let lit = Kd * amb + Kd * dif + Ks * spec + Ke;
+     let outRgb = clamp(linearToSrgb(lit), vec3<f32>(0.0), vec3<f32>(1.0));
+     return vec4<f32>(outRgb, clamp(texResult.a, 0.0, 1.0));
    }")
 
 
@@ -89,57 +173,20 @@
 
 (defn interleave-vertex-data
   "Packs the mesh op into the (pos, uv, normal, color) vertex format the
-   shader expects.  uv/normal/color are resolved through the shared
-   software/vertex-attrs so the per-vertex :colors-over-:fill precedence and
-   defaults live in exactly one place (matching the software + Flutter paths)."
+   shader expects.  The 12-float layout (attributes resolved via vertex-attrs)
+   is shared with the Flutter backend through software/pack-vertex-floats!."
   [op]
-  (let [vertices (:vertices op)
-        n (count vertices)
-        data (js/Float32Array. (* n 12))]
-    (dotimes [i n]
-      (let [[x y z] (nth vertices i)
-            attrs (s/vertex-attrs op i)
-            [u v] (nth attrs 0)
-            [nx ny nz] (nth attrs 1)
-            [cr cg cb ca] (nth attrs 3)
-            o (* i 12)]
-        (aset data o (double x))
-        (aset data (+ o 1) (double y))
-        (aset data (+ o 2) (double z))
-        (aset data (+ o 3) (double u))
-        (aset data (+ o 4) (double v))
-        (aset data (+ o 5) (double nx))
-        (aset data (+ o 6) (double ny))
-        (aset data (+ o 7) (double nz))
-        (aset data (+ o 8) (double cr))
-        (aset data (+ o 9) (double cg))
-        (aset data (+ o 10) (double cb))
-        (aset data (+ o 11) (double ca))))
+  (let [data (js/Float32Array. (* (count (:vertices op)) 12))]
+    (s/pack-vertex-floats! op (fn [i x] (aset data i x)))
     data))
 
 
 (defn- index-data
-  "Uint32 indices: 65535 vertices is too tight for voxel chunks that
-   approach 16^3 * 6 faces if heavily exposed."
-  [indices]
-  (let [data (js/Uint32Array. (* 3 (count indices)))]
-    (dotimes [i (count indices)]
-      (let [[a b c] (nth indices i)
-            o (* i 3)]
-        (aset data o a)
-        (aset data (+ o 1) b)
-        (aset data (+ o 2) c)))
-    data))
-
-
-(defn- line-index-data
-  [edges]
-  (let [data (js/Uint32Array. (* 2 (count edges)))]
-    (dotimes [i (count edges)]
-      (let [[a b] (nth edges i)
-            o (* i 2)]
-        (aset data o a)
-        (aset data (+ o 1) b)))
+  "Uint32 indices (32-bit because voxel chunks approach 16^3 * 6 faces, too
+   tight for 65535).  tuples are triangles [a b c] or edges [a b]."
+  [tuples width]
+  (let [data (js/Uint32Array. (* width (count tuples)))]
+    (s/pack-indices! tuples (fn [i x] (aset data i x)))
     data))
 
 
@@ -361,21 +408,14 @@
         tex))))
 
 
-(defn- gpu-clear-color
-  [lowered]
-  (or (some (fn [pass]
-              (some (fn [draw] (when (= :clear (:pipeline draw)) (:color draw)))
-                    (:draws pass)))
-            (:passes lowered))
-      [0.0 0.0 0.0 1.0]))
-
-
 (defn- encode-mesh!
   [state-atom ^js pass ^js device draw]
-  (let [{:keys [payload texture mvp]} draw
+  (let [{:keys [payload texture]} draw
         v-data (interleave-vertex-data payload)
-        i-data (index-data (:indices payload))
-        u-data (js/Float32Array. (clj->js mvp))
+        i-data (index-data (:indices payload) 3)
+        u-data (js/Float32Array. (clj->js (into (s/packed-vertex-uniforms draw)
+                                                (s/packed-lighting-block
+                                                  draw))))
         v-buffer (write-buffer! device
                                 (bit-or (.-VERTEX js/GPUBufferUsage)
                                         (.-COPY_DST js/GPUBufferUsage))
@@ -408,14 +448,15 @@
 
 (defn- encode-lines!
   [state-atom ^js pass ^js device draw]
-  (let [{:keys [payload mvp]} draw
-        v-data (interleave-vertex-data (assoc payload
-                                              :fill (:color payload)
-                                              :normals nil
-                                              :uvs nil
-                                              :colors nil))
-        i-data (line-index-data (:edges payload))
-        u-data (js/Float32Array. (clj->js mvp))
+  (let [;; lines are unlit and single-coloured; the shared collapse forces
+        ;; lighting off and feeds :color through :fill for every vertex.
+        line-draw (s/unlit-line-draw draw)
+        line-op (:op line-draw)
+        v-data (interleave-vertex-data line-op)
+        i-data (index-data (:edges line-op) 2)
+        u-data (js/Float32Array. (clj->js
+                                   (into (s/packed-vertex-uniforms line-draw)
+                                         (s/packed-lighting-block line-draw))))
         v-buffer (write-buffer! device
                                 (bit-or (.-VERTEX js/GPUBufferUsage)
                                         (.-COPY_DST js/GPUBufferUsage))
@@ -450,7 +491,7 @@
   "WebGPU :submit! for postgraphics-widget. Lazily acquires the GPU
    device on the first call per canvas; subsequent calls reuse the
    cached pipeline + context. Clear color comes from the first :clear
-   draw in any pass (matching flutter.cljd's gpu-clear-color)."
+   draw in any pass (via the shared software/clear-color)."
   [canvas lowered]
   (let [state-atom (canvas-gpu-state canvas)
         {:keys [state]} @state-atom]
@@ -462,7 +503,7 @@
             ^js device (:device state)
             ^js context (:context state)
             [width height] (resize-canvas! canvas)
-            [r g b a] (gpu-clear-color lowered)
+            [r g b a] (s/clear-color lowered)
             ^js current-texture (.getCurrentTexture context)
             color-view (.createView current-texture)
             ^js depth-texture (ensure-depth-texture! state-atom width height)

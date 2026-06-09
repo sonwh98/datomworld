@@ -15,43 +15,35 @@
 ;; --- GPU helpers ---
 
 (defn- vertices->float32-list
-  "Packs (pos uv normal color) per vertex, resolving uv/normal/color through
-   the shared software/vertex-attrs so the per-vertex :colors-over-:fill
-   precedence and defaults live in exactly one place."
+  "Packs (pos uv normal color) per vertex into a Float32List via the shared
+   software/pack-vertex-floats! layout (12 floats/vertex, attrs through
+   vertex-attrs), identical to the web backend's interleave-vertex-data."
   ^type/Float32List [op]
-  (let [verts (:vertices op)
-        n (count verts)
-        ^type/Float32List data (type/Float32List. (* n 12))]
-    (dotimes [i n]
-      (let [off (* i 12)
-            v (nth verts i)
-            attrs (sw/vertex-attrs op i)
-            uv (nth attrs 0)
-            norm (nth attrs 1)
-            col (nth attrs 3)]
-        (aset data off (double (nth v 0)))
-        (aset data (+ off 1) (double (nth v 1)))
-        (aset data (+ off 2) (double (nth v 2)))
-        (aset data (+ off 3) (double (nth uv 0)))
-        (aset data (+ off 4) (double (nth uv 1)))
-        (aset data (+ off 5) (double (nth norm 0)))
-        (aset data (+ off 6) (double (nth norm 1)))
-        (aset data (+ off 7) (double (nth norm 2)))
-        (aset data (+ off 8) (double (nth col 0)))
-        (aset data (+ off 9) (double (nth col 1)))
-        (aset data (+ off 10) (double (nth col 2)))
-        (aset data (+ off 11) (double (nth col 3)))))
+  (let [^type/Float32List data (type/Float32List. (* (count (:vertices op))
+                                                     12))]
+    (sw/pack-vertex-floats! op (fn [i x] (aset data i x)))
     data))
 
 
-(defn- indices->uint16-list
-  ^type/Uint16List [indices]
-  (let [flat (flatten indices)
-        n (count flat)
-        ^type/Uint16List data (type/Uint16List. n)]
+(defn- floats->view
+  "Copies a sequence of doubles into a fresh Float32List and emplaces it on the
+   host buffer, returning the buffer view ready to bind as a uniform."
+  [^gpu/HostBuffer host-buffer floats]
+  (let [n (count floats)
+        ^type/Float32List data (type/Float32List. n)]
     (loop [i 0
-           s (seq flat)]
-      (if s (do (aset data i (int (first s))) (recur (inc i) (next s))) data))))
+           s (seq floats)]
+      (when s (aset data i (double (first s))) (recur (inc i) (next s))))
+    (.emplace host-buffer (.asByteData (.-buffer data)))))
+
+
+(defn- indices->uint16-list
+  "Flattens index tuples (triangles or edges) into a Uint16List via the shared
+   software/pack-indices! layout."
+  ^type/Uint16List [tuples width]
+  (let [^type/Uint16List data (type/Uint16List. (* width (count tuples)))]
+    (sw/pack-indices! tuples (fn [i x] (aset data i x)))
+    data))
 
 
 (defonce ^:private gpu-state
@@ -225,7 +217,7 @@
 (defn- render-mesh-gpu!
   [^gpu/RenderPass pass draw ^gpu/RenderPipeline pipeline
    ^gpu/HostBuffer host-buffer]
-  (let [{:keys [op mvp model-m]} draw
+  (let [{:keys [op]} draw
         verts (:vertices op)
         indices (:indices op)
         pg-tex (:texture/source op)
@@ -234,25 +226,27 @@
                     (:white-texture @gpu-state))
         sampler (sampler-options op)
         v-data (vertices->float32-list op)
-        i-data (indices->uint16-list indices)
+        i-data (indices->uint16-list indices 3)
         ;; Upload vertex and index data via HostBuffer
         v-view (.emplace host-buffer (.asByteData (.-buffer v-data)))
         i-view (.emplace host-buffer (.asByteData (.-buffer i-data)))
-        ;; Uniforms
-        u-data (type/Float32List. 32)
-        _ (dotimes [i 16]
-            (aset u-data i (double (nth mvp i)))
-            (aset u-data (+ i 16) (double (nth model-m i))))
-        u-view (.emplace host-buffer (.asByteData (.-buffer u-data)))
+        ;; Vertex-stage matrices + fragment-stage lighting, both packed by
+        ;; the shared software helpers so the GLSL shader lights exactly
+        ;; like the
+        ;; CPU path.
+        u-view (floats->view host-buffer (sw/packed-vertex-uniforms draw))
+        f-view (floats->view host-buffer (sw/packed-lighting-block draw))
         vert-shader (.-vertexShader pipeline)
         frag-shader (.-fragmentShader pipeline)
         u-slot (.getUniformSlot vert-shader "Uniforms")
+        frag-slot (.getUniformSlot frag-shader "Frag")
         tex-slot (.getUniformSlot frag-shader "tex")]
     (.bindPipeline pass pipeline)
     (.setPrimitiveType pass gpu/PrimitiveType.triangle)
     (.bindVertexBuffer pass v-view (count verts))
     (.bindIndexBuffer pass i-view gpu/IndexType.int16 (.-length i-data))
     (.bindUniform pass u-slot u-view)
+    (.bindUniform pass frag-slot f-view)
     (.bindTexture pass tex-slot texture .sampler sampler)
     (.draw pass)))
 
@@ -265,48 +259,33 @@
    leak from a prior lines/triangles draw in the same pass."
   [^gpu/RenderPass pass draw ^gpu/RenderPipeline pipeline
    ^gpu/HostBuffer host-buffer]
-  (let [{:keys [op mvp model-m]} draw
-        verts (:vertices op)
-        edges (:edges op)
-        ;; lines carry a single :color; feed it as :fill so vertex-attrs
-        ;; gives every vertex that constant colour (no per-vertex :colors /
-        ;; uvs).
-        line-op (assoc op
-                       :fill (get op :color [1.0 1.0 1.0 1.0])
-                       :colors nil
-                       :normals nil
-                       :uvs nil)
+  (let [;; lines are unlit and single-coloured; the shared collapse forces
+        ;; lighting off and feeds :color through :fill for every vertex.
+        line-draw (sw/unlit-line-draw draw)
+        line-op (:op line-draw)
+        verts (:vertices line-op)
+        edges (:edges line-op)
         texture (:white-texture @gpu-state)
-        sampler (sampler-options op)
+        sampler (sampler-options line-op)
         v-data (vertices->float32-list line-op)
-        i-data (indices->uint16-list edges)
+        i-data (indices->uint16-list edges 2)
         v-view (.emplace host-buffer (.asByteData (.-buffer v-data)))
         i-view (.emplace host-buffer (.asByteData (.-buffer i-data)))
-        u-data (type/Float32List. 32)
-        _ (dotimes [i 16]
-            (aset u-data i (double (nth mvp i)))
-            (aset u-data (+ i 16) (double (nth model-m i))))
-        u-view (.emplace host-buffer (.asByteData (.-buffer u-data)))
+        u-view (floats->view host-buffer (sw/packed-vertex-uniforms line-draw))
+        f-view (floats->view host-buffer (sw/packed-lighting-block line-draw))
         vert-shader (.-vertexShader pipeline)
         frag-shader (.-fragmentShader pipeline)
         u-slot (.getUniformSlot vert-shader "Uniforms")
+        frag-slot (.getUniformSlot frag-shader "Frag")
         tex-slot (.getUniformSlot frag-shader "tex")]
     (.bindPipeline pass pipeline)
     (.setPrimitiveType pass gpu/PrimitiveType.line)
     (.bindVertexBuffer pass v-view (count verts))
     (.bindIndexBuffer pass i-view gpu/IndexType.int16 (.-length i-data))
     (.bindUniform pass u-slot u-view)
+    (.bindUniform pass frag-slot f-view)
     (.bindTexture pass tex-slot texture .sampler sampler)
     (.draw pass)))
-
-
-(defn- gpu-clear-color
-  [lowered]
-  (or (some (fn [pass]
-              (some (fn [draw] (when (= :clear (:pipeline draw)) (:color draw)))
-                    (:draws pass)))
-            (:passes lowered))
-      [0.0 0.0 0.0 1.0]))
 
 
 (defn- gpu-supported-draw?
@@ -346,7 +325,7 @@
         ^gpu/RenderPipeline pipeline (:pipeline state)
         ^gpu/HostBuffer host-buffer (:host-buffer state)]
     (if (and context pipeline host-buffer)
-      (let [clear-col (gpu-clear-color lowered)
+      (let [clear-col (sw/clear-color lowered)
             ^double r (double (nth clear-col 0))
             ^double g (double (nth clear-col 1))
             ^double b (double (nth clear-col 2))
