@@ -8,7 +8,7 @@
             ["package:flutter_gpu/gpu.dart" :as gpu]
             ["package:vector_math/vector_math.dart" :as vm32]
             [dao.postgraphics.flutter.texture :as tex]
-            [dao.postgraphics.software :as sw]
+            [dao.postgraphics.packing :as pack]
             [dao.postgraphics.validation :as v]))
 
 
@@ -16,12 +16,12 @@
 
 (defn- vertices->float32-list
   "Packs (pos uv normal color) per vertex into a Float32List via the shared
-   software/pack-vertex-floats! layout (12 floats/vertex, attrs through
+   packing/pack-vertex-floats! layout (12 floats/vertex, attrs through
    vertex-attrs), identical to the web backend's interleave-vertex-data."
   ^type/Float32List [op]
   (let [^type/Float32List data (type/Float32List. (* (count (:vertices op))
                                                      12))]
-    (sw/pack-vertex-floats! op (fn [i x] (aset data i x)))
+    (pack/pack-vertex-floats! op (fn [i x] (aset data i x)))
     data))
 
 
@@ -39,10 +39,10 @@
 
 (defn- indices->uint16-list
   "Flattens index tuples (triangles or edges) into a Uint16List via the shared
-   software/pack-indices! layout."
+   packing/pack-indices! layout."
   ^type/Uint16List [tuples width]
   (let [^type/Uint16List data (type/Uint16List. (* width (count tuples)))]
-    (sw/pack-indices! tuples (fn [i x] (aset data i x)))
+    (pack/pack-indices! tuples (fn [i x] (aset data i x)))
     data))
 
 
@@ -234,8 +234,8 @@
         ;; the shared software helpers so the GLSL shader lights exactly
         ;; like the
         ;; CPU path.
-        u-view (floats->view host-buffer (sw/packed-vertex-uniforms draw))
-        f-view (floats->view host-buffer (sw/packed-lighting-block draw))
+        u-view (floats->view host-buffer (pack/packed-vertex-uniforms draw))
+        f-view (floats->view host-buffer (pack/packed-lighting-block draw))
         vert-shader (.-vertexShader pipeline)
         frag-shader (.-fragmentShader pipeline)
         u-slot (.getUniformSlot vert-shader "Uniforms")
@@ -261,7 +261,7 @@
    ^gpu/HostBuffer host-buffer]
   (let [;; lines are unlit and single-coloured; the shared collapse forces
         ;; lighting off and feeds :color through :fill for every vertex.
-        line-draw (sw/unlit-line-draw draw)
+        line-draw (pack/unlit-line-draw draw)
         line-op (:op line-draw)
         verts (:vertices line-op)
         edges (:edges line-op)
@@ -271,8 +271,9 @@
         i-data (indices->uint16-list edges 2)
         v-view (.emplace host-buffer (.asByteData (.-buffer v-data)))
         i-view (.emplace host-buffer (.asByteData (.-buffer i-data)))
-        u-view (floats->view host-buffer (sw/packed-vertex-uniforms line-draw))
-        f-view (floats->view host-buffer (sw/packed-lighting-block line-draw))
+        u-view (floats->view host-buffer
+                             (pack/packed-vertex-uniforms line-draw))
+        f-view (floats->view host-buffer (pack/packed-lighting-block line-draw))
         vert-shader (.-vertexShader pipeline)
         frag-shader (.-fragmentShader pipeline)
         u-slot (.getUniformSlot vert-shader "Uniforms")
@@ -325,7 +326,7 @@
         ^gpu/RenderPipeline pipeline (:pipeline state)
         ^gpu/HostBuffer host-buffer (:host-buffer state)]
     (if (and context pipeline host-buffer)
-      (let [clear-col (sw/clear-color lowered)
+      (let [clear-col (pack/clear-color lowered)
             ^double r (double (nth clear-col 0))
             ^double g (double (nth clear-col 1))
             ^double b (double (nth clear-col 2))

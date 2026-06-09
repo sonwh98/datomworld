@@ -9,7 +9,7 @@ layout(location = 0) out vec4 fragColor;
 
 layout(set = 0, binding = 1) uniform sampler2D tex;
 
-// Lighting block: layout matches dao.postgraphics.software/packed-lighting-block.
+// Lighting block: layout matches dao.postgraphics.packing/packed-lighting-block.
 // 8 lights, each 3 vec4s (color+intensity, vec+range, kind).
 layout(set = 0, binding = 2) uniform Frag {
     vec4 cameraPos;   // xyz, lightCount (w)

@@ -1,6 +1,6 @@
 (ns dao.postgraphics.web.gpu
   (:require
-    [dao.postgraphics.software :as s]
+    [dao.postgraphics.packing :as pack]
     [dao.postgraphics.terminal :as terminal]))
 
 
@@ -15,16 +15,16 @@
 ;; node so multiple postgraphics widgets do not collide and so a single
 ;; widget keeps its GPU resources across React re-renders.
 
-;; The fragment shader reproduces dao.postgraphics.software/shade-mesh-fragment
+;; The fragment shader reproduces dao.postgraphics.raster/shade-mesh-fragment
 ;; (Blinn-Phong in linear space, sRGB encode) so the WebGPU path lights exactly
 ;; like the software path.  The uniform layout matches
-;; software/packed-vertex-uniforms
-;; ++ software/packed-lighting-block: three matrices, then
+;; packing/packed-vertex-uniforms
+;; ++ packing/packed-lighting-block: three matrices, then
 ;; camera/material/lights.
 ;; The canvas target is a non-sRGB format, so the shader writes sRGB bytes
 ;; itself
 ;; (no automatic linear→sRGB), just as the software path writes into ImageData.
-;; The lights array is fixed at software/max-packed-lights (8).
+;; The lights array is fixed at packing/max-packed-lights (8).
 (def ^:private webgpu-shader
   "struct Light {
      color : vec4<f32>,      // rgb, intensity (w)
@@ -174,10 +174,10 @@
 (defn interleave-vertex-data
   "Packs the mesh op into the (pos, uv, normal, color) vertex format the
    shader expects.  The 12-float layout (attributes resolved via vertex-attrs)
-   is shared with the Flutter backend through software/pack-vertex-floats!."
+   is shared with the Flutter backend through packing/pack-vertex-floats!."
   [op]
   (let [data (js/Float32Array. (* (count (:vertices op)) 12))]
-    (s/pack-vertex-floats! op (fn [i x] (aset data i x)))
+    (pack/pack-vertex-floats! op (fn [i x] (aset data i x)))
     data))
 
 
@@ -186,7 +186,7 @@
    tight for 65535).  tuples are triangles [a b c] or edges [a b]."
   [tuples width]
   (let [data (js/Uint32Array. (* width (count tuples)))]
-    (s/pack-indices! tuples (fn [i x] (aset data i x)))
+    (pack/pack-indices! tuples (fn [i x] (aset data i x)))
     data))
 
 
@@ -413,9 +413,9 @@
   (let [{:keys [payload texture]} draw
         v-data (interleave-vertex-data payload)
         i-data (index-data (:indices payload) 3)
-        u-data (js/Float32Array. (clj->js (into (s/packed-vertex-uniforms draw)
-                                                (s/packed-lighting-block
-                                                  draw))))
+        u-data (js/Float32Array. (clj->js (into
+                                            (pack/packed-vertex-uniforms draw)
+                                            (pack/packed-lighting-block draw))))
         v-buffer (write-buffer! device
                                 (bit-or (.-VERTEX js/GPUBufferUsage)
                                         (.-COPY_DST js/GPUBufferUsage))
@@ -450,13 +450,13 @@
   [state-atom ^js pass ^js device draw]
   (let [;; lines are unlit and single-coloured; the shared collapse forces
         ;; lighting off and feeds :color through :fill for every vertex.
-        line-draw (s/unlit-line-draw draw)
+        line-draw (pack/unlit-line-draw draw)
         line-op (:op line-draw)
         v-data (interleave-vertex-data line-op)
         i-data (index-data (:edges line-op) 2)
-        u-data (js/Float32Array. (clj->js
-                                   (into (s/packed-vertex-uniforms line-draw)
-                                         (s/packed-lighting-block line-draw))))
+        u-data (js/Float32Array.
+                 (clj->js (into (pack/packed-vertex-uniforms line-draw)
+                                (pack/packed-lighting-block line-draw))))
         v-buffer (write-buffer! device
                                 (bit-or (.-VERTEX js/GPUBufferUsage)
                                         (.-COPY_DST js/GPUBufferUsage))
@@ -491,7 +491,7 @@
   "WebGPU :submit! for postgraphics-widget. Lazily acquires the GPU
    device on the first call per canvas; subsequent calls reuse the
    cached pipeline + context. Clear color comes from the first :clear
-   draw in any pass (via the shared software/clear-color)."
+   draw in any pass (via the shared packing/clear-color)."
   [canvas lowered]
   (let [state-atom (canvas-gpu-state canvas)
         {:keys [state]} @state-atom]
@@ -503,7 +503,7 @@
             ^js device (:device state)
             ^js context (:context state)
             [width height] (resize-canvas! canvas)
-            [r g b a] (s/clear-color lowered)
+            [r g b a] (pack/clear-color lowered)
             ^js current-texture (.getCurrentTexture context)
             color-view (.createView current-texture)
             ^js depth-texture (ensure-depth-texture! state-atom width height)

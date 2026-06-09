@@ -1,8 +1,8 @@
-(ns dao.postgraphics.software-test
+(ns dao.postgraphics.raster-test
   (:require
     [clojure.test :refer [deftest is testing]]
     [dao.postgraphics.math :as m]
-    [dao.postgraphics.software :as s]))
+    [dao.postgraphics.raster :as raster]))
 
 
 (defn- approx=
@@ -30,16 +30,16 @@
 (deftest srgb-round-trip
   (is (approx-vec4= [0.5 0.5 0.5 1.0]
                     (-> [0.5 0.5 0.5 1.0]
-                        s/srgb->linear
-                        s/linear->srgb))))
+                        raster/srgb->linear
+                        raster/linear->srgb))))
 
 
 (deftest srgb-black
-  (is (approx-vec4= [0.0 0.0 0.0 0.0] (s/srgb->linear [0.0 0.0 0.0 0.0]))))
+  (is (approx-vec4= [0.0 0.0 0.0 0.0] (raster/srgb->linear [0.0 0.0 0.0 0.0]))))
 
 
 (deftest srgb-white
-  (is (approx-vec4= [1.0 1.0 1.0 1.0] (s/srgb->linear [1.0 1.0 1.0 1.0]))))
+  (is (approx-vec4= [1.0 1.0 1.0 1.0] (raster/srgb->linear [1.0 1.0 1.0 1.0]))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -50,24 +50,24 @@
   (let [op {:vertices [[1 2 3] [4 5 6] [7 8 9]],
             :indices [[0 1 2]],
             :fill [1 1 1 1]}]
-    (is (approx-vec= [0 0] (nth (s/vertex-attrs op 0) 0)))
-    (is (approx-vec= [1 2 3] (nth (s/vertex-attrs op 0) 1)))
-    (is (= [1 1 1 1] (nth (s/vertex-attrs op 0) 3)))))
+    (is (approx-vec= [0 0] (nth (raster/vertex-attrs op 0) 0)))
+    (is (approx-vec= [1 2 3] (nth (raster/vertex-attrs op 0) 1)))
+    (is (= [1 1 1 1] (nth (raster/vertex-attrs op 0) 3)))))
 
 
 (deftest vertex-attrs-colors-over-fill
   (let [op {:vertices [[0 0 0] [0 0 0]],
             :fill [1 0 0 1],
             :colors [[0 1 0 1] [0 0 1 1]]}]
-    (is (approx-vec4= [0.0 1.0 0.0 1.0] (nth (s/vertex-attrs op 0) 3)))
-    (is (approx-vec4= [0.0 0.0 1.0 1.0] (nth (s/vertex-attrs op 1) 3)))))
+    (is (approx-vec4= [0.0 1.0 0.0 1.0] (nth (raster/vertex-attrs op 0) 3)))
+    (is (approx-vec4= [0.0 0.0 1.0 1.0] (nth (raster/vertex-attrs op 1) 3)))))
 
 
 (deftest vertex-attrs-defaults
   (let [op {:vertices [[0 0 0]]}]
-    (is (approx-vec= [0 0] (nth (s/vertex-attrs op 0) 0)))
-    (is (approx-vec= [0 0 0] (nth (s/vertex-attrs op 0) 1)))
-    (is (approx-vec4= [1.0 1.0 1.0 1.0] (nth (s/vertex-attrs op 0) 3)))))
+    (is (approx-vec= [0 0] (nth (raster/vertex-attrs op 0) 0)))
+    (is (approx-vec= [0 0 0] (nth (raster/vertex-attrs op 0) 1)))
+    (is (approx-vec4= [1.0 1.0 1.0 1.0] (nth (raster/vertex-attrs op 0) 3)))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -84,16 +84,16 @@
 
 (deftest sample-texture-nearest
   (is (approx-vec= [1 0 0 1]
-                   (s/sample-texture test-tex 0 0 {:filter :nearest})))
+                   (raster/sample-texture test-tex 0 0 {:filter :nearest})))
   (is (approx-vec= [0 1 0 1]
-                   (s/sample-texture test-tex 0.6 0.4 {:filter :nearest})))
+                   (raster/sample-texture test-tex 0.6 0.4 {:filter :nearest})))
   (is (approx-vec= [1 1 1 1]
-                   (s/sample-texture test-tex 0.9 0.9 {:filter :nearest}))))
+                   (raster/sample-texture test-tex 0.9 0.9 {:filter :nearest}))))
 
 
 (deftest sample-texture-clamp
-  (is (approx-vec= [1 0 0 1] (s/sample-texture test-tex -0.5 -0.5 {})))
-  (is (approx-vec= [1 1 1 1] (s/sample-texture test-tex 2.0 2.0 {}))))
+  (is (approx-vec= [1 0 0 1] (raster/sample-texture test-tex -0.5 -0.5 {})))
+  (is (approx-vec= [1 1 1 1] (raster/sample-texture test-tex 2.0 2.0 {}))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -109,7 +109,7 @@
 
 
 (deftest blinn-phong-ambient-only
-  (let [result (s/blinn-phong {:diffuse [1 0 0]}
+  (let [result (raster/blinn-phong {:diffuse [1 0 0]}
                               [{:kind :ambient, :color [0.2 0.2 0.2]}]
                               [0 0 5]
                               [0 0 1]
@@ -118,7 +118,7 @@
 
 
 (deftest blinn-phong-directional-diffuse
-  (let [result (s/blinn-phong
+  (let [result (raster/blinn-phong
                  {:diffuse [1 1 1]}
                  [{:kind :directional, :color [1 1 1], :direction [0 0 1]}]
                  [0 0 5]
@@ -129,7 +129,7 @@
 
 
 (deftest blinn-phong-directional-backface
-  (let [result (s/blinn-phong
+  (let [result (raster/blinn-phong
                  {:diffuse [1 1 1]}
                  [{:kind :directional, :color [1 1 1], :direction [0 0 1]}]
                  [0 0 5]
@@ -141,7 +141,7 @@
 (deftest blinn-phong-emissive
   (testing
     "emissive adds independent of lights (no lights -> output = emissive)"
-    (let [result (s/blinn-phong {:diffuse [1 1 1], :emissive [0.5 0.2 0.1]}
+    (let [result (raster/blinn-phong {:diffuse [1 1 1], :emissive [0.5 0.2 0.1]}
                                 []
                                 [0 0 5]
                                 [0 0 1]
@@ -189,7 +189,7 @@
             :normal [0 0 1],
             :world-pos [0 0 0],
             :color [1 1 1 1]}]
-    (s/rasterize-triangle! v0 v1 v2 sink)
+    (raster/rasterize-triangle! v0 v1 v2 sink)
     (let [ps @pixels]
       (is (pos? (count ps)))
       (is (every? (fn [[x y]] (and (>= x 10) (<= x 30) (>= y 10) (<= y 30)))
@@ -235,8 +235,8 @@
             :normal [0 0 1],
             :world-pos [0 0 0],
             :color [1 1 1 1]}]
-    (s/rasterize-triangle! v0 v1 v2 sink-a)
-    (s/rasterize-triangle! v0 v2 v1 sink-b)
+    (raster/rasterize-triangle! v0 v1 v2 sink-a)
+    (raster/rasterize-triangle! v0 v2 v1 sink-b)
     (is (= (count @pixels-a) (count @pixels-b)))))
 
 
@@ -267,8 +267,8 @@
           b (vtx 20 0)
           c (vtx 0 20)
           d (vtx 20 20)]
-      (s/rasterize-triangle! a b c sink)
-      (s/rasterize-triangle! b d c sink)
+      (raster/rasterize-triangle! a b c sink)
+      (raster/rasterize-triangle! b d c sink)
       (is (pos? (count @counts)) "the quad should produce fragments")
       (is (every? #(= 1 %) (vals @counts))
           "no pixel should be covered by both triangles (top-left rule)"))))
@@ -309,7 +309,7 @@
             :normal [0 0 1],
             :world-pos [0 0 0],
             :color [1 1 1 1]}]
-    (s/rasterize-triangle! v0 v1 v2 sink)
+    (raster/rasterize-triangle! v0 v1 v2 sink)
     (is (pos? (count @pixels)))
     (is (every? (fn [[x y]] (and (>= x 15) (< x 20) (>= y 15) (< y 20)))
                 @pixels))))
@@ -354,7 +354,7 @@
             :normal [0 0 1],
             :world-pos [0 0 0],
             :color [1 1 1 1]}]
-    (s/rasterize-triangle! v0 v1 v2 sink)
+    (raster/rasterize-triangle! v0 v1 v2 sink)
     (is (zero? (count @pixels))
         "depth 0.5 behind 0.3 should reject all fragments")))
 
@@ -399,7 +399,7 @@
             :normal [0 0 1],
             :world-pos [0 0 0],
             :color [1 1 1 1]}]
-    (s/rasterize-triangle! v0 v1 v2 sink)
+    (raster/rasterize-triangle! v0 v1 v2 sink)
     (is (pos? (count @pixels)))
     (is (every? (fn [[x y]] (= 1.0 (get @depth-atom [x y] 1.0))) @pixels)
         "depth buffer should remain unchanged when depth-write? is false")))
@@ -413,17 +413,17 @@
   (is
     (approx-vec=
       [1 0 0 1]
-      (s/sample-texture test-tex 2.1 -0.9 {:wrap :repeat, :filter :nearest}))))
+      (raster/sample-texture test-tex 2.1 -0.9 {:wrap :repeat, :filter :nearest}))))
 
 
 (deftest sample-texture-mirror
   (is (approx-vec=
         [1 0 0 1]
-        (s/sample-texture test-tex 0.0 0.0 {:wrap :mirror, :filter :nearest}))))
+        (raster/sample-texture test-tex 0.0 0.0 {:wrap :mirror, :filter :nearest}))))
 
 
 (deftest sample-texture-linear
-  (let [result (s/sample-texture test-tex 0.25 0.25 {:filter :linear})]
+  (let [result (raster/sample-texture test-tex 0.25 0.25 {:filter :linear})]
     (is (= 4 (count result)))
     (is (> (nth result 0) 0.0))
     (is (< (nth result 2) 1.0))))
@@ -434,7 +434,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest blinn-phong-colored-diffuse
-  (let [result (s/blinn-phong
+  (let [result (raster/blinn-phong
                  {:diffuse [1 0 0]}
                  [{:kind :directional, :color [1 1 1], :direction [0 0 1]}]
                  [0 0 5]
@@ -446,7 +446,7 @@
 
 
 (deftest blinn-phong-specular
-  (let [result (s/blinn-phong
+  (let [result (raster/blinn-phong
                  {:diffuse [0 0 0], :specular [1 1 1], :shininess 1000.0}
                  [{:kind :directional, :color [1 1 1], :direction [0 0 1]}]
                  [0 0 0]
@@ -460,7 +460,7 @@
 (deftest blinn-phong-point-attenuation
   (testing "beyond range -> fully attenuated"
     (let [result
-          (s/blinn-phong
+          (raster/blinn-phong
             {:diffuse [1 1 1]}
             [{:kind :point, :color [1 1 1], :position [10 0 0], :range 5.0}]
             [0 0 5]
@@ -474,7 +474,7 @@
     ;; 0] so the diffuse term is 0, but a surface facing +z lit from
     ;; directly above (light just off the point along +z) keeps atten ~1.
     ;; Use a light at [0 0 0.001].
-    (let [result (s/blinn-phong {:diffuse [1 1 1]}
+    (let [result (raster/blinn-phong {:diffuse [1 1 1]}
                                 [{:kind :point,
                                   :color [1 1 1],
                                   :position [0 0 0.001],
@@ -487,7 +487,7 @@
           "point light at the surface should be near full intensity")))
   (testing "at range boundary -> zero (atten = 0)"
     (let [result
-          (s/blinn-phong
+          (raster/blinn-phong
             {:diffuse [1 1 1]}
             [{:kind :point, :color [1 1 1], :position [0 0 5], :range 5.0}]
             [0 0 10]
@@ -504,7 +504,7 @@
 (deftest shade-mesh-fragment-unlit-returns-srgb
   (let [draw {:op {}, :lighting-enabled false}
         color [1 0 0 1]
-        result (s/shade-mesh-fragment draw [0 0] [0 0 1] [0 0 0] color)]
+        result (raster/shade-mesh-fragment draw [0 0] [0 0 1] [0 0 0] color)]
     (is (approx-vec4= [1 0 0 1] result)
         "unlit fragment should return original sRGB color unchanged")))
 
@@ -516,7 +516,7 @@
               :camera-pos [0 0 5],
               :lighting-enabled true}
         color [0.5 0.5 0.5 1]
-        result (s/shade-mesh-fragment draw [0 0] [0 0 1] [0 0 0] color)]
+        result (raster/shade-mesh-fragment draw [0 0] [0 0 1] [0 0 0] color)]
     (is (approx= 0.5 (nth result 0))
         "mid-gray surface under white light should stay ~mid-gray")
     (is (approx= 1.0 (nth result 3)))))
@@ -527,7 +527,7 @@
     ;; texel 51/255 = 0.2 (byte storage); red fill tints it
     (let [gray-tex {:width 1, :height 1, :rgba [51 51 51 255]}
           draw {:op {}, :texture gray-tex, :lighting-enabled false}
-          result (s/shade-mesh-fragment draw
+          result (raster/shade-mesh-fragment draw
                                         [0 0]
                                         [0 0 1]
                                         [0 0 0]
@@ -545,7 +545,7 @@
                           :intensity 5.0}],
                 :camera-pos [0 0 5],
                 :lighting-enabled true}
-          result (s/shade-mesh-fragment draw [0 0] [0 0 1] [0 0 0] [1 1 1 1])]
+          result (raster/shade-mesh-fragment draw [0 0] [0 0 1] [0 0 0] [1 1 1 1])]
       (is (every? (fn [c] (<= 0.0 c 1.0)) result)
           "no channel should exceed 1.0 after HDR lighting"))))
 
@@ -554,7 +554,7 @@
   (testing "a white texture leaves the vertex/fill colour unchanged"
     (let [white-tex {:width 1, :height 1, :rgba [255 255 255 255]}
           draw {:op {}, :texture white-tex, :lighting-enabled false}
-          result (s/shade-mesh-fragment draw
+          result (raster/shade-mesh-fragment draw
                                         [0 0]
                                         [0 0 1]
                                         [0 0 0]
@@ -586,7 +586,7 @@
                        :depth-test false,
                        :depth-write false,
                        :clips []}]}]
-    (s/render-3d! pass sink)
+    (raster/render-3d! pass sink)
     (is (pos? (count @pixels)) "mesh should produce rasterized fragments")))
 
 
@@ -604,7 +604,7 @@
           ;; attrs = [uv normal obj-pos color]
           attrs [[0 0] [1 1 0] [1 1 0] [1 1 1 1]]
           {bundle :bundle}
-          (#'s/prepare-vertex identity-mvp scale-x2 normal-m [1 1 0] attrs)
+          (#'raster/prepare-vertex identity-mvp scale-x2 normal-m [1 1 0] attrs)
           ;; bundle = [uv normal world-pos color]
           normal (nth bundle 1)
           world-pos (nth bundle 2)]
@@ -644,7 +644,7 @@
                          :depth-test false,
                          :depth-write false,
                          :clips []}]}]
-      (s/render-3d! pass sink)
+      (raster/render-3d! pass sink)
       (is (pos? (count @pixels))
           "transformed, lit mesh should still produce fragments"))))
 
@@ -690,7 +690,7 @@
                          :depth-test false,
                          :depth-write false,
                          :clips []}]}]
-      (s/render-3d! pass sink)
+      (raster/render-3d! pass sink)
       (is (zero? (count @pixels))
           "geometry behind the near plane should produce no fragments"))))
 
@@ -720,7 +720,7 @@
                          :depth-test false,
                          :depth-write false,
                          :clips []}]}]
-      (s/render-3d! pass sink)
+      (raster/render-3d! pass sink)
       (is
         (pos? (count @pixels))
         "the in-front portion of a straddling triangle should still rasterize")
@@ -728,148 +728,3 @@
         (every? (fn [[x y]] (and (>= x 0) (< x 100) (>= y 0) (< y 100)))
                 @pixels)
         "all produced pixels stay within the viewport (no projected garbage)"))))
-
-
-;; ---------------------------------------------------------------------------
-;; Uniform packing (shared by both backends)
-;; ---------------------------------------------------------------------------
-
-(deftest packed-vertex-uniforms-layout
-  (testing "mvp ++ model ++ inverse(model), 48 doubles"
-    (let [model (m/mat4-translation [2.0 3.0 4.0])
-          mvp (m/mat4-scale [2.0 2.0 2.0])
-          u (s/packed-vertex-uniforms {:mvp mvp, :model-m model})]
-      (is (= 48 (count u)))
-      (is (approx-vec= mvp (subvec u 0 16)))
-      (is (approx-vec= model (subvec u 16 32)))
-      (is (approx-vec= (m/mat4-invert model) (subvec u 32 48))))))
-
-
-(deftest packed-lighting-block-layout
-  (testing "head packs camera, material, lighting flag; light count is clamped"
-    (let [draw {:op {:material/specular [0.1 0.2 0.3],
-                     :material/shininess 16.0,
-                     :material/emissive [0.4 0.5 0.6]},
-                :camera-pos [1.0 2.0 3.0],
-                :lighting-enabled true,
-                :lights [{:kind :ambient, :color [0.2 0.2 0.2]}
-                         {:kind :directional,
-                          :color [1.0 0.9 0.8],
-                          :direction [0.0 -1.0 0.0],
-                          :intensity 0.7}
-                         {:kind :point,
-                          :color [0.5 0.5 0.5],
-                          :position [3.0 4.0 5.0],
-                          :intensity 2.0,
-                          :range 50.0}]}
-          b (s/packed-lighting-block draw)]
-      (is (= (+ 12 (* 12 s/max-packed-lights)) (count b)))
-      ;; camera xyz + light count
-      (is (approx-vec= [1.0 2.0 3.0 3.0] (subvec b 0 4)))
-      ;; specular + shininess
-      (is (approx-vec= [0.1 0.2 0.3 16.0] (subvec b 4 8)))
-      ;; emissive + lighting-enabled
-      (is (approx-vec= [0.4 0.5 0.6 1.0] (subvec b 8 12)))
-      ;; light 0: ambient (intensity default 1, kind 0)
-      (is (approx-vec= [0.2 0.2 0.2 1.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0]
-                       (subvec b 12 24)))
-      ;; light 1: directional (kind 1, range 0)
-      (is (approx-vec= [1.0 0.9 0.8 0.7 0.0 -1.0 0.0 0.0 1.0 0.0 0.0 0.0]
-                       (subvec b 24 36)))
-      ;; light 2: point (kind 2, carries position + range)
-      (is (approx-vec= [0.5 0.5 0.5 2.0 3.0 4.0 5.0 50.0 2.0 0.0 0.0 0.0]
-                       (subvec b 36 48))))))
-
-
-(deftest packed-lighting-block-defaults
-  (testing "absent material + lights → zeros, shininess 32, lighting off"
-    (let [b (s/packed-lighting-block {:op {}, :lights []})]
-      (is (approx= 0.0 (nth b 3)))  ; light count
-      (is (approx-vec= [0.0 0.0 0.0 32.0] (subvec b 4 8)))
-      (is (approx= 0.0 (nth b 11))) ; lighting-enabled off
-      (is (every? zero? (subvec b 12))))))
-
-
-(deftest packed-lighting-block-truncates
-  (testing "more lights than max-packed-lights are truncated to the cap"
-    (let [many (vec (repeat (+ 3 s/max-packed-lights)
-                            {:kind :ambient, :color [0.1 0.1 0.1]}))
-          b (s/packed-lighting-block
-              {:op {}, :lighting-enabled true, :lights many})]
-      (is (approx= (double s/max-packed-lights) (nth b 3))))))
-
-
-;; ---------------------------------------------------------------------------
-;; Buffer packing (shared layout helpers)
-;; ---------------------------------------------------------------------------
-
-(defn- collect-into
-  "Drives a put!-style packer into a vector of size n (filled with 0)."
-  [n f]
-  (let [a (atom (vec (repeat n 0.0)))]
-    (f (fn [i x] (swap! a assoc i x)))
-    @a))
-
-
-(deftest pack-vertex-floats-layout
-  (testing "12 interleaved floats per vertex, attrs resolved via vertex-attrs"
-    (let [op {:vertices [[1 2 3] [4 5 6]],
-              :uvs [[0.1 0.2] [0.3 0.4]],
-              :normals [[0 1 0] [1 0 0]],
-              :colors [[0.5 0.6 0.7 0.8] [0.9 1.0 0.1 0.2]]}
-          out (collect-into 24 (fn [put!] (s/pack-vertex-floats! op put!)))]
-      (is (approx-vec= [1 2 3 0.1 0.2 0 1 0 0.5 0.6 0.7 0.8] (subvec out 0 12)))
-      (is (approx-vec= [4 5 6 0.3 0.4 1 0 0 0.9 1.0 0.1 0.2]
-                       (subvec out 12 24))))))
-
-
-(deftest pack-vertex-floats-returns-count
-  (let [op {:vertices [[0 0 0] [1 1 1] [2 2 2]]}]
-    (is (= 36 (s/pack-vertex-floats! op (fn [_ _] nil))))))
-
-
-(deftest pack-indices-flattens-any-arity
-  (testing "triangles"
-    (is (= [0 1 2 3 4 5]
-           (collect-into 6
-                         (fn [put!]
-                           (s/pack-indices! [[0 1 2] [3 4 5]] put!))))))
-  (testing "edges"
-    (is (= [0 1 1 2]
-           (collect-into 4 (fn [put!] (s/pack-indices! [[0 1] [1 2]] put!))))))
-  (testing "returns total written"
-    (is (= 6 (s/pack-indices! [[0 1 2] [3 4 5]] (fn [_ _] nil))))))
-
-
-(deftest unlit-line-draw-collapses-op
-  (let [draw {:lighting-enabled true,
-              :op {:color [0.2 0.4 0.6 1.0],
-                   :colors [[1 0 0 1]],
-                   :normals [[0 1 0]],
-                   :uvs [[0 0]],
-                   :vertices [[0 0 0]]}}
-        out (s/unlit-line-draw draw)]
-    (is (false? (:lighting-enabled out)))
-    (is (= [0.2 0.4 0.6 1.0] (:fill (:op out))))
-    (is (nil? (:colors (:op out))))
-    (is (nil? (:normals (:op out))))
-    (is (nil? (:uvs (:op out))))
-    (is (= [[0 0 0]] (:vertices (:op out))))))
-
-
-(deftest unlit-line-draw-color-default
-  (let [out (s/unlit-line-draw {:op {:vertices [[0 0 0]]}})]
-    (is (= [1.0 1.0 1.0 1.0] (:fill (:op out))))))
-
-
-(deftest clear-color-first-clear
-  (is (= [0.1 0.2 0.3 1.0]
-         (s/clear-color
-           {:passes [{:draws [{:pipeline :camera-reset}
-                              {:pipeline :clear, :color [0.1 0.2 0.3 1.0]}
-                              {:pipeline :clear, :color [9 9 9 9]}]}]}))))
-
-
-(deftest clear-color-default-black
-  (is (= [0.0 0.0 0.0 1.0]
-         (s/clear-color {:passes [{:draws [{:pipeline :mesh-3d}]}]}))))

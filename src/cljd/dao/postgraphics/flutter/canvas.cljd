@@ -2,7 +2,8 @@
   (:require ["dart:core" :as core]
             ["dart:typed_data" :as type]
             ["dart:ui" :as ui]
-            [dao.postgraphics.software :as s]))
+            [dao.postgraphics.packing :as pack]
+            [dao.postgraphics.raster :as raster]))
 
 
 (defonce ^:private last-image* (atom nil))
@@ -56,16 +57,16 @@
         h (int height)
         rgba (type/Uint8List. (* w h 4))
         depth (type/Float64List. (* w h))
-        clear-color (s/clear-color lowered)]
+        clear-color (pack/clear-color lowered)]
     (clear! rgba depth clear-color)
     (doseq [pass (:passes lowered)]
-      (s/render-3d! pass
-                    {:put-pixel! (fn [x y r g b a]
-                                   (put-pixel! rgba w x y r g b a)),
-                     :depth-get (fn [x y] (depth-get depth w x y)),
-                     :depth-set! (fn [x y z] (depth-set! depth w x y z)),
-                     :viewport-w w,
-                     :viewport-h h}))
+      (raster/render-3d! pass
+                         {:put-pixel! (fn [x y r g b a]
+                                        (put-pixel! rgba w x y r g b a)),
+                          :depth-get (fn [x y] (depth-get depth w x y)),
+                          :depth-set! (fn [x y z] (depth-set! depth w x y z)),
+                          :viewport-w w,
+                          :viewport-h h}))
     ;; Async decode to ui.Image
     (ui/decodeImageFromPixels rgba
                               w

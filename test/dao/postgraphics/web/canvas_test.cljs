@@ -2,7 +2,7 @@
   (:require
     [cljs.test :refer-macros [deftest is testing]]
     [dao.postgraphics.lowering :as lower]
-    [dao.postgraphics.software :as s]
+    [dao.postgraphics.raster :as raster]
     [dao.postgraphics.web.canvas :as canvas]))
 
 
@@ -226,7 +226,7 @@
                :height 1,
                :rgba (js/Uint8ClampedArray. #js [255 0 0 255])}]
       (is
-        (= [1 0 0 1] (vec (s/sample-texture tex 0 0 {:filter :nearest})))
+        (= [1 0 0 1] (vec (raster/sample-texture tex 0 0 {:filter :nearest})))
         "0–255 typed-array bytes normalize to [0,1] via aget, not slow nth"))))
 
 

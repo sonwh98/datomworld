@@ -1,12 +1,13 @@
 (ns dao.postgraphics.web.canvas
   "Browser software backend: rasterizes the lowered frame's 3D draws on the
-   CPU through the shared dao.postgraphics.software core into an ImageData
+   CPU through the shared dao.postgraphics.raster core into an ImageData
    colour buffer + a Float32Array depth buffer, blits once with putImageData,
    then paints :draw-2d / :text overlays with native Canvas2D.  The 3D core is
    the same code the Flutter software backend drives — only the pixel sink and
    the 2D overlay calls are platform-specific."
   (:require
-    [dao.postgraphics.software :as s]))
+    [dao.postgraphics.packing :as pack]
+    [dao.postgraphics.raster :as raster]))
 
 
 ;; ---------------------------------------------------------------------------
@@ -257,15 +258,15 @@
             image (.createImageData ctx w h)
             rgba (.-data image)
             depth (js/Float32Array. (* w h))]
-        (clear! rgba depth w h (s/clear-color lowered))
+        (clear! rgba depth w h (pack/clear-color lowered))
         (doseq [pass (:passes lowered)]
-          (s/render-3d! pass
-                        {:put-pixel! (fn [x y r g b a]
-                                       (put-pixel! rgba w x y r g b a)),
-                         :depth-get (fn [x y] (depth-get depth w x y)),
-                         :depth-set! (fn [x y z] (depth-set! depth w x y z)),
-                         :viewport-w w,
-                         :viewport-h h}))
+          (raster/render-3d!
+            pass
+            {:put-pixel! (fn [x y r g b a] (put-pixel! rgba w x y r g b a)),
+             :depth-get (fn [x y] (depth-get depth w x y)),
+             :depth-set! (fn [x y z] (depth-set! depth w x y z)),
+             :viewport-w w,
+             :viewport-h h}))
         (.putImageData ctx image 0 0)
         (doseq [pass (:passes lowered)
                 draw (:draws pass)]

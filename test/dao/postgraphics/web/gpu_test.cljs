@@ -192,7 +192,7 @@
 
 (deftest interleave-packs-shared-vertex-attrs
   (testing
-    "GPU vertex packing delegates to software/vertex-attrs (colors > fill)"
+    "GPU vertex packing delegates to packing/pack-vertex-floats! (colors > fill)"
     (let [data (webgpu/interleave-vertex-data {:vertices [[1 2 3]],
                                                :uvs [[0.5 0.25]],
                                                :normals [[0 0 1]],

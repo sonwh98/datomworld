@@ -20,7 +20,7 @@ void main() {
     gl_Position = u.mvp * vec4(inPosition, 1.0);
     outWorldPos = (u.model * vec4(inPosition, 1.0)).xyz;
     // Inverse-transpose of the model's upper-left 3x3, matching
-    // dao.postgraphics.software/prepare-vertex (apply-normal-matrix).
+    // dao.postgraphics.raster/prepare-vertex (apply-normal-matrix).
     outNormal = normalize(transpose(mat3(u.modelInv)) * inNormal);
     outUV = inUV;
     outColor = inColor;

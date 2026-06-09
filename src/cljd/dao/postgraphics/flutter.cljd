@@ -31,7 +31,7 @@
   "Default Flutter submitter policy. The production widget uses Flutter GPU
    for supported pipelines and falls back to software rendering for 3D draws
    when navigator.gpu (or equivalent) is missing. Both paths light meshes with
-   the same Blinn-Phong model (the GPU shaders mirror software/shade-mesh-fragment),
+   the same Blinn-Phong model (the GPU shaders mirror raster/shade-mesh-fragment),
    so scene data is authoritative and backend-agnostic."
   {:canvas-fallback? true,
    :software-renderer? true,
