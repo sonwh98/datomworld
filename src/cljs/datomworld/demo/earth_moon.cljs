@@ -1,6 +1,6 @@
 (ns datomworld.demo.earth-moon
   (:require
-    [dao.postgraphics.webgpu :as pg]
+    [dao.postgraphics.web :as pg]
     [datomworld.demo.earth-moon-runner :as runner]
     [datomworld.demo.earth-moon-scene :as scene]
     [datomworld.demo.responsive :as responsive]
@@ -95,22 +95,20 @@
     {:display-name "earth-moon-postgraphics-widget",
      :component-did-mount (fn [_] (start!) (runner/tick! (js/Date.now))),
      :component-will-unmount (fn [_] (dispose!)),
-     :reagent-render (fn []
-                       [pg/postgraphics-widget runner/frame-stream :canvas-attrs
-                        {:style (responsive/canvas-frame-style {:max-width 860,
-                                                                :min-height 300,
-                                                                :height-vh 60,
-                                                                :max-height 720,
-                                                                :border-color
-                                                                "rgba(210,220,255,0.24)",
-                                                                :border-radius
-                                                                22,
-                                                                :background
-                                                                "#040612",
-                                                                :box-shadow
-                                                                "0 30px 100px rgba(0,0,0,0.55)"})}
-                        :resolve-resource (fn [source _state] source) :on-error
-                        #(js/console.error "earth/moon frame rejected" %)])}))
+     :reagent-render
+     (fn []
+       [pg/postgraphics-widget runner/frame-stream :canvas-attrs
+        {:style (responsive/canvas-frame-style
+                  {:max-width 860,
+                   :min-height 300,
+                   :height-vh 60,
+                   :max-height 720,
+                   :border-color "rgba(210,220,255,0.24)",
+                   :border-radius 22,
+                   :background "#040612",
+                   :box-shadow "0 30px 100px rgba(0,0,0,0.55)"})}
+        :resolve-resource (fn [source _state] source) :on-error
+        #(js/console.error "earth/moon frame rejected" %)])}))
 
 
 (defn main-view

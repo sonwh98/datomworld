@@ -4,6 +4,7 @@
             ["dart:typed_data" :as type]
             ["package:flutter/material.dart" :as m]
             [dao.postgraphics.flutter :as pg]
+            [dao.postgraphics.flutter.gpu :as pg-gpu]
             [datomworld.demo.earth-moon-runner :as runner]
             [datomworld.demo.earth-moon-scene :as scene]))
 
@@ -24,7 +25,7 @@
 
 (defn- ensure-asset-texture!
   [setter! asset-path]
-  (.then ^async/Future (pg/load-rgba-texture-from-asset! asset-path)
+  (.then ^async/Future (pg-gpu/load-rgba-texture-from-asset! asset-path)
          (fn [tex] (setter! tex))))
 
 
@@ -48,11 +49,11 @@
 
 (defn- ensure-ring-texture!
   []
-  (try (runner/set-ring-texture! (pg/create-rgba-texture! ring-tex-width
-                                                          ring-tex-height
-                                                          (ring-texture-bytes
-                                                            ring-tex-width
-                                                            ring-tex-height)))
+  (try (runner/set-ring-texture! (pg-gpu/create-rgba-texture!
+                                   ring-tex-width
+                                   ring-tex-height
+                                   (ring-texture-bytes ring-tex-width
+                                                       ring-tex-height)))
        (catch Object e (core/print (str "Ring texture creation failed: " e)))))
 
 
@@ -86,16 +87,6 @@
               .body
               (m/LayoutBuilder .builder
                                (fn [_context ^m/BoxConstraints constraints]
-                                 ;; Square the canvas to the smaller
-                                 ;; available axis so the spherical scene
-                                 ;; stays centered without distortion
-                                 ;; across portrait phones, landscape
-                                 ;; tablets, and resizable desktop windows.
-                                 ;; LayoutBuilder gives the constraints
-                                 ;; handed down by the Scaffold body
-                                 ;; (screen minus appBar) so this picks up
-                                 ;; orientation changes and window resizes
-                                 ;; for free.
                                  (let [max-w (.-maxWidth constraints)
                                        max-h (.-maxHeight constraints)
                                        side (if (< max-w max-h) max-w max-h)]

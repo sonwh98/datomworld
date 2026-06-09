@@ -4,6 +4,7 @@
             ["package:flutter/material.dart" :as m]
             ["package:flutter/services.dart" :as services]
             [dao.postgraphics.flutter :as pg]
+            [dao.postgraphics.flutter.gpu :as pg-gpu]
             [datomworld.demo.voxel-runner :as runner]
             [datomworld.demo.voxel-scene :as scene]))
 

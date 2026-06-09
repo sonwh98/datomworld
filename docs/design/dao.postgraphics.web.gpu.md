@@ -1,8 +1,8 @@
-# Design: `dao.postgraphics.webgpu`
+# Design: `dao.postgraphics.web.gpu`
 
 ## Summary
 
-`dao.postgraphics.webgpu` is one concrete terminal host for
+`dao.postgraphics.web.gpu` is one concrete terminal host for
 `dao.postgraphics`. It consumes complete frame programs and realizes them on a
 browser `GPUCanvasContext` via WebGPU while preserving the bytecode model's
 ordering and state semantics.

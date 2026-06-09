@@ -3,6 +3,7 @@
             ["dart:core" :as core]
             ["package:flutter/material.dart" :as m]
             [dao.postgraphics.flutter :as pg]
+            [dao.postgraphics.flutter.gpu :as pg-gpu]
             [dao.stream :as ds]
             [dao.stream.ringbuffer]
             [datomworld.demo.solar-system-scene :as scene]
@@ -46,8 +47,7 @@
 
 (defn stop!
   []
-  (stop-frame-timer!)
-  :stopped)
+  (stop-frame-timer!) :stopped)
 
 
 (defn start!
@@ -60,11 +60,11 @@
                                                                  period-ms)
                                                   (fn [_] (tick!)))]
                   (fn [] (.cancel ^async/Timer timer))))
-        frame-stop-fn
-        (sched scene/frame-interval-ms
-               (fn []
-                 (swap! scene-state scene/advance-state scene/frame-step-seconds)
-                 (emit-frame!)))
+        frame-stop-fn (sched scene/frame-interval-ms
+                             (fn []
+                               (swap! scene-state scene/advance-state
+                                      scene/frame-step-seconds)
+                               (emit-frame!)))
         extra-prims
         {'bodies (fn []
                    (->> (:bodies @scene-state)
@@ -108,15 +108,13 @@
                                   [(double rx) (double ry) (double rz)])
                            (emit-frame!)
                            :camera-rotated),
-         'camera-fov! (fn [fov]
-                        (swap! scene-state assoc-in
-                               [:camera :fov]
-                               (double fov))
-                        (emit-frame!)
-                        :camera-fov),
-         'animate! (fn []
-                     (swap! scene-state assoc :animating? true)
-                     :animating),
+         'camera-fov!
+         (fn [fov]
+           (swap! scene-state assoc-in [:camera :fov] (double fov))
+           (emit-frame!)
+           :camera-fov),
+         'animate!
+         (fn [] (swap! scene-state assoc :animating? true) :animating),
          'pause! pause!,
          'reset! reset-scene!}]
     (reset! frame-timer-stop-fn frame-stop-fn)
@@ -138,23 +136,21 @@
                                        max-h (.-maxHeight constraints)
                                        side (if (< max-w max-h) max-w max-h)]
                                    (m/Center .child
-                                             (m/SizedBox
-                                               .width
-                                               side
-                                               .height
-                                               side
-                                               .child
-                                               (pg/postgraphics-widget
-                                                 frame-stream))))))))
+                                             (m/SizedBox .width
+                                                         side
+                                                         .height
+                                                         side
+                                                         .child
+                                                         (pg/postgraphics-widget
+                                                           frame-stream))))))))
 
 
 (defn main
   []
   (start!)
-  (m/runApp (m/MaterialApp
-              .title
-              "postgraphics solar system"
-              .theme
-              (m/ThemeData .colorScheme (m/ColorScheme.dark))
-              .home
-              (view))))
+  (m/runApp (m/MaterialApp .title
+                           "postgraphics solar system"
+                           .theme
+                           (m/ThemeData .colorScheme (m/ColorScheme.dark))
+                           .home
+                           (view))))

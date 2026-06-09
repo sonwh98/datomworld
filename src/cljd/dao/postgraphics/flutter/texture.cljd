@@ -1,0 +1,46 @@
+(ns dao.postgraphics.flutter.texture
+  (:require ["dart:core" :as core]
+            [dao.postgraphics.raster :as raster]))
+
+
+(defrecord PgTexture
+  [gpu rgba width height])
+
+
+;; Each texture value owns its generated mip pyramid via an Expando so the
+;; decoded {:rgba :width :height :levels} bundle is GC-eligible with the
+;; texture and is computed only once, not per frame.  Unlike the old
+;; rasterizer's ui/Image source, a PgTexture already carries host-visible
+;; rgba bytes synchronously (see flutter.gpu/create-rgba-texture!), so no
+;; async ui/Image.toByteData round-trip is needed here.
+(defonce ^:private texture-levels
+  (core/Expando. "dao.postgraphics/texture-levels"))
+
+
+(defn cpu-texture
+  "Given a lowered draw's :texture value, returns a CPU-samplable
+   {:rgba bytes :width int :height int :levels [{:rgba :width :height} ...]}
+   map for the software sampler, or nil when no rgba bytes are available
+   (e.g. a placeholder / render-target resource).  Caches the generated mip
+   pyramid in a dart/Expando keyed by the texture value."
+  [texture-draw-value]
+  (when (some? texture-draw-value)
+    (if (and (map? texture-draw-value) (:levels texture-draw-value))
+      texture-draw-value
+      (let [^core/Expando levels texture-levels
+            rgba (:rgba texture-draw-value)
+            width (:width texture-draw-value)
+            height (:height texture-draw-value)]
+        (when (and rgba width height)
+          ;; Expando is keyed by identity via its [] / []= operators;
+          ;; aget/aset cannot be used here because they hint the target as
+          ;; List and would cast-fail at runtime.
+          (or (. levels "[]" texture-draw-value)
+              (let [w (int width)
+                    h (int height)
+                    cpu {:rgba rgba,
+                         :width w,
+                         :height h,
+                         :levels (raster/generate-mipmaps rgba w h)}]
+                (. levels "[]=" texture-draw-value cpu)
+                cpu)))))))
