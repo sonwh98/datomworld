@@ -4,6 +4,7 @@
             ["dart:ui" :as ui]
             ["package:flutter/material.dart" :as m]
             ["package:flutter_gpu/gpu.dart" :as gpu]
+            [cljd.flutter :as f]
             [dao.postgraphics.flutter.gpu :as gpu-render]
             [dao.postgraphics.flutter.canvas :as canvas-render]
             [dao.postgraphics.flutter.texture :as tex]
@@ -257,13 +258,14 @@
 
 
 (deftype PostgraphicsPainter
-  [^m/ValueNotifier notifier submit!]
+  [frame* submit! image-holder decoding? frame-seq*
+   rendered-seq*]
   :extends
   m/CustomPainter
 
   (paint
     [_this ^ui/Canvas canvas ^m/Size size]
-    (let [frame (.-value notifier)
+    (let [frame @frame*
           ^double width (.-width size)
           ^double height (.-height size)]
       (when (seq frame)
@@ -277,12 +279,17 @@
                               (fn [s]
                                 (or (instance? gpu/Texture s)
                                     (instance? tex/PgTexture s)))})
-                   image
-                   (if (gpu-render/gpu-available?)
-                     (submit! lowered width height)
-                     (do
-                       (canvas-render/paint-3d! canvas lowered width height)
-                       nil))]
+                   image (if (gpu-render/gpu-available?)
+                           (submit! lowered width height)
+                           (do (canvas-render/paint-3d! canvas
+                                                        lowered
+                                                        width
+                                                        height
+                                                        image-holder
+                                                        decoding?
+                                                        frame-seq*
+                                                        rendered-seq*)
+                               nil))]
                (when image
                  (.drawImage canvas image (ui/Offset. 0.0 0.0) (ui/Paint.)))
                (doseq [pass (:passes lowered)
@@ -302,43 +309,67 @@
 (def put-frame! terminal/put-frame!)
 
 
-(defn- notifier-widget
-  [^m/ValueNotifier notifier]
-  (m/ValueListenableBuilder.
-    .valueListenable
-    notifier
-    .builder
-    (fn [_ _ _]
-      (m/CustomPaint. .painter
-                      (PostgraphicsPainter. notifier gpu-render/submit-gpu!)))))
+(defn- close-binding!
+  [binding]
+  ((:close! binding)))
 
 
 (defn- frame-stream-widget
   "Returns a Flutter widget that renders frames emitted by frame-stream.
 
-   The notifier is an implementation detail of the Flutter adapter: valid
-   frames replace the current rendered frame and invalid frames are rejected
-   through terminal/bind-stream!."
+   All per-demo state lives in the widget's State (via cljd.flutter/widget's
+   :managed bindings), so it survives parent rebuilds (resize/LayoutBuilder)
+   instead of being recreated — and the stream reader is closed on dispose
+   rather than leaked.  State:
+     frame*        latest frame the painter renders
+     frame-seq*    monotonic id bumped per accepted frame (the change signal)
+     rendered-seq* the frame-seq the software path last rasterized
+     image-holder  last decoded ui.Image (software path)
+     decoding?     in-flight guard for the async decode
+
+   Repaints are driven by :watch:
+     - frame-seq* changes every accepted frame, so a static scene (whose frames
+       are value-equal and would be swallowed by a ValueNotifier's == dedup)
+       still rebuilds and rasterizes.
+     - image-holder changes when an async decode lands, so the freshly decoded
+       image is painted even if the frame stream has since paused.  The
+       seq guard in paint-3d! stops that decode-triggered repaint from kicking
+       a redundant re-render."
   [frame-stream & {:keys [on-error signal-stream]}]
-  (let [notifier (m/ValueNotifier. [])]
-    (terminal/bind-stream!
-      frame-stream
-      {:validate-frame! #(lower/validate-frame!
-                           %
-                           {:supports-render-targets? false,
-                            :supports-image? false,
-                            :texture-source-valid?
-                            (fn [s]
-                              (or (instance? gpu/Texture s)
-                                  (instance? tex/PgTexture s)))}),
-       :present-frame! (fn [frame] (set! (.-value notifier) frame)),
-       :signal-stream signal-stream,
-       :on-error (or on-error
-                     (fn [e]
-                       (dart/print (str "Invalid frame rejected ("
-                                        (name (terminal/rejection-reason e))
-                                        "): " e))))})
-    (notifier-widget notifier)))
+  (f/widget
+    :managed
+    [frame* (atom []) :dispose nil :refresh-on :never frame-seq* (atom 0)
+     :dispose nil :refresh-on :never rendered-seq* (atom -1) :dispose nil
+     :refresh-on :never image-holder (atom nil) :dispose nil :refresh-on :never
+     decoding? (atom false) :dispose nil :refresh-on :never _binding
+     (terminal/bind-stream!
+       frame-stream
+       {:validate-frame! #(lower/validate-frame!
+                            %
+                            {:supports-render-targets? false,
+                             :supports-image? false,
+                             :texture-source-valid?
+                             (fn [s]
+                               (or (instance? gpu/Texture s)
+                                   (instance? tex/PgTexture s)))}),
+        :present-frame!
+        (fn [frame] (reset! frame* frame) (swap! frame-seq* inc)),
+        :signal-stream signal-stream,
+        :on-error (or on-error
+                      (fn [e]
+                        (dart/print (str "Invalid frame rejected ("
+                                         (name (terminal/rejection-reason e))
+                                         "): " e))))}) :dispose close-binding!
+     :refresh-on :never]
+    :watch
+    [_frame-seq frame-seq* _image image-holder]
+    (m/CustomPaint. .painter
+                    (PostgraphicsPainter. frame*
+                                          gpu-render/submit-gpu!
+                                          image-holder
+                                          decoding?
+                                          frame-seq*
+                                          rendered-seq*))))
 
 
 (defn postgraphics-widget

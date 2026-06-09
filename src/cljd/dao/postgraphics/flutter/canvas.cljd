@@ -7,9 +7,6 @@
             [dao.postgraphics.raster :as raster]))
 
 
-(defonce ^:private last-image* (atom nil))
-
-
 (defn- byte255
   "Quantize a [0,1] channel to an 8-bit value, clamping out-of-range inputs.
    Without the clamp, HDR lighting (value > 1) would wrap modulo 256 when
@@ -76,28 +73,65 @@
 
 
 (defn paint-3d!
-  [^ui/Canvas canvas lowered ^double width ^double height]
+  "Software-rasterizes the lowered frame's 3D draws into an RGBA buffer and
+   presents it.  Display is decoupled from rasterization: every paint cheaply
+   draws the clear-colour backdrop plus the most recently decoded ui.Image
+   (held in image-holder, an atom owned by the calling widget — never shared
+   across demos).  The expensive render + async decode is throttled by
+   decoding? to a single in-flight job: at 60fps each software render+decode is
+   far slower than a frame, so kicking a fresh decode every paint backs the
+   decode queue up faster than it drains and the completion callbacks never get
+   isolate time — the image then only appears once the frame loop stops.  The
+   in-flight guard bounds the queue to one, keeps the isolate responsive enough
+   for the callback to run, and skips the wasted render on dropped frames.
+
+   frame-seq* / rendered-seq* gate the render on actual frame change: a repaint
+   triggered purely by a freshly decoded image (image-holder changing) re-runs
+   this fn but, finding frame-seq* unchanged, only re-presents — it does not
+   kick another render/decode, so a paused frame stream settles instead of
+   busy-looping.  decoding? and rendered-seq* are advanced only AFTER the
+   synchronous render succeeds, so an exception mid-render (caught upstream)
+   leaves both untouched and the frame is retried rather than wedging the
+   rasterizer."
+  [^ui/Canvas canvas lowered ^double width ^double height image-holder decoding?
+   frame-seq* rendered-seq*]
   (let [w (int width)
         h (int height)
-        lowered (prepare-textures lowered)
-        rgba (type/Uint8List. (* w h 4))
-        depth (type/Float64List. (* w h))
         clear-color (pack/clear-color lowered)]
-    (clear! rgba depth clear-color)
-    (doseq [pass (:passes lowered)]
-      (raster/render-3d! pass
-                         {:put-pixel! (fn [x y r g b a]
-                                        (put-pixel! rgba w x y r g b a)),
-                          :depth-get (fn [x y] (depth-get depth w x y)),
-                          :depth-set! (fn [x y z] (depth-set! depth w x y z)),
-                          :viewport-w w,
-                          :viewport-h h}))
-    ;; Async decode to ui.Image
-    (ui/decodeImageFromPixels rgba
-                              w
-                              h
-                              ui/PixelFormat.rgba8888
-                              (fn [^ui/Image image] (reset! last-image* image)))
-    ;; Draw last successfully decoded image
-    (when-let [^ui/Image img @last-image*]
-      (.drawImage canvas img ui/Offset.zero (ui/Paint.)))))
+    ;; Cheap, every-paint presentation: clear backdrop + last decoded
+    ;; image.
+    (let [[cr cg cb ca] clear-color
+          ^ui/Paint backdrop (ui/Paint.)]
+      (set! (.-color backdrop)
+            (ui/Color.fromARGB (int (* 255.0 (double (or ca 1.0))))
+                               (int (* 255.0 (double cr)))
+                               (int (* 255.0 (double cg)))
+                               (int (* 255.0 (double cb)))))
+      (.drawRect canvas (ui/Rect.fromLTWH 0.0 0.0 width height) backdrop))
+    (when-let [^ui/Image img @image-holder]
+      (.drawImage canvas img ui/Offset.zero (ui/Paint.)))
+    ;; Render only on a new frame, at most one decode in flight.
+    (when (and (not @decoding?) (not (== @frame-seq* @rendered-seq*)))
+      (let [seq @frame-seq*
+            lowered (prepare-textures lowered)
+            rgba (type/Uint8List. (* w h 4))
+            depth (type/Float64List. (* w h))]
+        (clear! rgba depth clear-color)
+        (doseq [pass (:passes lowered)]
+          (raster/render-3d!
+            pass
+            {:put-pixel! (fn [x y r g b a] (put-pixel! rgba w x y r g b a)),
+             :depth-get (fn [x y] (depth-get depth w x y)),
+             :depth-set! (fn [x y z] (depth-set! depth w x y z)),
+             :viewport-w w,
+             :viewport-h h}))
+        ;; Render succeeded: claim this frame and mark a decode in flight.
+        (reset! rendered-seq* seq)
+        (reset! decoding? true)
+        (ui/decodeImageFromPixels rgba
+                                  w
+                                  h
+                                  ui/PixelFormat.rgba8888
+                                  (fn [^ui/Image image]
+                                    (reset! image-holder image)
+                                    (reset! decoding? false)))))))

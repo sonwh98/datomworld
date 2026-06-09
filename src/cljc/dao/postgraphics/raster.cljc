@@ -350,7 +350,7 @@
    (shade-fn uv normal world-pos color) and must return [r g b a]."
   [v0 v1 v2
    {:keys [put-pixel! depth-get depth-set! viewport-w viewport-h clips
-           depth-test? depth-write? shade-fn]}]
+           depth-test? depth-write? shade-fn fast-color?]}]
   (let [raw-area (edge-fn (:x v0) (:y v0) (:x v1) (:y v1) (:x v2) (:y v2))]
     (when (> (math/mabs raw-area) v/EPSILON)
       ;; Normalize to positive winding by swapping v1/v2 when needed, so
@@ -456,24 +456,42 @@
                                 ;; is direct scalar arithmetic — no
                                 ;; closures, no mapv/range allocations in
                                 ;; the hot path.
-                                iu0 (+ (* c0 uv0-0) (* c1 uv1-0) (* c2 uv2-0))
-                                iu1 (+ (* c0 uv0-1) (* c1 uv1-1) (* c2 uv2-1))
-                                in0 (+ (* c0 n0-0) (* c1 n1-0) (* c2 n2-0))
-                                in1 (+ (* c0 n0-1) (* c1 n1-1) (* c2 n2-1))
-                                in2 (+ (* c0 n0-2) (* c1 n1-2) (* c2 n2-2))
-                                ip0 (+ (* c0 p0-0) (* c1 p1-0) (* c2 p2-0))
-                                ip1 (+ (* c0 p0-1) (* c1 p1-1) (* c2 p2-1))
-                                ip2 (+ (* c0 p0-2) (* c1 p1-2) (* c2 p2-2))
                                 ic0 (+ (* c0 c0-0) (* c1 c1-0) (* c2 c2-0))
                                 ic1 (+ (* c0 c0-1) (* c1 c1-1) (* c2 c2-1))
                                 ic2 (+ (* c0 c0-2) (* c1 c1-2) (* c2 c2-2))
-                                ic3 (+ (* c0 c0-3) (* c1 c1-3) (* c2 c2-3))
-                                uv [iu0 iu1]
-                                normal (math/vec3-normalize [in0 in1 in2])
-                                world-pos [ip0 ip1 ip2]
-                                color [ic0 ic1 ic2 ic3]
-                                [r g b a] (shade-fn uv normal world-pos color)]
-                            (put-pixel! px py r g b a))))))
+                                ic3 (+ (* c0 c0-3) (* c1 c1-3) (* c2 c2-3))]
+                            (if fast-color?
+                              ;; Unlit, untextured meshes: the fragment is
+                              ;; the perspective-correct vertex colour,
+                              ;; clamped. Skip uv/normal/world-pos and the
+                              ;; shade closure entirely — this is the hot
+                              ;; path for vertex-coloured meshes (e.g. the
+                              ;; voxel chunk), avoiding ~4 vector
+                              ;; allocations and a closure call per
+                              ;; fragment.
+                              (put-pixel! px
+                                          py
+                                          (clamp01 ic0)
+                                          (clamp01 ic1)
+                                          (clamp01 ic2)
+                                          (clamp01 ic3))
+                              (let [iu0
+                                    (+ (* c0 uv0-0) (* c1 uv1-0) (* c2 uv2-0))
+                                    iu1
+                                    (+ (* c0 uv0-1) (* c1 uv1-1) (* c2 uv2-1))
+                                    in0 (+ (* c0 n0-0) (* c1 n1-0) (* c2 n2-0))
+                                    in1 (+ (* c0 n0-1) (* c1 n1-1) (* c2 n2-1))
+                                    in2 (+ (* c0 n0-2) (* c1 n1-2) (* c2 n2-2))
+                                    ip0 (+ (* c0 p0-0) (* c1 p1-0) (* c2 p2-0))
+                                    ip1 (+ (* c0 p0-1) (* c1 p1-1) (* c2 p2-1))
+                                    ip2 (+ (* c0 p0-2) (* c1 p1-2) (* c2 p2-2))
+                                    uv [iu0 iu1]
+                                    normal (math/vec3-normalize [in0 in1 in2])
+                                    world-pos [ip0 ip1 ip2]
+                                    color [ic0 ic1 ic2 ic3]
+                                    [r g b a]
+                                    (shade-fn uv normal world-pos color)]
+                                (put-pixel! px py r g b a))))))))
                   (recur (inc px)))))
             (recur (inc py))))))))
 
@@ -602,9 +620,15 @@
                 ;; when the texture carries a mip pyramid.  Untextured /
                 ;; un-mipped draws reuse one closure for the whole draw.
                 mipped? (boolean (:levels tex))
+                ;; Unlit + untextured meshes shade to the interpolated
+                ;; vertex colour; the rasterizer takes a closure-free
+                ;; fast path.
+                fast-color? (and (not (:lighting-enabled draw)) (nil? tex))
                 base-shade (fn [uv n wp c]
                              (shade-mesh-fragment draw uv n wp c))
-                tri-sink (assoc sink' :shade-fn base-shade)]
+                tri-sink (assoc sink'
+                                :shade-fn base-shade
+                                :fast-color? fast-color?)]
             (doseq [tri indices]
               (let [p0 (prepare-vertex mvp
                                        model-m

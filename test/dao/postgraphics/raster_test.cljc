@@ -885,3 +885,96 @@
                                              256 256)]
       (is (> lod 6.0))
       (is (< lod 8.0)))))
+
+
+;; ---------------------------------------------------------------------------
+;; rasterize-triangle! — fast color-only path (unlit, untextured meshes)
+;; ---------------------------------------------------------------------------
+
+(deftest rasterize-triangle-fast-color-matches-shade-path
+  (testing
+    ":fast-color? writes the perspective-correct, clamped vertex colour
+            and is pixel-identical to the general shade-fn path for an unlit,
+            untextured (identity-shaded) triangle"
+    (let [vtx (fn [x y col]
+                {:x x,
+                 :y y,
+                 :z 0,
+                 :inv-w 1,
+                 :uv [0 0],
+                 :normal [0 0 1],
+                 :world-pos [0 0 0],
+                 :color col})
+          col [0.25 0.5 0.75 1.0]
+          v0 (vtx 10 10 col)
+          v1 (vtx 30 10 col)
+          v2 (vtx 20 30 col)
+          fast (atom [])
+          general (atom [])
+          base {:depth-get (fn [_ _] 1.0),
+                :depth-set! (fn [_ _ _] nil),
+                :viewport-w 100,
+                :viewport-h 100,
+                :clips [],
+                :depth-test? false,
+                :depth-write? false}]
+      (raster/rasterize-triangle!
+        v0
+        v1
+        v2
+        (assoc base
+               :fast-color? true
+               :put-pixel! (fn [x y r g b a] (swap! fast conj [x y r g b a]))))
+      (raster/rasterize-triangle!
+        v0
+        v1
+        v2
+        (assoc base
+               ;; the canonical unlit/untextured fragment model (clamped colour)
+               :shade-fn (fn [uv n wp c]
+                           (raster/shade-mesh-fragment {:op {},
+                                                        :lighting-enabled false}
+                                                       uv
+                                                       n
+                                                       wp
+                                                       c))
+               :put-pixel! (fn [x y r g b a] (swap! general conj [x y r g b a]))))
+      (is (pos? (count @fast)) "fast path should rasterize fragments")
+      (is (= @fast @general)
+          "fast color path is identical to the general shade path"))))
+
+
+(deftest rasterize-triangle-fast-color-clamps-hdr
+  (testing ":fast-color? clamps out-of-range colour channels to [0,1]"
+    (let [vtx (fn [x y col]
+                {:x x,
+                 :y y,
+                 :z 0,
+                 :inv-w 1,
+                 :uv [0 0],
+                 :normal [0 0 1],
+                 :world-pos [0 0 0],
+                 :color col})
+          col [2.0 -1.0 0.5 1.0]
+          v0 (vtx 10 10 col)
+          v1 (vtx 30 10 col)
+          v2 (vtx 20 30 col)
+          out (atom [])]
+      (raster/rasterize-triangle! v0
+                                  v1
+                                  v2
+                                  {:depth-get (fn [_ _] 1.0),
+                                   :depth-set! (fn [_ _ _] nil),
+                                   :viewport-w 100,
+                                   :viewport-h 100,
+                                   :clips [],
+                                   :depth-test? false,
+                                   :depth-write? false,
+                                   :fast-color? true,
+                                   :put-pixel! (fn [_x _y r g b a]
+                                                 (swap! out conj [r g b a]))})
+      (is (pos? (count @out)))
+      (is (every? (fn [[r g b a]]
+                    (and (= 1.0 r) (= 0.0 g) (approx= 0.5 b) (= 1.0 a)))
+                  @out)
+          "channels clamp to [0,1]"))))
