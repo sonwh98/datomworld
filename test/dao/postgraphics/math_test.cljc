@@ -358,3 +358,84 @@
     (is (approx= 30.0 (nth result 1)))
     (is (approx= 30.0 (nth result 2)))
     (is (approx= 40.0 (nth result 3)))))
+
+
+;; ---------------------------------------------------------------------------
+;; affine-scale-x — screen-space stroke compensation
+;; ---------------------------------------------------------------------------
+
+(deftest affine-scale-x-identity
+  (is (approx= 1.0 (math/affine-scale-x [1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1]))))
+
+
+(deftest affine-scale-x-scale2
+  (testing "a scale-2 transform reports scale factor 2"
+    (is (approx= 2.0 (math/affine-scale-x [2 0 0 0 0 2 0 0 0 0 1 0 0 0 0 1])))))
+
+
+(deftest affine-scale-x-rotation-preserves-length
+  (testing "a pure rotation has unit scale (sqrt(cos^2+sin^2))"
+    (let [c (Math/cos 0.7)
+          s (Math/sin 0.7)]
+      (is (approx= 1.0
+                   (math/affine-scale-x [c s 0 0 (- s) c 0 0 0 0 1 0 0 0 0
+                                         1]))))))
+
+
+;; ---------------------------------------------------------------------------
+;; image-fit-rect — :draw/image fit modes
+;; ---------------------------------------------------------------------------
+
+(deftest image-fit-fill
+  (testing ":fill stretches source over the whole destination rect"
+    (is (= [0.0 0.0 100.0 50.0 0.0 0.0 200.0 200.0]
+           (mapv double
+                 (math/image-fit-rect :fill [0 0 100 50] [0 0 200 200]))))))
+
+
+(deftest image-fit-contain
+  (testing ":contain fits the source inside dst, letterboxing the long axis"
+    ;; source 200x100 into dst 100x100: scale = min(100/200,100/100)=0.5
+    ;; fitted = 100x50, centred vertically -> y offset (100-50)/2 = 25
+    (let [[dx dy dw dh sx sy sw sh]
+          (math/image-fit-rect :contain [0 0 100 100] [0 0 200 100])]
+      (is (approx= 0.0 dx))
+      (is (approx= 25.0 dy))
+      (is (approx= 100.0 dw))
+      (is (approx= 50.0 dh))
+      (is (approx= 0.0 sx))
+      (is (approx= 0.0 sy))
+      (is (approx= 200.0 sw))
+      (is (approx= 100.0 sh)))))
+
+
+(deftest image-fit-cover
+  (testing ":cover fills dst and crops the source's overflowing axis"
+    ;; source 200x100 into dst 100x100: scale = max(100/200,100/100)=1.0
+    ;; src window = 100x100, cropped horizontally -> sx (200-100)/2 = 50
+    (let [[dx dy dw dh sx sy sw sh]
+          (math/image-fit-rect :cover [0 0 100 100] [0 0 200 100])]
+      (is (approx= 0.0 dx))
+      (is (approx= 0.0 dy))
+      (is (approx= 100.0 dw))
+      (is (approx= 100.0 dh))
+      (is (approx= 50.0 sx))
+      (is (approx= 0.0 sy))
+      (is (approx= 100.0 sw))
+      (is (approx= 100.0 sh)))))
+
+
+(deftest image-fit-none
+  (testing ":none centre-crops at source pixel size"
+    ;; source 200x200 into dst 100x100: visible window = 100x100 of source,
+    ;; centred in both source and dst.
+    (let [[dx dy dw dh sx sy sw sh]
+          (math/image-fit-rect :none [0 0 100 100] [0 0 200 200])]
+      (is (approx= 0.0 dx))
+      (is (approx= 0.0 dy))
+      (is (approx= 100.0 dw))
+      (is (approx= 100.0 dh))
+      (is (approx= 50.0 sx))
+      (is (approx= 50.0 sy))
+      (is (approx= 100.0 sw))
+      (is (approx= 100.0 sh)))))

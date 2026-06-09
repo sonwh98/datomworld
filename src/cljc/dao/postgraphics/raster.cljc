@@ -86,12 +86,11 @@
      (/ (double (texel-byte rgba (+ idx 3))) 255.0)]))
 
 
-(defn sample-texture
-  "Sample {:rgba [r g b a …] :width w :height h} at UV (u, v) with given
-   :wrap and :filter.  :rgba holds 0–255 byte values; returns [r g b a] in
-   [0,1]."
-  [{:keys [rgba width height]} u v
-   {:keys [wrap filter], :or {wrap :clamp, filter :linear}}]
+(defn- sample-level
+  "Sample a single mip level {:rgba [r g b a …] :width w :height h} at UV
+   (u, v) with :wrap/:filter.  :rgba holds 0–255 byte values; returns
+   [r g b a] in [0,1]."
+  [{:keys [rgba width height]} u v wrap filter]
   (let [w (int width)
         h (int height)
         u' (wrap-coord u wrap)
@@ -118,6 +117,97 @@
               (range 4))))))
 
 
+(defn sample-texture
+  "Sample a texture at UV (u, v).  opts: :wrap :filter :mip-level :levels.
+   When :levels (a vector of {:rgba :width :height} mip levels, finest first)
+   is present and :mip-level > 0, trilinear-interpolate across the two nearest
+   levels; otherwise sample the base {:rgba :width :height} at level 0.  :rgba
+   holds 0–255 byte values; returns [r g b a] in [0,1]."
+  [texture u v
+   {:keys [wrap filter mip-level levels], :or {wrap :clamp, filter :linear}}]
+  (if (and (seq levels) (number? mip-level) (pos? mip-level))
+    (let [max-lvl (dec (count levels))
+          lod (min (double mip-level) (double max-lvl))
+          l0 (int (math/mfloor lod))
+          l1 (min max-lvl (inc l0))
+          f (- lod l0)
+          c0 (sample-level (nth levels l0) u v wrap filter)
+          c1 (sample-level (nth levels l1) u v wrap filter)]
+      (mapv (fn [i] (+ (* (nth c0 i) (- 1.0 f)) (* (nth c1 i) f))) (range 4)))
+    (sample-level texture u v wrap filter)))
+
+
+(defn generate-mipmaps
+  "Given base RGBA bytes (0–255 values) and dimensions, returns a vector of
+   successively halved mip levels, each {:rgba <bytes> :width :height}.
+   Level 0 is the base; each subsequent level averages 2×2 blocks of the
+   previous, halving each dimension (floored, min 1) until 1×1."
+  [rgba width height]
+  (loop [levels [{:rgba rgba, :width (int width), :height (int height)}]]
+    (let [{prev :rgba, pw :width, ph :height} (peek levels)
+          nw (max 1 (quot pw 2))
+          nh (max 1 (quot ph 2))]
+      (if (and (== nw pw) (== nh ph))
+        levels
+        (let [out (loop [y 0
+                         acc (transient [])]
+                    (if (< y nh)
+                      (recur (inc y)
+                             (loop [x 0
+                                    acc acc]
+                               (if (< x nw)
+                                 (let [x0 (* 2 x)
+                                       y0 (* 2 y)
+                                       x1 (min (dec pw) (inc x0))
+                                       y1 (min (dec ph) (inc y0))
+                                       o00 (* 4 (+ (* y0 pw) x0))
+                                       o10 (* 4 (+ (* y0 pw) x1))
+                                       o01 (* 4 (+ (* y1 pw) x0))
+                                       o11 (* 4 (+ (* y1 pw) x1))
+                                       avg (fn [k]
+                                             (quot
+                                               (+ (texel-byte prev (+ o00 k))
+                                                  (texel-byte prev (+ o10 k))
+                                                  (texel-byte prev (+ o01 k))
+                                                  (texel-byte prev (+ o11 k)))
+                                               4))]
+                                   (recur (inc x)
+                                          (-> acc
+                                              (conj! (avg 0))
+                                              (conj! (avg 1))
+                                              (conj! (avg 2))
+                                              (conj! (avg 3)))))
+                                 acc)))
+                      (persistent! acc)))]
+          (recur (conj levels {:rgba out, :width nw, :height nh})))))))
+
+
+(defn mip-level-for-triangle
+  "Floating-point LOD for a triangle from its screen-space UV derivatives.
+   Vertices are screen (x,y) with per-vertex (u,v); tex-w/tex-h scale UV to
+   texels.  Returns log2(rho) where rho = max over screen x/y of the texel
+   gradient magnitude, or 0.0 when the surface is magnified (rho ≤ 1) or the
+   triangle is degenerate."
+  [x0 y0 u0 v0 x1 y1 u1 v1 x2 y2 u2 v2 tex-w tex-h]
+  (let [det (+ (* (- y1 y2) (- x0 x2)) (* (- x2 x1) (- y0 y2)))]
+    (if (zero? det)
+      0.0
+      (let [tw (double tex-w)
+            th (double tex-h)
+            du-dx (/ (+ (* u0 (- y1 y2)) (* u1 (- y2 y0)) (* u2 (- y0 y1))) det)
+            dv-dx (/ (+ (* v0 (- y1 y2)) (* v1 (- y2 y0)) (* v2 (- y0 y1))) det)
+            du-dy (/ (+ (* u0 (- x2 x1)) (* u1 (- x0 x2)) (* u2 (- x1 x0))) det)
+            dv-dy (/ (+ (* v0 (- x2 x1)) (* v1 (- x0 x2)) (* v2 (- x1 x0))) det)
+            ax (* du-dx tw)
+            bx (* dv-dx th)
+            ay (* du-dy tw)
+            by (* dv-dy th)
+            rho-x (math/msqrt (+ (* ax ax) (* bx bx)))
+            rho-y (math/msqrt (+ (* ay ay) (* by by)))
+            rho (max rho-x rho-y)]
+        (if (> rho 1.0) (/ (math/mlog rho) (math/mlog 2.0)) 0.0)))))
+
+
 ;; ---------------------------------------------------------------------------
 ;; Blinn-Phong lighting (linear space)
 ;; ---------------------------------------------------------------------------
@@ -136,7 +226,10 @@
         [ar ag ab dr dg db sr sg sb]
         (reduce
           (fn [[ar ag ab dr dg db sr sg sb] light]
-            (let [lc (:color light)
+            ;; v4 §Lighting Equation operates in linear space; frame
+            ;; light colours arrive as sRGB, so linearise before
+            ;; accumulating.
+            (let [lc (srgb->linear (conj (vec (:color light)) 1.0))
                   intensity (double (get light :intensity 1.0))]
               (case (:kind light)
                 :ambient [(+ ar (* (nth lc 0) intensity))
@@ -201,8 +294,9 @@
                                      (nth uv 0)
                                      (nth uv 1)
                                      {:wrap (get op :texture/wrap :clamp),
-                                      :filter
-                                      (get op :texture/filter :linear)}))
+                                      :filter (get op :texture/filter :linear),
+                                      :levels (:levels tex-source),
+                                      :mip-level (:mip-level draw)}))
         ;; v4 §Texture Modulation: fragment.rgba = texture.rgba ×
         ;; color.rgba
         ;; (matches the GPU shader's `texColor * input.color`).  Untextured
@@ -501,9 +595,16 @@
                 normal-m (math/normal-matrix model-m)
                 verts (:vertices op)
                 indices (:indices op)
-                tri-sink (assoc sink'
-                                :shade-fn (fn [uv n wp c]
-                                            (shade-mesh-fragment draw uv n wp c)))]
+                tex (:texture draw)
+                ;; Trilinear mipmapping is per-triangle: the LOD comes
+                ;; from the triangle's screen-space UV derivatives, so
+                ;; the shade closure is rebuilt per sub-triangle only
+                ;; when the texture carries a mip pyramid.  Untextured /
+                ;; un-mipped draws reuse one closure for the whole draw.
+                mipped? (boolean (:levels tex))
+                base-shade (fn [uv n wp c]
+                             (shade-mesh-fragment draw uv n wp c))
+                tri-sink (assoc sink' :shade-fn base-shade)]
             (doseq [tri indices]
               (let [p0 (prepare-vertex mvp
                                        model-m
@@ -527,10 +628,33 @@
                                                        (:bundle p0)
                                                        (:bundle p1)
                                                        (:bundle p2))]
-                  (rasterize-triangle! (screen-vertex c0 b0 vp-w vp-h)
-                                       (screen-vertex c1 b1 vp-w vp-h)
-                                       (screen-vertex c2 b2 vp-w vp-h)
-                                       tri-sink)))))
+                  (let [sv0 (screen-vertex c0 b0 vp-w vp-h)
+                        sv1 (screen-vertex c1 b1 vp-w vp-h)
+                        sv2 (screen-vertex c2 b2 vp-w vp-h)
+                        sink''
+                        (if mipped?
+                          (let [lod (mip-level-for-triangle
+                                      (:x sv0)
+                                      (:y sv0)
+                                      (nth (:uv sv0) 0)
+                                      (nth (:uv sv0) 1)
+                                      (:x sv1)
+                                      (:y sv1)
+                                      (nth (:uv sv1) 0)
+                                      (nth (:uv sv1) 1)
+                                      (:x sv2)
+                                      (:y sv2)
+                                      (nth (:uv sv2) 0)
+                                      (nth (:uv sv2) 1)
+                                      (:width tex)
+                                      (:height tex))
+                                draw' (assoc draw :mip-level lod)]
+                            (assoc sink'
+                                   :shade-fn
+                                   (fn [uv n wp c]
+                                     (shade-mesh-fragment draw' uv n wp c))))
+                          tri-sink)]
+                    (rasterize-triangle! sv0 sv1 sv2 sink''))))))
           :line-3d
           (let [op (:op draw)
                 mvp (:mvp draw)

@@ -142,3 +142,14 @@
           "font-family must reach the painter (not the monospace default)")
       (is (= [0.1 0.2 0.3 1.0] (:color fields))
           "color must reach the painter (not the black default)"))))
+
+
+(deftest text-baseline-offset-uses-measured-baseline
+  (testing
+    "paint-text! anchors on the paragraph's true alphabetic baseline:
+            the draw offset is (screen-y - baseline), not (screen-y -
+            font-size).  With a mocked baseline of 18.0 at screen-y 100.0 the
+            offset is 82.0."
+    (is (= 82.0 (pg/text-baseline-offset 100.0 18.0)))
+    (is (= 100.0 (pg/text-baseline-offset 100.0 0.0))
+        "a zero baseline leaves screen-y unchanged")))

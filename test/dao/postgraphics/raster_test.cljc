@@ -87,8 +87,9 @@
                    (raster/sample-texture test-tex 0 0 {:filter :nearest})))
   (is (approx-vec= [0 1 0 1]
                    (raster/sample-texture test-tex 0.6 0.4 {:filter :nearest})))
-  (is (approx-vec= [1 1 1 1]
-                   (raster/sample-texture test-tex 0.9 0.9 {:filter :nearest}))))
+  (is (approx-vec=
+        [1 1 1 1]
+        (raster/sample-texture test-tex 0.9 0.9 {:filter :nearest}))))
 
 
 (deftest sample-texture-clamp
@@ -109,12 +110,16 @@
 
 
 (deftest blinn-phong-ambient-only
+  ;; Light colours are linearised before accumulation: sRGB 0.2 -> ~0.0331
+  ;; linear (v4 §Lighting Equation operates in linear space).
   (let [result (raster/blinn-phong {:diffuse [1 0 0]}
-                              [{:kind :ambient, :color [0.2 0.2 0.2]}]
-                              [0 0 5]
-                              [0 0 1]
-                              [0 0 0])]
-    (is (approx-vec= [0.2 0.0 0.0] result))))
+                                   [{:kind :ambient, :color [0.2 0.2 0.2]}]
+                                   [0 0 5]
+                                   [0 0 1]
+                                   [0 0 0])]
+    (is (approx= 0.03310477 (nth result 0)))
+    (is (approx= 0.0 (nth result 1)))
+    (is (approx= 0.0 (nth result 2)))))
 
 
 (deftest blinn-phong-directional-diffuse
@@ -142,10 +147,10 @@
   (testing
     "emissive adds independent of lights (no lights -> output = emissive)"
     (let [result (raster/blinn-phong {:diffuse [1 1 1], :emissive [0.5 0.2 0.1]}
-                                []
-                                [0 0 5]
-                                [0 0 1]
-                                [0 0 0])]
+                                     []
+                                     [0 0 5]
+                                     [0 0 1]
+                                     [0 0 0])]
       (is (approx-vec= [0.5 0.2 0.1] result)
           "with no lights the only contribution is the emissive term"))))
 
@@ -410,16 +415,19 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest sample-texture-repeat
-  (is
-    (approx-vec=
-      [1 0 0 1]
-      (raster/sample-texture test-tex 2.1 -0.9 {:wrap :repeat, :filter :nearest}))))
+  (is (approx-vec= [1 0 0 1]
+                   (raster/sample-texture test-tex
+                                          2.1
+                                          -0.9
+                                          {:wrap :repeat, :filter :nearest}))))
 
 
 (deftest sample-texture-mirror
-  (is (approx-vec=
-        [1 0 0 1]
-        (raster/sample-texture test-tex 0.0 0.0 {:wrap :mirror, :filter :nearest}))))
+  (is (approx-vec= [1 0 0 1]
+                   (raster/sample-texture test-tex
+                                          0.0
+                                          0.0
+                                          {:wrap :mirror, :filter :nearest}))))
 
 
 (deftest sample-texture-linear
@@ -475,13 +483,13 @@
     ;; directly above (light just off the point along +z) keeps atten ~1.
     ;; Use a light at [0 0 0.001].
     (let [result (raster/blinn-phong {:diffuse [1 1 1]}
-                                [{:kind :point,
-                                  :color [1 1 1],
-                                  :position [0 0 0.001],
-                                  :range 5.0}]
-                                [0 0 5]
-                                [0 0 1]
-                                [0 0 0])]
+                                     [{:kind :point,
+                                       :color [1 1 1],
+                                       :position [0 0 0.001],
+                                       :range 5.0}]
+                                     [0 0 5]
+                                     [0 0 1]
+                                     [0 0 0])]
       ;; atten ~= (1 - 0.001/5)^2 ~= 1, N·L ~= 1 -> diffuse ~= 1
       (is (> (nth result 0) 0.99)
           "point light at the surface should be near full intensity")))
@@ -528,10 +536,10 @@
     (let [gray-tex {:width 1, :height 1, :rgba [51 51 51 255]}
           draw {:op {}, :texture gray-tex, :lighting-enabled false}
           result (raster/shade-mesh-fragment draw
-                                        [0 0]
-                                        [0 0 1]
-                                        [0 0 0]
-                                        [1.0 0.0 0.0 1.0])]
+                                             [0 0]
+                                             [0 0 1]
+                                             [0 0 0]
+                                             [1.0 0.0 0.0 1.0])]
       (is (approx-vec4= [0.2 0.0 0.0 1.0] result)
           "texture should be modulated by the colour, not replace it"))))
 
@@ -545,7 +553,8 @@
                           :intensity 5.0}],
                 :camera-pos [0 0 5],
                 :lighting-enabled true}
-          result (raster/shade-mesh-fragment draw [0 0] [0 0 1] [0 0 0] [1 1 1 1])]
+          result
+          (raster/shade-mesh-fragment draw [0 0] [0 0 1] [0 0 0] [1 1 1 1])]
       (is (every? (fn [c] (<= 0.0 c 1.0)) result)
           "no channel should exceed 1.0 after HDR lighting"))))
 
@@ -555,10 +564,10 @@
     (let [white-tex {:width 1, :height 1, :rgba [255 255 255 255]}
           draw {:op {}, :texture white-tex, :lighting-enabled false}
           result (raster/shade-mesh-fragment draw
-                                        [0 0]
-                                        [0 0 1]
-                                        [0 0 0]
-                                        [0.25 0.5 0.75 1.0])]
+                                             [0 0]
+                                             [0 0 1]
+                                             [0 0 0]
+                                             [0.25 0.5 0.75 1.0])]
       (is (approx-vec4= [0.25 0.5 0.75 1.0] result)
           "white texture × colour = colour"))))
 
@@ -603,8 +612,12 @@
           normal-m [0.5 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1]
           ;; attrs = [uv normal obj-pos color]
           attrs [[0 0] [1 1 0] [1 1 0] [1 1 1 1]]
-          {bundle :bundle}
-          (#'raster/prepare-vertex identity-mvp scale-x2 normal-m [1 1 0] attrs)
+          {bundle :bundle} (#'raster/prepare-vertex
+                            identity-mvp
+                            scale-x2
+                            normal-m
+                            [1 1 0]
+                            attrs)
           ;; bundle = [uv normal world-pos color]
           normal (nth bundle 1)
           world-pos (nth bundle 2)]
@@ -728,3 +741,147 @@
         (every? (fn [[x y]] (and (>= x 0) (< x 100) (>= y 0) (< y 100)))
                 @pixels)
         "all produced pixels stay within the viewport (no projected garbage)"))))
+
+
+;; ---------------------------------------------------------------------------
+;; blinn-phong — light colours are linearised before accumulation
+;; ---------------------------------------------------------------------------
+
+(deftest blinn-phong-linearises-light-colour
+  (testing
+    "an sRGB white-point directional light drives the surface above the
+            naive (un-linearised) value because sRGB->linear is applied"
+    ;; A directional light straight on (N·L = 1) a white diffuse surface.
+    ;; sRGB light colour [0.5 0.5 0.5] linearises to ~0.214, so the lit
+    ;; diffuse term must be the linear value, distinctly below the sRGB
+    ;; 0.5.
+    (let [result (raster/blinn-phong {:diffuse [1 1 1]}
+                                     [{:kind :directional,
+                                       :color [0.5 0.5 0.5],
+                                       :direction [0 0 1]}]
+                                     [0 0 5]
+                                     [0 0 1]
+                                     [0 0 0])]
+      (is (approx= 0.21404114 (nth result 0))
+          "light colour must be linearised (0.5 sRGB -> ~0.214 linear)"))))
+
+
+(deftest shade-mesh-fragment-light-linearisation-end-to-end
+  (testing
+    "a [1 0 0] sRGB light produces a linear red component > 1.0 pre-tonemap"
+    ;; Use blinn-phong directly so we observe the linear-space accumulation
+    ;; (shade-mesh-fragment clamps to [0,1] after the sRGB round-trip).
+    (let [result (raster/blinn-phong {:diffuse [1 1 1]}
+                                     [{:kind :directional,
+                                       :color [1.0 0.0 0.0],
+                                       :direction [0 0 1]}]
+                                     [0 0 5]
+                                     [0 0 1]
+                                     [0 0 0])]
+      ;; sRGB 1.0 -> linear 1.0 exactly (white point is the fixed point of
+      ;; the transfer fn), so a saturated red stays 1.0; the green/blue
+      ;; stay 0.
+      (is (approx= 1.0 (nth result 0)))
+      (is (approx= 0.0 (nth result 1)))
+      (is (approx= 0.0 (nth result 2))))))
+
+
+;; ---------------------------------------------------------------------------
+;; generate-mipmaps
+;; ---------------------------------------------------------------------------
+
+(deftest generate-mipmaps-level1-dims
+  (testing "level 1 is half the dimensions of level 0"
+    ;; 4x4 solid mid-grey
+    (let [base (vec (apply concat (repeat 16 [100 100 100 255])))
+          levels (raster/generate-mipmaps base 4 4)]
+      (is (= 4 (:width (nth levels 0))))
+      (is (= 4 (:height (nth levels 0))))
+      (is (= 2 (:width (nth levels 1))))
+      (is (= 2 (:height (nth levels 1))))
+      (is (= 1 (:width (nth levels 2))))
+      (is (= 1 (:height (nth levels 2)))))))
+
+
+(deftest generate-mipmaps-averages-2x2
+  (testing "a level-1 texel is the 2x2 average of the level-0 block"
+    ;; 2x2 image: red, green / blue, white (255 each). Level 1 is 1x1 = the
+    ;; average of the four = [63 63 63 255] (each channel averaged).
+    (let [base [255 0 0 255 0 255 0 255 0 0 255 255 255 255 255 255]
+          levels (raster/generate-mipmaps base 2 2)
+          l1 (:rgba (nth levels 1))]
+      ;; r: (255+0+0+255)/4 = 127; g: (0+255+0+255)/4 = 127;
+      ;; b: (0+0+255+255)/4 = 127; a: 255
+      (is (= 127 (nth l1 0)))
+      (is (= 127 (nth l1 1)))
+      (is (= 127 (nth l1 2)))
+      (is (= 255 (nth l1 3))))))
+
+
+;; ---------------------------------------------------------------------------
+;; sample-texture — trilinear across :levels at fractional :mip-level
+;; ---------------------------------------------------------------------------
+
+(deftest sample-texture-trilinear-blends-levels
+  (testing "fractional mip-level blends between two levels"
+    ;; level 0: solid black; level 1: solid white. mip-level 0.5 -> mid
+    ;; grey.
+    (let [levels [{:width 2,
+                   :height 2,
+                   :rgba [0 0 0 255 0 0 0 255 0 0 0 255 0 0 0 255]}
+                  {:width 1, :height 1, :rgba [255 255 255 255]}]
+          base (nth levels 0)
+          result (raster/sample-texture base
+                                        0.5
+                                        0.5
+                                        {:levels levels, :mip-level 0.5})]
+      (is (approx= 0.5 (nth result 0)))
+      (is (approx= 0.5 (nth result 1)))
+      (is (approx= 0.5 (nth result 2)))
+      (is (approx= 1.0 (nth result 3))))))
+
+
+(deftest sample-texture-mip-level-zero-uses-base
+  (testing "mip-level 0 (or absent) samples level 0 only"
+    (let [levels [{:width 1, :height 1, :rgba [0 0 0 255]}
+                  {:width 1, :height 1, :rgba [255 255 255 255]}]
+          base (nth levels 0)]
+      (is (approx-vec= [0.0 0.0 0.0 1.0]
+                       (raster/sample-texture base
+                                              0.5
+                                              0.5
+                                              {:levels levels,
+                                               :mip-level 0.0}))))))
+
+
+;; ---------------------------------------------------------------------------
+;; mip-level-for-triangle — screen-space LOD
+;; ---------------------------------------------------------------------------
+
+(deftest mip-level-magnified-is-zero
+  (testing "a triangle covering many screen pixels per texel is LOD 0"
+    ;; UV [0,1] spans 100 screen px over a 4-texel-wide texture: heavily
+    ;; magnified, rho < 1 -> LOD 0.
+    (is (approx= 0.0
+                 (raster/mip-level-for-triangle 0 0
+                                                0.0 0.0
+                                                100 0
+                                                1.0 0.0
+                                                0 100
+                                                0.0 1.0
+                                                4 4)))))
+
+
+(deftest mip-level-minified-is-positive
+  (testing "a triangle where one texel maps below one screen pixel is LOD > 0"
+    ;; UV [0,1] spans only 2 screen px over a 256-texel texture: rho ~128,
+    ;; LOD ~ log2(128) = 7.
+    (let [lod (raster/mip-level-for-triangle 0 0
+                                             0.0 0.0
+                                             2 0
+                                             1.0 0.0
+                                             0 2
+                                             0.0 1.0
+                                             256 256)]
+      (is (> lod 6.0))
+      (is (< lod 8.0)))))

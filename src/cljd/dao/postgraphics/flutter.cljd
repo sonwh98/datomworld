@@ -108,7 +108,13 @@
    matrix is applied so the op's own coordinates are used natively."
   [^ui/Canvas canvas draw ^double height]
   (let [op (:op draw)
-        kind (:op/kind op)]
+        kind (:op/kind op)
+        ;; The op draws under the model matrix; divide stroke widths by the
+        ;; screen-space x-scale so strokes stay constant in screen pixels
+        ;; under scale transforms.
+        sx (pmath/affine-scale-x (:model-m draw))
+        stroke-width (fn ^double [sw]
+                       (let [w (double sw)] (if (> sx 0.0) (/ w sx) w)))]
     (.save canvas)
     (apply-clips! canvas (:clips draw))
     (.translate canvas 0.0 height)
@@ -120,7 +126,7 @@
             stroke? (= kind :draw/stroke-rect)
             ^ui/Paint p (->paint (:color op) stroke?)]
         (when-let [sw (:stroke-width op)]
-          (set! (.-strokeWidth p) (double sw)))
+          (set! (.-strokeWidth p) (stroke-width sw)))
         (.drawRect
           canvas
           (ui/Rect.fromLTWH (double x) (double y) (double w) (double h))
@@ -130,7 +136,7 @@
             stroke? (= kind :draw/stroke-circle)
             ^ui/Paint p (->paint (:color op) stroke?)]
         (when-let [sw (:stroke-width op)]
-          (set! (.-strokeWidth p) (double sw)))
+          (set! (.-strokeWidth p) (stroke-width sw)))
         (.drawCircle canvas
                      (ui/Offset. (double cx) (double cy))
                      (double (:radius op))
@@ -141,22 +147,71 @@
                    (when-let [stroke (:stroke op)]
                      (let [^ui/Paint p (->paint stroke true)]
                        (set! (.-strokeWidth p)
-                             (double (get op :stroke-width 1.0)))
+                             (stroke-width (get op :stroke-width 1.0)))
                        (.drawPath canvas path p))))
       :draw/image
-      ;; Only the :placeholder resource is concretely specified for the
-      ;; software path today (white fill honouring :opacity); real image
-      ;; sources await the flutter software image-resource contract
-      ;; (orientation under the y-flip, :image/fit, :image/src-rect).
-      (when (= :placeholder (:resource/kind (:resource op)))
-        (let [[x y w h] (:rect op)
-              opacity (double (get op :opacity 1.0))]
+      (let [[x y w h] (:rect op)
+            opacity (double (get op :opacity 1.0))
+            resource (:resource op)]
+        (cond
+          ;; Placeholder: flat white fill honouring :opacity.
+          (= :placeholder (:resource/kind resource))
           (.drawRect
             canvas
             (ui/Rect.fromLTWH (double x) (double y) (double w) (double h))
-            (->paint [1.0 1.0 1.0 opacity] false))))
+            (->paint [1.0 1.0 1.0 opacity] false))
+          ;; Real image: map the source sub-rect into the dst rect under
+          ;; :image/fit, then paint with an ImageShader whose 4x4 matrix
+          ;; maps destination (screen) pixels back to source pixels.
+          ;; TileMode.clamp realizes source-coordinate clamping; the
+          ;; optional ColorFilter modulates :opacity (skipped at opacity
+          ;; 1.0).
+          (instance? ui/Image resource)
+          (let [^ui/Image img resource
+                img-w (double (.-width img))
+                img-h (double (.-height img))
+                fit (get op :image/fit :fill)
+                src (get op :image/src-rect [0.0 0.0 img-w img-h])
+                [dst-x dst-y dst-w dst-h src-x src-y src-w src-h]
+                (pmath/image-fit-rect fit [x y w h] src)
+                scale-x (/ (double src-w) (double dst-w))
+                scale-y (/ (double src-h) (double dst-h))
+                trans-x (- (double src-x) (* (double dst-x) scale-x))
+                trans-y (- (double src-y) (* (double dst-y) scale-y))
+                shader-mat (->f64-list [scale-x 0.0 0.0 0.0 0.0 scale-y 0.0
+                                        0.0 0.0 0.0 1.0 0.0 trans-x trans-y
+                                        0.0 1.0])
+                shader (ui/ImageShader. img
+                                        ui/TileMode.clamp
+                                        ui/TileMode.clamp
+                                        shader-mat)
+                paint (ui/Paint.)]
+            (set! (.-shader paint) shader)
+            (set! (.-filterQuality paint) ui/FilterQuality.low)
+            (when (< opacity 1.0)
+              (set! (.-colorFilter paint)
+                    (ui/ColorFilter.matrix
+                      (->f64-list [1.0 0.0 0.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0
+                                   0.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 opacity
+                                   0.0]))))
+            (.drawRect canvas
+                       (ui/Rect.fromLTWH (double dst-x)
+                                         (double dst-y)
+                                         (double dst-w)
+                                         (double dst-h))
+                       paint))
+          :else nil))
       nil)
     (.restore canvas)))
+
+
+(defn text-baseline-offset
+  "Vertical draw offset for drawParagraph so the laid-out paragraph's
+   alphabetic baseline rests exactly at screen-y.  A Paragraph's anchor is the
+   top of its first line, so we shift up by the measured baseline:
+   (screen-y - alphabetic-baseline)."
+  ^double [^double screen-y ^double alphabetic-baseline]
+  (- screen-y alphabetic-baseline))
 
 
 (defn text-render-fields
@@ -171,9 +226,10 @@
 
 (defn- paint-text!
   "Renders one :text op. screen-x/screen-y are already in y-down screen
-   space (pre-flipped by the lowering); shifted up by font-size so the
-   baseline rests at screen-y (Paragraph's natural anchor is the top of
-   the first line, not the baseline)."
+   space (pre-flipped by the lowering); shifted up by the laid-out
+   paragraph's alphabetic baseline so the baseline rests exactly at screen-y
+   (Paragraph's natural anchor is the top of the first line, not the
+   baseline). Using the true metric avoids the font-size approximation."
   [^ui/Canvas canvas draw]
   (let [{:keys [text color font-size font-family screen-x screen-y]}
         (text-render-fields draw)
@@ -194,7 +250,9 @@
       (.drawParagraph canvas
                       para
                       (ui/Offset. (double screen-x)
-                                  (- (double screen-y) font-size)))
+                                  (text-baseline-offset (double screen-y)
+                                                        (.-alphabeticBaseline
+                                                          para))))
       (.restore canvas))))
 
 

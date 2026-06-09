@@ -6,6 +6,7 @@
    the same code the Flutter software backend drives — only the pixel sink and
    the 2D overlay calls are platform-specific."
   (:require
+    [dao.postgraphics.math :as math]
     [dao.postgraphics.packing :as pack]
     [dao.postgraphics.raster :as raster]))
 
@@ -81,9 +82,11 @@
         (:image texture)
         (let [{:keys [source-id image width height]} texture]
           (or (and source-id (get @cpu-texture-cache source-id))
-              (let [cpu {:rgba (image->rgba image width height),
+              (let [rgba (image->rgba image width height)
+                    cpu {:rgba rgba,
                          :width width,
-                         :height height}]
+                         :height height,
+                         :levels (raster/generate-mipmaps rgba width height)}]
                 (when source-id (swap! cpu-texture-cache assoc source-id cpu))
                 cpu)))
         :else texture))
@@ -164,7 +167,14 @@
   [^js ctx draw height]
   (let [op (:op draw)
         kind (:op/kind op)
-        m (:model-m draw)]
+        m (:model-m draw)
+        ;; The op is drawn under the model matrix, so a scale transform
+        ;; would otherwise scale the stroke too.  Divide stroke widths by
+        ;; the screen-space x-scale to keep them constant in screen pixels.
+        sx (math/affine-scale-x m)
+        stroke-width (fn []
+                       (let [w (double (get op :stroke-width 1.0))]
+                         (if (pos? sx) (/ w sx) w)))]
     (.save ctx)
     (apply-clips! ctx (:clips draw))
     (.translate ctx 0 height)
@@ -183,8 +193,7 @@
                         (.fillRect ctx x y w h))
       :draw/stroke-rect (let [[x y w h] (:rect op)]
                           (set! (.-strokeStyle ctx) (->css-color (:color op)))
-                          (set! (.-lineWidth ctx)
-                                (double (get op :stroke-width 1.0)))
+                          (set! (.-lineWidth ctx) (stroke-width))
                           (.strokeRect ctx x y w h))
       :draw/fill-circle (let [[cx cy] (:center op)]
                           (set! (.-fillStyle ctx) (->css-color (:color op)))
@@ -193,8 +202,7 @@
                           (.fill ctx))
       :draw/stroke-circle (let [[cx cy] (:center op)]
                             (set! (.-strokeStyle ctx) (->css-color (:color op)))
-                            (set! (.-lineWidth ctx)
-                                  (double (get op :stroke-width 1.0)))
+                            (set! (.-lineWidth ctx) (stroke-width))
                             (.beginPath ctx)
                             (.arc ctx cx cy (:radius op) 0 (* 2 js/Math.PI))
                             (.stroke ctx))
@@ -204,21 +212,35 @@
                        (.fill ctx))
                      (when-let [stroke (:stroke op)]
                        (set! (.-strokeStyle ctx) (->css-color stroke))
-                       (set! (.-lineWidth ctx)
-                             (double (get op :stroke-width 1.0)))
+                       (set! (.-lineWidth ctx) (stroke-width))
                        (.stroke ctx)))
       :draw/image (let [[x y w h] (:rect op)
-                        opacity (double (get op :opacity 1.0))]
-                    ;; Only the :placeholder resource is concretely
-                    ;; specified for the software path today (white fill);
-                    ;; real image sources await the web software
-                    ;; resolve-resource contract (orientation under the
-                    ;; y-flip, :image/fit, and :image/src-rect handled
-                    ;; then).
+                        opacity (double (get op :opacity 1.0))
+                        resource (:resource op)
+                        image (:image resource)]
                     (set! (.-globalAlpha ctx) opacity)
-                    (when (= :placeholder (:resource/kind (:resource op)))
-                      (set! (.-fillStyle ctx) (->css-color [1.0 1.0 1.0 1.0]))
-                      (.fillRect ctx x y w h))
+                    (cond
+                      ;; Placeholder: flat white fill honouring :opacity.
+                      (= :placeholder (:resource/kind resource))
+                      (do (set! (.-fillStyle ctx)
+                                (->css-color [1.0 1.0 1.0 1.0]))
+                          (.fillRect ctx x y w h))
+                      ;; Real image: map the source sub-rect into the dst
+                      ;; rect under :image/fit, then blit with drawImage.
+                      ;; The context is y-flipped into the IR's cartesian
+                      ;; convention, so counter-flip locally to keep the
+                      ;; bitmap upright.
+                      image (let [iw (:width resource)
+                                  ih (:height resource)
+                                  fit (get op :image/fit :fill)
+                                  src (get op :image/src-rect [0 0 iw ih])
+                                  [dx dy dw dh sx sy sw sh]
+                                  (math/image-fit-rect fit [x y w h] src)]
+                              (.save ctx)
+                              (.translate ctx dx (+ dy dh))
+                              (.scale ctx 1 -1)
+                              (.drawImage ctx image sx sy sw sh 0 0 dw dh)
+                              (.restore ctx)))
                     (set! (.-globalAlpha ctx) 1.0))
       nil)
     (.restore ctx)))

@@ -2,6 +2,7 @@
   (:require ["dart:core" :as core]
             ["dart:typed_data" :as type]
             ["dart:ui" :as ui]
+            [dao.postgraphics.flutter.texture :as tex]
             [dao.postgraphics.packing :as pack]
             [dao.postgraphics.raster :as raster]))
 
@@ -51,10 +52,34 @@
   (.fillRange depth 0 (.-length depth) 1.0))
 
 
+(defn- prepare-textures
+  "Replaces each draw's :texture with a CPU-samplable mip pyramid before the
+   software rasterizer reads it (mirroring web.canvas/prepare-textures).
+   Textures with no host bytes yet resolve to nil and the rasterizer skips
+   the textured path for that frame."
+  [lowered]
+  (update lowered
+          :passes
+          (fn [passes]
+            (mapv (fn [pass]
+                    (update pass
+                            :draws
+                            (fn [draws]
+                              (mapv (fn [d]
+                                      (if (:texture d)
+                                        (assoc d
+                                               :texture (tex/cpu-texture (:texture
+                                                                           d)))
+                                        d))
+                                    draws))))
+                  passes))))
+
+
 (defn paint-3d!
   [^ui/Canvas canvas lowered ^double width ^double height]
   (let [w (int width)
         h (int height)
+        lowered (prepare-textures lowered)
         rgba (type/Uint8List. (* w h 4))
         depth (type/Float64List. (* w h))
         clear-color (pack/clear-color lowered)]

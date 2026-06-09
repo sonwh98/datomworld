@@ -60,6 +60,14 @@
      :cljd (.floor (double x))))
 
 
+(defn mlog
+  "Natural logarithm."
+  [x]
+  #?(:clj (Math/log (double x))
+     :cljs (js/Math.log (double x))
+     :cljd (math/log (double x))))
+
+
 (def PI
   #?(:clj Math/PI
      :cljs js/Math.PI
@@ -299,6 +307,51 @@
     (reject! "clip/push-rect requires translate-only ancestry"))
   (let [[x y w h] rect]
     [(+ x (:tx m)) (- viewport-height (+ y (:ty m) h)) w h]))
+
+
+(defn affine-scale-x
+  "Screen-space scale factor of a 2D-affine 16-vec (column-major) matrix:
+   the length of the transformed x-axis basis, sqrt(m00² + m01²).  Backends
+   divide stroke widths by this so strokes stay constant in screen pixels
+   under scale transforms."
+  [m]
+  (msqrt (+ (* (nth m 0) (nth m 0)) (* (nth m 1) (nth m 1)))))
+
+
+(defn image-fit-rect
+  "Maps a :draw/image source sub-rect into a destination rect under a fit
+   mode, returning [dst-x dst-y dst-w dst-h src-x src-y src-w src-h].
+   dst is the op rect [x y w h]; src is [sx sy sw sh] in source pixels.
+     :fill    stretch source over the whole destination
+     :contain scale to fit inside dst, letterboxing the short axis
+     :cover   scale to cover dst, cropping the source's overflowing axis
+     :none    centre-crop at source pixel size (no scaling)"
+  [fit [x y w h] [sx sy sw sh]]
+  (let [x (double x)
+        y (double y)
+        w (double w)
+        h (double h)
+        sx (double sx)
+        sy (double sy)
+        sw (double sw)
+        sh (double sh)]
+    (case fit
+      :contain (let [scale (min (/ w sw) (/ h sh))
+                     fw (* sw scale)
+                     fh (* sh scale)]
+                 [(+ x (/ (- w fw) 2.0)) (+ y (/ (- h fh) 2.0)) fw fh sx sy sw
+                  sh])
+      :cover (let [scale (max (/ w sw) (/ h sh))
+                   fw (/ w scale)
+                   fh (/ h scale)]
+               [x y w h (+ sx (/ (- sw fw) 2.0)) (+ sy (/ (- sh fh) 2.0)) fw
+                fh])
+      :none (let [vw (min sw w)
+                  vh (min sh h)]
+              [(+ x (/ (- w vw) 2.0)) (+ y (/ (- h vh) 2.0)) vw vh
+               (+ sx (/ (- sw vw) 2.0)) (+ sy (/ (- sh vh) 2.0)) vw vh])
+      ;; :fill and any unknown fit fall through to a straight stretch.
+      [x y w h sx sy sw sh])))
 
 
 ;; ---------------------------------------------------------------------------
