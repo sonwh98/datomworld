@@ -1,6 +1,7 @@
 (ns yin.vm.engine
   (:refer-clojure :exclude [gensym])
   (:require
+    [clojure.set]
     [dao.runtime :as rt]
     [dao.stream :as ds]
     [dao.stream.ringbuffer]
@@ -550,3 +551,120 @@
                                               :value (:value result))
                                        :effect
                                        {:effect-type (:effect effect)})))))
+
+
+;; =============================================================================
+;; Program Cache Machinery
+;; =============================================================================
+
+(def ^:private default-compiled-cache-limit 8)
+(def ^:private derived-metadata-eid 1)
+
+
+(defn build-program-index
+  [datoms]
+  (group-by first (vec datoms)))
+
+
+(defn executable-program-datom?
+  [[_e a _v _t m]]
+  (and (keyword? a) (= "yin" (namespace a)) (not= m derived-metadata-eid)))
+
+
+(defn frame-versions
+  [frame]
+  (loop [f frame
+         acc #{}]
+    (if (map? f)
+      (let [acc (cond-> acc (:compiled-version f) (conj (:compiled-version f)))]
+        (recur (:next f) acc))
+      acc)))
+
+
+(defn collect-frame-versions
+  [frames]
+  (reduce (fn [acc f] (into acc (frame-versions f))) #{} (or frames [])))
+
+
+(defn pinned-compiled-versions
+  [vm]
+  (let [active (:active-compiled-version vm)
+        k-versions (frame-versions (:k vm))
+        parked-versions (collect-frame-versions (vals (:parked vm)))
+        ready-versions (collect-frame-versions (:ready-queue vm))
+        wait-versions (collect-frame-versions (:wait-set vm))]
+    (cond-> (clojure.set/union k-versions
+                               parked-versions
+                               ready-versions
+                               wait-versions)
+      active (conj active))))
+
+
+(defn trim-compiled-cache
+  [vm]
+  (let [cache (:compiled-by-version vm)
+        limit
+        (max 1 (or (:compiled-cache-limit vm) default-compiled-cache-limit))]
+    (if (> (count cache) limit)
+      (let [pinned (pinned-compiled-versions vm)
+            keep-count limit
+            ;; Keep newest-N versions
+            sorted-versions (reverse (sort (keys cache)))
+            to-keep (into pinned (take keep-count sorted-versions))
+            trimmed-cache (select-keys cache to-keep)]
+        (assoc vm :compiled-by-version trimmed-cache))
+      vm)))
+
+
+(defn cache-compiled-artifact
+  [vm version artifact program-index]
+  (-> vm
+      (assoc :compile-dirty? false
+             :datom-index program-index
+             :active-compiled-version version)
+      (update :compiled-by-version (fnil assoc {}) version artifact)
+      trim-compiled-cache))
+
+
+(defn ensure-compiled-version
+  [vm version compile-fn]
+  (if-let [artifact (get-in vm [:compiled-by-version version])]
+    [vm artifact]
+    (let [program-datoms (vec (or (:datoms vm) []))
+          program-root-eid (:program-root-eid vm)]
+      (when (or (empty? program-datoms) (nil? program-root-eid))
+        (throw (ex-info "Canonical program is not loaded"
+                        {:program-version version})))
+      (let [program-index (or (:datom-index vm)
+                              (build-program-index program-datoms))
+            artifact (compile-fn program-root-eid program-datoms program-index)
+            vm' (cache-compiled-artifact vm version artifact program-index)]
+        [vm' artifact]))))
+
+
+(defn maybe-recompile-at-boundary
+  [vm compile-fn]
+  (if (and (:compile-dirty? vm)
+           (seq (:datoms vm))
+           (some? (:program-root-eid vm)))
+    (ensure-compiled-version vm (:program-version vm) compile-fn)
+    [vm nil]))
+
+
+(defn append-program-datoms
+  ([vm new-datoms] (append-program-datoms vm new-datoms nil))
+  ([vm new-datoms new-root-eid]
+   (when-not (some? (:program-root-eid vm))
+     (throw (ex-info "append-program-datoms requires a canonical program" {})))
+   (let [appended (vec new-datoms)]
+     (if (and (empty? appended) (nil? new-root-eid))
+       vm
+       (let [version (inc (or (:program-version vm) 0))
+             dirty? (or (some executable-program-datom? appended)
+                        (some? new-root-eid))]
+         (assoc vm
+                :program-version version
+                :program-root-eid (or new-root-eid (:program-root-eid vm))
+                :compile-dirty? (or (:compile-dirty? vm) dirty?)
+                :datoms (into (vec (or (:datoms vm) [])) appended)
+                :datom-index (if dirty? nil (:datom-index vm))))))))

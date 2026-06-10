@@ -3,7 +3,6 @@
     [clojure.test :refer [deftest is testing]]
     [dao.stream :as ds]
     [dao.stream.apply :as dao.stream.apply]
-    [dao.stream.ringbuffer]
     [dao.stream.ringbuffer :as stream]
     [dao.test-utils :as tu]
     [yin.vm :as vm]
@@ -509,3 +508,130 @@
       (is (= {vm/call-out-cursor-key {:stream-id vm/call-out-stream-key,
                                       :position 1}}
              (:store-updates run-entry))))))
+
+
+;; =============================================================================
+;; Program Cache Machinery Tests
+;; =============================================================================
+
+(deftest build-program-index-test
+  (testing "Groups datoms by entity EID"
+    (let [datoms [[1 :yin/type :foo] [2 :yin/type :bar] [1 :yin/name "one"]]]
+      (is (= {1 [[1 :yin/type :foo] [1 :yin/name "one"]],
+              2 [[2 :yin/type :bar]]}
+             (engine/build-program-index datoms))))))
+
+
+(deftest executable-program-datom?-test
+  (testing "Identifies yin-namespaced datoms that are not derived metadata"
+    (let [derived-eid @#'engine/derived-metadata-eid]
+      (is (true? (engine/executable-program-datom? [1 :yin/opcode :halt 0 0])))
+      (is (false? (engine/executable-program-datom? [1 :not-yin/opcode :halt 0
+                                                     0])))
+      (is (false? (engine/executable-program-datom? [1 :yin/opcode :halt 0
+                                                     derived-eid]))))))
+
+
+(deftest frame-versions-test
+  (testing "Collects versions from a deep :next chain (stack-safety)"
+    (let [chain (reduce (fn [acc i] {:compiled-version i, :next acc})
+                        {:compiled-version 0}
+                        (range 1 1000))]
+      (is (= (set (range 1000)) (engine/frame-versions chain))))))
+
+
+(deftest collect-frame-versions-test
+  (testing "Nil-safe version collection"
+    (is (= #{} (engine/collect-frame-versions nil)))
+    (is (= #{1 2}
+           (engine/collect-frame-versions [{:compiled-version 1}
+                                           {:compiled-version 2}])))))
+
+
+(deftest pinned-compiled-versions-test
+  (testing "Unions all active and queued versions"
+    (let [vm {:active-compiled-version 1,
+              :k {:compiled-version 2},
+              :parked {:p1 {:compiled-version 3}},
+              :ready-queue [{:compiled-version 4}],
+              :wait-set [{:compiled-version 5}]}]
+      (is (= #{1 2 3 4 5} (engine/pinned-compiled-versions vm))))))
+
+
+(deftest trim-compiled-cache-test
+  (testing "Keeps newest-N and pinned versions"
+    (let [limit @#'engine/default-compiled-cache-limit
+          ;; Create a cache with limit + 5 versions, version 0 is oldest
+          cache
+          (into {} (map (fn [i] [i (str "artifact-" i)]) (range (+ limit 5))))
+          vm {:compiled-by-version cache,
+              ;; Pin the oldest version
+              :active-compiled-version 0}
+          trimmed (engine/trim-compiled-cache vm)]
+      (is (contains? (:compiled-by-version trimmed) 0)
+          "Oldest pinned version should be kept")
+      (is (= (inc limit) (count (:compiled-by-version trimmed)))
+          "Should keep limit + 1 (pinned)"))))
+
+
+(deftest cache-compiled-artifact-test
+  (testing "Stores artifact, clears dirty flag, and trims"
+    (let [vm {:compile-dirty? true, :compiled-by-version {}}
+          artifact {:code :ops}
+          result (engine/cache-compiled-artifact vm 1 artifact {})]
+      (is (= artifact (get-in result [:compiled-by-version 1])))
+      (is (false? (:compile-dirty? result)))
+      (is (= {} (:datom-index result))))))
+
+
+(deftest ensure-compiled-version-test
+  (let [compile-fn (fn [root _datoms _idx] {:stub-artifact true, :root root})
+        vm {:program-root-eid :root,
+            :datoms [[:root :yin/opcode :halt]],
+            :program-version 1}]
+    (testing "Compiles and caches when missing"
+      (let [[vm' artifact] (engine/ensure-compiled-version vm 1 compile-fn)]
+        (is (= {:stub-artifact true, :root :root} artifact))
+        (is (= artifact (get-in vm' [:compiled-by-version 1])))))
+    (testing "Throws when program is not loaded"
+      (is (thrown? #?(:clj Exception
+                      :cljs js/Error)
+            (engine/ensure-compiled-version {} 1 compile-fn))))))
+
+
+(deftest maybe-recompile-at-boundary-test
+  (let [compile-fn (fn [_root _datoms _idx] {:stub-artifact true})
+        vm {:program-root-eid :root,
+            :datoms [[:root :yin/opcode :halt]],
+            :program-version 1,
+            :compile-dirty? true}]
+    (testing "Recompiles when dirty"
+      (let [[vm' artifact] (engine/maybe-recompile-at-boundary vm compile-fn)]
+        (is (some? artifact))
+        (is (false? (:compile-dirty? vm')))))
+    (testing "No-op when not dirty"
+      (let [clean-vm (assoc vm :compile-dirty? false)
+            [vm' artifact] (engine/maybe-recompile-at-boundary clean-vm
+                                                               compile-fn)]
+        (is (nil? artifact))
+        (is (identical? clean-vm vm'))))))
+
+
+(deftest append-program-datoms-test
+  (testing "Increments version and sets dirty flag on executable datoms"
+    (let [vm {:program-root-eid :root, :program-version 1, :datoms []}
+          new-datoms [[:root :yin/opcode :halt]]
+          result (engine/append-program-datoms vm new-datoms)]
+      (is (= 2 (:program-version result)))
+      (is (true? (:compile-dirty? result)))
+      (is (= new-datoms (:datoms result)))))
+  (testing "Supports updating root eid"
+    (let [vm {:program-root-eid :old-root, :program-version 1, :datoms []}
+          result (engine/append-program-datoms vm [] :new-root)]
+      (is (= 2 (:program-version result)))
+      (is (= :new-root (:program-root-eid result)))
+      (is (true? (:compile-dirty? result)))))
+  (testing "Throws without root"
+    (is (thrown? #?(:clj Exception
+                    :cljs js/Error)
+          (engine/append-program-datoms {} [[:foo :bar :baz]])))))

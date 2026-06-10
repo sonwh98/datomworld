@@ -83,7 +83,6 @@
 
 
 (def ^:private default-compiled-cache-limit 8)
-(def ^:private derived-metadata-eid 1)
 
 
 ;; =============================================================================
@@ -345,72 +344,6 @@
       {:bytecode @bytes, :pool @pool, :source-map @source-map})))
 
 
-(defn- canonical-program?
-  [program]
-  (and (map? program) (contains? program :node) (contains? program :datoms)))
-
-
-(defn- build-program-index
-  [datoms]
-  (group-by first (vec datoms)))
-
-
-(defn- executable-program-datom?
-  [[_e a _v _t m]]
-  (and (keyword? a) (= "yin" (namespace a)) (not= m derived-metadata-eid)))
-
-
-(declare collect-frame-versions)
-
-
-(defn- frame-versions
-  [frame]
-  (if (map? frame)
-    (let [self (cond-> #{}
-                 (some? (:compiled-version frame)) (conj (:compiled-version
-                                                           frame)))]
-      (into self (frame-versions (:next frame))))
-    #{}))
-
-
-(defn- collect-frame-versions
-  [frames]
-  (reduce (fn [acc frame] (into acc (frame-versions frame)))
-          #{}
-          (or frames [])))
-
-
-(defn- pinned-compiled-versions
-  [vm]
-  (let [parked-frames (vals (or (:parked vm) {}))
-        run-entries (or (:ready-queue vm) [])
-        wait-entries (or (:wait-set vm) [])]
-    (-> #{}
-        (cond-> (some? (:active-compiled-version vm))
-          (conj (:active-compiled-version vm)))
-        (into (frame-versions (:k vm)))
-        (into (collect-frame-versions parked-frames))
-        (into (collect-frame-versions run-entries))
-        (into (collect-frame-versions wait-entries))
-        (disj nil))))
-
-
-(defn- trim-compiled-cache
-  [vm]
-  (let [compiled (or (:compiled-by-version vm) {})
-        limit (max 1
-                   (or (:compiled-cache-limit vm) default-compiled-cache-limit))
-        versions (sort (keys compiled))
-        keep-newest (set (take-last limit versions))
-        keep (into keep-newest (pinned-compiled-versions vm))]
-    (assoc vm
-           :compiled-by-version
-           (reduce-kv (fn [m version artifact]
-                        (if (contains? keep version) (assoc m version artifact) m))
-                      {}
-                      compiled))))
-
-
 (defn- compile-stack-artifact
   [program-root-eid program-datoms program-index]
   (assemble (ast-datoms->asm program-datoms
@@ -418,66 +351,16 @@
                               :by-entity program-index})))
 
 
-(defn- cache-compiled-artifact
-  [vm version artifact program-index]
-  (-> vm
-      (assoc :datom-index program-index
-             :compile-dirty? false
-             :active-compiled-version version)
-      (update :compiled-by-version (fnil assoc {}) version artifact)
-      trim-compiled-cache))
-
-
-(defn- ensure-compiled-version
-  [vm version]
-  (if-let [artifact (get-in vm [:compiled-by-version version])]
-    [vm artifact]
-    (let [program-datoms (vec (or (:datoms vm) []))
-          program-root-eid (:program-root-eid vm)]
-      (when (or (empty? program-datoms) (nil? program-root-eid))
-        (throw (ex-info "Canonical program is not loaded"
-                        {:program-version version})))
-      (let [program-index (or (:datom-index vm)
-                              (build-program-index program-datoms))
-            artifact (compile-stack-artifact program-root-eid
-                                             program-datoms
-                                             program-index)
-            vm' (cache-compiled-artifact vm version artifact program-index)]
-        [vm' artifact]))))
-
-
 (defn maybe-recompile-at-boundary
   "Compile the current canonical program version if dirty.
    Called at explicit dispatch boundaries only."
   [vm]
-  (if (and (:compile-dirty? vm)
-           (seq (:datoms vm))
-           (some? (:program-root-eid vm)))
-    (let [version (:program-version vm)
-          [vm' _artifact] (ensure-compiled-version vm version)]
-      vm')
-    vm))
+  (let [[vm' _artifact]
+        (engine/maybe-recompile-at-boundary vm compile-stack-artifact)]
+    vm'))
 
 
-(defn append-program-datoms
-  "Append datoms to the canonical program stream.
-   Optionally update the root eid for the new program version."
-  ([vm datoms] (append-program-datoms vm datoms nil))
-  ([vm datoms new-root-eid]
-   (when-not (some? (:program-root-eid vm))
-     (throw (ex-info "append-program-datoms requires a canonical program" {})))
-   (let [appended (vec datoms)]
-     (if (and (empty? appended) (nil? new-root-eid))
-       vm
-       (let [version (inc (or (:program-version vm) 0))
-             executable? (or (some executable-program-datom? appended)
-                             (some? new-root-eid))]
-         (-> vm
-             (update :datoms into appended)
-             (assoc :program-version version
-                    :program-root-eid (or new-root-eid (:program-root-eid vm))
-                    :compile-dirty? (or (:compile-dirty? vm) executable?)
-                    :datom-index (if executable? nil (:datom-index vm)))))))))
+(def append-program-datoms engine/append-program-datoms)
 
 
 (defn- activate-compiled-artifact
@@ -1443,7 +1326,10 @@
                    :program-version program-version
                    :datom-index nil
                    :compile-dirty? true)
-        [compiled-vm artifact] (ensure-compiled-version vm' program-version)]
+        [compiled-vm artifact] (engine/ensure-compiled-version
+                                 vm'
+                                 program-version
+                                 compile-stack-artifact)]
     (activate-compiled-artifact compiled-vm artifact)))
 
 
