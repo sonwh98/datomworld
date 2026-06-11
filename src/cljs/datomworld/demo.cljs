@@ -14,29 +14,7 @@
 
 
 (def demo-options
-  [{:id :yin-repl,
-    :label "Yin REPL",
-    :icon "λ",
-    :desc "Browser CodeMirror client for a remote Yin REPL over WebSockets."}
-   {:id :continuation,
-    :label "Continuation Example",
-    :icon "⤱",
-    :desc
-    "Step through a single continuation executed by two different VM backends: Register and Stack."}
-   {:id :pipeline,
-    :label "Pipeline Compilation",
-    :icon "⚙",
-    :desc "Visualize the Yin compilation pipeline from Source to Bytecode."}
-   {:id :plotter,
-    :label "Equation Plotter",
-    :icon "📈",
-    :desc
-    "Math equation plotter demonstrating FFI from Yin.VM to functions implemented in ClojureScript"}
-   {:id :telemetry,
-    :label "VM Telemetry Viewer",
-    :icon "📡",
-    :desc "Live telemetry and REPL for running VMs."}
-   {:id :solar-system,
+  [{:id :solar-system,
     :label "Solar System",
     :icon "☉",
     :desc "Postgraphics solar system ported to the browser WebGPU terminal."}
@@ -44,11 +22,33 @@
     :label "Earth and Moon",
     :icon "◐",
     :desc "3D postgraphics Earth/Moon scene using mesh and line ops."}
+   {:id :pipeline,
+    :label "Pipeline Compilation",
+    :icon "⚙",
+    :desc "Visualize the Yin compilation pipeline from Source to Bytecode."}
    {:id :voxel,
     :label "Voxel",
     :icon "▣",
     :desc
-    "First-person voxel chunk: WASD/arrows to fly through the same postgraphics frame program rendered on both Flutter GPU and browser canvas."}])
+    "First-person voxel chunk: WASD/arrows to fly through the same postgraphics frame program rendered on both Flutter GPU and browser canvas."}
+   {:id :continuation,
+    :label "Continuation Example",
+    :icon "⤱",
+    :desc
+    "Step through a single continuation executed by two different VM backends: Register and Stack."}
+   {:id :yin-repl,
+    :label "Yin REPL",
+    :icon "λ",
+    :desc "Browser CodeMirror client for a remote Yin REPL over WebSockets."}
+   {:id :plotter,
+    :label "Equation Plotter",
+    :icon "📈",
+    :desc
+    "Math equation plotter demonstrating FFI from Yin.VM to functions implemented in ClojureScript"}
+   #_{:id :telemetry,
+    :label "VM Telemetry Viewer",
+    :icon "📡",
+    :desc "Live telemetry and REPL for running VMs."}])
 
 
 (defn- hash->demo
@@ -144,7 +144,14 @@
                   :color "#b8c7e8",
                   :font-size "16px",
                   :line-height "1.65"}}
-      "Each demo must work as a readable small-screen stream boundary and as a spacious large-screen instrument panel. Pick a surface and the layout adapts around the same runtime data."]]
+      "Everything is a stream. Everything is a continuation. Meaning is constructed by the interpreter."]
+     [:div {:style {:margin-top "18px", :display "flex", :gap "24px", :flex-wrap "wrap"}}
+      [:a {:href "/blog/structure-vs-interpretation.blog"
+           :style {:color "#8eb6ff", :text-decoration "none", :font-size "14px", :font-weight "600"}}
+       "→ Structure vs Interpretation"]
+      [:a {:href "/blog/semantics-structure-interpretation.blog"
+           :style {:color "#8eb6ff", :text-decoration "none", :font-size "14px", :font-weight "600"}}
+       "→ Semantics as Structure"]]]
     [:div
      {:style {:display "grid",
               :grid-template-columns (responsive/auto-fit-grid 260),
