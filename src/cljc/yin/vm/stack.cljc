@@ -82,9 +82,6 @@
    ])
 
 
-(def ^:private default-compiled-cache-limit 8)
-
-
 ;; =============================================================================
 ;; Datoms -> Stack Assembly
 ;; =============================================================================
@@ -1417,8 +1414,9 @@
                    :k nil,
                    :pool [],
                    :compiled-by-version {},
-                   :compiled-cache-limit (or (:compiled-cache-limit opts)
-                                             default-compiled-cache-limit),
+                   :compiled-cache-limit (or
+                                           (:compiled-cache-limit opts)
+                                           engine/default-compiled-cache-limit),
                    :active-compiled-version nil,
                    :compile-dirty? false,
                    :macro-registry (or (:macro-registry opts) {}),

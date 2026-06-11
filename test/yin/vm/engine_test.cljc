@@ -561,8 +561,7 @@
 
 (deftest trim-compiled-cache-test
   (testing "Keeps newest-N and pinned versions"
-    (let [limit #?(:cljd 8
-                   :default @#'engine/default-compiled-cache-limit)
+    (let [limit engine/default-compiled-cache-limit
           ;; Create a cache with limit + 5 versions, version 0 is oldest
           cache
           (into {} (map (fn [i] [i (str "artifact-" i)]) (range (+ limit 5))))

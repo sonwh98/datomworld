@@ -77,9 +77,6 @@
    ])
 
 
-(def ^:private default-compiled-cache-limit 8)
-
-
 (defn ast-datoms->asm
   "Takes the AST as datoms and transforms it to register-based assembly.
 
@@ -1446,8 +1443,9 @@
                    :bytecode nil,
                    :pool nil,
                    :compiled-by-version {},
-                   :compiled-cache-limit (or (:compiled-cache-limit opts)
-                                             default-compiled-cache-limit),
+                   :compiled-cache-limit (or
+                                           (:compiled-cache-limit opts)
+                                           engine/default-compiled-cache-limit),
                    :active-compiled-version nil,
                    :compile-dirty? false,
                    :macro-registry (or (:macro-registry opts) {}),

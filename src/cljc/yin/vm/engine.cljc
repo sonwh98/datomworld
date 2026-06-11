@@ -558,7 +558,7 @@
 ;; Program Cache Machinery
 ;; =============================================================================
 
-(def ^:private default-compiled-cache-limit 8)
+(def default-compiled-cache-limit 8)
 (def ^:private derived-metadata-eid (:db/derived datom/reserved))
 
 
