@@ -154,7 +154,13 @@ Components (for canonical 5-tuples):
   t: Transaction ID. Monotonic integer, intrinsic and stream-local.
   m: Metadata entity reference (always an integer, never language-level nil).
      Establishes causality across streams (since t is local).
-     Used for provenance, access control, and cross-stream references.
+     Used for validity (assert/retract), provenance, access control, and cross-stream references.
+     This is a strict superset of Datomic's 5th slot: where Datomic stores a boolean
+     `added` (assert vs retract), d5 stores an entity reference whose low reserved ids
+     mirror that boolean (0 = retract, 1 = assert) and whose high ids (1025+) point at
+     reified metadata entities carrying :db/op plus provenance as their own datoms.
+     The single source of truth for the reserved ids is dao.datom/reserved; code must
+     never compare m against a bare integer literal.
 
 Sizing:
   d5 datoms can be variable-size (general case) or fixed-size (typed streams).
@@ -170,18 +176,34 @@ Value Constraints:
 
 Reserved Entities (0-1024):
   System entities with universal meaning across all namespaces.
-  Entity 0: nil metadata. When m=0, means "no metadata". Self-referential (fixed point).
-  Entity 1: :db/ident :db/derived. When m=1, the datom is derived/computed
+  The validity ids (0,1) mirror Datomic's `added` boolean so any Datomic datom maps
+  to a d5 datom by identity; the remaining ids extend beyond what Datomic can express.
+  Entity 0: :db/retract. When m=0, the datom is a retraction (Datomic added=false).
+    Written explicitly only; never the emit default, so a zeroed/uninitialized slot
+    can never silently read as a deletion.
+  Entity 1: :db/assert. When m=1, the datom is an assertion (Datomic added=true).
+    This is the emit default for produced datoms (see dao.datom/default-op).
+  Entity 2: :db/derived. When m=2, the datom is derived/computed
     (e.g., content hashes, type inference results, index materializations).
     Derived datoms are excluded from content hash computation.
-  Entities 2-1024: built-in attributes (:db/ident, :db/valueType, :db/cardinality, etc.),
+  Entities 3-1024: built-in attributes (:db/ident, :db/valueType, :db/cardinality, etc.),
     primitive type markers, and other system primitives.
   These do not migrate: they have the same meaning everywhere.
   User-defined schema lives in user space (1025+) and migrates with data.
 
+Validity fold (deferred):
+  Assert/retract is resolved at the index layer by folding m, exactly as Datomic folds
+  `added`: storage stays append-only and immutable; "current vs history" is an
+  interpretation. The fold itself is not yet implemented. When it lands, any datom that
+  predates this convention and carries the old m=0 ("nil metadata") meaning must be
+  rewritten m:0->1 first, or it will read as a retraction. (There is currently no such
+  data: AST datoms are regenerated at runtime via ast->datoms.)
+
 d5-specific principles:
   Content hashes for d5 are computed over [a v] pairs only (not e, t, or m).
-  Content hash datoms use m=1 (:db/derived) and are excluded from their own computation.
+  Content hash input is the assert(1) datoms; retract(0) and derived(2) are excluded.
+  Content hash datoms themselves use m=2 (:db/derived) and so are excluded from their
+  own computation.
   No arbitrary URIs and no variables in storage, enabling efficient EAVT/AEVT indexing.
 
 Merkle property (d5):
@@ -191,12 +213,12 @@ Merkle property (d5):
   Same structure -> same root hash, regardless of entity ID assignment.
 
 Content hash is asserted as a derived datom:
-  [e :yin/content-hash "sha256:..." t 1]    ; m=1 means derived
+  [e :yin/content-hash "sha256:..." t 2]    ; m=2 means :db/derived
 
 Variable names are included in the content hash.
   (lambda [x] x) and (lambda [y] y) produce different hashes.
   Alpha-equivalence can be added later as a separate derived datom:
-    [e :yin/alpha-hash "sha256:..." t 1]
+    [e :yin/alpha-hash "sha256:..." t 2]
   with a De Bruijn normalization step before hashing.
   Two notions of identity, both derived, neither privileged.
 

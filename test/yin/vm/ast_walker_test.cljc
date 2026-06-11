@@ -400,12 +400,12 @@
           attrs (map second datoms)]
       (is (every? #(= "yin" (namespace %)) attrs)
           "All attributes must be in :yin/ namespace")))
-  (testing "Transaction ID and metadata default to 0"
+  (testing "Transaction ID defaults to 0, metadata defaults to assert"
     (let [datoms (vec (vm/ast->datoms {:type :literal, :value 42}))]
       (is (every? #(= 0 (nth % 3)) datoms)
           "Transaction ID (position 3) defaults to 0")
-      (is (every? #(= 0 (nth % 4)) datoms)
-          "Metadata (position 4) defaults to 0 (nil metadata entity)"))))
+      (is (every? #(= 1 (nth % 4)) datoms)
+          "Metadata (position 4) defaults to 1 (:db/assert)"))))
 
 
 (deftest ast->datoms-entity-references-test

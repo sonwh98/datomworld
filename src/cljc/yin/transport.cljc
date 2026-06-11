@@ -2,6 +2,7 @@
   "Parallel transport: move AST datoms and continuations between DaoDB instances
    via content hashes. Entity IDs are local gauge; content hashes are invariant."
   (:require
+    [dao.datom :as datom]
     [yin.content :as content]))
 
 
@@ -18,7 +19,7 @@
         (->> (vals by-entity)
              (mapcat (fn [entity-datoms]
                        (->> entity-datoms
-                            (filter (fn [[_e _a _v _t m]] (= 0 m)))
+                            (filter datom/asserted?)
                             (mapcat (fn [[_e a v _t _m]]
                                       (cond
                                         (contains? content/vector-ref-attrs a)
@@ -55,8 +56,7 @@
                                        (update m a (fnil into []) vals))
                                      (assoc m a v)))
                                  {}
-                                 (filter (fn [[_e _a _v _t m]] (= 0 m))
-                                         entity-datoms))
+                                 (filter datom/asserted? entity-datoms))
                   ;; Resolve refs to content hashes
                   resolved (into (sorted-map)
                                  (map (fn [[a v]]
@@ -118,7 +118,8 @@
                                          (contains? content/ref-attrs a)
                                          (get @hash->eid v v)
                                          :else v)]
-                    (swap! result-datoms conj [eid a resolved-v 0 0])))))
+                    (swap! result-datoms conj
+                           [eid a resolved-v 0 datom/default-op])))))
             (swap! remaining dissoc hash)
             (swap! resolved conj hash)))
         (recur)))
@@ -139,18 +140,13 @@
   [k]
   (loop [curr k
          acc []]
-    (if (nil? curr)
-      acc
-      (recur (:next curr) (conj acc (dissoc curr :next))))))
+    (if (nil? curr) acc (recur (:next curr) (conj acc (dissoc curr :next))))))
 
 
 (defn- vector->k
   "Restore a linked-list continuation from a top-first vector of frames."
   [frames]
-  (reduce (fn [next-k frame]
-            (assoc frame :next next-k))
-          nil
-          (reverse frames)))
+  (reduce (fn [next-k frame] (assoc frame :next next-k)) nil (reverse frames)))
 
 
 (defn- replace-closure-refs
@@ -254,18 +250,20 @@
                          {}
                          %))))
         (and (map? val) (= :reified-continuation (:type val)))
-        (->
-          val
-          (update :k
-                  (fn [k-val]
-                    (let [v (mapv (fn [f] (restore-frame-refs f hash->eid datoms)) k-val)]
-                      (vector->k v))))
-          (update :env
-                  #(reduce-kv
-                     (fn [m k v]
-                       (assoc m k (restore-closure-refs v hash->eid datoms)))
-                     {}
-                     %)))
+        (-> val
+            (update :k
+                    (fn [k-val]
+                      (let [v (mapv (fn [f]
+                                      (restore-frame-refs f hash->eid datoms))
+                                    k-val)]
+                        (vector->k v))))
+            (update :env
+                    #(reduce-kv
+                       (fn [m k v]
+                         (assoc m
+                                k (restore-closure-refs v hash->eid datoms)))
+                       {}
+                       %)))
         :else val))
 
 

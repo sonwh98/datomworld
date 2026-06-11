@@ -1,6 +1,7 @@
 (ns yin.vm.engine-test
   (:require
     [clojure.test :refer [deftest is testing]]
+    [dao.datom :as datom]
     [dao.stream :as ds]
     [dao.stream.apply :as dao.stream.apply]
     [dao.stream.ringbuffer :as stream]
@@ -524,7 +525,7 @@
 
 (deftest executable-program-datom?-test
   (testing "Identifies yin-namespaced datoms that are not derived metadata"
-    (let [derived-eid @#'engine/derived-metadata-eid]
+    (let [derived-eid (:db/derived datom/reserved)]
       (is (true? (engine/executable-program-datom? [1 :yin/opcode :halt 0 0])))
       (is (false? (engine/executable-program-datom? [1 :not-yin/opcode :halt 0
                                                      0])))
@@ -560,7 +561,8 @@
 
 (deftest trim-compiled-cache-test
   (testing "Keeps newest-N and pinned versions"
-    (let [limit @#'engine/default-compiled-cache-limit
+    (let [limit #?(:cljd 8
+                   :default @#'engine/default-compiled-cache-limit)
           ;; Create a cache with limit + 5 versions, version 0 is oldest
           cache
           (into {} (map (fn [i] [i (str "artifact-" i)]) (range (+ limit 5))))
@@ -595,7 +597,8 @@
         (is (= artifact (get-in vm' [:compiled-by-version 1])))))
     (testing "Throws when program is not loaded"
       (is (thrown? #?(:clj Exception
-                      :cljs js/Error)
+                      :cljs js/Error
+                      :cljd Object)
             (engine/ensure-compiled-version {} 1 compile-fn))))))
 
 
@@ -633,5 +636,6 @@
       (is (true? (:compile-dirty? result)))))
   (testing "Throws without root"
     (is (thrown? #?(:clj Exception
-                    :cljs js/Error)
+                    :cljs js/Error
+                    :cljd Object)
           (engine/append-program-datoms {} [[:foo :bar :baz]])))))

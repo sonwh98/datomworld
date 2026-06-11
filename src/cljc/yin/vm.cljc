@@ -3,6 +3,7 @@
    This namespace acts as the shared kernel/substrate for all execution engines (stack, register, walker)."
   (:refer-clojure :exclude [eval])
   (:require
+    [dao.datom :as datom]
     [dao.db :as dao-db]
     [dao.stream :as ds]
     #?(:clj [dao.stream.ringbuffer])
@@ -94,8 +95,7 @@
    'empty? empty?,
    'first first,
    'rest (fn [a] (vec (rest a))), ; clojure.core/rest returns a lazy seq;
-   ;; vec coerces to vector so conj appends
-   ;; rather than prepends
+   ;; vec coerces to vector so conj appends rather than prepends
    'conj conj,
    'assoc assoc,
    'get get,
@@ -238,8 +238,7 @@
    :yin/phase-policy {}, ; keyword — :compile | :runtime | :both
    ;; Macro expansion event attributes
    :yin/source-call {:db/valueType :db.type/ref}, ; EID of the
-   ;; :yin/macro-expand call
-   ;; site
+   ;; :yin/macro-expand call site
    :yin/macro {:db/valueType :db.type/ref}, ; EID of the macro lambda
    ;; entity
    :yin/expansion-root {:db/valueType :db.type/ref}, ; EID of the top
@@ -257,7 +256,7 @@
 
 
 (defn datoms->tx-data
-  "Convert [e a v t m] datoms to DaoDB tx-data [:db/add e a v].
+  "Convert [e a v t m] datoms to DaoDB tx-data [:db/add e a v m].
    Expands cardinality-many vector values into individual assertions.
 
    DaoDB implementations like InMemoryDaoDB do not allow nil as a stored
@@ -265,13 +264,13 @@
    The canonical datom stream remains unchanged and still carries the
    original nil facts."
   [datoms]
-  (mapcat (fn [[e a v _t _m]]
+  (mapcat (fn [[e a v _t m]]
             (cond (and (contains? cardinality-many-attrs a) (vector? v))
                   (->> v
                        (remove nil?)
-                       (map (fn [ref] [:db/add e a ref])))
+                       (map (fn [ref] [:db/add e a ref m])))
                   (nil? v) []
-                  :else [[:db/add e a v]]))
+                  :else [[:db/add e a v m]]))
           datoms))
 
 
@@ -284,21 +283,21 @@
 
    Options:
      :t - transaction ID (default 0)
-     :m - metadata entity reference (default 0, nil metadata)
+     :m - metadata entity reference (default assert; see dao.datom/reserved)
      :id-start - starting entity ID for tempids (default -1024)"
   ([ast] (ast->datoms-with-root ast {}))
   ([ast opts]
    (let [id-counter (atom (or (:id-start opts) -1024))
          t (or (:t opts) 0)
-         m (or (:m opts) 0)
+         m (or (:m opts) datom/default-op)
          gen-id #(swap! id-counter dec)
          datoms (atom [])
          emit! (fn [e attr val] (swap! datoms conj [e attr val t m]))
          ;; Track pre-assigned EIDs already emitted so that a shared
          ;; lambda-ast
          ;; (same :eid in definition operand and call-site operator) is
-         ;; processed
-         ;; exactly once; every reference resolves to the same EID.
+         ;; processed exactly once; every reference resolves to the same
+         ;; EID.
          seen-eids (atom #{})]
      (letfn
        [(convert
@@ -380,8 +379,7 @@
                   :vm/current-continuation
                   (emit! e :yin/type :vm/current-continuation)
                   ;; Macro call site — operator is the macro lambda entity
-                  ;; ref,
-                  ;; operands are unevaluated AST refs (not evaluated
+                  ;; ref, operands are unevaluated AST refs (not evaluated
                   ;; runtime values)
                   :yin/macro-expand (do (emit! e :yin/type :yin/macro-expand)
                                         (let [op-id (convert (:operator node))

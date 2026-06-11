@@ -88,22 +88,21 @@
                               annotated)]
       (is (= entity-count (count hash-datoms))
           "One content-hash datom per entity")
-      (is (every? (fn [[_e _a _v _t m]] (= 1 m)) hash-datoms)
-          "All content-hash datoms have m=1 (derived)")
-      (is (every? (fn [[_e _a v _t _m]]
-                    (str/starts-with? v "sha256:"))
+      (is (every? (fn [[_e _a _v _t m]] (= 2 m)) hash-datoms)
+          "All content-hash datoms have m=2 (:db/derived)")
+      (is (every? (fn [[_e _a v _t _m]] (str/starts-with? v "sha256:"))
                   hash-datoms)
           "All hashes start with sha256: prefix"))))
 
 
 (deftest derived-datoms-excluded-test
-  (testing "Derived datoms (m=1) are excluded from hash computation"
+  (testing "Derived datoms (m=2) are excluded from hash computation"
     (let [ast {:type :literal, :value 42}
           datoms (vm/ast->datoms ast)
           hash-before (content/compute-content-hashes datoms)
-          ;; Add a derived datom with m=1
+          ;; Add a derived datom with m=2 (:db/derived)
           datoms-with-derived
-          (conj datoms [(ffirst datoms) :yin/content-hash "sha256:fake" 0 1])
+          (conj datoms [(ffirst datoms) :yin/content-hash "sha256:fake" 0 2])
           hash-after (content/compute-content-hashes datoms-with-derived)]
       (is (= hash-before hash-after)
           "Adding derived datoms does not change content hashes"))))

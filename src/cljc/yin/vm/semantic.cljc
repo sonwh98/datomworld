@@ -1,5 +1,6 @@
 (ns yin.vm.semantic
   (:require
+    [dao.datom :as datom]
     [dao.db :as db]
     [dao.db.in-memory :as in-memory]
     [dao.stream :as ds]
@@ -1557,7 +1558,8 @@
                       (vswap! visited conj eid)
                       (let [t (local-get eid :yin/type)]
                         (cond (#{:application :yin/macro-expand} t)
-                              (do (emit! [[eid :yin/tail? true 0 0]])
+                              (do (emit! [[eid :yin/tail? true 0
+                                           datom/default-op]])
                                   (let [op-eid (local-get eid
                                                           :yin/operator)]
                                     (when (= :lambda
@@ -1570,25 +1572,26 @@
                                   (mark-tail!
                                     (local-get eid :yin/alternate)))))))]
                  (mark-tail! body-eid)))
-             (emit! [[leid :yin/type :lambda 0 0]
-                     [leid :yin/params lparams 0 0]
-                     [leid :yin/body body-eid 0 0]])
+             (emit! [[leid :yin/type :lambda 0 datom/default-op]
+                     [leid :yin/params lparams 0 datom/default-op]
+                     [leid :yin/body body-eid 0 datom/default-op]])
              leid)),
-         'yin/make-def (fn [name-eid value-eid]
-                         (let [dname (or (get-attr name-eid :yin/name)
-                                         (get-attr name-eid :yin/value))
-                               op-eid (fresh-eid)
-                               key-eid (fresh-eid)
-                               def-eid (fresh-eid)]
-                           (emit! [[op-eid :yin/type :variable 0 0]
-                                   [op-eid :yin/name 'yin/def 0 0]
-                                   [key-eid :yin/type :literal 0 0]
-                                   [key-eid :yin/value dname 0 0]
-                                   [def-eid :yin/type :application 0 0]
-                                   [def-eid :yin/operator op-eid 0 0]
-                                   [def-eid :yin/operands [key-eid value-eid]
-                                    0 0]])
-                           def-eid))}
+         'yin/make-def
+         (fn [name-eid value-eid]
+           (let [dname (or (get-attr name-eid :yin/name)
+                           (get-attr name-eid :yin/value))
+                 op-eid (fresh-eid)
+                 key-eid (fresh-eid)
+                 def-eid (fresh-eid)]
+             (emit! [[op-eid :yin/type :variable 0 datom/default-op]
+                     [op-eid :yin/name 'yin/def 0 datom/default-op]
+                     [key-eid :yin/type :literal 0 datom/default-op]
+                     [key-eid :yin/value dname 0 datom/default-op]
+                     [def-eid :yin/type :application 0 datom/default-op]
+                     [def-eid :yin/operator op-eid 0 datom/default-op]
+                     [def-eid :yin/operands [key-eid value-eid] 0
+                      datom/default-op]])
+             def-eid))}
         vm-base (create-vm)
         {:keys [tempids], vm-data :vm} (semantic-append-datoms* vm-base datoms)
         body-eid (get tempids body-eid body-eid)
@@ -1624,8 +1627,8 @@
       (and (integer? raw-val) (neg? raw-val)) {:datoms extra, :root-eid raw-val}
       ;; Macro returned a plain value — wrap it in a literal node.
       :else (let [lit-eid (fresh-eid)]
-              (emit! [[lit-eid :yin/type :literal 0 0]
-                      [lit-eid :yin/value raw-val 0 0]])
+              (emit! [[lit-eid :yin/type :literal 0 datom/default-op]
+                      [lit-eid :yin/value raw-val 0 datom/default-op]])
               {:datoms (vec @extra-datoms), :root-eid lit-eid}))))
 
 

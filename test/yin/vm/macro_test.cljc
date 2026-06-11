@@ -21,7 +21,7 @@
   [value]
   (fn [{:keys [fresh-eid]}]
     (let [eid (fresh-eid)]
-      {:datoms [[eid :yin/type :literal 0 0] [eid :yin/value value 0 0]],
+      {:datoms [[eid :yin/type :literal 0 1] [eid :yin/value value 0 1]],
        :root-eid eid})))
 
 
@@ -40,9 +40,9 @@
     ;; arg-eids = [op-eid arg1-eid arg2-eid]
     (let [[op-eid arg1-eid arg2-eid] arg-eids
           app-eid (fresh-eid)]
-      {:datoms [[app-eid :yin/type :application 0 0]
-                [app-eid :yin/operator op-eid 0 0]
-                [app-eid :yin/operands [arg2-eid arg1-eid] 0 0]],
+      {:datoms [[app-eid :yin/type :application 0 1]
+                [app-eid :yin/operator op-eid 0 1]
+                [app-eid :yin/operands [arg2-eid arg1-eid] 0 1]],
        :root-eid app-eid})))
 
 
@@ -52,10 +52,10 @@
 
 (deftest macro-lambda-schema-test
   (testing "Lambda with :yin/macro? true and :yin/phase-policy is valid"
-    (let [datoms [[-1025 :yin/type :lambda 0 0] [-1025 :yin/macro? true 0 0]
-                  [-1025 :yin/phase-policy :compile 0 0]
-                  [-1025 :yin/params [] 0 0] [-1025 :yin/body -1026 0 0]
-                  [-1026 :yin/type :literal 0 0] [-1026 :yin/value 42 0 0]]
+    (let [datoms [[-1025 :yin/type :lambda 0 1] [-1025 :yin/macro? true 0 1]
+                  [-1025 :yin/phase-policy :compile 0 1]
+                  [-1025 :yin/params [] 0 1] [-1025 :yin/body -1026 0 1]
+                  [-1026 :yin/type :literal 0 1] [-1026 :yin/value 42 0 1]]
           {:keys [get-attr]} (vm/index-datoms datoms)]
       (is (= :lambda (get-attr -1025 :yin/type)))
       (is (= true (get-attr -1025 :yin/macro?)))
@@ -71,9 +71,9 @@
     ;; Program: (my-macro) → expands to literal 99
     ;; macro-lambda-eid = -2000, call-eid = root
     (let [macro-lambda-eid -2000
-          call-datoms [[-1025 :yin/type :yin/macro-expand 0 0]
-                       [-1025 :yin/operator macro-lambda-eid 0 0]
-                       [-1025 :yin/operands [] 0 0]]
+          call-datoms [[-1025 :yin/type :yin/macro-expand 0 1]
+                       [-1025 :yin/operator macro-lambda-eid 0 1]
+                       [-1025 :yin/operands [] 0 1]]
           registry {macro-lambda-eid (make-literal-macro 99)}
           result (macro/expand-once call-datoms -1025 registry)]
       (is (true? (:expanded? result)))
@@ -84,7 +84,7 @@
         (is (= :literal (get-attr (:root-eid result) :yin/type)))
         (is (= 99 (get-attr (:root-eid result) :yin/value))))))
   (testing "No expansion when no :yin/macro-expand nodes"
-    (let [datoms [[-1025 :yin/type :literal 0 0] [-1025 :yin/value 42 0 0]]
+    (let [datoms [[-1025 :yin/type :literal 0 1] [-1025 :yin/value 42 0 1]]
           result (macro/expand-once datoms -1025 {})]
       (is (false? (:expanded? result)))
       (is (= -1025 (:root-eid result)))
@@ -98,9 +98,9 @@
 (deftest expansion-event-provenance-test
   (testing "Expansion produces a :macro-expand-event entity"
     (let [macro-lambda-eid -2000
-          call-datoms [[-1025 :yin/type :yin/macro-expand 0 0]
-                       [-1025 :yin/operator macro-lambda-eid 0 0]
-                       [-1025 :yin/operands [] 0 0]]
+          call-datoms [[-1025 :yin/type :yin/macro-expand 0 1]
+                       [-1025 :yin/operator macro-lambda-eid 0 1]
+                       [-1025 :yin/operands [] 0 1]]
           registry {macro-lambda-eid (make-literal-macro 7)}
           {:keys [datoms]} (macro/expand-once call-datoms -1025 registry)
           ;; Find the expansion event entity
@@ -121,10 +121,10 @@
           "expansion-root points to the new root node")))
   (testing "Original call datoms are immutable after expansion"
     (let [macro-lambda-eid -2000
-          original-call-datom [-1025 :yin/type :yin/macro-expand 0 0]
+          original-call-datom [-1025 :yin/type :yin/macro-expand 0 1]
           call-datoms [original-call-datom
-                       [-1025 :yin/operator macro-lambda-eid 0 0]
-                       [-1025 :yin/operands [] 0 0]]
+                       [-1025 :yin/operator macro-lambda-eid 0 1]
+                       [-1025 :yin/operands [] 0 1]]
           registry {macro-lambda-eid (make-literal-macro 55)}
           {:keys [datoms]} (macro/expand-once call-datoms -1025 registry)]
       ;; Original datom must still be present and unchanged
@@ -132,9 +132,9 @@
           "Original :yin/macro-expand datom is immutable and preserved")))
   (testing "Expansion output datoms carry m = expansion-event-eid"
     (let [macro-lambda-eid -2000
-          call-datoms [[-1025 :yin/type :yin/macro-expand 0 0]
-                       [-1025 :yin/operator macro-lambda-eid 0 0]
-                       [-1025 :yin/operands [] 0 0]]
+          call-datoms [[-1025 :yin/type :yin/macro-expand 0 1]
+                       [-1025 :yin/operator macro-lambda-eid 0 1]
+                       [-1025 :yin/operands [] 0 1]]
           registry {macro-lambda-eid (make-literal-macro 3)}
           {:keys [datoms]} (macro/expand-once call-datoms -1025 registry)
           ;; Find event EID
@@ -164,15 +164,15 @@
           plus-eid -1027
           ;; application (+ (my-macro) 10)
           app-eid -1025
-          datoms [[app-eid :yin/type :application 0 0]
-                  [app-eid :yin/operator plus-eid 0 0]
-                  [app-eid :yin/operands [call-eid lit10-eid] 0 0]
-                  [plus-eid :yin/type :variable 0 0] [plus-eid :yin/name '+ 0 0]
-                  [call-eid :yin/type :yin/macro-expand 0 0]
-                  [call-eid :yin/operator macro-lambda-eid 0 0]
-                  [call-eid :yin/operands [] 0 0]
-                  [lit10-eid :yin/type :literal 0 0]
-                  [lit10-eid :yin/value 10 0 0]]
+          datoms [[app-eid :yin/type :application 0 1]
+                  [app-eid :yin/operator plus-eid 0 1]
+                  [app-eid :yin/operands [call-eid lit10-eid] 0 1]
+                  [plus-eid :yin/type :variable 0 1] [plus-eid :yin/name '+ 0 1]
+                  [call-eid :yin/type :yin/macro-expand 0 1]
+                  [call-eid :yin/operator macro-lambda-eid 0 1]
+                  [call-eid :yin/operands [] 0 1]
+                  [lit10-eid :yin/type :literal 0 1]
+                  [lit10-eid :yin/value 10 0 1]]
           registry {macro-lambda-eid (make-literal-macro 99)}
           {:keys [datoms root-eid expanded?]}
           (macro/expand-once datoms app-eid registry)
@@ -198,9 +198,9 @@
 (deftest fixpoint-test
   (testing "Terminates when no new :yin/macro-expand datoms are emitted"
     (let [macro-lambda-eid -2000
-          call-datoms [[-1025 :yin/type :yin/macro-expand 0 0]
-                       [-1025 :yin/operator macro-lambda-eid 0 0]
-                       [-1025 :yin/operands [] 0 0]]
+          call-datoms [[-1025 :yin/type :yin/macro-expand 0 1]
+                       [-1025 :yin/operator macro-lambda-eid 0 1]
+                       [-1025 :yin/operands [] 0 1]]
           registry {macro-lambda-eid (make-literal-macro 42)}
           {:keys [datoms root-eid]}
           (macro/expand-all call-datoms -1025 registry)
@@ -215,16 +215,16 @@
           ;; macro-a expands to a call to macro-b
           macro-a-fn (fn [{:keys [fresh-eid]}]
                        (let [call-eid (fresh-eid)]
-                         {:datoms [[call-eid :yin/type :yin/macro-expand 0 0]
-                                   [call-eid :yin/operator macro-b-eid 0 0]
-                                   [call-eid :yin/operands [] 0 0]],
+                         {:datoms [[call-eid :yin/type :yin/macro-expand 0 1]
+                                   [call-eid :yin/operator macro-b-eid 0 1]
+                                   [call-eid :yin/operands [] 0 1]],
                           :root-eid call-eid}))
           ;; macro-b expands to literal 7
           macro-b-fn (make-literal-macro 7)
           registry {macro-a-eid macro-a-fn, macro-b-eid macro-b-fn}
-          call-datoms [[-1025 :yin/type :yin/macro-expand 0 0]
-                       [-1025 :yin/operator macro-a-eid 0 0]
-                       [-1025 :yin/operands [] 0 0]]
+          call-datoms [[-1025 :yin/type :yin/macro-expand 0 1]
+                       [-1025 :yin/operator macro-a-eid 0 1]
+                       [-1025 :yin/operands [] 0 1]]
           {:keys [datoms root-eid]}
           (macro/expand-all call-datoms -1025 registry)
           {:keys [get-attr]} (vm/index-datoms datoms {:root-id root-eid})]
@@ -243,13 +243,13 @@
           ;; call
           looping-macro (fn [{:keys [fresh-eid]}]
                           (let [call-eid (fresh-eid)]
-                            {:datoms [[call-eid :yin/type :yin/macro-expand 0 0]
-                                      [call-eid :yin/operator macro-eid 0 0]
-                                      [call-eid :yin/operands [] 0 0]],
+                            {:datoms [[call-eid :yin/type :yin/macro-expand 0 1]
+                                      [call-eid :yin/operator macro-eid 0 1]
+                                      [call-eid :yin/operands [] 0 1]],
                              :root-eid call-eid}))
-          call-datoms [[-1025 :yin/type :yin/macro-expand 0 0]
-                       [-1025 :yin/operator macro-eid 0 0]
-                       [-1025 :yin/operands [] 0 0]]
+          call-datoms [[-1025 :yin/type :yin/macro-expand 0 1]
+                       [-1025 :yin/operator macro-eid 0 1]
+                       [-1025 :yin/operands [] 0 1]]
           registry {macro-eid looping-macro}]
       (is (thrown-with-msg?
             #?(:clj clojure.lang.ExceptionInfo
@@ -267,9 +267,9 @@
   (testing "Register VM expands :yin/macro-expand before bytecode compilation"
     (let [macro-lambda-eid -2000
           call-eid -1025
-          datoms [[call-eid :yin/type :yin/macro-expand 0 0]
-                  [call-eid :yin/operator macro-lambda-eid 0 0]
-                  [call-eid :yin/operands [] 0 0]]
+          datoms [[call-eid :yin/type :yin/macro-expand 0 1]
+                  [call-eid :yin/operator macro-lambda-eid 0 1]
+                  [call-eid :yin/operands [] 0 1]]
           registry {macro-lambda-eid (make-literal-macro 77)}
           vm (-> (vtu/queue-vm (register/create-vm {:macro-registry registry})
                                datoms)
@@ -279,10 +279,10 @@
     (let [macro-lambda-eid -2000
           lit-eid -1027
           call-eid -1025
-          datoms [[call-eid :yin/type :yin/macro-expand 0 0]
-                  [call-eid :yin/operator macro-lambda-eid 0 0]
-                  [call-eid :yin/operands [lit-eid] 0 0]
-                  [lit-eid :yin/type :literal 0 0] [lit-eid :yin/value 123 0 0]]
+          datoms [[call-eid :yin/type :yin/macro-expand 0 1]
+                  [call-eid :yin/operator macro-lambda-eid 0 1]
+                  [call-eid :yin/operands [lit-eid] 0 1]
+                  [lit-eid :yin/type :literal 0 1] [lit-eid :yin/value 123 0 1]]
           registry {macro-lambda-eid (make-identity-macro)}
           vm (-> (vtu/queue-vm (register/create-vm {:macro-registry registry})
                                datoms)
@@ -298,9 +298,9 @@
   (testing "Stack VM expands :yin/macro-expand before bytecode compilation"
     (let [macro-lambda-eid -2000
           call-eid -1025
-          datoms [[call-eid :yin/type :yin/macro-expand 0 0]
-                  [call-eid :yin/operator macro-lambda-eid 0 0]
-                  [call-eid :yin/operands [] 0 0]]
+          datoms [[call-eid :yin/type :yin/macro-expand 0 1]
+                  [call-eid :yin/operator macro-lambda-eid 0 1]
+                  [call-eid :yin/operands [] 0 1]]
           registry {macro-lambda-eid (make-literal-macro 88)}
           vm (-> (vtu/queue-vm (stack/create-vm {:macro-registry registry})
                                datoms)
@@ -316,9 +316,9 @@
   (testing "Semantic VM expands :yin/macro-expand at runtime"
     (let [macro-lambda-eid -2000
           call-eid -1025
-          datoms [[call-eid :yin/type :yin/macro-expand 0 0]
-                  [call-eid :yin/operator macro-lambda-eid 0 0]
-                  [call-eid :yin/operands [] 0 0]]
+          datoms [[call-eid :yin/type :yin/macro-expand 0 1]
+                  [call-eid :yin/operator macro-lambda-eid 0 1]
+                  [call-eid :yin/operands [] 0 1]]
           registry {macro-lambda-eid (make-literal-macro 55)}
           vm (-> (vtu/queue-vm (semantic/create-vm {:macro-registry registry})
                                datoms)
@@ -328,10 +328,10 @@
     (let [macro-lambda-eid -2000
           lit-eid -1027
           call-eid -1025
-          datoms [[call-eid :yin/type :yin/macro-expand 0 0]
-                  [call-eid :yin/operator macro-lambda-eid 0 0]
-                  [call-eid :yin/operands [lit-eid] 0 0]
-                  [lit-eid :yin/type :literal 0 0] [lit-eid :yin/value 321 0 0]]
+          datoms [[call-eid :yin/type :yin/macro-expand 0 1]
+                  [call-eid :yin/operator macro-lambda-eid 0 1]
+                  [call-eid :yin/operands [lit-eid] 0 1]
+                  [lit-eid :yin/type :literal 0 1] [lit-eid :yin/value 321 0 1]]
           registry {macro-lambda-eid (make-identity-macro)}
           vm (-> (vtu/queue-vm (semantic/create-vm {:macro-registry registry})
                                datoms)
@@ -347,9 +347,9 @@
   (testing "All VMs produce the same result for the same macro expansion"
     (let [macro-lambda-eid -2000
           call-eid -1025
-          datoms [[call-eid :yin/type :yin/macro-expand 0 0]
-                  [call-eid :yin/operator macro-lambda-eid 0 0]
-                  [call-eid :yin/operands [] 0 0]]
+          datoms [[call-eid :yin/type :yin/macro-expand 0 1]
+                  [call-eid :yin/operator macro-lambda-eid 0 1]
+                  [call-eid :yin/operands [] 0 1]]
           registry {macro-lambda-eid (make-literal-macro 42)}
           run-vm (fn [create-fn]
                    (-> (vtu/queue-vm (create-fn {:macro-registry registry})
@@ -376,12 +376,12 @@
           lit3-eid -1029
           call-eid -1025
           datoms
-          [[call-eid :yin/type :yin/macro-expand 0 0]
-           [call-eid :yin/operator macro-lambda-eid 0 0]
-           [call-eid :yin/operands [minus-eid lit10-eid lit3-eid] 0 0]
-           [minus-eid :yin/type :variable 0 0] [minus-eid :yin/name '- 0 0]
-           [lit10-eid :yin/type :literal 0 0] [lit10-eid :yin/value 10 0 0]
-           [lit3-eid :yin/type :literal 0 0] [lit3-eid :yin/value 3 0 0]]
+          [[call-eid :yin/type :yin/macro-expand 0 1]
+           [call-eid :yin/operator macro-lambda-eid 0 1]
+           [call-eid :yin/operands [minus-eid lit10-eid lit3-eid] 0 1]
+           [minus-eid :yin/type :variable 0 1] [minus-eid :yin/name '- 0 1]
+           [lit10-eid :yin/type :literal 0 1] [lit10-eid :yin/value 10 0 1]
+           [lit3-eid :yin/type :literal 0 1] [lit3-eid :yin/value 3 0 1]]
           registry {macro-lambda-eid (make-swap-args-macro)}]
       ;; Verify compile-time result
       (let [vm (-> (vtu/queue-vm (register/create-vm {:macro-registry registry})
@@ -403,9 +403,9 @@
   (testing "Query chain: source-call -> expansion-event -> expansion-root"
     (let [macro-lambda-eid -2000
           call-eid -1025
-          datoms [[call-eid :yin/type :yin/macro-expand 0 0]
-                  [call-eid :yin/operator macro-lambda-eid 0 0]
-                  [call-eid :yin/operands [] 0 0]]
+          datoms [[call-eid :yin/type :yin/macro-expand 0 1]
+                  [call-eid :yin/operator macro-lambda-eid 0 1]
+                  [call-eid :yin/operands [] 0 1]]
           registry {macro-lambda-eid (make-literal-macro 5)}
           {:keys [datoms root-eid]} (macro/expand-all datoms call-eid registry)
           {:keys [get-attr by-entity]} (vm/index-datoms datoms
@@ -441,10 +441,10 @@
           params-eid -101
           body-eid -102
           datoms
-          [[name-eid :yin/type :literal 0 0] [name-eid :yin/value 'my-mac 0 0]
-           [params-eid :yin/type :literal 0 0]
-           [params-eid :yin/value '[x] 0 0] [body-eid :yin/type :literal 0 0]
-           [body-eid :yin/value 42 0 0]]
+          [[name-eid :yin/type :literal 0 1] [name-eid :yin/value 'my-mac 0 1]
+           [params-eid :yin/type :literal 0 1]
+           [params-eid :yin/value '[x] 0 1] [body-eid :yin/type :literal 0 1]
+           [body-eid :yin/value 42 0 1]]
           {:keys [get-attr]} (vm/index-datoms datoms)
           eid-counter (atom -200)
           fresh-eid #(swap! eid-counter dec)
@@ -482,10 +482,10 @@
           params-eid -111
           body-eid -112
           datoms
-          [[name-eid :yin/type :variable 0 0] [name-eid :yin/name 'my-mac 0 0]
-           [params-eid :yin/type :literal 0 0]
-           [params-eid :yin/value '[a b] 0 0]
-           [body-eid :yin/type :literal 0 0] [body-eid :yin/value nil 0 0]]
+          [[name-eid :yin/type :variable 0 1] [name-eid :yin/name 'my-mac 0 1]
+           [params-eid :yin/type :literal 0 1]
+           [params-eid :yin/value '[a b] 0 1]
+           [body-eid :yin/type :literal 0 1] [body-eid :yin/value nil 0 1]]
           {:keys [get-attr]} (vm/index-datoms datoms)
           eid-counter (atom -200)
           fresh-eid #(swap! eid-counter dec)
@@ -515,15 +515,15 @@
           params-eid -11
           body-eid -12
           mac-call -13
-          datoms [[name-eid :yin/type :literal 0 0]
-                  [name-eid :yin/value 'identity-mac 0 0]
-                  [params-eid :yin/type :literal 0 0]
-                  [params-eid :yin/value '[x] 0 0]
-                  [body-eid :yin/type :variable 0 0] [body-eid :yin/name 'x 0 0]
+          datoms [[name-eid :yin/type :literal 0 1]
+                  [name-eid :yin/value 'identity-mac 0 1]
+                  [params-eid :yin/type :literal 0 1]
+                  [params-eid :yin/value '[x] 0 1]
+                  [body-eid :yin/type :variable 0 1] [body-eid :yin/name 'x 0 1]
                   ;; The defmacro call site
-                  [mac-call :yin/type :yin/macro-expand 0 0]
-                  [mac-call :yin/operator macro/defmacro-eid 0 0]
-                  [mac-call :yin/operands [name-eid params-eid body-eid] 0 0]]
+                  [mac-call :yin/type :yin/macro-expand 0 1]
+                  [mac-call :yin/operator macro/defmacro-eid 0 1]
+                  [mac-call :yin/operands [name-eid params-eid body-eid] 0 1]]
           {:keys [datoms root-eid]}
           (macro/expand-all datoms mac-call macro/default-macro-registry)
           {:keys [get-attr]} (vm/index-datoms datoms {:root-id root-eid})]
@@ -610,24 +610,24 @@
           var-eid -201    ; :variable 'identity-mac (operator of call)
           call-eid -202   ; :yin/macro-expand call
           datoms
-          [[body-eid :yin/type :variable 0 0] [body-eid :yin/name 'x 0 0]
-           [lambda-eid :yin/type :lambda 0 0]
-           [lambda-eid :yin/macro? true 0 0]
-           [lambda-eid :yin/phase-policy :compile 0 0]
-           [lambda-eid :yin/params '[x] 0 0]
-           [lambda-eid :yin/body body-eid 0 0]
-           [op-eid :yin/type :variable 0 0] [op-eid :yin/name 'yin/def 0 0]
-           [key-eid :yin/type :literal 0 0]
-           [key-eid :yin/value 'identity-mac 0 0]
-           [def-eid :yin/type :application 0 0]
-           [def-eid :yin/operator op-eid 0 0]
-           [def-eid :yin/operands [key-eid lambda-eid] 0 0]
-           [lit42-eid :yin/type :literal 0 0] [lit42-eid :yin/value 42 0 0]
-           [var-eid :yin/type :variable 0 0]
-           [var-eid :yin/name 'identity-mac 0 0]
-           [call-eid :yin/type :yin/macro-expand 0 0]
-           [call-eid :yin/operator var-eid 0 0]
-           [call-eid :yin/operands [lit42-eid] 0 0]]
+          [[body-eid :yin/type :variable 0 1] [body-eid :yin/name 'x 0 1]
+           [lambda-eid :yin/type :lambda 0 1]
+           [lambda-eid :yin/macro? true 0 1]
+           [lambda-eid :yin/phase-policy :compile 0 1]
+           [lambda-eid :yin/params '[x] 0 1]
+           [lambda-eid :yin/body body-eid 0 1]
+           [op-eid :yin/type :variable 0 1] [op-eid :yin/name 'yin/def 0 1]
+           [key-eid :yin/type :literal 0 1]
+           [key-eid :yin/value 'identity-mac 0 1]
+           [def-eid :yin/type :application 0 1]
+           [def-eid :yin/operator op-eid 0 1]
+           [def-eid :yin/operands [key-eid lambda-eid] 0 1]
+           [lit42-eid :yin/type :literal 0 1] [lit42-eid :yin/value 42 0 1]
+           [var-eid :yin/type :variable 0 1]
+           [var-eid :yin/name 'identity-mac 0 1]
+           [call-eid :yin/type :yin/macro-expand 0 1]
+           [call-eid :yin/operator var-eid 0 1]
+           [call-eid :yin/operands [lit42-eid] 0 1]]
           invoke-fn (fn [leid ctx]
                       (semantic/invoke-macro-lambda leid ctx datoms))
           {:keys [datoms root-eid]} (macro/expand-all
@@ -675,11 +675,11 @@
     "semantic-append-datoms adds nodes to the VM index without resetting state"
     (let [vm (semantic/create-vm)
           ;; Load initial program: literal 1
-          initial-datoms [[-1025 :yin/type :literal 0 0]
-                          [-1025 :yin/value 1 0 0]]
+          initial-datoms [[-1025 :yin/type :literal 0 1]
+                          [-1025 :yin/value 1 0 1]]
           vm-loaded (vtu/queue-vm vm initial-datoms)
           ;; Append new datoms: a new literal node
-          new-datoms [[-2000 :yin/type :literal 0 0] [-2000 :yin/value 99 0 0]]
+          new-datoms [[-2000 :yin/type :literal 0 1] [-2000 :yin/value 99 0 1]]
           vm-appended (semantic/semantic-append-datoms vm-loaded new-datoms)]
       ;; Original program still evaluates correctly
       (is (= 1 (vm/value (vm/run vm-loaded))))

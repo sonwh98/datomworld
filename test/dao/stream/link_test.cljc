@@ -233,8 +233,8 @@
 (deftest two-peer-simulation-test
   (testing "Two peers exchange datoms through pure message passing"
     (let [;; Peer A has datoms already
-          local-a (make-stream-with [-1 :yin/type :literal 0 0]
-                                    [-1 :yin/value 42 0 0])
+          local-a (make-stream-with [-1 :yin/type :literal 0 1]
+                                    [-1 :yin/value 42 0 1])
           state-a (link/make-link-state local-a)
           ;; Peer B starts empty
           local-b (make-stream)
@@ -256,9 +256,9 @@
       ;; B's remote-stream should have A's two datoms
       (is (= 2 (count (:remote-stream state-b''))))
       (is (= :connected (:status state-b'')))
-      (is (= [-1 :yin/type :literal 0 0]
+      (is (= [-1 :yin/type :literal 0 1]
              (first (stream->vec (:remote-stream state-b'')))))
-      (is (= [-1 :yin/value 42 0 0]
+      (is (= [-1 :yin/value 42 0 1]
              (second (stream->vec (:remote-stream state-b''))))))))
 
 
@@ -268,7 +268,7 @@
 
 (deftest transit-round-trip-test
   (testing "Messages survive transit encode/decode"
-    (let [msgs [(link/put-msg [[-1 :yin/type :literal 0 0]] 0)
+    (let [msgs [(link/put-msg [[-1 :yin/type :literal 0 1]] 0)
                 (link/sync-request-msg 5)
                 (link/sync-response-msg [[:d1] [:d2]] 0 2) (link/close-msg)]]
       (doseq [msg msgs]

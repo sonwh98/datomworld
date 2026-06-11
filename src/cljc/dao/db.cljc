@@ -1,27 +1,28 @@
 (ns dao.db
-  "DaoDB: immutable database as a value. Datomic-compatible API.")
+  "DaoDB: immutable database as a value. Datomic-compatible API."
+  (:require
+    [dao.datom :as datom]))
 
 
 (defrecord Datom
   [e a v t m]
-  #?@(:cljs
-      [IIndexed
-       (-nth [this n]
-             (case n
-               0 e
-               1 a
-               2 v
-               3 t
-               4 m
-               (throw (js/Error. (str "Index out of bounds: " n)))))
-       (-nth [this n not-found]
-             (case n
-               0 e
-               1 a
-               2 v
-               3 t
-               4 m
-               not-found))]))
+  #?@(:cljs [IIndexed
+             (-nth [this n]
+                   (case n
+                     0 e
+                     1 a
+                     2 v
+                     3 t
+                     4 m
+                     (throw (js/Error. (str "Index out of bounds: " n)))))
+             (-nth [this n not-found]
+                   (case n
+                     0 e
+                     1 a
+                     2 v
+                     3 t
+                     4 m
+                     not-found))]))
 
 
 (defn ->datom
@@ -33,41 +34,46 @@
   "Total ordering for heterogeneous datom values.
    nil < boolean < integer < float < string < keyword < symbol < other."
   [x]
-  (cond
-    (nil? x)     0
-    (boolean? x) 1
-    (integer? x) 2
-    #?(:clj  (float? x)
-       :cljs  (and (number? x) (not (integer? x)))
-       :cljd  (dart/is? x double)) 3
-    (string? x)  4
-    (keyword? x) 5
-    (symbol? x)  6
-    :else         7))
+  (cond (nil? x) 0
+        (boolean? x) 1
+        (integer? x) 2
+        #?(:clj (float? x)
+           :cljs (and (number? x) (not (integer? x)))
+           :cljd (dart/is? x double))
+        3
+        (string? x) 4
+        (keyword? x) 5
+        (symbol? x) 6
+        :else 7))
 
 
 (defn compare-vals
   "Compare two datom values across heterogeneous types using type-rank."
   [a b]
-  (let [ra (type-rank a) rb (type-rank b)]
+  (let [ra (type-rank a)
+        rb (type-rank b)]
     (if (= ra rb) (compare a b) (compare ra rb))))
 
 
 (def bootstrap-datoms
-  "Reserved DaoDB system facts present in every empty database."
-  [(->datom 1  :db/ident :db/derived          0 0)
-   (->datom 2  :db/ident :db/ident            0 0)
-   (->datom 3  :db/ident :db/valueType        0 0)
-   (->datom 4  :db/ident :db/cardinality      0 0)
-   (->datom 5  :db/ident :db/unique           0 0)
-   (->datom 6  :db/ident :db/index            0 0)
-   (->datom 7  :db/ident :db.cardinality/one  0 0)
-   (->datom 8  :db/ident :db.cardinality/many 0 0)
-   (->datom 9  :db/ident :db.type/ref         0 0)
-   (->datom 10 :db/ident :db.type/string      0 0)
-   (->datom 11 :db/ident :db.type/long        0 0)
-   (->datom 12 :db/ident :db.type/boolean     0 0)
-   (->datom 13 :db/ident :db.type/keyword     0 0)])
+  "Reserved DaoDB system facts present in every empty database.
+   The validity/derived markers (eids 0-2) are derived from dao.datom/reserved so
+   the two cannot drift; eids 3+ are the schema vocabulary. All are assertions."
+  (let [op datom/default-op]
+    (into (mapv (fn [[ident id]] (->datom id :db/ident ident 0 op))
+                (sort-by val datom/reserved))
+          [(->datom 3 :db/ident :db/ident 0 op)
+           (->datom 4 :db/ident :db/valueType 0 op)
+           (->datom 5 :db/ident :db/cardinality 0 op)
+           (->datom 6 :db/ident :db/unique 0 op)
+           (->datom 7 :db/ident :db/index 0 op)
+           (->datom 8 :db/ident :db.cardinality/one 0 op)
+           (->datom 9 :db/ident :db.cardinality/many 0 op)
+           (->datom 10 :db/ident :db.type/ref 0 op)
+           (->datom 11 :db/ident :db.type/string 0 op)
+           (->datom 12 :db/ident :db.type/long 0 op)
+           (->datom 13 :db/ident :db.type/boolean 0 op)
+           (->datom 14 :db/ident :db.type/keyword 0 op)])))
 
 
 ;; =============================================================================

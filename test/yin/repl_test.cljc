@@ -62,8 +62,8 @@
            [[_state result]
             @(repl/eval-input
                (repl/create-state)
-               "[[-1 :yin/type :literal 0 0]
-                                                   [-1 :yin/value 99 0 0]]")]
+               "[[-1 :yin/type :literal 0 1]
+                                                    [-1 :yin/value 99 0 1]]")]
            (is (= "99" result)))))
      :cljs
      (async
@@ -95,8 +95,8 @@
              (is (= "nil" nil-result))
              (repl/eval-input
                (repl/create-state)
-               "[[-1 :yin/type :literal 0 0]
-                                            [-1 :yin/value 99 0 0]]")))
+               "[[-1 :yin/type :literal 0 1]
+                                             [-1 :yin/value 99 0 1]]")))
          (.then (fn [[_state result]] (is (= "99" result)) (done)))))))
 
 

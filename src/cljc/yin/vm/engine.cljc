@@ -2,6 +2,7 @@
   (:refer-clojure :exclude [gensym])
   (:require
     [clojure.set]
+    [dao.datom :as datom]
     [dao.runtime :as rt]
     [dao.stream :as ds]
     [dao.stream.ringbuffer]
@@ -558,7 +559,7 @@
 ;; =============================================================================
 
 (def ^:private default-compiled-cache-limit 8)
-(def ^:private derived-metadata-eid 1)
+(def ^:private derived-metadata-eid (:db/derived datom/reserved))
 
 
 (defn build-program-index

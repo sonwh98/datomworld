@@ -16,9 +16,10 @@
 
 (defn- queue-vm
   [vm-state datoms]
-  (let [in-stream (ds/open! {:type :ringbuffer
-                             :capacity nil})
-        queued-vm (assoc vm-state :in-stream in-stream :in-cursor {:position 0})]
+  (let [in-stream (ds/open! {:type :ringbuffer, :capacity nil})
+        queued-vm (assoc vm-state
+                         :in-stream in-stream
+                         :in-cursor {:position 0})]
     (ds/put! in-stream (vec datoms))
     queued-vm))
 
@@ -110,12 +111,12 @@
     (let [;; Build datoms for (+ 1 2) manually using repeated scalar rows
           ;; instead of vector-valued :yin/operands
           datoms
-          [[-1025 :yin/type :application 0 0] [-1026 :yin/type :variable 0 0]
-           [-1026 :yin/name '+ 0 0] [-1027 :yin/type :literal 0 0]
-           [-1027 :yin/value 1 0 0] [-1028 :yin/type :literal 0 0]
-           [-1028 :yin/value 2 0 0] [-1025 :yin/operator -1026 0 0]
+          [[-1025 :yin/type :application 0 1] [-1026 :yin/type :variable 0 1]
+           [-1026 :yin/name '+ 0 1] [-1027 :yin/type :literal 0 1]
+           [-1027 :yin/value 1 0 1] [-1028 :yin/type :literal 0 1]
+           [-1028 :yin/value 2 0 1] [-1025 :yin/operator -1026 0 1]
            ;; Materialized: two separate datoms instead of one vector
-           [-1025 :yin/operands -1027 0 0] [-1025 :yin/operands -1028 0 0]]
+           [-1025 :yin/operands -1027 0 1] [-1025 :yin/operands -1028 0 1]]
           exported (transport/export-ast datoms)
           {:keys [datoms root-eid]} (transport/import-ast exported -3000 {})
           ;; Verify imported datoms produce same content hash as canonical

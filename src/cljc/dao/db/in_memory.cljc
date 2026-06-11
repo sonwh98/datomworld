@@ -4,6 +4,7 @@
    pipeline, schema bootstrap, and embedded Datalog query engine.
    Datomic-compatible query API."
   (:require
+    [dao.datom :as datom]
     [dao.db :as dao-db :refer
      [IDaoStorage IDaoTransactor IDaoQueryEngine IDaoDB]]
     #?(:cljs [me.tonsky.persistent-sorted-set :as psset])))
@@ -323,7 +324,7 @@
                   (or (contains? indexed-attrs a) (contains? ref-attrs a))
                   (update :avet conj datom)
                   (contains? ref-attrs a) (update :vaet conj datom)
-                  (not (zero? (:m datom))) (update :meat conj datom))))
+                  (datom/metadata-ref? datom) (update :meat conj datom))))
             db'
             (seq eavt))))
 
@@ -340,7 +341,7 @@
                    :aevt (conj aevt datom))
         db' (if avet? (assoc db' :avet (conj avet datom)) db')
         db' (if ref? (assoc db' :vaet (conj vaet datom)) db')]
-    (if (zero? (:m datom)) db' (assoc db' :meat (conj meat datom)))))
+    (if (datom/metadata-ref? datom) (assoc db' :meat (conj meat datom)) db')))
 
 
 (defn retract-datom-from-indexes
@@ -355,7 +356,7 @@
                    :aevt (disj aevt datom)
                    :avet (disj avet datom)
                    :vaet (disj vaet datom))]
-    (if (zero? (:m datom)) db' (assoc db' :meat (disj meat datom)))))
+    (if (datom/metadata-ref? datom) (assoc db' :meat (disj meat datom)) db')))
 
 
 ;; =============================================================================
@@ -367,24 +368,29 @@
    Map form entities without :db/id receive auto-assigned negative tempids."
   [tx-data]
   (:ops
-    (reduce
-      (fn [{:keys [ops next-tmp]} item]
-        (cond (vector? item)
-              (let [[op e a v & rest] item
-                    m-raw (if (seq rest) (first rest) 0)]
-                {:ops (conj ops {:op op, :e e, :a a, :v v, :m-raw m-raw}),
-                 :next-tmp next-tmp})
-              (map? item)
-              (let [e (or (:db/id item) next-tmp)
-                    attrs (dissoc item :db/id)
-                    new-ops (mapv (fn [[a v]]
-                                    {:op :db/add, :e e, :a a, :v v, :m-raw 0})
-                                  attrs)]
-                {:ops (into ops new-ops),
-                 :next-tmp (if (:db/id item) next-tmp (dec next-tmp))})
-              :else (throw (ex-info "Invalid tx-data item" {:item item}))))
-      {:ops [], :next-tmp -1}
-      tx-data)))
+    (reduce (fn [{:keys [ops next-tmp]} item]
+              (cond (vector? item)
+                    (let [[op e a v & rest] item
+                          m-raw (if (seq rest) (first rest) datom/default-op)]
+                      {:ops (conj ops
+                                  {:op op, :e e, :a a, :v v, :m-raw m-raw}),
+                       :next-tmp next-tmp})
+                    (map? item)
+                    (let [e (or (:db/id item) next-tmp)
+                          attrs (dissoc item :db/id)
+                          new-ops (mapv (fn [[a v]]
+                                          {:op :db/add,
+                                           :e e,
+                                           :a a,
+                                           :v v,
+                                           :m-raw datom/default-op})
+                                        attrs)]
+                      {:ops (into ops new-ops),
+                       :next-tmp (if (:db/id item) next-tmp (dec next-tmp))})
+                    :else (throw (ex-info "Invalid tx-data item"
+                                          {:item item}))))
+            {:ops [], :next-tmp -1}
+            tx-data)))
 
 
 (defn- expand-m-map
@@ -393,10 +399,11 @@
   [op next-eid t]
   (if (map? (:m-raw op))
     (let [meta-eid next-eid
-          extra (mapv (fn [[k v]] (dao-db/->datom meta-eid k v t 0))
+          extra (mapv (fn [[k v]]
+                        (dao-db/->datom meta-eid k v t datom/default-op))
                       (:m-raw op))]
       [(assoc op :m meta-eid) extra (inc next-eid)])
-    [(assoc op :m (or (:m-raw op) 0)) [] next-eid]))
+    [(assoc op :m (or (:m-raw op) datom/default-op)) [] next-eid]))
 
 
 (defn- tempid?

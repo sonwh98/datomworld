@@ -10,6 +10,7 @@
    - Runtime: semantic VM expands :yin/macro-expand nodes inline
    - Guard limits: max depth 100, max datoms 10,000"
   (:require
+    [dao.datom :as datom]
     [yin.vm :as vm]))
 
 
@@ -27,14 +28,8 @@
 
 (def ^:private single-ref-attrs
   "Single entity-ref valued attributes in AST nodes."
-  #{:yin/body
-    :yin/operator
-    :yin/test
-    :yin/consequent
-    :yin/alternate
-    :yin/source
-    :yin/target
-    :yin/val-node})
+  #{:yin/body :yin/operator :yin/test :yin/consequent :yin/alternate :yin/source
+    :yin/target :yin/val-node})
 
 
 (def ^:private vec-ref-attrs
@@ -49,9 +44,7 @@
 (defn- min-datom-eid
   "Find the minimum entity ID across all datoms. Returns -1025 if datoms is empty."
   [datoms]
-  (if (empty? datoms)
-    -1025
-    (transduce (map first) (completing min) 0 datoms)))
+  (if (empty? datoms) -1025 (transduce (map first) (completing min) 0 datoms)))
 
 
 (defn make-eid-counter!
@@ -72,11 +65,12 @@
    expansion-root-eid: EID of top-level node produced by expansion
    phase: :compile or :runtime"
   [event-eid call-eid macro-lambda-eid expansion-root-eid phase]
-  [[event-eid :yin/type :macro-expand-event 0 0]
-   [event-eid :yin/source-call call-eid 0 0]
-   [event-eid :yin/macro macro-lambda-eid 0 0]
-   [event-eid :yin/phase phase 0 0]
-   [event-eid :yin/expansion-root expansion-root-eid 0 0]])
+  (let [op datom/default-op]
+    [[event-eid :yin/type :macro-expand-event 0 op]
+     [event-eid :yin/source-call call-eid 0 op]
+     [event-eid :yin/macro macro-lambda-eid 0 op]
+     [event-eid :yin/phase phase 0 op]
+     [event-eid :yin/expansion-root expansion-root-eid 0 op]]))
 
 
 (defn mark-with-provenance
@@ -95,12 +89,10 @@
   [by-entity eid new-eid subst-map provenance-eid]
   (let [orig (get by-entity eid [])]
     (mapv (fn [[_e a v _t _m]]
-            (let [new-v (cond
-                          (contains? single-ref-attrs a)
-                          (get subst-map v v)
-                          (contains? vec-ref-attrs a)
-                          (mapv #(get subst-map % %) v)
-                          :else v)]
+            (let [new-v (cond (contains? single-ref-attrs a) (get subst-map v v)
+                              (contains? vec-ref-attrs a)
+                              (mapv #(get subst-map % %) v)
+                              :else v)]
               [new-eid a new-v 0 provenance-eid]))
           orig)))
 
@@ -134,7 +126,8 @@
    - result-eid: EID to use in place of eid (same as eid if no expansion)
    - new-datoms: new datoms produced during this subtree's expansion
    - expanded?: true if any expansion occurred"
-  [get-attr by-entity datoms eid macro-registry name-registry eid-counter phase visited invoke-lambda]
+  [get-attr by-entity datoms eid macro-registry name-registry eid-counter phase
+   visited invoke-lambda]
   (if (contains? visited eid)
     ;; Shared reference or cycle guard: return original EID unchanged
     [eid [] false]
@@ -143,10 +136,12 @@
         ;; Macro call site: invoke the macro and return the expansion root
         (= :yin/macro-expand node-type)
         (let [op-eid (get-attr eid :yin/operator)
-              ;; Resolve variable-operator references to their macro lambda EID.
-              ;; Yang emits :yin/macro-expand with a :variable operator node when
-              ;; the macro EID is not statically known (user-defined macros).
-              ;; Bootstrap macros are resolved via name-registry; user-defined via datom scan.
+              ;; Resolve variable-operator references to their macro
+              ;; lambda EID. Yang emits :yin/macro-expand with a
+              ;; :variable operator node when the macro EID is not
+              ;; statically known (user-defined macros). Bootstrap macros
+              ;; are resolved via name-registry; user-defined via datom
+              ;; scan.
               macro-lambda-eid
               (if (= :variable (get-attr op-eid :yin/type))
                 (let [vname (get-attr op-eid :yin/name)]
@@ -156,75 +151,114 @@
                 op-eid)
               arg-eids (or (get-attr eid :yin/operands) [])
               macro-fn (get macro-registry macro-lambda-eid)]
-          (let [event-eid (swap! eid-counter dec)
-                fresh-eid-fn (fn [] (swap! eid-counter dec))
-                ctx {:get-attr get-attr
-                     :by-entity by-entity
-                     :arg-eids arg-eids
-                     :fresh-eid fresh-eid-fn
-                     :phase phase}
-                result (cond
-                         macro-fn
-                         (macro-fn ctx)
-                         (and invoke-lambda (get-attr macro-lambda-eid :yin/macro?))
-                         (invoke-lambda macro-lambda-eid ctx)
-                         :else
-                         (throw (ex-info "No macro fn registered and no invoke-lambda provided"
-                                         {:macro-lambda-eid macro-lambda-eid
-                                          :call-eid eid
-                                          :phase phase
-                                          :registered-keys (keys macro-registry)})))
-                exp-datoms (:datoms result)
-                exp-root (:root-eid result)
-                evt-datoms (expansion-event-datoms
-                             event-eid eid macro-lambda-eid exp-root phase)
-                marked-exp (mark-with-provenance exp-datoms event-eid)
-                all-new (vec (concat evt-datoms marked-exp))]
+          (let
+            [event-eid (swap! eid-counter dec)
+             fresh-eid-fn (fn [] (swap! eid-counter dec))
+             ctx {:get-attr get-attr,
+                  :by-entity by-entity,
+                  :arg-eids arg-eids,
+                  :fresh-eid fresh-eid-fn,
+                  :phase phase}
+             result
+             (cond
+               macro-fn (macro-fn ctx)
+               (and invoke-lambda (get-attr macro-lambda-eid :yin/macro?))
+               (invoke-lambda macro-lambda-eid ctx)
+               :else
+               (throw
+                 (ex-info
+                   "No macro fn registered and no invoke-lambda provided"
+                   {:macro-lambda-eid macro-lambda-eid,
+                    :call-eid eid,
+                    :phase phase,
+                    :registered-keys (keys macro-registry)})))
+             exp-datoms (:datoms result)
+             exp-root (:root-eid result)
+             evt-datoms (expansion-event-datoms event-eid
+                                                eid
+                                                macro-lambda-eid
+                                                exp-root
+                                                phase)
+             marked-exp (mark-with-provenance exp-datoms event-eid)
+             all-new (vec (concat evt-datoms marked-exp))]
             [exp-root all-new true]))
-
-        ;; Regular node: recurse into children, rebuild if any child changed
+        ;; Regular node: recurse into children, rebuild if any child
+        ;; changed
         :else
         (let [visited' (conj visited eid)
-              ;; Transform single-ref children: {attr -> {:old eid :new eid :datoms [...] :expanded? bool}}
+              ;; Transform single-ref children: {attr -> {:old eid :new
+              ;; eid :datoms [...] :expanded? bool}}
               single-results
               (into {}
                     (keep (fn [attr]
                             (when-let [child-eid (get-attr eid attr)]
                               (let [[new-child child-datoms child-exp?]
-                                    (transform get-attr by-entity datoms child-eid
-                                               macro-registry name-registry eid-counter phase visited' invoke-lambda)]
-                                [attr {:old child-eid
-                                       :new new-child
-                                       :datoms child-datoms
-                                       :expanded? child-exp?}])))
+                                    (transform get-attr
+                                               by-entity
+                                               datoms
+                                               child-eid
+                                               macro-registry
+                                               name-registry
+                                               eid-counter
+                                               phase
+                                               visited'
+                                               invoke-lambda)]
+                                [attr
+                                 {:old child-eid,
+                                  :new new-child,
+                                  :datoms child-datoms,
+                                  :expanded? child-exp?}])))
                           single-ref-attrs))
-              ;; Transform vector-ref children: {attr -> {:old [eid...] :new [eid...] :datoms [...] :expanded? bool}}
+              ;; Transform vector-ref children: {attr -> {:old [eid...]
+              ;; :new [eid...] :datoms [...] :expanded? bool}}
               vec-results
               (into {}
                     (keep (fn [attr]
                             (when-let [child-eids (get-attr eid attr)]
-                              (let [results (mapv #(transform get-attr by-entity datoms %
-                                                              macro-registry name-registry eid-counter phase visited' invoke-lambda)
+                              (let [results (mapv #(transform
+                                                     get-attr
+                                                     by-entity
+                                                     datoms
+                                                     %
+                                                     macro-registry
+                                                     name-registry
+                                                     eid-counter
+                                                     phase
+                                                     visited'
+                                                     invoke-lambda)
                                                   child-eids)]
-                                [attr {:old child-eids
-                                       :new (mapv first results)
-                                       :datoms (vec (mapcat second results))
-                                       :expanded? (boolean (some #(nth % 2) results))}])))
+                                [attr
+                                 {:old child-eids,
+                                  :new (mapv first results),
+                                  :datoms (vec (mapcat second results)),
+                                  :expanded? (boolean (some #(nth % 2)
+                                                            results))}])))
                           vec-ref-attrs))
               ;; Collect all new datoms produced by children
-              all-child-datoms (vec (concat (mapcat :datoms (vals single-results))
-                                            (mapcat :datoms (vals vec-results))))
+              all-child-datoms (vec (concat
+                                      (mapcat :datoms (vals single-results))
+                                      (mapcat :datoms (vals vec-results))))
               any-expanded? (or (some :expanded? (vals single-results))
                                 (some :expanded? (vals vec-results)))]
           (if any-expanded?
-            ;; At least one child changed: create a new version of this node with updated refs
+            ;; At least one child changed: create a new version of this
+            ;; node with updated refs
             (let [new-eid (swap! eid-counter dec)
-                  ;; Build substitution map: old-child-eid -> new-child-eid
-                  subst (merge
-                          (into {} (map (fn [[_attr {:keys [old new]}]] [old new]) single-results))
-                          (into {} (mapcat (fn [[_attr {:keys [old new]}]] (map vector old new))
-                                           vec-results)))
-                  new-datoms (copy-node-datoms by-entity eid new-eid subst 0)]
+                  ;; Build substitution map: old-child-eid ->
+                  ;; new-child-eid
+                  subst (merge (into {}
+                                     (map (fn [[_attr {:keys [old new]}]]
+                                            [old new])
+                                          single-results))
+                               (into {}
+                                     (mapcat (fn [[_attr {:keys [old new]}]]
+                                               (map vector old new))
+                                             vec-results)))
+                  new-datoms (copy-node-datoms by-entity
+                                               eid
+                                               new-eid
+                                               subst
+                                               datom/default-op)]
               [new-eid (vec (concat all-child-datoms new-datoms)) true])
             ;; No children changed: return same EID, no new datoms
             [eid [] false]))))))
@@ -269,15 +303,25 @@
   ([datoms root-eid macro-registry]
    (expand-once datoms root-eid macro-registry {}))
   ([datoms root-eid macro-registry opts]
-   (let [{:keys [by-entity get-attr]} (vm/index-datoms datoms {:root-id root-eid})
+   (let [{:keys [by-entity get-attr]} (vm/index-datoms datoms
+                                                       {:root-id root-eid})
          phase (or (:phase opts) :compile)
-         name-registry (merge default-name-registry (or (:name-registry opts) {}))
+         name-registry (merge default-name-registry
+                              (or (:name-registry opts) {}))
          invoke-lambda (:invoke-lambda opts)
          eid-counter (make-eid-counter! datoms)
-         [new-root new-datoms expanded?]
-         (transform get-attr by-entity datoms root-eid macro-registry name-registry eid-counter phase #{} invoke-lambda)]
-     {:datoms (vec (concat datoms new-datoms))
-      :root-eid new-root
+         [new-root new-datoms expanded?] (transform get-attr
+                                                    by-entity
+                                                    datoms
+                                                    root-eid
+                                                    macro-registry
+                                                    name-registry
+                                                    eid-counter
+                                                    phase
+                                                    #{}
+                                                    invoke-lambda)]
+     {:datoms (vec (concat datoms new-datoms)),
+      :root-eid new-root,
       :expanded? expanded?})))
 
 
@@ -302,17 +346,15 @@
             depth 0]
        (when (>= depth max-depth)
          (throw (ex-info "Macro expansion depth guard exceeded"
-                         {:depth depth
-                          :max-depth max-depth})))
+                         {:depth depth, :max-depth max-depth})))
        (when (> (count datoms) max-datoms)
          (throw (ex-info "Macro expansion datom count guard exceeded"
-                         {:count (count datoms)
-                          :max-datoms max-datoms})))
+                         {:count (count datoms), :max-datoms max-datoms})))
        (let [{:keys [datoms root-eid expanded?]}
              (expand-once datoms root-eid macro-registry opts)]
          (if expanded?
            (recur datoms root-eid (inc depth))
-           {:datoms datoms :root-eid root-eid}))))))
+           {:datoms datoms, :root-eid root-eid}))))))
 
 
 (defn macro-call-node?
@@ -336,31 +378,31 @@
      params-eid -> :literal node (:yin/value = params vector)
      body-eid   -> body AST node (used directly as the lambda :yin/body)"
   (fn [{:keys [arg-eids get-attr fresh-eid]}]
-    (let [name-eid   (nth arg-eids 0)
+    (let [name-eid (nth arg-eids 0)
           params-eid (nth arg-eids 1)
-          body-eid   (nth arg-eids 2)
-          ;; Name comes as a :variable node from yang (bare symbol in source),
-          ;; or as a :literal from datom-level tests.
+          body-eid (nth arg-eids 2)
+          ;; Name comes as a :variable node from yang (bare symbol in
+          ;; source), or as a :literal from datom-level tests.
           macro-name (or (get-attr name-eid :yin/name)
                          (get-attr name-eid :yin/value))
-          params     (get-attr params-eid :yin/value)
+          params (get-attr params-eid :yin/value)
           lambda-eid (fresh-eid)
-          def-eid    (fresh-eid)
-          key-eid    (fresh-eid)
-          op-eid     (fresh-eid)]
-      {:datoms
-       [[lambda-eid :yin/type         :lambda      0 0]
-        [lambda-eid :yin/macro?       true         0 0]
-        [lambda-eid :yin/phase-policy :compile     0 0]
-        [lambda-eid :yin/params       params       0 0]
-        [lambda-eid :yin/body         body-eid     0 0]
-        [op-eid     :yin/type         :variable    0 0]
-        [op-eid     :yin/name         'yin/def     0 0]
-        [key-eid    :yin/type         :literal     0 0]
-        [key-eid    :yin/value        macro-name   0 0]
-        [def-eid    :yin/type         :application 0 0]
-        [def-eid    :yin/operator     op-eid       0 0]
-        [def-eid    :yin/operands     [key-eid lambda-eid] 0 0]]
+          def-eid (fresh-eid)
+          key-eid (fresh-eid)
+          op-eid (fresh-eid)]
+      {:datoms (let [op datom/default-op]
+                 [[lambda-eid :yin/type :lambda 0 op]
+                  [lambda-eid :yin/macro? true 0 op]
+                  [lambda-eid :yin/phase-policy :compile 0 op]
+                  [lambda-eid :yin/params params 0 op]
+                  [lambda-eid :yin/body body-eid 0 op]
+                  [op-eid :yin/type :variable 0 op]
+                  [op-eid :yin/name 'yin/def 0 op]
+                  [key-eid :yin/type :literal 0 op]
+                  [key-eid :yin/value macro-name 0 op]
+                  [def-eid :yin/type :application 0 op]
+                  [def-eid :yin/operator op-eid 0 op]
+                  [def-eid :yin/operands [key-eid lambda-eid] 0 op]]),
        :root-eid def-eid})))
 
 
@@ -369,25 +411,26 @@
    Returns [root-eid new-datoms].
    Empty body produces a nil literal node."
   [body-eids fresh-eid]
-  (cond
-    (empty? body-eids)
-    (let [nil-eid (fresh-eid)]
-      [nil-eid [[nil-eid :yin/type  :literal 0 0]
-                [nil-eid :yin/value nil      0 0]]])
-    (= 1 (count body-eids))
-    [(first body-eids) []]
-    :else
-    (let [[first-eid & rest-eids] body-eids
-          [rest-eid  rest-datoms] (sequence-body-eids rest-eids fresh-eid)
-          fn-eid  (fresh-eid)
-          app-eid (fresh-eid)]
-      [app-eid (vec (concat rest-datoms
-                            [[fn-eid  :yin/type     :lambda      0 0]
-                             [fn-eid  :yin/params   ['_]         0 0]
-                             [fn-eid  :yin/body     rest-eid     0 0]
-                             [app-eid :yin/type     :application 0 0]
-                             [app-eid :yin/operator fn-eid       0 0]
-                             [app-eid :yin/operands [first-eid]  0 0]]))])))
+  (let [op datom/default-op]
+    (cond (empty? body-eids) (let [nil-eid (fresh-eid)]
+                               [nil-eid
+                                [[nil-eid :yin/type :literal 0 op]
+                                 [nil-eid :yin/value nil 0 op]]])
+          (= 1 (count body-eids)) [(first body-eids) []]
+          :else (let [[first-eid & rest-eids] body-eids
+                      [rest-eid rest-datoms] (sequence-body-eids rest-eids
+                                                                 fresh-eid)
+                      fn-eid (fresh-eid)
+                      app-eid (fresh-eid)]
+                  [app-eid
+                   (vec (concat rest-datoms
+                                [[fn-eid :yin/type :lambda 0 op]
+                                 [fn-eid :yin/params ['_] 0 op]
+                                 [fn-eid :yin/body rest-eid 0 op]
+                                 [app-eid :yin/type :application 0 op]
+                                 [app-eid :yin/operator fn-eid 0 op]
+                                 [app-eid :yin/operands [first-eid] 0
+                                  op]]))]))))
 
 
 (def default-macro-registry
@@ -408,11 +451,9 @@
    defn: defines a named function.
      (defn name params body...)
      -> (def name (fn params body-sequenced))"
-  '[(defmacro ^{:yang/shadow-params-operand 1
-                :yang/shadow-body-start 2}
-      defn
+  '[(defmacro ^{:yang/shadow-body-start 2, :yang/shadow-params-operand 1} defn
       [fn-name fn-params & body]
-      (let [b (yin/sequence-body body)
-            l (yin/make-lambda fn-params b)
-            d (yin/make-def fn-name l)]
+      (let
+        [b (yin/sequence-body body) l (yin/make-lambda fn-params b) d
+         (yin/make-def fn-name l)]
         d))])

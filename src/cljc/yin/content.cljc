@@ -3,6 +3,7 @@
    Computes gauge-invariant content hashes over [a v] pairs,
    replacing entity-ref values with content hashes of referenced entities."
   (:require
+    [dao.datom :as datom]
     [datomworld :as dw]
     [yin.vm :as vm]))
 
@@ -39,7 +40,7 @@
    Returns \"sha256:hex...\"."
   [entity-datoms hash-cache]
   (let [non-derived (->> entity-datoms
-                         (filter (fn [[_e _a _v _t m]] (= 0 m))))
+                         (filter datom/asserted?))
         av-map (reduce (fn [m [_e a v _t _m]]
                          (if (contains? vector-ref-attrs a)
                            ;; Cardinality-many: accumulate into vector,
@@ -61,7 +62,7 @@
    Handles both vector and scalar representations of cardinality-many refs."
   [entity-datoms by-entity]
   (->> entity-datoms
-       (filter (fn [[_e _a _v _t m]] (= 0 m)))
+       (filter datom/asserted?)
        (mapcat (fn [[_e a v _t _m]]
                  (cond (contains? vector-ref-attrs a) (if (vector? v) v [v])
                        (contains? ref-attrs a) [v]
@@ -102,11 +103,15 @@
 
 
 (defn annotate-datoms
-  "Append content hash datoms [e :yin/content-hash hash t 1] to the stream.
-   m=1 marks these as derived (per CLAUDE.md: entity 1 = :db/derived)."
+  "Append content hash datoms [e :yin/content-hash hash t derived] to the stream.
+   m = :db/derived marks these as derived; they are excluded from content hashing.
+   See dao.datom/reserved."
   ([datoms] (annotate-datoms datoms 0))
   ([datoms t]
-   (let [hashes (compute-content-hashes datoms)
-         hash-datoms (mapv (fn [[eid hash]] [eid :yin/content-hash hash t 1])
+   (let [derived (:db/derived datom/reserved)
+         hashes (compute-content-hashes datoms)
+         hash-datoms (mapv (fn [[eid hash]]
+                             [eid :yin/content-hash hash t
+                              derived])
                            hashes)]
      (into datoms hash-datoms))))
