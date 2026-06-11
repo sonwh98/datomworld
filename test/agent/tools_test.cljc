@@ -1,7 +1,8 @@
 (ns agent.tools-test
   (:require
+    #?@(:cljd [["dart:io" :as io]]
+        :clj [[clojure.java.io :as io]])
     [agent.tools :as tools]
-    #?(:clj [clojure.java.io :as io])
     [clojure.test :refer [deftest is testing]]
     #?(:clj [dao.stream :as ds])
     #?(:clj [dao.stream.ringbuffer])))

@@ -6,17 +6,19 @@ echo "Compiling ClojureDart tests..."
 # Test helper namespaces under test/ compile into lib/cljd-out and are imported
 # by generated test entrypoints. Keep them in the same compile pass so the
 # generated APIs stay in sync with the tests.
+#
+# agent.tzu-test, agent.tools-test, and yin.repl-test are intentionally excluded:
+# they are JVM-only test suites (LLM/HTTP/file-IO integration) whose deftests are
+# gated #?(:clj ...), so they emit nothing on ClojureDart. test/dart/runner.dart
+# does not import them.
 clj -M:cljd compile \
     dao.test-utils \
     yin.vm.test-utils \
     datomworld.demo.continuation-handoff \
-    agent.tzu-test \
-    agent.tools-test \
     dao.stream.http-test \
     dao.stream-test \
     dao.db-test \
     dao.db.in-memory-test \
-    yin.repl-test \
     dao.stream.apply-test \
     dao.stream.transit-test \
     dao.gui.compiler-cljd-test \

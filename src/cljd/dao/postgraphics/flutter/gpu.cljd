@@ -162,9 +162,8 @@
   []
   (or (.containsKey (.-environment io/Platform) "SIMULATOR_DEVICE_NAME")
       (try (= "1"
-              (-> (.runSync io/Process "getprop" ["ro.kernel.qemu"])
-                  .-stdout
-                  (.trim)))
+              (.trim (.-stdout
+                       (.runSync io/Process "getprop" ["ro.kernel.qemu"]))))
            (catch Object _ false))))
 
 

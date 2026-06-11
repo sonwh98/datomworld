@@ -114,8 +114,11 @@
      ;; This body is selected at macro-load time: the ClojureDart host
      ;; pass reads with :cljd active, every other host reads :default.
      #?(:cljd (let [s (name dispatch-val)
-                    tname (symbol (str (.toUpperCase (subs s 0 1))
-                                       (subs s 1)
+                    ;; PascalCase each hyphen-separated segment so
+                    ;; dispatch keywords like :file-input-stream yield a
+                    ;; valid Dart id.
+                    cap (fn [w] (str (.toUpperCase (subs w 0 1)) (subs w 1)))
+                    tname (symbol (str (apply str (map cap (.split s "-")))
                                        "OpenMethod"))
                     ;; contribute* needs a fully-qualified contributing
                     ;; type; the compiling namespace is exposed on &env

@@ -49,12 +49,10 @@
 
 
 #?(:cljd (defn- normalize-dart-response
-           [resp]
+           [^http/Response resp]
            {:status (.-statusCode resp),
             :body (.-body resp),
-            :headers (normalize-headers (into {}
-                                              (map (fn [e] [(key e) (val e)]))
-                                              (.-headers resp)))}))
+            :headers (normalize-headers (into {} (.-headers resp)))}))
 
 
 (ds/defopen

@@ -56,7 +56,7 @@
            (let [http (js/require "http")
                  server (.createServer
                           http
-                          (fn [req res]
+                          (fn [req ^js res]
                             (if (= (.-url req) "/redirect")
                               (do (.writeHead res 302 #js {"Location" "/"})
                                   (.end res))
@@ -148,7 +148,8 @@
                        (.write response "hello")
                        (.close response)
                        nil)))))))
-       {:stop-fn (fn [] (when-let [s @server-ref] (.close s)))})))
+       {:stop-fn (fn []
+                   (when-let [^io/HttpServer s @server-ref] (.close s)))})))
 
 
 #?(:cljd (defn- !!-fut
@@ -165,9 +166,7 @@
                  server-handle (start-dart-server! port)
                  url (str "http://127.0.0.1:" port)]
              (-> (async/Future.delayed (Duration .milliseconds 100)) ; Wait
-                 ;; for
-                 ;; server
-                 ;; to bind
+                 ;; for server to bind
                  (.then (fn [_]
                           (ds/open! {:type :http,
                                      :url url,
