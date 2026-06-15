@@ -68,10 +68,26 @@
                          :main       yin.repl-main.cljd
                          :output-dir "build/yin-repl"
                          :output-to  "build/yin-repl/yin_repl.dart"}}
-           :dep-graph {:extra-paths ["src/dev"]
-                       :extra-deps {org.clojure/tools.namespace {:mvn/version "1.5.0"}}
-                       :main-opts ["-m" "dep-graph"]}
-           :atzu {:main-opts ["-m" "agent.tzu"]}}}
+            :dep-graph {:extra-paths ["src/dev"]
+                        :extra-deps {org.clojure/tools.namespace {:mvn/version "1.5.0"}}
+                        :main-opts ["-m" "dep-graph"]}
+            :gpu {:extra-paths ["src/dev"]
+                  :extra-deps {uncomplicate/neanderthal {:mvn/version "0.58.1"}
+                               org.uncomplicate/neanderthal-cuda {:mvn/version "0.58.1"}
+                               org.bytedeco/mkl$linux-x86_64-redist {:mvn/version "2025.2-1.5.12"}
+                               org.bytedeco/cuda-redist$linux-x86_64 {:mvn/version "12.9-9.10-1.5.12"}
+                               org.bytedeco/cuda-redist-cublas$linux-x86_64 {:mvn/version "12.9-9.10-1.5.12"}}
+                  :jvm-opts ["--enable-native-access=ALL-UNNAMED"]
+                  :main-opts ["-m" "gpu.matmul"]}
+            :bench-gpu {:extra-paths ["src/dev"]
+                        :extra-deps {uncomplicate/neanderthal {:mvn/version "0.58.1"}
+                                     org.uncomplicate/neanderthal-cuda {:mvn/version "0.58.1"}
+                                     org.bytedeco/mkl$linux-x86_64-redist {:mvn/version "2025.2-1.5.12"}
+                                     org.bytedeco/cuda-redist$linux-x86_64 {:mvn/version "12.9-9.10-1.5.12"}
+                                     org.bytedeco/cuda-redist-cublas$linux-x86_64 {:mvn/version "12.9-9.10-1.5.12"}}
+                        :jvm-opts ["--enable-native-access=ALL-UNNAMED"]
+                        :main-opts ["-m" "gpu.bench"]}
+            :atzu {:main-opts ["-m" "agent.tzu"]}}}
 
 
 ;; clj -X:fmt
