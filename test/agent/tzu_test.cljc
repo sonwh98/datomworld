@@ -4,8 +4,7 @@
     [clojure.test :refer [deftest is testing]]
     #?@(:cljd []
         :cljs []
-        :clj [[dao.stream :as ds]
-              [dao.stream.ringbuffer]])))
+        :clj [[dao.stream :as ds] [dao.stream.ringbuffer]])))
 
 
 ;; `prompt` blocks on the stream (ds/take!!), so it is JVM-only; mock the
@@ -22,65 +21,60 @@
 
 
 (deftest prompt-returns-content-test
-  #?(:clj
-     (testing
-       "prompt reads the stream, decodes JSON, returns message content"
-       (let [resp (response-stream
-                    {:status 200,
-                     :body
-                     (str "{\"choices\":[{\"message\":{\"content\":"
-                          "\"answer\"},\"finish_reason\":\"stop\"}]}")})]
-         (with-redefs [ds/open! (constantly resp)]
-           (is (= "answer" (tzu/prompt "question" "fake-key"))))))))
+  #?(:clj (testing
+            "prompt reads the stream, decodes JSON, returns message content"
+            (let [resp (response-stream
+                         {:status 200,
+                          :body
+                          (str "{\"choices\":[{\"message\":{\"content\":"
+                               "\"answer\"},\"finish_reason\":\"stop\"}]}")})]
+              (with-redefs [ds/open! (constantly resp)]
+                (is (= "answer" (tzu/prompt "question" "fake-key"))))))))
 
 
 (deftest prompt-throws-test
-  #?(:clj
-     (testing "transport error, non-200, and truncated responses all throw"
-       (let [cut (str "{\"choices\":[{\"message\":{\"content\":\"part\"},"
-                      "\"finish_reason\":\"length\"}]}")]
-         (with-redefs [ds/open! (constantly (response-stream
-                                              {:status 0,
-                                               :error {:kind :timeout}}))]
-           (is (thrown? Exception (tzu/prompt "q" "k"))))
-         (with-redefs [ds/open! (constantly (response-stream {:status 500,
-                                                              :body
-                                                              "nope"}))]
-           (is (thrown? Exception (tzu/prompt "q" "k"))))
-         (with-redefs [ds/open! (constantly (response-stream {:status 200,
-                                                              :body cut}))]
-           (is (thrown? Exception (tzu/prompt "q" "k"))))))))
+  #?(:clj (testing "transport error, non-200, and truncated responses all throw"
+            (let [cut (str "{\"choices\":[{\"message\":{\"content\":\"part\"},"
+                           "\"finish_reason\":\"length\"}]}")]
+              (with-redefs [ds/open! (constantly (response-stream
+                                                   {:status 0,
+                                                    :error {:kind :timeout}}))]
+                (is (thrown? Exception (tzu/prompt "q" "k"))))
+              (with-redefs [ds/open! (constantly (response-stream {:status 500,
+                                                                   :body
+                                                                   "nope"}))]
+                (is (thrown? Exception (tzu/prompt "q" "k"))))
+              (with-redefs [ds/open! (constantly (response-stream {:status 200,
+                                                                   :body cut}))]
+                (is (thrown? Exception (tzu/prompt "q" "k"))))))))
 
 
 (deftest text-to-datoms-reads-edn-test
-  #?(:clj
-     (testing "text extraction parses the EDN the model returns"
-       (let [calls (atom [])]
-         (with-redefs [tzu/prompt (fn [p]
-                                    (swap! calls conj p)
-                                    "```edn\n[[-1 :name \"Linda\"]]\n```")]
-           (is (= [[-1 :name "Linda"]]
-                  (tzu/text->datoms "Linda exists." 500)))
-           (is (= 1 (count @calls)))
-           (is (string? (first @calls))))))))
+  #?(:clj (testing "text extraction parses the EDN the model returns"
+            (let [calls (atom [])]
+              (with-redefs [tzu/prompt (fn [p]
+                                         (swap! calls conj p)
+                                         "```edn\n[[-1 :name \"Linda\"]]\n```")]
+                (is (= [[-1 :name "Linda"]]
+                       (tzu/text->datoms "Linda exists." 500)))
+                (is (= 1 (count @calls)))
+                (is (string? (first @calls))))))))
 
 
 (deftest datoms-to-text-test
-  #?(:clj
-     (testing "prose reconstruction returns the model content"
-       (with-redefs [tzu/prompt (fn [_] "Linda exists.")]
-         (is (= "Linda exists."
-                (tzu/datoms->text [[-1 :name "Linda"]])))))))
+  #?(:clj (testing "prose reconstruction returns the model content"
+            (with-redefs [tzu/prompt (fn [_] "Linda exists.")]
+              (is (= "Linda exists."
+                     (tzu/datoms->text [[-1 :name "Linda"]])))))))
 
 
 (deftest prompt-to-frames-reads-edn-test
-  #?(:clj
-     (testing "frame generation parses the EDN the model returns"
-       (let [frames [[{:op/kind :frame/clear, :color [0.0 0.0 0.0 1.0]}]]]
-         (with-redefs [tzu/prompt
-                       (fn [_]
-                         (str "```clojure\n" (pr-str frames) "\n```"))]
-           (is (= frames (tzu/prompt->frames "black frame"))))))))
+  #?(:clj (testing "frame generation parses the EDN the model returns"
+            (let [frames [[{:op/kind :frame/clear, :color [0.0 0.0 0.0 1.0]}]]]
+              (with-redefs [tzu/prompt
+                            (fn [_]
+                              (str "```clojure\n" (pr-str frames) "\n```"))]
+                (is (= frames (tzu/prompt->frames "black frame"))))))))
 
 
 (deftest datoms-to-tx-data-test
@@ -96,38 +90,36 @@
 
 
 (deftest chat-completion-returns-parsed-response-test
-  #?(:clj
-     (testing "chat-completion sends messages and returns parsed JSON body"
-       (let [resp (response-stream
-                    {:status 200,
-                     :body (str
-                             "{\"choices\":[{\"message\":{\"content\":"
-                             "\"hello\"},\"finish_reason\":\"stop\"}]}")})]
-         (with-redefs [ds/open! (constantly resp)]
-           (is (= "hello"
-                  (get-in (tzu/chat-completion [{"role" "user",
-                                                 "content" "hi"}]
-                                               :key
-                                               "fake")
-                          ["choices" 0 "message" "content"]))))))))
+  #?(:clj (testing "chat-completion sends messages and returns parsed JSON body"
+            (let [resp (response-stream
+                         {:status 200,
+                          :body (str
+                                  "{\"choices\":[{\"message\":{\"content\":"
+                                  "\"hello\"},\"finish_reason\":\"stop\"}]}")})]
+              (with-redefs [ds/open! (constantly resp)]
+                (is (= "hello"
+                       (get-in (tzu/chat-completion [{"role" "user",
+                                                      "content" "hi"}]
+                                                    :key
+                                                    "fake")
+                               ["choices" 0 "message" "content"]))))))))
 
 
 (deftest chat-completion-includes-tools-test
-  #?(:clj
-     (testing "chat-completion includes tools in the request body"
-       (let [sent-body (atom nil)
-             resp (response-stream
-                    {:status 200,
-                     :body (str "{\"choices\":[{\"message\":{\"content\":"
-                                "\"ok\"},\"finish_reason\":\"stop\"}]}")})]
-         (with-redefs [ds/open!
-                       (fn [desc] (reset! sent-body (:body desc)) resp)]
-           (tzu/chat-completion [{"role" "user", "content" "hi"}]
-                                :tools [{"type" "function",
-                                         "function" {"name" "test_tool"}}]
-                                :key "fake")
-           (is (.contains ^String @sent-body "test_tool"))
-           (is (.contains ^String @sent-body "\"tools\"")))))))
+  #?(:clj (testing "chat-completion includes tools in the request body"
+            (let [sent-body (atom nil)
+                  resp (response-stream
+                         {:status 200,
+                          :body (str "{\"choices\":[{\"message\":{\"content\":"
+                                     "\"ok\"},\"finish_reason\":\"stop\"}]}")})]
+              (with-redefs [ds/open!
+                            (fn [desc] (reset! sent-body (:body desc)) resp)]
+                (tzu/chat-completion [{"role" "user", "content" "hi"}]
+                                     :tools [{"type" "function",
+                                              "function" {"name" "test_tool"}}]
+                                     :key "fake")
+                (is (.contains ^String @sent-body "test_tool"))
+                (is (.contains ^String @sent-body "\"tools\"")))))))
 
 
 ;; =============================================================================
@@ -276,60 +268,3 @@
                  (tzu/run-agent "fetch example.com" registry "fake-key")]
              (is (= "fetched the page" (:content result)))
              (is (= 2 @call-count))))))))
-
-
-;; =============================================================================
-;; send-whatsapp! helper
-;; =============================================================================
-
-
-(deftest send-whatsapp!-test
-  #?(:clj
-     (testing "send-whatsapp! posts a text message and returns the send ack"
-       (let [orig-open ds/open!
-             captured (atom nil)]
-         (with-redefs [ds/open!
-                       (fn [desc]
-                         (if (= :http (:type desc))
-                           (do (reset! captured desc)
-                               (doto (orig-open {:type :ringbuffer, :capacity 1})
-                                 (ds/put!
-                                   {:status 200,
-                                    :body
-                                    "{\"messages\":[{\"id\":\"wamid.SENT\"}]}",
-                                    :headers {}})
-                                 ds/close!))
-                           (orig-open desc)))]
-           (let [ack (tzu/send-whatsapp! "15551234567" "hi from tzu"
-                                         {:phone-number-id "PNID",
-                                          :access-token "TOKEN"})
-                 desc @captured]
-             (is (= "wamid.SENT" (get-in ack [:whatsapp/ack :id])) (pr-str ack))
-             (is (= :post (:method desc)))
-             (is (= "https://graph.facebook.com/v21.0/PNID/messages"
-                    (:url desc)))
-             (is (= "Bearer TOKEN" (get-in desc [:headers "Authorization"])))
-             (is (.contains ^String (:body desc) "15551234567"))
-             (is (.contains ^String (:body desc) "hi from tzu"))))))))
-
-
-(deftest send-whatsapp!-error-test
-  #?(:clj
-     (testing "send-whatsapp! surfaces a non-200 API response as :whatsapp/error"
-       (let [orig-open ds/open!]
-         (with-redefs [ds/open!
-                       (fn [desc]
-                         (if (= :http (:type desc))
-                           (doto (orig-open {:type :ringbuffer, :capacity 1})
-                             (ds/put!
-                               {:status 401,
-                                :body
-                                "{\"error\":{\"message\":\"bad token\"}}",
-                                :headers {}})
-                             ds/close!)
-                           (orig-open desc)))]
-           (let [ack (tzu/send-whatsapp! "15551234567" "hi"
-                                         {:phone-number-id "PNID",
-                                          :access-token "BAD"})]
-             (is (= 401 (get-in ack [:whatsapp/error :status]))
-                 (pr-str ack))))))))

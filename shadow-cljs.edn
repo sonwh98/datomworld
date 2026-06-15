@@ -34,6 +34,10 @@
                            :main datomworld.ws-client-demo/-main
                            :output-to "target/ws-client-demo.js"}
 
+          :whatsapp-gateway {:target :node-script
+                             :main datomworld.whatsapp-gateway/-main
+                             :output-to "target/whatsapp-gateway.js"}
+
           :telemetry-server
           {:target     :node-script
            :main       yin.vm.telemetry-server.node/-main

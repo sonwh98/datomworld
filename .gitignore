@@ -46,3 +46,6 @@ dep-graph.svg
 # Local secrets / scratch (hold API keys — never commit)
 env.sh
 
+
+# WhatsApp gateway device credentials (account access; never commit)
+.whatsapp-auth/

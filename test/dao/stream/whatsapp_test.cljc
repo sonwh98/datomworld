@@ -1,247 +1,185 @@
 (ns dao.stream.whatsapp-test
-  "Tests for the :whatsapp DaoStream transport (Meta Cloud API).
-
-   Layered like the plan in docs/design/dao.stream.whatsapp.md:
-     1. Pure core      — outgoing->payload, webhook->messages, verify-response, send-url
-     2. Stream contract — deliver-webhook! + next/close!/closed! via ds/open!
-     3. Send path       — put! against an inline http-kit stub, ack on next (JVM)
-     4. Webhook server  — real GET verify + POST delivery (JVM)"
   (:require
     [clojure.test :refer [deftest is testing]]
     [dao.stream :as ds]
+    [dao.stream.ringbuffer]
     [dao.stream.whatsapp :as wa]
     #?@(:cljd []
         :cljs []
-        :clj [[org.httpkit.server :as http-server]
-              [clojure.data.json :as json]])))
+        :clj [[clojure.data.json :as json]
+              [org.httpkit.server :as http-server]])))
 
 
 ;; =============================================================================
-;; 1. Pure core
+;; 1. Pure core (no network) — cross-platform
 ;; =============================================================================
 
-(deftest outgoing->payload-test
-  (testing "text message builds the Cloud API individual-text payload"
-    (is (= {"messaging_product" "whatsapp",
-            "recipient_type" "individual",
-            "to" "15551234567",
-            "type" "text",
-            "text" {"body" "hello"}}
-           (wa/outgoing->payload {:to "15551234567", :text "hello"}))))
-  (testing ":raw is passed through untouched (templates / media)"
-    (let [raw {"messaging_product" "whatsapp",
-               "to" "15551234567",
-               "type" "template",
-               "template" {"name" "hello_world", "language" {"code" "en_US"}}}]
-      (is (= raw (wa/outgoing->payload {:raw raw}))))))
+(deftest outgoing->command-test
+  (testing "text message normalizes :to to a JID and carries the body"
+    (is (= {"cmd" "send", "to" "15551234567@s.whatsapp.net", "text" "hi"}
+           (wa/outgoing->command {:to "15551234567", :text "hi"}))))
+  (testing "a bare + and punctuation in the number are stripped"
+    (is (= "15551234567@s.whatsapp.net"
+           (get (wa/outgoing->command {:to "+1 (555) 123-4567", :text "x"})
+                "to"))))
+  (testing "an already-qualified JID passes through untouched"
+    (is (= "12345@g.us"
+           (get (wa/outgoing->command {:to "12345@g.us", :text "x"}) "to"))))
+  (testing ":raw passes through under \"raw\" and suppresses :text"
+    (let [cmd (wa/outgoing->command
+                {:to "15551234567", :raw {"foo" "bar"}, :text "ignored"})]
+      (is (= {"foo" "bar"} (get cmd "raw")))
+      (is (not (contains? cmd "text"))))))
 
 
-(def ^:private sample-message-envelope
-  {"object" "whatsapp_business_account",
-   "entry"
-   [{"id" "WABA_ID",
-     "changes"
-     [{"field" "messages",
-       "value"
-       {"messaging_product" "whatsapp",
-        "metadata" {"display_phone_number" "15550000000",
-                    "phone_number_id" "PNID"},
-        "contacts" [{"profile" {"name" "Ada"}, "wa_id" "15551234567"}],
-        "messages"
-        [{"from" "15551234567",
-          "id" "wamid.ABC",
-          "timestamp" "1700000000",
-          "type" "text",
-          "text" {"body" "Hello there"}}]}}]}]})
-
-
-(def ^:private sample-status-envelope
-  {"object" "whatsapp_business_account",
-   "entry"
-   [{"id" "WABA_ID",
-     "changes"
-     [{"field" "messages",
-       "value"
-       {"messaging_product" "whatsapp",
-        "statuses"
-        [{"id" "wamid.OUT",
-          "status" "delivered",
-          "timestamp" "1700000005",
-          "recipient_id" "15551234567"}]}}]}]})
-
-
-(deftest webhook->messages-test
-  (testing "extracts and normalizes an inbound text message"
-    (is (= [{:whatsapp/from "15551234567",
-             :whatsapp/id "wamid.ABC",
-             :whatsapp/timestamp "1700000000",
-             :whatsapp/type :text,
-             :whatsapp/text "Hello there",
-             :whatsapp/raw {"from" "15551234567",
-                            "id" "wamid.ABC",
-                            "timestamp" "1700000000",
-                            "type" "text",
-                            "text" {"body" "Hello there"}}}]
-           (wa/webhook->messages sample-message-envelope))))
-  (testing "maps delivery statuses to :whatsapp/status events"
-    (let [[evt :as evts] (wa/webhook->messages sample-status-envelope)]
-      (is (= 1 (count evts)))
-      (is (= "delivered" (:whatsapp/status evt)))
-      (is (= "wamid.OUT" (:whatsapp/id evt)))
-      (is (= "15551234567" (:whatsapp/recipient-id evt)))))
-  (testing "empty / unrelated envelope yields no events"
-    (is (= [] (wa/webhook->messages {"object" "whatsapp_business_account",
-                                     "entry" []})))))
-
-
-(deftest verify-response-test
-  (testing "matching mode + token echoes the challenge"
-    (is (= {:status 200, :body "CHALLENGE_123"}
-           (wa/verify-response {"hub.mode" "subscribe",
-                                "hub.verify_token" "s3cr3t",
-                                "hub.challenge" "CHALLENGE_123"}
-                               "s3cr3t"))))
-  (testing "wrong token is rejected with 403"
-    (is (= 403 (:status (wa/verify-response {"hub.mode" "subscribe",
-                                             "hub.verify_token" "nope",
-                                             "hub.challenge" "X"}
-                                            "s3cr3t"))))))
-
-
-(deftest send-url-test
-  (is (= "https://graph.facebook.com/v21.0/PNID/messages"
-         (wa/send-url "https://graph.facebook.com/v21.0" "PNID"))))
+(deftest event->datom-test
+  (testing "message event → normalized inbound datom"
+    (is (= {:whatsapp/from "15551112222@s.whatsapp.net",
+            :whatsapp/id "ABC",
+            :whatsapp/timestamp "1700000000",
+            :whatsapp/type :text,
+            :whatsapp/raw {"from" "15551112222@s.whatsapp.net",
+                           "id" "ABC",
+                           "timestamp" "1700000000",
+                           "type" "text",
+                           "text" "hello"},
+            :whatsapp/text "hello"}
+           (wa/event->datom {"event" "message",
+                             "data" {"from" "15551112222@s.whatsapp.net",
+                                     "id" "ABC",
+                                     "timestamp" "1700000000",
+                                     "type" "text",
+                                     "text" "hello"}}))))
+  (testing "ack event → fire-and-forget ack datom"
+    (is (= {:whatsapp/ack {:id "ABC", :status "sent"}}
+           (wa/event->datom {"event" "ack",
+                             "data" {"id" "ABC", "status" "sent"}}))))
+  (testing "qr event → qr datom carrying the pairing string"
+    (is (= {:whatsapp/qr "QR-STRING"}
+           (wa/event->datom {"event" "qr", "data" "QR-STRING"}))))
+  (testing "connected / disconnected → status datoms"
+    (is (= {:whatsapp/status :connected}
+           (wa/event->datom {"event" "connected"})))
+    (is (= {:whatsapp/status :disconnected}
+           (wa/event->datom {"event" "disconnected", "data" {"reason" 401}}))))
+  (testing "unknown / nil events are dropped"
+    (is (nil? (wa/event->datom {"event" "typing"})))
+    (is (nil? (wa/event->datom nil)))))
 
 
 ;; =============================================================================
-;; 2. Stream contract (no network)
+;; 2. Stream contract via the inner ringbuffer (no socket)
 ;; =============================================================================
 
-(deftest deliver-and-read-test
-  (let [stream (ds/open! {:type :whatsapp,
-                          :phone-number-id "PNID",
-                          :access-token "TOKEN"})]
-    (testing "deliver-webhook! puts normalized inbound messages onto the stream"
-      (is (= 1 (wa/deliver-webhook! stream sample-message-envelope))))
-    (testing "next reads them in order, non-destructively"
-      (let [r1 (ds/next stream {:position 0})
-            r2 (ds/next stream {:position 0})]
-        (is (= "Hello there" (:whatsapp/text (:ok r1))))
-        (is (= "Hello there" (:whatsapp/text (:ok r2))))))
-    (testing "close! / closed?"
-      (is (false? (ds/closed? stream)))
-      (ds/close! stream)
-      (is (true? (ds/closed? stream))))))
+(deftest stream-contract-test
+  (let [inbound (ds/open! {:type :ringbuffer})
+        s (wa/->WhatsAppStream inbound (atom nil) (atom :open))]
+    (testing "inbound values read in order, non-destructively, via cursor"
+      (ds/put! inbound {:whatsapp/from "a", :whatsapp/text "1"})
+      (ds/put! inbound {:whatsapp/from "b", :whatsapp/text "2"})
+      (let [r0 (ds/next s {:position 0})]
+        (is (= "1" (:whatsapp/text (:ok r0))))
+        (let [r1 (ds/next s (:cursor r0))]
+          (is (= "2" (:whatsapp/text (:ok r1)))))
+        ;; non-destructive: re-reading position 0 yields the same value
+        (is (= "1" (:whatsapp/text (:ok (ds/next s {:position 0})))))))
+    (testing "take!!/drain delegate to the inner ringbuffer"
+      #?(:clj (is (= "1" (:whatsapp/text (ds/take!! s)))))
+      (is (= "1" (:whatsapp/text (:ok (ds/drain-one! s))))))
+    (testing "close!/closed?"
+      (is (false? (ds/closed? s)))
+      (ds/close! s)
+      (is (true? (ds/closed? s))))))
 
 
 ;; =============================================================================
-;; 3. Send path (JVM inline stub server)
+;; 3. Round-trip against a stub gateway (JVM only)
 ;; =============================================================================
 
 #?(:clj
    (defn- poll-next
-     "Poll a stream for the first value, up to timeout-ms. Returns the value or nil."
-     [stream timeout-ms]
-     (let [deadline (+ (System/currentTimeMillis) timeout-ms)]
-       (loop []
-         (let [r (ds/next stream {:position 0})]
-           (cond (map? r) (:ok r)
-                 (> (System/currentTimeMillis) deadline) nil
-                 :else (do (Thread/sleep 10) (recur))))))))
+     "Block up to ~2s for a value at cursor; returns the next-outcome map or nil."
+     [stream cursor]
+     (loop [n 0]
+       (let [r (ds/next stream cursor)]
+         (cond (map? r) r
+               (= :end r) nil
+               (< n 200) (do (Thread/sleep 10) (recur (inc n)))
+               :else nil)))))
 
 
-(deftest send-path-test
+#?(:clj (defn- await-true
+          [pred]
+          (loop [n 0]
+            (when (and (not (pred)) (< n 200))
+              (Thread/sleep 10)
+              (recur (inc n))))))
+
+
+(deftest gateway-round-trip-test
   #?(:clj
-     (let [port 18991
-           received (atom nil)
+     (let [port 18995
+           received (atom [])
+           ch-atom (atom nil)
            stop (http-server/run-server
                   (fn [req]
-                    (reset! received {:method (:request-method req),
-                                      :uri (:uri req),
-                                      :auth (get-in req [:headers "authorization"]),
-                                      :body (when-let [b (:body req)] (slurp b))})
-                    {:status 200,
-                     :headers {"Content-Type" "application/json"},
-                     :body (json/write-str {"messages" [{"id" "wamid.SENT"}]})})
-                  {:port port})
-           stream (ds/open! {:type :whatsapp,
-                             :api-url (str "http://localhost:" port),
-                             :phone-number-id "PNID",
-                             :access-token "TOKEN"})]
+                    (http-server/as-channel
+                      req
+                      {:on-open (fn [ch] (reset! ch-atom ch)),
+                       :on-receive (fn [_ch msg] (swap! received conj msg))}))
+                  {:port port})]
        (try
-         (ds/put! stream {:to "15551234567", :text "hi"})
-         (let [ack (poll-next stream 2000)
-               req @received]
-           (testing "request hit the right URL with auth + JSON body"
-             (is (= :post (:method req)))
-             (is (= "/PNID/messages" (:uri req)))
-             (is (= "Bearer TOKEN" (:auth req)))
-             (is (= {"messaging_product" "whatsapp",
-                     "recipient_type" "individual",
-                     "to" "15551234567",
-                     "type" "text",
-                     "text" {"body" "hi"}}
-                    (json/read-str (:body req)))))
-           (testing "send ack appears on the read stream"
-             (is (= "wamid.SENT" (get-in ack [:whatsapp/ack :id])) (pr-str ack))))
-         (finally (stop) (ds/close! stream))))))
+         (let [s (ds/open! {:type :whatsapp,
+                            :gateway-url (str "ws://localhost:" port)})]
+           (await-true #(wa/connected? s))
+           (is (wa/connected? s) "client wired its send-fn on open")
+           (testing "put! sends a normalized send command to the gateway"
+             (ds/put! s {:to "15551234567", :text "hi there"})
+             (await-true #(seq @received))
+             (is (= 1 (count @received)))
+             (let [cmd (json/read-str (first @received))]
+               (is (= "send" (get cmd "cmd")))
+               (is (= "15551234567@s.whatsapp.net" (get cmd "to")))
+               (is (= "hi there" (get cmd "text")))))
+           (testing "inbound message + qr frames surface as datoms in order"
+             (http-server/send!
+               @ch-atom
+               (json/write-str {"event" "message",
+                                "data" {"from" "15551112222@s.whatsapp.net",
+                                        "id" "ABC",
+                                        "timestamp" "1700000000",
+                                        "type" "text",
+                                        "text" "hello"}}))
+             (http-server/send! @ch-atom
+                                (json/write-str {"event" "qr",
+                                                 "data" "QR-123"}))
+             (let [r0 (poll-next s {:position 0})]
+               (is (= "15551112222@s.whatsapp.net" (:whatsapp/from (:ok r0))))
+               (is (= "hello" (:whatsapp/text (:ok r0))))
+               (let [r1 (poll-next s (:cursor r0))]
+                 (is (= "QR-123" (:whatsapp/qr (:ok r1)))))))
+           (ds/close! s))
+         (finally (stop))))))
 
 
-(deftest send-path-malformed-body-test
-  #?(:clj
-     (let [port 18993
-           stop (http-server/run-server
-                  (fn [_req]
-                    {:status 200,
-                     :headers {"Content-Type" "application/json"},
-                     :body "not json at all"})
-                  {:port port})
-           stream (ds/open! {:type :whatsapp,
-                             :api-url (str "http://localhost:" port),
-                             :phone-number-id "PNID",
-                             :access-token "TOKEN"})]
-       (try
-         (ds/put! stream {:to "15551234567", :text "hi"})
-         (testing "a 200 with an unparseable body yields an ack with nil id, no crash"
-           (let [ack (poll-next stream 2000)]
-             (is (contains? ack :whatsapp/ack) (pr-str ack))
-             (is (nil? (get-in ack [:whatsapp/ack :id])) (pr-str ack))
-             (is (= 200 (get-in ack [:whatsapp/ack :status])))))
-         (finally (stop) (ds/close! stream))))))
-
-
-;; =============================================================================
-;; 4. Webhook server (JVM, real GET verify + POST delivery)
-;; =============================================================================
-
-(deftest webhook-server-test
-  #?(:clj
-     (let [port 18992
-           base (str "http://localhost:" port)
-           stream (ds/open! {:type :whatsapp,
-                             :phone-number-id "PNID",
-                             :access-token "TOKEN",
-                             :webhook {:port port,
-                                       :path "/webhook",
-                                       :verify-token "s3cr3t"}})]
-       (try
-         (testing "GET handshake echoes the challenge when token matches"
-           (let [resp (ds/take!!
-                        (ds/open!
-                          {:type :http,
-                           :method :get,
-                           :url (str base
-                                     "/webhook?hub.mode=subscribe"
-                                     "&hub.verify_token=s3cr3t"
-                                     "&hub.challenge=CH42")}))]
-             (is (= 200 (:status resp)) (pr-str resp))
-             (is (= "CH42" (:body resp)))))
-         (testing "POST delivers an inbound message onto the stream"
-           (ds/take!! (ds/open! {:type :http,
-                                 :method :post,
-                                 :url (str base "/webhook"),
-                                 :headers {"Content-Type" "application/json"},
-                                 :body (json/write-str sample-message-envelope)}))
-           (let [msg (poll-next stream 2000)]
-             (is (= "Hello there" (:whatsapp/text msg)) (pr-str msg))))
-         (finally (ds/close! stream))))))
+(comment
+  (require '[dao.stream :as ds] '[dao.stream.whatsapp])
+  (def s0 (ds/open! {:type :whatsapp})) ; default ws://localhost:3003
+  (ds/put! s0 {:to "12677025334", :text (str "from sonny " (rand-int 100))})
+  (ds/->seq nil s0) ; inbound messages, acks, qr, status
+  (def s (ds/open! {:type :whatsapp}))
+  ;; run in a background thread so it doesn't block the REPL
+  (def f
+    (future (loop [cursor {:position 0}]
+              (let [r (ds/next s cursor)]
+                (cond (map? r) (let [v (:ok r)]
+                                 (when (:whatsapp/from v)
+                                   (println "📩" (:whatsapp/from v)
+                                            "→" (:whatsapp/text v)))
+                                 (recur (:cursor r)))
+                      (= r :blocked) (do (Thread/sleep 200) (recur cursor)) ; nothing
+                                                                            ; new,
+                                                                            ; keep
+                                                                            ; the
+                                                                            ; cursor
+                      (= r :end) (println "stream closed")))))))
