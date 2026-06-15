@@ -7,7 +7,11 @@
 
 **DaoSpace** is datom.world's implementation of a tuple space: a shared store of datoms (facts) that agents can collectively query and modify to coordinate work. Unlike traditional message passing (explicit sender → receiver), DaoSpace enables **stigmergic coordination**: agents read shared facts, modify them based on local logic, and implicitly coordinate through the effects of those modifications.
 
-This design builds DaoSpace on top of DaoStream (append-only datom log) and indexes that log into its own native Datalog query engine. The result is:
+A DaoSpace is a **fan-in of many input DaoStreams**, not a single log. The space is heterogeneous along two axes: streams differ in **dimension/type** (one stream carries only d5, another only d10, etc.), and they differ in how strict they are (some enforce their type on write, some accept anything). Each stream is in turn materialized by **many interpreters**, and each interpreter's materialization is a **slice**: a view of the stream quotiented by an interpreter-defined equivalence relation. Independent cursors let those slices coexist non-destructively over the same stream.
+
+The short answer to "typed or typeless" is: **typeless substrate, typed streams, typed views.** Dimension and slot-type are the stream's intrinsic write-side shape; equivalence-class slicing is the interpreter's read-side view. The two are orthogonal: one typed stream supports many slicings.
+
+This design builds DaoSpace on top of DaoStream (append-only datom logs) and indexes those logs into its own native Datalog query engine. The result is:
 
 - **Declarative coordination** — agents describe what they need, not who has it
 - **Implicit messaging** — agents don't need to know about each other
@@ -15,11 +19,22 @@ This design builds DaoSpace on top of DaoStream (append-only datom log) and inde
 - **Persistent history** — the entire coordination log is available for replay, debugging, and auditing
 - **Network-agnostic** — works in-process, across linked nodes, or over any DaoStream transport
 
-## Core Concept: Tuple Space as a Shared Datom Log
+## Core Concept: Tuple Space as Many Typed Streams + Slices
 
 ```
-Tuple Space = DaoStream of Datoms + native Datalog index
+DaoSpace = many typed dao.streams + per-interpreter materialized slices
 ```
+
+The space fans in `1..n` input streams. Each stream is typed by dimension (and
+optionally by slot types), and carries a per-stream conformance policy. Each
+stream is materialized by `1..m` interpreters; each interpreter produces a slice
+(an equivalence-class quotient) it queries against. Two heterogeneity axes:
+
+- **Dimension/type** — a given stream is homogeneous in dimension (all d5, or all
+  d10) and may further constrain slot types. Different streams in the same space
+  may carry different dimensions.
+- **Strictness** — some streams enforce their declared type on `put!`; others
+  accept anything and leave interpretation to readers.
 
 ### What Agents See
 
@@ -49,33 +64,143 @@ Tuple Space = DaoStream of Datoms + native Datalog index
 ### What Happens Internally
 
 ```
-Agent 1 writes → Stream appends [e :work/status :in-progress] → DaoSpace indexes it
-Agent 2 queries → DaoSpace scans indexed datoms → returns matching results
-Agent 3 reads → Stream cursor advances → sees Agent 1's update
+Agent 1 writes → input stream appends [e :work/status :in-progress] → interpreters materialize it
+Agent 2 queries → DaoSpace scans the materialized slices → returns matching results
+Agent 3 reads → its own cursor advances → sees Agent 1's update
 ```
+
+A write lands on one input stream. If that stream is strict, the append is
+type-checked first; if it is open, the datom is appended as-is and each
+interpreter decides how to handle it on read.
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────┐
 │ DaoSpace (User-Facing API + native Datalog index)       │
-│  - query(pattern)                                       │
-│  - put-tuple!(fact)                                     │
-│  - wait-for-pattern!(pattern)                           │
-│  - run-query(query) / datoms(index, components)         │
-│  - as-of(t) / pull(pattern, eid)                        │
-└──────────────────────┬──────────────────────────────────┘
-                       │
-┌──────────────────────▼──────────────────────────────────┐
-│ DaoStream (Immutable Append-Only Log)                   │
-│  - put! (append datom)                                  │
-│  - next (cursor-based read)                             │
-│  - close!                                               │
-└──────────────────────┬──────────────────────────────────┘
-                       │
-┌──────────────────────▼──────────────────────────────────┐
+│  - query(pattern)            across all input streams    │
+│  - put-tuple!(stream, fact)  routed to one input stream  │
+│  - wait-for-pattern!(pattern)                            │
+│  - run-query(query) / datoms(index, components)          │
+│  - as-of(t) / pull(pattern, eid)                         │
+└───────┬───────────────────────┬─────────────────────────┘
+        │ interpreters slice     │
+┌───────▼────────┐      ┌────────▼───────┐    (1..m interpreters
+│ slice (quotient│ ...  │ slice (quotient│     per stream; each
+│  by equiv-rel) │      │  by equiv-rel) │     a materialized view)
+└───────┬────────┘      └────────┬───────┘
+        │                        │
+┌───────▼────────┐      ┌────────▼───────┐    (1..n input streams;
+│ dao.stream A   │ ...  │ dao.stream B   │     each typed by dimension;
+│ d5, strict     │      │ d10, open      │     strict? true/false)
+└───────┬────────┘      └────────┬───────┘
+        │                        │
+┌───────▼────────────────────────▼────────────────────────┐
 │ Transport (RingBuffer, WebSocket, File, Kafka, etc.)    │
 └─────────────────────────────────────────────────────────┘
+```
+
+## Typed Streams and Conformance
+
+Each input stream declares its **dimension** and, optionally, its **slot types**.
+This declaration lives in the stream's kickoff metadata: a stream is identified by
+the hash of `(creator, schema, dimension, t-zero)` (see
+`docs/agents/datom-spec.md`, CONTENT ADDRESSING > Streams), so dimension and
+schema are already first-class properties of a stream's birth, not something
+DaoSpace bolts on.
+
+A stream is **homogeneous in dimension**: a given stream carries only d5, or only
+d10, etc. It may further constrain the size/type of each slot. This is the
+typed / fixed-size stream case from `datom-spec.md` (d5 > Sizing):
+
+```clojure
+;; A d5 stream with fixed slot types (cache-efficient, O(1) indexing, SIMD-friendly)
+{:dimension :d5
+ :slots {:e :int64 :a :keyword :v :hash :t :int64 :m :int64}}
+```
+
+Conformance is a **per-stream policy**, carried in the stream descriptor much like
+`:eviction-policy` in `docs/design/dao.stream.md`. Proposed boolean field `:strict?`:
+
+- `true` — the stream validates each datom against its declared dimension and
+  slot types on `put!`, rejecting non-conforming datoms. `put!` becomes partial,
+  but downstream interpreters get conformance for free, which is what unlocks
+  fixed-size layouts, O(1) indexing, and SIMD.
+- `false` — the stream accepts anything; `put!` stays total. The declared type is
+  a contract in the kickoff metadata, not a gate. Each interpreter decides how to
+  handle what it reads (validate, coerce, project, or skip).
+
+```clojure
+;; Strict: rejects datoms that are not conforming d5
+(open-input-stream space "ledger"
+  {:dimension :d5 :slots {...} :strict? true})
+
+;; Open: takes anything; interpreters cope on read
+(open-input-stream space "ingest"
+  {:dimension :d5 :strict? false})
+```
+
+Both policies are first-class. A single space routinely mixes strict streams (a
+ledger, a schema-checked work queue) with open streams (raw ingestion, untrusted
+external feeds). The transport beneath stays dumb either way: enforcement is an
+optional realization concern at the stream boundary, not a property of the
+transport.
+
+## Interpreters and Equivalence-Class Slicing
+
+A stream is the write-side shape. The read-side view belongs to **interpreters**,
+and there can be many per stream. Each interpreter materializes the stream into a
+**slice**: the stream quotiented by an interpreter-defined **equivalence
+relation**. "Type" on the read side is just "which equivalence relation am I
+looking through."
+
+Because reads are non-destructive and cursors are independent, an interpreter's
+slice does not consume or mutate the stream. The same datom belongs to many
+equivalence classes at once, depending on who is observing — the
+quantum-measurement metaphor from `datom-spec.md` made operational: same data,
+different projections, simultaneously.
+
+Two universal equivalence relations come for free and interpreters build on them
+(see `datom-spec.md`):
+
+- **d1 floor** — equal iff same content hash `hash(dimension-hash ‖ slots)`. The
+  finest, dimension-aware identity.
+- **d3 floor** — equal iff same projection to `(s, a, v)`. Coarser; collapses d5
+  provenance and time.
+
+Domain interpreters add their own relations: alpha-equivalence (via the derived
+`:yin/alpha-hash` datom in `datom-spec.md`), "same customer," "same topic," a
+projection to a coarser dimension, and so on. Each relation slices the same
+typed stream a different way.
+
+```clojure
+;; Two interpreters slicing the SAME stream differently:
+
+;; Interpreter 1: slice by entity (classic EAVT view)
+(materialize stream :by (fn [d] (:e d)))
+
+;; Interpreter 2: slice by content identity (dedup distinct facts)
+(materialize stream :by content-hash)
+```
+
+## Querying Across Streams
+
+A query against a DaoSpace ranges over the slices of all its input streams.
+Because each stream is dimension-homogeneous but the space is heterogeneous,
+cross-stream joins happen on **shared values, not entity IDs** — entity IDs are
+stream-local gauges (see `datom-spec.md`, d5 > NAMESPACES > Cross-Namespace
+Queries). This reuses Datomic's multiple-database pattern: each stream is an
+explicit input, joined on the values they have in common.
+
+```clojure
+;; Join a d5 ledger stream against a d10 sensor stream on a shared value
+(query space
+  '[:find ?account ?reading
+    :in $ledger $sensors
+    :where [$ledger  ?a :account/id ?id]
+           [$sensors ?s :sensor/account ?id]
+           [$sensors ?s :sensor/reading ?reading]
+           [$ledger  ?a :account/name ?account]])
 ```
 
 ## Stigmergic Coordination Patterns
@@ -265,9 +390,13 @@ Query the current state of the tuple space.
               :where [?id :work/status :completed]])
 ```
 
-#### `put-tuple! [space fact]`
+#### `put-tuple! [space stream fact]` (or `[space fact]`)
 
-Append a tuple (datom) to the tuple space.
+Append a tuple (datom) to a named input stream of the space. If the target
+stream is strict (`:strict? true`), the datom is validated against the
+stream's dimension and slot types first; an open stream appends as-is. When a
+space has a single (or default) input stream, the `stream` argument may be
+omitted, and the examples below use that shorthand.
 
 ```clojure
 ;; Single fact
@@ -420,44 +549,57 @@ New namespace: `src/cljc/dao/tuple-space.cljc`
 
 ```clojure
 (ns dao.tuple-space
-  "Tuple space: stigmergic coordination via DaoStream + native Datalog index")
+  "Tuple space: stigmergic coordination over many typed DaoStreams + native Datalog index")
 
 ;; Core functions (to implement)
 (defn open-tuple-space [name & opts])
-(defn query [space datalog-query & inputs])
-(defn put-tuple! [space fact])
-(defn retract-tuple! [space id attr])
+(defn open-input-stream [space name descriptor]) ; descriptor: :dimension, :slots, :strict?
+(defn query [space datalog-query & inputs])       ; ranges over all input streams' slices
+(defn put-tuple! [space stream fact])             ; routed to one input stream; strict streams validate
+(defn materialize [stream & {:keys [by]}])        ; interpreter slice: quotient by equiv relation
+(defn retract-tuple! [space stream id attr])
 (defn wait-for-pattern [space query & opts])
 (defn bounded-stream->index [stream cursor])
 (defn as-of-time [space timestamp])
 
 ;; Internal helpers
 (defn- stream-datoms [stream from-cursor to-cursor])
-(defn- materialize-index [datoms])
+(defn- conform [descriptor fact])                 ; strict path; identity when :strict? false
+(defn- materialize-index [datoms equiv-fn])       ; class-key -> members
 (defn- cursor-position [stream])
 (defn- apply-datoms-to-index [index datoms])
 ```
 
+The fan-in space holds a set of input streams, each with its own descriptor and
+cursor; `query` joins their materialized slices on shared values. `conform`
+enforces a strict stream's dimension/slot types on `put!` and is the identity for
+non-strict (`:strict? false`) streams. `materialize` builds an interpreter slice keyed by an equivalence
+function (default the d1 content hash; d3 projection and domain relations are
+supplied by interpreters).
+
 ### Reference Implementation Pattern
 
 ```clojure
-(defrecord TupleSpace [stream index cursor-ref]
+;; A space holds many input streams. Each entry pairs a stream with its
+;; descriptor (dimension, slots, conformance) and the interpreter slices
+;; (each an index keyed by an equivalence function) maintained over it.
+(defrecord TupleSpace [streams]   ; name -> {:stream :descriptor :cursor-ref :slices}
 
-  ;; Query current state
+  ;; Query current state across every input stream's slices
   IQueryable
   (run-query [this query inputs]
-    ;; 1. Advance to latest stream position
-    (let [latest-cursor (advance-cursor stream cursor-ref)]
-      ;; 2. Load any new datoms since last query
-      (let [new-datoms (read-since cursor-ref stream)]
-        ;; 3. Update the index with new datoms
-        (let [index' (apply-datoms-to-index index new-datoms)]
-          ;; 4. Execute query against updated index
-          (run-query index' query inputs)))))
+    (let [slices (for [{:keys [stream descriptor cursor-ref slices]} (vals streams)]
+                   ;; 1. Load new datoms since last query
+                   (let [new-datoms (read-since cursor-ref stream)]
+                     ;; 2. Update each interpreter slice with the new datoms
+                     (refresh-slices slices new-datoms)))]
+      ;; 3. Execute the query, joining the slices on shared values
+      (run-query-over slices query inputs)))
 
-  ;; Append to stream
-  (put-tuple! [this fact]
-    (ds/put! stream fact)))
+  ;; Append to one named input stream. Strict streams validate; open streams pass through.
+  (put-tuple! [this stream-name fact]
+    (let [{:keys [stream descriptor]} (get streams stream-name)]
+      (ds/put! stream (conform descriptor fact)))))
 ```
 
 ## Use Cases
@@ -607,13 +749,23 @@ Linda mistake: Tuples are positional, untyped arrays. Agents can't coordinate re
 ["task" 42 :status]  ;; Same semantics? Different?
 ```
 
-Tuple-space fix: Named attributes enable schema clarity and querying.
+Tuple-space fix: Named attributes are the floor, and typing is **per-stream and
+optional** on top of that floor. Datoms are always self-describing named facts,
+not positional arrays:
 ```clojure
 {:db/id task-id
  :work/status :todo
  :work/task "process payment"}
-;; Clear, queryable, validatable, self-describing
+;; Clear, queryable, self-describing
 ```
+
+Beyond that floor, each stream chooses its own rigor. A `:strict? true` stream
+declares a dimension and slot types and rejects non-conforming datoms on `put!`;
+a `:strict? false` stream accepts anything and leaves validation to interpreters (see *Typed
+Streams and Conformance*). This avoids both Linda's failure (no structure at all)
+and the opposite failure (one rigid global schema): strict and loose streams
+coexist in the same space, and read-side "types" are interpreter-defined
+equivalence classes rather than a write-time mandate.
 
 **Problem 3: Limited Pattern Matching Restricts Coordination Logic**
 
@@ -826,6 +978,11 @@ By building on **append-only streams + Datalog queries**, tuple-space achieves:
 - Distributed consensus for multi-agent decisions
 - Conflict resolution strategies (last-write-wins, CRDTs, application-defined)
 - Tuple space garbage collection / archival
-- Schema validation (cardinality, value types)
+- `:strict? true` path: validate/coerce dimension, slot types, cardinality,
+  and `:db/unique` on `put!` for strict streams (`:strict? false` streams need no change)
+- Multi-stream fan-in: routing `put!` to a named input stream and joining many
+  input streams' slices in a single `query`
+- Interpreter slice index: maintained `class-key -> members` views keyed by an
+  equivalence relation, including memoized recompute past a cached cursor
 - Full-text search integration
 - Temporal query operators (before, after, during)

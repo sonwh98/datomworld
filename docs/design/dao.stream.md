@@ -676,6 +676,8 @@ DaoStream can be the foundation for higher-level coordination systems:
 
 - Additional descriptor fields beyond the current contract (`:stream/id`, `:mode`, `:retention`, `:backpressure`, `:shibi`).
 - Typed streams (fixed-size datom streams for cache-efficient layouts and SIMD operations).
+  DaoSpace consumes per-stream dimension typing plus a boolean `:strict?` descriptor
+  field; see `docs/design/dao.space.md`, "Typed Streams and Conformance".
 - Retention and eviction policies.
 - Gap signaling and policy for bounded-retention transports.
 - Seek operation for position-based jumping.
