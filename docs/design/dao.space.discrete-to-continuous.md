@@ -328,6 +328,21 @@ consensus step is an algorithmic fact outside the static classification — just
 in the network stack, consensus sits above reliable delivery and is not a property
 of the packets.
 
+**Dynamic membership is the site-level structure.** A DaoSpace is a *coordination
+medium* whose streams (and interpreters) attach and detach at runtime (see
+`dao.space.md`), so the descent picture above describes only a **snapshot** — the
+sections being glued at one instant. With membership changing, the gluing is
+time-varying: the space is not a fixed bundle but a (pre)sheaf over a **site that
+includes membership/time events**, where `attach`/`detach` are morphisms that grow
+or shrink the cover. A single stream's geometry is unaffected (it is still a
+section — a trivial bundle when strict, a fibered set when open); what becomes
+time-indexed is the *assembly*. This is the concrete, operational form of the
+boundary above: the static bundle is the per-instant descent; dynamic membership
+is exactly the temporal/site (stack) structure that static descent does not
+capture. On the read side it is the mirror image — an interpreter attaching or
+detaching is choosing or dropping a re-fibering `π' : E → E/∼`, so the *set* of
+fibrations over the total space is time-varying too.
+
 ---
 
 ## What This Buys You, Concretely

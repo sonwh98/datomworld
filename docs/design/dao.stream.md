@@ -611,6 +611,32 @@ DaoStream makes no assumptions about the transport's internals. The only contrac
 - `put!` returns `{:result :ok :woke [...]}` or `{:result :full}`
 - `close!` returns `{:woke [...]}`
 
+### Derived / Composite Streams
+
+A realization need not back onto a wire, buffer, or file. Because `open!` only has
+to return something satisfying the reader/writer/bound protocols, a stream may be
+**derived**: its backing is one or more *other* streams. The same `defopen` /
+`open!` / `next` / `put!` / `close!` contract applies unchanged — the only
+difference is that `next` computes its values by reading the source stream(s)
+rather than a transport.
+
+Kinds of derived stream:
+
+- **Fan-in / merge** — one stream over several sources; `next` interleaves them
+  (by arrival or by a causal order in the data), `put!` routes to a chosen source.
+- **Transform / slice** — one stream over a single source, applying a per-element
+  map, filter, or quotient (e.g. an equivalence-class projection); `next` pulls
+  from the source and rewrites.
+- **Query** — a stream whose elements are results folded from a source's datoms;
+  bounded (drains to `:end`) for a point-in-time answer, or open (emits deltas,
+  returns `:blocked` when caught up) for a live view.
+
+Derived streams compose: a query over a slice over a fan-in is three `open!`d
+descriptors chained by a `:source` field. This is the mechanism DaoSpace is built
+on — see `docs/design/dao.space.md` (the `:dao-space`, `:slice`, and `:query`
+descriptor types). A derived stream is still just a stream: it is read with a
+cursor, can be sent on another stream, and imposes no new API.
+
 ## Current Implementation Status
 
 **What's implemented:**

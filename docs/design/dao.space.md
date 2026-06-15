@@ -9,9 +9,11 @@
 
 ## Overview
 
-**DaoSpace** is datom.world's implementation of a tuple space: a shared store of datoms (facts) that agents can collectively query and modify to coordinate work. Unlike traditional message passing (explicit sender → receiver), DaoSpace enables **stigmergic coordination**: agents read shared facts, modify them based on local logic, and implicitly coordinate through the effects of those modifications.
+**A DaoSpace is a catalog of tuples that enter via dao.stream inputs and are read by interpreters — a coordination medium whose contents are that catalog.** Structurally it is the accreting, content-addressed catalog of every tuple written into it; functionally it is the medium through which resources and interpreters coordinate. The two are one thing: agents coordinate *by* reading and writing the catalog, and its currency is the tuple (a datom). A **resource** is anything expressible as datoms — data, a dao.stream (its descriptor is a datom), yin.vm bytecode (AST datoms), schema, provenance, an agent's belief state — so the catalog of tuples is implicitly a catalog of resources. **Interpreters** read those tuples and realize them into meaning or behavior. Tuples enter the catalog *only* by being appended to an attached dao.stream input; the medium presents the DaoStream interface (`open!` / `put!` / `next` / `close!`), so to a developer it reads and writes like a stream.
 
-A DaoSpace is a **fan-in of many input DaoStreams**, not a single log. The space is heterogeneous along two axes: streams differ in **dimension/type** (one stream carries only d5, another only d10, etc.), and they differ in how strict they are (some enforce their type on write, some accept anything). Each stream is in turn materialized by **many interpreters**, and each interpreter's materialization is a **slice**: a view of the stream quotiented by an interpreter-defined equivalence relation. Independent cursors let those slices coexist non-destructively over the same stream.
+This is datom.world's modern tuple space, generalized: not only streams-and-readers but *any resource* and interpreters, because everything reduces to tuples (CLAUDE.md: "everything is data, code is data, runtime state is data"; `datom-spec.md`: datoms are the universal format for DaoDB, AST, schema, provenance). The tuples are **named, n-dimensional** datoms (d1/d3/d5/d10), not Linda's positional, untyped arrays — so a tuple carries its own meaning, and coordination never depends on agents agreeing on field order. Unlike traditional message passing (explicit sender → receiver), DaoSpace enables **stigmergic coordination**: producers leave tuples (traces), consumers react to them, decoupled in time and identity. The space is a *passive* medium — it does not orchestrate, schedule, or decide, and it does not itself coordinate; it *enables* coordination by being the shared tuple substrate. (The medium is a logical rendezvous, which may itself be distributed; it provides a shared catalog, not global agreement — consensus, where needed, is layered on top.)
+
+Membership is **dynamic**: streams attach and detach at runtime, and interpreters attach (by opening a reader) and detach independently. The space is heterogeneous along two axes: streams differ in **dimension/type** (one carries only d5, another only d10), and in how strict they are (some enforce their type on write, some accept anything). Each attached stream is materialized by **many interpreters**, and each interpreter's materialization is a **slice**: the stream quotiented by an interpreter-defined equivalence relation. Independent cursors let those slices coexist non-destructively over the same stream.
 
 The short answer to "typed or typeless" is: **typeless substrate, typed streams, typed views.** Dimension and slot-type are the stream's intrinsic write-side shape; equivalence-class slicing is the interpreter's read-side view. The two are orthogonal: one typed stream supports many slicings.
 
@@ -23,22 +25,57 @@ This design builds DaoSpace on top of DaoStream (append-only datom logs) and ind
 - **Persistent history** — the entire coordination log is available for replay, debugging, and auditing
 - **Network-agnostic** — works in-process, across linked nodes, or over any DaoStream transport
 
-## Core Concept: Tuple Space as Many Typed Streams + Slices
+## Core Concept: A Catalog of Tuples; a Medium for Resources and Interpreters
 
 ```
-DaoSpace = many typed dao.streams + per-interpreter materialized slices
+DaoSpace = a catalog of tuples (entering via dao.stream inputs, read by
+           interpreters) = the contents of a coordination medium
 ```
 
-The space fans in `1..n` input streams. Each stream is typed by dimension (and
-optionally by slot types), and carries a per-stream conformance policy. Each
-stream is materialized by `1..m` interpreters; each interpreter produces a slice
-(an equivalence-class quotient) it queries against. Two heterogeneity axes:
+The **unit of coordination is the tuple** (a datom): everything else is transport,
+reading, or addressing *of tuples*. Structurally the space is the **catalog** of
+every tuple written into it; a **resource** is any coherent bundle of those tuples
+— data, a dao.stream descriptor, yin.vm AST, schema, provenance (see *Resources*
+below) — so the catalog of tuples is implicitly a catalog of resources. Tuples
+enter the catalog over a **dynamic membership** of attached input streams (`1..n`,
+joining and leaving at runtime), and are read by attached **interpreters** (`1..m`)
+that turn tuples back into meaning or behavior.
+
+Two things keep "catalog" precise: it is **accreting**, not static — tuples
+accumulate append-only with history (`as-of`), added by inputs over time; and it is
+**interpreted, not a single stored table** — there is no one materialized table,
+the catalog is the union of the attached streams' tuples realized on demand into
+slices/indexes by interpreters (consistent with "interpretation is external"). The
+catalog is content-addressed, so the geometry's base `B` is exactly "the catalog
+indexed by tuple identity." Each
+stream is typed by dimension (the tuple's shape) and optionally slot types, and
+carries a per-stream conformance policy; each interpreter produces a slice (tuples
+quotiented into equivalence classes) it reads against. The tuples are **named,
+n-dimensional** datoms (d1/d3/d5/d10), so a tuple carries its own meaning —
+coordination never depends on field order (unlike Linda's positional tuples; see
+*Design Lessons from Linda*). Two heterogeneity axes:
 
 - **Dimension/type** — a given stream is homogeneous in dimension (all d5, or all
   d10) and may further constrain slot types. Different streams in the same space
   may carry different dimensions.
 - **Strictness** — some streams enforce their declared type on `put!`; others
   accept anything and leave interpretation to readers.
+
+**Writing is appending to a stream.** Datoms enter a DaoSpace *only* by being
+appended to one of its input dao.streams, via that stream's own `put!`. DaoSpace
+introduces **no write primitive at all** — it is purely the read / query /
+interpretation layer over its input streams. A strict stream conforms on `put!`;
+an open stream appends as-is. Throughout this document the write is
+`(ds/put! (input-stream space) datom)` — resolve an input stream, append to it
+(`ds` aliases `dao.stream`; `input-stream` with no name resolves the sole/default
+input stream).
+
+**The whole API is the DaoStream API.** DaoSpace adds no verbs of its own: a
+space, an interpreter slice, and a query are all **stream descriptors** realized
+by `dao.stream/open!`, written with `put!`, read with `next` + a cursor, and ended
+with `close!`. Reads work the same way — a query *is* a stream (bounded for a
+point-in-time answer, open/live otherwise), so there is nothing to learn beyond
+`docs/design/dao.stream.md`. See *API* below.
 
 ### What Agents See
 
@@ -53,13 +90,13 @@ stream is materialized by `1..m` interpreters; each interpreter produces a slice
     space)
 
   ;; 2. Claim work (write a fact)
-  (put-tuple! space
+  (ds/put! (input-stream space)
     {:db/id work-id
      :work/status :in-progress
      :work/worker my-id})
 
   ;; 3. Complete work (update a fact)
-  (put-tuple! space
+  (ds/put! (input-stream space)
     {:db/id work-id
      :work/status :completed
      :work/result result}))
@@ -81,12 +118,12 @@ interpreter decides how to handle it on read.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│ DaoSpace (User-Facing API + native Datalog index)       │
-│  - query(pattern)            across all input streams    │
-│  - put-tuple!(stream, fact)  routed to one input stream  │
-│  - wait-for-pattern!(pattern)                            │
-│  - run-query(query) / datoms(index, components)          │
-│  - as-of(t) / pull(pattern, eid)                         │
+│ DaoSpace = a DaoStream descriptor {:type :dao-space ...}│
+│ realized by ds/open!; consumed via the DaoStream API:   │
+│  - ds/next + cursor   (read; a query/slice is a stream) │
+│  - ds/put!            (write; routed to an input below) │
+│  - ds/close!          (end)                             │
+│ query / wait-for-pattern / as-of = conveniences over it │
 └───────┬───────────────────────┬─────────────────────────┘
         │ interpreters slice     │
 ┌───────▼────────┐      ┌────────▼───────┐    (1..m interpreters
@@ -94,15 +131,61 @@ interpreter decides how to handle it on read.
 │  by equiv-rel) │      │  by equiv-rel) │     a materialized view)
 └───────┬────────┘      └────────┬───────┘
         │                        │
-┌───────▼────────┐      ┌────────▼───────┐    (1..n input streams;
+┌───────▼────────┐      ┌────────▼───────┐    (1..n attached streams;
 │ dao.stream A   │ ...  │ dao.stream B   │     each typed by dimension;
-│ d5, strict     │      │ d10, open      │     strict? true/false)
-└───────┬────────┘      └────────┬───────┘
+│ d5, strict     │      │ d10, open      │     strict? true/false.
+└───────┬────────┘      └────────┬───────┘     WRITES append here via ds/put!)
         │                        │
 ┌───────▼────────────────────────▼────────────────────────┐
 │ Transport (RingBuffer, WebSocket, File, Kafka, etc.)    │
 └─────────────────────────────────────────────────────────┘
 ```
+
+## Resources: Anything Expressible as Tuples
+
+The medium does not privilege any particular kind of participant. A **resource** is
+*anything that can be expressed as datoms*, and that is the only requirement to
+live in a DaoSpace and be coordinated over. This is the operational form of
+datom.world's core philosophy ("everything is data, code is data, runtime state is
+data"; datoms are the universal format for DaoDB, AST, schema, provenance —
+`datom-spec.md`).
+
+Three roles, and "resource" is the general one:
+
+- **Representation — the tuple (datom).** The universal unit; the only thing the
+  medium actually holds.
+- **Resource — a coherent bundle of tuples.** What is being coordinated: a dataset,
+  a dao.stream descriptor, a yin.vm AST, a schema, a provenance record, an agent's
+  belief state.
+- **Realization / interpretation — tuples back into behavior.** An interpreter
+  turns a resource's tuples into meaning or action.
+
+Two canonical resources show the range:
+
+- **A dao.stream is a resource.** Its descriptor is plain data, hence a datom, so a
+  stream can live *in* the space (not only attach *to* it) — this is the
+  channel-mobility property of `dao.stream.md` ("streams are values that can be sent
+  through streams"). An interpreter *realizes* a stream-descriptor resource by
+  `ds/open!` into a live transport.
+
+  ```clojure
+  ;; A stream descriptor is a datom-resource; realizing it = open!
+  (ds/open! (resource->descriptor (read-resource space stream-eid)))
+  ```
+
+- **yin.vm bytecode is a resource.** Code is data: an AST reduces to content-addressed
+  datoms (`ast->datoms`, `src/cljc/yin/vm.cljc`; see datom-spec's AST-as-datoms).
+  So agents coordinate over *code* exactly as over data. An interpreter *realizes* an
+  AST resource by evaluating it in `yin.vm` ("agents are functions, closures, or
+  continuations in Yin.VM").
+
+Because every resource is tuples, every resource is **content-addressed** (the
+geometry's base `B` is the content-hash identity of *any* resource), so resources
+have stable identity, dedup, and provenance for free — modulo the implementation
+status noted under *Geometry*. The medium is thus **homoiconic and reflective**:
+data, channels, and code coexist as tuples in one space, each realizable by some
+interpreter. A dao.stream is special only in being *both* a transport for tuples
+*and* a resource.
 
 ## Typed Streams and Conformance
 
@@ -223,8 +306,9 @@ Stripped of metaphor, the structure is set-theoretic and categorical:
   bijection `f: S₁ → S₂` with `π∘f = π` (relabels local coordinates, preserves
   invariant content).
 - An **interpreter** defines an equivalence relation `~` on `E`; the **slice**
-  `E/~` is the quotient set. A **DaoSpace** is a collection of streams over the
-  shared base `B`, queried via Datalog joins on shared base values.
+  `E/~` is the quotient set. A **DaoSpace** is a dynamic medium of attached
+  streams, all sharing the base `B`, queried via Datalog joins on shared base
+  values.
 - **Typing is fiber uniformity.** `:strict? true` ⇒ the restriction `π|_S` is a
   fibered set with **constant fiber** (fixed arity and slot types); `:strict?
   false` ⇒ **variable fiber**.
@@ -344,7 +428,7 @@ operational rather than design-level.
 
 (defn producer [space]
   ;; Emit work
-  (put-tuple! space
+  (ds/put! (input-stream space)
     {:db/id (random-id)
      :work/task "process payment"
      :work/status :todo}))
@@ -359,7 +443,7 @@ operational rather than design-level.
       (when (seq work)
         ;; Claim work (atomic-ish via transaction)
         (let [[id task] (first work)]
-          (put-tuple! space
+          (ds/put! (input-stream space)
             {:db/id id
              :work/status :in-progress
              :work/assigned-to worker-id})
@@ -367,7 +451,7 @@ operational rather than design-level.
           ;; Do work
           (let [result (process task)]
             ;; Emit result
-            (put-tuple! space
+            (ds/put! (input-stream space)
               {:db/id id
                :work/status :completed
                :work/result result})))
@@ -384,7 +468,7 @@ operational rather than design-level.
 (defn ant [space colony-id]
   (loop [path [] node (random-node)]
     ;; 1. Emit pheromone: "I visited this node"
-    (put-tuple! space
+    (ds/put! (input-stream space)
       {:db/id (random-id)
        :pheromone/colony colony-id
        :pheromone/node node
@@ -404,7 +488,7 @@ operational rather than design-level.
         ;; Solution found
         (when (is-food? node)
           ;; Emit success trace
-          (put-tuple! space
+          (ds/put! (input-stream space)
             {:db/id (random-id)
              :solution/path path
              :solution/cost (count path)}))))))
@@ -428,7 +512,7 @@ operational rather than design-level.
 
       ;; Reassign stuck work
       (doseq [[id started worker] stuck]
-        (put-tuple! space
+        (ds/put! (input-stream space)
           {:db/id id
            :work/status :todo
            :work/assigned-to nil
@@ -460,7 +544,7 @@ operational rather than design-level.
 
       ;; 3. Emit shared insight if found
       (when-let [pattern (detect-pattern agent-id)]
-        (put-tuple! space
+        (ds/put! (input-stream space)
           {:db/id (random-id)
            :pattern/discovered-by agent-id
            :pattern/rule pattern
@@ -480,107 +564,122 @@ operational rather than design-level.
 
 ## API
 
-### Core Operations
+**The API *is* the DaoStream API.** Per the "everything is a stream" philosophy,
+DaoSpace introduces no bespoke verbs. A space, an interpreter slice, and a query
+are all **stream descriptors** (plain data); they are realized with
+`dao.stream/open!`, written with `put!`, read with `next` + a cursor, and ended
+with `close!` — the exact reader/writer/bound protocols of `docs/design/dao.stream.md`.
+Everything DaoSpace-specific is either a *descriptor type* or a thin convenience
+over the reader protocol, mirroring how `dao.stream.md` treats `->seq` / `take!!`
+as utilities over `next`. Because descriptors are values, a space or query is
+itself sendable on a stream (channel mobility).
 
-#### `open-tuple-space [name & {:keys [transport]}]`
-
-Open a new tuple space.
-
-```clojure
-;; In-process (default)
-(def space (open-tuple-space "work-queue"))
-
-;; File-backed
-(def space (open-tuple-space "audit-log"
-  :transport {:type :file
-              :path "/var/log/tuples.log"}))
-
-;; Network-backed (future)
-(def space (open-tuple-space "distributed"
-  :transport {:type :websocket
-              :url "ws://broker:8000"}))
-```
-
-#### `query [space datalog-query & inputs]`
-
-Query the current state of the tuple space.
+### Descriptor types (realized by `open!`)
 
 ```clojure
-;; Simple pattern
-(query space '[:find ?id ?task
-              :where [?id :work/status :todo]
-                     [?id :work/task ?task]])
+;; A space is a coordination medium. open! may seed it with initial inputs, but
+;; membership is dynamic — streams attach/detach later (see Membership).
+(def space (ds/open! {:type :dao-space :name "work"}))
 
-;; With bindings
-(query space '[:find ?result
-              :where [?e :work/id ?id]
-                     [?e :work/result ?result]]
-       {:id work-id})
+;; A slice is a derived stream: the source quotiented by an equivalence relation.
+(def by-entity (ds/open! {:type :slice :source space :by :e}))
 
-;; Aggregation
-(query space '[:find (count ?id)
-              :where [?id :work/status :completed]])
+;; A query is a derived stream of results over a source (space or stream).
+(def todo (ds/open! {:type :query :source space
+                     :query '[:find ?id ?task
+                              :where [?id :work/status :todo] [?id :work/task ?task]]}))
 ```
 
-#### `put-tuple! [space stream fact]` (or `[space fact]`)
+### Membership — `attach` / `detach` (dynamic)
 
-Append a tuple (datom) to a named input stream of the space. If the target
-stream is strict (`:strict? true`), the datom is validated against the
-stream's dimension and slot types first; an open stream appends as-is. When a
-space has a single (or default) input stream, the `stream` argument may be
-omitted, and the examples below use that shorthand.
+Streams join and leave the medium at runtime. `attach` realizes (or accepts) an
+input stream and adds it to the space; `detach` removes it. Interpreters attach
+simply by *opening a reader* over the space (a cursor, or a `:slice`/`:query` with
+`:source space`) and detach by closing it — no separate verb needed.
 
 ```clojure
-;; Single fact
-(put-tuple! space
-  {:db/id 42
-   :work/status :completed
-   :work/result "OK"})
+;; Attach input streams (write side); each carries its own type + conformance.
+(attach space {:name "ledger" :type :file :path "/var/log/ledger.log"
+               :dimension :d5 :slots {...} :strict? true})
+(attach space {:name "ingest" :type :ringbuffer :strict? false})
+(detach space "ingest")
 
-;; Entity reference
-(put-tuple! space
-  {:db/id work-id
-   :work/assigned-to agent-id})
-
-;; Retractable fact (future)
-(retract-tuple! space work-id :work/status)
+;; Equivalently (channel mobility): announce a stream descriptor onto the space's
+;; membership stream — attaching is itself just putting a stream onto a stream.
 ```
 
-#### `wait-for-pattern [space query & {:keys [timeout]}]`
+### Writing — `put!` to an attached stream
 
-Block until a pattern matches (convenience for polling).
+There is **no space-level write operation.** A datom enters the space by being
+appended to one of its attached dao.streams via the stream's own `put!`.
+`input-stream` resolves an attached stream by name, or the sole/default one when
+called with just the space. Conformance lives at that boundary: a strict stream
+(`:strict? true`) validates and may reject; an open stream appends as-is.
 
 ```clojure
-;; Wait for any completed work
-(wait-for-pattern space
-  '[:find ?id ?result
-    :where [?id :work/status :completed]
-           [?id :work/result ?result]])
+(ds/put! (input-stream space "ledger")
+         {:db/id 42 :work/status :completed :work/result "OK"})
 
-;; With timeout
-(wait-for-pattern space pattern :timeout 5000)
+;; Default input stream (single-stream space) — the form used throughout this doc
+(ds/put! (input-stream space) {:db/id work-id :work/assigned-to agent-id})
+
+;; Retraction is also just an append — a datom with retract metadata (m = :db/retract)
+(ds/put! (input-stream space) [:db/retract work-id :work/status])
 ```
 
-#### `bounded-stream->index [stream cursor]`
+### Reading — `next` + cursor (and `->seq`)
 
-Materialize a stream prefix into a queryable index snapshot.
+Results are read with the standard reader protocol. A **bounded** query stream
+drains to `:end` (a point-in-time answer); an **open** query stream emits new
+results as the inputs grow and returns `:blocked` when caught up — so
+"wait-for-pattern" is *not* a primitive, it is just `next` blocking on a live
+query stream.
 
 ```clojure
-;; Get queryable snapshot up to current position
-(let [snapshot (bounded-stream->index (tuple-space->stream space) cursor)]
-  (q '[:find ?e :where [?e :work/status :completed]] snapshot))
+;; Cursor read
+(ds/next todo {:position 0})   ; => {:ok [id task] :cursor {:position 1}} | :blocked | :end
+
+;; Drain a bounded query to a seq (the ->seq utility from dao.stream.md)
+(ds/->seq nil todo)            ; => ([id task] ...)
 ```
 
-#### `as-of-time [space timestamp]`
+### Conveniences (thin wrappers over the reader protocol)
 
-Query the tuple space state at a specific historical point.
+These are not new abstractions; each just builds a descriptor and `open!`s/reads
+it. The examples elsewhere in this document use these wrappers.
 
 ```clojure
-;; "What was the work queue state at 2024-01-01?"
-(query (as-of-time space (instant "2024-01-01"))
-  '[:find ?id ?status
-    :where [?id :work/status ?status]])
+;; open-tuple-space: open a :dao-space descriptor.
+(defn open-tuple-space [name & {:keys [inputs] :as opts}]
+  (ds/open! (merge {:type :dao-space :name name} opts)))
+
+;; query: open a bounded :query stream, drain to a result seq.
+(defn query [source query-form & inputs]
+  (ds/->seq nil (ds/open! {:type :query :source source :query query-form :inputs inputs})))
+;; q: the Datomic-compatible alias (query-form first, source in inputs), per dao.db;
+;; same realization, different arg order — (q query-form & inputs).
+
+;; materialize: open a :slice (interpreter view) over a source.
+(defn materialize [source & {:keys [by]}]
+  (ds/open! {:type :slice :source source :by (or by content-hash)}))
+
+;; wait-for-pattern: read an OPEN :query stream until next yields a result
+;; (blocking is the stream's own :blocked semantics; timeout is the reader's).
+(defn wait-for-pattern [source q & {:keys [timeout]}]
+  (ds/take!! (ds/open! {:type :query :source source :query q}) timeout))
+
+;; as-of: not a verb — a read bound. `point` is a cursor, a transaction t, or an
+;; instant; a t/instant is resolved to the cursor position at/just-before it
+;; (the source stream's append order is the timeline). The :query/:slice then
+;; reads its source only up to that position.
+(defn as-of-time [source point]
+  (ds/open! {:type :slice :source source :as-of point}))
 ```
+
+So `open-tuple-space`, `query`/`q`, `materialize`, `wait-for-pattern`, and `as-of`
+all collapse into: *construct a descriptor, `open!` it, read it with
+`next`/`->seq`/`take!!`*. The Datalog index is an interpreter (a `:query`
+realization), not a separate API surface.
 
 ## Coordination Semantics
 
@@ -590,7 +689,7 @@ Query the tuple space state at a specific historical point.
 
 ```clojure
 ;; Agent's view
-(put-tuple! space {:db/id id :work/status :in-progress})
+(ds/put! (input-stream space) {:db/id id :work/status :in-progress})
 ;; Immediately visible in subsequent queries
 (= :in-progress (:work/status (query space '[...])))
 ```
@@ -599,7 +698,7 @@ Query the tuple space state at a specific historical point.
 
 ```clojure
 ;; Agent 1 writes
-(put-tuple! space {:db/id id :work/status :in-progress})
+(ds/put! (input-stream space) {:db/id id :work/status :in-progress})
 
 ;; Agent 2's view depends on stream position
 (if (>= agent-2-cursor (position-of-write))
@@ -625,10 +724,10 @@ Query the tuple space state at a specific historical point.
 
 ```clojure
 ;; Agent A at t=100
-(put-tuple! space {:db/id 42 :counter 1})
+(ds/put! (input-stream space) {:db/id 42 :counter 1})
 
 ;; Agent B at t=101
-(put-tuple! space {:db/id 42 :counter 2})
+(ds/put! (input-stream space) {:db/id 42 :counter 2})
 
 ;; Both updates are in the stream, in order
 ;; Agents see both; interpretation is application-defined
@@ -639,22 +738,22 @@ Query the tuple space state at a specific historical point.
 
 **Single tuples are atomic:**
 ```clojure
-(put-tuple! space {:db/id id :work/status :in-progress :worker agent-id})
+(ds/put! (input-stream space) {:db/id id :work/status :in-progress :worker agent-id})
 ;; Appears atomically to other agents
 ```
 
 **Multi-tuple transactions need application-level coordination:**
 ```clojure
 ;; NOT atomic across the space:
-(put-tuple! space {:db/id id :work/status :in-progress})
-(put-tuple! space {:db/id id :work/assigned-to agent-id})
+(ds/put! (input-stream space) {:db/id id :work/status :in-progress})
+(ds/put! (input-stream space) {:db/id id :work/assigned-to agent-id})
 
 ;; Remedies:
 ;; 1. Single tuple with multiple attributes
-(put-tuple! space {:db/id id :work/status :in-progress :work/assigned-to agent-id})
+(ds/put! (input-stream space) {:db/id id :work/status :in-progress :work/assigned-to agent-id})
 
 ;; 2. Transaction envelope (application-defined)
-(put-tuple! space
+(ds/put! (input-stream space)
   {:db/id (random-id)
    :transaction/id tx-id
    :transaction/committed true
@@ -662,8 +761,8 @@ Query the tuple space state at a specific historical point.
                         {:db/id id :work/assigned-to agent-id}]})
 
 ;; 3. Causality tracking (application-defined)
-(put-tuple! space {:db/id id :version 1 :work/status :in-progress})
-(put-tuple! space {:db/id id :version 2 :work/assigned-to agent-id
+(ds/put! (input-stream space) {:db/id id :version 1 :work/status :in-progress})
+(ds/put! (input-stream space) {:db/id id :version 2 :work/assigned-to agent-id
                    :depends-on 1})
 ```
 
@@ -681,57 +780,77 @@ New namespace: `src/cljc/dao/tuple-space.cljc`
 
 ```clojure
 (ns dao.tuple-space
-  "Tuple space: stigmergic coordination over many typed DaoStreams + native Datalog index")
+  "DaoSpace: stigmergic coordination as DaoStream descriptor types.
+   No bespoke API — register transports for :dao-space, :slice, :query via defopen
+   so they are opened, read, written, and closed through the standard DaoStream
+   protocols."
+  (:require [dao.stream :as ds]))
 
-;; Core functions (to implement)
-(defn open-tuple-space [name & opts])
-(defn open-input-stream [space name descriptor]) ; descriptor: :dimension, :slots, :strict?
-(defn query [space datalog-query & inputs])       ; ranges over all input streams' slices
-(defn put-tuple! [space stream fact])             ; routed to one input stream; strict streams validate
-(defn materialize [stream & {:keys [by]}])        ; interpreter slice: quotient by equiv relation
-(defn retract-tuple! [space stream id attr])
-(defn wait-for-pattern [space query & opts])
-(defn bounded-stream->index [stream cursor])
-(defn as-of-time [space timestamp])
+;; :dao-space — a coordination medium with DYNAMIC membership. open! creates the
+;; medium (optionally seeded with :inputs); streams attach/detach later. The
+;; realized transport implements IDaoStreamReader (merge attached streams by
+;; arrival/causal order), IDaoStreamWriter (route put! to a named attached stream;
+;; strict streams conform in their own put!), and IDaoStreamBound (close all).
+(ds/defopen :dao-space [{:keys [name inputs]}] ...)
 
-;; Internal helpers
-(defn- stream-datoms [stream from-cursor to-cursor])
-(defn- conform [descriptor fact])                 ; strict path; identity when :strict? false
-(defn- materialize-index [datoms equiv-fn])       ; class-key -> members
-(defn- cursor-position [stream])
-(defn- apply-datoms-to-index [index datoms])
+;; Membership ops (write side). Interpreters need none — they attach by opening a
+;; reader (cursor / :slice / :query with :source space) and detach by closing it.
+(defn attach [space stream-or-descriptor])         ; realize if needed; add to medium
+(defn detach [space stream-name])                   ; remove from medium
+
+;; :slice — a derived stream: source quotiented by an equivalence relation :by.
+;; `next` yields class-keyed updates; default :by is the d1 content hash.
+(ds/defopen :slice [{:keys [source by]}] ...)
+
+;; :query — a derived stream of Datalog results over a source (space/stream/slice).
+;; Bounded (drains to :end) for point-in-time; open (emits deltas, :blocked when
+;; caught up) for live. :as-of bounds reads at a cursor; the index is built by
+;; folding the source's datoms — the index is an interpreter, not a separate API.
+(ds/defopen :query [{:keys [source query as-of]}] ...)
+
+;; Convenience wrappers — open a descriptor and read it (no new abstraction):
+(defn input-stream                                 ; resolve an input stream to put! into
+  ([space]) ([space name]))                         ; default / named
+(defn query [source q & inputs]                    ; open bounded :query, drain to seq
+  (ds/->seq nil (ds/open! {:type :query :source source :query q :inputs inputs})))
+(defn wait-for-pattern [source q & {:keys [timeout]}] ; read an open :query (blocking)
+  (ds/take!! (ds/open! {:type :query :source source :query q}) timeout))
 ```
 
-The fan-in space holds a set of input streams, each with its own descriptor and
-cursor; `query` joins their materialized slices on shared values. `conform`
-enforces a strict stream's dimension/slot types on `put!` and is the identity for
-non-strict (`:strict? false`) streams. `materialize` builds an interpreter slice keyed by an equivalence
-function (default the d1 content hash; d3 projection and domain relations are
-supplied by interpreters).
+Everything reduces to the DaoStream contract: `next` returns
+`{:ok val :cursor}` / `:blocked` / `:end` / `:daostream/gap`; `put!` appends to an
+input; `close!` ends the stream. Conformance is the **input stream's**
+responsibility (a strict input conforms inside its own `put!`), so writing is
+uniformly "append to a stream." Slices and queries are derived streams, so they
+compose: a `:query` over a `:slice` over a `:dao-space` is just three `open!`d
+descriptors chained by `:source`.
 
 ### Reference Implementation Pattern
 
 ```clojure
-;; A space holds many input streams. Each entry pairs a stream with its
-;; descriptor (dimension, slots, conformance) and the interpreter slices
-;; (each an index keyed by an equivalence function) maintained over it.
-(defrecord TupleSpace [streams]   ; name -> {:stream :descriptor :cursor-ref :slices}
+;; The space transport. It is an ordinary DaoStream transport, so it satisfies the
+;; same three protocols every transport does — nothing space-specific leaks into
+;; the API. Membership is dynamic: `members` is a mutable ref of attached streams,
+;; mutated by attach/detach while readers hold cursors.
+(deftype DaoSpace [members]       ; atom of {name -> realized stream (+ descriptor)}
+  ds/IDaoStreamReader
+  (next [this cursor]             ; merge currently-attached streams by cursor
+    (merge-next @members cursor))
 
-  ;; Query current state across every input stream's slices
-  IQueryable
-  (run-query [this query inputs]
-    (let [slices (for [{:keys [stream descriptor cursor-ref slices]} (vals streams)]
-                   ;; 1. Load new datoms since last query
-                   (let [new-datoms (read-since cursor-ref stream)]
-                     ;; 2. Update each interpreter slice with the new datoms
-                     (refresh-slices slices new-datoms)))]
-      ;; 3. Execute the query, joining the slices on shared values
-      (run-query-over slices query inputs)))
+  ds/IDaoStreamWriter
+  (put! [this datom]             ; route to the default attached stream; it conforms
+    (ds/put! (default-input @members) datom))
 
-  ;; Append to one named input stream. Strict streams validate; open streams pass through.
-  (put-tuple! [this stream-name fact]
-    (let [{:keys [stream descriptor]} (get streams stream-name)]
-      (ds/put! stream (conform descriptor fact)))))
+  ds/IDaoStreamBound
+  (close! [this] (run! ds/close! (vals @members)))
+  (closed? [this] (every? ds/closed? (vals @members))))
+
+;; attach/detach mutate `members`; a reader's next sees streams attached so far.
+(defn attach [^DaoSpace space desc] (swap! (.-members space) assoc (:name desc) (ds/open! desc)))
+(defn detach [^DaoSpace space nm]   (swap! (.-members space) dissoc nm))
+
+;; A :query transport reads its :source with a cursor, folds datoms into an index,
+;; and emits results via `next` — bounded or live depending on the source.
 ```
 
 ## Use Cases
@@ -779,7 +898,7 @@ supplied by interpreters).
 (deftest put-query-test
   (testing "Put and query round trip"
     (let [space (open-tuple-space "test")]
-      (put-tuple! space {:db/id 1 :work/status :todo})
+      (ds/put! (input-stream space) {:db/id 1 :work/status :todo})
       (let [result (query space '[:find ?status
                                  :where [1 :work/status ?status]])]
         (is (= [[:todo]] result))))))
@@ -788,7 +907,7 @@ supplied by interpreters).
   (testing "Two agents coordinate via tuple space"
     (let [space (open-tuple-space "test")]
       ;; Agent 1 writes
-      (put-tuple! space {:db/id 1 :work/task "task-1"})
+      (ds/put! (input-stream space) {:db/id 1 :work/task "task-1"})
       ;; Agent 2 reads
       (let [tasks (query space '[:find ?task :where [?id :work/task ?task]])]
         (is (= [["task-1"]] tasks))))))
@@ -797,9 +916,9 @@ supplied by interpreters).
   (testing "Historical query returns state at point in time"
     (let [space (open-tuple-space "test")
           t0 (now)]
-      (put-tuple! space {:db/id 1 :work/status :todo})
+      (ds/put! (input-stream space) {:db/id 1 :work/status :todo})
       (let [t1 (now)]
-        (put-tuple! space {:db/id 1 :work/status :in-progress})
+        (ds/put! (input-stream space) {:db/id 1 :work/status :in-progress})
         (let [past-state (as-of-time space t0)
               result (query past-state '[:find ?status
                                         :where [1 :work/status ?status]])]
@@ -814,7 +933,7 @@ supplied by interpreters).
     (let [space (open-tuple-space "work-queue")]
       ;; Producer emits work
       (future (dotimes [i 10]
-                (put-tuple! space {:db/id i :work/status :todo})
+                (ds/put! (input-stream space) {:db/id i :work/status :todo})
                 (Thread/sleep 10)))
 
       ;; Worker processes work
@@ -822,7 +941,7 @@ supplied by interpreters).
         (dotimes [i 10]
           (wait-for-pattern space '[:find ?id :where [?id :work/status :todo]])
           (let [[[id]] (query space '[:find ?id :where [?id :work/status :todo]])]
-            (put-tuple! space {:db/id id :work/status :completed})
+            (ds/put! (input-stream space) {:db/id id :work/status :completed})
             (swap! completed conj id)))
 
         ;; Verify all work completed
@@ -952,7 +1071,7 @@ JavaSpace mistake: Tuples auto-expire when leases expire. Agents must renew leas
 Tuple-space fix: Explicit application-controlled expiration.
 ```clojure
 ;; No implicit expiration. Agents explicitly manage work lifecycle.
-(put-tuple! space {:db/id task-id
+(ds/put! (input-stream space) {:db/id task-id
                   :work/status :in-progress
                   :work/claimed-by agent-id
                   :work/claimed-at (now)})
@@ -971,17 +1090,17 @@ Linda/JavaSpace limitation: Coordination across multiple tuples is not atomic. A
 Tuple-space fix: Multiple options for atomic coordination.
 ```clojure
 ;; Option 1: Multi-attribute tuple (atomic write)
-(put-tuple! space {:db/id task-id
+(ds/put! (input-stream space) {:db/id task-id
                    :work/status :in-progress
                    :work/assigned-to worker-id})
 
 ;; Option 2: Transaction envelope (application-defined)
-(put-tuple! space {:transaction/id tx-id
+(ds/put! (input-stream space) {:transaction/id tx-id
                    :transaction/datoms [{:db/id task-id :status :in-progress}
                                         {:db/id worker-id :current-task task-id}]})
 
 ;; Option 3: Idempotent operations (can safely retry)
-(put-tuple! space {:db/id task-id :work/status :completed :timestamp (now)})
+(ds/put! (input-stream space) {:db/id task-id :work/status :completed :timestamp (now)})
 ```
 
 **Problem 8: Destructive Operations Limit Patterns**
@@ -1112,8 +1231,9 @@ By building on **append-only streams + Datalog queries**, tuple-space achieves:
 - Tuple space garbage collection / archival
 - `:strict? true` path: validate/coerce dimension, slot types, cardinality,
   and `:db/unique` on `put!` for strict streams (`:strict? false` streams need no change)
-- Multi-stream fan-in: routing `put!` to a named input stream and joining many
-  input streams' slices in a single `query`
+- Dynamic membership: `attach`/`detach` of input streams at runtime; routing
+  `put!` to a named attached stream; joining many attached streams' slices in a
+  single `query`
 - Interpreter slice index: maintained `class-key -> members` views keyed by an
   equivalence relation, including memoized recompute past a cached cursor
 - Full-text search integration
