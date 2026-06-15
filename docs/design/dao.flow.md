@@ -19,9 +19,11 @@ continuation scheduling, batching, stream injection, fork / join, and lineage.
 ML kernel agents make it an ML workflow substrate. The workload type is
 determined by which agents run, not by `dao.flow` itself.
 
-`dao.space` is built on `dao.stream` (append-only event log) and `dao.db`
-(Datalog query engine). `dao.flow` runs on `dao.space`; it does not call
-`dao.stream` or `dao.db` directly — it depends on them only through `dao.space`.
+`dao.space` is realized as DaoStream descriptor types over `dao.stream` (the
+append-only event log that carries its tuples); a Datalog query is one
+interpreter (`:query`) over that catalog, backed by `dao.db`. `dao.flow` runs on
+`dao.space`; it does not call `dao.stream` or `dao.db` directly — it depends on
+them only through `dao.space`.
 
 Agents write datoms into `dao.space`. Other agents pattern-match on those datoms
 and pick them up. When an agent processes matched datoms, it writes new datoms to
@@ -35,7 +37,8 @@ No agent needs to know what other agents exist.
 application  (inference engine, training engine, agent runtime, pipeline)
     provides: workflow graph, agent patterns, output handling
 
-dao.space  (tuple space: dao.stream + dao.db)
+dao.space  (coordination medium: a catalog of tuples over dao.stream,
+             read by interpreters — Datalog queries are one interpreter)
     provides: datom coordination medium — agents write/read datoms,
               pattern matching determines flow, history is preserved
 
@@ -82,9 +85,9 @@ shared tuple space:
 
 ```text
 agent A writes datoms with type value :some/effect to dao.space
--> agent B wait-for-pattern [:a :some/effect], picks it up
+-> agent B matches [?e :a :some/effect], picks it up
 -> agent B processes, writes datoms with type value :next/effect to dao.space
--> agent C wait-for-pattern [:a :next/effect], picks it up
+-> agent C matches [?e :a :next/effect], picks it up
 -> ...
 ```
 
@@ -203,10 +206,10 @@ mechanism:
 | Dimension    | dao.space / dao.flow               | dao.stream                                |
 |--------------|------------------------------------|-------------------------------------------|
 | Role         | Coordinate agents via shared space | Deliver events reliably and in order      |
-| Abstraction  | Tuple space: query + coordination  | Append-only event log                     |
+| Abstraction  | Coordination medium: catalog of tuples (DaoStream descriptor types) | Append-only event log      |
 | State        | Stateful: full queryable history   | Stateful: cursors, positions, causality   |
 | Addressing   | Type value → agent                 | Stream id + cursor → subscriber           |
-| Query power  | Full Datalog                       | Cursor-based read                         |
+| Query power  | Full Datalog (a `:query` interpreter over the catalog) | Cursor-based read             |
 
 ## Scope
 
@@ -356,21 +359,21 @@ coordination via `dao.space`:
 HTTP / queue
   -> datoms with type value :inference/request written to dao.space
 
-scheduler agent (wait-for-pattern [:a :inference/request])
+scheduler agent (matches [?e :a :inference/request])
   -> Datalog: find pending requests + available KV-cache block datoms
   -> claims cache blocks (writes allocation datoms to dao.space)
   -> writes datoms with type value :ml/kernel-effect (:kernel/op :kernel/prefill)
 
-ML kernel agent (wait-for-pattern [:a :ml/kernel-effect])
+ML kernel agent (matches [?e :a :ml/kernel-effect])
   -> resolves VRAM handles from cache datoms in dao.space
   -> runs prefill + decode loop internally
   -> writes datoms with type value :ml/kernel-result back to dao.space
 
-inference adapter agent (wait-for-pattern [:a :ml/kernel-result])
+inference adapter agent (matches [?e :a :ml/kernel-result])
   -> converts logits / sampled token results into datoms with type value
      :inference/token
 
-result-collector agent (wait-for-pattern [:a :inference/token])
+result-collector agent (matches [?e :a :inference/token])
   -> streams tokens to caller
 ```
 
@@ -512,7 +515,7 @@ coordinates the passes — no agent understands another agent's internal data.
 ```text
 datoms with type value :compile/request
 -> parse agent           (source string -> :ast/datoms)
--> macro-expand agent    (wait-for-pattern on datoms with type value
+-> macro-expand agent    (matches datoms with type value
                           :macro/definition)
 -> cps agent             (:ast/datoms -> :cps/datoms)
 -> closure-convert agent (:cps/datoms -> :closure/datoms)
@@ -521,7 +524,7 @@ datoms with type value :compile/request
 -> commit agent          (writes artifact to dao.db)
 ```
 
-**Macro expansion:** the macro-expand agent `wait-for-pattern` on
+**Macro expansion:** the macro-expand agent opens a live `:query` stream for
 `[:find ?d :where [?d :a :macro/definition] [?d :macro/name macro-name]]` in
 `dao.space`. When a sibling compilation agent writes the macro definition datoms,
 the macro-expand agent resumes.

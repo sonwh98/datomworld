@@ -170,6 +170,8 @@ Two canonical resources show the range:
 
   ```clojure
   ;; A stream descriptor is a datom-resource; realizing it = open!
+  ;; (illustrative — resource->descriptor / read-resource are not yet implemented;
+  ;;  see the implementation-status note under Geometry for the same caveat.)
   (ds/open! (resource->descriptor (read-resource space stream-eid)))
   ```
 
@@ -219,12 +221,12 @@ Conformance is a **per-stream policy**, carried in the stream descriptor much li
 
 ```clojure
 ;; Strict: rejects datoms that are not conforming d5
-(open-input-stream space "ledger"
-  {:dimension :d5 :slots {...} :strict? true})
+(attach space {:name "ledger" :type :file :path "/var/log/ledger.log"
+               :dimension :d5 :slots {...} :strict? true})
 
 ;; Open: takes anything; interpreters cope on read
-(open-input-stream space "ingest"
-  {:dimension :d5 :strict? false})
+(attach space {:name "ingest" :type :ringbuffer
+               :dimension :d5 :strict? false})
 ```
 
 Both policies are first-class. A single space routinely mixes strict streams (a
@@ -789,8 +791,9 @@ New namespace: `src/cljc/dao/tuple-space.cljc`
 ;; :dao-space — a coordination medium with DYNAMIC membership. open! creates the
 ;; medium (optionally seeded with :inputs); streams attach/detach later. The
 ;; realized transport implements IDaoStreamReader (merge attached streams by
-;; arrival/causal order), IDaoStreamWriter (route put! to a named attached stream;
-;; strict streams conform in their own put!), and IDaoStreamBound (close all).
+;; arrival/causal order) and IDaoStreamBound (close all). It deliberately does
+;; NOT implement IDaoStreamWriter: there is no space-level write — datoms enter
+;; only via put! on an attached input stream (see Writing below).
 (ds/defopen :dao-space [{:keys [name inputs]}] ...)
 
 ;; Membership ops (write side). Interpreters need none — they attach by opening a
@@ -800,7 +803,9 @@ New namespace: `src/cljc/dao/tuple-space.cljc`
 
 ;; :slice — a derived stream: source quotiented by an equivalence relation :by.
 ;; `next` yields class-keyed updates; default :by is the d1 content hash.
-(ds/defopen :slice [{:keys [source by]}] ...)
+;; :as-of bounds reads at a cursor/t/instant (symmetric with :query), so an
+;; interpreter slice can be materialized at any historical point.
+(ds/defopen :slice [{:keys [source by as-of]}] ...)
 
 ;; :query — a derived stream of Datalog results over a source (space/stream/slice).
 ;; Bounded (drains to :end) for point-in-time; open (emits deltas, :blocked when
@@ -828,18 +833,16 @@ descriptors chained by `:source`.
 ### Reference Implementation Pattern
 
 ```clojure
-;; The space transport. It is an ordinary DaoStream transport, so it satisfies the
-;; same three protocols every transport does — nothing space-specific leaks into
-;; the API. Membership is dynamic: `members` is a mutable ref of attached streams,
-;; mutated by attach/detach while readers hold cursors.
+;; The space transport. It is an ordinary DaoStream transport, so it satisfies
+;; the reader and bound protocols every transport does — nothing space-specific
+;; leaks into the API. It implements NO writer protocol: per the model, there is
+;; no space-level write, so agents append via (ds/put! (input-stream space) ...)
+;; to an attached stream. Membership is dynamic: `members` is a mutable ref of
+;; attached streams, mutated by attach/detach while readers hold cursors.
 (deftype DaoSpace [members]       ; atom of {name -> realized stream (+ descriptor)}
   ds/IDaoStreamReader
   (next [this cursor]             ; merge currently-attached streams by cursor
     (merge-next @members cursor))
-
-  ds/IDaoStreamWriter
-  (put! [this datom]             ; route to the default attached stream; it conforms
-    (ds/put! (default-input @members) datom))
 
   ds/IDaoStreamBound
   (close! [this] (run! ds/close! (vals @members)))
@@ -1056,12 +1059,13 @@ JavaSpace mistake: Tightly bound to Java serialization, Java Jini protocol, and 
 
 Tuple-space fix: Transport-agnostic via DaoStream abstraction.
 ```clojure
-;; Same API, different transport
-(open-tuple-space "work" :transport {:type :ringbuffer})   ;; in-process
-(open-tuple-space "work" :transport {:type :websocket :url "..."})  ;; remote
-(open-tuple-space "work" :transport {:type :kafka :broker "..."})  ;; distributed
+;; One medium, many transports — selected when a stream ATTACHES, not at space
+;; creation. The same query language and semantics apply regardless of transport.
+(def space (ds/open! {:type :dao-space :name "work"}))
 
-;; All use same query language, same semantics
+(attach space {:name "local"   :type :ringbuffer})                  ;; in-process
+(attach space {:name "remote"  :type :websocket :url "..."})        ;; remote
+(attach space {:name "dist"    :type :kafka    :broker "..."})      ;; distributed
 ```
 
 **Problem 6: Complex Leasing/Expiration**
