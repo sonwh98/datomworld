@@ -2,13 +2,12 @@
 
 **Related documents:**
 - `docs/design/daostream-design.md` — the stream transport foundation
-- `docs/design/dao.db.md` — queryable database that indexes the datom stream
 
 ## Overview
 
 **DaoSpace** is datom.world's implementation of a tuple space: a shared store of datoms (facts) that agents can collectively query and modify to coordinate work. Unlike traditional message passing (explicit sender → receiver), DaoSpace enables **stigmergic coordination**: agents read shared facts, modify them based on local logic, and implicitly coordinate through the effects of those modifications.
 
-This design builds DaoSpace on top of DaoStream (append-only datom log) and DaoDB (Datalog query engine). The result is:
+This design builds DaoSpace on top of DaoStream (append-only datom log) and indexes that log into its own native Datalog query engine. The result is:
 
 - **Declarative coordination** — agents describe what they need, not who has it
 - **Implicit messaging** — agents don't need to know about each other
@@ -19,7 +18,7 @@ This design builds DaoSpace on top of DaoStream (append-only datom log) and DaoD
 ## Core Concept: Tuple Space as a Shared Datom Log
 
 ```
-Tuple Space = DaoStream of Datoms + DaoDB Query Engine
+Tuple Space = DaoStream of Datoms + native Datalog index
 ```
 
 ### What Agents See
@@ -50,8 +49,8 @@ Tuple Space = DaoStream of Datoms + DaoDB Query Engine
 ### What Happens Internally
 
 ```
-Agent 1 writes → Stream appends [e :work/status :in-progress] → DaoDB indexes it
-Agent 2 queries → DaoDB scans indexed datoms → returns matching results
+Agent 1 writes → Stream appends [e :work/status :in-progress] → DaoSpace indexes it
+Agent 2 queries → DaoSpace scans indexed datoms → returns matching results
 Agent 3 reads → Stream cursor advances → sees Agent 1's update
 ```
 
@@ -59,18 +58,12 @@ Agent 3 reads → Stream cursor advances → sees Agent 1's update
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│ Tuple Space (User-Facing API)                           │
+│ DaoSpace (User-Facing API + native Datalog index)       │
 │  - query(pattern)                                       │
 │  - put-tuple!(fact)                                     │
 │  - wait-for-pattern!(pattern)                           │
-└──────────────────────┬──────────────────────────────────┘
-                       │
-┌──────────────────────▼──────────────────────────────────┐
-│ DaoDB (Queryable Index Layer)                           │
-│  - run-query(query)                                     │
-│  - datoms(index, components)                            │
-│  - as-of(t)                                             │
-│  - pull(pattern, eid)                                   │
+│  - run-query(query) / datoms(index, components)         │
+│  - as-of(t) / pull(pattern, eid)                        │
 └──────────────────────┬──────────────────────────────────┘
                        │
 ┌──────────────────────▼──────────────────────────────────┐
@@ -307,14 +300,14 @@ Block until a pattern matches (convenience for polling).
 (wait-for-pattern space pattern :timeout 5000)
 ```
 
-#### `bounded-stream->db [stream cursor]`
+#### `bounded-stream->index [stream cursor]`
 
-Materialize a stream prefix into a queryable DaoDB snapshot.
+Materialize a stream prefix into a queryable index snapshot.
 
 ```clojure
-;; Get queryable DB up to current position
-(let [db (bounded-stream->db (tuple-space->stream space) cursor)]
-  (q '[:find ?e :where [?e :work/status :completed]] db))
+;; Get queryable snapshot up to current position
+(let [snapshot (bounded-stream->index (tuple-space->stream space) cursor)]
+  (q '[:find ?e :where [?e :work/status :completed]] snapshot))
 ```
 
 #### `as-of-time [space timestamp]`
@@ -359,7 +352,7 @@ Query the tuple space state at a specific historical point.
 
 **Within an agent's timeline:**
 - Writes are totally ordered (append-only stream)
-- Reads of a materialized DB snapshot are consistent
+- Reads of a materialized index snapshot are consistent
 - Re-querying at a later cursor position includes later writes
 
 **Across agents:**
@@ -418,7 +411,6 @@ Query the tuple space state at a specific historical point.
 ### What's Already Available
 
 - **DaoStream** (`src/cljc/dao/stream.cljc`): append-only datom log
-- **DaoDB** (`src/cljc/dao/db.cljc`): queryable index with Datalog
 - **IDaoStreamWaitable**: transport-local notifications when data arrives
 - **Cursors**: independent read positions for multiple agents
 
@@ -428,7 +420,7 @@ New namespace: `src/cljc/dao/tuple-space.cljc`
 
 ```clojure
 (ns dao.tuple-space
-  "Tuple space: stigmergic coordination via DaoStream + DaoDB")
+  "Tuple space: stigmergic coordination via DaoStream + native Datalog index")
 
 ;; Core functions (to implement)
 (defn open-tuple-space [name & opts])
@@ -436,32 +428,32 @@ New namespace: `src/cljc/dao/tuple-space.cljc`
 (defn put-tuple! [space fact])
 (defn retract-tuple! [space id attr])
 (defn wait-for-pattern [space query & opts])
-(defn bounded-stream->db [stream cursor])
+(defn bounded-stream->index [stream cursor])
 (defn as-of-time [space timestamp])
 
 ;; Internal helpers
 (defn- stream-datoms [stream from-cursor to-cursor])
-(defn- materialize-db [datoms])
+(defn- materialize-index [datoms])
 (defn- cursor-position [stream])
-(defn- apply-datoms-to-db [db datoms])
+(defn- apply-datoms-to-index [index datoms])
 ```
 
 ### Reference Implementation Pattern
 
 ```clojure
-(defrecord TupleSpace [stream db cursor-ref]
+(defrecord TupleSpace [stream index cursor-ref]
 
   ;; Query current state
-  IDaoDB
+  IQueryable
   (run-query [this query inputs]
     ;; 1. Advance to latest stream position
     (let [latest-cursor (advance-cursor stream cursor-ref)]
       ;; 2. Load any new datoms since last query
       (let [new-datoms (read-since cursor-ref stream)]
-        ;; 3. Update DB with new datoms
-        (let [db' (apply-datoms-to-db db new-datoms)]
-          ;; 4. Execute query against updated DB
-          (run-query db' query inputs)))))
+        ;; 3. Update the index with new datoms
+        (let [index' (apply-datoms-to-index index new-datoms)]
+          ;; 4. Execute query against updated index
+          (run-query index' query inputs)))))
 
   ;; Append to stream
   (put-tuple! [this fact]
@@ -757,7 +749,7 @@ Tuple-space fix: Datalog makes the coordination space itself observable.
 
 ## Design Rationale
 
-### Why Build on DaoStream + DaoDB?
+### Why Build on DaoStream + Native Datalog?
 
 1. **Immutability** — coordination history is preserved, enabling replay and auditing
 2. **Queryability** — full Datalog power instead of limited pattern matching (Linda)
