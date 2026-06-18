@@ -555,6 +555,39 @@ Durable, file-backed transports.
 ;; Use case: durable audit log, cheap persistence, file ingestion
 ```
 
+### Live-Tail File (Implemented — `dao.stream.file`, clj + cljd + cljs Node/browser)
+
+A read/write **live-tail** transport: `open!` positions at the current end of
+file, the in-memory ringbuffer holds only writes made after open (so reads are a
+true `tail -f`), writes append to disk asynchronously, and durability is
+reconciled at `close!`.
+
+```clojure
+{:type :file
+ :path "/data/events.log"
+ :capacity 1024                  ;; segments retained in memory; nil = unbounded (opt-in)
+ :eviction-policy :evict-oldest} ;; default
+
+;; Use case: follow a growing log, fan writes to disk + readers without blocking
+```
+
+- **Tail-from-now:** reads see only post-open writes. To read existing history,
+  use `file-input-stream` (a discardable snapshot).
+- **Bounded by default:** the ringbuffer retains the `:capacity` most-recent
+  segments; a reader whose cursor falls behind gets `:daostream/gap` and resyncs
+  at the live tail via the transport accessor `(dao.stream.file/tail-position
+  fs)`. Evicted bytes are gone from memory but safe on disk.
+- **Non-blocking `put!`:** appends are scheduled asynchronously, so `put!` never
+  parks on disk I/O. **Eventual durability:** a crash before `close!` can lose
+  unflushed bytes. An async write failure poisons the writer — `put!` then fails
+  fast with the real cause, and `close!` surfaces it.
+- **`close!` durability is host-asymmetric:** a synchronous block **only on
+  clj**; on Node/cljd/browser the flush is drained through the async runtime's
+  parking rather than a synchronous await (await the promise/future from
+  `(dao.stream.file/flushed fs)` and confirm it resolves). Node uses async
+  `write`/`fsync`/`close` rather than the `*Sync` variants to keep its event
+  loop free.
+
 ### WebSocket (Implemented on ClojureDart — `dao.stream.ws`)
 
 Networked, bidirectional transport. Realized via `defopen :websocket` on
@@ -663,6 +696,10 @@ cursor, can be sent on another stream, and imposes no new API.
 - Additional realized transports register via `defopen`:
   - `:http` (`dao.stream.http`, clj/cljs) — one-shot request/response as a 1-capacity ringbuffer.
   - `:file-input-stream` / `:file-output-stream` (clj + cljd) — file-backed read/append.
+  - `:file` (`dao.stream.file`, clj + cljd + cljs Node/browser) — live-tail bridge:
+    post-open reads via a bounded `:evict-oldest` ringbuffer, async disk appends with
+    a poison cell (`put!` fails fast on a captured write error), durability reconciled
+    at `close!` (synchronous on clj/Node; async-runtime parking on cljd/browser).
   - `:websocket` (`dao.stream.ws`, ClojureDart) — `:connect` / `:listen` modes.
   - `:udp` (ClojureDart) — registered but throws (unsupported on that host).
 - Utility functions (not part of the canonical reader/writer/bound model):

@@ -11,6 +11,7 @@
     [dao.postgraphics.web.gpu-test]
     [dao.runtime.driver-cljs-test]
     [dao.stream-test]
+    [dao.stream.file-test]
     [dao.stream.http-test]
     [datomworld.continuation-transport-test]
     [datomworld.demo.continuation-handoff-test]
@@ -42,6 +43,7 @@
              'dao.runtime.driver-cljs-test
              'agent.tools-test
              'agent.tzu-test
+             'dao.stream.file-test
              'dao.stream.http-test
              'dao.gui.compiler-cljs-test
              'dao.postgraphics.web-test
