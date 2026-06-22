@@ -1,45 +1,202 @@
 # Datomic Architecture Deep Dive
 
-This document details the architectural mechanics of Datomic storage: what a backing key-value store must provide, how a SQL database realizes that contract as a "dumb store," how a local embedded backend realizes the same contract against the filesystem, how queries pull index segments locally, and how segment keys are discovered during B-tree traversals.
+## Overview
+
+A traditional database like PostgreSQL is a **single integrated process** that bundles three distinct responsibilities — query planning, write serialization, and storage/indexing — into one binary running on one machine:
+
+```
+┌─────────────────────────────────────────┐
+│           PostgreSQL Server             │
+│                                         │
+│  ┌─────────┐  ┌────────┐  ┌──────────┐  │
+│  │  Query  │  │ Writer │  │  Storage │  │
+│  │ Planner │──│/Tx Log │──│  /Index  │  │
+│  │Execute  │  │/Locks  │  │  Manager │  │
+│  └─────────┘  └────────┘  └──────────┘  │
+│         all on one box, one process     │
+└─────────────────────────────────────────┘
+        ▲           ▲            ▲
+        │           │            │
+     clients    clients       clients
+   (connect to the same server)
+```
+
+Datomic's central architectural bet is that this bundling is not a law of nature. It **separates those responsibilities into three independent components** that can be placed on different machines, scaled independently, and reasoned about separately:
+
+```
+   ┌──────────────┐   submit tx   ┌──────────────┐
+   │   PEERS      │──────────────▶│  TRANSACTOR  │
+   │ (Query Engine)│◀──novelty────│  (Serializer) │
+   │              │               │   single     │
+   │ runs IN the  │               │   writer     │
+   │ application  │               └──────┬───────┘
+   │ process      │                      │ write
+   │              │                      ▼
+   │              │   pull segments ┌──────────────┐
+   │              │────────────────▶│   STORAGE    │
+   └──────┬───────┘  (cache miss)   │ (dumb KV)    │
+          │                         │  SQL/Dynamo/ │
+          └─────────────────────────│  Cassandra/  │
+                  read              │  filesystem  │
+                                    └──────────────┘
+```
+
+| Component | Responsibility | Count | Where it runs |
+| :--- | :--- | :--- | :--- |
+| **Transactor** | Serialize all writes; append the transaction log; swing the root pointer via CAS | **Exactly one** (active) | Dedicated process |
+| **Storage** | Hold opaque immutable index segments + a tiny mutable root | One, shared | Existing DB / KV store / filesystem |
+| **Peers** | Run queries; cache index segments; hold novelty | **Many** — one per application process | **Inside the application JVM** |
+
+### How each component works
+
+**Transactor — the single writer.** The transactor is the *only* component allowed to write. It serializes transactions one at a time: receive a tx from a Peer, durable-append it to the **log**, fold new datoms into its **memory index** (novelty), then **CAS-swing the root pointer** to publish the new database value. Because it is the sole writer, there are **no locks, no lock manager, no deadlock detection** — concurrency control collapses to a single conditional write on the root pointer. The trade-off is accepted by design: **write throughput is bounded by one process.** Datomic bets that most applications are read-heavy and that single-writer throughput is enough, and in return eliminates an entire class of distributed-coordination problems.
+
+**Storage — the "dumb store."** Storage is treated as a **dumb key-value store of opaque blobs**. All intelligence — indexing, query planning, transaction processing — lives *outside* storage. The store sees only opaque keyed bytes and need only support `put` (with CAS folded in, gated on a `rev` counter), `get`, `delete`, and `close`. It does not know what a "table" or an "index" or a "join" is, which is why **storage is swappable**: the same Datomic code runs against Postgres, DynamoDB, Cassandra, or a local directory of files. Only the small set of `meta` keys (root pointer, lease) needs strong consistency; the bulk of data — immutable index and log segments written once under never-reused keys — can sit in an eventually-consistent store without harm. A property Postgres cannot exploit, because its data pages are mutable. See §1–§3 for the full contract and realizations.
+
+**Peers — the query engine runs in your app.** There is **no query server.** Queries execute **inside the application process** as a library. Each Peer holds a direct connection to storage and resolves queries by pulling only the index segments it needs. A Peer holds two things: a **persistent index**, fetched lazily into a bounded LRU object cache (a query pulls only the few B-tree segments it traverses); and **novelty**, recent datoms pushed to it by the transactor on every commit. A `db` value is thus a cheap immutable snapshot — a root pointer (a basis-t) plus current novelty — so a Peer's footprint is only `novelty + hot working set`, letting it query a database far larger than its heap. See §4–§5.
+
+### What is a "row"?
+
+| | Postgres | Datomic |
+| :--- | :--- | :--- |
+| Unit of data | A row, mutated in place | An immutable **datom** (5-tuple): `(entity, attribute, value, tx, added)` |
+| Updates | Overwrite the row | Assert a new datom; the old value is still there |
+| History | Opt-in via MVCC, eventually vacuumed | **First-class and permanent** by default — the log *is* history |
+
+Datomic stores facts, not states. "Alice's email changed from A to B" is not a destructive update — it is a new datom at a new transaction time `t`, and the old datom remains queryable forever. Writes never overwrite, they only accumulate. (Background indexing compacts segments, but never loses logical history.)
+
+### Responsibility placement
+
+| Responsibility | Postgres | Datomic |
+| :--- | :--- | :--- |
+| Query planning & execution | Server process | **Application process (Peer)** |
+| Transaction serialization | Server (lock manager + WAL) | **Transactor** (sole writer, CAS) |
+| Storage / indexing | Server (buffer manager, B-tree, WAL) | **External store** (dumb KV) |
+| Caching | Server shared buffers | **Peer-local** object cache + optional Memcached |
+
+In Postgres these are one process. In Datomic they are three *independently deployable* components — and crucially, **the read path does not include the transactor at all.** Peers read storage directly.
+
+### Concurrency model
+
+| | Postgres | Datomic |
+| :--- | :--- | :--- |
+| Multiple writers? | Yes, with row/table locks, deadlock detection, MVCC | **No.** One transactor serializes all writes |
+| Lock manager? | Yes, complex | **None** |
+| Deadlocks? | Possible, detected | **Impossible** (single writer) |
+| Write scaling | Add more clients | Bounded by one transactor's throughput |
+| Read scaling | Add read replicas | Add Peers (no replication lag — they read storage directly) |
+
+### Scaling profile
+
+| | Postgres | Datomic |
+| :--- | :--- | :--- |
+| **Reads** scale by | Read replicas (async, replication lag, consistency caveats) | Adding Peers — each reads storage directly, no lag, no replicas to sync |
+| **Writes** scale by | Sharding, more hardware | You **cannot scale writes horizontally.** One transactor. |
+| **Storage** scales by | Bigger server / sharding | Swap the backend — a config change, not a rewrite |
+
+This produces Datomic's signature shape: **horizontal read scaling for free, capped write throughput by design** — the deliberate mirror image of Postgres, which scales writes better (multi-writer) but pays for it with locking, MVCC overhead, and read-replica lag.
+
+### ACID and consistency
+
+Postgres achieves ACID through its WAL + lock manager + MVCC within one server. Datomic achieves it through a different route:
+
+* **Atomicity** = the single root-pointer CAS either publishes the whole tx or none of it.
+* **Consistency** = the transactor validates the tx (schema, cardinality) before committing.
+* **Isolation** = transactions are processed **serially** by the one writer, each applied against the latest state, so *transaction execution* is serializable and deadlocks are impossible. **Caveat:** a read-then-write performed *on a Peer* (read an immutable snapshot, compute, then submit blind `:db/add`s) is only **snapshot isolation** and is vulnerable to **write skew**. To get serializable read-write behavior, guard the write with a `:db/cas` assertion or move the logic into a transactor-side **transaction function** (which runs against current state).
+* **Durability** = the transactor appends to the durable log before swinging the root.
+
+The single-writer model trades away horizontal write scaling in exchange for **serial write execution and an impossible-to-deadlock system** (serializable *read-write* logic still requires `:db/cas` or a transaction function).
+
+### Indexing
+
+| | Postgres | Datomic |
+| :--- | :--- | :--- |
+| Indexes | Per-column, created explicitly | **Covering indexes** — EAVT and AEVT are always present. AVET and VAET are conditionally maintained based on schema. |
+| When indexed | Synchronously on write | **Asynchronously** in background indexing jobs; recent datoms served from in-memory novelty meanwhile |
+| Cost on write | Update every relevant index inline | Append to log + grow novelty (cheap); heavy indexing happens later |
+
+Postgres pays index-maintenance cost on every write. Datomic defers it: writes are cheap (log append + novelty), and the heavy lifting of merging novelty into B-tree segments happens in background indexing jobs. This is why Datomic writes can stay fast even while maintaining several covering indexes — the index work is batched and deferred.
+
+### The payoff, and the price
+
+**What Datomic gains by splitting the monolith:**
+
+* **Reads scale horizontally for free** — every Peer reads storage directly; no read replicas, no replication lag.
+* **The query engine lives in your process** — no network hop to a query server; query results are already in-process objects.
+* **Storage is swappable** — laptop dev (`datomic:dev://`) to production cluster (DynamoDB) is a config change, because the contract is four KV operations.
+* **No locks, no deadlocks** — the single writer serializes all commits, eliminating the lock manager and deadlocks (serializable *read-write* logic still needs `:db/cas` or a transaction function).
+* **Immutable, queryable history** — the database *is* a log of facts; "as-of" and "since" queries are free.
+
+**What it pays:**
+
+* **Write throughput is capped by one transactor.** This is the defining limitation. If you need multi-writer horizontal write scaling, Datomic is the wrong tool.
+* **Operational topology is more spread out** — you run a transactor, a storage backend, and Peers, vs. one Postgres server.
+* **Best when reads ≫ writes**, and when immutable history + in-process queries matter more than raw write parallelism.
+
+The architecture is not "Postgres but distributed." It is a **different decomposition**: take the integrated database, pull storage out as a dumb swappable layer, collapse the write path to a single serializer so coordination vanishes, and push the query engine into the application so reads scale by adding processes. Every property — good and bad — flows from those three decisions.
+
+---
+
+The rest of this document is the storage deep dive: **§1** the `KVStore` contract · **§2** SQL realization · **§3** local/file backends · **§4** how Peers query · **§5** segment-key discovery.
 
 ---
 
 ## 1. Storage Abstraction and KV Store Requirements
 
-Datomic decouples logical index representations (B-tree segments) and transactions from physical database drivers using a simple, pluggable storage protocol. All database intelligence (indexing, querying, transaction processing, and caching) is decoupled from storage and pulled into the application processes (**Transactor** and **Peers**); the store itself is a pluggable key-value store of mostly-immutable segments with a small mutable root (the `meta` keys updated by CAS). Whether the backing store is DynamoDB, Cassandra, or a JDBC SQL database, it is reached through the same narrow contract below.
+The Overview's "dumb store" is reached through one small, pluggable storage protocol: every backend — DynamoDB, Cassandra, a JDBC SQL database, a local directory of files — sits behind the same narrow contract. This section specifies that contract (the `KVStore` protocol) and the properties a backend must satisfy to support it. The store holds mostly-immutable segments plus a small mutable root (the `meta` keys updated by CAS); all indexing, query, and transaction intelligence lives above it, in the Peers and Transactor.
 
 ### Storage Abstraction
-At the JVM code level, Datomic interacts with storage through the `KVStore` protocol in the `datomic.kv-store` namespace (these are internal, not public API — the signatures below are taken from the compiled `datomic-pro` peer jar). The protocol is deliberately tiny — just four operations over opaque keyed blobs:
+At the JVM code level, Datomic interacts with storage through the `KVStore` protocol in the `datomic.kv-store` namespace (these are internal, not public API). The method *names and arities* below are disassembled with `javap` from `peer-1.0.7482.jar` (`datomic/kv_store/KVStore.class`, compiled from `kv_store.clj`); the *parameter names* are illustrative, since `javap` recovers arity but not argument names. `get` and `delete` genuinely take **two** arguments (confirmed: `get(Object, Object)` / `delete(Object, Object)` in the bytecode) — the trailing argument is a real, declared parameter, not a syntactic placeholder, but its role is unrecovered: `KVMem.get` bytecode references only `this.m` and the key (ignoring arg2), and the SQL backend's `WHERE id = ?` binds only the key, so at least those two backends disregard it. The protocol is deliberately tiny — just four operations over opaque keyed blobs:
 
 ```clojure
 ;; datomic.kv-store — the actual storage protocol (decompiled from datomic-pro)
 (defprotocol KVStore
-  (put    [this val-map])   ;; Write an entry (id, rev, map, val); also does the CAS — see below
-  (get    [this k _])       ;; Read an entry's bytes by key
-  (delete [this k _])       ;; Remove an entry by key
-  (close  [this]))          ;; Release the backend connection
+  (put    [this val-map])    ;; Write an entry (id, rev, map, val); also does the CAS — see below
+  (get    [this k arg2])     ;; Read an entry's bytes by key; arg2 present in bytecode, role unrecovered
+  (delete [this k arg2])     ;; Remove an entry by key; same trailing arg
+  (close  [this]))           ;; Release the backend connection
 
 ;; Sibling protocol used to classify transient backend failures for retry
 (defprotocol Retryable
   (retryable? [this]))
 ```
 
-Concrete implementations in the jar — `KVSql`, `KVDynamo`, `KVCassandra` / `KVCassandra2` / `KVCassandra3`, `KVMem`, `KVHotRod`, `KVCluster` — each `implement datomic.kv_store.KVStore`.
+Concrete implementations that directly `implement datomic.kv_store.KVStore` (confirmed in disassembled bytecode): `KVSql`, `KVMem`, `KVDynamo`, `KVHotRod`, and the Cassandra drivers `KVCassandra`, `KVCassandra2`, `KVCassandra3` — all seven present in the peer jar (the Cassandra v2/v3 classes also ship in the transactor jar). `KVCluster` is a layer *above* raw KV: it implements `datomic.cluster.ClusteredStore` (the value/reference layer, next subsection) and composes shards — it is **not** itself a `KVStore`.
 
 Note there is **no separate compare-and-swap method**: CAS is folded into `put`. Each backend realizes it with whatever conditional-write primitive it has, gated on the entry's `rev`. In the SQL store that is literally `update datomic_kvs set rev=?, map=?, val=? where id=? and rev=?` (the `UPDATE ... WHERE id = ? AND rev = ?` shown in §2 below), so the conditional compares the revision, not the old payload bytes; a `put` that updates zero rows lost the race.
 
-A thin stack sits **above** this raw byte store. `datomic.cluster/ClusteredStore` adds value/reference semantics on top of `KVStore` — `create-val`/`get-val` for immutable, content-keyed segments and `set-ref`/`get-ref` for the small set of mutable named references (the "root pointer") — with `datomic.cluster-stack/ValStoreOnKvCache` providing the L1/L2 caching tiers. This is the concrete realization of the "mostly-immutable segments + a small mutable root" model: *segments* are vals, the *root* is a ref.
+A thin stack sits **above** this raw byte store. `datomic.cluster/ClusteredStore` adds value/reference semantics on top of `KVStore` — `create-val`/`get-val` for immutable, content-keyed segments and `set-ref`/`get-ref` for the small set of mutable named references (the "root pointer") — with `datomic.cluster-stack/ValStoreOnKvCache` providing an in-process value/reference cache over the raw KV store. This is the concrete realization of the "mostly-immutable segments + a small mutable root" model: *segments* are vals, the *root* is a ref. (This caching layer is distinct from the Peer's L1/L2/L3 *object-cache* stack in §4, which is what "L1/L2/L3" refers to throughout this document.)
 
 By keeping the bottom contract this narrow, Datomic remains entirely backend-agnostic. The query engine and indexing system function the same way regardless of the underlying driver.
 
+### The minimal implementation: `KVMem`
+The contract is small enough that an in-memory map satisfies it — which is exactly what the `mem://` backend is. In the jar, `datomic.kv-mem/KVMem` holds a single field `m` and implements all four methods:
+
+```clojure
+;; datomic.kv-mem (sketch) — the whole store is one mutable map
+(deftype KVMem [m]            ; m: a java.util.concurrent.ConcurrentMap of id -> {id rev map val}
+  KVStore
+  (put    [_ v]   (put-when m v))   ; conditional insert/replace gated on rev (the CAS)
+  (get    [_ k _] (.get m k))
+  (delete [_ k _] (.remove m k))
+  (close  [_]     nil))
+```
+
+Two things make this work — and they are the same two everywhere:
+
+* **A mutable, shared cell.** The *values* are plain Clojure maps (`{id rev map val}`), but the *store* must be a map inside a mutable, atomic container so a `put` is observable by a later `get`. `KVMem` uses a `ConcurrentMap`; an `atom` wrapping a persistent map would do equally well. A bare immutable map cannot be a `KVStore` — it has no identity-preserving mutation.
+* **CAS folded into `put`.** The `put-when` helper conditionally writes only if the stored `rev` still matches — the in-memory analog of `... WHERE id=? AND rev=?`, provided by `ConcurrentMap.replace` (or `compare-and-set!` on an atom).
+
+`KVMem` clears §1's CAS, strong-consistency, and linearizability requirements **trivially**, because a single in-process container is linearizable for free. What it cannot provide is *sharing across JVMs* or *durability* — so it backs testing and ephemeral in-memory databases, not production peer clusters (the same single-process trade-off discussed in §3).
+
 ### Required Properties of a Backing KV Store
-For Datomic to function correctly and guarantee ACID transactions, any backing storage driver or database must satisfy the following five properties:
+This list is a synthesis of what a backend must provide, not a verbatim Datomic spec. Properties 1–4 are **correctness** requirements for ACID transactions; property 5 is a **performance** requirement (the engine still works without it, just slowly).
 
 1. **Atomic Compare-And-Swap (CAS)**:
    * *Mandatory Requirement*: The store must support atomic, conditional single-key writes.
    * *Purpose*: Datomic relies on CAS to commit transaction roots atomically (`id='root'`) and to handle failover leases for transactor leadership.
 2. **Strong Consistency for Metadata**:
-   * The store must guarantee Read-After-Write consistency for keys in the `"meta"` category.
+   * The store must guarantee read-your-writes (read-after-write) consistency for keys in the `"meta"` category.
    * *Purpose*: If a Peer or transactor reads a stale root pointer, it can lead to transaction conflicts or stale query snapshots. Datomic can tolerate eventual consistency for segments in the `"index"` and `"log"` categories (as they are immutable: each is written once under a never-reused key), but metadata keys must be strongly consistent.
 3. **Blob Support**:
    * The store must handle binary payloads (compressed segment blobs) ranging from **10KB to 1MB** efficiently.
@@ -55,7 +212,7 @@ For Datomic to function correctly and guarantee ACID transactions, any backing s
 A SQL database is one concrete backend for the contract in §1. Datomic uses it purely as a key-value store: all intelligence stays in the Transactor and Peers, and SQL sees only opaque keyed blobs.
 
 ### SQL Schema
-Instead of mapping domain models to tables, Datomic creates a single key-value table (PostgreSQL types shown; other backends use equivalents such as `CLOB`/`BLOB`):
+Instead of mapping domain models to tables, Datomic creates a single key-value table (Postgres types shown; other backends use equivalents such as `CLOB`/`BLOB`):
 
 ```sql
 CREATE TABLE datomic_kvs (
@@ -70,7 +227,7 @@ CREATE TABLE datomic_kvs (
 * **`id`**: The unique segment identifier and sole primary key. Datomic generates these (UUID-style opaque strings); the data category (`"index"` for B-tree nodes, `"log"` for transaction logs, `"meta"` for database metadata) is a convention encoded into the key, not a separate column.
 * **`rev`**: A revision counter used as the basis for atomic compare-and-swap on a key.
 * **`map`**: Metadata associated with the entry.
-* **`val`**: Compressed, serialized binary payload of the segment (encoded in Transit or Fressian).
+* **`val`**: Compressed, serialized binary payload of the segment (encoded in Fressian, Datomic's internal serialization format).
 
 ### Key-Value Operations
 The `KVStore` operations from §1 map directly onto SQL, all keyed by the single `id` column (these are the literal statements emitted by `datomic.sql`):
@@ -80,17 +237,21 @@ The `KVStore` operations from §1 map directly onto SQL, all keyed by the single
 * **`delete`**: `DELETE FROM datomic_kvs WHERE id = ?;`
 * **`close`**: releases the JDBC connection (no statement).
 
+`datomic.sql` emits the `insert` and `update` as two *distinct* statements (there is no `ON CONFLICT` upsert); a given `put` issues just one of them — `insert` to create a key, the rev-gated `update` to overwrite one. No read-before-write is needed to choose: the caller already knows which case it is, because immutable segments are always written under a fresh, content-derived key (§1's `create-val`) while only the small set of mutable references is ever overwritten (`set-ref`).
+
 ### Concurrency and the Root Pointer
 Datomic coordinates transactions via a single **Root Pointer** stored under a well-known `meta` key (e.g., `id='root'`).
 When a transaction is processed:
-1. The Transactor durably appends the transaction to the **log** and incorporates the new datoms into its in-memory **memory index** (novelty). It does **not** write new persistent index B-tree segments on every transaction — those are produced later, in batches, by periodic background **indexing jobs** (see §4). Index and log segments, once written, are immutable.
+1. The Transactor durably appends the transaction to the **log** and incorporates the new datoms into its **memory index** (novelty). It does **not** write new persistent index B-tree segments on every transaction — those are produced later, in batches, by periodic background **indexing jobs** (see §4). Index and log segments, once written, are immutable.
 2. It attempts to atomically swing the database's root pointer from the old state to the new state using **Optimistic Concurrency Control (OCC)** — the SQL realization of the rev-gated `put` (the CAS folded into `KVStore/put`, §1). The conditional update is gated on the entry's `rev` counter, not on comparing the old payload bytes:
    ```sql
    UPDATE datomic_kvs 
-   SET val = :new_root_bytes, rev = :new_rev 
+   SET val = :new_root_bytes, rev = :new_rev, map = :new_map 
    WHERE id = 'root' AND rev = :old_rev;
    ```
 3. If this query updates **1 row**, the transaction commits. If it updates **0 rows**, it means the Transactor has lost its High Availability lease (e.g., a standby transactor took over; see *Transactor High Availability* below). The Transactor does *not* retry; it steps down and aborts the transaction. It is the application/peer's responsibility to retry the transaction against the new active Transactor.
+
+   This is the *root-pointer* CAS internal to the Transactor's commit; it fails only on failover, because the active Transactor is the sole writer of the root. It is **not** how an ordinary application transaction fails. A Peer does **not** submit against a basis-t that the Transactor checks — the Transactor applies the submitted datoms to its *current* state regardless of how stale the Peer's read was. An application-level conflict surfaces only when the transaction's *own* precondition fails: a `:db/cas` assertion whose expected value no longer holds, or a transaction function that throws. That is the conflict a Peer catches and retries.
 
 ### Transactor High Availability (HA)
 Transactor leadership is coordinated using SQL-level leases. Transactors heartbeat their status using Compare-And-Swap (CAS) updates against a well-known `meta` key, gated on its `rev` counter:
@@ -100,6 +261,9 @@ SET val = :heartbeat_with_my_id, rev = :new_rev
 WHERE id = 'transactor-lease' 
   AND (rev = :old_rev OR rev IS NULL);
 ```
+
+### Indexing: Novelty → Segments
+The two preceding subsections leave a gap: per transaction the Transactor only appends to the log and grows the in-memory novelty — so where do the persistent B-tree segments (the ones queries traverse in §4–§5) come from? From **background indexing jobs**. When accumulated novelty crosses a threshold (or on a periodic/explicit trigger), the Transactor merges novelty into the durable index tiers: it writes **new immutable segments** via `put` (new keys, never overwriting old ones), then CAS-swings the index root — the same rev-gated root update as above — to publish the new tree. Old segments become unreachable and are eventually reclaimed. This is the mechanism that connects the write path (§2) to the read path (§4–§5): transactions feed novelty, indexing turns novelty into the segments Peers query. Indexing cadence is a tunable that trades **write amplification** (frequent indexing rewrites more segments) against **Peer/Transactor memory** (infrequent indexing lets novelty grow).
 
 ---
 
@@ -131,14 +295,14 @@ Reads and writes take different paths — this asymmetry is what lets queries ru
 
 * **Reads go Peer → storage directly.** Each Peer holds its own connection to the storage backend and pulls index segments straight from it by key (`KVStore/get` → `ClusteredStore/get-val`, §1). The **transactor is not in the read path**; a read only touches storage on a cache miss, through the L1 → L2 → L3 stack shown below.
 * **Writes go Peer → transactor.** A Peer submits a transaction to the single-writer transactor, which serializes it, writes the log and (eventually) index segments to storage, and CAS-swings the root (§2).
-* **Novelty is pushed transactor → all Peers.** On each commit the transactor broadcasts the transaction's datoms to every connected Peer, which folds them into its in-memory **memory index** (novelty). This keeps each Peer's `db` value current without re-reading storage.
+* **Novelty is pushed transactor → all Peers (Datomic Pro).** On each commit the transactor broadcasts the transaction's datoms — over its messaging transport (ActiveMQ Artemis, shipped in the distro) — to every connected Peer, which folds them into its **memory index** — also called **novelty**: the set of datoms committed since the last indexing job, not yet in the persistent tree. This keeps each Peer's `db` value current without re-reading storage. This live push is **Pro-specific**: **Datomic Cloud** has no peer broadcast — its query nodes pull transaction-log updates from storage (DynamoDB) instead.
 
 **A Peer does not load the complete index.** Two things live in a Peer, and only one is bounded by total data size — and it isn't:
 
 * The **persistent index** is fetched **lazily and partially**: a query navigates the covering tree from its root and pulls only the few segments it traverses, into a **bounded LRU object cache** (configurable, e.g. `datomic.objectCacheMax`). Cold segments come from storage on first touch, then stay cached; different Peers cache different working sets.
-* The **in-memory novelty** is held in full, but it is only the datoms since the last indexing job (emptied periodically by background indexing), so it is bounded by indexing cadence, not by database size.
+* The **in-memory novelty** is held in full, but it is only the datoms since the last indexing job (emptied periodically by background indexing, §2), so it is bounded by indexing cadence, not by database size. The bound is soft: under sustained write load, if indexing falls behind, novelty grows and raises Peer/Transactor heap pressure — which is why indexing cadence is a tunable (§2) and why ingest is sometimes throttled to let indexing catch up.
 
-A `db` value is thus a cheap immutable snapshot — a pointer to a persistent index root (a basis-t) plus the current novelty — and a Peer's footprint is roughly `novelty + hot working set`. This is why a Peer can query a database far larger than its heap: it never needs the whole index resident.
+A `db` value is thus a cheap immutable snapshot — a pointer to a persistent index root (a **basis-t**, the transaction index `t` the snapshot is anchored at) plus the current novelty — and a Peer's footprint is roughly `novelty + hot working set`. This is why a Peer can query a database far larger than its heap: it never needs the whole index resident.
 
 > **Where these segments come from.** The persistent index trees are produced by Datomic's periodic background **indexing jobs**, which empty the accumulated memory index (novelty) and merge it into the durable index tiers. Between indexing jobs, recent datoms are served from the in-memory novelty plus the log, not from these segments. The traversal below assumes a query reaching into that already-indexed history.
 
@@ -155,13 +319,17 @@ A `db` value is thus a cheap immutable snapshot — a pointer to a persistent in
   [ SELECT val FROM datomic_kvs WHERE id = ? ]
 ```
 
+The **L2 (Memcached) tier is optional and Pro-specific**. For the `dev` protocol and Datomic Local (§3) there is no shared L2 — the stack collapses to **L1 (heap object cache) → L3 (local disk)**. **Datomic Cloud** does not use Memcached at all; it caches on SSD-backed query nodes over DynamoDB/S3/EFS. (This document otherwise describes Datomic **Pro**, the architecture in the inspected jar.)
+
 ### Execution Steps
+Datomic maintains four covering indexes, each a sorted B-tree over the same datoms in a different component order: **EAVT** (row-like, entity-first), **AEVT** (column-like, attribute-first), **AVET** (value lookups; maintained for `:db/index`/`:db/unique` attributes), and **VAET** (reverse-reference, maintained for `:db.type/ref` attributes). The planner picks whichever fits the clause's bound components.
+
 1. **Index Selection**: The query planner analyzes the query clauses. For instance, `[?e :user/email "alice@example.com"]` has the attribute and value bound, prompting the planner to select the **`AVET` (Attribute-Value-Entity-Tx)** index.
 2. **Root Fetch**: The Peer loads the root segment of the selected index. Since root nodes are highly read, they are almost always warm in the Peer's local L1 heap memory.
 3. **B-tree Traversal**: The Peer traverses down the B-tree:
    * It binary searches the root segment keys to locate the pointer/UUID of the appropriate child segment.
    * It fetches the child segment (from L1, L2, or L3 SQL store) and searches it.
-   * Because Datomic's index trees have a high branching factor (~1000), the tree depth is small (3 or 4 levels), requiring very few segment fetches even for massive datasets. Leaf segments typically hold a few thousand datoms each.
+   * Because Datomic's index trees have a high branching factor (~1000), the tree depth is small (3 or 4 levels), requiring very few segment fetches even for massive datasets. Leaf segments typically hold from a few thousand up to tens of thousands of datoms each.
 4. **Leaf Processing**: Once the leaf segment is loaded, it is parsed into memory. Datomic deserializes segments into flattened, primitive arrays (to avoid JVM object overhead, achieving a contiguous, cache-friendly layout). The Peer runs a fast binary search or scan over the arrays to locate matching datoms and extract the Entity ID `?e`.
 5. **Local Joins**: Subsequent clauses (e.g. joining `?e` to look up `:user/name`) are resolved by traversing the `EAVT` index in the same manner. Joins are performed entirely in-memory using merge-joins or index-nested-loop joins inside the Peer.
 
