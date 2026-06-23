@@ -199,10 +199,15 @@ Two canonical resources show the range:
 Because every resource is tuples, every resource is **content-addressed** (the
 geometry's base `B` is the content-hash identity of *any* resource), so resources
 have stable identity, dedup, and provenance for free — modulo the implementation
-status noted under *Geometry*. The medium is thus **homoiconic and reflective**:
-data, channels, and code coexist as tuples in one space, each realizable by some
-interpreter. A dao.stream is special only in being *both* a transport for tuples
-*and* a resource.
+status noted under *Geometry*. Gauge-invariant content-addressing applies to
+**self-contained** resources (an AST, a schema, a dao.stream descriptor), whose
+references resolve within the resource; a coordination datom that carries a
+*cross-stream* reference is pinned by that stamped ref, not by a gauge-invariant
+hash, and so does not get dedup/stable-identity for free (see `datom-spec.md`,
+Merkle property > hashing never crosses a stream boundary). The medium is thus
+**homoiconic and reflective**: data, channels, and code coexist as tuples in one
+space, each realizable by some interpreter. A dao.stream is special only in being
+*both* a transport for tuples *and* a resource.
 
 ## Typed Streams and Conformance
 
