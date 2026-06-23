@@ -135,18 +135,36 @@ Components (for canonical 5-tuples):
      Positive IDs are permanent IDs assigned by DaoDB after a successful transaction.
      Reserved range: 0-1024 for system entities (always positive).
      User entities start at 1025 (positive). While local/uncommitted, they are represented as negative counterparts (e.g., -1025).
-     On migration, the zero basis changes but entity IDs remain unchanged (relative offsets).
-     Global form: 128-bit [namespace:offset] where namespace is 64-bit, offset is 64-bit.
-     This mirrors IPv6's design: 64-bit network prefix + 64-bit interface ID.
-     Namespace 0 is local. Migrated datoms receive a non-zero 64-bit namespace.
-     The 64-bit namespace space supports billions of nodes, each with 64-bit entity space.
-     Semantic identity uses unique attributes (e.g., :person/email).
-     Uniqueness is namespace-scoped: :db/unique enforces uniqueness locally, and within
-     the assigned namespace after migration. Cross-namespace correlation uses queries.
-     Entity ID is a local gauge (coordinate choice for a specific DaoDB).
-     The gauge-invariant identity is the content hash; e is a local cache index, never a portable reference.
-     Different DaoDBs assign different e to the same logical fact.
-     Migration is a gauge transformation: same invariant content, new local coordinates.
+     Entity ID is a local gauge: a coordinate choice for a specific stream, never a
+     portable reference. The stream is the namespace — a stream's identity (its
+     kickoff hash, see CONTENT ADDRESSING > Streams) is its namespace. The
+     gauge-invariant identity is the content hash; e is only a local cache index, so
+     different streams assign different e to the same logical fact.
+     Global form: a 128-bit two-element vector [namespace offset] (namespace 64-bit,
+     offset 64-bit), mirroring IPv6's network-prefix + interface-id split. (Written
+     "namespace:offset" by analogy to IPv6; that shorthand denotes the vector, not
+     EDN keyword syntax.) The namespace
+     value is the authoring stream's identity (derived from its kickoff hash):
+     globally unique and self-describing, so the same entity carries the same
+     stamped id in every reader's frame and cross-stream value-joins by equality
+     hold. It addresses streams, not nodes — a node hosts many. The bare-offset
+     form, with the namespace elided to 0 ("this stream"), is the intra-stream
+     storage compaction of that global form: inside its authoring stream a stream's
+     own namespace is implied, so only the offset is stored. "Relative to self" is
+     an encoding convention, not the nature of the namespace field.
+     Stamp on crossing: within its authoring stream an e is the bare offset. When
+     datoms from several streams are combined (the fold behind a query), the fold
+     stamps each e to [namespace offset] using its authoring stream's namespace. A
+     writer never stamps: to reference another stream's entity it copies the stamped
+     id it observed from such a read. Bare offsets exist only inside their authoring
+     stream's own log; an e appearing as a value in another stream is always stamped.
+     Migration relocates a stream (its log) to another node; its namespace (kickoff
+     hash) and offsets travel with it unchanged, so nothing is re-stamped. The only
+     crossing of the namespace boundary is a cross-stream reference, resolved by the
+     fold above, not by migration.
+     Semantic identity uses unique attributes (e.g., :person/email). Uniqueness is
+     namespace-scoped: :db/unique enforces uniqueness within a stream, and within the
+     assigned namespace once stamped. Cross-namespace correlation uses queries.
   a: Attribute. Namespaced keyword.
   v: Value. Inline canonical primitive (<= 32 bytes) or 32-byte content hash.
      Entity references and compound values appear here as hashes.
@@ -208,7 +226,19 @@ d5-specific principles:
 
 Merkle property (d5):
   Entity hash = hash(sorted (a, encode(v)) byte pairs).
-  v is already a content hash whenever it is a ref or compound value (see CANONICAL ENCODING).
+  In storage a ref's v is the bare stream-local offset (gauge-dependent); the hasher
+  first resolves it to the referent's content hash, so the hash stays gauge-invariant
+  (yin.content/resolve-value does this). With that resolution v is a content hash
+  whenever it is a ref or compound value (see CANONICAL ENCODING).
+  Hashing never crosses a stream boundary. Resolution applies only when the referent
+  is in the hashing context (the same content-addressed unit's hash-cache; see
+  yin.content/compute-content-hashes). A reference whose referent is outside that
+  unit — including an already-stamped cross-stream [namespace offset] — is hashed as
+  its literal value, never by reading another stream. So content hashes are
+  gauge-invariant within a content-addressed unit (AST), while a cross-unit reference
+  is pinned by the stamped id rather than the referent's content hash. This is
+  consistent with content addressing applying to self-contained persisted AST units,
+  not to ephemeral cross-stream coordination state.
   No recursion at the entity layer; recursion lives at the value layer.
   Same structure -> same root hash, regardless of entity ID assignment.
 
@@ -234,6 +264,8 @@ Content addressing applies to AST (permanent code), not to ephemeral runtime sta
 # d5: NAMESPACES
 
 Namespaces scope entity IDs and uniqueness constraints. This is a d5-specific concern (d3 has no e; the question does not arise there).
+
+Each stream is a namespace. A stream's identity (its kickoff hash) names its namespace, so the bare offsets a stream stores are scoped by it. Folding several streams (e.g. a DaoSpace query) stamps each datom with its stream's namespace before indexing, so stream-local offsets never collide.
 
 Cross-Namespace Queries:
   Namespaces are treated as separate databases in queries (explicit inputs).

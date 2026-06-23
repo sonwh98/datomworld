@@ -7,6 +7,7 @@
 - `docs/design/dao.space.metaphors.md` — visual and biological metaphors for the space
 - `docs/design/dao.space.discrete-to-continuous.md` — the spectral-triple realization (gauge groupoid, Dirac operator, curvature)
 - `docs/design/dao.space.locality.md` — physics ↔ distributed-computing correspondence (relativity, descent, consistency models, CAP)
+- `docs/design/dao.flow.md` — coordination workflow protocol
 
 ## Overview
 
@@ -90,31 +91,38 @@ questions **out**. See *API* below.
 (let [space (dao.space/open! "work-queue")            ; handle to the collection
       log   (ds/open! {:type :dao-stream :space space})] ; my own member write log
 
-  ;; 1. Query: "What work is available?"
-  (dao.space/q '[:find ?id ?task
-                 :where [?id :work/status :todo]
-                        [?id :work/task ?task]]
+  ;; 1. Query: "What work is available?" (?work is a stamped id when read back)
+  (dao.space/q '[:find ?work ?task
+                 :where [?work :a :work/posted]
+                        [?work :work/task ?task]
+                        (not [_ :work/claims ?work])]
     space)
 
-  ;; 2. Claim work (write a fact — append a datom frame to my log)
+  ;; 2. Claim work — append a NEW group in my log that REFERENCES the work.
+  ;;    Entity ids are stream-local, so I never write the producer's :db/id;
+  ;;    I carry ?work (the stamped id) as a value (see "Entity Identity Is
+  ;;    Stream-Local").
   (ds/put! log
-    {:db/id work-id
-     :work/status :in-progress
-     :work/worker my-id})
+    {:db/id (random-id)            ; my own local handle
+     :a :work/claim
+     :work/claims work             ; stamped ref to the producer's entity
+     :work/by my-id
+     :work/at (now)})
 
-  ;; 3. Complete work (update a fact)
+  ;; 3. Complete work — append another group referencing the work.
   (ds/put! log
-    {:db/id work-id
-     :work/status :completed
+    {:db/id (random-id)
+     :a :work/result
+     :work/for work
      :work/result result}))
 ```
 
 ### What Happens Internally
 
 ```
-Agent 1 writes → its member log appends [e :work/status :in-progress] (datom frame to file)
-Agent 2 queries → dao.space/q folds all member logs into a dao.db → returns matching results
-Agent 3 queries → re-folds the (now-larger) member logs → sees Agent 1's update
+Agent 1 writes → its member log appends a [e :a :work/claim ...] group (datom frames to file)
+Agent 2 queries → dao.space/q stamps each log's e to [stream-ns offset], folds into a dao.db → returns matches
+Agent 3 queries → re-folds the (now-larger) member logs → sees Agent 1's group
 ```
 
 A write lands on the writer's own member log. If that log is strict, the append is
@@ -304,6 +312,43 @@ values they have in common.
   space {:inputs {'$ledger "ledger" '$sensors "sensors"}})  ; bind names → member logs
 ```
 
+## Entity Identity Is Stream-Local
+
+Entity IDs are **local to a member log, not to the space.** This is the gauge
+picture taken literally: `e` is a fiber coordinate that never crosses a stream
+boundary as a reference (see `datom-spec.md`, d5 > Components > `e`). The
+consequences shape every coordination pattern.
+
+- **The stream is the namespace.** A stream's identity (its kickoff hash) names
+  its namespace. Inside a stream only the bare 64-bit offset is stored — cheap,
+  fixed-size, no UUID — and the namespace is implied by *which* stream you read.
+- **Stamp on crossing.** The instant an `e` leaves its authoring stream — folded
+  for a `q`/`match`, or referenced as a `v` in another stream — it is stamped to
+  `[stream-ns offset]`. You pay the namespace cost only at the boundary.
+- **Fold stamps, never unifies.** `dao.space/q` stamps each member log's datoms
+  with its stream namespace, then transacts. Two logs' bare offset `1025` become
+  distinct entities, never merged. "Same logical entity across streams" is a
+  **read-side** concern, not a storage one.
+- **`:db/id` is intra-stream only.** Never coordinate by writing another stream's
+  `:db/id`. Coordinate across streams by **shared value** — type matching
+  (`[?e :a <type>]`), Datalog joins on common values, or a read-side equivalence
+  relation (group-by a shared key). Cross-group *references* carry the stamped id.
+
+Two idioms for advancing state across agents; **Style A is preferred** (it is the
+`dao.flow` idiom, see `docs/design/dao.flow.md`):
+
+- **Style A — append a new typed group that references the prior one.** No entity
+  is mutated across streams; the state machine is a chain of immutable groups
+  linked by stamped references, and "current state" is a read-side fold of the
+  chain. Recommended.
+- **Style B — tag each group with a shared value key and reconcile on read.**
+  Both agents write their own entities carrying e.g. `:work/id "W1"`; a reader
+  groups by `:work/id` and reconciles (latest-by-`t`, sum, conflict). Also valid.
+
+The **recommended idiom** (not a hard rule) is that each entity has a single
+authoring stream: evolution is either single-writer in one stream, or modeled as
+new typed groups (Style A). Cross-stream stays reference-only and read-only.
+
 ## Geometry: Streams as Gauges over Content
 
 ### Mathematical summary
@@ -358,7 +403,7 @@ values, not entity IDs (see *Querying Across Streams*): joins live in the base,
 because entity IDs are fiber coordinates that do not commute across streams.
 
 The gauge group `G` is concrete, not vague: per `datom-spec.md` an entity ID is a
-128-bit `[namespace:offset]` value, so `G` is generated by zero-basis shifts on
+128-bit `[namespace offset]` value, so `G` is generated by zero-basis shifts on
 the 64-bit offset (migration rebases entity IDs) together with relabelings of the
 64-bit namespace. Since the two components act independently, this is a direct
 product (not semidirect). Its action on a fiber permutes the local-coordinate
@@ -438,42 +483,51 @@ operational rather than design-level.
 ### Pattern 1: Work Queue
 
 ```clojure
-;; Agents cooperate via a shared work queue
+;; Agents cooperate via a shared work queue. Entity IDs are stream-local, so an
+;; agent never writes another stream's :db/id (see "Entity Identity Is
+;; Stream-Local"). State advances by APPENDING a new typed group that references
+;; the work (Style A); "current state" is a read-side fold over the groups that
+;; reference it. No entity is mutated across streams.
 
 (defn producer [space]
   (let [log (ds/open! {:type :dao-stream :space space :name "producer"})]
-    ;; Emit work
+    ;; Post a work group. :db/id is the producer's own local handle; readers see
+    ;; it stamped as [producer-ns offset].
     (ds/put! log
       {:db/id (random-id)
-       :work/task "process payment"
-       :work/status :todo})))
+       :a :work/posted
+       :work/task "process payment"})))
 
 (defn worker [space worker-id]
   (let [log (ds/open! {:type :dao-stream :space space :name worker-id})]
     (loop []
-      ;; Find available work
-      (let [work (dao.space/q '[:find ?id ?task
-                                :where [?id :work/status :todo]
-                                       [?id :work/task ?task]]
+      ;; Find posted work that nothing has claimed yet (folded space stamps ids).
+      (let [work (dao.space/q '[:find ?work ?task
+                                :where [?work :a :work/posted]
+                                       [?work :work/task ?task]
+                                       (not [_ :work/claims ?work])]
                    space)]
         (when (seq work)
-          ;; Claim work
-          (let [[id task] (first work)]
-            (ds/put! log
-              {:db/id id
-               :work/status :in-progress
-               :work/assigned-to worker-id})
+          (let [[work task] (first work)]    ; ?work is the stamped [producer-ns offset]
+            ;; Claim: append a NEW group in MY log that references the work.
+            (ds/put! log {:db/id (random-id) ; my own local handle
+                          :a :work/claim
+                          :work/claims work  ; stamped ref to the producer's entity
+                          :work/by worker-id
+                          :work/at (now)})
 
-            ;; Do work
+            ;; Complete: append another group referencing the work.
             (let [result (process task)]
-              ;; Emit result
-              (ds/put! log
-                {:db/id id
-                 :work/status :completed
-                 :work/result result})))
-
-          ;; Repeat
+              (ds/put! log {:db/id (random-id)
+                            :a :work/result
+                            :work/for work
+                            :work/result result})))
           (recur))))))
+
+;; Read-side: "done" work = posted work that has a :work/result group referencing
+;; it. The chain of groups is the state machine; no :db/id crossed a stream.
+;; (Style B is also valid: tag each group with a shared :work/id key and reconcile
+;;  by latest-by-t on read.)
 ```
 
 ### Pattern 2: Stigmergic Search (Ant Colony Optimization)
@@ -519,25 +573,31 @@ operational rather than design-level.
 (defn watchdog [space timeout-seconds]
   (let [log (ds/open! {:type :dao-stream :space space :name "watchdog"})]
     (loop []
-      ;; Query: "Find work that's been in-progress too long"
-      (let [stuck (dao.space/q '[:find ?id ?started ?worker
-                                 :where [?id :work/status :in-progress]
-                                        [?id :work/assigned-to ?worker]
-                                        [?id :work/started-at ?started]
-                                        [(elapsed-seconds ?started) ?elapsed]
+      ;; Query: work claimed too long ago with no result group yet.
+      ;; ?work is the stamped id of the posted work; ?claim is the claim group.
+      (let [stuck (dao.space/q '[:find ?work ?claimed-at ?worker
+                                 :where [?claim :a :work/claim]
+                                        [?claim :work/claims ?work]
+                                        [?claim :work/by ?worker]
+                                        [?claim :work/at ?claimed-at]
+                                        (not [_ :work/for ?work])       ; no result yet
+                                        [(elapsed-seconds ?claimed-at) ?elapsed]
                                         [(> ?elapsed ?timeout)]]
                     space)]
 
-        ;; Reassign stuck work
-        (doseq [[id started worker] stuck]
+        ;; Reassign — append a NEW group REFERENCING the work, never mutate the
+        ;; producer's :db/id across logs (entity ids are stream-local).
+        (doseq [[work claimed-at worker] stuck]
           (ds/put! log
-            {:db/id id
-             :work/status :todo
-             :work/assigned-to nil
+            {:db/id (random-id)
+             :a :work/reopened
+             :work/reopens work             ; stamped ref to the posted work
              :work/reassigned-from worker
-             :work/reassignment-reason :timeout}))
+             :work/reason :timeout}))
 
-        ;; Check again soon
+        ;; A worker treats work whose latest lifecycle group is :work/posted or
+        ;; :work/reopened as claimable again — reconciliation is the read-side
+        ;; interpreter's job (see "Entity Identity Is Stream-Local").
         (Thread/sleep (* timeout-seconds 1000))
         (recur)))))
 ```
@@ -694,17 +754,22 @@ eventually durable; a future `flush!`/`sync!` would make this immediate).
   the *set* of facts, not an interleaving
 - Cross-log causality is preserved via timestamps in tuples (application's responsibility)
 
-**Example: two agents updating the same entity (in separate logs)**
+**Example: two agents asserting about the same logical entity (in separate logs)**
 
 ```clojure
+;; Entity IDs are stream-local, so a shared :db/id does NOT name one entity across
+;; logs. Coordinate on a shared VALUE key instead (Style B; see "Entity Identity
+;; Is Stream-Local").
+
 ;; Agent A, in log-a, at t=100
-(ds/put! log-a {:db/id 42 :counter 1})
+(ds/put! log-a {:db/id (random-id) :counter/id "c1" :counter 1})
 
 ;; Agent B, in log-b, at t=101
-(ds/put! log-b {:db/id 42 :counter 2})
+(ds/put! log-b {:db/id (random-id) :counter/id "c1" :counter 2})
 
-;; Both facts are in the space; a fold sees both.
-;; Reconciliation is application-defined (last-write-wins by t? sum? conflict?).
+;; The fold stamps each log's ids, so these are two distinct entities that share
+;; :counter/id "c1". A read-side interpreter groups by :counter/id and reconciles
+;; (last-write-wins by t? sum? conflict?) — reconciliation is application-defined.
 ```
 
 ### Atomicity
@@ -813,13 +878,37 @@ log's** responsibility (a strict member conforms inside its own `put!`).
     log))
 
 ;; q / match fold every member log's datoms into a fresh dao.db, then query it.
-;; No global cursor, no merge: transacting datoms commutes, so order does not matter.
+;; Entity ids are stream-local, so each log's datoms are STAMPED with the log's
+;; stream namespace before transacting — otherwise two logs' bare offset 1025 would
+;; collide. The fold stamps; it never unifies. "Same logical entity across streams"
+;; is a read-side concern (type match / Datalog join / equivalence on shared
+;; values), not something the fold reconciles. No global cursor, no merge:
+;; transacting stamped datoms commutes, so order does not matter.
+(defn- stream-ns [log] ...)   ; the log's namespace = its kickoff hash
+
+(defn- stamp
+  "Rewrite a datom's e (and any bare-offset ref in v) to [ns offset]. Schema-aware:
+   ref-valued attrs are read from the stream's schema, so only ref v's are stamped.
+   Already-stamped refs (values that point into another stream) are left as-is."
+  [ns datom] ...)
+
 (defn- fold-db [^DaoSpace space as-of]
-  (let [datoms (mapcat #(ds/->seq nil %) (vals @(.-members space)))]
+  (let [datoms (mapcat (fn [log]
+                         (let [ns (stream-ns log)]
+                           (map #(stamp ns %) (ds/->seq nil log))))
+                       (vals @(.-members space)))]
     (:db-after (db/transact (in-mem/empty-db) (cond->> datoms as-of (filter #(<= (:t %) as-of)))))))
 
 (defn q [query space & {:keys [as-of inputs]}] (db/q query (fold-db space as-of)))
 ```
+
+**Implementation status (open decision).** The spec commits to `[namespace offset]`
+as the stamped form, but `dao.db` allocates integer eids only — so the stamped
+(vector) eids `stamp` produces cannot be transacted as-is today. Two paths, not yet
+decided: (a) teach `dao.db` namespaced eids as first-class in EAVT/AEVT indexing
+(faithful, but a core change), or (b) have `stamp` map each `[namespace offset]` into
+a deterministic ephemeral per-fold integer (same mapping in `e`- and `v`-positions so
+equality joins hold; the folded `dao.db` is throwaway per read anyway). See *Deferred*.
 
 ## Use Cases
 
@@ -870,29 +959,38 @@ Note: `dao.space/q` returns a **set** of tuples (per `dao.db/q`), not a vector.
   (testing "put to a member log, read back via q"
     (let [space (dao.space/open! "test")
           log   (ds/open! {:type :dao-stream :space space :name "a"})]
-      (ds/put! log {:db/id 1 :work/status :todo})
+      ;; :db/id is the stream's own local handle; the fold stamps it, so queries
+      ;; bind the entity by a value, never by a literal bare offset.
+      (ds/put! log {:db/id (random-id) :work/id "w1" :work/status :todo})
       (is (= #{[:todo]}
-             (dao.space/q '[:find ?status :where [1 :work/status ?status]] space))))))
+             (dao.space/q '[:find ?status
+                            :where [?e :work/id "w1"] [?e :work/status ?status]] space))))))
 
 (deftest two-logs-aggregate-test
-  (testing "q and match range over every member log"
+  (testing "q and match range over every member log; stamping keeps stream-local ids distinct"
     (let [space (dao.space/open! "test")
           a     (ds/open! {:type :dao-stream :space space :name "a"})
           b     (ds/open! {:type :dao-stream :space space :name "b"})]
-      (ds/put! a {:db/id 1 :work/task "task-1"})
-      (ds/put! b {:db/id 2 :work/task "task-2"})
+      ;; Both logs use local offset 1025 (user range); the fold stamps each to
+      ;; [stream-ns 1025], so they remain two distinct entities (no collision).
+      (ds/put! a {:db/id 1025 :work/task "task-1"})
+      (ds/put! b {:db/id 1025 :work/task "task-2"})
       (is (= #{["task-1"] ["task-2"]}
              (dao.space/q '[:find ?task :where [?id :work/task ?task]] space)))
+      (is (= 2 (count (dao.space/q '[:find ?id :where [?id :work/task _]] space))))
       (is (= 1 (count (dao.space/match space [_ :work/task "task-1"])))))))
 
 (deftest as-of-test
   (testing "historical query returns state at point in time"
     (let [space (dao.space/open! "test")
           log   (ds/open! {:type :dao-stream :space space :name "a"})]
-      (ds/put! log {:db/id 1 :work/status :todo})         ; t0
-      (ds/put! log {:db/id 1 :work/status :in-progress})  ; t1
+      ;; In-place evolution is fine WITHIN one stream (same local handle, same log).
+      ;; The query still binds by value, since the fold stamps the handle.
+      (ds/put! log {:db/id 1025 :work/id "w1" :work/status :todo})         ; t0
+      (ds/put! log {:db/id 1025 :work/id "w1" :work/status :in-progress})  ; t1
       (is (= #{[:todo]}
-             (dao.space/q '[:find ?status :where [1 :work/status ?status]]
+             (dao.space/q '[:find ?status
+                            :where [?e :work/id "w1"] [?e :work/status ?status]]
                space {:as-of t0}))))))
 ```
 
@@ -903,15 +1001,18 @@ Note: `dao.space/q` returns a **set** of tuples (per `dao.db/q`), not a vector.
   (testing "producer-worker coordination over separate member logs"
     (let [space (dao.space/open! "work-queue")
           plog  (ds/open! {:type :dao-stream :space space :name "producer"})]
-      ;; Producer emits work to its own log
-      (dotimes [i 10] (ds/put! plog {:db/id i :work/status :todo}))
+      ;; Producer posts work to its own log (each :db/id is the producer's handle)
+      (dotimes [i 10] (ds/put! plog {:db/id (random-id) :a :work/posted :work/n i}))
 
-      ;; Worker reads via q, writes completions to its own log
-      (let [wlog (ds/open! {:type :dao-stream :space space :name "worker"})
-            todo (dao.space/q '[:find ?id :where [?id :work/status :todo]] space)]
-        (doseq [[id] todo] (ds/put! wlog {:db/id id :work/status :completed}))
-        (is (= 10 (count (dao.space/q '[:find ?id
-                                        :where [?id :work/status :completed]] space))))))))
+      ;; Worker reads posted work (stamped ids), appends a result group to ITS log
+      ;; that REFERENCES the work — no :db/id crosses a log.
+      (let [wlog   (ds/open! {:type :dao-stream :space space :name "worker"})
+            posted (dao.space/q '[:find ?work :where [?work :a :work/posted]] space)]
+        (doseq [[work] posted]
+          (ds/put! wlog {:db/id (random-id) :a :work/result :work/for work}))
+        (is (= 10 (count (dao.space/q '[:find ?work
+                                        :where [?r :a :work/result]
+                                               [?r :work/for ?work]] space))))))))
 ```
 
 ## Design Lessons from Linda and JavaSpace
@@ -1199,6 +1300,10 @@ By building on **append-only streams + Datalog queries**, tuple-space achieves:
 
 ## Deferred
 
+- Stamped-eid transactability: the fold produces `[namespace offset]` eids, but
+  `dao.db` allocates integer eids only. Decide between teaching `dao.db` namespaced
+  eids (first-class in EAVT/AEVT) or mapping each `[namespace offset]` to a
+  deterministic ephemeral per-fold integer (see *Reference Implementation Pattern*).
 - Explicit `flush!` / `sync!` on a member log for guaranteed read-your-writes
   (today `dao.stream.file` is eventually durable; a query may miss an unflushed write)
 - Cross-process member discovery / live visibility: a reader sees another process's

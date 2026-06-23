@@ -111,7 +111,11 @@ message abstraction.
 A datom is an n-tuple — a single fact, a sequence of values at named positions.
 There is no fixed arity or mandatory position schema.
 
-Related datoms sharing the same entity identity form a group. One of those
+Related datoms sharing the same entity identity form a group. A group is
+authored by one agent into one stream, so its datoms share that agent's
+stream-local entity id; cohesion comes from that shared id (not from atomic
+authoring — a group's datoms may land as several non-atomic put!s), and survives
+folding (see `dao.space.md`, "Entity Identity Is Stream-Local"). One of those
 datoms can be the type datom, which interpreters match on to identify work they
 can process.
 The remaining datoms are payload facts carrying the data the handler needs.
@@ -279,6 +283,22 @@ An agent may emit intent datoms:
 
 Other agents decide how those intents are executed or committed. An agent
 emits datoms. It does not directly mutate the world.
+
+### 4. Entity ids are stream-local; cross-group references are stamped
+
+Entity ids are local to the authoring stream (see `dao.space.md`, "Entity
+Identity Is Stream-Local"). Two consequences for `dao.flow`:
+
+- **Flow advances by appending typed groups, not by mutating across streams.** An
+  agent does not update another stream's entity in place; it writes a *new* group
+  with a new type value that references the prior one (e.g.
+  `[result-id :kernel/result-for effect-id t m]`). The flow chain is immutable
+  groups linked by references; "state" is reconstructed by reading the chain.
+- **A cross-group reference value is a stamped id.** An agent references another
+  group by the stamped `[stream-ns offset]` it observed when reading the folded
+  space, never by a bare offset. Bare offsets are valid only inside the group's
+  own authoring stream. Entities that genuinely evolve (e.g. KV-cache lifecycle)
+  have a single owning agent, so their mutations stay within one stream.
 
 ## First-Class Values
 
