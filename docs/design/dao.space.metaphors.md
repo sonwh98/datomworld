@@ -21,7 +21,7 @@ As datoms travel through the stream, they are like **pulses of light** moving up
 At the end of the stream sits the **Terminal**. This is the point of observation. It contains the **Interpreters**, which act as complex lenses or shutters. This is where the linear pulses are "measured."
 
 ### The Projection: The Classical Image
-As the $d_5$ pulses hit the Interpreter (the lens), they are projected onto one focal plane. Note the direction: a lens *selects and focuses*, it does not add dimensions. Interpretation is **measurement** — projecting the pulses onto one commutative "view" (an equivalence-class slice), which is a *classical shadow* of the full stream, not a richer object than it. What the lens produces is a reorganized, queryable image of the same facts:
+As the $d_5$ pulses hit the Interpreter (the lens), they are projected onto one focal plane. Note the direction: a lens *selects and focuses*, it does not add dimensions. Interpretation is **measurement** — projecting the pulses onto one commutative "view" (an equivalence-class slice), which is a *classical shadow* of the full stream, not a richer object than it. What the lens (the interpreter's embedded `dao.space.query`) produces is a reorganized, queryable image of the same facts:
 *   A **Datalog Index** is a re-indexing of the datoms (same facts, organized for one query shape).
 *   A **PostGraphics Frame** is a 2D/3D projection.
 *   An **Agent's Belief State** is a probability distribution over the slice.
@@ -40,21 +40,21 @@ This metaphor focuses on **Metabolism and Stigmergy**. It explains how the syste
 The soil is the **Content-Addressed Space** ($d_1$). It is a chaotic, non-indexed repository of raw nutrients. A nitrogen atom in the soil is just a nitrogen atom—it doesn't "know" its purpose yet.
 
 ### The Roots and Trunk: The Fan-in of Bundles
-**DaoSpace is the Tree.** The roots are the input boundaries that lift nutrients out of the soil ($d_1 \to d_5$). The trunk and branches are the **DaoStreams**:
+**The Tree is datom.world; `dao.space` is its woody transport** — roots, trunk, and branches. The roots are the input boundaries that lift nutrients out of the soil ($d_1 \to d_5$); the trunk and branches are the **DaoStreams** that hold and carry datoms. This is the storage boundary: it conducts sap, it does not photosynthesize. Two vessel types:
 *   **Xylem (Strict Streams)**: Heavily reinforced, parallel vessels transporting water up. These are the optimized, fixed-shape `:strict? true` streams.
 *   **Phloem (Open Streams)**: Flexible vessels carrying complex, varied sugars. These are the `:strict? false` streams: still append-only, but unconstrained in shape, so the receiving "cells" (interpreters) decide how to read what arrives.
 
 ### The Leaves: The Terminals (Interpreters)
-The leaves are the **Interpreters**. They are the terminals of the transport system where the nutrients finally arrive to be processed.
+The leaves are the **Interpreters**. They are the terminals of the transport system where the nutrients finally arrive to be processed. Each leaf embeds the **query library (`dao.space.query`)** — its chloroplast — which is *not* part of `dao.space`: the transport (storage) carries datoms; the leaf indexes and queries them.
 
 ### The Sun: Agent Attention and Energy
 The leaf is inert without **Sunlight**. The Sunlight represents **Agent Attention** or **CPU cycles**. It is the external energy required to trigger the transformation.
 
 ### Photosynthesis: The Act of Interpretation
-In the leaf, the **Nutrient Pulses** (datoms) meet the **Sunlight** (energy). Through photosynthesis, the leaf transforms these simple inputs into complex, higher-dimensional organic matter.
+In the leaf, the **Nutrient Pulses** (datoms) meet the **Sunlight** (energy). Through photosynthesis — the query library folding datoms into an index and answering — the leaf transforms these simple inputs into complex, higher-dimensional organic matter.
 
 ### The Wood and Fruit: Reified $d_{Higher}$ Structures
-The output of the Tree (DaoSpace) is its own body and its products:
+The output of the Tree is its own body and its products:
 *   **Fruit**: A **Query Result** or a **Knowledge Graph**. It is a concentrated, high-value "package" of facts ready to be consumed by other agents.
 *   **Wood**: The **Durable Schema** and **Provenance Logs**. This is the stored work that gives the Tree its strength and allows it to grow taller and more complex over time.
 
@@ -62,11 +62,11 @@ The output of the Tree (DaoSpace) is its own body and its products:
 
 ---
 
-## Synthesis: The Space is the Living Flow
+## Synthesis: The Living Flow
 
 Both metaphors agree:
 1.  **Identity** lives in the Soil/Floor ($d_1$).
 2.  **Coordination** lives in the Trunk/Bundle ($d_5$).
 3.  **Reality** lives in the reified views (Fruit/Hologram) — the *family* of interpreter projections, not any single higher-dimensional object.
 
-DaoSpace is not a database you "query"; it is a **Metabolic Fibration** that lifts raw bits into a living world of coexisting views.
+`dao.space` is not a database you "query" — it is the storage substrate (the soil-access and trunk). The **system** is the **Metabolic Fibration**: the streams lift raw bits into $d_5$, and the leaves' query libraries project them into a living world of coexisting views.

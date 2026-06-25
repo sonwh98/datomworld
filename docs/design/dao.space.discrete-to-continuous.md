@@ -59,6 +59,10 @@ shadow.
 
 ## DaoSpace as Matrix Mechanics
 
+(Here "DaoSpace" means the whole coordination construct — the datom set `E` plus the
+interpreter algebra over it. The storage boundary `dao.space` is the `E` row below; the
+interpreter rows belong to the embedded query library, `dao.space.query`, not to storage.)
+
 The mapping is direct:
 
 | Matrix mechanics | DaoSpace |
@@ -328,10 +332,11 @@ consensus step is an algorithmic fact outside the static classification — just
 in the network stack, consensus sits above reliable delivery and is not a property
 of the packets.
 
-**Dynamic membership is the site-level structure.** A DaoSpace is a *coordination
-medium* whose streams (and interpreters) attach and detach at runtime (see
-`dao.space.v0.md`), so the descent picture above describes only a **snapshot** — the
-sections being glued at one instant. With membership changing, the gluing is
+**Dynamic membership is the site-level structure.** The coordination medium is the whole
+system: `dao.space` (storage) whose **streams** join and leave at runtime, read by
+**interpreters** that embed the query library (see `dao.space.md`, Membership). So the
+descent picture above describes only a **snapshot** — the sections being glued at one
+instant. With membership changing, the gluing is
 time-varying: the space is not a fixed bundle but a (pre)sheaf over a **site that
 includes membership/time events**, where `attach`/`detach` are morphisms that grow
 or shrink the cover. A single stream's geometry is unaffected (it is still a

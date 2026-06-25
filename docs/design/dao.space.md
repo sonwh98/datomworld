@@ -6,6 +6,7 @@
 - `docs/agents/datom-spec.md` — datoms, content-addressed identity, the gauge/base framing
 - `docs/design/adr/0001-dao-space-as-storage-boundary.md` — the decision this design records
 - `docs/design/dao.space.v0.md` — superseded framing; still the reference for resources, typed streams, and the geometry/gauge material
+- `docs/design/dao.space.locality.md`, `dao.space.metaphors.md`, `dao.space.discrete-to-continuous.md` — the geometry/locality cluster: theoretical justification (gauge, spectral, locality) the spec defers to, not required to read it
 
 ## Three Boundaries
 
