@@ -666,7 +666,7 @@ Kinds of derived stream:
 
 Derived streams compose: a query over a slice over a fan-in is three `open!`d
 descriptors chained by a `:source` field. This is the mechanism DaoSpace is built
-on — see `docs/design/dao.space.md` (the `:dao-space`, `:slice`, and `:query`
+on — see `docs/design/dao.space.v0.md` (the `:dao-space`, `:slice`, and `:query`
 descriptor types). A derived stream is still just a stream: it is read with a
 cursor, can be sent on another stream, and imposes no new API.
 
@@ -731,7 +731,7 @@ with orthogonal protocol boundaries that enable precise capability expression.
 
 DaoStream can be the foundation for higher-level coordination systems:
 
-- **DaoSpace** — see `docs/design/dao.space.md` for stigmergic agent coordination via Datalog queries over shared datom streams
+- **DaoSpace** — see `docs/design/dao.space.md` (the storage boundary; querying is a separate library, `dao.space.query`) for stigmergic agent coordination over shared datom streams
 - **Message Brokers** — DaoStream is the append-only log foundation; coordination logic layers on top
 - **Event Sourcing** — stream of immutable events queryable at any historical point
 
@@ -740,7 +740,7 @@ DaoStream can be the foundation for higher-level coordination systems:
 - Additional descriptor fields beyond the current contract (`:stream/id`, `:mode`, `:retention`, `:backpressure`, `:shibi`).
 - Typed streams (fixed-size datom streams for cache-efficient layouts and SIMD operations).
   DaoSpace consumes per-stream dimension typing plus a boolean `:strict?` descriptor
-  field; see `docs/design/dao.space.md`, "Typed Streams and Conformance".
+  field; see `docs/design/dao.space.v0.md`, "Typed Streams and Conformance".
 - Retention and eviction policies.
 - Gap signaling and policy for bounded-retention transports.
 - Seek operation for position-based jumping.

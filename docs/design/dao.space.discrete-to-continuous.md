@@ -10,7 +10,7 @@
 > idealization that requires additional structure (a Dirichlet form, or finite
 > truncation / an unbounded Dirac operator for compact resolvent); see the caveats
 > below. With those distinctions, the gauge/bundle/curvature language in
-> `docs/design/dao.space.md` is a correct description of the metric and spectral
+> `docs/design/dao.space.v0.md` is a correct description of the metric and spectral
 > structure, not mere metaphor.
 
 ---
@@ -222,7 +222,7 @@ projective *with* curvature. Flatness needs the stronger free/trivial structure.
 
 - For strict streams (`:strict? true`): constant fiber ⇒ M is **free (globally
   trivial)** ⇒ it admits the trivial connection ∇ = d ⇒ F = 0, a flat, locally
-  trivial bundle. This matches the claim in `dao.space.md` that strict typing is
+  trivial bundle. This matches the claim in `dao.space.v0.md` that strict typing is
   the local-triviality condition.
 
 - For open streams (`:strict? false`): variable fiber ⇒ M is **not free** (no
@@ -310,7 +310,7 @@ writers going "around the loop" and disagreeing. Detection and deterministic
 resolution are descent (read-side, cohomological); *establishing* agreement before
 acting is the consensus step that lives above it.
 
-**This is what upgrades the open-stream fibered set to a sheaf.** `dao.space.md`
+**This is what upgrades the open-stream fibered set to a sheaf.** `dao.space.v0.md`
 notes that an open-stream fibration is a *fibered set, not a sheaf*, because no
 site or gluing was specified. The reassembly metadata is precisely that missing
 data: the sheaf gluing axiom ("local sections agreeing on overlaps glue uniquely
@@ -330,7 +330,7 @@ of the packets.
 
 **Dynamic membership is the site-level structure.** A DaoSpace is a *coordination
 medium* whose streams (and interpreters) attach and detach at runtime (see
-`dao.space.md`), so the descent picture above describes only a **snapshot** — the
+`dao.space.v0.md`), so the descent picture above describes only a **snapshot** — the
 sections being glued at one instant. With membership changing, the gluing is
 time-varying: the space is not a fixed bundle but a (pre)sheaf over a **site that
 includes membership/time events**, where `attach`/`detach` are morphisms that grow
@@ -349,7 +349,7 @@ fibrations over the total space is time-varying too.
 
 ### 1. The "quantum measurement" metaphor becomes literal
 
-`dao.space.md` line 159 says: "same data, different projections, simultaneously."
+`dao.space.v0.md` ("Interpreters and Equivalence-Class Slicing") says: "same data, different projections, simultaneously."
 In the matrix-to-wave correspondence, this is exactly the Heisenberg picture:
 the state |psi> in ell-squared(E) is fixed; different interpreters are different
 "observables" that project |psi> onto different classical spaces X_~1, X_~2, ....
@@ -441,7 +441,7 @@ operators, continuous geometry). The middle column is the translation.
 **You do not need to add anything to the data model** to obtain the algebra, its
 spectral decomposition, and the graph (geodesic) metric — these are latent in the
 relational structure of the discrete datoms, extracted via Gelfand-Naimark + the
-spectral theorem. For these, the gauge/bundle/curvature language in `dao.space.md`
+spectral theorem. For these, the gauge/bundle/curvature language in `dao.space.v0.md`
 is a correct description, not metaphor, once the Dirac operator is chosen. The
 *fuller* continuous apparatus (manifold, heat kernel, spectral dimension) is the
 continuum-limit idealization and does need extra structure (Dirichlet form, or

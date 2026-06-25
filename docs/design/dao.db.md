@@ -1,5 +1,19 @@
 # DaoDB: Four-Component Architecture
 
+> **Status: Superseded (concept eliminated).** This document describes `DaoDB` as a unified
+> four-component tuple store (Storage, Transactor, Query engine, Database-as-value). That
+> *concept* has been eliminated — see
+> `docs/design/adr/0001-dao-space-as-storage-boundary.md`, ruling 2. The four roles are now
+> separate boundaries: **Storage → `dao.space`** (a decentralized append-only datom log of
+> member streams), **Transactor → decentralized stream writers** (each agent writes its
+> own stream), and **Query → `dao.space.query`** (an embeddable Peer library). There is no
+> `dao.db` namespace and no `d/q`. See `docs/design/dao.space.md`.
+>
+> The index and query-engine internals below (the five sorted-set indexes, Datalog
+> evaluation, `pull`, provenance via `m`) remain the reference for what `dao.space.query`
+> implements — read `dao.db` / `d/q` as `dao.space.query`, and the single in-process store
+> as the index the query library builds by folding member streams.
+
 ## Overview
 
 DaoDB is the native tuple store for datom.world. It stores immutable 5-tuple datoms
@@ -293,7 +307,7 @@ and QueryEngine, all communicating via the protocol boundaries.
 
 DaoDB provides the foundation for systems that need queryable, immutable state:
 
-- **DaoSpace** — see `docs/design/dao-space-design.md` for stigmergic agent coordination via Datalog queries over a shared datom stream
+- **DaoSpace** — see `docs/design/dao.space.md` (the storage boundary) and `dao.space.query` (the query library) for stigmergic agent coordination over shared datom streams
 - **AST Storage** — the Yin VM's Universal AST is stored as datoms in DaoDB, queryable for capability policies and static analysis
 - **Event Sourcing** — domain events as datoms, queryable at any historical point
 

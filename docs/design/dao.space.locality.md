@@ -7,7 +7,7 @@
 > structure? This document records that correspondence, why it holds, and — with
 > the calibration discipline of the other geometry docs — exactly where it stops.
 >
-> **Related:** `dao.space.md` (gauge framing), `dao.space.discrete-to-continuous.md`
+> **Related:** `dao.space.v0.md` (gauge framing), `dao.space.discrete-to-continuous.md`
 > (the *Descent* section, where the static half of this correspondence is made
 > rigorous), `docs/agents/datom-spec.md` (entity ID as local gauge).
 

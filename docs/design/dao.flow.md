@@ -115,7 +115,7 @@ Related datoms sharing the same entity identity form a group. A group is
 authored by one agent into one stream, so its datoms share that agent's
 stream-local entity id; cohesion comes from that shared id (not from atomic
 authoring — a group's datoms may land as several non-atomic put!s), and survives
-folding (see `dao.space.md`, "Entity Identity Is Stream-Local"). One of those
+folding (see `dao.space.v0.md`, "Entity Identity Is Stream-Local"). One of those
 datoms can be the type datom, which interpreters match on to identify work they
 can process.
 The remaining datoms are payload facts carrying the data the handler needs.
@@ -286,7 +286,7 @@ emits datoms. It does not directly mutate the world.
 
 ### 4. Entity ids are stream-local; cross-group references are stamped
 
-Entity ids are local to the authoring stream (see `dao.space.md`, "Entity
+Entity ids are local to the authoring stream (see `dao.space.v0.md`, "Entity
 Identity Is Stream-Local"). Two consequences for `dao.flow`:
 
 - **Flow advances by appending typed groups, not by mutating across streams.** An

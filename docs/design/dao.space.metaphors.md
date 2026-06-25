@@ -1,6 +1,6 @@
 # DaoSpace: The Metaphors of Realization
 
-To understand the relationship between discrete datoms, linear streams, and higher-dimensional world-building, we use two primary metaphors. These are not merely decorative; they are structured by the underlying mathematics of fiber bundles, gauge theory, and non-commutative geometry. They are intuition pumps, not identities: the formalism they map onto is partially realized and partly a continuum-limit idealization. See `docs/design/dao.space.discrete-to-continuous.md` (Stone-space and compact-resolvent caveats) and the implementation-status note in `docs/design/dao.space.md` before reading any image below as literal.
+To understand the relationship between discrete datoms, linear streams, and higher-dimensional world-building, we use two primary metaphors. These are not merely decorative; they are structured by the underlying mathematics of fiber bundles, gauge theory, and non-commutative geometry. They are intuition pumps, not identities: the formalism they map onto is partially realized and partly a continuum-limit idealization. See `docs/design/dao.space.discrete-to-continuous.md` (Stone-space and compact-resolvent caveats) and the implementation-status note in `docs/design/dao.space.v0.md` before reading any image below as literal.
 
 ---
 
