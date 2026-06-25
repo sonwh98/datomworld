@@ -184,29 +184,21 @@ names shapes (`[?e :work/* ?v]`), so the reader still surfaces tuples from write
 never heard of. This is a *trusted* reader choosing to look at less; it is **not**
 security — choosing to read less never stops you from reading more.
 
-**Capability security** restricts what an *untrusted* reader *can* see, and here the
-dumb-storage + embedded-library model imposes a hard limit: an embedded reader has
-**direct raw access** to the datom streams, so the query library is *not* a security
-boundary — an untrusted agent can ignore it, parse the bytes itself, and read everything
-it can open. Result-level filtering (row-level-security) presumes a trusted intermediary
-between reader and data, which this architecture deliberately does not have. Security
-therefore has exactly two enforcement points:
+**Security and Access Modes**
 
-- **Per-stream, at storage access (coarse, native).** Control which member streams an
-  agent may open — POSIX permissions, capability tokens on streams, Plan 9-style "you
-  read only what you mounted." Granularity is the whole stream. This keeps the embedded
-  model intact, and it is source-based, which is correct: security legitimately cares
-  about provenance, unlike coordination.
-- **Per-datom, via a trusted mediator (fine-grained, with a cost).** For row-level
-  filtering over a shared store, the untrusted agent must **not** get raw access; it
-  queries through a trusted agent that holds raw access, runs the query, and returns
-  filtered results. That mediator is, for that client, a centralized query service — a
-  deliberate, local exception to "query is embedded," and the unavoidable price of
-  fine-grained security over dumb storage.
+datom.world's security model rests on the principle: **"share governed computation, not data."**
+Sharing bits is losing control of those bits, and encryption only relocates the problem to
+key-sharing. Plaintext result-filtering *does* need a mediator — but rather than pretend to escape
+that, the model makes the mediator **generic and accountable**: control is held by never emitting
+raw datoms, only the bounded result `f(X)` of an authorized interpreter `f`.
 
-Trusted peers are the common case: embedded library, direct access, global match, no
-boundary. Security is the exception, and it costs either granularity (per-stream) or
-embeddedness (a mediator).
+This yields two distinct access modes (see [dao.space.security.md](dao.space.security.md) and [ADR 0002](adr/0002-share-governed-computation-not-data.md) for full details):
+
+- **Public (pull-to-reader):** the default `dao.space` mode described above. The reader embeds the library and pulls datom streams directly. There is no fine-grained control; the only security is coarse, per-stream access (POSIX permissions, Plan 9-style mounts). Use this when it is safe to ship the datoms.
+- **Controlled (push-interpreter-to-data / confined):** when fine-grained per-datom control is needed, the topology inverts and the data never leaves its owner's control. The reader submits a governed interpreter (a `yin.vm` AST) wrapped in a capability; it runs in a confined environment scoped to the authorized datoms, and only the attenuated answer returns. The **capability token** is cryptographically authenticated; the **content predicate** (the `m` slot carries the policy) is enforced by the evaluation substrate — operationally by a confined CESK runtime, or cryptographically by an MPC/FHE circuit — which is distinct from authenticating the token. The owner is the mediator by default; MPC removes even that (see the security doc).
+
+Trusted peers and public data are the common case: embedded library, direct access, global match.
+When control is required, the architecture switches to controlled mode, where the unit of sharing is the governed interpreter, backed by an immutable accountability log.
 
 ### Realization choice: rebuild vs incremental
 

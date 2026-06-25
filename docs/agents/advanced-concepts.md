@@ -34,7 +34,7 @@ Continuation parallel transport (serialization based):
 Possession of a capability is necessary but not sufficient for trust.
 Trust must be contextual, revocable, and stream-scoped.
 Never assume a valid signature implies safe execution.
-Prefer confinement over verification.
+Prefer confinement over verification (see `docs/design/dao.space.security.md` for the elaboration of this model: sharing governed computation instead of data).
 
 # ENTANGLEMENT
 

@@ -1,6 +1,7 @@
 # ADR 0001: DaoSpace is the Storage Boundary; Query is a Library
 
-**Status:** Accepted (2026-06-25)
+**Status:** Accepted (2026-06-25); ruling 4's mediator framing amended by
+[ADR 0002](0002-share-governed-computation-not-data.md).
 
 **Supersedes:** the "DaoSpace is the query engine" / "pure streaming bus" framings in
 `docs/design/dao.space.v0.md` and earlier revisions of `docs/design/dao.space.md`.
