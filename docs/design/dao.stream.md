@@ -32,7 +32,7 @@ agent, or runtime that receives the descriptor can realize it through its local
 **Datom.world specific (optional integration):**
 The most common Datom.world use case is transport of datoms. Most things in Datom.world are
 streams of datoms, and DaoStream is the transport substrate that makes the
-principle "Everything is a stream" operational. DaoDB consumes streams, FFI is built on
+principle "Everything is a stream" operational. dao.space.query consumes streams, FFI is built on
 DaoStream, and meta-runtime services like JIT and GC can be driven by datoms emitted on streams.
 
 ## Core Model
@@ -485,18 +485,19 @@ both cases it is ephemeral runtime state and excluded from serialization.
 **Key point:** This is one optional integration pattern. DaoStream itself makes no assumptions
 about how runtimes represent suspended work.
 
-## Relation to DaoDB
+## Relation to dao.space and the query library
 
-Streams are independent of DaoDB. DaoDB consumes streams.
+Streams are independent of the query layer. `dao.space.query` consumes streams.
 
-In Datom.world, DaoStream is the general stream substrate and DaoDB is a datom
-consumer over that substrate. DaoStream can carry arbitrary bytes or values,
-but the dominant system use case is datom transport. That is why most streams
-in Datom.world are streams of datoms.
+In Datom.world, DaoStream is the general stream substrate; `dao.space` (the storage
+boundary) is a collection of these streams, and `dao.space.query` is a datom consumer
+that reads them. DaoStream can carry arbitrary bytes or values, but the dominant system
+use case is datom transport. That is why most streams in Datom.world are streams of
+datoms.
 
-An open stream is still a stream. A bounded stream is a stable value that DaoDB
-can consume to build indexes or answer queries. Stream semantics do not depend
-on those indexes.
+An open stream is still a stream. A bounded stream is a stable value that
+`dao.space.query` can consume to build indexes or answer queries. Stream semantics do
+not depend on those indexes.
 
 ## Transport Examples
 
@@ -744,5 +745,5 @@ DaoStream can be the foundation for higher-level coordination systems:
 - Retention and eviction policies.
 - Gap signaling and policy for bounded-retention transports.
 - Seek operation for position-based jumping.
-- DaoDB-specific stream consumption contracts.
+- dao.space.query-specific stream consumption contracts.
 - Seqable integration (currently via `->seq` utility).

@@ -23,10 +23,10 @@ Stream Iteration:
 
 Streams and Indexes:
   Streams are the universal abstraction (datoms in t-order).
-  Indexes are optional optimizations built by interpreters (e.g., DaoDB).
-  d/q works on any bounded stream:
+  Indexes are optional optimizations built by interpreters (e.g., dao.space.query).
+  dao.space.query/q works on any bounded stream:
     - Raw stream: no indexes, O(n) scan
-    - DaoDB-managed stream: EAVT/AEVT/AVET/VAET indexes, O(log n) lookup
+    - Indexed by dao.space.query: EAVT/AEVT/AVET/VAET indexes, O(log n) lookup
   Same interface, same semantics, different performance.
   Indexes are a performance optimization, not a semantic requirement.
 
@@ -55,19 +55,19 @@ Continuation Migration:
 
 Runtime State:
   Runtime state (continuations, environments, stack frames) is ephemeral.
-  Runtime state lives in memory as native VM data structures, not in DaoDB.
-  DaoDB is for persistent facts: AST datoms, schema, parked continuations.
+  Runtime state lives in memory as native VM data structures, not in dao.space.
+  dao.space is for persistent facts: AST datoms, schema, parked continuations.
   Runtime state is queryable via Datalog on demand:
     vm/state->datom-stream projects in-memory VM state into a datom stream.
     Zero cost during execution; projection computed only when queried.
-    Joins across $code (DaoDB) and $runtime (in-memory stream) in a single d/q:
+    Joins across $code (dao.space) and $runtime (in-memory stream) in a single dao.space.query/q:
       [:find ?node-type ?frame-type
        :in $code $runtime
        :where [$runtime ?frame :cont/pending-arg [0 ?node-hash]]
               [$code ?node :yin/content-hash ?node-hash]
               [$code ?node :yin/type ?node-type]
               [$runtime ?frame :cont/type ?frame-type]]
-  Persistence boundary: park/migrate promotes ephemeral state to persistent datoms in DaoDB.
+  Persistence boundary: park/migrate promotes ephemeral state to persistent datoms in dao.space.
 
 # YIN.VM & UNIVERSAL AST
 
@@ -75,7 +75,7 @@ Yin.vm is a CESK continuation machine (Control, Environment, Store, Continuation
 The Universal AST is canonical code: syntax is a rendering.
 AST nodes are represented in two equivalent forms:
   - AST maps: raw in-memory maps with :type, :operator, :operands, :body, etc.
-  - Datoms: [e a v t m] tuples stored in DaoDB and queryable via Datalog.
+  - Datoms: [e a v t m] tuples stored in dao.space and queryable via dao.space.query (Datalog).
 The AST is not compiled away: it persists alongside execution state.
 
 ASTs are materialized views over five orthogonal dimensions:
@@ -87,7 +87,7 @@ ASTs are materialized views over five orthogonal dimensions:
 
 Two independent interpreters prove the same semantics on different representations:
   - ASTWalkerVM interprets AST maps via tree traversal (in-memory graphs).
-  - SemanticVM interprets AST datoms via graph traversal (DaoDB queries).
+  - SemanticVM interprets AST datoms via graph traversal (dao.space.query).
 Both are executable; neither is compiled away. They are equivalent views of the same computation.
 
 The AST also enables multiple compilation backends via semantic projections:

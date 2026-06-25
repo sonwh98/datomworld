@@ -24,7 +24,7 @@ Do not assume graphs: graphs must be constructed explicitly from tuples.
 # DATOMS
 
 Datoms are N-dimensional tuples. Immutable facts, not objects.
-Canonical format for persistent facts: DaoDB, AST, schema, provenance is the 5-tuple: (e a v t m).
+Canonical format for persistent facts in dao.space (AST, schema, provenance) is the 5-tuple: (e a v t m).
 Streams carry whatever values the consumer needs.
 
 See docs/agents/datom-spec.md for full specification.

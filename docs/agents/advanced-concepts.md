@@ -1,10 +1,10 @@
 ---
-description: Advanced concepts - parallel transport across DaoDB nodes, capability tokens, entanglement/consensus
+description: Advanced concepts - parallel transport across dao.space instances, capability tokens, entanglement/consensus
 ---
 
 # PARALLEL TRANSPORT
 
-Parallel transport moves datoms from one DaoDB to another.
+Parallel transport moves datoms from one dao.space to another.
 Entity-ref v values are local gauge; they must be resolved for transport.
 
 AST parallel transport (content-hash based):
@@ -19,7 +19,7 @@ AST parallel transport (content-hash based):
 Continuation parallel transport (serialization based):
   Continuations are ephemeral runtime state. They do not have content hashes.
   A continuation references AST nodes (where in the code) and runtime values (computed state).
-  AST references resolve via content hash (AST is content-addressed in DaoDB).
+  AST references resolve via content hash (AST is content-addressed in dao.space).
   Runtime values serialize and travel as-is (no hashing, no deduplication).
   Transport protocol:
     1. Serialize runtime state (environment, partial results, frames).
