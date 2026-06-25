@@ -1,187 +1,275 @@
-# DaoSpace v1: The Pure Streaming Bus
+# DaoSpace: A Queryable Tuple Space
 
-## Overview
+**Related documents:**
+- `docs/design/dao.stream.md` — the stream transport that feeds the space
+- `docs/design/dao.stream.file.md` — the file-backed byte stream member logs are built on
+- `docs/design/dao.db.md` — the indexed-datom query kernel (DaoSpace *is* its read half)
+- `docs/agents/datom-spec.md` — datoms, content-addressed identity, the gauge/base framing
 
-**A DaoSpace is a topological medium for streams.** It is the unstructured, underlying fabric through which agents and resources coordinate. Unlike traditional tuple spaces, `dao.space` has **no compute, no indexes, and no query engine**. It is purely a collection of independent, append-only `dao.stream` logs. 
+## The Invariant
 
-The architecture strictly follows the principle of **"dumb pipes, smart endpoints."** 
-- **The Space** provides only sequential cursors over raw n-tuples. Structurally and mathematically, it is just a **set** of active `dao.stream` instances.
-- **Hosted Continuations (Mobile Code)**: While the space has no native compute, it **hosts** `yin.vm` running continuations. Because Yin continuations are encoded entirely as tuples, they live inside the streams. This acts like stored procedures in a database, but because the state is just tuples, computation can transparently migrate across the network.
-- **The Interpreters (Agents)**: In `datom.world`, agents *are* the interpreters. An agent is a high-level concept, but technically it is just a unified `yin.vm` function/closure/continuation. These agents pull the tuples over the wire and provide the actual CPU cycles: running pattern matching, or evaluating their own continuation state and writing the results back.
-- **The Query Engine** (like Datomic) is a downstream consumer where agents materialize the matched tuples into structured indexes for positional Datalog queries.
+Everything in this document is in service of one fixed requirement:
 
-Membership is **dynamic**: opening a member log (`ds/open!` through the handle) *is* joining the space; closing it leaves. Every writer owns its **own** log, so writes never contend or need routing — there is no shared write cursor to merge.
+> **Agents can match tuples and query tuples with Datalog.**
 
-This design builds DaoSpace on top of DaoStream (append-only datom logs) to yield a highly scalable, infinitely decoupled coordination bus:
+That is the whole definition of a tuple space, and the only thing that may not be
+traded away. "Match" (`[?e :work/status :todo]`) is the single-clause case of Datalog;
+both are **unification over a set of tuples**. So the invariant reduces to one thing:
 
-- **Dumb Pipes** — The space doesn't bottleneck on CPU evaluating thousands of rules.
-- **Declarative coordination** — Interpreters define what they need through local pattern matching.
-- **Persistent and portable** — Member logs are append-only files; history survives restart and replays.
+> **A set of datoms you can query by unification — pattern up to full Datalog (joins,
+> negation, aggregation, time).**
 
-## Core Concept: A Set of Streams; a Medium for Resources and Interpreters
+Notice what is *not* in the invariant: streams, producers, scoping, content hashes,
+"dumb pipes." Those are realization concerns. They live *below* the invariant and exist
+only to make it hold in a distributed, persistent, multi-writer world. They are not part
+of what a tuple space *is*.
 
-```
-DaoSpace = a set of file-backed dao.streams (member logs) whose union of
-           tuples is a catalog, opened as a handle, written by ds/put! to a member
-           log and read sequentially by external interpreters.
-```
+## What DaoSpace Is
 
-The **unit of coordination is the n-tuple**. Structurally the space is the **collection** of
-file-backed member logs whose union of tuples is the **catalog**. Tuples enter the catalog over a **dynamic membership** of
-member logs (`1..n`, each opened by `ds/open!` through the handle, joining and
-leaving at runtime), and are observed by **interpreters** (`1..m`) that tail those streams and locally pattern match them.
+Run the invariant to its fixed point. A queryable, indexed set of datoms supporting
+unification and Datalog **is** a Datomic/DataScript-style in-memory database value.
+Therefore:
 
-Two things keep "catalog" precise: it is **accreting**, not static — tuples
-accumulate append-only with history, added by inputs over time; and it is
-**typeless** — it is an unindexed ledger of tuples, waiting for an interpreter
-to slice it into typed views.
+> **DaoSpace ≡ an indexed set of datoms + Datalog. The tuple space *is* the query
+> engine.**
 
-## Evolution of the Tuple Space
+`dao.space/q` (full Datalog) and `dao.space/match` (a positional datom pattern) are the
+read surface, and they range over the whole tuple set by default — global, associative
+matching, addressed by *content*, never by producer. That global reach is not a feature
+bolted on; it is the identity of a tuple space. An agent never names who wrote a tuple;
+it names the *shape* it wants, and the space answers from every tuple it holds.
 
-DaoSpace is a modern evolution of the classic tuple-space (e.g., Linda). It perfectly preserves the three defining characteristics of a tuple space:
-1. **Generative Communication:** Agents communicate by producing data into a shared medium, rather than sending messages to specific receivers.
-2. **Spatial Decoupling:** Writers and readers do not need to know each other's identities or network addresses.
-3. **Temporal Decoupling:** Writers and readers do not need to be active at the same time.
+## What the Invariant Forces
 
-However, `dao.space` diverges from the strict Linda definition in three critical ways to support distributed, persistent systems:
+Datalog is not a per-tuple operation. `(not [_ :work/claims ?w])`, joins, and
+aggregations all need the **whole relevant tuple set present and indexed at query
+time**. You cannot answer them by tailing one tuple at a time.
 
-1. **No Destructive Consumption (Immutable vs Mutable)**
-   In a classic tuple space, the `in` verb atomically removes a tuple from the space (often used for locks or task queues). Because DaoSpace is built on append-only streams, there is no `in` operation. You cannot delete a tuple from history. Instead, DaoSpace relies on *stigmergy*—to "consume" a task, an agent appends a new tuple asserting it claimed the task.
-2. **Smart Endpoints, Dumb Space (Matching Inversion)**
-   In a classic tuple space, the space itself acts as a compute engine that evaluates templates. In DaoSpace, the space is completely dumb; it just provides sequential cursors. The interpreters pull the tuples over the wire and run the pattern matching locally, preventing the space from becoming a CPU bottleneck.
-3. **Structured Tuples vs Anonymous Arrays**
-   Classic tuples are often untyped positional arrays (e.g., `[1, "hello"]`). In DaoSpace, the unit of coordination is the datom (an n-tuple, usually `[e a v t m]`). Tuples have intrinsic semantic structure rather than relying purely on position.
+So the invariant forces a single, non-negotiable consequence:
 
-### Comparison with JavaSpaces
+> **At query time the space must present a materialized, indexed set of datoms.**
 
-JavaSpaces was an object-oriented evolution of Linda that introduced several concepts highly relevant to DaoSpace, but the two take fundamentally different paths regarding state and execution:
+There is no "dumb space with no index" that still answers Datalog — the two are
+contradictory. The index has to live somewhere, and whatever holds it *is* the tuple
+space. DaoSpace owns that index (it builds it by folding its member streams); it does
+not push querying downstream, because querying *is* what it is for.
 
-1. **Leases vs. Immutable History**
-   JavaSpaces heavily relies on *leases* to manage state. If an agent writes a tuple (object) and doesn't renew its lease, the space eventually deletes it to prevent garbage accumulation. DaoSpace rejects mutable state entirely; its streams are append-only persistent logs. There is no garbage collection or leases because the history is the permanent ledger.
-2. **Objects vs. Pure Data**
-   In JavaSpaces, tuples are Java objects (`Entry`), meaning they are inextricably tied to the JVM and Java classloading (RMI). In DaoSpace, tuples are pure, language-agnostic data. 
-3. **Mobile Code**
-   JavaSpaces allowed mobile code by passing Java objects with methods through the space. DaoSpace achieves mobile code via **Hosted Continuations**: Yin.VM continuations are encoded entirely as pure tuples (AST datoms). They migrate safely and transparently without needing a shared classloader or RMI.
-4. **Distributed Transactions**
-   JavaSpaces provided complex, two-phase distributed transactions to lock the space while withdrawing (`in`) and inserting (`out`) objects. Because DaoSpace streams are independent and append-only, the space itself has no centralized transaction engine. Atomic coordination is handled by the downstream interpreters.
+## Realization: Streams Below the Invariant
 
-## The Model: Asymmetric Read/Write
-
-### Writing
-
-Writing is completely decoupled from reading. Agents write to their **own** member logs,
-never to a shared channel.
-
-```clojure
-;; Agent joins the space by opening a member log
-(def log (ds/open! {:space space :type :file :file/dir "..."}))
-
-;; Agent asserts a claim
-(ds/put! log [:work/claim work-id agent-id])
-
-;; Agent retracts a status
-(ds/put! log [:db/retract work-id :work/status])
-```
-
-Because streams are autonomous persistent files, an agent can write to a stream **before** it joins a space. The tuples will safely accumulate offline. When the stream is later `join!`ed to a space, interpreters tailing that space can observe the stream's full history (if reading from the beginning) or just the newly arriving data.
-
-**Writing is streaming; reading is streaming.** DaoSpace has no read verbs of its own. It provides cursors. There is no space-level query engine. Member streams (`dao.stream.file`, opened via `ds/open!`) carry tuples **in**, and cursors stream tuples **out**. Evaluative logic (like template matching or Datalog joins) happens locally in the agent process or further downstream in a materialized index.
-
-### What Happens Internally
+Streams are not in the definition, but they are how the definition is *fed and made
+durable*. The space is the queryable datom set on top; an open, dynamic collection of
+append-only `dao.stream`s is the ingestion and persistence substrate beneath.
 
 ```
-Agent 1 writes → its member log appends a [e :a :work/claim ...] group (datom frames to file)
-Agent 2 tails → Agent 2's interpreter fetches the new tuples, pattern matches them locally, and acts on them.
+   dao.space/q  /  dao.space/match           ← THE INVARIANT
+        │  fold every member stream's datoms into one
+        │  indexed datom set, then query it
+        ▼
+┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+│ member log A │  │ member log B │  │ member log C │   (1..n autonomous streams;
+│ ds/put! →    │  │ ds/put! →    │  │ ds/put! →    │    each its own append-only file,
+└──────┬───────┘  └──────┬───────┘  └──────┬───────┘    written without contention)
+       │ datom frames (self-delimiting byte records)
+┌──────▼───────┐  ┌──────▼───────┐  ┌──────▼───────┐
+│ dao.stream.  │  │ dao.stream.  │  │ dao.stream.  │   (byte substrate: async disk,
+│ file         │  │ file         │  │ file         │    non-blocking)
+└──────────────┘  └──────────────┘  └──────────────┘
 ```
 
-A write lands on the writer's own member log. A read simply advances a cursor over a member log, pulling tuples over the wire.
+Each realization concern answers a question the invariant raises but does not itself
+address:
 
-## Architecture
+- **Where do the tuples come from, and how do they persist?** Member streams. Each
+  writer owns its own append-only log, so writes never contend and nothing routes.
+  Durability and ordering are the stream's job (see `dao.stream.file.md`).
+- **How do many writers contribute without a single transactor?** Many independent
+  streams, folded at read time. There is no shared write cursor and no commit step;
+  folding is order-insensitive, so it needs no merge.
+- **How does "the same fact from two writers" unify in a join?** Content-addressed
+  identity. Entity IDs are stream-local coordinates; what unifies across writers is the
+  gauge-invariant content hash (the base `B` in `datom-spec.md`), not a producer's local
+  ID. Joins live in shared *values*, never in stream-local entity IDs.
 
-```
-            dao.space/open! ──► SPACE HANDLE (set of member logs)
-                                   │            ▲
-            ds/open! {:space …}    │            │  (ds/next)
-            opens a member log ◄───┘            │  External Interpreter tails streams,
-                                                │  applies pattern matching locally.
-┌──────────────────┐  ┌──────────────────┐      │
-│ member log A     │  │ member log B     │ ...  │   (1..n member logs; each its
-│ d5, strict       │  │ d10, open        │──────┘    own append-only file log,
-│ ds/put! frames → │  │ ds/put! frames → │           typed by dimension, strict?)
-└────────┬─────────┘  └────────┬─────────┘
-         │ datom frames (self-delimiting byte records)
-┌────────▼─────────┐  ┌────────▼─────────┐
-│ dao.stream.file  │  │ dao.stream.file  │  ...  (byte stream: async disk,
-│ (byte substrate) │  │ (byte substrate) │       non-blocking — see dao.stream.file.md)
-└──────────────────┘  └──────────────────┘
-```
+**Writing is streaming; reading is querying.** Tuples enter only by being appended to a
+member stream; the space is never read *as* a stream (no space-level cursor). The two
+verbs `q` and `match` are the entire read surface.
 
-Three layers: **`dao.stream.file`** (a non-blocking byte stream over a file) →
-**datom framing** (each datom serialized as a self-delimiting byte record, written
-through `put!`) → **`dao.space`** (the collection). Interpreters and Datalog engines exist strictly downstream of `dao.space`.
+### Relationship to DaoDB
+
+DaoDB's four-component design splits cleanly into a read half and a write half, and the
+invariant tells you exactly what to do with each:
+
+- **DaoDB's read half** — the indexes plus `d/q` and `pull` — **is** DaoSpace. The tuple
+  space and the query kernel are the same object; DaoSpace builds a fresh indexed datom
+  value from its folded streams and queries it with that kernel.
+- **DaoDB's write half** — the single-writer `IDaoTransactor` and the durable
+  `IDaoStorage` segment log — is **replaced by streams.** DaoSpace needs no transactor
+  (each stream is its own writer) and no storage backend (each stream is its own durable
+  log). It needs only to be *fed* an indexed datom set.
+
+So "is DaoDB redundant?" resolves precisely: its query kernel is not redundant (it is
+the tuple space itself), and its transactor/storage are (streams subsume them).
+
+## Global Match and Scoping
+
+Global associative match is the **default and the floor** — `q`/`match` see every tuple,
+and an agent never has to know its producers. That is what makes this a tuple space
+rather than a message bus.
+
+Scoping, when needed for relevance, performance, or capability security, is an *opt-in
+refinement expressed as a predicate over content* — never an enumeration of producers.
+A scoped sub-space is "the tuples matching `P`," where `P` names shapes
+(`[?e :work/* ?v]`), so the agent still surfaces tuples from writers it never heard of.
+This bounds visibility without reintroducing the spatial coupling a tuple space exists
+to abolish.
+
+| Regime | Scope defined by | Generative? | Use |
+|--------|------------------|-------------|-----|
+| **Root** | nothing — query everything | yes | the default; a true tuple space |
+| **Predicate sub-space** | a content pattern `P` | yes — names shapes, not producers | relevance / performance |
+| **Capability sandbox** | result-filtering policy | yes — agent still writes a global query | confining untrusted agents |
+
+The capability case is row-level-security, not producer-enumeration: an untrusted agent
+writes a global query; a trusted boundary filters the *results* to what it may see. The
+query stays global (no producers named); only the visible results narrow.
 
 ## API
 
-The surface is extremely small: **`dao.space/open!`** returns a handle;
-**`dao.stream/open!`** (through the handle) opens member write logs you `ds/put!`
-into. Member-log realization rides the same `dao.stream/open!` multimethod as every other
-stream. `dao.space` does not provide native `q` or `match` functions. Instead, it provides `(dao.space/members space)` to allow external interpreters to retrieve the set of streams and tail them directly.
+The surface is small and asymmetric: `dao.space/open!` returns a handle; member streams
+opened through it carry tuples *in* via `ds/put!`; `dao.space/q` and `dao.space/match`
+read the whole tuple set *out*.
 
 ### Opening a space
 
 ```clojure
-(require '[dao.space :as space])
+(require '[dao.space :as space]
+         '[dao.stream :as ds])
 
-;; A space is initialized with a descriptor map.
-(def space (space/open! {:space/id :my-space}))
+(def s (space/open! "work"))                 ; name → default location
+(def s (space/open! {:path "/data/work"}))   ; explicit location; reopening rediscovers members
 ```
 
-### Joining a space (Writing)
+### Writing — open a member stream, `ds/put!`
+
+A datom enters the space by being appended to a member stream the agent opens through
+the handle. Each open returns a distinct `dao.stream.file` with its own append-only log.
 
 ```clojure
-;; An agent joins by opening a member log in that space.
-(def my-log (ds/open! {:space space
-                       :type :file
-                       :file/dir "path/to/my/log"}))
+(def log (ds/open! {:type :dao-stream :space s :name "agent-1"}))
 
-(ds/put! my-log [123 :work/status :todo])
+(ds/put! log {:db/id (random-id) :work/id "w1" :work/status :todo})
+(ds/put! log [:db/retract work-id :work/status])     ; retraction is also an append
 ```
 
-### Fault Tolerance: Agent Crashes
+### Reading — `dao.space/q` and `dao.space/match`
 
-Because `dao.space` relies on persistent `dao.stream` files, it inherits robust "crash-only" semantics:
-1. **Data Safety**: If an agent crashes, all tuples flushed to its stream prior to the crash are completely safe.
-2. **Interpreter Behavior**: Interpreters currently tailing that crashed agent's stream simply reach the end of the file and yield (`ds/next` returns `:blocked`). They do not crash; they simply wait for new data.
-3. **Seamless Recovery (Writing)**: `dao.stream` files are append-only. When the crashed agent restarts and calls `ds/open!` on its file, the stream opens in append mode, automatically placing the write head at the end of the file. The next `ds/put!` safely appends immediately after the last successfully flushed tuple.
-4. **Seamless Recovery (Reading)**: If the agent was acting as an interpreter reading from streams, it can resume exactly where it left off by using persistent cursors. By periodically checkpointing its read offsets (e.g., writing its cursor state into its own output stream), a restarted agent can simply call `(ds/next stream {:position saved-offset})` to continue reading without skipping or reprocessing data.
-
-### Leaving a space (Detaching)
+Both fold every member stream's datoms into one indexed datom set and query it — a
+point-in-time snapshot taken when the read runs.
 
 ```clojure
-;; An agent leaves the space
-(space/leave! space my-log)
+;; q — full Datomic-compatible Datalog (joins, negation, aggregation, predicates)
+(dao.space/q '[:find ?id ?task
+               :where [?id :work/status :todo]
+                      [?id :work/task ?task]]
+  s)
+;; => #{[id task] ...}
+
+;; match — a positional datom template (Linda-style), lighter than q
+(dao.space/match s [_ :work/status :todo])   ; => matching datoms
+
+;; as-of — a read bound, not a verb: fold each stream only up to `point`
+(dao.space/q query s {:as-of t})
+(dao.space/match s pattern {:as-of (instant "2026-01-01")})
 ```
 
-When a stream is detached from the space, its underlying data remains completely intact in the persistent file. Leaving the space simply removes the stream from the topological set, meaning interpreters will no longer discover it when querying `(dao.space/members space)`.
+### Membership
 
-A stream can be **re-joined** to the space at any time by calling `join!` again. Because the space itself holds no data (only references to streams), re-joining immediately re-exposes the stream's entire history and future data to any interpreters observing the space.
+Opening a member stream through the handle *is* joining; closing it leaves.
+`space/join!` attaches an already-open autonomous stream (one written to offline, or
+previously detached); `ds/open! {:space …}` is sugar for "open then `space/join!`."
+`space/leave!` detaches without closing; `space/join!` and `space/leave!` are the
+symmetric pair. `(dao.space/members s)` exposes the raw member streams for tools that
+need direct stream access — it is a transport affordance, **not** the read API. The read
+API is `q` / `match`.
 
-### Stream Lifecycle
+## Realization Choice: Rebuild vs Incremental
 
-Because streams are autonomous, they have their own independent lifecycle managed by the `IDaoStreamBound` protocol (`ds/close!`, `ds/closed?`). 
-- Detaching a stream from a space (`space/leave!`) **does not** close the stream. It remains open and appendable by its owning agent.
-- Closing a space **does not** necessarily close the autonomous streams, as they may be attached to other spaces or written to offline.
+The invariant fixes *what* DaoSpace is; it leaves one pure-realization choice open,
+because both options satisfy it identically and differ only in cost:
 
-### Observing a space (Reading)
+- **Rebuild per query** — each `q`/`match` folds the member streams into a fresh indexed
+  datom value and throws it away. Simple; correct; O(total datoms) per read.
+- **Incremental index** — a long-lived index ingests new stream frames as they arrive
+  (a cursor per stream, fold deltas), Datomic-*peer* style. More machinery; amortized
+  reads. Still no transactor and no global clock — each stream advances its own cursor.
 
-Reads never fold the space. The space provides a set of stream objects, and interpreters explicitly tail those streams using `ds/next`.
+This is a performance fork, not a definitional one, and can be deferred without touching
+the invariant or the API.
 
 ```clojure
-;; An interpreter iterating over the space's member logs
-(let [streams (dao.space/members space)]
-  (doseq [s streams]
-    (let [tuple (ds/next s cursor)]
-      ;; Local pattern matching evaluated entirely in the interpreter process
-      (when (matches-pattern? tuple [_ :work/status :todo])
-        (handle-tuple tuple)))))
+;; Reference fold (rebuild-per-query form). Each stream's datoms are stamped with the
+;; stream's namespace before indexing, so two streams' local id 1025 stay distinct;
+;; "same logical entity across streams" is a join on shared values, never on a local id.
+(defn- fold-db [s as-of]
+  (let [datoms (mapcat (fn [log]
+                         (let [ns (stream-ns log)]
+                           (map #(stamp ns %) (ds/->seq log))))
+                       (vals @(members s)))]
+    (db/index (cond->> datoms as-of (filter #(<= (:t %) as-of))))))
+
+(defn q [query s & {:keys [as-of]}] (db/q query (fold-db s as-of)))
 ```
+
+**Implementation status.** Content-addressed identity (the base `B`) is the intended
+basis for cross-writer unification, but is only partially realized: `yin/content.cljc`
+hashes via `pr-str` rather than the canonical byte encoding `datom-spec.md` mandates, and
+the indexed kernel still allocates integer entity IDs, so stamped `[namespace offset]`
+references are not yet first-class join keys. Making the content hash load-bearing is a
+prerequisite for treating cross-stream identity as gauge-invariant rather than stamped.
+
+## Coordination: Stigmergy
+
+Agents coordinate by leaving tuples for others to query, decoupled in time and identity.
+Because streams are append-only there is no destructive `take`: to "claim" work an agent
+*appends a new tuple* asserting the claim, and "current state" is a read-side query over
+the accreted tuples.
+
+```clojure
+(defn producer [s]
+  (let [log (ds/open! {:type :dao-stream :space s :name "producer"})]
+    (ds/put! log {:db/id (random-id) :work/posted true :work/task "process payment"})))
+
+(defn worker [s worker-id]
+  (let [log (ds/open! {:type :dao-stream :space s :name worker-id})]
+    (loop []
+      ;; Datalog expresses "posted work nothing has claimed" — the query that justifies
+      ;; a tuple space (negation + join over the whole set, not a per-tuple scan).
+      (let [work (dao.space/q '[:find ?task
+                                :where [?w :work/posted true]
+                                       [?w :work/task ?task]
+                                       (not [_ :work/claims ?w])]
+                   s)]
+        (when-let [[task] (first work)]
+          (ds/put! log {:db/id (random-id) :work/claims task :work/by worker-id})
+          (ds/put! log {:db/id (random-id) :work/result (process task)})
+          (recur))))))
+```
+
+## Lineage
+
+DaoSpace is the meeting point of three traditions:
+
+- **Linda** gives the essence kept whole: generative communication (write into a shared
+  medium, don't address a receiver), spatial and temporal decoupling, non-destructive
+  associative matching. The divergences are immutability (append, never `take`) and
+  named n-tuples (datoms) in place of untyped positional arrays.
+- **Datomic** gives what Linda lacked: immutable datoms, Datalog, time (`as-of`), and
+  content-addressed identity. The tuple space *is* an indexed datom value; that is the
+  whole reason `q` can do joins, negation, and aggregation a template never could.
+- **Plan 9** gives the realization stance: streams are mountable, autonomous,
+  location-transparent resources, and a space is assembled from them — but, unlike a
+  Plan 9 per-process namespace, the *default* is global match, because a coordination
+  medium for strangers must let any agent match the whole space, not only what it bound.
+
+The synthesis: **`dao.stream` is a 9P-style append-only log; `dao.space` is a Datomic
+query value folded from a Linda-style global collection of them.**
