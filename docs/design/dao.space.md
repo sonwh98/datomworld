@@ -253,6 +253,10 @@ query over the accreted datoms.
           (recur))))))
 ```
 
+## Implementation Platform
+
+Both the `dao.space` storage boundary and the `dao.space.query` library should be implemented as cross-platform `.cljc` files wherever possible. The core logic, indexing, and pattern matching must operate identically across Clojure (`clj`), ClojureScript (`cljs`), and ClojureDart (`cljd`). While the underlying byte substrates (such as `dao.stream.file` for async disk I/O) will require host-specific implementations, the abstractions built on top of them must remain platform-agnostic.
+
 ## Fault Tolerance
 
 Because storage is persistent append-only `dao.stream` files, it inherits crash-only
