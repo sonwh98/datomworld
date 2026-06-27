@@ -4,6 +4,7 @@
 - `docs/design/dao.stream.md` — the stream transport DaoSpace is built from
 - `docs/design/dao.stream.file.md` — the file-backed byte stream member logs use
 - `docs/agents/datom-spec.md` — datoms, content-addressed identity, the gauge/base framing
+- `docs/datomic.md` — the deep dive on the Datomic storage architecture this design maps to
 - `docs/design/adr/0001-dao-space-as-storage-boundary.md` — the decision this design records
 - `docs/design/dao.space.v0.md` — superseded framing; still the reference for resources, typed streams, and the geometry/gauge material
 - `docs/design/dao.space.locality.md`, `dao.space.metaphors.md`, `dao.space.discrete-to-continuous.md` — the geometry/locality cluster: theoretical justification (gauge, spectral, locality) the spec defers to, not required to read it
@@ -32,33 +33,24 @@ of it.
 
 ## What DaoSpace Is
 
-`dao.space` is the **storage boundary**: a collection of file-backed `dao.stream` member
-logs whose union of datoms is one decentralized, durable, append-only log. The handle
-plays two roles — a **factory** for member write streams, and the **datom source** the
-query library reads.
+`dao.space` is the **storage boundary**: a dumb key-value store (the `KVStore` protocol) that holds immutable B-Tree segment chunks and mutable stream root references. It is the decentralized analog to Datomic's storage layer.
 
-`dao.space` is deliberately dumb. It does not index, it does not pattern-match, it does
-not run Datalog. Those are the query library's job. This is the Datomic discipline taken
-literally: **storage is a dumb durable log; all intelligence lives in the embeddable
-reader on top.** Keeping the boundary this thin is what lets storage scale and be
-swapped without touching query logic.
+The physical `KVStore` is deliberately dumb. It does not know what a datom is, it does not index, it does not pattern-match, and it does not run Datalog. Those are the query library's job. This is the Datomic discipline taken literally: **storage is a dumb KV blob store; all intelligence lives in the embeddable reader on top.** Keeping the boundary this thin is what lets storage scale and be swapped without touching query logic.
 
 ```
    dao.space.query/q   …/match          ← QUERY boundary (a library, separate doc/ns)
-        │  reads dao.space, folds member datoms into an
-        │  in-memory index, runs Datalog
+        │  lazily pulls B-Tree segments from the
+        │  KVStore, merges them, and runs Datalog
         ▼
 ╔═══════════════════ dao.space ═══════════════════╗   ← STORAGE boundary (this doc)
-║ ┌──────────────┐ ┌──────────────┐ ┌───────────┐ ║
-║ │ member log A │ │ member log B │ │ member C  │ ║   (1..n autonomous streams; each
-║ │ ds/put! →    │ │ ds/put! →    │ │ ds/put! → │ ║    its own append-only file log,
-║ └──────┬───────┘ └──────┬───────┘ └─────┬─────┘ ║    written without contention)
-╚════════╪════════════════╪════════════════╪══════╝
-         │ datom frames (self-delimiting byte records)
-┌────────▼─────┐ ┌────────▼─────┐ ┌────────▼─────┐
-│ dao.stream.  │ │ dao.stream.  │ │ dao.stream.  │     (byte substrate: async disk,
-│ file         │ │ file         │ │ file         │      non-blocking)
-└──────────────┘ └──────────────┘ └──────────────┘
+║             IKVStore (put! / get / cas!)        ║
+║                                                 ║
+║   [Mutable Stream Roots]   [Immutable Chunks]   ║
+╚════════╪══════════════════════════════╪═════════╝
+         │ byte maps                    │ byte maps
+┌────────▼──────────────────────────────▼─────────┐
+│              KV Backends (Mem, File)            │
+└─────────────────────────────────────────────────┘
 
    each writer = its own Transactor (decentralized write boundary)
 ```
@@ -103,24 +95,17 @@ previously detached); `ds/open! {:space …}` is sugar for "open then `space/joi
 `space/leave!` detaches without closing. `space/join!` and `space/leave!` are the
 symmetric pair.
 
-## Reading DaoSpace — the datom source (storage → query)
+## Reading DaoSpace — the storage interface (storage → query)
 
-`dao.space` exposes its stored datoms; it does not interpret them. This is the interface
-the query library consumes — **not** a query API.
+`dao.space.kv/IKVStore` exposes its stored byte blobs; it does not interpret them. This is the interface the query library consumes — **not** a query API.
 
 ```clojure
-;; members — the set of member streams; enumerate and read them directly.
-(dao.space/members s)                ; => set of member streams
-
-;; datoms — a convenience that folds every member stream into one datom sequence,
-;; each datom tagged with its source stream's namespace (so the reader can keep
-;; stream-local entity ids distinct). Order across streams is not defined.
-(dao.space/datoms s)                 ; => seq of datoms
-(dao.space/datoms s {:as-of point})  ; bound: each stream read only up to `point`
+;; The dumb storage API (see src/cljc/dao/space/kv.cljc)
+(kv/get store :root nil)               ; read a mutable root reference
+(kv/get store :segment-id nil)         ; read an immutable B-Tree chunk
 ```
 
-Both surface datoms; neither matches or queries. There is no space-level cursor and no
-`dao.space/q` — querying lives entirely in the library.
+There is no `space/datoms` or `space/members` at the storage layer, because the storage layer does not know what a datom is. Parsing chunks into datom streams, matching, and querying live entirely in the query library (`dao.space.query`).
 
 ## The Query Library
 
@@ -210,12 +195,22 @@ identically (the index is the same set of datoms — see ADR 0001's monoid homom
 - **Incremental index** — a long-lived reader keeps a cursor per member stream and folds
   only new frames as they arrive (Datomic-peer style). More machinery; amortized reads.
   Still no transactor and no global clock — each stream advances its own cursor.
-- **Owner-built, peers merge** — each stream's owner indexes its own stream and persists
+- **Owner-built, peers merge (Target Architecture)** — each stream's owner indexes its own stream and persists
   the segments; readers **merge** per-stream indexes instead of rebuilding. Index-once,
   reuse-by-many, and available when the author is offline — the decentralized analog of
   Datomic's transactor-built index (see ADR 0001, ruling 5 and Open Question 1).
 
-This can be deferred without touching the storage boundary or the library's API.
+This index-once/lazy-pull behavior is realized using **tonsky/persistent-sorted-set**, which provides a B-Tree implementation that natively supports lazy loading and segment chunking.
+1. The `dao.space` layer provides a minimal `IKVStore` protocol (`put!`/`cas!`/`get`/`delete!`/`close!`, in `dao.space.kv`) representing Datomic's dumb storage (see `docs/datomic.md` for the technical specification).
+2. The index builder writes B-Tree segment chunks to `dao.space` using `put!`.
+3. The `dao.space.query` Peer library configures `persistent-sorted-set` with an `IStorage` adapter that calls `get` to lazily pull B-Tree segments from the store *only* when traversed by a query.
+
+The two write paths share one keyspace under a discipline the store does not enforce:
+immutable segments are written with `put!` under fresh, content-derived keys and are never
+rewritten; mutable references (the stream root pointer) are written with `cas!` under
+optimistic concurrency. Keep these keyspaces disjoint — `put!` re-stamps `:rev` to 0
+unconditionally, so a `put!` over a `cas!`-governed key resets its revision and breaks the
+optimistic-concurrency guard.
 
 **Implementation status.** Content-addressed identity (the gauge-invariant base `B` in
 `datom-spec.md`) is the intended basis for cross-writer unification but is only partially
@@ -224,6 +219,38 @@ the spec mandates, and the library's index still allocates integer entity ids, s
 `[namespace offset]` references are not yet first-class join keys. Making the content
 hash load-bearing is a prerequisite for treating cross-stream identity as gauge-invariant
 rather than stamped.
+
+## v1 Scope
+
+What v1 implements, and the contracts it pins down. Everything here stays inside the
+Storage boundary; none of it changes the API specified above.
+
+- **Public mode only.** v1 is the pull-to-reader path: readers embed the library,
+  enumerate members, and fold their datoms into the index locally. The only security is
+  coarse, per-stream filesystem permissions on the member logs. Controlled mode — the
+  governed interpreter, capabilities, `m`-policy — is out of scope (see
+  [dao.space.security.md](dao.space.security.md) and
+  [ADR 0002](adr/0002-share-governed-computation-not-data.md)).
+- **Index: the Target Architecture directly.** v1 builds the index on
+  `tonsky/persistent-sorted-set` over the `KVStore` (`put`/`get`/`cas`) interface, with the
+  `IStorage` adapter pulling B-tree segments lazily — the index-once/lazy-pull mechanism
+  behind the owner-built/peers-merge target (above). v1 does **not** ship the
+  rebuild-per-query stopgap and does **not** reuse `dao.db`'s in-memory sorted-set engine;
+  the `fold` sketch names the read role, not the implementation.
+- **Member layout and discovery.** A stream owner acts as a Transactor: it accepts new datoms, indexes them into B-Tree segments, and unconditionally writes those immutable segments to the `KVStore` (`put!`). It then performs an atomic `cas!` on the stream's mutable root reference to point to the new B-Tree root. 
+- **Querying (Peer library).** A query reads the stream's root reference from the `KVStore` and uses the `IStorage` adapter to lazily pull only the traversed B-Tree chunks. Concurrent writes never disturb an in-flight read because the read targets an immutable B-Tree root snapshot.
+- **Namespace stamping.** The peer library stamps each datom's `e` with a per-member
+  identifier so stream-local ids stay distinct. v1 does **not** yet derive that namespace
+  from the canonical kickoff hash, because content addressing is not yet load-bearing
+  (below).
+- **Encoding: `pr-str`, not canonical.** v1 persists and hashes datom frames via `pr-str`
+  (current `yin/content.cljc`), not the canonical byte encoding `datom-spec.md` mandates.
+  Consequence: cross-stream identity is stamped, not gauge-invariant — value-joins hold
+  within a run, but the content hash is not yet a portable join key. Making the canonical
+  encoding load-bearing is the first post-v1 step and does not change this document's API.
+- **Deferred (no v1 work):** cross-stream `as-of` (ADR 0001 Open Question 2), the
+  rebuild-per-query and incremental index variants (kept only as the conceptual `fold`
+  baseline), and all of Controlled mode.
 
 ## Coordination: Stigmergy
 
@@ -255,7 +282,10 @@ query over the accreted datoms.
 
 ## Implementation Platform
 
-Both the `dao.space` storage boundary and the `dao.space.query` library should be implemented as cross-platform `.cljc` files wherever possible. The core logic, indexing, and pattern matching must operate identically across Clojure (`clj`), ClojureScript (`cljs`), and ClojureDart (`cljd`). While the underlying byte substrates (such as `dao.stream.file` for async disk I/O) will require host-specific implementations, the abstractions built on top of them must remain platform-agnostic.
+Both the `dao.space` storage boundary and the `dao.space.query` library should be implemented as cross-platform `.cljc` files wherever possible. The core logic, indexing, and pattern matching must operate identically across Clojure (`clj`), ClojureScript (`cljs`), and ClojureDart (`cljd`). 
+
+**Platform Degradation Note (`cljd`):** 
+The target architecture relies on `tonsky/persistent-sorted-set` for lazy B-Tree chunking. However, this library lacks a Dart (`cljd`) implementation and relies heavily on JVM/JS macros. In `cljd` environments, the indexing layer gracefully degrades to the built-in `clojure.core/sorted-set-by` (a standard red-black tree). Because the built-in set lacks an `IStorage` mechanism, Dart peers cannot lazily pull chunks over the network; they must load the entire index into memory. Addressing this requires either a pure-Clojure B-Tree port or a custom Dart `IStorage` implementation in the future.
 
 ## Fault Tolerance
 
