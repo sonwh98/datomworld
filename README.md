@@ -56,16 +56,20 @@ Open http://localhost:9000 (or try the live demo at [https://datom.world/demo.ht
 
 ## Testing
 
-### Clojure (JVM)
-Run the unit tests for the Clojure backend:
+The project uses unified auto-discovery for tests across all three compilation targets. Any namespace on the test path ending in `-test` will be automatically discovered and executed.
+
+We use Babashka (`bb`) as a unified task runner.
+
+To run all tests across all platforms:
 ```bash
-clj -M:test
+bb test
 ```
 
-### ClojureScript (Node.js)
-Compile and run the tests for the frontend/CLJS logic using the Clojure CLI:
+Or you can run tests for specific platforms:
 ```bash
-clj -M:cljs -m shadow.cljs.devtools.cli compile test && node target/node-tests.js
+bb test:clj   # Runs JVM tests
+bb test:cljs  # Runs Node tests via shadow-cljs
+bb test:cljd  # Runs Dart tests
 ```
 
 ## Flutter Prototype
