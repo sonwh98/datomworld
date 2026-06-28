@@ -59,6 +59,9 @@
            :kondo {:extra-deps {clj-kondo/clj-kondo {:mvn/version "2026.01.19"}}
                    :main-opts ["-m" "clj-kondo.main"]}
            :telemetry-server {:main-opts ["-m" "yin.vm.telemetry-server.jvm"]}
+           :dbg {:extra-paths ["test"]
+                 :main-opts ["-m" "debug-cljd"]
+                 :cljd/opts {:kind :flutter :main datomworld.demo.main}}
            :cljd-yin-repl
            {:extra-deps {tensegritics/clojuredart
                          {:git/url "https://github.com/tensegritics/ClojureDart.git"

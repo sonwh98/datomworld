@@ -542,7 +542,7 @@
 ;; 3D render pass
 ;; ---------------------------------------------------------------------------
 
-(defn- prepare-vertex
+(defn prepare-vertex
   "Transform an object-space vertex into clip space plus its world-space
    lighting bundle [uv normal world-pos color].  world-pos uses model-m;
    normal uses normal-m (the precomputed inverse-transpose of model-m, so the

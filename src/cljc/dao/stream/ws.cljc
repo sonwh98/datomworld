@@ -68,7 +68,7 @@
 ;; Shared internal helpers
 ;; =============================================================================
 
-(defn- make-ws-stream
+(defn make-ws-stream
   [local]
   (->WebSocketStream (atom (assoc (link/make-link-state local)
                                   :local-sent-pos 0))
@@ -92,7 +92,7 @@
     (when (seq datoms) (link/put-msg datoms from-pos))))
 
 
-(defn- on-open!
+(defn on-open!
   [ws-stream send-fn]
   (swap! (:link-state-atom ws-stream)
          (fn [state]
@@ -111,7 +111,7 @@
              (:local-pos state)))))
 
 
-(defn- on-message!
+(defn on-message!
   [ws-stream raw]
   (let [msg (transit/decode raw)
         state @(:link-state-atom ws-stream)
@@ -122,7 +122,7 @@
         (send-fn (transit/encode resp))))))
 
 
-(defn- on-close!
+(defn on-close!
   [ws-stream]
   (let [remote (:remote-stream @(:link-state-atom ws-stream))]
     (when-not (ds/closed? remote) (ds/close! remote)))

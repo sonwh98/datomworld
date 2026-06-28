@@ -7,7 +7,7 @@
 
 (defn- approx=
   [a b]
-  (< (Math/abs (- (double a) (double b))) 1.0e-6))
+  (< (m/mabs (- (double a) (double b))) 1.0e-6))
 
 
 (defn- approx-vec=
@@ -612,12 +612,8 @@
           normal-m [0.5 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1]
           ;; attrs = [uv normal obj-pos color]
           attrs [[0 0] [1 1 0] [1 1 0] [1 1 1 1]]
-          {bundle :bundle} (#'raster/prepare-vertex
-                            identity-mvp
-                            scale-x2
-                            normal-m
-                            [1 1 0]
-                            attrs)
+          {bundle :bundle}
+          (raster/prepare-vertex identity-mvp scale-x2 normal-m [1 1 0] attrs)
           ;; bundle = [uv normal world-pos color]
           normal (nth bundle 1)
           world-pos (nth bundle 2)]

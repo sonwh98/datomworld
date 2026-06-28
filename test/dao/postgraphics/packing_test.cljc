@@ -7,7 +7,7 @@
 
 (defn- approx=
   [a b]
-  (< (Math/abs (- (double a) (double b))) 1.0e-6))
+  (< (m/mabs (- (double a) (double b))) 1.0e-6))
 
 
 (defn- approx-vec=

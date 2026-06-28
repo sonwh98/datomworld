@@ -2,12 +2,13 @@
   "Append-only file writer exposed as a DaoStream sink for byte arrays."
   ;; The :clj impl avoids JVM type references (no java.io :import, no
   ;; ^Class / ^RandomAccessFile hints): ClojureDart host-eval reads the
-  ;; :clj branch and
-  ;; cannot resolve JVM types as Dart types. Plain fn calls
+  ;; :clj branch and cannot resolve JVM types as Dart types. Plain fn
+  ;; calls
   ;; (io/output-stream)
   ;; and method calls on untyped receivers compile cleanly.
   (:require
-    #?@(:cljd [["dart:io" :as dart-io]]
+    #?@(:cljd [["dart:io" :as dart-io]
+               ["dart:typed_data" :as typed-data]]
         :clj [[clojure.java.io :as io]])
     [dao.stream :as ds]))
 
@@ -92,9 +93,9 @@
 
            (put!
              [_this val]
-             (when-not (bytes? val)
+             (when-not (instance? typed-data/Uint8List val)
                (throw (ex-info "file-output-stream expects a byte-array value"
-                               {:path path, :value-type (str (type val))})))
+                               {:path path})))
              (if @closed?-atom
                (throw (ex-info "Cannot put to closed file-output-stream"
                                {:path path}))

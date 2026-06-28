@@ -65,8 +65,9 @@
 (def ^:private await-bindings {'cursor cursor, '<! <!, '>! >!})
 
 
-(module/register-module! 'await await-bindings)
-(module/register-module! 'dao.await await-bindings)
+(def ^:private init-module!
+  (delay (module/register-module! 'await await-bindings)
+         (module/register-module! 'dao.await await-bindings)))
 
 
 ;; =============================================================================
@@ -106,6 +107,7 @@
       :forms  <original forms>}"
   ([forms] (go* forms {}))
   ([forms env]
+   @init-module!
    (let [{:keys [ast datoms]} (get-compiled forms)]
      {:type :dao.await/process,
       :ast ast,

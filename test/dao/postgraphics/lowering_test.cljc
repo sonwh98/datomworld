@@ -2,12 +2,13 @@
   "JVM-only lowering tests (CLJS lowering tests live in web/gpu_test.cljs)."
   (:require
     [clojure.test :refer [deftest is]]
-    [dao.postgraphics.lowering :as lower]))
+    [dao.postgraphics.lowering :as lower]
+    [dao.postgraphics.math :as m]))
 
 
 (defn- approx=
   [a b]
-  (< (Math/abs (- (double a) (double b))) 1.0e-6))
+  (< (m/mabs (- (double a) (double b))) 1.0e-6))
 
 
 (defn- approx-vec=
@@ -24,19 +25,22 @@
 
 (deftest rejects-non-vector-frame
   (is (thrown? #?(:clj Exception
-                  :default :default)
+                  :cljs js/Error
+                  :cljd Object)
         (lower/validate-frame! "not-a-frame"))))
 
 
 (deftest rejects-op-without-kind
   (is (thrown? #?(:clj Exception
-                  :default :default)
+                  :cljs js/Error
+                  :cljd Object)
         (lower/validate-frame! [{}]))))
 
 
 (deftest rejects-non-map-op
   (is (thrown? #?(:clj Exception
-                  :default :default)
+                  :cljs js/Error
+                  :cljd Object)
         (lower/validate-frame! [42]))))
 
 
@@ -47,7 +51,8 @@
 
 (deftest rejects-clear-with-bad-color
   (is (thrown? #?(:clj Exception
-                  :default :default)
+                  :cljs js/Error
+                  :cljd Object)
         (lower/validate-frame! [{:op/kind :frame/clear,
                                  :color [2 0 0 1]}]))))
 
@@ -60,13 +65,15 @@
 
 (deftest rejects-transform-pop-without-push
   (is (thrown? #?(:clj Exception
-                  :default :default)
+                  :cljs js/Error
+                  :cljd Object)
         (lower/validate-frame! [{:op/kind :transform/pop}]))))
 
 
 (deftest rejects-stray-transform
   (is (thrown? #?(:clj Exception
-                  :default :default)
+                  :cljs js/Error
+                  :cljd Object)
         (lower/validate-frame! [{:op/kind :transform/push,
                                  :translate [1 2 3]}]))))
 
@@ -79,7 +86,8 @@
 
 (deftest rejects-clip-pop-without-push
   (is (thrown? #?(:clj Exception
-                  :default :default)
+                  :cljs js/Error
+                  :cljd Object)
         (lower/validate-frame! [{:op/kind :clip/pop}]))))
 
 
@@ -109,7 +117,8 @@
 
 (deftest rejects-target-push-when-not-supported
   (is (thrown? #?(:clj Exception
-                  :default :default)
+                  :cljs js/Error
+                  :cljd Object)
         (lower/validate-frame! [{:op/kind :target/push,
                                  :target/id :shadow,
                                  :target/size [64 64]}]))))
@@ -125,7 +134,8 @@
 
 (deftest rejects-draw-image-when-not-supported
   (is (thrown? #?(:clj Exception
-                  :default :default)
+                  :cljs js/Error
+                  :cljd Object)
         (lower/validate-frame! [{:op/kind :draw/image,
                                  :image/source :anything,
                                  :rect [0 0 10 10]}]
@@ -160,7 +170,8 @@
 
 (deftest texture-source-valid-rejects-invalid-source
   (is (thrown? #?(:clj Exception
-                  :default :default)
+                  :cljs js/Error
+                  :cljd Object)
         (lower/validate-frame! [{:op/kind :camera3d/set,
                                  :camera3d/projection :perspective,
                                  :camera3d/fov 45.0,

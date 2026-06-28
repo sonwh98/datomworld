@@ -16,6 +16,8 @@
        [dao.stream])))
 
 
+(declare init-module!)
+
 (def ^:private put-result-key ::put-result)
 (def ^:private closed-put-result ::closed)
 (def ^:private take-result-key ::take-result)
@@ -350,6 +352,7 @@
 
 (defn- make-ring-buffer-stream*
   [capacity eviction-policy position]
+  @init-module!
   (->RingBufferStream capacity
                       (normalize-eviction-policy eviction-policy)
                       (atom (initial-state position))))
@@ -400,10 +403,11 @@
   {:effect :stream/close, :stream s})
 
 
-(module/register-module! 'stream
-                         {'make make,
-                          'put! put!,
-                          'cursor cursor,
-                          'next! next!,
-                          'take! take!,
-                          'close! close!})
+(def ^:private init-module!
+  (delay (module/register-module! 'stream
+                                  {'make make,
+                                   'put! put!,
+                                   'cursor cursor,
+                                   'next! next!,
+                                   'take! take!,
+                                   'close! close!})))

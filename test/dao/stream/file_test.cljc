@@ -1,6 +1,6 @@
 (ns dao.stream.file-test
   (:require
-    #?@(:cljd [["dart:io" :as dart-io]
+    #?@(:cljd [["dart:io" :as dart-io] ["dart:typed_data" :as typed]
                [clojure.test :refer [deftest is testing]]]
         :cljs [[cljs.test :refer [deftest is testing async]]]
         :clj [[clojure.java.io :as io]
@@ -30,7 +30,7 @@
   [ints]
   #?(:clj (byte-array ints)
      :cljs (js/Uint8Array. (clj->js ints))
-     :cljd (dart-io/File. "")))                ; unused on cljd test path
+     :cljd (typed/Uint8List.fromList ints)))
 
 
 (defn- b->vec
@@ -162,7 +162,7 @@
     (let [s (ds/open! {:type :file, :path (temp-path "dsf-nb2-")})]
       (is (thrown? #?(:clj Exception
                       :cljs js/Error
-                      :cljd Exception)
+                      :cljd dart:core/Object)
             (ds/put! s "not-bytes")))
       (ds/close! s)))
   (testing "put! after close! throws"
@@ -170,7 +170,7 @@
       (ds/close! s)
       (is (thrown? #?(:clj Exception
                       :cljs js/Error
-                      :cljd Exception)
+                      :cljd dart:core/Object)
             (ds/put! s (->bytes [1]))))))
   ;; The poison fail-fast is deterministically forced on clj, where close!
   ;; also genuinely blocks: break the underlying handle, let the async

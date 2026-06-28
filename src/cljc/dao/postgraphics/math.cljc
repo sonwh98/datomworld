@@ -11,14 +11,14 @@
 ;; Host transcendentals
 ;; ---------------------------------------------------------------------------
 
-(defn- mcos
+(defn mcos
   [x]
   #?(:clj (Math/cos (double x))
      :cljs (js/Math.cos (double x))
      :cljd (math/cos (double x))))
 
 
-(defn- msin
+(defn msin
   [x]
   #?(:clj (Math/sin (double x))
      :cljs (js/Math.sin (double x))
