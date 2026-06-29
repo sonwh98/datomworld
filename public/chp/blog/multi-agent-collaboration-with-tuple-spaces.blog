@@ -42,7 +42,7 @@
            [:code "rd"]
            " reads one without removing it, and "
            [:code "eval"]
-           " spawns work. Crucially, "
+           " spawns work. Most importantly, "
            [:code "in"]
            " and "
            [:code "rd"]
@@ -64,7 +64,7 @@
           [:p
            "dao.space keeps the tuple space's controller-free, associatively matched shared state, and finishes the job the tuple space left half done by borrowing from a different tradition entirely: Datomic. Datomic is a database built on the same Lisp and Plan 9 lineage, and it carries one discipline the tuple space never had: a strict separation of transactor, storage, and query into three boundaries. dao.space treats those boundaries as swappable interfaces rather than fixed deployment roles. Grafting that discipline onto the tuple space is what resolves the limitations of both prior stages, and what turns the stigmergic medium from something ephemeral into something that lasts: durable stigmergy."]
           [:p
-           "Crucially, a " [:strong "dao.space"] " is not a monolithic worldwide server. They operate like email servers: decentralized, independently operated, and federated. A single space enables stigmergy among its local agents, but once content-addressed identity is fully load-bearing, it will enable stigmergic coordination " [:em "across"] " other spaces. Agents will be able to leave traces that propagate or are queried across boundaries, weaving a global stigmergic medium out of independent nodes."]
+           "Fundamentally, a " [:strong "dao.space"] " is not a monolithic worldwide server. They operate like email servers: decentralized, independently operated, and federated. A single space enables stigmergy among its local agents, but once content-addressed identity is fully load-bearing, it will enable stigmergic coordination " [:em "across"] " other spaces. Agents will be able to leave traces that propagate or are queried across boundaries, weaving a global stigmergic medium out of independent nodes."]
           [:p "Where Datomic's three boundaries land on the tuple space:"]
           [:ul.bulleted
            [:li [:strong "Transactor (write), decentralized."] " Datomic has one transactor. dao.space generalizes it: every agent that appends to its own append-only log is its own transactor, enforcing its own local schema. There is no shared write surface, no global clock, and no write contention, because each writer owns its own log; the store is shared but appends to independent logs never conflict."]
@@ -96,7 +96,7 @@
 
           [:h2 "Bootstrapping Direct Links"]
           [:p
-           "While " [:strong "dao.space"] " provides pure stigmergy, the broader " [:strong "datom.world"] " architecture does not force you to choose one path exclusively. It supports both the neural and the stigmergic models, and uses the latter to bootstrap the former. Agents can, and do, establish direct message-passing lines by opening dedicated streams that the other agent tails. Crucially, two agents never write to the same stream. If 1,000 agents want to talk to one agent, they don't fight over a shared inbox; they append to 1,000 distinct single-writer streams, and the recipient lazily merges them all on the read side. The only time " [:code "cas!"] " is used is by a single writer advancing its own pointer, purely for mechanical safety: protecting the stream from concurrent write corruption if a network retry duplicates a request or a split-brain partition spawns a zombie duplicate of the agent."]
+           "While " [:strong "dao.space"] " provides pure stigmergy, the broader " [:strong "datom.world"] " architecture does not force you to choose one path exclusively. It supports both the neural and the stigmergic models, and uses the latter to bootstrap the former. Agents can, and do, establish direct message-passing lines by opening dedicated streams that the other agent tails. The strict invariant is that two agents never write to the same stream. If 1,000 agents want to talk to one agent, they don't fight over a shared inbox; they append to 1,000 distinct single-writer streams, and the recipient lazily merges them all on the read side. The only time " [:code "cas!"] " is used is by a single writer advancing its own pointer, purely for mechanical safety: protecting the stream from concurrent write corruption if a network retry duplicates a request or a split-brain partition spawns a zombie duplicate of the agent."]
           [:p
            "Because a " [:code "dao.stream"] " is itself represented by datoms, " [:strong "dao.space"] " acts as the decentralized discovery mechanism. Agents use the stigmergic medium to leave traces declaring their existence, their capabilities, and the addresses of their streams. Other agents query the space to discover them, and then seamlessly switch to direct, point-to-point neural interaction when tightly coupled coordination is needed. Stigmergy provides the shared substrate; the direct topology emerges dynamically from the traces."]
 
