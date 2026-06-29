@@ -33,14 +33,14 @@ of it.
 
 ## What DaoSpace Is
 
-`dao.space` is the **storage boundary**: a dumb key-value store (the `KVStore` protocol) that holds immutable B-Tree segment chunks and mutable stream root references. It is the decentralized analog to Datomic's storage layer.
+`dao.space` is the **storage boundary**: a dumb key-value store (the `IKVStore` protocol) that holds immutable B-Tree segment chunks and mutable stream root references. It is the decentralized analog to Datomic's storage layer.
 
-The physical `KVStore` is deliberately dumb. It does not know what a datom is, it does not index, it does not pattern-match, and it does not run Datalog. Those are the query library's job. This is the Datomic discipline taken literally: **storage is a dumb KV blob store; all intelligence lives in the embeddable reader on top.** Keeping the boundary this thin is what lets storage scale and be swapped without touching query logic.
+The physical `IKVStore` is deliberately dumb. It does not know what a datom is, it does not index, it does not pattern-match, and it does not run Datalog. Those are the query library's job. This is the Datomic discipline taken literally: **storage is a dumb KV blob store; all intelligence lives in the embeddable reader on top.** Keeping the boundary this thin is what lets storage scale and be swapped without touching query logic.
 
 ```
    dao.space.query/q   …/match          ← QUERY boundary (a library, separate doc/ns)
         │  lazily pulls B-Tree segments from the
-        │  KVStore, merges them, and runs Datalog
+        │  IKVStore, merges them, and runs Datalog
         ▼
 ╔═══════════════════ dao.space ═══════════════════╗   ← STORAGE boundary (this doc)
 ║             IKVStore (put! / get / cas!)        ║
@@ -232,13 +232,13 @@ Storage boundary; none of it changes the API specified above.
   [dao.space.security.md](dao.space.security.md) and
   [ADR 0002](adr/0002-share-governed-computation-not-data.md)).
 - **Index: the Target Architecture directly.** v1 builds the index on
-  `tonsky/persistent-sorted-set` over the `KVStore` (`put`/`get`/`cas`) interface, with the
+  `tonsky/persistent-sorted-set` over the `IKVStore` (`put`/`get`/`cas`) interface, with the
   `IStorage` adapter pulling B-tree segments lazily — the index-once/lazy-pull mechanism
   behind the owner-built/peers-merge target (above). v1 does **not** ship the
   rebuild-per-query stopgap and does **not** reuse `dao.db`'s in-memory sorted-set engine;
   the `fold` sketch names the read role, not the implementation.
-- **Member layout and discovery.** A stream owner acts as a Transactor: it accepts new datoms, indexes them into B-Tree segments, and unconditionally writes those immutable segments to the `KVStore` (`put!`). It then performs an atomic `cas!` on the stream's mutable root reference to point to the new B-Tree root. 
-- **Querying (Peer library).** A query reads the stream's root reference from the `KVStore` and uses the `IStorage` adapter to lazily pull only the traversed B-Tree chunks. Concurrent writes never disturb an in-flight read because the read targets an immutable B-Tree root snapshot.
+- **Member layout and discovery.** A stream owner acts as a Transactor: it accepts new datoms, indexes them into B-Tree segments, and unconditionally writes those immutable segments to the `IKVStore` (`put!`). It then performs an atomic `cas!` on the stream's mutable root reference to point to the new B-Tree root. 
+- **Querying (Peer library).** A query reads the stream's root reference from the `IKVStore` and uses the `IStorage` adapter to lazily pull only the traversed B-Tree chunks. Concurrent writes never disturb an in-flight read because the read targets an immutable B-Tree root snapshot.
 - **Namespace stamping.** The peer library stamps each datom's `e` with a per-member
   identifier so stream-local ids stay distinct. v1 does **not** yet derive that namespace
   from the canonical kickoff hash, because content addressing is not yet load-bearing
@@ -269,13 +269,13 @@ query over the accreted datoms.
     (loop []
       ;; "posted work nothing has claimed" — negation + join over the whole store,
       ;; the query that justifies a tuple space (not a per-datom scan).
-      (let [work (query/q '[:find ?task
+      (let [work (query/q '[:find ?w ?task
                             :where [?w :work/posted true]
                                    [?w :work/task ?task]
                                    (not [_ :work/claims ?w])]
                    s)]
-        (when-let [[task] (first work)]
-          (ds/put! log {:db/id (random-id) :work/claims task :work/by worker-id})
+        (when-let [[?w task] (first work)]
+          (ds/put! log {:db/id (random-id) :work/claims ?w :work/by worker-id})
           (ds/put! log {:db/id (random-id) :work/result (process task)})
           (recur))))))
 ```
