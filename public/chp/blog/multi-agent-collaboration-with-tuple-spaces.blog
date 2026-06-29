@@ -2,9 +2,9 @@
        :date #inst "2026-06-28T00:00:00.000-00:00",
        :abstract
        [:p
-        "Biological systems coordinate at scale using two primary models: tight, direct message passing (like neurons), and decoupled, indirect coordination through a shared environment (like ants leaving pheromone trails), a mechanism biologists call stigmergy. The tuple space is stigmergy made formal, a shared space where processes read and write tuples instead of addressing each other. This piece follows the idea through three stages: the blackboard of 1970s AI, which had the shared medium but kept a central scheduler; the Linda tuple space of 1985, which achieved true stigmergy but left it ephemeral; and "
-        [:strong "dao.space"]
-        ", which makes the stigmergic medium durable, content-addressed, and trust-bounded by combining it with Datomic's storage and query disciplines."],
+        "Biological systems coordinate at scale using stigmergy: indirect coordination through a shared environment, like ants leaving pheromone trails. The tuple space is stigmergy made formal, a shared space where processes read and write facts instead of addressing each other. This piece traces the fifty-year evolution of that idea into "
+        [:a {:href "/chp/dao-space.chp"} [:strong "dao.space"]]
+        ", which finally makes the stigmergic medium durable, content-addressed, and trust-bounded by combining it with Datomic's storage and query disciplines."],
        :content
        [:section.blog-article
         [:div.section-inner
@@ -14,11 +14,15 @@
           [:p
            "Nature uses two entirely different architectures to coordinate complex behavior. The first is direct message passing, routing signals point-to-point through a fixed topology, the way neurons fire across synapses. The second is stigmergy: coordinating agents that cannot or will not talk to each other directly by leaving traces in a shared medium. An ant does not message the other ants; it deposits a pheromone, and the next ant that passes is influenced by the trace. Coordination lives in the medium, not in the participants."]
           [:p
-           "Today's multi-agent frameworks almost exclusively emulate the neural path: their agents send each other messages, a transcript accumulates, and a control loop decides who speaks next. But the stigmergic alternative, agents reading and writing a shared space of facts and coordinating by what is there, has a fifty-year formal pedigree. It is not one idea but three stages of one idea: the tuple space is stigmergy made formal, and dao.space is that formal stigmergy made durable. This piece walks the lineage and shows what each stage contributed."]
+           "Today's multi-agent frameworks almost exclusively emulate the neural path: their agents send each other messages, a transcript accumulates, and a control loop decides who speaks next. But the stigmergic alternative, agents reading and writing a shared space of facts and coordinating by what is there, has a fifty-year formal pedigree. It is not one idea but three stages of one idea: the tuple space is stigmergy made formal, and "
+           [:a {:href "/chp/dao-space.chp"} "dao.space"]
+           " is that formal stigmergy made durable. This piece walks the lineage and shows what each stage contributed."]
 
           [:h2 "Stage One: The Blackboard Model (1970s AI)"]
           [:p
-           "The shared-state coordination idea was born in classical AI, in speech understanding. Hearsay-II (1971 to 1976) had to combine the opinions of many specialists, a phoneme recognizer, a syllable hypothesizer, a syntax module, a semantics module, into a single answer. Rather than wire the specialists to call each other, it gave them a shared workspace called the blackboard, and let each read what the others had written and contribute when it had something to add."]
+           "The shared-state coordination idea was born in classical AI, in speech understanding. "
+           [:a {:href "https://dl.acm.org/doi/10.1145/356810.356816"} "Hearsay-II"]
+           " (1971 to 1976) had to combine the opinions of many specialists, a phoneme recognizer, a syllable hypothesizer, a syntax module, a semantics module, into a single answer. Rather than wire the specialists to call each other, it gave them a shared workspace called the blackboard, and let each read what the others had written and contribute when it had something to add."]
           [:p
            "The blackboard model, as later codified by Penny Nii, has three parts:"]
           [:ul.bulleted
@@ -32,7 +36,9 @@
 
           [:h2 "Stage Two: Linda and the Tuple Space (1985, Parallel Computing)"]
           [:p
-           "In 1985 David Gelernter generalized the blackboard into a coordination language called Linda, and in doing so removed the central bottleneck. A Linda system has a shared "
+           "In 1985 David Gelernter generalized the blackboard into a coordination language called "
+           [:a {:href "https://dl.acm.org/doi/10.1145/2363.2433"} "Linda"]
+           ", and in doing so removed the central bottleneck. A Linda system has a shared "
            [:strong "tuple space"]
            ", a bag of typed records, and four operations: "
            [:code "out"]
@@ -54,7 +60,9 @@
            [:strong "there is no control shell"]
            ". Coordination is not scheduled by anything; it emerges from the data structure itself. A producer drops a tuple and walks away; a consumer that arrives an hour later finds it. Producers and consumers are decoupled in time, in space, and in reference, what Gelernter called generative communication. The blackboard's central scheduler is gone, and with it the controller bottleneck. This was true stigmergy at last, coordination emerging purely from the accumulated state of a shared medium, with no authority anywhere; the medium just had not been built to last."]
           [:p
-           "The idea was compelling enough that Sun Microsystems canonized it as JavaSpaces (part of Jini) in the late 1990s, bringing the tuple space to enterprise distributed systems. JavaSpaces added a crucial innovation Linda lacked: mobile code. By taking advantage of Java's dynamic class loading, it allowed agents to drop objects containing both state and behavior directly into the space for others to download and run. But the tuple space lost the distributed-systems war to message-passing channels anyway, and for a reason that connects straight back to the blackboard's old weakness. Associative matching still has to happen "
+           "The idea was compelling enough that Sun Microsystems canonized it as "
+           [:a {:href "https://river.apache.org/doc/specs/html/js-spec.html"} "JavaSpaces"]
+           " (part of Jini) in the late 1990s, bringing the tuple space to enterprise distributed systems. JavaSpaces added a crucial innovation Linda lacked: mobile code. By taking advantage of Java's dynamic class loading, it allowed agents to drop objects containing both state and behavior directly into the space for others to download and run. But the tuple space lost the distributed-systems war to message-passing channels anyway, and for a reason that connects straight back to the blackboard's old weakness. Associative matching still has to happen "
            [:em "somewhere"]
            ". In most Linda implementations (including JavaSpaces), the tuple space was a centralized server that did the matching. In theory, the controller was gone. In practice, the bottleneck didn't disappear; it just moved from a central scheduler deciding who acts, to a centralized matcher evaluating patterns. Channels won because routing by address is cheaper, and more obviously scalable, than matching by pattern."]
           [:p
@@ -62,9 +70,11 @@
 
           [:h2 "Stage Three: dao.space, the Tuple Space Combined with Datomic"]
           [:p
-           "dao.space keeps the tuple space's controller-free, associatively matched shared state, and finishes the job the tuple space left half done by borrowing from a different tradition entirely: Datomic. Datomic is a database built on the same Lisp and Plan 9 lineage, and it carries one discipline the tuple space never had: a strict separation of transactor, storage, and query into three boundaries. dao.space treats those boundaries as swappable interfaces rather than fixed deployment roles. Grafting that discipline onto the tuple space is what resolves the limitations of both prior stages, and what turns the stigmergic medium from something ephemeral into something that lasts: durable stigmergy."]
+           "dao.space keeps the tuple space's controller-free, associatively matched shared state, and finishes the job the tuple space left half done by borrowing from a different tradition entirely: "
+           [:a {:href "https://www.datomic.com/"} "Datomic"]
+           ". Datomic is a database built on the same Lisp and Plan 9 lineage, and it carries one discipline the tuple space never had: a strict separation of transactor, storage, and query into three boundaries. dao.space treats those boundaries as swappable interfaces rather than fixed deployment roles. Grafting that discipline onto the tuple space is what resolves the limitations of both prior stages, and what turns the stigmergic medium from something ephemeral into something that lasts: durable stigmergy."]
           [:p
-           "Fundamentally, a " [:strong "dao.space"] " is not a monolithic worldwide server. They operate like email servers: decentralized, independently operated, and federated. A single space enables stigmergy among its local agents, but once content-addressed identity is fully load-bearing, it will enable stigmergic coordination " [:em "across"] " other spaces. Agents will be able to leave traces that propagate or are queried across boundaries, weaving a global stigmergic medium out of independent nodes."]
+           "Fundamentally, a " [:a {:href "/chp/dao-space.chp"} [:strong "dao.space"]] " is not a monolithic worldwide server. They operate like email servers: decentralized, independently operated, and federated. A single space enables stigmergy among its local agents, but once content-addressed identity is fully load-bearing, it will enable stigmergic coordination " [:em "across"] " other spaces. Agents will be able to leave traces that propagate or are queried across boundaries, weaving a global stigmergic medium out of independent nodes."]
           [:p "Where Datomic's three boundaries land on the tuple space:"]
           [:ul.bulleted
            [:li [:strong "Transactor (write), decentralized."] " Datomic has one transactor. dao.space generalizes it: every agent that appends to its own append-only log is its own transactor, enforcing its own local schema. There is no shared write surface, no global clock, and no write contention, because each writer owns its own log; the store is shared but appends to independent logs never conflict."]
