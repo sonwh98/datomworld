@@ -2,7 +2,7 @@
        :date #inst "2026-06-28T00:00:00.000-00:00",
        :abstract
        [:p
-        "Nature solved multi-agent coordination long before computers did: ants and termites do not talk to each other, they leave traces in a shared medium, a mechanism biologists call stigmergy. The tuple space is stigmergy made formal, a shared space where processes read and write tuples instead of addressing each other. This piece follows the idea through three stages: the blackboard of 1970s AI, which had the shared medium but kept a central scheduler; the Linda tuple space of 1985, which achieved true stigmergy but left it ephemeral; and "
+        "Biological systems coordinate at scale using two primary models: tight, direct message passing (like neurons), and decoupled, indirect coordination through a shared environment (like ants leaving pheromone trails), a mechanism biologists call stigmergy. The tuple space is stigmergy made formal, a shared space where processes read and write tuples instead of addressing each other. This piece follows the idea through three stages: the blackboard of 1970s AI, which had the shared medium but kept a central scheduler; the Linda tuple space of 1985, which achieved true stigmergy but left it ephemeral; and "
         [:strong "dao.space"]
         ", which makes the stigmergic medium durable, content-addressed, and trust-bounded by combining it with Datomic's storage and query disciplines."],
        :content
@@ -12,7 +12,9 @@
           :$blog-title
           :$blog-date
           [:p
-           "Stigmergy is how nature coordinates agents that cannot or will not talk to each other directly. An ant does not message the other ants; it deposits a pheromone, and the next ant that passes is influenced by the trace. Coordination lives in the medium, not in the participants. Today's multi-agent frameworks took the opposite turn: their agents send each other messages, a transcript accumulates, and a control loop decides who speaks next. But the stigmergic alternative, agents reading and writing a shared space of facts and coordinating by what is there, has a fifty-year formal pedigree. It is not one idea but three stages of one idea: the tuple space is stigmergy made formal, and dao.space is that formal stigmergy made durable. This piece walks the lineage and shows what each stage contributed."]
+           "Nature uses two entirely different architectures to coordinate complex behavior. The first is direct message passing, routing signals point-to-point through a fixed topology, the way neurons fire across synapses. The second is stigmergy: coordinating agents that cannot or will not talk to each other directly by leaving traces in a shared medium. An ant does not message the other ants; it deposits a pheromone, and the next ant that passes is influenced by the trace. Coordination lives in the medium, not in the participants."]
+          [:p
+           "Today's multi-agent frameworks almost exclusively emulate the neural path: their agents send each other messages, a transcript accumulates, and a control loop decides who speaks next. But the stigmergic alternative, agents reading and writing a shared space of facts and coordinating by what is there, has a fifty-year formal pedigree. It is not one idea but three stages of one idea: the tuple space is stigmergy made formal, and dao.space is that formal stigmergy made durable. This piece walks the lineage and shows what each stage contributed."]
 
           [:h2 "Stage One: The Blackboard Model (1970s AI)"]
           [:p
@@ -61,6 +63,8 @@
           [:h2 "Stage Three: dao.space, the Tuple Space Combined with Datomic"]
           [:p
            "dao.space keeps the tuple space's controller-free, associatively matched shared state, and finishes the job the tuple space left half done by borrowing from a different tradition entirely: Datomic. Datomic is a database built on the same Lisp and Plan 9 lineage, and it carries one discipline the tuple space never had: a strict separation of transactor, storage, and query into three boundaries. dao.space treats those boundaries as swappable interfaces rather than fixed deployment roles. Grafting that discipline onto the tuple space is what resolves the limitations of both prior stages, and what turns the stigmergic medium from something ephemeral into something that lasts: durable stigmergy."]
+          [:p
+           "Crucially, a " [:strong "dao.space"] " is not a monolithic worldwide server. They operate like email servers: decentralized, independently operated, and federated. A single space enables stigmergy among its local agents, but once content-addressed identity is fully load-bearing, it will enable stigmergic coordination " [:em "across"] " other spaces. Agents will be able to leave traces that propagate or are queried across boundaries, weaving a global stigmergic medium out of independent nodes."]
           [:p "Where Datomic's three boundaries land on the tuple space:"]
           [:ul.bulleted
            [:li [:strong "Transactor (write), decentralized."] " Datomic has one transactor. dao.space generalizes it: every agent that appends to its own append-only log is its own transactor, enforcing its own local schema. There is no shared write surface, no global clock, and no write contention, because each writer owns its own log; the store is shared but appends to independent logs never conflict."]
@@ -83,12 +87,18 @@
           [:pre
            [:code
             {:class "language-clojure"}
-            ";; find posted work no one has claimed: a join and negation over the whole store\n(query/q '[:find ?task ?w\n           :where [?w :work/posted true]\n                  [?w :work/task ?task]\n                  (not [_ :work/claims ?w])]\n  space)\n\n;; claiming is an append, not a destructive take\n(ds/put! log {:db/id (random-id) :work/claims w :work/by worker-id})"]]
+            ";; find posted work no one has claimed: a join and negation over the whole store\n(query/q '[:find ?w ?task\n           :where [?w :work/posted true]\n                  [?w :work/task ?task]\n                  (not [_ :work/claims ?w])]\n  space)\n\n;; claiming is an append, not a destructive take\n(ds/put! log {:db/id (random-id) :work/claims ?w :work/by worker-id})"]]
           [:p
            "It is worth being precise about what this does and does not guarantee, because the naive version hides a familiar race. Two workers can run the claim-finding query before either appends, and both then append a claim to the same task. That is not a bug the storage layer papered over; it is a real consequence of check-then-act over an append-only log. The resolution is the ultimate expression of stigmergy: there is no lock, and no " [:code "cas!"] " over a shared stream to force exclusion at write time. Both claims are simply recorded immutably in their respective owners' logs."]
           [:p
            "The conflict is resolved entirely on the read side. Because the semantics of exclusion are external to the stream and live in the agents' interpreters, arbitration is just another query rule. The downstream reader sees both claims, sorts them by timestamp, breaks ties by worker ID, and deterministically yields exactly one winner. The storage layer does not need to understand what a claim is, nor does it need to enforce hard exclusion. The coordination emerges purely from how the agents interpret the accumulated traces. Contrast a message-passing world, where the same race is resolved by a central coordinator agent you now have to build, operate, and recover from failure."]
-          [:p "That example shows the model working as designed. What follows are the places where the implementation is still catching up to the design."]
+          [:p "That example shows the model working as designed."]
+
+          [:h2 "Bootstrapping Direct Links"]
+          [:p
+           "While " [:strong "dao.space"] " provides pure stigmergy, the broader " [:strong "datom.world"] " architecture does not force you to choose one path exclusively. It supports both the neural and the stigmergic models, and uses the latter to bootstrap the former. Agents can, and do, establish direct message-passing lines by opening dedicated streams that the other agent tails. Crucially, two agents never write to the same stream. If 1,000 agents want to talk to one agent, they don't fight over a shared inbox; they append to 1,000 distinct single-writer streams, and the recipient lazily merges them all on the read side. The only time " [:code "cas!"] " is used is by a single writer advancing its own pointer, purely for mechanical safety: protecting the stream from concurrent write corruption if a network retry duplicates a request or a split-brain partition spawns a zombie duplicate of the agent."]
+          [:p
+           "Because a " [:code "dao.stream"] " is itself represented by datoms, " [:strong "dao.space"] " acts as the decentralized discovery mechanism. Agents use the stigmergic medium to leave traces declaring their existence, their capabilities, and the addresses of their streams. Other agents query the space to discover them, and then seamlessly switch to direct, point-to-point neural interaction when tightly coupled coordination is needed. Stigmergy provides the shared substrate; the direct topology emerges dynamically from the traces."]
 
           [:h2 "Where the Lineage Is Not Yet Finished"]
           [:p
