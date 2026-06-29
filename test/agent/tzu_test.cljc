@@ -15,7 +15,8 @@
             ds/close!)))
 
 
-#?(:clj (deftest prompt-returns-content-test
+#?(:cljd nil
+   :clj (deftest prompt-returns-content-test
           (testing
             "prompt reads the stream, decodes JSON, returns message content"
             (let [resp (response-stream
@@ -27,7 +28,8 @@
                 (is (= "answer" (tzu/prompt "question" "fake-key"))))))))
 
 
-#?(:clj (deftest prompt-throws-test
+#?(:cljd nil
+   :clj (deftest prompt-throws-test
           (testing "transport error, non-200, and truncated responses all throw"
             (let [cut (str "{\"choices\":[{\"message\":{\"content\":\"part\"},"
                            "\"finish_reason\":\"length\"}]}")]
@@ -44,7 +46,8 @@
                 (is (thrown? Exception (tzu/prompt "q" "k"))))))))
 
 
-#?(:clj (deftest text-to-datoms-reads-edn-test
+#?(:cljd nil
+   :clj (deftest text-to-datoms-reads-edn-test
           (testing "text extraction parses the EDN the model returns"
             (let [calls (atom [])]
               (with-redefs [tzu/prompt (fn [p]
@@ -56,14 +59,16 @@
                 (is (string? (first @calls))))))))
 
 
-#?(:clj (deftest datoms-to-text-test
+#?(:cljd nil
+   :clj (deftest datoms-to-text-test
           (testing "prose reconstruction returns the model content"
             (with-redefs [tzu/prompt (fn [_] "Linda exists.")]
               (is (= "Linda exists."
                      (tzu/datoms->text [[-1 :name "Linda"]])))))))
 
 
-#?(:clj (deftest prompt-to-frames-reads-edn-test
+#?(:cljd nil
+   :clj (deftest prompt-to-frames-reads-edn-test
           (testing "frame generation parses the EDN the model returns"
             (let [frames [[{:op/kind :frame/clear, :color [0.0 0.0 0.0 1.0]}]]]
               (with-redefs [tzu/prompt
@@ -84,7 +89,8 @@
 ;; =============================================================================
 
 
-#?(:clj (deftest chat-completion-returns-parsed-response-test
+#?(:cljd nil
+   :clj (deftest chat-completion-returns-parsed-response-test
           (testing "chat-completion sends messages and returns parsed JSON body"
             (let [resp (response-stream
                          {:status 200,
@@ -100,7 +106,8 @@
                                ["choices" 0 "message" "content"]))))))))
 
 
-#?(:clj (deftest chat-completion-includes-tools-test
+#?(:cljd nil
+   :clj (deftest chat-completion-includes-tools-test
           (testing "chat-completion includes tools in the request body"
             (let [sent-body (atom nil)
                   resp (response-stream
@@ -122,7 +129,8 @@
 ;; =============================================================================
 
 
-#?(:clj
+#?(:cljd nil
+   :clj
    (deftest text-to-datoms-uses-chat-completion-test
      (testing
        "text->datoms calls prompt which delegates to chat-completion — exercises the new path end-to-end"
@@ -142,7 +150,8 @@
 ;; =============================================================================
 
 
-#?(:clj
+#?(:cljd nil
+   :clj
    (deftest run-agent-writes-to-stream-test
      (testing "agent writes to stream when LLM requests stream_write"
        (let [s (ds/open! {:type :ringbuffer, :capacity 5})
@@ -174,7 +183,8 @@
                (is (= [1 2 3] (:ok next-result))))))))))
 
 
-#?(:clj
+#?(:cljd nil
+   :clj
    (deftest run-agent-reads-from-stream-test
      (testing "agent reads from stream when LLM requests stream_read"
        (let [s (doto (ds/open! {:type :ringbuffer, :capacity 5})
@@ -204,7 +214,8 @@
              (is (= 2 @call-count))))))))
 
 
-#?(:clj
+#?(:cljd nil
+   :clj
    (deftest run-agent-max-iterations-test
      (testing "run-agent throws after exceeding max iterations"
        (let [s (ds/open! {:type :ringbuffer, :capacity 5})
@@ -227,7 +238,8 @@
                  (tzu/run-agent "loop" registry "fake-key"))))))))
 
 
-#?(:clj
+#?(:cljd nil
+   :clj
    (deftest run-agent-http-fetch-test
      (testing "agent can call http_fetch to retrieve web data"
        (let [orig-open ds/open!

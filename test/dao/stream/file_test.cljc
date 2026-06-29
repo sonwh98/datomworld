@@ -196,7 +196,8 @@
 ;; 8. disk persistence — appends persist; close! reconciles durability
 ;; ---------------------------------------------------------------------------
 
-#?(:clj (deftest disk-persistence-test
+#?(:cljd nil
+   :clj (deftest disk-persistence-test
           (testing
             "creates the file if missing; post-open writes persist after close"
             (let [path (temp-path "dsf-disk-")

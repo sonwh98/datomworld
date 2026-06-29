@@ -16,7 +16,8 @@
     #?(:clj [yin.vm :as vm])))
 
 
-#?(:clj
+#?(:cljd nil
+   :clj
    (deftest module-require-effect-handler-test
      (testing ":module/require effect handler is registered"
        (is (fn? (module/get-effect-handler :module/require))))

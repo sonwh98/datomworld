@@ -118,7 +118,8 @@
 ;; Concurrency (JVM only; cljs is single-threaded, so real contention is clj)
 ;; ---------------------------------------------------------------------------
 
-#?(:clj
+#?(:cljd nil
+   :clj
    (deftest cas-contention-loses-no-updates
      (testing
        "concurrent cas! retries apply exactly one bump per worker with no lost updates"
