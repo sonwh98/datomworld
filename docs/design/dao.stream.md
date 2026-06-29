@@ -35,6 +35,21 @@ streams of datoms, and DaoStream is the transport substrate that makes the
 principle "Everything is a stream" operational. dao.space.query consumes streams, FFI is built on
 DaoStream, and meta-runtime services like JIT and GC can be driven by datoms emitted on streams.
 
+### Lineage: Plan 9
+
+The "Everything is a stream" stance is DaoStream's debt to [Plan 9](https://9p.io/plan9/).
+Plan 9 took Unix's "everything is a file" to its conclusion: devices, network connections,
+even the window system are files served by one uniform protocol (9P), reached identically
+whether local or remote. DaoStream generalizes the same move from files to streams. Every
+input and output (a file, an HTTP fetch, a socket, a Kafka topic, or another agent) is the
+same descriptor-plus-`open!` stream, realized the same way in-process or across the network.
+The two Plan 9 properties carried over are the **uniform abstraction** (all IO is one
+interface) and **location transparency** (the descriptor does not encode where the transport
+lives). The divergence is that a DaoStream is a **first-class value**: the descriptor can
+itself be sent on a stream and realized by whatever host receives it, which a Plan 9 path
+cannot. This influence lands here, on the stream substrate, and not on `dao.space`, whose own
+model (content-addressed identity, global associative match) comes from Linda and Datomic.
+
 ## Core Model
 
 ### Stream Descriptor

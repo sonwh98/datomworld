@@ -90,7 +90,7 @@ writers never contend and nothing routes. Each writer is its own transactor.
 ### Membership
 
 Opening a member stream through the handle *is* joining; closing it leaves.
-`space/join!` attaches an already-open autonomous stream (one written to offline, or
+`space/join!` attaches an already-open independent stream (one written to offline, or
 previously detached); `ds/open! {:space …}` is sugar for "open then `space/join!`."
 `space/leave!` detaches without closing. `space/join!` and `space/leave!` are the
 symmetric pair.
@@ -179,7 +179,7 @@ raw datoms, only the bounded result `f(X)` of an authorized interpreter `f`.
 
 This yields two distinct access modes (see [dao.space.security.md](dao.space.security.md) and [ADR 0002](adr/0002-share-governed-computation-not-data.md) for full details):
 
-- **Public (pull-to-reader):** the default `dao.space` mode described above. The reader embeds the library and pulls datom streams directly. There is no fine-grained control; the only security is coarse, per-stream access (POSIX permissions, Plan 9-style mounts). Use this when it is safe to ship the datoms.
+- **Public (pull-to-reader):** the default `dao.space` mode described above. The reader embeds the library and pulls datom streams directly. There is no fine-grained control; the only security is coarse, per-stream access (POSIX-style filesystem permissions). Use this when it is safe to ship the datoms.
 - **Controlled (push-interpreter-to-data / confined):** when fine-grained per-datom control is needed, the topology inverts and the data never leaves its owner's control. The reader submits a governed interpreter (a `yin.vm` AST) wrapped in a capability; it runs in a confined environment scoped to the authorized datoms, and only the attenuated answer returns. The **capability token** is cryptographically authenticated; the **content predicate** (the `m` slot carries the policy) is enforced by the evaluation substrate — operationally by a confined CESK runtime, or cryptographically by an MPC/FHE circuit — which is distinct from authenticating the token. The owner is the mediator by default; MPC removes even that (see the security doc).
 
 Trusted peers and public data are the common case: embedded library, direct access, global match.
@@ -303,20 +303,18 @@ semantics:
 
 ## Lineage
 
-DaoSpace and its query library are the meeting point of three traditions:
+DaoSpace and its query library are the meeting point of two traditions:
 
 - **Linda** gives the essence: generative communication (write into a shared medium,
   don't address a receiver), spatial and temporal decoupling, non-destructive associative
   matching. The divergences are immutability (append, never `take`) and named n-tuples
-  (datoms) in place of untyped positional arrays.
+  (datoms) in place of untyped positional arrays. Matching also stays global by default,
+  because a coordination medium for strangers must let any reader match the whole store,
+  not only what it bound.
 - **Datomic** gives the architecture: the strict Transactor / Storage / Query separation,
   immutable datoms, Datalog, time (`as-of`), content-addressed identity, and the
   Peer-as-library read model. `dao.space` is the storage boundary; the query library is
   the Peer.
-- **Plan 9** gives the storage stance: streams are autonomous, location-transparent,
-  append-only logs, and storage is assembled from them — while the *default* stays global
-  match, because a coordination medium for strangers must let any reader match the whole
-  store, not only what it bound.
 
 The synthesis: **`dao.space` is a decentralized, append-only datom log built from
 `dao.stream`s; matching and Datalog are an embeddable Peer library that reads it.**
