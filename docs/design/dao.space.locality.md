@@ -8,7 +8,7 @@
 > the calibration discipline of the other geometry docs — exactly where it stops.
 >
 > **Related:** `dao.space.md` (the current storage-boundary spec this doc justifies),
-> `dao.space.v0.md` (gauge framing), `dao.space.discrete-to-continuous.md` (the *Descent*
+> `dao.space.v0.md` (superseded; original gauge framing), `dao.space.discrete-to-continuous.md` (the *Descent*
 > section, where the static half of this correspondence is made rigorous),
 > `docs/agents/datom-spec.md` (entity ID as local gauge).
 

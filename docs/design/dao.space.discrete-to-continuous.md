@@ -9,9 +9,10 @@
 > apparatus (manifolds, PDEs, heat kernel, spectral dimension) is a continuum-limit
 > idealization that requires additional structure (a Dirichlet form, or finite
 > truncation / an unbounded Dirac operator for compact resolvent); see the caveats
-> below. With those distinctions, the gauge/bundle/curvature language in
-> `docs/design/dao.space.v0.md` is a correct description of the metric and spectral
-> structure, not mere metaphor.
+> below. With those distinctions, the gauge/bundle/curvature language developed
+> here (grounding the gauge/base framing of `docs/agents/datom-spec.md`, the
+> current home `docs/design/dao.space.md` designates) is a correct description of
+> the metric and spectral structure, not mere metaphor.
 
 ---
 
@@ -226,8 +227,9 @@ projective *with* curvature. Flatness needs the stronger free/trivial structure.
 
 - For strict streams (`:strict? true`): constant fiber ⇒ M is **free (globally
   trivial)** ⇒ it admits the trivial connection ∇ = d ⇒ F = 0, a flat, locally
-  trivial bundle. This matches the claim in `dao.space.v0.md` that strict typing is
-  the local-triviality condition.
+  trivial bundle. This matches the claim in `dao.space.v0.md` (superseded; its
+  typed-stream material is preserved) that strict typing is the local-triviality
+  condition.
 
 - For open streams (`:strict? false`): variable fiber ⇒ M is **not free** (no
   global trivialization; in general not even projective) ⇒ no flat connection ⇒
@@ -315,7 +317,7 @@ resolution are descent (read-side, cohomological); *establishing* agreement befo
 acting is the consensus step that lives above it.
 
 **This is what upgrades the open-stream fibered set to a sheaf.** `dao.space.v0.md`
-notes that an open-stream fibration is a *fibered set, not a sheaf*, because no
+(superseded) notes that an open-stream fibration is a *fibered set, not a sheaf*, because no
 site or gluing was specified. The reassembly metadata is precisely that missing
 data: the sheaf gluing axiom ("local sections agreeing on overlaps glue uniquely
 to a global section") is reassembly when it succeeds, with the cocycle condition as
@@ -354,7 +356,7 @@ fibrations over the total space is time-varying too.
 
 ### 1. The "quantum measurement" metaphor becomes literal
 
-`dao.space.v0.md` ("Interpreters and Equivalence-Class Slicing") says: "same data, different projections, simultaneously."
+`dao.space.v0.md` (superseded; "Interpreters and Equivalence-Class Slicing") says: "same data, different projections, simultaneously."
 In the matrix-to-wave correspondence, this is exactly the Heisenberg picture:
 the state |psi> in ell-squared(E) is fixed; different interpreters are different
 "observables" that project |psi> onto different classical spaces X_~1, X_~2, ....
@@ -446,8 +448,10 @@ operators, continuous geometry). The middle column is the translation.
 **You do not need to add anything to the data model** to obtain the algebra, its
 spectral decomposition, and the graph (geodesic) metric — these are latent in the
 relational structure of the discrete datoms, extracted via Gelfand-Naimark + the
-spectral theorem. For these, the gauge/bundle/curvature language in `dao.space.v0.md`
-is a correct description, not metaphor, once the Dirac operator is chosen. The
+spectral theorem. For these, the gauge/bundle/curvature language here (grounding the
+gauge/base framing of `docs/agents/datom-spec.md`, the current home, per
+`docs/design/dao.space.md`) is a correct description, not metaphor, once the Dirac
+operator is chosen. The
 *fuller* continuous apparatus (manifold, heat kernel, spectral dimension) is the
 continuum-limit idealization and does need extra structure (Dirichlet form, or
 compact-resolvent fix), per the caveats above.
