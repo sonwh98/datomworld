@@ -167,19 +167,36 @@ chunks over the network; they must load the entire index into memory. Addressing
 requires either a pure-Clojure B-Tree port or a custom Dart `IStorage` implementation in the
 future.
 
-## Fault Tolerance
+## The Block Storage Metaphor (Hardware Analogies)
 
-Because storage is persistent append-only `dao.stream` files, it inherits crash-only
-semantics:
+Because the `IKVStore` protocol is so primitive (`put!`, `get`, `cas!`), it behaves almost
+exactly like a hardware block storage device. This means proven hardware patterns map
+directly onto it as software abstractions:
 
-- **Data safety.** Datoms flushed before a crash are safe; append-only files have no
-  partial-update corruption window.
-- **Reader behavior.** A reader tailing a crashed writer's stream simply reaches the end and
-  yields (`ds/next` returns `:blocked`); it waits for new data rather than failing.
-- **Write recovery.** A restarted writer reopens its file in append mode; the next `ds/put!`
-  lands after the last flushed datom.
-- **Read recovery.** A reader resumes from a checkpointed cursor offset, so an incremental
-  index rebuilds without reprocessing or skipping.
+- **SSD Flash Translation Layer & Garbage Collection.** Solid State Drives cannot overwrite
+  in place; they write to fresh blocks and orphan the old ones, leaving reclamation to a
+  Garbage Collector. Because `put!` writes immutable, content-addressed chunks, `dao.jing`
+  updates are naturally out-of-place. As mutable stream roots advance (`cas!`), old byte
+  segments are orphaned, requiring a background GC to sweep the KV store and delete
+  unreachable chunks.
+- **NVMe Parallel Queues (Zero-Contention Writes).** NVMe solved the SATA bottleneck by
+  giving every CPU core its own submission queue to the disk, avoiding locks. The tuple
+  space's `dao.stream` intake achieves the same thing in software: every agent writes to
+  its own single-writer log. Massive throughput is possible because contention is eliminated
+  at the storage boundary.
+- **Storage Tiering (L1/L2 Caches).** Hardware uses fast/expensive caches (L1/L2/NVMe) in
+  front of slow/cheap storage (spinning disks). In `dao.jing`, this is the Decorator
+  pattern. A `CachingKVStore` can wrap a `NetworkKVStore` and a `MemKVStore`. The tuple
+  space calls `get`; the caching store checks memory, faults from the network on a miss,
+  and returns the chunk. The interpreters above remain completely oblivious to the hierarchy.
+- **RAID and Erasure Coding.** RAID mirrors or stripes blocks across physical disks for
+  redundancy. A `RaidKVStore` middleware can do this for bytes: when the tuple space calls
+  `put!`, the store mirrors the chunk to three underlying `IKVStore` instances (e.g., local
+  disk + two remote buckets), and `get` fails over to a surviving copy if one is lost.
+  Erasure coding refines this: instead of full copies, the store splits each chunk into `k`
+  data fragments plus `m` parity fragments (Reed-Solomon), recovering the original from any
+  `k` of the `k+m` pieces. This buys the same fault tolerance at a fraction of the storage
+  cost, all with zero changes to the query logic above.
 
 ## Lineage
 

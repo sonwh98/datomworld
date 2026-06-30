@@ -272,6 +272,20 @@ Because each writer owns a single-writer log, two agents never write the same st
 single-writer streams, and the recipient merges them on the read side — no shared write
 surface, no contention.
 
+### Fault Tolerance (Crash-Only Semantics)
+
+Because the write path uses persistent append-only `dao.stream` files, the space inherits
+crash-only semantics natively:
+
+- **Data safety:** Datoms flushed before a crash are safe; append-only files have no
+  partial-update corruption window.
+- **Reader behavior:** A reader tailing a crashed writer's stream simply reaches the end and
+  yields (`ds/next` returns `:blocked`); it waits for new data rather than failing.
+- **Write recovery:** A restarted writer reopens its file in append mode; the next `ds/put!`
+  lands safely after the last flushed datom.
+- **Read recovery:** A reader resumes from a checkpointed cursor offset, so an incremental
+  index rebuilds without reprocessing or skipping.
+
 ## Coordination: Stigmergy
 
 Agents coordinate by leaving datoms in `dao.jing` for others to query, decoupled in time and
