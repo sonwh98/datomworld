@@ -335,8 +335,9 @@ in the network stack, consensus sits above reliable delivery and is not a proper
 of the packets.
 
 **Dynamic membership is the site-level structure.** The coordination medium is the whole
-system: `dao.jing` (storage) whose **streams** join and leave at runtime, read by
-**interpreters** that embed the query library (see `dao.jing.md`, *Intake*). So the
+system: the store (`dao.jing`), whose feeding **streams** join and leave at runtime as a
+write-path concern, read by **interpreters** that embed the query library (see
+`dao.space.md`, *The Write Path*). So the
 descent picture above describes only a **snapshot** — the sections being glued at one
 instant. With membership changing, the gluing is
 time-varying: the space is not a fixed bundle but a (pre)sheaf over a **site that

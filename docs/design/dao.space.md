@@ -21,7 +21,7 @@ surfaces form a spectrum along the by-content axis:
   the arity from one tuple to many tuples joined. So `match ⊂ q`, both associative.
 - **Graph / tree / entity-centric / columnar traversal** — these locate data by **following a
   reference or position**. That is navigation, not matching: addressing, not by-content. They
-  are useful *local read ergonomics* over an interpreter's own derived views, but they sit
+  are useful *local read ergonomics* over an interpreter's own materialized views, but they sit
   *off* the associative axis.
 
 The write side is simpler but just as load-bearing. Generative communication means an agent
@@ -41,8 +41,8 @@ traversal surfaces are admitted by the family but are not coordination modes. Th
 therefore holds as long as two things hold: **coordination stays associative** (agents find
 each other by matching content, never by addressing each other or navigating each other's
 views by reference — the moment cross-agent coordination runs through traversal, it has left
-the tuple space), and **views stay derived** (reconstructable from the datoms, never primary
-state).
+the tuple space), and **the shared substrate stays datoms** (agents coordinate over matchable
+facts; whatever else an interpreter materializes is its own, not the medium).
 
 **Related documents:**
 - `docs/design/dao.jing.md` — the storage boundary: the content-addressed datom repository this space reads
@@ -92,6 +92,28 @@ invariants forbid. So the "space-ness" lives here, above `dao.jing`:
 A tuple space is therefore not an artifact you instantiate; it is the behavior that appears
 when interpreters match over shared storage. `dao.jing` is *where* the tuples live;
 `dao.space` is *what agents do* there.
+
+### The Convention of Datoms
+
+Because the tuple space lives in the interpreters, the requirement that primary state be
+datoms is a **social contract**, not a limit the storage layer enforces. `dao.jing` is a dumb
+key-value store: it is **not strict about what it holds** and will accept any bytes you write —
+datoms, graphs, JSON blobs, binaries. Nothing about storage requires the datom shape.
+(Arbitrary structures are fine when an interpreter materializes them *over* the datoms — that
+is the interpreter's own responsibility, and `dao.jing` just holds the resulting bytes; see
+[A Family of Interpreters](#a-family-of-interpreters). This contract is only about what an
+interpreter writes as ground truth.)
+
+The datom shape is the **price of admission** to the tuple space, freely chosen:
+- **Opting In:** If an interpreter formats its facts as `(e a v t m)` datoms, its data
+  "enters" the tuple space. Because it conforms to the universal substrate, `dao.space.query`
+  can match over it, and strangers can query it associatively.
+- **Opting Out:** If an interpreter writes arbitrary primary state to `dao.jing` instead, the
+  store accepts it without complaint — this is permitted, not forbidden. The cost is simply
+  that the data stays *outside* the tuple space: the query library cannot match over it,
+  strangers cannot discover it, and it inherits none of the guarantees the datom log confers
+  (immutability, replayability, provenance). The interpreter has chosen a private store over a
+  shared, queryable medium. Nothing breaks; that data just does not coordinate.
 
 ## The Query Library
 
@@ -203,9 +225,9 @@ datom history** — a *moduli space* of databases. The datoms in [`dao.jing`](da
 the fixed substrate every member shares; a member is fixed by which **materialized views** it
 constructs and which surface it exposes. One point looks relational (covered indexes plus
 Datalog); another document-oriented (entity-centric maps); others columnar, graph-oriented, or
-logic-oriented. The substrate stays the same; only the derived construction changes (see
-[`dao.jing.md`](dao.jing.md), *Derived Views*, for how those views are stored as
-reconstructable cache).
+logic-oriented. The substrate stays the same; only the materialized construction laid over it
+changes — and `dao.jing` stores whatever an interpreter builds as ordinary bytes, since it is
+dumb storage that holds anything (see [`dao.jing.md`](dao.jing.md)).
 
 Two consequences follow, and both tighten the existing invariants rather than relax them:
 
@@ -214,7 +236,7 @@ Two consequences follow, and both tighten the existing invariants rather than re
   is lower: datom streams plus *declared* structural interpretation.
 - **Views are named and declared, not infinite magic.** An interpreter does not navigate
   every imaginable materialization; it exposes a sanctioned set and answers explicit
-  questions: which views exist, which can be derived on demand, whether a view is
+  questions: which views exist, which can be built on demand, whether a view is
   relational / graph / tree / associative / sequential, what its legal traversals are, and
   what its `as-of`/`since` semantics are. A query may trigger on-demand derivation, but only
   through a declared interpreter with known semantics — explicit causality and explicit
@@ -228,6 +250,29 @@ triggers a declared derivation. The same "find user by email" intent compiles to
 `AVET` lookup against one interpreter and an entity scan against another — same family,
 different database. The concrete compiler pipeline (a planner/optimizer front-end lowering
 into a traversal-IR back-end) is a direction, not yet specified here.
+
+## The Write Path
+
+The read side is matching; the write side is how datoms get into the shared medium. A datom
+enters by being appended to a `dao.stream` member log — an append-only file the writer owns
+and never edits in place. Opening a log is what makes a writer a participant: it attaches a
+feeding stream to the space; closing it detaches. This is the mechanics behind the
+generative-communication move described in the intro (deposit by appending, name no
+recipient) and behind the decentralized Transactor of [Three Boundaries](#three-boundaries).
+
+### Membership is intake, not identity
+
+**Membership** names which streams currently feed the space at a given moment — a write-path
+concern, not the space's identity. The space is the shared, queryable medium of the datoms
+those streams have contributed, not "a set of streams": streams join and leave at runtime,
+while the medium persists. (Storage, [`dao.jing`](dao.jing.md), is the dumb KV the streams
+feed; the read side never sees the streams, only the bytes an index builder projects into
+storage.)
+
+Because each writer owns a single-writer log, two agents never write the same stream. If
+1,000 agents want to send messages to one recipient, they append to 1,000 distinct
+single-writer streams, and the recipient merges them on the read side — no shared write
+surface, no contention.
 
 ## Coordination: Stigmergy
 

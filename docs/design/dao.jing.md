@@ -12,18 +12,23 @@
 
 ## What DaoJing Is
 
-`dao.jing` is the **storage boundary**: a decentralized, content-addressed **repository of
-immutable datoms**. Concretely it is a dumb key-value store (the `IKVStore` protocol) that
-holds immutable B-Tree segment chunks and mutable stream-root references. It is the
-decentralized analog to Datomic's storage layer. Alongside the datoms it also holds the
-**derived materialized views** interpreters build over them (covered indexes, and in general
-any app-defined structure): the datoms are ground truth, the views are reconstructable cache.
-See [Derived Views](#derived-views).
+`dao.jing` is the **storage boundary**: a decentralized, content-addressed key-value store of
+**opaque bytes**. It is **pure syntax** — it holds *form*, never *meaning*. The only grammar it
+enforces is how bytes are keyed and versioned (`put!` / `cas!` / `get` over content-derived
+keys and mutable root references); what any byte *denotes* — "datom," "index," "view," "query"
+— is **semantics an interpreter projects onto it**, never something storage knows. Concretely
+it is a dumb key-value store (the `IKVStore` protocol) holding immutable byte chunks and mutable
+stream-root references, the decentralized analog to Datomic's storage layer. It is therefore
+**not strict about what it holds**: it leaves all interpretation — indexing, materialization,
+matching — to the readers above it (`dao.space`), and whatever structures those interpreters
+build are, to the store, just more bytes. Datom segments are what it is built to hold, though
+storage knows them only as bytes.
 
-A store is defined by **what it holds, not the pipe data arrived through.** `dao.jing` is a
-repository of datoms; it is *not* "a set of streams." Datoms enter through `dao.stream`
-member logs (the [intake path](#intake--the-write-path) below), exactly as a transaction log
-feeds Datomic's storage, but the streams are upstream of the store, not its identity.
+A store is defined by **what it holds, not the pipe data arrived through.** `dao.jing` holds
+opaque bytes — read as datoms by the layers above, never known as datoms by storage; it is
+*not* "a set of streams." Datoms enter through `dao.stream` member logs (the write path,
+specified in [`dao.space.md`](dao.space.md)), exactly as a transaction log feeds Datomic's
+storage, but the streams are upstream of the store, not its identity.
 
 The physical `IKVStore` is deliberately dumb. It does not know what a datom is, it does not
 index, it does not pattern-match, and it does not run Datalog. Those belong to the tuple
@@ -58,95 +63,25 @@ the interface the query library consumes — **not** a query API.
 ```clojure
 ;; The dumb storage API (see src/cljc/dao/jing/kv.cljc)
 (kv/get store :root nil)               ; read a mutable root reference
-(kv/get store :segment-id nil)         ; read an immutable B-Tree chunk
+(kv/get store :segment-id nil)         ; read an immutable segment chunk
 ```
 
 There is no `store/datoms` or `store/members` at this layer, because the storage layer does
 not know what a datom is. Parsing chunks into datom streams, matching, and querying live
-entirely in the tuple space's query library (`dao.space.query`, see `dao.space.md`).
-
-## Intake — the write path
-
-A datom enters the store by being appended to a `dao.stream` member log the agent opens
-through the store handle. Each open returns a distinct `dao.stream.file` with its own
-append-only log, so writers never contend and nothing routes. Each writer is its own
-transactor: it enforces local schema and appends datom frames, with no global contention and
-no commit step.
-
-```clojure
-(require '[dao.jing :as store]
-         '[dao.stream :as ds])
-
-(def s   (store/open! {:path "/data/work"}))   ; handle to the store (reopen rediscovers members)
-(def log (ds/open! {:type :dao-stream :store s :name "agent-1"}))
-
-(ds/put! log {:db/id (random-id) :work/id "w1" :work/status :todo})
-(ds/put! log [:db/retract work-id :work/status])     ; retraction is also an append
-```
-
-### Membership is intake, not identity
-
-Opening a member log through the handle *is* attaching a writer to the store; closing it
-detaches. `store/join!` attaches an already-open independent stream (one written to offline,
-or previously detached); `ds/open! {:store …}` is sugar for "open then `store/join!`."
-`store/leave!` detaches without closing. `store/join!` and `store/leave!` are the symmetric
-pair.
-
-Membership names **which streams currently feed the store**, a write-path concern. It does
-not make the store "a set of streams": the store remains a content-addressed repository of
-the datoms those streams have contributed.
-
-**Single-writer invariant.** Two agents never write the same stream. If 1,000 agents want to
-send messages to one agent, they append to 1,000 distinct single-writer streams, and the
-recipient merges them on the read side. The `cas!` on a stream's mutable root reference is
-solely for the single owner's mechanical safety: to guard the stream's B-Tree against an
-agent racing itself (a network retry duplicating a write, or an orchestrator spinning up a
-zombie duplicate during a split-brain partition). It is strictly for structural integrity,
-not agent-to-agent semantic coordination.
-
-## Derived Views
-
-The covered index is one **materialized view** over the datoms — the EAVT/AEVT/AVET/VAET
-package that makes a relational, Datalog-flavored surface fast (detailed in *Index
-Realization* below). It is not privileged. An interpreter may instead materialize
-entity-centric maps, AST parent/child tables, graph adjacency, content-hash indexes, ordered
-positional collections, capability/provenance projections, or arbitrary app-defined
-structures — each a different point in one space of databases over a single canonical datom
-history (the moduli-space framing in [`dao.space.md`](dao.space.md)).
-
-So the one dumb KV store holds two tiers of bytes. The storage layer does not distinguish
-them; the design does:
-
-- **Canonical — datom segments.** The accreted immutable facts. Ground truth: the history
-  every interpreter replays. Lose a datom and history is lost.
-- **Derived — materialized-view chunks.** The covered index and every other view.
-  Reconstructable cache. Lose a view chunk and an interpreter rebuilds it from the datoms.
-
-Four rules keep views from leaking interpretation into storage:
-
-- **Who computes vs. who holds.** Interpreters in `dao.space` compute views; `dao.jing` holds
-  only the resulting opaque blobs. The view *contract* — which views exist, their legal
-  traversals, their `as-of`/`since` semantics, what is materialized vs. derived-on-read —
-  lives in `dao.space`, never here.
-- **Views are derivations, not new ground truth.** A view must be a pure function of the
-  datom history plus a declared view definition. Arbitrary *structure* is admissible; primary
-  state that bypasses the datom log is not — that is hidden, un-replayable state.
-- **Storage never maintains a view.** `dao.jing` does not refresh, invalidate, or recompute.
-  A view is an `as-of`-`t` snapshot; "refresh" is an interpreter computing a new view as-of a
-  later `t` under a new key.
-- **Content-addressed, so caching is free and shared.** Key a view by the hash of
-  `(datom-prefix as-of t, view-definition)` and identical views coincide across agents: one
-  builds it, peers find it present and merge it — the owner-built/peers-merge model (below)
-  generalized from indexes to any view, stigmergic by construction.
-
-View chunks obey the same `put!`-immutable / `cas!`-root keyspace discipline as index segments
-(below).
+entirely in the tuple space's query library (`dao.space.query`, see `dao.space.md`). The
+write path — how those datoms enter via `dao.stream` member logs, and which streams currently
+feed the store — is likewise above this boundary; see `dao.space.md`.
 
 ## Index Realization
 
-The store holds the index as immutable B-Tree segment chunks; how those segments are built
-and maintained is a pure performance choice. All strategies answer identically (the index is
-the same set of datoms — see ADR 0001's monoid homomorphism):
+`dao.jing` holds the index's **immutable byte segments** and a **mutable root reference** —
+nothing more. The *index* itself — a covered B-Tree (EAVT/AEVT/AVET/VAET) a reader can
+traverse and answer queries from — is the interpretation `dao.space.query` projects onto those
+bytes; storage never knows the segments form an index. (This is exactly how Datomic persists
+its covered indexes into dumb KVStore backends: opaque segment blobs plus a root pointer.) How
+a reader builds and maintains those segments is a pure performance choice it makes *above*
+storage. All strategies answer identically (the index is the same set of datoms — see ADR
+0001's monoid homomorphism):
 
 - **Rebuild per query** — each read folds the store's datoms into a fresh index and discards
   it. Simple; O(total datoms) per read.
@@ -165,10 +100,11 @@ provides a B-Tree implementation that natively supports lazy loading and segment
 1. `dao.jing` provides a minimal `IKVStore` protocol (`put!`/`cas!`/`get`/`delete!`/`close!`,
    in `dao.jing.kv`) representing Datomic's dumb storage (see `docs/datomic.md` for the
    technical specification).
-2. The index builder writes B-Tree segment chunks to `dao.jing` using `put!`.
+2. The index builder (a reader concern, in `dao.space`) writes those segment chunks to
+   `dao.jing` as opaque bytes with `put!`.
 3. The `dao.space.query` library configures `persistent-sorted-set` with an `IStorage`
-   adapter that calls `get` to lazily pull B-Tree segments from the store *only* when
-   traversed by a query.
+   adapter that calls `get` to lazily pull those segments from the store *only* when
+   traversed by a query, interpreting the bytes back into B-Tree nodes.
 
 The two write paths share one keyspace under a discipline the store does not enforce:
 immutable segments are written with `put!` under fresh, content-derived keys and are never
@@ -194,14 +130,10 @@ What v1 implements at the storage boundary, and the contracts it pins down.
   `IStorage` adapter pulling B-tree segments lazily — the index-once/lazy-pull mechanism
   behind the owner-built/peers-merge target (above). v1 does **not** ship the
   rebuild-per-query stopgap and does **not** reuse `dao.db`'s in-memory sorted-set engine.
-- **Views: covered indexes only.** v1 materializes the covered-index package above. Arbitrary
-  and app-defined materialized views (see *Derived Views*) are the general architecture, not
-  v1 work; the two-tier (canonical datoms vs. reconstructable views) keyspace discipline
-  already accommodates them when they arrive.
 - **Member layout and discovery.** A stream owner acts as a Transactor: it accepts new
-  datoms, indexes them into B-Tree segments, and unconditionally writes those immutable
-  segments to the `IKVStore` (`put!`). It then performs an atomic `cas!` on the stream's
-  mutable root reference to point to the new B-Tree root.
+  datoms, indexes them into B-Tree segments *above storage*, and unconditionally writes those
+  immutable segments to the `IKVStore` as opaque bytes (`put!`). It then performs an atomic
+  `cas!` on the stream's mutable root reference to point at the new root segment.
 - **Querying (reader side).** A read resolves the stream's root reference from the `IKVStore`
   and uses the `IStorage` adapter to lazily pull only the traversed B-Tree chunks. Concurrent
   writes never disturb an in-flight read because the read targets an immutable B-Tree root
@@ -267,6 +199,6 @@ The tuple-space *behavior* — associative matching, generative communication �
 it belongs to Linda and lives in `dao.space` (the query library plus the agents that read the
 store). See `dao.space.md`.
 
-The synthesis: **`dao.jing` is a decentralized, append-only, content-addressed repository of
-datoms; matching and Datalog are an embeddable Peer library (`dao.space.query`) that reads
-it.**
+The synthesis: **`dao.jing` is a decentralized, append-only, content-addressed store of opaque
+bytes — pure syntax; datoms, matching, and Datalog are semantics an embeddable Peer library
+(`dao.space.query`) and the agents project onto it.**

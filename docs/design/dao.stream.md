@@ -505,11 +505,12 @@ about how runtimes represent suspended work.
 
 Streams are independent of the query layer. `dao.space.query` consumes streams.
 
-In Datom.world, DaoStream is the general stream substrate; `dao.jing` (the storage
-boundary) is a content-addressed datom repository fed *through* these streams (they are its
-intake, not its identity), and `dao.space.query` is a datom consumer that reads the store.
-DaoStream can carry arbitrary bytes or values, but the dominant system use case is datom
-transport. That is why most streams in Datom.world are streams of datoms.
+In Datom.world, DaoStream is the general stream substrate; `dao.jing` (the storage boundary)
+is a content-addressed store of opaque bytes, and `dao.space.query` is a datom consumer that
+reads it. Streams are the write path into the store (specified in `docs/design/dao.space.md`,
+*The Write Path*) — upstream of storage, not its identity. DaoStream can carry arbitrary
+bytes or values, but the dominant system use case is datom transport. That is why most
+streams in Datom.world are streams of datoms.
 
 An open stream is still a stream. A bounded stream is a stable value that
 `dao.space.query` can consume to build indexes or answer queries. Stream semantics do
