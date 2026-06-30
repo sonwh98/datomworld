@@ -1,6 +1,6 @@
-# DaoDB: Four-Component Architecture
+# DaoDB: Four-Component Architecture (DEPRECATED)
 
-> **Status: Superseded (concept eliminated).** This document describes `DaoDB` as a unified
+> **Status: Deprecated (concept eliminated).** This document describes `DaoDB` as a unified
 > four-component tuple store (Storage, Transactor, Query engine, Database-as-value). That
 > *concept* has been eliminated — see
 > `docs/design/adr/0001-dao-space-as-storage-boundary.md`, ruling 2. The four roles are now

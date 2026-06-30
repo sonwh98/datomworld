@@ -21,7 +21,10 @@
 `dao.jing` is the **storage boundary**: a decentralized, content-addressed **repository of
 immutable datoms**. Concretely it is a dumb key-value store (the `IKVStore` protocol) that
 holds immutable B-Tree segment chunks and mutable stream-root references. It is the
-decentralized analog to Datomic's storage layer.
+decentralized analog to Datomic's storage layer. Alongside the datoms it also holds the
+**derived materialized views** interpreters build over them (covered indexes, and in general
+any app-defined structure): the datoms are ground truth, the views are reconstructable cache.
+See [Derived Views](#derived-views).
 
 A store is defined by **what it holds, not the pipe data arrived through.** `dao.jing` is a
 repository of datoms; it is *not* "a set of streams." Datoms enter through `dao.stream`
@@ -107,6 +110,44 @@ agent racing itself (a network retry duplicating a write, or an orchestrator spi
 zombie duplicate during a split-brain partition). It is strictly for structural integrity,
 not agent-to-agent semantic coordination.
 
+## Derived Views
+
+The covered index is one **materialized view** over the datoms — the EAVT/AEVT/AVET/VAET
+package that makes a relational, Datalog-flavored surface fast (detailed in *Index
+Realization* below). It is not privileged. An interpreter may instead materialize
+entity-centric maps, AST parent/child tables, graph adjacency, content-hash indexes, ordered
+positional collections, capability/provenance projections, or arbitrary app-defined
+structures — each a different point in one space of databases over a single canonical datom
+history (the moduli-space framing in [`dao.space.md`](dao.space.md)).
+
+So the one dumb KV store holds two tiers of bytes. The storage layer does not distinguish
+them; the design does:
+
+- **Canonical — datom segments.** The accreted immutable facts. Ground truth: the history
+  every interpreter replays. Lose a datom and history is lost.
+- **Derived — materialized-view chunks.** The covered index and every other view.
+  Reconstructable cache. Lose a view chunk and an interpreter rebuilds it from the datoms.
+
+Four rules keep views from leaking interpretation into storage:
+
+- **Who computes vs. who holds.** Interpreters in `dao.space` compute views; `dao.jing` holds
+  only the resulting opaque blobs. The view *contract* — which views exist, their legal
+  traversals, their `as-of`/`since` semantics, what is materialized vs. derived-on-read —
+  lives in `dao.space`, never here.
+- **Views are derivations, not new ground truth.** A view must be a pure function of the
+  datom history plus a declared view definition. Arbitrary *structure* is admissible; primary
+  state that bypasses the datom log is not — that is hidden, un-replayable state.
+- **Storage never maintains a view.** `dao.jing` does not refresh, invalidate, or recompute.
+  A view is an `as-of`-`t` snapshot; "refresh" is an interpreter computing a new view as-of a
+  later `t` under a new key.
+- **Content-addressed, so caching is free and shared.** Key a view by the hash of
+  `(datom-prefix as-of t, view-definition)` and identical views coincide across agents: one
+  builds it, peers find it present and merge it — the owner-built/peers-merge model (below)
+  generalized from indexes to any view, stigmergic by construction.
+
+View chunks obey the same `put!`-immutable / `cas!`-root keyspace discipline as index segments
+(below).
+
 ## Index Realization
 
 The store holds the index as immutable B-Tree segment chunks; how those segments are built
@@ -159,6 +200,10 @@ What v1 implements at the storage boundary, and the contracts it pins down.
   `IStorage` adapter pulling B-tree segments lazily — the index-once/lazy-pull mechanism
   behind the owner-built/peers-merge target (above). v1 does **not** ship the
   rebuild-per-query stopgap and does **not** reuse `dao.db`'s in-memory sorted-set engine.
+- **Views: covered indexes only.** v1 materializes the covered-index package above. Arbitrary
+  and app-defined materialized views (see *Derived Views*) are the general architecture, not
+  v1 work; the two-tier (canonical datoms vs. reconstructable views) keyspace discipline
+  already accommodates them when they arrive.
 - **Member layout and discovery.** A stream owner acts as a Transactor: it accepts new
   datoms, indexes them into B-Tree segments, and unconditionally writes those immutable
   segments to the `IKVStore` (`put!`). It then performs an atomic `cas!` on the stream's

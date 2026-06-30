@@ -5,6 +5,16 @@ use Datalog (the `dao.space.query` library) to match tuples stored in
 [`dao.jing`](dao.jing.md) and coordinate by leaving traces there. Storage holds facts at
 rest; the tuple space is those facts *under interpretation*.
 
+More precisely, "tuple space" names the **associative coordination surface** of a broader
+family of interpreters over those facts (see [A Family of Interpreters](#a-family-of-interpreters)).
+That surface — by-content matching over a shared medium of named tuples — is the privileged
+default and the contract strangers coordinate through; it is what makes `dao.space` a tuple
+space. The other surfaces the family admits (graph, tree, entity-centric, columnar views) are
+local read ergonomics, not new coordination modes. The label holds as long as two things hold:
+**coordination stays associative** (agents match by content, never address each other or
+navigate each other's views by reference), and **views stay derived** (reconstructable from
+the datoms, never primary state).
+
 **Related documents:**
 - `docs/design/dao.jing.md` — the storage boundary: the content-addressed datom repository this space reads
 - `docs/design/dao.stream.md` — the append-only log primitive datoms are written through
@@ -54,6 +64,13 @@ forbid. So the "space-ness" lives here, above `dao.jing`:
 A tuple space is therefore not an artifact you instantiate; it is the behavior that appears
 when interpreters match over shared storage. `dao.jing` is *where* the tuples live;
 `dao.space` is *what agents do* there.
+
+Associative matching is the **privileged** coordination surface, not the only thing
+interpreters can do over the store. The same datoms support other read surfaces — graph, tree,
+entity-centric, columnar views (see [A Family of Interpreters](#a-family-of-interpreters)). What
+keeps `dao.space` a tuple space is that *cross-agent coordination* runs through matching;
+those other surfaces are how an interpreter navigates its own derived views, not how strangers
+find each other.
 
 ## The Query Library
 
@@ -155,6 +172,41 @@ of sharing is the governed interpreter, backed by an immutable accountability lo
 
 **v1 ships public mode only.** Controlled mode — the governed interpreter, capabilities,
 `m`-policy — is specified but out of scope for v1 (see the security doc and ADR 0002).
+
+## A Family of Interpreters
+
+The query library above presents one surface: Datalog over the covered-index view
+(EAVT/AEVT/AVET/VAET). That is the default and the v1 package, but it is not the definition of
+`dao.space`. More generally, **`dao.space` is a family of interpreters over one canonical
+datom history** — a *moduli space* of databases. The datoms in [`dao.jing`](dao.jing.md) are
+the fixed substrate every member shares; a member is fixed by which **materialized views** it
+constructs and which surface it exposes. One point looks relational (covered indexes plus
+Datalog); another document-oriented (entity-centric maps); others columnar, graph-oriented, or
+logic-oriented. The substrate stays the same; only the derived construction changes (see
+[`dao.jing.md`](dao.jing.md), *Derived Views*, for how those views are stored as
+reconstructable cache).
+
+Two consequences follow, and both tighten the existing invariants rather than relax them:
+
+- **Datalog is a capability, not the ontology.** It stays the relational front-end wherever
+  relational views exist, but it is one front-end among several, not the essence. The essence
+  is lower: datom streams plus *declared* structural interpretation.
+- **Views are named and declared, not infinite magic.** An interpreter does not navigate
+  every imaginable materialization; it exposes a sanctioned set and answers explicit
+  questions: which views exist, which can be derived on demand, whether a view is
+  relational / graph / tree / associative / sequential, what its legal traversals are, and
+  what its `as-of`/`since` semantics are. A query may trigger on-demand derivation, but only
+  through a declared interpreter with known semantics — explicit causality and explicit
+  capability, nothing implicit. (*Do not assume graphs*: graph structure is one materialized
+  interpretation constructed from datoms, never an implicit truth.)
+
+This reframes querying as **compilation** rather than handing a sentence to a fixed engine: a
+caller states intent, a planner inspects the declared view capabilities and rewrites that
+intent into an access plan, and an executor runs the plan against a materialized view or
+triggers a declared derivation. The same "find user by email" intent compiles to an indexed
+`AVET` lookup against one interpreter and an entity scan against another — same family,
+different database. The concrete compiler pipeline (a planner/optimizer front-end lowering
+into a traversal-IR back-end) is a direction, not yet specified here.
 
 ## Coordination: Stigmergy
 
