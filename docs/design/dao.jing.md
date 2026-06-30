@@ -10,12 +10,6 @@
 - `docs/design/dao.space.v0.md` — superseded framing; still the reference for resources, typed streams, and the geometry/gauge material
 - `docs/design/dao.space.locality.md`, `dao.space.metaphors.md`, `dao.space.discrete-to-continuous.md` — the geometry/locality cluster: theoretical justification (gauge, spectral, locality) the spec defers to, not required to read it
 
-> **Naming note.** The storage boundary is `dao.jing`. The implementation namespace is
-> still `dao.space.kv` (and `src/cljc/dao/space/kv.cljc`); that name predates this
-> store/space split and is slated to become `dao.jing.kv`. Code blocks below use the
-> target name `dao.jing`, with an inline comment noting the namespace is currently
-> `dao.space`; conceptual prose names `dao.jing` throughout.
-
 ## What DaoJing Is
 
 `dao.jing` is the **storage boundary**: a decentralized, content-addressed **repository of
@@ -58,11 +52,11 @@ swapped without touching query logic.
 
 ## The Storage Interface (storage → reader)
 
-`dao.space.kv/IKVStore` exposes its stored byte blobs; it does not interpret them. This is
+`dao.jing.kv/IKVStore` exposes its stored byte blobs; it does not interpret them. This is
 the interface the query library consumes — **not** a query API.
 
 ```clojure
-;; The dumb storage API (see src/cljc/dao/space/kv.cljc)
+;; The dumb storage API (see src/cljc/dao/jing/kv.cljc)
 (kv/get store :root nil)               ; read a mutable root reference
 (kv/get store :segment-id nil)         ; read an immutable B-Tree chunk
 ```
@@ -80,7 +74,7 @@ transactor: it enforces local schema and appends datom frames, with no global co
 no commit step.
 
 ```clojure
-(require '[dao.jing :as store]    ; namespace currently dao.space; see naming note
+(require '[dao.jing :as store]
          '[dao.stream :as ds])
 
 (def s   (store/open! {:path "/data/work"}))   ; handle to the store (reopen rediscovers members)
@@ -169,7 +163,7 @@ This index-once/lazy-pull behavior is realized using **tonsky/persistent-sorted-
 provides a B-Tree implementation that natively supports lazy loading and segment chunking.
 
 1. `dao.jing` provides a minimal `IKVStore` protocol (`put!`/`cas!`/`get`/`delete!`/`close!`,
-   in `dao.space.kv`) representing Datomic's dumb storage (see `docs/datomic.md` for the
+   in `dao.jing.kv`) representing Datomic's dumb storage (see `docs/datomic.md` for the
    technical specification).
 2. The index builder writes B-Tree segment chunks to `dao.jing` using `put!`.
 3. The `dao.space.query` library configures `persistent-sorted-set` with an `IStorage`

@@ -1,5 +1,5 @@
-(ns dao.space.kv
-  "The minimal key-value storage boundary for DaoSpace.
+(ns dao.jing.kv
+  "The minimal key-value storage boundary for DaoJing.
    This protocol represents the 'dumb storage' layer (analogous to Datomic's KVStore,
    as specified in docs/datomic.md) that holds immutable datom segments and mutable
    stream references. It is entirely agnostic to Datalog, indexing, or datoms.

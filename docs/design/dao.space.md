@@ -111,7 +111,7 @@ never on a stream-local id.
 ;; `read-datoms` parses B-Tree
 ;; segments pulled from dao.jing into datoms — storage has no datoms API of its own.
 (ns dao.space.query
-  (:require [dao.jing :as store]))   ; namespace currently dao.space; see dao.jing.md naming note
+  (:require [dao.jing :as store]))   ; the store handle namespace
 
 (defn- fold [store as-of]
   (index (read-datoms store {:as-of as-of})))   ; build EAVT/AEVT/AVET

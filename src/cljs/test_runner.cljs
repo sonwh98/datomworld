@@ -6,11 +6,11 @@
     [dao.await-test]
     [dao.db.file-test]
     [dao.gui.compiler-cljs-test]
+    [dao.jing.kv-test]
     [dao.postgraphics.web-test]
     [dao.postgraphics.web.canvas-test]
     [dao.postgraphics.web.gpu-test]
     [dao.runtime.driver-cljs-test]
-    [dao.space.kv-test]
     [dao.stream-test]
     [dao.stream.file-test]
     [dao.stream.http-test]
@@ -41,7 +41,7 @@
   []
   (run-tests 'dao.await-test
              'dao.db.file-test
-             'dao.space.kv-test
+             'dao.jing.kv-test
              'dao.runtime.driver-cljs-test
              'agent.tools-test
              'agent.tzu-test

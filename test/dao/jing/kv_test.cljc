@@ -1,5 +1,5 @@
-(ns dao.space.kv-test
-  "Contract tests for the dao.space.kv storage boundary.
+(ns dao.jing.kv-test
+  "Contract tests for the dao.jing.kv storage boundary.
 
   Pins the KVStore protocol's observable contract: put!/get round-trip with
   :rev stamping, cas! optimistic-concurrency semantics (success bumps :rev by
@@ -7,7 +7,7 @@
   only, cas! under contention with no lost updates."
   (:require
     [clojure.test :refer [deftest is testing]]
-    [dao.space.kv :as kv]))
+    [dao.jing.kv :as kv]))
 
 
 ;; ---------------------------------------------------------------------------
