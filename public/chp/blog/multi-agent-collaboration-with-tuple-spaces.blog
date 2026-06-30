@@ -12,7 +12,7 @@
           :$blog-title
           :$blog-date
           [:p
-           "Nature uses two entirely different architectures to coordinate complex behavior. The first is direct message passing, routing signals point-to-point through a fixed topology, the way neurons fire across synapses. The second is stigmergy: coordinating agents that cannot or will not talk to each other directly by leaving traces in a shared medium. An ant does not message the other ants; it deposits a pheromone, and the next ant that passes is influenced by the trace. Coordination lives in the medium, not in the participants."]
+           "Nature uses two entirely different architectures to coordinate complex behavior. The first is direct message passing, routing signals point-to-point along established connections, the way neurons fire across synapses. The second is stigmergy: coordinating agents that cannot or will not talk to each other directly by leaving traces in a shared medium. An ant does not message the other ants; it deposits a pheromone, and the next ant that passes is influenced by the trace. Coordination lives in the medium, not in the participants."]
           [:p
            "Today's multi-agent frameworks almost exclusively emulate the neural path: their agents send each other messages, a transcript accumulates, and a control loop decides who speaks next. But the stigmergic alternative, agents reading and writing a shared space of facts and coordinating by what is there, has a fifty-year formal pedigree. It is not one idea but three stages of one idea: the tuple space is stigmergy made formal, and "
            [:a {:href "/chp/dao-space.chp"} "dao.space"]
