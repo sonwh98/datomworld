@@ -20,8 +20,8 @@ ML kernel agents make it an ML workflow substrate. The workload type is
 determined by which agents run, not by `dao.flow` itself.
 
 `dao.space` is the tuple space that emerges when interpreters match Datalog over
-`dao.jing` (the datom repository, built on `dao.stream`, the append-only event log
-that carries its tuples); a Datalog query is one such interpreter (`:query`). `dao.flow`
+`dao.jing` (the store of opaque bytes, built on `dao.stream`, the append-only event log
+that feeds it); a Datalog query is one such interpreter (`:query`). `dao.flow`
 runs on `dao.space`; it does not call `dao.jing` or `dao.stream` directly — it depends on
 them only through `dao.space`.
 

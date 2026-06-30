@@ -45,7 +45,7 @@ the tuple space), and **the shared substrate stays datoms** (agents coordinate o
 facts; whatever else an interpreter materializes is its own, not the medium).
 
 **Related documents:**
-- `docs/design/dao.jing.md` — the storage boundary: the content-addressed datom repository this space reads
+- `docs/design/dao.jing.md` — the storage boundary: the content-addressed store of opaque bytes this space reads as datoms
 - `docs/design/dao.stream.md` — the append-only log primitive datoms are written through
 - `docs/agents/datom-spec.md` — datoms, content-addressed identity, the gauge/base framing
 - `docs/datomic.md` — the Datomic architecture the Transactor/Storage/Query split maps to
@@ -65,9 +65,8 @@ changing the contracts. datom.world keeps that separation and maps it onto strea
 - **Transactor (write)** — **decentralized.** Every agent appending to its own `dao.stream`
   is its own transactor: it enforces local schema and appends datom frames, with no global
   contention and no commit step.
-- **Storage** — **[`dao.jing`](dao.jing.md).** The decentralized, content-addressed
-  repository of immutable datoms. It persists and serves datoms. It does **not** match or
-  query.
+- **Storage** — **[`dao.jing`](dao.jing.md).** The decentralized, content-addressed store of
+  opaque bytes. It holds and serves opaque byte segments; it does **not** match or query.
 - **Query (read)** — **the `dao.space.query` library any interpreter embeds.** It pulls
   datoms from `dao.jing`, builds an in-memory index, and runs pattern matching and Datalog.
   Pure, in-process, per-interpreter — Datomic's Peer model, as a library rather than a
@@ -266,8 +265,7 @@ recipient) and behind the decentralized Transactor of [Three Boundaries](#three-
 concern, not the space's identity. The space is the shared, queryable medium of the datoms
 those streams have contributed, not "a set of streams": streams join and leave at runtime,
 while the medium persists. (Storage, [`dao.jing`](dao.jing.md), is the dumb KV the streams
-feed; the read side never sees the streams, only the bytes an index builder projects into
-storage.)
+feed; the read side never sees the streams, only the bytes in storage.)
 
 Because each writer owns a single-writer log, two agents never write the same stream. If
 1,000 agents want to send messages to one recipient, they append to 1,000 distinct
