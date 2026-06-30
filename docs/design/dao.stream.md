@@ -47,8 +47,9 @@ The two Plan 9 properties carried over are the **uniform abstraction** (all IO i
 interface) and **location transparency** (the descriptor does not encode where the transport
 lives). The divergence is that a DaoStream is a **first-class value**: the descriptor can
 itself be sent on a stream and realized by whatever host receives it, which a Plan 9 path
-cannot. This influence lands here, on the stream substrate, and not on `dao.space`, whose own
-model (content-addressed identity, global associative match) comes from Linda and Datomic.
+cannot. This influence lands here, on the stream substrate, and not on `dao.jing`
+(content-addressed identity, from Datomic) or `dao.space` (global associative match, from
+Linda).
 
 ## Core Model
 
@@ -500,15 +501,15 @@ both cases it is ephemeral runtime state and excluded from serialization.
 **Key point:** This is one optional integration pattern. DaoStream itself makes no assumptions
 about how runtimes represent suspended work.
 
-## Relation to dao.space and the query library
+## Relation to dao.jing and the query library
 
 Streams are independent of the query layer. `dao.space.query` consumes streams.
 
-In Datom.world, DaoStream is the general stream substrate; `dao.space` (the storage
-boundary) is a collection of these streams, and `dao.space.query` is a datom consumer
-that reads them. DaoStream can carry arbitrary bytes or values, but the dominant system
-use case is datom transport. That is why most streams in Datom.world are streams of
-datoms.
+In Datom.world, DaoStream is the general stream substrate; `dao.jing` (the storage
+boundary) is a content-addressed datom repository fed *through* these streams (they are its
+intake, not its identity), and `dao.space.query` is a datom consumer that reads the store.
+DaoStream can carry arbitrary bytes or values, but the dominant system use case is datom
+transport. That is why most streams in Datom.world are streams of datoms.
 
 An open stream is still a stream. A bounded stream is a stable value that
 `dao.space.query` can consume to build indexes or answer queries. Stream semantics do
@@ -747,7 +748,7 @@ with orthogonal protocol boundaries that enable precise capability expression.
 
 DaoStream can be the foundation for higher-level coordination systems:
 
-- **DaoSpace** — see `docs/design/dao.space.md` (the storage boundary; querying is a separate library, `dao.space.query`) for stigmergic agent coordination over shared datom streams
+- **DaoJing / DaoSpace** — see `docs/design/dao.jing.md` (the storage boundary) and `docs/design/dao.space.md` (the tuple space that emerges when `dao.space.query` matches over the store) for stigmergic agent coordination over shared datom streams
 - **Message Brokers** — DaoStream is the append-only log foundation; coordination logic layers on top
 - **Event Sourcing** — stream of immutable events queryable at any historical point
 

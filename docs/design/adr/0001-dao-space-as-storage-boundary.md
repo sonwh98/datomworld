@@ -6,6 +6,13 @@
 **Supersedes:** the "DaoSpace is the query engine" / "pure streaming bus" framings in
 `docs/design/dao.space.v0.md` and earlier revisions of `docs/design/dao.space.md`.
 
+> **Naming note (post-2026-06-30).** The storage boundary this ADR calls `dao.space` has
+> since been renamed **`dao.jing`** (井, "well" — streams flow into it); the name `dao.space`
+> now denotes the *tuple space* that emerges when the `dao.space.query` library matches over
+> the store. Read every "`dao.space` (storage)" below as `dao.jing`. The decision is
+> unchanged — only the names split. See `docs/design/dao.jing.md` (storage) and
+> `docs/design/dao.space.md` (tuple space).
+
 ## Context
 
 The triggering question was whether `dao.db` (a four-component Datomic-style store:

@@ -84,7 +84,7 @@ This model accepts several honest limits:
 ## References
 
 - [ADR 0002: Share Governed Computation, Not Data](adr/0002-share-governed-computation-not-data.md) — the decision this design elaborates
-- [`dao.space.md`](dao.space.md) — storage boundary; its "Security and Access Modes" subsection summarizes this doc
+- [`dao.space.md`](dao.space.md) — the tuple space; its "Security and Access Modes" subsection summarizes this doc
 - [`docs/agents/datom-spec.md`](../agents/datom-spec.md) — the `m` slot
 - [`docs/agents/advanced-concepts.md`](../agents/advanced-concepts.md) — confinement; continuation parallel transport
 - [`docs/agents/architecture.md`](../agents/architecture.md) — the `yin.vm` CESK machine and Universal-AST substrate

@@ -4,8 +4,8 @@
 
 `dao.flow` is the datom coordination protocol that runs on `dao.space`. It
 is not a separate software component — it is the set of conventions that let
-datoms be matched and processed like network packets. `dao.space` (`dao.stream` +
-`dao.db`) is the medium; `dao.flow` is the protocol.
+datoms be matched and processed like network packets. `dao.space` (the tuple space over
+`dao.jing`, built on `dao.stream`) is the medium; `dao.flow` is the protocol.
 
 `dao.space` on its own is a general-purpose tuple space that already enables
 stigmergic coordination: agents write datoms to shared space, other agents
@@ -19,10 +19,10 @@ continuation scheduling, batching, stream injection, fork / join, and lineage.
 ML kernel agents make it an ML workflow substrate. The workload type is
 determined by which agents run, not by `dao.flow` itself.
 
-`dao.space` is realized as DaoStream descriptor types over `dao.stream` (the
-append-only event log that carries its tuples); a Datalog query is one
-interpreter (`:query`) over that catalog, backed by `dao.db`. `dao.flow` runs on
-`dao.space`; it does not call `dao.stream` or `dao.db` directly — it depends on
+`dao.space` is the tuple space that emerges when interpreters match Datalog over
+`dao.jing` (the datom repository, built on `dao.stream`, the append-only event log
+that carries its tuples); a Datalog query is one such interpreter (`:query`). `dao.flow`
+runs on `dao.space`; it does not call `dao.jing` or `dao.stream` directly — it depends on
 them only through `dao.space`.
 
 Agents write datoms into `dao.space`. Other agents pattern-match on those datoms
@@ -205,7 +205,7 @@ mechanism:
 
 ### dao.space and dao.stream
 
-`dao.space` is built on `dao.stream`. Their roles differ:
+`dao.space` (the tuple space) reads `dao.jing`, which is built on `dao.stream`. Their roles differ:
 
 | Dimension    | dao.space / dao.flow               | dao.stream                                |
 |--------------|------------------------------------|-------------------------------------------|
@@ -681,8 +681,8 @@ The main idea is simple:
 
 - `dao.flow` is the datom coordination protocol running on `dao.space` —
   not a separate software component
-- `dao.space` (`dao.stream` + `dao.db`) is the medium; agents coordinate by
-  writing and reading datoms
+- `dao.space` (the tuple space over `dao.jing`, built on `dao.stream`) is the medium;
+  agents coordinate by writing and reading datoms
 - flow is emergent: agents match datoms and write new datoms; no central
   dispatcher is involved
 - the scheduler agent makes `dao.flow` behave as a workflow runtime — it is an

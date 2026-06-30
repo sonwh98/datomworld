@@ -10,7 +10,7 @@ Each dimension dn is a distinct kind of fact, fit for a distinct role.
 The moduli space is open: applications declare new dimensions as needed. No dimension is canonical.
 
 Datoms are immutable facts, not objects.
-Datoms are the universal format for persistent facts in dao.space: AST, schema, provenance.
+Datoms are the universal format for persistent facts in dao.jing: AST, schema, provenance.
 Streams carry whatever values the consumer needs (datoms for persistent layers, entities or scalars for ephemeral layers).
 
 Dimensions in use:
@@ -121,7 +121,7 @@ Like git: working directory has no SHA; only committed content is hashed.
 
 # d5: PROVENANCED TEMPORAL FACTS
 
-d5 is the original datom shape: the 5-tuple (e a v t m). It packages fact + transaction + provenance + entity handle + value in one row, suitable for column-store layouts and EAVT/AEVT indexing. It is the dimension most of dao.space currently uses.
+d5 is the original datom shape: the 5-tuple (e a v t m). It packages fact + transaction + provenance + entity handle + value in one row, suitable for column-store layouts and EAVT/AEVT indexing. It is the dimension most of dao.jing currently uses.
 
 The remainder of this document defines d5 in detail: components, sizing, value constraints, reserved entities, namespaces.
 Other dimensions (d1, d3, etc.) are documented separately when introduced.

@@ -5,7 +5,7 @@
 **Supersedes:** the security framing in `dao.space.md` that treated fine-grained control as
 plaintext result-filtering requiring a centralized trusted mediator.
 
-**Amends:** ADR 0001 ruling 4 (refining its mediator framing while leaving the storage boundary untouched).
+**Amends:** ADR 0001 ruling 4 (refining its mediator framing while leaving the storage boundary, now named `dao.jing`, untouched).
 
 ## Context
 

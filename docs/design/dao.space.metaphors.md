@@ -40,12 +40,14 @@ This metaphor focuses on **Metabolism and Stigmergy**. It explains how the syste
 The soil is the **Content-Addressed Space** ($d_1$). It is a chaotic, non-indexed repository of raw nutrients. A nitrogen atom in the soil is just a nitrogen atom—it doesn't "know" its purpose yet.
 
 ### The Roots and Trunk: The Fan-in of Bundles
-**The Tree is datom.world; `dao.space` is its woody transport** — roots, trunk, and branches. The roots are the input boundaries that lift nutrients out of the soil ($d_1 \to d_5$); the trunk and branches are the **DaoStreams** that hold and carry datoms. This is the storage boundary: it conducts sap, it does not photosynthesize. Two vessel types:
+**The Tree is datom.world.** The roots, trunk, and branches are the **DaoStreams** (`dao.stream`): the roots are the input boundaries that lift nutrients out of the soil ($d_1 \to d_5$), and the vessels carry datoms upward. This is transport, not storage: it conducts sap, it does not photosynthesize. Two vessel types:
 *   **Xylem (Strict Streams)**: Heavily reinforced, parallel vessels transporting water up. These are the optimized, fixed-shape `:strict? true` streams.
 *   **Phloem (Open Streams)**: Flexible vessels carrying complex, varied sugars. These are the `:strict? false` streams: still append-only, but unconstrained in shape, so the receiving "cells" (interpreters) decide how to read what arrives.
 
+Where the sap settles and is held is the **heartwood**: `dao.jing`, the storage boundary. It is the durable, content-addressed repository the vessels feed; it holds datoms, it does not carry or interpret them.
+
 ### The Leaves: The Terminals (Interpreters)
-The leaves are the **Interpreters**. They are the terminals of the transport system where the nutrients finally arrive to be processed. Each leaf embeds the **query library (`dao.space.query`)** — its chloroplast — which is *not* part of `dao.space`: the transport (storage) carries datoms; the leaf indexes and queries them.
+The leaves are the **Interpreters**. They are the terminals where the nutrients finally arrive to be processed. Each leaf embeds the **query library (`dao.space.query`)** — its chloroplast. The chloroplast is what makes a leaf a tuple space (`dao.space`); it is *not* part of `dao.jing` (storage). The division of labor: `dao.stream` carries datoms, `dao.jing` holds them, and the leaf's chloroplast indexes and queries them into living views.
 
 ### The Sun: Agent Attention and Energy
 The leaf is inert without **Sunlight**. The Sunlight represents **Agent Attention** or **CPU cycles**. It is the external energy required to trigger the transformation.
@@ -56,7 +58,7 @@ In the leaf, the **Nutrient Pulses** (datoms) meet the **Sunlight** (energy). Th
 ### The Wood and Fruit: Reified $d_{Higher}$ Structures
 The output of the Tree is its own body and its products:
 *   **Fruit**: A **Query Result** or a **Knowledge Graph**. It is a concentrated, high-value "package" of facts ready to be consumed by other agents.
-*   **Wood**: The **Durable Schema** and **Provenance Logs**. This is the stored work that gives the Tree its strength and allows it to grow taller and more complex over time.
+*   **Wood**: The **Durable Schema** and **Provenance Logs** held in `dao.jing`. This is the stored work that gives the Tree its strength and allows it to grow taller and more complex over time.
 
 **The Math**: This is **Spectral Geometry**. The "Metabolism" of the tree is the **Dirac Operator ($D$)** — first-order, with $D^2 = L$ the relationship-graph Laplacian — which encodes the relationships between nutrients (which datoms are "close") and thus how structure flows through the tree.
 
@@ -64,9 +66,9 @@ The output of the Tree is its own body and its products:
 
 ## Synthesis: The Living Flow
 
-Both metaphors agree:
-1.  **Identity** lives in the Soil/Floor ($d_1$).
-2.  **Coordination** lives in the Trunk/Bundle ($d_5$).
-3.  **Reality** lives in the reified views (Fruit/Hologram) — the *family* of interpreter projections, not any single higher-dimensional object.
+Both metaphors agree, and the three layers line up:
+1.  **Identity** lives in the Soil/Floor ($d_1$) — the content-addressed base.
+2.  **Transport and storage**: the vessels (`dao.stream`) carry $d_5$ datoms; the heartwood (`dao.jing`) holds them.
+3.  **Coordination and Reality** live in the reified views the leaves photosynthesize — the tuple space (`dao.space`), a *family* of interpreter projections, not any single higher-dimensional object.
 
-`dao.space` is not a database you "query" — it is the storage substrate (the soil-access and trunk). The **system** is the **Metabolic Fibration**: the streams lift raw bits into $d_5$, and the leaves' query libraries project them into a living world of coexisting views.
+`dao.jing` is not a database you "query" — it is the heartwood, the storage substrate where datoms accrete. `dao.stream` is the vessels that carry them; `dao.space` is the metabolism of the leaves. The **system** is the **Metabolic Fibration**: streams lift raw bits into $d_5$, the heartwood holds them, and the leaves' chloroplasts (`dao.space.query`) project them into a living world of coexisting views.

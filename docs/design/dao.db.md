@@ -307,7 +307,7 @@ and QueryEngine, all communicating via the protocol boundaries.
 
 DaoDB provides the foundation for systems that need queryable, immutable state:
 
-- **DaoSpace** — see `docs/design/dao.space.md` (the storage boundary) and `dao.space.query` (the query library) for stigmergic agent coordination over shared datom streams
+- **DaoJing / DaoSpace** — see `docs/design/dao.jing.md` (the storage boundary) and `docs/design/dao.space.md` (the tuple space, with `dao.space.query` the query library) for stigmergic agent coordination over shared datom streams
 - **AST Storage** — the Yin VM's Universal AST is stored as datoms in DaoDB, queryable for capability policies and static analysis
 - **Event Sourcing** — domain events as datoms, queryable at any historical point
 

@@ -55,19 +55,19 @@ Continuation Migration:
 
 Runtime State:
   Runtime state (continuations, environments, stack frames) is ephemeral.
-  Runtime state lives in memory as native VM data structures, not in dao.space.
-  dao.space is for persistent facts: AST datoms, schema, parked continuations.
+  Runtime state lives in memory as native VM data structures, not in dao.jing.
+  dao.jing is for persistent facts: AST datoms, schema, parked continuations.
   Runtime state is queryable via Datalog on demand:
     vm/state->datom-stream projects in-memory VM state into a datom stream.
     Zero cost during execution; projection computed only when queried.
-    Joins across $code (dao.space) and $runtime (in-memory stream) in a single dao.space.query/q:
+    Joins across $code (dao.jing) and $runtime (in-memory stream) in a single dao.space.query/q:
       [:find ?node-type ?frame-type
        :in $code $runtime
        :where [$runtime ?frame :cont/pending-arg [0 ?node-hash]]
               [$code ?node :yin/content-hash ?node-hash]
               [$code ?node :yin/type ?node-type]
               [$runtime ?frame :cont/type ?frame-type]]
-  Persistence boundary: park/migrate promotes ephemeral state to persistent datoms in dao.space.
+  Persistence boundary: park/migrate promotes ephemeral state to persistent datoms in dao.jing.
 
 # YIN.VM & UNIVERSAL AST
 
@@ -75,7 +75,7 @@ Yin.vm is a CESK continuation machine (Control, Environment, Store, Continuation
 The Universal AST is canonical code: syntax is a rendering.
 AST nodes are represented in two equivalent forms:
   - AST maps: raw in-memory maps with :type, :operator, :operands, :body, etc.
-  - Datoms: [e a v t m] tuples stored in dao.space and queryable via dao.space.query (Datalog).
+  - Datoms: [e a v t m] tuples stored in dao.jing and queryable via dao.space.query (Datalog).
 The AST is not compiled away: it persists alongside execution state.
 
 ASTs are materialized views over five orthogonal dimensions:

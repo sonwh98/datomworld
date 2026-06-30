@@ -7,7 +7,7 @@
 > structure? This document records that correspondence, why it holds, and — with
 > the calibration discipline of the other geometry docs — exactly where it stops.
 >
-> **Related:** `dao.space.md` (the current storage-boundary spec this doc justifies),
+> **Related:** `dao.jing.md` (the storage-boundary spec this doc justifies) and `dao.space.md` (the tuple space),
 > `dao.space.v0.md` (superseded; original gauge framing), `dao.space.discrete-to-continuous.md` (the *Descent*
 > section, where the static half of this correspondence is made rigorous),
 > `docs/agents/datom-spec.md` (entity ID as local gauge).
@@ -120,7 +120,7 @@ non-adversarial, law-governed universe.
 ## What this means for datom.world
 
 This is the real justification for the gauge/bundle framing being more than
-decoration: dao.space *is* a locality problem (many streams, local entity IDs, no
+decoration: dao.jing *is* a locality problem (many streams, local entity IDs, no
 global clock, consistency on demand), and physics is the most mature mathematics
 available for locality problems. Borrowing its machinery is borrowing the right
 tool.
