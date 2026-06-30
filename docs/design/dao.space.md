@@ -1,19 +1,48 @@
 # DaoSpace: The Tuple Space
 
-`dao.space` is **not a thing you store**. It is the **tuple space that emerges** when agents
-use Datalog (the `dao.space.query` library) to match tuples stored in
-[`dao.jing`](dao.jing.md) and coordinate by leaving traces there. Storage holds facts at
-rest; the tuple space is those facts *under interpretation*.
+`dao.space` is **not a thing you store**. [`dao.jing`](dao.jing.md) holds datoms; `dao.space`
+is the **tuple space that emerges** when interpreters (the `dao.space.query` library and the
+agents) match over a **shared** `dao.jing` and coordinate through the traces they leave there.
+Storage holds facts at rest; the tuple space is those facts *under shared interpretation*.
 
 More precisely, "tuple space" names the **associative coordination surface** of a broader
 family of interpreters over those facts (see [A Family of Interpreters](#a-family-of-interpreters)).
-That surface — by-content matching over a shared medium of named tuples — is the privileged
-default and the contract strangers coordinate through; it is what makes `dao.space` a tuple
-space. The other surfaces the family admits (graph, tree, entity-centric, columnar views) are
-local read ergonomics, not new coordination modes. The label holds as long as two things hold:
-**coordination stays associative** (agents match by content, never address each other or
-navigate each other's views by reference), and **views stay derived** (reconstructable from
-the datoms, never primary state).
+A tuple space is defined by two complementary moves: how agents **read** and how they
+**write**. Reading is **associative matching** — you locate a tuple by describing its
+*content*, never by naming its address. Writing is **generative communication** — you deposit
+a tuple into the shared medium and never address a receiver. Take the read side first; its
+surfaces form a spectrum along the by-content axis:
+
+- **`match`** — a single positional datom template, Linda-style. One template, matched by
+  content, returns the tuples that fit. This is associative matching in its most basic form.
+- **`q` (Datalog)** — the *same* by-content matching **generalized to conjunctions**: many
+  templates joined on shared logic variables, plus negation, recursion, and aggregation. A
+  single-clause `q` *is* a `match`; Datalog keeps the associativity and generalizes
+  the arity from one tuple to many tuples joined. So `match ⊂ q`, both associative.
+- **Graph / tree / entity-centric / columnar traversal** — these locate data by **following a
+  reference or position**. That is navigation, not matching: addressing, not by-content. They
+  are useful *local read ergonomics* over an interpreter's own derived views, but they sit
+  *off* the associative axis.
+
+The write side is simpler but just as load-bearing. Generative communication means an agent
+**deposits** a datom and names no recipient — it appends to its own stream and is done.
+datom.world also drops Linda's one destructive operation: Linda pairs its non-destructive read
+(`rd`) with a consuming `take` (`in`) that *removes* a tuple from the medium; datom.world has
+no such removal. Writes are **append-only**, so to claim or update something an agent appends a
+*new* datom asserting the change, and current state is a read-side query over the accreted
+facts. Each writer owns a single-writer log, so there is no
+shared write surface and no contention — writers deposit, they never address. (This is the
+decentralized Transactor; see [Three Boundaries](#three-boundaries) and
+[Coordination: Stigmergy](#coordination-stigmergy).)
+
+`match` and `q` are the privileged default and the contract strangers coordinate through; it
+is associative matching over a shared medium that makes `dao.space` a tuple space. The
+traversal surfaces are admitted by the family but are not coordination modes. The label
+therefore holds as long as two things hold: **coordination stays associative** (agents find
+each other by matching content, never by addressing each other or navigating each other's
+views by reference — the moment cross-agent coordination runs through traversal, it has left
+the tuple space), and **views stay derived** (reconstructable from the datoms, never primary
+state).
 
 **Related documents:**
 - `docs/design/dao.jing.md` — the storage boundary: the content-addressed datom repository this space reads
@@ -51,11 +80,10 @@ Storage. This document specifies that tuple space. Storage is specified separate
 
 ## What Makes It a Tuple Space
 
-A tuple space is defined by **associative (by-content) matching** and **generative
-communication** (write into a shared medium, never address a receiver). Both are *read-side /
-interpreter* behaviors, conferred by the query library and the agents — not by storage. A
-store that matched would collapse interpretation into storage, which datom.world's invariants
-forbid. So the "space-ness" lives here, above `dao.jing`:
+Both moves the intro defines — associative matching and generative communication — are
+*read-side / interpreter* behaviors, conferred by the query library and the agents, **not** by
+storage. A store that matched would collapse interpretation into storage, which datom.world's
+invariants forbid. So the "space-ness" lives here, above `dao.jing`:
 
 - `dao.jing` holds the tuples.
 - `dao.space.query` makes them matchable (associative Datalog over the whole store).
@@ -64,13 +92,6 @@ forbid. So the "space-ness" lives here, above `dao.jing`:
 A tuple space is therefore not an artifact you instantiate; it is the behavior that appears
 when interpreters match over shared storage. `dao.jing` is *where* the tuples live;
 `dao.space` is *what agents do* there.
-
-Associative matching is the **privileged** coordination surface, not the only thing
-interpreters can do over the store. The same datoms support other read surfaces — graph, tree,
-entity-centric, columnar views (see [A Family of Interpreters](#a-family-of-interpreters)). What
-keeps `dao.space` a tuple space is that *cross-agent coordination* runs through matching;
-those other surfaces are how an interpreter navigates its own derived views, not how strangers
-find each other.
 
 ## The Query Library
 
