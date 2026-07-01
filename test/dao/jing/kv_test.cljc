@@ -182,6 +182,32 @@
            (.delete (java.io.File. path)))))))
 
 
+(deftest file-store-recovers-from-corrupt-payload
+  #?(:clj
+     (testing
+       "a length-consistent but unparseable record survives frame truncation; recovery stops the walk instead of crashing open"
+       (let [path (str "target/corrupt-test-" (random-uuid) ".db")
+             store1 (kv.file/create-kv-file path)]
+         (kv/put! store1 :a {:x 1})
+         (kv/cas! store1 :root 0 {:pointer "p1"})
+         (kv/close! store1)
+         ;; Append a frame whose length header matches its payload
+         ;; exactly (so the transport's boundary scan keeps it) but whose
+         ;; bytes are not EDN, e.g. bit-rot on a complete record.
+         (let [garbage (.getBytes "}}}not-edn[[[" "UTF-8")]
+           (with-open [raf (java.io.RandomAccessFile. path "rw")]
+             (.seek raf (.length raf))
+             (.writeInt raf (alength garbage))
+             (.write raf garbage)))
+         (let [store2 (kv.file/create-kv-file path)]
+           (is
+             (= {:x 1, :rev 0} (kv/get store2 :a nil))
+             "records before the corrupt frame are recovered, not crashed on")
+           (is (= {:pointer "p1", :rev 1} (kv/get store2 :root nil)))
+           (kv/close! store2))
+         (.delete (java.io.File. path))))))
+
+
 ;; ---------------------------------------------------------------------------
 ;; Concurrency (JVM only; cljs is single-threaded, so real contention is clj)
 ;; ---------------------------------------------------------------------------

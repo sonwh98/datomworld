@@ -33,12 +33,25 @@
         (if-not (map? res)
           {:index @idx}
           (let [{b :ok, next-cursor :cursor} res
-                payload (bytes->str b)
-                [k rev _] (edn/read-string payload)]
-            (if (= rev -1)
-              (swap! idx dissoc k)
-              (swap! idx assoc k {:cursor cursor, :rev rev}))
-            (recur next-cursor)))))))
+                ;; Defense-in-depth: the transport's torn-tail scan
+                ;; validates only frame-length boundaries, so a
+                ;; length-consistent but corrupt payload (bit-rot, or a
+                ;; length-extended-but-unflushed tail) can survive it. Stop
+                ;; the walk on an unparseable record rather than crashing
+                ;; open; everything recovered so far stands.
+                parsed (try (edn/read-string (bytes->str b))
+                            (catch #?(:clj Exception
+                                      :cljs :default
+                                      :cljd Object)
+                                   _
+                              nil))]
+            (if-not (vector? parsed)
+              {:index @idx}
+              (let [[k rev _] parsed]
+                (if (= rev -1)
+                  (swap! idx dissoc k)
+                  (swap! idx assoc k {:cursor cursor, :rev rev}))
+                (recur next-cursor)))))))))
 
 
 #_{:clj-kondo/ignore [:unused-binding]}
