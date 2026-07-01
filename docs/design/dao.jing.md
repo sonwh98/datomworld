@@ -57,11 +57,11 @@ swapped without touching query logic.
 
 ## The Storage Interface (storage → reader)
 
-`dao.jing.kv/IKVStore` exposes its stored byte blobs; it does not interpret them. This is
+`dao.jing/IKVStore` exposes its stored byte blobs; it does not interpret them. This is
 the interface the query library consumes — **not** a query API.
 
 ```clojure
-;; The dumb storage API (see src/cljc/dao/jing/kv.cljc)
+;; The dumb storage API (see src/cljc/dao/jing.cljc)
 (kv/get store :root nil)               ; read a mutable root reference
 (kv/get store :segment-id nil)         ; read an immutable segment chunk
 ```
@@ -97,8 +97,8 @@ storage. All strategies answer identically (the index is the same set of datoms 
 This index-once/lazy-pull behavior is realized using **tonsky/persistent-sorted-set**, which
 provides a B-Tree implementation that natively supports lazy loading and segment chunking.
 
-1. `dao.jing` provides a minimal `IKVStore` protocol (`put!`/`cas!`/`get`/`delete!`/`close!`,
-   in `dao.jing.kv`) representing Datomic's dumb storage (see `docs/datomic.md` for the
+1. `dao.jing` provides a minimal `IKVStore` protocol (`put!` / `cas!` / `get` / `delete!` / `compact!` / `close!`)
+   representing Datomic's dumb storage (see `docs/datomic.md` for the
    technical specification).
 2. The index builder (a reader concern, in `dao.space`) writes those segment chunks to
    `dao.jing` as opaque bytes with `put!`.
@@ -141,6 +141,10 @@ What v1 implements at the storage boundary, and the contracts it pins down.
 - **Namespace stamping.** The reader stamps each datom's `e` with a per-member identifier so
   stream-local ids stay distinct. v1 does **not** yet derive that namespace from the
   canonical kickoff hash, because content addressing is not yet load-bearing (above).
+- **Compaction / GC.** The `KVFile` backend implements Bitcask-style file compaction via the
+  protocol's `compact!` method. Overwritten stream roots and deleted tombstones create dead space 
+  in the append-only log; compaction sweeps the in-memory index, rewrites all live values to a 
+  new log, and atomically swaps the file beneath the `IKVStore` interface, reclaiming disk space.
 - **Encoding: `pr-str`, not canonical.** v1 persists and hashes datom frames via `pr-str`
   (current `yin/content.cljc`), not the canonical byte encoding `datom-spec.md` mandates.
   Consequence: cross-stream identity is stamped, not gauge-invariant — value-joins hold
@@ -177,8 +181,8 @@ directly onto it as software abstractions:
   in place; they write to fresh blocks and orphan the old ones, leaving reclamation to a
   Garbage Collector. Because `put!` writes immutable, content-addressed chunks, `dao.jing`
   updates are naturally out-of-place. As mutable stream roots advance (`cas!`), old byte
-  segments are orphaned, requiring a background GC to sweep the KV store and delete
-  unreachable chunks.
+  segments are orphaned. `dao.jing` natively solves this via `compact!` (a Bitcask fold
+  that filters out dead records and replaces the log), perfectly mirroring an SSD's garbage collection.
 - **NVMe Parallel Queues (Zero-Contention Writes).** NVMe solved the SATA bottleneck by
   giving every CPU core its own submission queue to the disk, avoiding locks. The tuple
   space's `dao.stream` intake achieves the same thing in software: every agent writes to

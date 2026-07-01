@@ -1,4 +1,4 @@
-(ns dao.jing.kv
+(ns dao.jing
   "The minimal key-value storage boundary for DaoJing.
    This protocol represents the 'dumb storage' layer (analogous to Datomic's KVStore,
    as specified in docs/datomic.md) that holds immutable datom segments and mutable
@@ -28,6 +28,10 @@
   (delete!
     [this k]
     "Remove an entry by key.")
+
+  (compact!
+    [this]
+    "Perform garbage collection on the store to reclaim dead space from overwritten or deleted entries.")
 
   (close!
     [this]
@@ -65,6 +69,9 @@
 
 
   (delete! [_ k] (swap! state-atom dissoc k) true)
+
+
+  (compact! [_] true)
 
 
   (close! [_] nil))

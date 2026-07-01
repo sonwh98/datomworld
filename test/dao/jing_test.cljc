@@ -1,5 +1,5 @@
-(ns dao.jing.kv-test
-  "Contract tests for the dao.jing.kv storage boundary.
+(ns dao.jing-test
+  "Contract tests for the dao.jing storage boundary.
 
   Pins the KVStore protocol's observable contract: put!/get round-trip with
   :rev stamping, cas! optimistic-concurrency semantics (success bumps :rev by
@@ -7,8 +7,8 @@
   only, cas! under contention with no lost updates."
   (:require
     [clojure.test :refer [deftest is testing]]
-    [dao.jing.kv :as kv]
-    [dao.jing.kv.file :as kv.file]))
+    [dao.jing :as kv]
+    [dao.jing.file :as kv.file]))
 
 
 (defn run-with-stores
@@ -209,6 +209,45 @@
 
 
 ;; ---------------------------------------------------------------------------
+;; Compaction (File Only)
+;; ---------------------------------------------------------------------------
+
+(deftest file-store-compaction
+  #?(:clj
+     (testing
+       "compaction removes dead keys, shrinks the file, and leaves live keys intact"
+       (let [path (str "target/compact-test-" (random-uuid) ".db")
+             store (kv.file/create-kv-file path)]
+         ;; Write a mix of keys
+         (kv/put! store :live {:x 1})
+         (kv/put! store :dead {:x 2})
+         
+         ;; Update a key multiple times (creates dead space)
+         (kv/cas! store :root 0 {:p "1"})
+         (kv/cas! store :root 1 {:p "2"})
+         (kv/cas! store :root 2 {:p "3"})
+         
+         ;; Delete a key (creates dead space and a tombstone)
+         (kv/delete! store :dead)
+         
+         (let [pre-size (.length (java.io.File. path))]
+           (is (true? (kv/compact! store)))
+           (let [post-size (.length (java.io.File. path))]
+             (is (< post-size pre-size) "the file size should shrink after compaction")
+             ;; Verify live keys are intact
+             (is (= {:x 1, :rev 0} (kv/get store :live nil)))
+             (is (= {:p "3", :rev 3} (kv/get store :root nil)))
+             (is (= :gone (kv/get store :dead :gone)))
+             
+             ;; Write after compact to verify the new stream is writable
+             (is (true? (kv/put! store :post {:x 3})))
+             (is (= {:x 3, :rev 0} (kv/get store :post nil)))
+             
+             (kv/close! store)
+             (.delete (java.io.File. path))))))))
+
+
+;; ---------------------------------------------------------------------------
 ;; Concurrency (JVM only; cljs is single-threaded, so real contention is clj)
 ;; ---------------------------------------------------------------------------
 
@@ -238,3 +277,111 @@
                (is (= n (:rev final))
                    ":rev must equal the number of applied updates")
                (is (= n (:n final)) "the value must agree with :rev"))))))))
+
+
+;; ---------------------------------------------------------------------------
+;; Read-after-close and read/compact races (JVM only)
+;; ---------------------------------------------------------------------------
+
+(deftest get-after-close-terminates
+  #?(:clj
+     (testing
+       "get on a closed store returns promptly instead of spinning in the ::closed retry loop"
+       ;; After close! the stream is closed, so ds/next throws and get catches
+       ;; it as ::closed. The retry re-reads the same closed stream and loops,
+       ;; because it never checks the store's :closed flag: the transient
+       ;; compaction-swap case and the permanent-close case are indistinguishable
+       ;; to the retry. The result is either an unbounded busy-wait (ds/next
+       ;; blocks) or a StackOverflowError (ds/next throws and get self-recurses
+       ;; without tail-call elimination). The deref timeout turns that hang into
+       ;; a deterministic failure rather than wedging the whole suite.
+       (let [path (str "target/closed-get-test-" (random-uuid) ".db")
+             store (kv.file/create-kv-file path)]
+         (try
+           (kv/put! store :k {:x 1})
+           (kv/close! store)
+           (let [outcome (deref
+                           (future
+                             (try {:value (kv/get store :k :not-found)}
+                                  (catch Throwable t {:threw (str (type t))})))
+                           2000
+                           {:timeout true})]
+             (is (= {:value :not-found} outcome)
+                 (str "get on a closed store should return the not-found sentinel "
+                      "promptly; got " outcome)))
+           (finally
+             (.delete (java.io.File. path))))))))
+
+
+(deftest get-during-compaction-stays-correct
+  #?(:clj
+     (testing
+       "a concurrent lock-free get never throws or observes a wrong/absent value for a live key while compact! swaps the stream"
+       (let [path (str "target/compact-race-test-" (random-uuid) ".db")
+             store (kv.file/create-kv-file path)]
+         (try
+           ;; :root is written once and never changed, so every read must see
+           ;; exactly this value; :churn is rewritten to create dead space so
+           ;; each compact! actually rebuilds the log and swaps the stream.
+           (kv/put! store :root {:p "v"})
+           (let [expected {:p "v", :rev 0}
+                 stop (atom false)
+                 seen-wrong (atom [])
+                 reader (future
+                          (while (not @stop)
+                            (let [v (try (kv/get store :root :not-found)
+                                         (catch Throwable t {:threw (str (type t))}))]
+                              (when (and (not= expected v)
+                                         (< (count @seen-wrong) 50))
+                                (swap! seen-wrong conj v)))))]
+             (dotimes [_ 30]
+               (kv/put! store :churn {:n (rand-int 1000)})
+               (kv/compact! store))
+             (reset! stop true)
+             (deref reader 2000 :reader-timeout)
+             (is (empty? @seen-wrong)
+                 (str "concurrent reads during compaction returned wrong/absent "
+                      "values for a live key: " (distinct @seen-wrong))))
+           (finally
+             (kv/close! store)
+             (.delete (java.io.File. path))))))))
+
+
+(deftest compaction-failure-leaves-store-usable
+  #?(:clj
+     (testing
+       "a compact! that fails in the swap tail (after the old stream is closed) restores a live stream instead of wedging get"
+       (let [path (str "target/compact-fail-test-" (random-uuid) ".db")
+             store (kv.file/create-kv-file path)]
+         (try
+           (kv/put! store :live {:x 1})
+           (kv/cas! store :root 0 {:p "1"})
+           (kv/cas! store :root 1 {:p "2"})   ; dead space so compaction rewrites
+           ;; Inject a failure in rename-file!, which runs AFTER compact! has
+           ;; already closed the old stream — the exact window that used to
+           ;; leave state-atom pointing at a dead stream.
+           (is (thrown? Exception
+                 (with-redefs [dao.jing.file/rename-file!
+                               (fn [_ _]
+                                 (throw (ex-info "injected rename failure" {})))]
+                   (kv/compact! store))))
+           ;; The store must stay readable, promptly (no ::closed retry hang),
+           ;; and no data may be lost by the aborted compaction.
+           (let [outcome (deref
+                           (future
+                             (try {:live (kv/get store :live :not-found)
+                                   :root (kv/get store :root :not-found)}
+                                  (catch Throwable t {:threw (str (type t))})))
+                           2000
+                           {:timeout true})]
+             (is (= {:live {:x 1, :rev 0}
+                     :root {:p "2", :rev 2}}
+                    outcome)
+                 (str "store should stay readable after a failed compaction; got "
+                      outcome)))
+           ;; And the restored stream must still accept writes.
+           (is (true? (kv/put! store :post {:y 9})))
+           (is (= {:y 9, :rev 0} (kv/get store :post nil)))
+           (finally
+             (kv/close! store)
+             (.delete (java.io.File. path))))))))
