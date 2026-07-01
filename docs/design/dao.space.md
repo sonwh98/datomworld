@@ -45,6 +45,7 @@ the tuple space), and **the shared substrate stays datoms** (agents coordinate o
 facts; whatever else an interpreter materializes is its own, not the medium).
 
 **Related documents:**
+- `docs/design/dao.qi.md` — the sibling point in the moduli space: the vector field made from the same n-tuples, matching by geometric proximity (cosine) rather than exact unification
 - `docs/design/dao.jing.md` — the storage boundary: the content-addressed store of opaque bytes this space reads as datoms
 - `docs/design/dao.stream.md` — the append-only log primitive datoms are written through
 - `docs/agents/datom-spec.md` — datoms, content-addressed identity, the gauge/base framing
