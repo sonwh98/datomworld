@@ -7,6 +7,7 @@
 - `docs/agents/datom-spec.md` — datoms, content-addressed identity, the gauge/base framing
 - `docs/datomic.md` — the deep dive on the Datomic storage architecture this design maps to
 - `docs/design/adr/0001-dao-space-as-storage-boundary.md` — the decision this design records
+- `docs/postgres.md` — the deep dive on the PostgreSQL architecture this design defines itself against
 - `docs/design/dao.space.v0.md` — superseded framing; still the reference for resources, typed streams, and the geometry/gauge material
 - `docs/design/dao.space.locality.md`, `dao.space.metaphors.md`, `dao.space.discrete-to-continuous.md` — the geometry/locality cluster: theoretical justification (gauge, spectral, locality) the spec defers to, not required to read it
 
@@ -120,6 +121,38 @@ spec mandates, and the index still allocates integer entity ids, so stamped
 `[namespace offset]` references are not yet first-class join keys. Making the content hash
 load-bearing is a prerequisite for treating cross-stream identity as gauge-invariant rather
 than stamped.
+
+## Structural Ignorance: Format Stability Without the Engine
+
+The deliberate dumbness above has a cost question hanging over it: PostgreSQL couples its
+storage engine to its data structures precisely because that coupling makes it fast. The
+property doing the work there is **format stability** — the on-disk page layout *is* the
+in-memory layout, so reads of resident pages need no parse (see [`../postgres.md`](../postgres.md),
+§2, for the precise statement and its caveats). PostgreSQL obtains that property by making
+the storage engine structurally aware, and the rest of that deep dive (§§3–8) is the bill:
+vacuum, WAL record types per structure, a lock manager, and a storage format that admits new
+structures only through years of C.
+
+`dao.jing` is built on the decoupling: **in-place readability is a property of the byte
+layout, not of the storage engine.** A flat, self-describing layout (Eve slabs; the same move
+as FlatBuffers or Cap'n Proto) can be traversed in place by the *reader* — the interpreters
+above this boundary — while the store remains the dumb `IKVStore` of opaque blobs specified
+above. Structural awareness is one way to obtain format stability; it is not the only way,
+and it is the expensive way — it welds the layout to the engine.
+
+This resolves the storage-complexity argument from the Datomic lineage (see Lineage, below).
+Rich Hickey's case for delegating storage to commercial databases assumed storage engines are
+necessarily complex — true only of *structurally aware* engines managing B-trees, MVCC, and
+locks. Strip the awareness and the storage layer becomes a hash table of blobs, simple enough
+to own. What remains is supplying format stability in the application layer (the Eve bet — a
+research program, not yet integrated; see [`dao.jing.dht.md`](dao.jing.dht.md), Zero-copy)
+and, for the distributed backend, the open problems the DHT document records.
+
+In exchange for banning in-place updates, fine-grained retrieval, and storage-level MVCC,
+`dao.jing` buys what a structurally aware engine cannot offer: invent a new data structure
+without touching storage code, and swap a local disk for a peer-to-peer network without
+touching query code — because a store that never knew your structures never needs to learn
+new ones.
 
 ## v1 Scope
 
