@@ -22,7 +22,7 @@ This document specifies that backend. Throughout, it distinguishes the *contract
 
 ## The IKVStore Contract over a Network
 
-The protocol is six methods (`src/cljc/dao/jing.cljc`). A DHT backend must account for all six, not only the three the original sketch of this document named.
+The protocol is five methods (`src/cljc/dao/jing.cljc`). A DHT backend must account for all five, not only the three the original sketch of this document named.
 
 ### Key classes: what `dao.jing.dht` requires beyond `IKVStore`
 
@@ -67,9 +67,9 @@ Three options, in order of cost:
 
 The contract requires a choice. The original doc left `delete!` undefined; this must be resolved before the backend is honest about implementing `IKVStore`. Recommended default: option 1 (advisory), with option 2 available for data that must be revocable.
 
-### `compact! [this]`, local only
+### Compaction (Local only)
 
-`compact!` is a local garbage-collection concern: each node compacts its own slab or append-only log. It has no distributed meaning as a single call. On an Eve-backed node, local reclamation is Eve's cooperative GC: old HAMT nodes are freed only after every local reader has advanced past them, so `compact!` is mostly a nudge to that mechanism. Eve drops processes with no heartbeat for 30s from the epoch scan, so a crashed reader cannot pin memory forever; only a live-but-stalled reader stalls reclamation, a liveness detail the implementation must surface. Distributed GC, reclaiming segments that no live root references anywhere in the network, is a separate and open problem (distributed reference counting, ephemerons). Flagged in Operational reality; not solved here.
+Compaction is a local garbage-collection concern: each node compacts its own slab or append-only log. It has no distributed meaning as a single call. On an Eve-backed node, local reclamation is Eve's cooperative GC: old HAMT nodes are freed only after every local reader has advanced past them, so compaction is mostly a nudge to that mechanism. Eve drops processes with no heartbeat for 30s from the epoch scan, so a crashed reader cannot pin memory forever; only a live-but-stalled reader stalls reclamation, a liveness detail the implementation must surface. Distributed GC, reclaiming segments that no live root references anywhere in the network, is a separate and open problem (distributed reference counting, ephemerons). Flagged in Operational reality; not solved here.
 
 ### `close! [this]`, local resources
 
@@ -133,7 +133,7 @@ Resolving these five is the precondition for `cas!` over the network. Until then
 - **NAT traversal.** A global peer-to-peer grid over UDP, between peers behind NAT, does not deliver without hole-punching, relay/TURN, and bootstrap discovery. This is where real P2P DHTs (libp2p, IPFS) spend the bulk of their effort. Unaddressed here; it is the largest practical gap between "distributed" and "works across the public internet."
 - **UDP amplification.** Connectionless `get` and `find_node` over UDP are reflection-amplification vectors (the UDP BitTorrent tracker and DNS both learned this the hard way). Fire-and-forget routing needs address validation (a returnability cookie, QUIC-Retry shaped) and rate limiting, or the network becomes a DoS instrument.
 - **Storage economics.** Unbounded caching is unbounded storage growth. The design has no pinning, no eviction, no scarcity, and therefore no account of when `get` returns `not-found`. CLAUDE.md draws vocabulary from economics; this is where it belongs: a storage market or pinning layer that creates negative feedback on growth. Without it, hot data replicates and cold data vanishes, and `get` is best-effort by default.
-- **Distributed garbage collection.** Reclaiming segments that no live root references, across a peer network, is distributed reference counting. Open. Tied to the `delete!` and `compact!` questions above.
+- **Distributed garbage collection.** Reclaiming segments that no live root references, across a peer network, is distributed reference counting. Open. Tied to the `delete!` question above.
 
 ## Lineage: UDP, TCP, and the Dumb Boundary
 

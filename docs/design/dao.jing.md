@@ -98,9 +98,7 @@ storage. All strategies answer identically (the index is the same set of datoms 
 This index-once/lazy-pull behavior is realized using **tonsky/persistent-sorted-set**, which
 provides a B-Tree implementation that natively supports lazy loading and segment chunking.
 
-1. `dao.jing` provides a minimal `IKVStore` protocol (`put!` / `cas!` / `get` / `delete!` / `compact!` / `close!`)
-   representing Datomic's dumb storage (see `docs/datomic.md` for the
-   technical specification).
+1. `dao.jing` provides a minimal `IKVStore` protocol (`put!` / `cas!` / `get` / `delete!` / `close!`), treating all data as uninterpreted byte blobs. See `docs/datomic.md` for the technical specification.
 2. The index builder (a reader concern, in `dao.space`) writes those segment chunks to
    `dao.jing` as opaque bytes with `put!`.
 3. The `dao.space.query` library configures `persistent-sorted-set` with an `IStorage`
@@ -175,7 +173,7 @@ What v1 implements at the storage boundary, and the contracts it pins down.
   stream-local ids stay distinct. v1 does **not** yet derive that namespace from the
   canonical kickoff hash, because content addressing is not yet load-bearing (above).
 - **Compaction / GC.** The `KVFile` backend implements Bitcask-style file compaction via the
-  protocol's `compact!` method. Overwritten stream roots and deleted tombstones create dead space 
+  storage backend (e.g., via `dao.jing.file/compact-store!`). Overwritten stream roots and deleted tombstones create dead space 
   in the append-only log; compaction sweeps the in-memory index, rewrites all live values to a 
   new log, and atomically swaps the file beneath the `IKVStore` interface, reclaiming disk space.
 - **Encoding: `pr-str`, not canonical.** v1 persists and hashes datom frames via `pr-str`
@@ -214,7 +212,7 @@ directly onto it as software abstractions:
   in place; they write to fresh blocks and orphan the old ones, leaving reclamation to a
   Garbage Collector. Because `put!` writes immutable, content-addressed chunks, `dao.jing`
   updates are naturally out-of-place. As mutable stream roots advance (`cas!`), old byte
-  segments are orphaned. `dao.jing` natively solves this via `compact!` (a Bitcask fold
+  segments are orphaned. The local file backend solves this via `compact-store!` (a Bitcask fold
   that filters out dead records and replaces the log), perfectly mirroring an SSD's garbage collection.
 - **NVMe Parallel Queues (Zero-Contention Writes).** NVMe solved the SATA bottleneck by
   giving every CPU core its own submission queue to the disk, avoiding locks. The tuple

@@ -29,10 +29,6 @@
     [this k]
     "Remove an entry by key.")
 
-  (compact!
-    [this]
-    "Perform garbage collection on the store to reclaim dead space from overwritten or deleted entries.")
-
   (close!
     [this]
     "Release the storage backend resources."))
@@ -69,9 +65,6 @@
 
 
   (delete! [_ k] (swap! state-atom dissoc k) true)
-
-
-  (compact! [_] true)
 
 
   (close! [_] nil))
