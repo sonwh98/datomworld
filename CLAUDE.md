@@ -48,6 +48,7 @@ Run tests:           clj -M:test
 Run CLJS tests:      clj -M:cljs -m shadow.cljs.devtools.cli compile test && node target/node-tests.js
 Run Node.js tests:    npm test
 Compile CLJD:        clj -M:cljd compile
+Run CLJD tests:      clj -M:cljd test     (requires flutter on PATH, e.g. via mise exec --)
 Lint a file:         clj -M:kondo --lint <path>
 ClojureScript dev:   npx shadow-cljs watch demo
 ClojureScript build: npx shadow-cljs compile demo

@@ -106,9 +106,9 @@
                    _ (.writeInt32BE head len 0)]
                (do-with-lock nil
                              (fn []
-                               (let [offset (.-size (.fstatSync fs fd))]
-                                 (.writeSync fs fd head 0 4 offset)
-                                 (.writeSync fs fd val 0 len (+ offset 4))
+                               (let [offset (.-size (.fstatSync ^js fs fd))]
+                                 (.writeSync ^js fs fd head 0 4 offset)
+                                 (.writeSync ^js fs fd val 0 len (+ offset 4))
                                  {:result :ok,
                                   :cursor {:position offset}})))))
 
@@ -123,21 +123,21 @@
                  (do-with-lock
                    nil
                    (fn []
-                     (let [end (.-size (.fstatSync fs fd))]
+                     (let [end (.-size (.fstatSync ^js fs fd))]
                        (if (>= offset end)
                          :blocked
                          (let [head (js/Buffer.alloc 4)]
-                           (.readSync fs fd head 0 4 offset)
+                           (.readSync ^js fs fd head 0 4 offset)
                            (let [len (.readInt32BE head 0)
                                  buf (js/Buffer.alloc len)]
-                             (.readSync fs fd buf 0 len (+ offset 4))
+                             (.readSync ^js fs fd buf 0 len (+ offset 4))
                              {:ok buf,
                               :cursor {:position (+ offset 4 len)}})))))))))
 
 
            ds/IDaoStreamBound
 
-           (close! [_] (do-close! state-atom #(.closeSync fs fd)))
+           (close! [_] (do-close! state-atom #(.closeSync ^js fs fd)))
 
 
            (closed? [_] (:closed @state-atom))))

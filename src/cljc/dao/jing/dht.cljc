@@ -54,9 +54,11 @@
   [v]
   (cond (map? v) (->> v
                       (map (fn [[k x]] [(canonical k) (canonical x)]))
-                      (sort-by (comp pr-str first))
-                      (mapcat identity)
-                      (apply array-map))
+                      ;; a pr-str-keyed sorted map prints its keys in a
+                      ;; fixed
+                      ;; order on every platform (array-map is not in
+                      ;; ClojureDart)
+                      (into (sorted-map-by #(compare (pr-str %1) (pr-str %2)))))
         (set? v) (list 'set (sort-by pr-str (map canonical v)))
         (sequential? v) (mapv canonical v)
         :else v))

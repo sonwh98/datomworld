@@ -10,10 +10,13 @@
        [dao.jing :as kv]
        [dao.jing.dht :as dht]
        [dao.jing.dht.node :as node]
-       [dao.stream.transit :as transit])))
+       [dao.stream.transit :as transit])
+     :cljd
+     nil))
 
 
-#?(:clj
+#?(:cljd nil
+   :clj
    (defn- with-cluster
      "Run f with n KVDht stores over real UDP nodes on localhost, the first
      node acting as the bootstrap peer for the rest. Closes everything."
@@ -30,7 +33,8 @@
        (try (f stores) (finally (run! kv/close! stores))))))
 
 
-#?(:clj (deftest udp-put-get-across-nodes
+#?(:cljd nil
+   :clj (deftest udp-put-get-across-nodes
           (testing
             "a segment put! on one UDP node is fetched by another over the wire"
             (with-cluster 3
@@ -45,7 +49,8 @@
                          (kv/get c k nil)))))))))
 
 
-#?(:clj (deftest udp-root-cas-across-nodes
+#?(:cljd nil
+   :clj (deftest udp-root-cas-across-nodes
           (testing "cas! and root reads agree across UDP peers"
             (with-cluster 3
               (fn [[_ b c]]
@@ -57,7 +62,8 @@
                        (kv/get b :root/head nil))))))))
 
 
-#?(:clj
+#?(:cljd nil
+   :clj
    (deftest udp-oversized-segment-stays-local
      (testing
        "segments beyond the datagram budget degrade to local-only until DRDS exists"
@@ -72,7 +78,8 @@
                  "the segment cannot cross the wire yet")))))))
 
 
-#?(:clj
+#?(:cljd nil
+   :clj
    (deftest store-handler-enforces-key-discipline
      (testing "an incoming :store must present the exact :segment/<hash> key"
        (let [handle (deref #'node/handle)
@@ -98,7 +105,8 @@
          (is (= ::miss (kv/get local (keyword "root" hash) ::miss)))))))
 
 
-#?(:clj
+#?(:cljd nil
+   :clj
    (deftest hostile-datagram-does-not-kill-the-receiver
      (testing
        "a datagram with a malformed :from is dropped; the node keeps serving"
@@ -127,7 +135,8 @@
                (is (= {:bytes [42], :rev 0} (kv/get b k nil))))))))))
 
 
-#?(:clj
+#?(:cljd nil
+   :clj
    (deftest rpc-failure-means-unreachable-not-thrown
      (testing
        "a host that cannot be resolved or reached yields nil per the
@@ -144,7 +153,8 @@
               (finally (dht/close-net! net)))))))
 
 
-#?(:clj
+#?(:cljd nil
+   :clj
    (deftest udp-segment-size-variation
      (testing
        "packets of varying sizes can be received sequentially without truncation"
@@ -166,7 +176,8 @@
              (is (= (assoc v-large :rev 0) (kv/get b k-large nil)))))))))
 
 
-#?(:clj (deftest udp-close-is-idempotent
+#?(:cljd nil
+   :clj (deftest udp-close-is-idempotent
           (with-cluster 1
             (fn [[a]]
               (is (nil? (kv/close! a)))

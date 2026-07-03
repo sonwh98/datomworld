@@ -20,12 +20,11 @@
   - Peers are untrusted: incoming :store requests re-verify the content
     hash before writing. No address validation or rate limiting yet
     (Operational reality, UDP amplification)."
-  #?(:clj
-     (:require
-       [dao.jing :as kv]
-       [dao.jing.dht :as dht]
-       [dao.jing.dht.kad :as kad]
-       [dao.stream.transit :as transit]))
+  (:require
+    [dao.jing :as kv]
+    [dao.jing.dht :as dht]
+    [dao.jing.dht.kad :as kad]
+    [dao.stream.transit :as transit])
   #?(:clj
      (:import
        (java.net
@@ -36,10 +35,13 @@
          ConcurrentHashMap)
        (java.util.concurrent.atomic
          AtomicBoolean
-         AtomicLong))))
+         AtomicLong))
+     :cljd
+     nil))
 
 
-#?(:clj
+#?(:cljd nil
+   :clj
    (def max-datagram
      "Conservative single-datagram payload budget. IPv6 guarantees only a
      1280-byte path MTU; headers leave roughly this much (design doc,
@@ -51,12 +53,14 @@
 ;; Codec
 ;; =============================================================================
 
-#?(:clj (defn- encode
+#?(:cljd nil
+   :clj (defn- encode
           ^bytes [msg]
           (.getBytes ^String (transit/encode msg) "UTF-8")))
 
 
-#?(:clj (defn- decode
+#?(:cljd nil
+   :clj (defn- decode
           [^DatagramPacket packet]
           (transit/decode (String. (.getData packet)
                                    (.getOffset packet)
@@ -64,7 +68,8 @@
                                    "UTF-8"))))
 
 
-#?(:clj
+#?(:cljd nil
+   :clj
    (defn- send-datagram!
      [^DatagramSocket socket ^bytes payload ^InetAddress addr port]
      (when (> (alength payload) max-datagram)
@@ -80,7 +85,8 @@
 ;; Request handling (the server half)
 ;; =============================================================================
 
-#?(:clj (defn- handle
+#?(:cljd nil
+   :clj (defn- handle
           "Serve one request against this node's local store."
           [local table msg]
           (case (:op msg)
@@ -101,7 +107,8 @@
             {:error :unknown-op})))
 
 
-#?(:clj
+#?(:cljd nil
+   :clj
    (defn- start-receiver!
      "One daemon thread per node: decodes datagrams, observes senders into
      the routing table, delivers replies to pending requests, and serves
@@ -165,7 +172,8 @@
 ;; Requests (the client half)
 ;; =============================================================================
 
-#?(:clj (defn- attempt!
+#?(:cljd nil
+   :clj (defn- attempt!
           [{:keys [^DatagramSocket socket ^ConcurrentHashMap pending
                    ^AtomicLong rpc-counter peer]} to msg timeout-ms]
           (let [rpc (.getAndIncrement rpc-counter)
@@ -186,7 +194,8 @@
                  (finally (.remove pending rpc))))))
 
 
-#?(:clj
+#?(:cljd nil
+   :clj
    (defn- request!
      "Request-response over fire-and-forget UDP: this client owns timeouts
      and retries. Returns the reply value, or nil when the peer stays
@@ -204,7 +213,8 @@
 ;; The node
 ;; =============================================================================
 
-#?(:clj
+#?(:cljd nil
+   :clj
    (defrecord UdpNode
      [^DatagramSocket socket peer local table
       ^ConcurrentHashMap pending ^AtomicLong rpc-counter
@@ -260,7 +270,8 @@
        nil)))
 
 
-#?(:clj
+#?(:cljd nil
+   :clj
    (defn create-node
      "Open a UDP Kademlia peer implementing dht/IDhtNet. opts:
        :host        bind/advertised address (default \"127.0.0.1\")
@@ -297,7 +308,8 @@
        node)))
 
 
-#?(:clj
+#?(:cljd nil
+   :clj
    (defn create-kv-dht-udp
      "Convenience: open a UDP node and wrap it as an IKVStore. The node and
      the store share `local`, so this peer serves the same bytes it reads."

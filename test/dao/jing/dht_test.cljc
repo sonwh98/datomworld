@@ -94,23 +94,28 @@
 (deftest key-discipline
   (testing "keys must be :segment/<hash> or :root/<name>, used by class"
     (let [{[a] :stores} (grid 1)]
-      (is (thrown? #?(:cljs js/Error
-                      :default Exception)
+      (is (thrown? #?(:clj Exception
+                      :cljs js/Error
+                      :cljd Object)
             (kv/get a :plain nil))
           "un-namespaced keys are rejected")
-      (is (thrown? #?(:cljs js/Error
-                      :default Exception)
+      (is (thrown? #?(:clj Exception
+                      :cljs js/Error
+                      :cljd Object)
             (kv/put! a :plain {:x 1})))
-      (is (thrown? #?(:cljs js/Error
-                      :default Exception)
+      (is (thrown? #?(:clj Exception
+                      :cljs js/Error
+                      :cljd Object)
             (kv/put! a :root/r {:x 1}))
           "roots are cas!-only")
-      (is (thrown? #?(:cljs js/Error
-                      :default Exception)
+      (is (thrown? #?(:clj Exception
+                      :cljs js/Error
+                      :cljd Object)
             (kv/cas! a (dht/segment-key {:x 1}) 0 {:x 1}))
           "segments are immutable")
-      (is (thrown? #?(:cljs js/Error
-                      :default Exception)
+      (is (thrown? #?(:clj Exception
+                      :cljs js/Error
+                      :cljd Object)
             (kv/put! a :segment/not-the-hash {:x 1}))
           "a segment key must be the content hash of its value"))))
 

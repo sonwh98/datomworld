@@ -16,7 +16,7 @@ echo ""
 echo "========================================"
 echo "Running ClojureDart (Dart VM) Tests..."
 echo "========================================"
-./bin/run-cljd-tests.sh
+clj -M:cljd test
 
 echo ""
 echo "========================================"
