@@ -4,15 +4,18 @@
   docs/design/dao.jing.dht.md, Transport), so every test is :clj-guarded;
   the backend semantics themselves are covered cross-platform in
   dao.jing.dht-test."
-  #?(:clj
-     (:require
-       [clojure.test :refer [deftest is testing]]
-       [dao.jing :as kv]
-       [dao.jing.dht :as dht]
-       [dao.jing.dht.node :as node]
-       [dao.stream.transit :as transit])
-     :cljd
-     nil))
+  ;; :cljd nil must come FIRST (first matching branch wins and the cljd
+  ;; host pass also matches :clj): otherwise the host pass sees the
+  ;; deftests, registers a test namespace, and generates a Dart test
+  ;; entrypoint with no main. The :namespaces rule is disabled
+  ;; project-wide (see root .cljstyle) because it would otherwise flip
+  ;; this order back on every `cljstyle fix`.
+  #?(:cljd nil
+     :clj (:require [clojure.test :refer [deftest is testing]]
+                    [dao.jing :as kv]
+                    [dao.jing.dht :as dht]
+                    [dao.jing.dht.node :as node]
+                    [dao.stream.transit :as transit])))
 
 
 #?(:cljd nil

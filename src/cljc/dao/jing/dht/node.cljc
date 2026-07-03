@@ -20,24 +20,20 @@
   - Peers are untrusted: incoming :store requests re-verify the content
     hash before writing. No address validation or rate limiting yet
     (Operational reality, UDP amplification)."
-  (:require
-    [dao.jing :as kv]
-    [dao.jing.dht :as dht]
-    [dao.jing.dht.kad :as kad]
-    [dao.stream.transit :as transit])
-  #?(:clj
-     (:import
-       (java.net
-         DatagramPacket
-         DatagramSocket
-         InetAddress)
-       (java.util.concurrent
-         ConcurrentHashMap)
-       (java.util.concurrent.atomic
-         AtomicBoolean
-         AtomicLong))
-     :cljd
-     nil))
+  (:require [dao.jing :as kv]
+            [dao.jing.dht :as dht]
+            [dao.jing.dht.kad :as kad]
+            [dao.stream.transit :as transit])
+  ;; :cljd nil must come FIRST: reader conditionals take the first
+  ;; matching branch, and the cljd host pass also matches :clj, so with
+  ;; :clj written first the import still reaches the Dart compiler.
+  ;; The :namespaces rule is disabled project-wide (see root .cljstyle)
+  ;; because it would otherwise reorder this to :clj-first on every
+  ;; `cljstyle fix`, silently re-breaking the guard.
+  #?(:cljd nil
+     :clj (:import (java.net DatagramPacket DatagramSocket InetAddress)
+                   (java.util.concurrent ConcurrentHashMap)
+                   (java.util.concurrent.atomic AtomicBoolean AtomicLong))))
 
 
 #?(:cljd nil

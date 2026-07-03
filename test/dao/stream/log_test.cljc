@@ -1,12 +1,11 @@
 (ns dao.stream.log-test
-  (:require
-    #?@(:cljd [["dart:io" :as dart-io] ["dart:typed_data" :as typed]
-               [clojure.test :refer [deftest is testing]]]
-        :cljs [[cljs.test :refer [deftest is testing]]]
-        :clj [[clojure.java.io :as io]
-              [clojure.test :refer [deftest is testing]]])
-    [dao.stream :as ds]
-    [dao.stream.log]))
+  (:require #?@(:cljd [["dart:io" :as dart-io] ["dart:typed_data" :as typed]
+                       [clojure.test :refer [deftest is testing]]]
+                :cljs [[cljs.test :refer [deftest is testing]]]
+                :clj [[clojure.java.io :as io]
+                      [clojure.test :refer [deftest is testing]]])
+            [dao.stream :as ds]
+            [dao.stream.log]))
 
 
 (defn- temp-path
@@ -117,11 +116,11 @@
                  (.writeSync fs fd head)
                  (.writeSync fs fd (js/Buffer.from (clj->js [1 2])))
                  (.closeSync fs fd)))
-      #?(:cljd (let [f (dart-io/File path)
-                     raf (.openSync f :mode dart-io/FileMode.append)
-                     head (typed/ByteData 4)]
+      #?(:cljd (let [f (dart-io/File. path)
+                     raf (.openSync f .mode dart-io/FileMode.append)
+                     head (typed/ByteData. 4)]
                  (.setInt32 head 0 999)
-                 (.writeFromSync raf (.buffer.asUint8List head))
+                 (.writeFromSync raf (.asUint8List (.-buffer head)))
                  (.writeFromSync raf (typed/Uint8List.fromList [1 2]))
                  (.closeSync raf)))
       ;; Reopen and assert we only see the first record, and we can append

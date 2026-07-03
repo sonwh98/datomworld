@@ -1,5 +1,0 @@
-;; ClojureDart uses string-prefixed :import forms, e.g.
-;;   (:import ["dart:core" BigInt DateTime])
-;; The :namespaces rule rewrites these into JVM-style (dart:core BigInt …),
-;; which the cljd compiler then treats as a namespace lookup and fails on.
-{:rules {:namespaces {:enabled? false}}}

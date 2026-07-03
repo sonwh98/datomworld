@@ -2,13 +2,10 @@
   "Persistent, framed, seekable append-log transport.
    Reads and writes opaque byte-arrays using a 4-byte big-endian length prefix.
    Implements IDaoStreamReader, IDaoStreamWriter, and IDaoStreamBound."
-  (:require
-    #?@(:cljd [["dart:io" :as dart-io] ["dart:typed_data" :as typed]]
-        :clj [[clojure.java.io :as io]])
-    [dao.stream :as ds])
-  #?(:cljs
-     (:require-macros
-       [dao.stream])))
+  (:require #?@(:cljd [["dart:io" :as dart-io] ["dart:typed_data" :as typed]]
+                :clj [[clojure.java.io :as io]])
+            [dao.stream :as ds])
+  #?(:cljs (:require-macros [dao.stream])))
 
 
 #?(:clj (defn- byte-array?
@@ -150,12 +147,12 @@
      ds/IDaoStreamWriter
 
      (put!
-       [_ val]
+       [_ ^typed/Uint8List val]
        (check-put! state-atom val)
        (let [len (.-length val)
-             head (typed/ByteData 4)
+             head (typed/ByteData. 4)
              _ (.setInt32 head 0 len)
-             head-bytes (.buffer.asUint8List head)]
+             head-bytes (.asUint8List (.-buffer head))]
          (do-with-lock lock
                        (fn []
                          (let [offset (.lengthSync raf)]
@@ -179,8 +176,9 @@
                  (if (>= offset end)
                    :blocked
                    (do (.setPositionSync raf offset)
-                       (let [head-bytes (.readSync raf 4)
-                             head (typed/ByteData.view (.buffer head-bytes))
+                       (let [^typed/Uint8List head-bytes (.readSync raf 4)
+                             head (typed/ByteData.view (.-buffer
+                                                         head-bytes))
                              len (.getInt32 head 0)
                              bytes (.readSync raf len)]
                          {:ok bytes,
@@ -231,17 +229,18 @@
                                      (.ftruncateSync fs fd offset)
                                      (recur (+ offset 4 len)))))))
                  (->NodeLogStream fs fd (atom {:closed false})))))
-     :cljd (let [f (dart-io/File path)
-                 dir (.parent f)]
-             (when-not (.existsSync dir) (.createSync dir :recursive true))
-             (let [raf (.openSync f :mode dart-io/FileMode.append)
+     :cljd (let [f (dart-io/File. path)
+                 dir (.-parent f)]
+             (when-not (.existsSync dir) (.createSync dir .recursive true))
+             (let [raf (.openSync f .mode dart-io/FileMode.append)
                    end (.lengthSync raf)]
                (loop [offset 0]
                  (cond (>= offset end) nil
                        (< (- end offset) 4) (.truncateSync raf offset)
                        :else (do (.setPositionSync raf offset)
-                                 (let [head-bytes (.readSync raf 4)
-                                       head (typed/ByteData.view (.buffer
+                                 (let [^typed/Uint8List head-bytes
+                                       (.readSync raf 4)
+                                       head (typed/ByteData.view (.-buffer
                                                                    head-bytes))
                                        len (.getInt32 head 0)]
                                    (if (or (neg? len) (> (+ offset 4 len) end))
