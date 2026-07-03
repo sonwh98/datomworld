@@ -13,7 +13,7 @@ This document specifies that backend. Throughout, it distinguishes the *contract
 | Layer | Status | Notes |
 |---|---|---|
 | `IKVStore` protocol | Firm | `src/cljc/dao/jing.cljc`; memory + file backends exist. |
-| `dao.jing.dht` backend | Proposed | Not implemented. This doc is its specification. |
+| `dao.jing.dht` backend | Partial | First cut in `src/cljc/dao/jing/dht.cljc`: key classes, content addressing with hash-verified fetch, cache-forever segment reads, advisory `delete!` (option 1), and `cas!`/root reads forwarded to the nearest-peer owner as an explicit placeholder for sortition. UDP Kademlia peer in `src/cljc/dao/jing/dht/node.cljc` (JVM-only, one datagram per message; oversized segments stay local until DRDS). Canonical byte form is order-normalized `pr-str` pending the pinned Eve Flat encoding. |
 | `dao.stream.udp` transport | Partial | JVM-only, fire-and-forget today. See Transport. |
 | DRDS reliable layer | Proposed | Named in the UDP descriptor; not implemented. |
 | Eve slab representation | Research | Real library (`SeniorCareMarket/eve`); not yet a dependency. See Zero-copy. |

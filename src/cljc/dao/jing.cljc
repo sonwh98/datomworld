@@ -18,12 +18,18 @@
     [this k old-rev v-map]
     "Compare-And-Swap an entry. Only writes v-map if the current revision matches old-rev.
      Used for updating mutable references like the stream root pointer.
-     Returns true if successful, false if the CAS failed (meaning another writer won).")
+     Returns true if successful, false if the CAS failed (meaning another writer won).
+     Distributed backends may instead throw when the authority for k is
+     unreachable: unreachability is not the same fact as a lost CAS, and
+     returning false would send the caller's retry loop chasing a rev it
+     cannot read.")
 
   (get
     [this k not-found]
     "Read an entry by key. Returns the v-map (which includes its :rev), or not-found if the key
-     is absent. The 2-arg signature mirrors clojure.core/get and Datomic's KVStore/get (get(Object, Object)).")
+     is absent. The 2-arg signature mirrors clojure.core/get and Datomic's KVStore/get (get(Object, Object)).
+     Distributed backends may instead throw when a mutable key's authority is
+     unreachable, rather than pass off a freshness failure as absence.")
 
   (delete!
     [this k]
