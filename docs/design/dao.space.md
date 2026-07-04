@@ -13,12 +13,15 @@ A tuple space is defined by two complementary moves: how agents **read** and how
 a tuple into the shared medium and never address a receiver. Take the read side first; its
 surfaces form a spectrum along the by-content axis:
 
-- **`match`** — a single positional datom template, Linda-style. One template, matched by
-  content, returns the tuples that fit. This is associative matching in its most basic form.
+- **`match`** — a single positional **tuple** template, Linda-style. A datom is the canonical
+  arity-5 case, but the template is not pinned to it: one template, matched by content, returns
+  the tuples that fit, of any arity (see [Arity: n-tuples](#arity-n-tuples)). This is associative
+  matching in its most basic form.
 - **`q` (Datalog)** — the *same* by-content matching **generalized to conjunctions**: many
   templates joined on shared logic variables, plus negation, recursion, and aggregation. A
   single-clause `q` *is* a `match`; Datalog keeps the associativity and generalizes
-  the arity from one tuple to many tuples joined. So `match ⊂ q`, both associative.
+  the arity from one tuple to many tuples joined. So `match ⊂ q`, both associative — and neither
+is pinned to the 5-tuple (see [Arity: n-tuples](#arity-n-tuples)).
 - **Graph / tree / entity-centric / columnar traversal** — these locate data by **following a
   reference or position**. That is navigation, not matching: addressing, not by-content. They
   are useful *local read ergonomics* over an interpreter's own materialized views, but they sit
@@ -104,7 +107,9 @@ is the interpreter's own responsibility, and `dao.jing` just holds the resulting
 [A Family of Interpreters](#a-family-of-interpreters). This contract is only about what an
 interpreter writes as ground truth.)
 
-The datom shape is the **price of admission** to the tuple space, freely chosen:
+The datom shape is the **price of admission** to the tuple space, freely chosen — the canonical
+5-tuple `(e a v t m)` is what enters the shared, coordinating log; the matching surface itself is
+arity-general and reads tuples of any size (see [Arity: n-tuples](#arity-n-tuples) below).
 - **Opting In:** If an interpreter formats its facts as `(e a v t m)` datoms, its data
   "enters" the tuple space. Because it conforms to the universal substrate, `dao.space.query`
   can match over it, and strangers can query it associatively.
@@ -119,7 +124,8 @@ The datom shape is the **price of admission** to the tuple space, freely chosen:
 
 Pattern matching and Datalog are a **library** (`dao.space.query`) that any interpreter
 embeds and runs against a `dao.jing`. It is pure: pull datoms from storage, build an
-in-memory index, answer. It owns no durable state.
+in-memory index, answer. Both `match` and `q` match **n-tuples** of any arity, not only the
+canonical 5-tuple datom (see [Arity: n-tuples](#arity-n-tuples)). It owns no durable state.
 
 ```clojure
 (require '[dao.space.query :as query])
@@ -131,7 +137,7 @@ in-memory index, answer. It owns no durable state.
   store)
 ;; => #{[id task] ...}
 
-;; match — a positional datom template (Linda-style), lighter than q
+;; match — a positional tuple template (Linda-style, any arity), lighter than q
 (query/match store [_ :work/status :todo])   ; => matching datoms
 
 ;; as-of — a read bound: index storage only up to `point`
@@ -157,7 +163,7 @@ never on a stream-local id.
   (:require [dao.jing :as store]))   ; the store handle namespace
 
 (defn- fold [store as-of]
-  (index (read-datoms store {:as-of as-of})))   ; build EAVT/AEVT/AVET
+  (index (read-datoms store {:as-of as-of})))   ; build the index (arity-general; EAVT/AEVT/AVET = 5-tuple case)
 
 (defn q     [query-form store & {:keys [as-of]}] (run-datalog query-form (fold store as-of)))
 (defn match [store pattern    & {:keys [as-of]}] (scan-pattern  pattern    (fold store as-of)))
@@ -166,6 +172,78 @@ never on a stream-local id.
 How the index is maintained (rebuild-per-query, incremental, or owner-built/peers-merge) is a
 storage-layout concern realized on `tonsky/persistent-sorted-set`; see
 [`dao.jing.md`](dao.jing.md), *Index Realization*. All variants answer identically.
+
+### Arity: n-tuples
+
+`dao.jing` is dumb storage: it holds whatever tuples a writer deposits, of any dimension. The
+*canonical, coordinating* shape is the **5-tuple** `(e a v t m)` — the *Convention of Datoms* makes
+it the price of admission to the shared medium — but a stream's tuples may be any fixed arity, and
+streams folded into one query may differ: one stream all 3-tuples, another all 4-tuples, another
+canonical 5-tuples. `match` and `q` are **not** arity-5 engines: they match **n-tuples** of any
+arity, and join *across* arities, so one query can span tuples of different sizes in different
+streams.
+
+This follows the project's own definition of a datom as an N-dimensional tuple; the 5-tuple is
+merely its canonical persistent projection (see `CLAUDE.md`, *DATOMS*: "Datoms are N-dimensional
+tuples … Canonical format for persistent facts in dao.space … is the 5-tuple: `(e a v t m)`"). The
+query surface is arity-general and treats the 5-tuple as one arity among many under a single
+positional matching discipline.
+
+**Matching is positional, not arity-fixed.** A pattern is a positional vector `[p₀ … pₖ]` whose
+elements are literals, logic variables, or wildcards (`_` / nil). A tuple `t` of arity `n`
+satisfies the pattern iff, at every position the tuple *has*, the pattern's element is a wildcard
+or a variable or equals `t[i]`; pattern positions beyond the tuple's arity are wildcards. A
+pattern therefore constrains only the leading positions a tuple possesses and is silent on the
+rest, which is precisely what lets one pattern span several arities:
+
+```clojure
+;; the pattern [?s :work/task ?t] reads positions 0,1,2 and ignores whatever a tuple
+;; carries beyond them, so it matches triples, quads, and 5-tuples alike.
+(query/q '[:find ?s ?t :where [?s :work/task ?t]]
+         [[1 :work/task "ship it"]                ; arity 3
+          [2 :work/task "ship it" 5]              ; arity 4
+          [3 :work/task "ship it" 5 1]])          ; arity 5  (canonical datom)
+;; => #{[1 "ship it"] [2 "ship it"] [3 "ship it"]}   ; one pattern, three arities
+```
+
+**Unification across clauses is by variable name, not by position.** Within one clause a variable
+is positional — it names a specific slot of that clause's tuples — but across clauses a variable
+unifies by *name*, regardless of which slot it occupies in each. The same variable may therefore
+sit at different positions in clauses over differently-shaped tuples and still join. This is what
+lets a query reach across streams of different arity: `?p` is slot 2 of the 3-tuples in one stream
+and slot 1 of the 4-tuples in another, and the two unify:
+
+```clojure
+;; stream A — 3-tuples            stream B — 4-tuples
+;; [:sonny :likes :pizza]         [:dominos :pizza 10 3]
+;; [:sonny :likes :sushi]         [:dominos :sushi 10 3]
+(query/q '[:find ?p
+           :where [:sonny  :likes ?p]      ; matches stream A, ?p at slot 2
+                  [:dominos ?p 10 3]]      ; matches stream B, ?p at slot 1
+         [stream-a stream-b])
+;; => #{[:pizza] [:sushi]}   ; ?p joined by name across the two shapes
+```
+
+A literal slot that falls beyond a tuple's arity does not match that tuple (a four-place pattern
+`[?e ?a ?v ?x]` does not match a 3-tuple); a wildcard beyond the arity always matches.
+
+**Indexing must cope with mixed arity.** Whatever index the engine builds, it must (a) order
+tuples of differing arity into one total order, (b) compare every position so distinct tuples that
+share leading slots are not collapsed, and (c) admit positional seeks by a clause's bound leading
+slots. The conventional covered indexes EAVT / AEVT / AVET are the arity-5 specialization (where
+slots 0 / 1 / 2 carry the fixed `e` / `a` / `v` meaning); for other arities there is no fixed
+positional meaning and the index falls back to **tuple order** — a heterogeneous-safe lexicographic
+comparison over the whole tuple, with wildcard seeks done positionally. This states a requirement
+on the engine, not any particular implementation.
+
+**Where n-tuples come from.** Tuples of any arity reach the query layer through the two channels
+already specified: **source polymorphism** (a raw vector of n-tuples, or entity maps, indexed
+directly — below) and **materialized views** an interpreter declares over canonical datoms (*A
+Family of Interpreters*). A caller querying only canonical 5-tuples sees only arity 5; a caller
+feeding triples, 4-tuples, or any other shape gets the same matching discipline at that arity. As
+with source polymorphism, this does not change what the tuple space *is*: coordination between
+strangers still runs through the shared canonical datom log — n-tuples are how the matching
+surface reads tuples, not a second medium.
 
 ### Source Polymorphism
 
@@ -180,10 +258,11 @@ library must accept, interchangeably:
   establishes that folding N stores and merging is the same index as one store holding
   everything, so `fold` over a collection is `merge` over the per-store folds, not a
   different code path.
-- **A raw Clojure vector of datoms** — `[[e a v t m] ...]`. This skips the byte-parsing step
-  entirely (`read-datoms` exists only to turn `dao.jing` bytes into this shape); a caller who
-  already has datoms in hand — a REPL scratch value, a test fixture, an in-memory scratchpad
-  never destined for storage — indexes them directly.
+- **A raw Clojure vector of tuples** — `[[e a v t m] ...]`, of any arity (see
+  [Arity: n-tuples](#arity-n-tuples)). This skips the byte-parsing step entirely (`read-datoms`
+  exists only to turn `dao.jing` bytes into this shape); a caller who already has tuples in hand
+  — a REPL scratch value, a test fixture, an in-memory scratchpad never destined for storage —
+  indexes them directly. Canonical 5-tuple datoms are simply the arity-5 case.
 - **A raw Clojure vector of entity maps** — `[{:work/status :todo, :work/task "x"} ...]`.
   Normalized to datoms first: a map without `:db/id` gets a fresh tempid (mirroring
   `dao.db.in_memory`'s existing map-form-entity convention), then each `k v` pair becomes an
@@ -207,7 +286,7 @@ is by definition not shared. Source polymorphism is an ergonomic property of the
     (satisfies? store/IKVStore source) (read-datoms source {:as-of as-of})
     (and (coll? source) (every? #(satisfies? store/IKVStore %) source))
     (mapcat #(read-datoms % {:as-of as-of}) source)
-    (and (coll? source) (every? vector? source)) source          ; already datoms
+    (and (coll? source) (every? vector? source)) source          ; already tuples (any arity)
     (and (coll? source) (every? map? source)) (entity-maps->datoms source)
     :else (throw (ex-info "unrecognized query source" {:source source}))))
 
