@@ -167,6 +167,53 @@ How the index is maintained (rebuild-per-query, incremental, or owner-built/peer
 storage-layout concern realized on `tonsky/persistent-sorted-set`; see
 [`dao.jing.md`](dao.jing.md), *Index Realization*. All variants answer identically.
 
+### Source Polymorphism
+
+`q` and `match`'s second argument is a **source**, not narrowly a `dao.jing` handle. The
+library must accept, interchangeably:
+
+- **A single `dao.jing` handle** — the case above; `fold` pulls B-Tree segments through
+  `read-datoms` and indexes them.
+- **A collection of `dao.jing` handles** — a *federated* query over several stores at once,
+  e.g. a local `KVFile` plus a peer's `KVDht` node. This is not a new mechanism: ADR 0001's
+  monoid-homomorphism proof (`index(S₁ ⊎ … ⊎ Sₙ) = merge(index(S₁), …, index(Sₙ))`) already
+  establishes that folding N stores and merging is the same index as one store holding
+  everything, so `fold` over a collection is `merge` over the per-store folds, not a
+  different code path.
+- **A raw Clojure vector of datoms** — `[[e a v t m] ...]`. This skips the byte-parsing step
+  entirely (`read-datoms` exists only to turn `dao.jing` bytes into this shape); a caller who
+  already has datoms in hand — a REPL scratch value, a test fixture, an in-memory scratchpad
+  never destined for storage — indexes them directly.
+- **A raw Clojure vector of entity maps** — `[{:work/status :todo, :work/task "x"} ...]`.
+  Normalized to datoms first: a map without `:db/id` gets a fresh tempid (mirroring
+  `dao.db.in_memory`'s existing map-form-entity convention), then each `k v` pair becomes an
+  `[e k v]` datom (`t`/`m` defaulted, same as `dao.datom/default-op`).
+
+A mix is legal too — a collection argument may hold `dao.jing` handles and raw datom/entity
+vectors side by side; each element is folded by whichever rule matches its shape and the
+results are merged. This makes the library useful standalone, the same way Datomic's `d/q`
+takes db values and in-memory rel/collection inputs interchangeably — a caller should never
+need a throwaway `dao.jing/create-kv-mem` just to query a handful of test datoms. It does
+not change what the tuple space *is*: coordination between agents still runs through shared
+`dao.jing` storage (see *What Makes It a Tuple Space*, above), because a raw in-memory vector
+is by definition not shared. Source polymorphism is an ergonomic property of the query
+*function*, not a second medium.
+
+```clojure
+;; source dispatch: each shape folds to the same datom shape before indexing
+(defn- source->datoms
+  [source as-of]
+  (cond
+    (satisfies? store/IKVStore source) (read-datoms source {:as-of as-of})
+    (and (coll? source) (every? #(satisfies? store/IKVStore %) source))
+    (mapcat #(read-datoms % {:as-of as-of}) source)
+    (and (coll? source) (every? vector? source)) source          ; already datoms
+    (and (coll? source) (every? map? source)) (entity-maps->datoms source)
+    :else (throw (ex-info "unrecognized query source" {:source source}))))
+
+(defn- fold [source as-of] (index (source->datoms source as-of)))
+```
+
 ### Global match and scoping
 
 The library reads `dao.jing`, and `dao.jing` is the *global* repository, so any interpreter
