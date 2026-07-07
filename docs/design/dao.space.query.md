@@ -4,6 +4,28 @@ Status: discussion record (2026-07-04). Decisions are tentative; open items mark
 Origin: follow-on from the n-tuple query work (`docs/design/dao.space.md`, *Arity: n-tuples*) and
 `docs/glm-review.md`.
 
+## Architecture
+
+The query library reads `dao.jing` as an embeddable Peer, pulling byte segments up from the storage boundary and running matching/Datalog above it:
+
+```
+   dao.space.query/q   …/match          ← the TUPLE SPACE reads (this doc)
+        │  lazily pulls B-Tree segments from the
+        │  IKVStore, merges them, and runs Datalog
+        ▼
+╔═══════════════════ dao.jing ═══════════════════╗   ← STORAGE boundary (dao.jing, separate doc)
+║             IKVStore (put! / get / cas!)        ║
+║                                                 ║
+║   [Mutable Stream Roots]   [Immutable Chunks]   ║
+╚════════╪══════════════════════════════╪═════════╝
+         │ byte maps                    │ byte maps
+┌────────▼──────────────────────────────▼─────────┐
+│              KV Backends (Mem, File)            │
+└─────────────────────────────────────────────────┘
+
+   each writer = its own Transactor (decentralized write boundary, via dao.stream)
+```
+
 ## The question
 
 Can `match`/`q` query across streams whose tuples have **different fixed arities** — one stream
