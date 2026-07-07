@@ -4,11 +4,10 @@
   is an in-memory IDhtNet fake (a full mesh of KVMem-backed peers) so the
   semantics stay cross-platform; the real UDP transport is exercised in
   dao.jing.dht.node-test."
-  (:require
-    [clojure.test :refer [deftest is testing]]
-    [dao.jing :as kv]
-    [dao.jing.dht :as dht]
-    [dao.jing.dht.kad :as kad]))
+  (:require [clojure.test :refer [deftest is testing]]
+            [dao.jing :as jing]
+            [dao.jing.dht :as dht]
+            [dao.jing.dht.kad :as kad]))
 
 
 ;; ---------------------------------------------------------------------------
@@ -48,24 +47,24 @@
          vec))
 
 
-  (store-segment! [_ to k v-map] (kv/put! (local-of registry to) k v-map))
+  (store-segment! [_ to k v-map] (jing/put! (local-of registry to) k v-map))
 
 
   (fetch-segment
     [_ to k]
-    (let [v (kv/get (local-of registry to) k ::none)]
+    (let [v (jing/get (local-of registry to) k ::none)]
       (when (not= ::none v) v)))
 
 
   (root-get
     [_ to k]
-    (let [v (kv/get (local-of registry to) k ::none)]
+    (let [v (jing/get (local-of registry to) k ::none)]
       {:value (when (not= ::none v) v)}))
 
 
   (root-cas!
     [_ to k old-rev v-map]
-    (kv/cas! (local-of registry to) k old-rev v-map))
+    (jing/cas! (local-of registry to) k old-rev v-map))
 
 
   (close-net! [_] nil))
@@ -80,7 +79,7 @@
      :stores (mapv
                (fn [i]
                  (let [peer {:id (dht/node-id "fake" i), :host "fake", :port i}
-                       local (kv/create-kv-mem)]
+                       local (jing/create-kv-mem)]
                    (swap! registry assoc (:id peer) {:peer peer, :local local})
                    (dht/create-kv-dht {:net (->FakeNet peer registry),
                                        :local local})))
@@ -97,26 +96,26 @@
       (is (thrown? #?(:clj Exception
                       :cljs js/Error
                       :cljd Object)
-            (kv/get a :plain nil))
+            (jing/get a :plain nil))
           "un-namespaced keys are rejected")
       (is (thrown? #?(:clj Exception
                       :cljs js/Error
                       :cljd Object)
-            (kv/put! a :plain {:x 1})))
+            (jing/put! a :plain {:x 1})))
       (is (thrown? #?(:clj Exception
                       :cljs js/Error
                       :cljd Object)
-            (kv/put! a :root/r {:x 1}))
+            (jing/put! a :root/r {:x 1}))
           "roots are cas!-only")
       (is (thrown? #?(:clj Exception
                       :cljs js/Error
                       :cljd Object)
-            (kv/cas! a (dht/segment-key {:x 1}) 0 {:x 1}))
+            (jing/cas! a (dht/segment-key {:x 1}) 0 {:x 1}))
           "segments are immutable")
       (is (thrown? #?(:clj Exception
                       :cljs js/Error
                       :cljd Object)
-            (kv/put! a :segment/not-the-hash {:x 1}))
+            (jing/put! a :segment/not-the-hash {:x 1}))
           "a segment key must be the content hash of its value"))))
 
 
@@ -138,14 +137,14 @@
     (let [{[a b c] :stores} (grid 3)
           v {:bytes [1 2 3]}
           k (dht/segment-key v)]
-      (is (true? (kv/put! a k v)))
-      (is (= {:bytes [1 2 3], :rev 0} (kv/get b k nil)))
-      (is (= {:bytes [1 2 3], :rev 0} (kv/get c k nil))))))
+      (is (true? (jing/put! a k v)))
+      (is (= {:bytes [1 2 3], :rev 0} (jing/get b k nil)))
+      (is (= {:bytes [1 2 3], :rev 0} (jing/get c k nil))))))
 
 
 (deftest get-absent-returns-not-found
   (let [{[a] :stores} (grid 2)]
-    (is (= :none (kv/get a (dht/segment-key {:ghost 1}) :none)))))
+    (is (= :none (jing/get a (dht/segment-key {:ghost 1}) :none)))))
 
 
 (deftest put-is-idempotent
@@ -153,9 +152,9 @@
     (let [{[a] :stores} (grid 2)
           v {:bytes [4]}
           k (dht/segment-key v)]
-      (is (true? (kv/put! a k v)))
-      (is (true? (kv/put! a k v)))
-      (is (= {:bytes [4], :rev 0} (kv/get a k nil))))))
+      (is (true? (jing/put! a k v)))
+      (is (true? (jing/put! a k v)))
+      (is (= {:bytes [4], :rev 0} (jing/get a k nil))))))
 
 
 (deftest delete-is-advisory-unpin
@@ -163,9 +162,9 @@
     (let [{[a] :stores} (grid 3)
           v {:bytes [9]}
           k (dht/segment-key v)]
-      (kv/put! a k v)
-      (is (true? (kv/delete! a k)))
-      (is (= {:bytes [9], :rev 0} (kv/get a k nil))
+      (jing/put! a k v)
+      (is (true? (jing/delete! a k)))
+      (is (= {:bytes [9], :rev 0} (jing/get a k nil))
           "the segment survives on other peers"))))
 
 
@@ -174,11 +173,11 @@
     (let [{[a b] :stores} (grid 3)
           v {:bytes [7]}
           k (dht/segment-key v)]
-      (kv/put! a k v)
-      (kv/delete! b k)
-      (is (= :miss (kv/get (:local b) k :miss)))
-      (is (= {:bytes [7], :rev 0} (kv/get b k nil)))
-      (is (= {:bytes [7], :rev 0} (kv/get (:local b) k :miss))
+      (jing/put! a k v)
+      (jing/delete! b k)
+      (is (= :miss (jing/get (:local b) k :miss)))
+      (is (= {:bytes [7], :rev 0} (jing/get b k nil)))
+      (is (= {:bytes [7], :rev 0} (jing/get (:local b) k :miss))
           "the fetch populated b's local cache"))))
 
 
@@ -188,8 +187,8 @@
           v {:bytes [1]}
           k (dht/segment-key v)]
       ;; poison b's local copy directly, bypassing the contract checks
-      (kv/put! (:local b) k {:bytes [:evil]})
-      (is (= :none (kv/get a k :none))
+      (jing/put! (:local b) k {:bytes [:evil]})
+      (is (= :none (jing/get a k :none))
           "the forged segment does not verify against the key"))))
 
 
@@ -201,16 +200,16 @@
   (testing "cas! routes to the root's owner: revs advance globally"
     (let [{[a b] :stores} (grid 3)
           k :root/pointer]
-      (is (true? (kv/cas! a k 0 {:p "1"})))
-      (is (= {:p "1", :rev 1} (kv/get b k nil))
+      (is (true? (jing/cas! a k 0 {:p "1"})))
+      (is (= {:p "1", :rev 1} (jing/get b k nil))
           "roots read fresh from the owner, never from a cache")
-      (is (false? (kv/cas! b k 0 {:p "2"})) "a stale rev fails")
-      (is (true? (kv/cas! b k 1 {:p "2"})))
-      (is (= {:p "2", :rev 2} (kv/get a k nil))))))
+      (is (false? (jing/cas! b k 0 {:p "2"})) "a stale rev fails")
+      (is (true? (jing/cas! b k 1 {:p "2"})))
+      (is (= {:p "2", :rev 2} (jing/get a k nil))))))
 
 
 (deftest root-get-absent-returns-not-found
-  (let [{[a] :stores} (grid 2)] (is (= :none (kv/get a :root/ghost :none)))))
+  (let [{[a] :stores} (grid 2)] (is (= :none (jing/get a :root/ghost :none)))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -222,14 +221,14 @@
     (let [{[a] :stores} (grid 1)
           v {:bytes [5]}
           k (dht/segment-key v)]
-      (is (true? (kv/put! a k v)))
-      (is (= {:bytes [5], :rev 0} (kv/get a k nil)))
-      (is (true? (kv/cas! a :root/r 0 {:p "x"})))
-      (is (= {:p "x", :rev 1} (kv/get a :root/r nil))))))
+      (is (true? (jing/put! a k v)))
+      (is (= {:bytes [5], :rev 0} (jing/get a k nil)))
+      (is (true? (jing/cas! a :root/r 0 {:p "x"})))
+      (is (= {:p "x", :rev 1} (jing/get a :root/r nil))))))
 
 
 (deftest close-returns-nil
-  (let [{[a] :stores} (grid 1)] (is (nil? (kv/close! a)))))
+  (let [{[a] :stores} (grid 1)] (is (nil? (jing/close! a)))))
 
 
 (deftest lookup-deduplicates-candidates-by-id

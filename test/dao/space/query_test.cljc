@@ -6,7 +6,7 @@
   justified by ADR 0001's monoid homomorphism), a raw vector of datoms,
   and a raw vector of entity maps — plus mixes of them."
   (:require [clojure.test :refer [deftest is testing]]
-            [dao.jing :as kv]
+            [dao.jing :as jing]
             [dao.jing.file :as file]
             [dao.space.query :as query]))
 
@@ -85,12 +85,12 @@
   convention, as a stream owner would (dao.space.query itself never
   writes; see its ns docstring)."
   [store datoms]
-  (kv/cas! store query/default-datoms-key 0 {:datoms datoms}))
+  (jing/cas! store query/default-datoms-key 0 {:datoms datoms}))
 
 
 (deftest q-over-a-single-dao-jing-handle
   (testing "a dao.jing handle is read through the :root/datoms convention"
-    (let [store (kv/create-kv-mem)]
+    (let [store (jing/create-kv-mem)]
       (seed! store sample-datoms)
       (is (= #{[1 "write tests"] [2 "ship it"]}
              (query/q '[:find ?id ?task :where [?id :work/task ?task]]
@@ -98,14 +98,14 @@
 
 
 (deftest match-over-a-single-dao-jing-handle
-  (let [store (kv/create-kv-mem)]
+  (let [store (jing/create-kv-mem)]
     (seed! store sample-datoms)
     (is (= 1 (count (query/match store [1 :work/status '_]))))))
 
 
 (deftest empty-dao-jing-handle-yields-no-datoms
   (testing "an unseeded store contributes nothing, not an error"
-    (let [store (kv/create-kv-mem)]
+    (let [store (jing/create-kv-mem)]
       (is (= [] (query/match store ['_ '_ '_])))
       (is (= #{} (query/q '[:find ?e :where [?e _ _]] store))))))
 
@@ -118,8 +118,8 @@
   (testing
     "a collection of stores folds and merges, per ADR 0001's monoid
            homomorphism: index(S1 ⊎ S2) = merge(index(S1), index(S2))"
-    (let [a (kv/create-kv-mem)
-          b (kv/create-kv-mem)]
+    (let [a (jing/create-kv-mem)
+          b (jing/create-kv-mem)]
       (seed! a [[1 :work/status :todo 0 1] [1 :work/task "a" 0 1]])
       (seed! b [[2 :work/status :done 0 1] [2 :work/task "b" 0 1]])
       (is (= #{[1 "a"] [2 "b"]}
@@ -131,8 +131,8 @@
 
 
 (deftest match-over-multiple-dao-jing-handles
-  (let [a (kv/create-kv-mem)
-        b (kv/create-kv-mem)]
+  (let [a (jing/create-kv-mem)
+        b (jing/create-kv-mem)]
     (seed! a [[1 :work/status :todo 0 1]])
     (seed! b [[2 :work/status :todo 0 1]])
     (is (= #{[1 :work/status :todo 0 1] [2 :work/status :todo 0 1]}
@@ -145,7 +145,7 @@
 
 (deftest mixed-source-collection
   (testing "a dao.jing handle and a raw datom vector fold together"
-    (let [store (kv/create-kv-mem)]
+    (let [store (jing/create-kv-mem)]
       (seed! store [[1 :work/status :todo 0 1]])
       (is (= #{[1] [2]}
              (query/q '[:find ?id :where [?id :work/status :todo]]
@@ -198,7 +198,7 @@
            (is (= #{[1 "write tests"] [2 "ship it"]}
                   (query/q '[:find ?id ?task :where [?id :work/task ?task]]
                            store)))
-           (finally (kv/close! store)
+           (finally (jing/close! store)
                     #?(:clj (.delete (java.io.File. path))
                        :cljs (.unlinkSync (js/require "fs") path)
                        :cljd nil))))))

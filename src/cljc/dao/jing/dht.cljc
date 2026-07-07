@@ -24,10 +24,9 @@
 
   Transport is behind the IDhtNet protocol below; dao.jing.dht.node is the
   UDP Kademlia implementation."
-  (:require
-    [dao.jing :as kv]
-    [dao.jing.dht.kad :as kad]
-    [datomworld :as dw]))
+  (:require [dao.jing :as jing]
+            [dao.jing.dht.kad :as kad]
+            [datomworld :as dw]))
 
 
 ;; =============================================================================
@@ -55,8 +54,8 @@
   (cond (map? v) (->> v
                       (map (fn [[k x]] [(canonical k) (canonical x)]))
                       ;; a pr-str-keyed sorted map prints its keys in a
-                      ;; fixed
-                      ;; order on every platform (array-map is not in
+                      ;; fixed order on every platform (array-map is not
+                      ;; in
                       ;; ClojureDart)
                       (into (sorted-map-by #(compare (pr-str %1) (pr-str %2)))))
         (set? v) (list 'set (sort-by pr-str (map canonical v)))
@@ -198,7 +197,7 @@
 (defrecord KVDht
   [net local]
 
-  kv/IKVStore
+  jing/IKVStore
 
   (put!
     [_ k v-map]
@@ -210,7 +209,7 @@
       (when (not= k expected)
         (throw (ex-info "a segment key must be the content hash of its value"
                         {:k k, :expected expected}))))
-    (kv/put! local k v-map)
+    (jing/put! local k v-map)
     (let [self-id (:id (self-peer net))
           peers (remove #(= self-id (:id %)) (lookup net (key->target k)))]
       ;; replication is best-effort and, on the JVM, concurrent: the call
@@ -234,7 +233,7 @@
                       {:k k})))
     (let [own (owner net k)]
       (if (owner-here? net own)
-        (kv/cas! local k old-rev v-map)
+        (jing/cas! local k old-rev v-map)
         (let [res (root-cas! net own k old-rev v-map)]
           (when (nil? res)
             ;; unreachable is not the same fact as a lost CAS: returning
@@ -247,7 +246,7 @@
   (get
     [_ k not-found]
     (case (key-class k)
-      :segment (let [v (kv/get local k ::none)]
+      :segment (let [v (jing/get local k ::none)]
                  (if (not= ::none v)
                    v
                    (let [self-id (:id (self-peer net))
@@ -267,7 +266,7 @@
                      (if (some? fetched)
                        (do
                          ;; immutable, so cache forever
-                         (kv/put! local k fetched)
+                         (jing/put! local k fetched)
                          ;; normalize the stamp: the remote :rev is that
                          ;; store's artifact, not content, and local put!
                          ;; stamped 0
@@ -277,7 +276,7 @@
       ;; never cached: a root read must be fresh or fail loudly
       (let [own (owner net k)]
         (if (owner-here? net own)
-          (kv/get local k not-found)
+          (jing/get local k not-found)
           (if-let [res (root-get net own k)]
             (if (some? (:value res)) (:value res) not-found)
             (throw (ex-info "root owner unreachable"
@@ -289,10 +288,10 @@
     ;; advisory unpin (design doc, delete! option 1): drop this node's
     ;; copy only; replicas elsewhere are outside our control
     (key-class k)
-    (kv/delete! local k))
+    (jing/delete! local k))
 
 
-  (close! [_] (close-net! net) (kv/close! local) nil))
+  (close! [_] (close-net! net) (jing/close! local) nil))
 
 
 (defn create-kv-dht

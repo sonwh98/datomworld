@@ -1,13 +1,12 @@
 (ns dao.jing.file
   "A single-file, persistent backend for IKVStore using the Bitcask (append-only log) architecture.
    Provides true block storage over a local file."
-  (:require
-    #?@(:cljd [["dart:convert" :as convert] ["dart:io" :as dart-io]
-               ["dart:typed_data" :as typed]])
-    [clojure.edn :as edn]
-    [dao.jing :as kv]
-    [dao.stream :as ds]
-    [dao.stream.log]))
+  (:require #?@(:cljd [["dart:convert" :as convert] ["dart:io" :as dart-io]
+                       ["dart:typed_data" :as typed]])
+            [clojure.edn :as edn]
+            [dao.jing :as jing]
+            [dao.stream :as ds]
+            [dao.stream.log]))
 
 
 (defn- ->bytes
@@ -162,7 +161,7 @@
 (defrecord KVFile
   [path state-atom]
 
-  kv/IKVStore
+  jing/IKVStore
 
   (put!
     [_ k v-map]
@@ -223,7 +222,7 @@
                 (or (= ::closed res) (ds/closed? stream))
                 (if (:closed @state-atom)
                   not-found
-                  (do #?(:clj (Thread/yield)) (kv/get this k not-found)))
+                  (do #?(:clj (Thread/yield)) (jing/get this k not-found)))
                 :else not-found)))))
 
 

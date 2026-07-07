@@ -30,7 +30,7 @@
   historical datom log exactly as given, retractions and all — a caller
   wanting current state must filter by `dao.datom/asserted?` itself."
   (:require [dao.datom :as datom]
-            [dao.jing :as kv]
+            [dao.jing :as jing]
             #?(:cljs [me.tonsky.persistent-sorted-set :as psset])))
 
 
@@ -70,7 +70,7 @@
   "Read the datoms held at a dao.jing handle's datoms-key (default
   `default-datoms-key`), or [] if never seeded."
   ([store] (read-datoms store default-datoms-key))
-  ([store datoms-key] (:datoms (kv/get store datoms-key {:datoms []}))))
+  ([store datoms-key] (:datoms (jing/get store datoms-key {:datoms []}))))
 
 
 (defn- entity-map->datoms
@@ -94,7 +94,7 @@
 
 (defn- dao-jing-handle?
   [x]
-  (satisfies? kv/IKVStore x))
+  (satisfies? jing/IKVStore x))
 
 
 (declare source->datoms)

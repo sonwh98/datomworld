@@ -20,7 +20,7 @@
   - Peers are untrusted: incoming :store requests re-verify the content
     hash before writing. No address validation or rate limiting yet
     (Operational reality, UDP amplification)."
-  (:require [dao.jing :as kv]
+  (:require [dao.jing :as jing]
             [dao.jing.dht :as dht]
             [dao.jing.dht.kad :as kad]
             [dao.stream.transit :as transit])
@@ -93,13 +93,13 @@
             ;; over a cas!-managed key), bypassing the key-class discipline
             :store (let [{:keys [k v]} msg]
                      (if (= k (dht/segment-key v))
-                       {:ok (boolean (kv/put! local k v))}
+                       {:ok (boolean (jing/put! local k v))}
                        {:ok false, :error :bad-hash}))
-            :fetch (let [v (kv/get local (:k msg) ::none)]
+            :fetch (let [v (jing/get local (:k msg) ::none)]
                      (if (= ::none v) {:found false} {:found true, :v v}))
-            :root-get (let [v (kv/get local (:k msg) ::none)]
+            :root-get (let [v (jing/get local (:k msg) ::none)]
                         (if (= ::none v) {:found false} {:found true, :v v}))
-            :root-cas {:ok (kv/cas! local (:k msg) (:old-rev msg) (:v msg))}
+            :root-cas {:ok (jing/cas! local (:k msg) (:old-rev msg) (:v msg))}
             {:error :unknown-op})))
 
 
@@ -280,7 +280,7 @@
      (let [host (or host "127.0.0.1")
            socket (DatagramSocket. (int (or port 0)))
            port (.getLocalPort socket)
-           local (or local (kv/create-kv-mem))
+           local (or local (jing/create-kv-mem))
            peer {:id (dht/node-id host port), :host host, :port port}
            table (atom {})
            pending (ConcurrentHashMap.)
@@ -310,6 +310,6 @@
      "Convenience: open a UDP node and wrap it as an IKVStore. The node and
      the store share `local`, so this peer serves the same bytes it reads."
      [opts]
-     (let [local (or (:local opts) (kv/create-kv-mem))
+     (let [local (or (:local opts) (jing/create-kv-mem))
            node (create-node (assoc opts :local local))]
        (dht/create-kv-dht {:net node, :local local}))))
