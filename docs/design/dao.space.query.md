@@ -130,10 +130,48 @@ way, the open question reduces to **which layer materializes views**:
 - *Storage-materialized* = the coordinate-aware KV serves them. Faster. Datomic's move: storage
   holds opaque index segments; the Peer interprets.
 
-The doc's deferred "Index Realization" (rebuild-per-query / incremental / owner-built-peers-merge)
+"Index Realization" below (rebuild-per-query / incremental / owner-built-peers-merge)
 *is* this decision. An opt-in capability protocol is the negotiation: backends that can materialize
 views at the storage layer offer the capability; otherwise the interpreter materializes them
 itself. Same views, different layer.
+
+## Index Realization
+
+`dao.jing` exposes only the substrate an index is built from — immutable, content-addressed
+byte segments plus one mutable root pointer (see [`dao.jing.md`](dao.jing.md), *The Index
+Substrate*) — and knows nothing of indexes. The *index* itself, a covered B-Tree
+(EAVT/AEVT/AVET/VAET) a query can traverse and answer from, is the interpretation this
+library projects onto those bytes. How a reader builds and maintains it is a pure performance
+choice made *above* the storage boundary; all strategies answer identically, the index being
+the same set of datoms (see ADR 0001's monoid homomorphism):
+
+- **Rebuild per query** — each read folds the store's datoms into a fresh index and discards
+  it. Simple; O(total datoms) per read.
+- **Incremental index** — a long-lived reader keeps a cursor per member stream and folds
+  only new frames as they arrive (Datomic-peer style). More machinery; amortized reads.
+  Still no transactor and no global clock — each stream advances its own cursor.
+- **Owner-built, peers merge (Target Architecture)** — each stream's owner indexes its own
+  stream and persists the segments; readers **merge** per-stream indexes instead of
+  rebuilding. Index-once, reuse-by-many, and available when the author is offline — the
+  decentralized analog of Datomic's transactor-built index (see ADR 0001, ruling 5 and Open
+  Question 1).
+
+The index-once / lazy-pull behavior in the Target Architecture is realized using
+**tonsky/persistent-sorted-set**, which provides a B-Tree implementation that natively
+supports lazy loading and segment chunking:
+
+1. The index builder (a reader concern, in this library) writes segment chunks to `dao.jing`
+   as opaque bytes with `put!`.
+2. The query lazily pulls those segments from the store *only* when traversed, interpreting
+   the bytes back into B-Tree nodes.
+
+**Platform degradation (`cljd`).** This library uses `tonsky/persistent-sorted-set` for its
+sorted-set (and, in the Target Architecture, for lazy B-Tree chunk pulling). That library
+lacks a Dart (`cljd`) implementation and relies heavily on JVM/JS macros, so in `cljd`
+environments it degrades to the built-in `clojure.core/sorted-set-by` (a standard red-black
+tree). Because the built-in set cannot lazily load chunks over the network, Dart peers must
+load the entire index into memory. The fix is either a pure-Clojure B-Tree port or a custom
+Dart lazy-loading implementation.
 
 ## Freshness
 
@@ -168,6 +206,6 @@ coordinating substrate — preserving the doc's "views are interpreter-local / n
 
 - Whether `dao.stream` and `dao.jing` get formally unified or the coordinate stays a convention
   layered over the dumb KV (the layering lean is the latter, entangled with "expose how").
-- Index maintenance ownership (writer-built / incremental / rebuild-per-query) — the doc's
-  "Index Realization," deferred.
+- Index maintenance ownership (writer-built / incremental / rebuild-per-query) — see
+  *Index Realization*, above.
 - Whether the coordinate carries arity declarations (schema) or infers arity from contents.

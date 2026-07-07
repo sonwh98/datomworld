@@ -18,90 +18,54 @@ designed to hold immutable, content-addressed segments plus mutable stream-root 
 is **pure syntax** — it holds *form*, never *meaning*. That design intent is a discipline
 callers observe, not a guarantee the protocol enforces: the `IKVStore` contract itself (`put!` /
 `cas!` / `get` over caller-supplied keys) does not require keys to be content-derived or values
-to be immutable — a `put!` can overwrite any key with anything (see Index Realization, below,
-and `dao.jing.dht.md`, "Key classes"). What any byte *denotes* — "datom," "index," "view,"
-"query" — is **semantics an interpreter projects onto it**, never something storage knows.
-Concretely it is a dumb key-value store (the `IKVStore` protocol), the decentralized analog to
-Datomic's storage layer. It is therefore **not strict about what it holds**: it leaves all
-interpretation — indexing, materialization, matching — to the readers above it (`dao.space`),
+to be immutable — a `put!` can overwrite any key with anything (see The Segment and Root
+Keyspace, below, and `dao.jing.dht.md`, "Key classes"). What any byte *denotes* — "datom,"
+"view," "query" — is **semantics an interpreter projects onto it**, never something storage
+knows. Concretely it is a dumb key-value store (the `IKVStore` protocol), the decentralized
+analog to Datomic's storage layer. It is therefore **not strict about what it holds**: it
+leaves all interpretation — materialization, matching, querying — to the readers above it,
 and whatever structures those interpreters build are, to the store, just more bytes. Datom
 segments are what it is built to hold, though storage knows them only as bytes.
 
 A store is defined by **what it holds, not the pipe data arrived through.** `dao.jing` holds
 opaque bytes — read as datoms by the layers above, never known as datoms by storage; it is
 *not* "a set of streams." Datoms enter through `dao.stream` member logs (the write path,
-specified in [`dao.space.md`](dao.space.md)), exactly as a transaction log feeds Datomic's
-storage, but the streams are upstream of the store, not its identity.
+specified above this boundary), exactly as a transaction log feeds Datomic's storage, but the
+streams are upstream of the store, not its identity.
 
 The physical `IKVStore` is deliberately dumb. It does not know what a datom is, it does not
-index, it does not pattern-match, and it does not run Datalog. Those belong to the tuple
-space above it (`dao.space`, via the `dao.space.query` library). This is the Datomic
-discipline taken literally: **storage is a dumb KV blob store; all intelligence lives in the
-embeddable reader on top.** Keeping the boundary this thin is what lets storage scale and be
-swapped without touching query logic.
+pattern-match, and it does not run Datalog. Those belong to the embeddable reader above it.
+This is the Datomic discipline taken literally: **storage is a dumb KV blob store; all
+intelligence lives in the embeddable reader on top.** Keeping the boundary this thin is what
+lets storage scale and be swapped without touching query logic.
 
-## The Storage Interface (storage → reader)
+## The Storage Interface (writer ↔ storage ↔ reader)
 
-`dao.jing/IKVStore` exposes its stored byte blobs; it does not interpret them. This is
-the interface the query library consumes — **not** a query API.
+`dao.jing/IKVStore` is the single interface a writer publishes bytes through and a reader
+reads them back from; it does not interpret what passes through it. This is the storage API
+both sides share — **not** a query API.
 
 ```clojure
 ;; The dumb storage API (see src/cljc/dao/jing.cljc)
+(kv/put! store :segment-id v-map)      ; write a fresh immutable segment chunk
+(kv/cas! store :root old-rev v-map)    ; advance a mutable root reference
 (kv/get store :root nil)               ; read a mutable root reference
 (kv/get store :segment-id nil)         ; read an immutable segment chunk
 ```
 
-There is no `store/datoms` or `store/members` at this layer, because the storage layer does
-not know what a datom is. Parsing chunks into datom streams, matching, and querying live
-entirely in the tuple space's query library (`dao.space.query`, see `dao.space.md`). The
-write path — how those datoms enter via `dao.stream` member logs, and which streams currently
-feed the store — is likewise above this boundary; see `dao.space.md`.
+An agent accumulates datoms by appending to its own `dao.stream` log before anything reaches
+`dao.jing`; which streams currently count as members of the space is tracked there too.
+`dao.jing` never sees that log or its membership — only the eventual `put!`/`cas!` call that
+lands a byte blob at a key, as shown above.
 
-## Index Realization
+## The Segment and Root Keyspace
 
-`dao.jing` holds the index's **immutable byte segments** and a **mutable root reference** —
-nothing more. The *index* itself — a covered B-Tree (EAVT/AEVT/AVET/VAET) a reader can
-traverse and answer queries from — is the interpretation `dao.space.query` projects onto those
-bytes; storage never knows the segments form an index. (This is exactly how Datomic persists
-its covered indexes into dumb KVStore backends: opaque segment blobs plus a root pointer.) How
-a reader builds and maintains those segments is a pure performance choice it makes *above*
-storage. All strategies answer identically (the index is the same set of datoms — see ADR
-0001's monoid homomorphism):
-
-- **Rebuild per query** — each read folds the store's datoms into a fresh index and discards
-  it. Simple; O(total datoms) per read.
-- **Incremental index** — a long-lived reader keeps a cursor per member stream and folds
-  only new frames as they arrive (Datomic-peer style). More machinery; amortized reads.
-  Still no transactor and no global clock — each stream advances its own cursor.
-- **Owner-built, peers merge (Target Architecture)** — each stream's owner indexes its own
-  stream and persists the segments; readers **merge** per-stream indexes instead of
-  rebuilding. Index-once, reuse-by-many, and available when the author is offline — the
-  decentralized analog of Datomic's transactor-built index (see ADR 0001, ruling 5 and Open
-  Question 1).
-
-This index-once/lazy-pull behavior is realized using **tonsky/persistent-sorted-set**, which
-provides a B-Tree implementation that natively supports lazy loading and segment chunking.
-
-1. `dao.jing` provides a minimal `IKVStore` protocol (`put!` / `cas!` / `get` / `delete!` / `close!`), treating all data as uninterpreted byte blobs. See `docs/datomic.md` for the technical specification.
-2. The index builder (a reader concern, in `dao.space`) writes those segment chunks to
-   `dao.jing` as opaque bytes with `put!`.
-3. The `dao.space.query` library lazily pulls those segments from the store *only* when
-   traversed by a query, interpreting the bytes back into B-Tree nodes.
-
-The two write paths share one keyspace under a discipline the store does not enforce:
-immutable segments are written with `put!` under fresh, content-derived keys and are never
-rewritten; mutable references (the stream root pointer) are written with `cas!` under
-optimistic concurrency. Keep these keyspaces disjoint — `put!` re-stamps `:rev` to 0
-unconditionally, so a `put!` over a `cas!`-governed key resets its revision and breaks the
-optimistic-concurrency guard.
-
-**Implementation status.** Content-addressed identity (the gauge-invariant base `B` in
-`datom-spec.md`) is the intended basis for cross-writer unification but is only partially
-realized: `yin/content.cljc` hashes via `pr-str` rather than the canonical byte encoding the
-spec mandates, and the index still allocates integer entity ids, so stamped
-`[namespace offset]` references are not yet first-class join keys. Making the content hash
-load-bearing is a prerequisite for treating cross-stream identity as gauge-invariant rather
-than stamped.
+The two write paths shown above share one keyspace under a discipline the store does not
+enforce: immutable segments are written with `put!` under fresh, content-derived keys and are
+never rewritten; the mutable root reference is written with `cas!` under optimistic
+concurrency. Keep these keyspaces disjoint — `put!` re-stamps `:rev` to 0 unconditionally, so
+a `put!` over a `cas!`-governed key resets its revision and breaks the optimistic-concurrency
+guard.
 
 ## Structural Ignorance: Format Stability Without the Engine
 
@@ -139,57 +103,34 @@ new ones.
 
 What v1 implements at the storage boundary, and the contracts it pins down.
 
-- **Index: the rebuild-per-query baseline, not the Target Architecture yet.** v1
-  (`dao.space.query`) reads a handle's datoms wholesale from one mutable root
-  (`default-datoms-key`, `:root/datoms`, as `{:datoms [...]}`) and folds them into a fresh
-  in-memory index on every query, using `tonsky/persistent-sorted-set` as the sorted-set
-  implementation — not as a lazily-pulled B-Tree segment store. This is the "rebuild per
-  query" strategy named above ("kept only as the conceptual baseline"), shipped first for its
-  simplicity; it does **not** reuse `dao.db`'s in-memory sorted-set engine. The owner-built,
-  peers-merge Target Architecture (immutable B-Tree segments written via `put!`, lazily
-  pulled and merged) is designed but not yet implemented — see `dao.space.query`'s namespace
-  docstring, which names this gap explicitly.
-- **Member layout and discovery.** A stream owner acts as a Transactor: it accepts new datoms
-  and performs an atomic `cas!` on the stream's mutable root reference (`:root/datoms`) to
-  publish the updated `{:datoms [...]}` blob. Segmenting those datoms into immutable B-Tree
-  chunks written with `put!` is Target Architecture work, not yet shipped (above).
+- **Storage root for v1: one mutable key, no segments yet.** v1 stores a stream's full datom
+  vector under one mutable root key (`default-datoms-key`, `:root/datoms`, as
+  `{:datoms [...]}`), written and read as a single blob rather than segmented into immutable
+  B-Tree chunks. What a reader builds over that blob is outside this boundary.
+- **Member layout and discovery.** A stream owner performs an atomic `cas!` on the stream's
+  mutable root reference (`:root/datoms`) to publish the updated `{:datoms [...]}` blob.
+  Segmenting those datoms into immutable B-Tree chunks written with `put!` is not yet shipped.
 - **Querying (reader side).** A read resolves the stream's root reference from the `IKVStore`
-  with a single `get` and rebuilds the index from the full datom vector it contains.
-  Concurrent writes never disturb an in-flight read because the read targets an immutable
-  snapshot of that root's value at the time of the `get`. Lazily pulling only the traversed
-  B-Tree chunks is Target Architecture work, not yet shipped.
-- **Namespace stamping.** The reader stamps each datom's `e` with a per-member identifier so
-  stream-local ids stay distinct. v1 does **not** yet derive that namespace from the
-  canonical kickoff hash, because content addressing is not yet load-bearing (above).
+  with a single `get`, which targets an immutable snapshot of that root's value at the time
+  of the call — concurrent writes never disturb an in-flight read. What a reader does with
+  the resulting bytes is outside this boundary.
+- **Namespace stamping.** v1 does **not** yet derive the reader's per-member namespace from
+  the canonical kickoff hash, because content addressing is not yet load-bearing (below).
 - **Compaction / GC.** The `KVFile` backend implements Bitcask-style file compaction via the
   storage backend (e.g., via `dao.jing.file/compact-store!`). Overwritten stream roots and deleted tombstones create dead space 
-  in the append-only log; compaction sweeps the in-memory index, rewrites all live values to a 
+  in the append-only log; compaction sweeps the live keyset, rewrites all live values to a 
   new log, and atomically swaps the file beneath the `IKVStore` interface, reclaiming disk space.
 - **Encoding: `pr-str`, not canonical.** v1 persists and hashes datom frames via `pr-str`
   (current `yin/content.cljc`), not the canonical byte encoding `datom-spec.md` mandates.
   Consequence: cross-stream identity is stamped, not gauge-invariant — value-joins hold
   within a run, but the content hash is not yet a portable join key. Making the canonical
   encoding load-bearing is the first post-v1 step and does not change this document's API.
-- **Deferred (no v1 work):** cross-stream `as-of` (ADR 0001 Open Question 2), the incremental
-  index variant (kept only as a conceptual baseline, above), and the owner-built/peers-merge
-  Target Architecture itself — rebuild-per-query is what v1 ships (above), not what it defers.
-
-Access control (public vs controlled mode) is a property of how the tuple space reads the
-store, not of storage itself; see `dao.space.md`.
 
 ## Implementation Platform
 
-`dao.jing` should be implemented as cross-platform `.cljc` wherever possible. The core
-storage and indexing logic must operate identically across Clojure (`clj`), ClojureScript
-(`cljs`), and ClojureDart (`cljd`).
-
-**Platform Degradation Note (`cljd`):** the target architecture relies on
-`tonsky/persistent-sorted-set` for lazy B-Tree chunking. That library lacks a Dart (`cljd`)
-implementation and relies heavily on JVM/JS macros. In `cljd` environments, the indexing
-layer gracefully degrades to the built-in `clojure.core/sorted-set-by` (a standard red-black
-tree). Because the built-in set cannot lazily load chunks over the network, Dart peers must
-load the entire index into memory. Addressing this requires either a pure-Clojure B-Tree
-port or a custom Dart lazy-loading implementation in the future.
+`dao.jing` is implemented as cross-platform `.cljc` — its storage logic (the `IKVStore`
+contract and the in-memory, file, and DHT backends) operates identically across Clojure
+(`clj`), ClojureScript (`cljs`), and ClojureDart (`cljd`).
 
 ## The Block Storage Metaphor (Hardware Analogies)
 
@@ -209,19 +150,19 @@ boundary affords, not existing extension points:
   (a Bitcask fold that filters out dead records and replaces the log), perfectly mirroring
   an SSD's garbage collection. Implemented today.
 - **NVMe Parallel Queues (Zero-Contention Writes).** NVMe solved the SATA bottleneck by
-  giving every CPU core its own submission queue to the disk, avoiding locks. The tuple
-  space's `dao.stream` intake achieves the same thing in software: every agent writes to
-  its own single-writer log. Massive throughput is possible because contention is eliminated
-  at the storage boundary.
+  giving every CPU core its own submission queue to the disk, avoiding locks. `dao.jing` gets
+  the same zero-contention property for free: every writer's log lands at a distinct key, so
+  no two agents ever contend for the same storage location. The single-writer-log discipline
+  that guarantees this is enforced above this boundary, not by storage itself.
 - **Storage Tiering (L1/L2 Caches), hypothetical.** Hardware uses fast/expensive caches
   (L1/L2/NVMe) in front of slow/cheap storage (spinning disks). In `dao.jing`, this would be
-  a Decorator: a `CachingKVStore` wrapping a `NetworkKVStore` and a `MemKVStore` — the tuple
-  space calls `get`; the caching store checks memory, faults from the network on a miss, and
+  a Decorator: a `CachingKVStore` wrapping a `NetworkKVStore` and a `MemKVStore` — a caller
+  calls `get`; the caching store checks memory, faults from the network on a miss, and
   returns the chunk — leaving the interpreters above oblivious to the hierarchy. Neither
   store exists yet.
 - **RAID and Erasure Coding, hypothetical.** RAID mirrors or stripes blocks across physical
-  disks for redundancy. A `RaidKVStore` middleware could do this for bytes: when the tuple
-  space calls `put!`, the store mirrors the chunk to three underlying `IKVStore` instances
+  disks for redundancy. A `RaidKVStore` middleware could do this for bytes: when a caller
+  calls `put!`, the store mirrors the chunk to three underlying `IKVStore` instances
   (e.g., local disk + two remote buckets), and `get` fails over to a surviving copy if one
   is lost. Erasure coding refines this: instead of full copies, the store splits each chunk
   into `k` data fragments plus `m` parity fragments (Reed-Solomon), recovering the original
@@ -236,20 +177,18 @@ it is built from:
 
 - **Datomic** gives the storage discipline: a dumb KV store of immutable segments under a
   strict Transactor / Storage / Query separation, with content-addressed identity and the
-  Peer-as-library read model. `dao.jing` is the decentralized Storage; the Peer is the
-  `dao.space.query` library that reads it.
+  Peer-as-library read model. `dao.jing` is the decentralized Storage; the Peer is the reader
+  library above it.
 - **Plan 9** gives the *substrate*, one level down in `dao.stream`: the member logs the store
   is fed through are independent, location-transparent, append-only streams (see
   `dao.stream.md`, *Lineage: Plan 9*). The store inherits this only because its intake is
   `dao.stream`s.
 
-The tuple-space *behavior* — associative matching, generative communication — is **not** here;
-it belongs to Linda and lives in `dao.space` (the query library plus the agents that read the
-store). See `dao.space.md`.
+The associative-matching, generative-communication *behavior* built on top of these bytes is
+**not** here; that lineage (Linda) belongs to the reader above this boundary.
 
 The synthesis: **`dao.jing` is a decentralized store of opaque bytes, designed to hold
-immutable, content-addressed segments plus mutable stream-root references — pure syntax;
-datoms, matching, and Datalog are semantics an embeddable Peer library (`dao.space.query`)
-and the agents project onto it.** (Immutability and content addressing are a discipline
-callers observe over the `IKVStore` contract, not a guarantee the protocol enforces; see
-What DaoJing Is, above.)
+immutable, content-addressed segments plus mutable stream-root references — pure syntax.**
+Datoms, matching, and querying are semantics an embeddable reader library projects onto it.
+(Immutability and content addressing are a discipline callers observe over the `IKVStore`
+contract, not a guarantee the protocol enforces; see What DaoJing Is, above.)

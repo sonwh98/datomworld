@@ -163,9 +163,28 @@ never on a stream-local id.
 (defn match [store pattern    & {:keys [as-of]}] (scan-pattern  pattern    (fold store as-of)))
 ```
 
-How the index is maintained (rebuild-per-query, incremental, or owner-built/peers-merge) is a
-storage-layout concern realized on `tonsky/persistent-sorted-set`; see
-[`dao.jing.md`](dao.jing.md), *Index Realization*. All variants answer identically.
+`dao.jing` holds only the index's immutable byte segments and a mutable root reference — the
+same substrate Datomic persists its covered indexes into (opaque segment blobs plus a root
+pointer; see [`dao.jing.md`](dao.jing.md), *The Index Substrate*). The *index* itself — a
+covered B-Tree (EAVT/AEVT/AVET/VAET) a reader can traverse and answer queries from — is the
+interpretation this library projects onto those bytes; storage never knows the segments form
+an index. How the index is maintained (rebuild-per-query, incremental, or
+owner-built/peers-merge) is a concern of the reader above storage, realized on
+`tonsky/persistent-sorted-set`; see [`dao.space.query.md`](dao.space.query.md), *Index
+Realization*. All variants answer identically.
+
+**v1 status.** v1 stores a stream's full datom vector under one mutable root key
+(`default-datoms-key`, `:root/datoms`, as `{:datoms [...]}`) and reads it wholesale, folding
+it into a fresh in-memory index on every query with `tonsky/persistent-sorted-set` as the
+sorted-set implementation — not yet as a lazily-pulled B-Tree segment store. This is the
+"rebuild per query" strategy ("kept only as the conceptual baseline"; see
+[`dao.space.query.md`](dao.space.query.md), *Index Realization*), shipped first for its
+simplicity; it does not reuse `dao.db`'s in-memory sorted-set engine. A read resolves the
+stream's root reference from the `IKVStore` with a single `get`, targeting an immutable
+snapshot of that root's value at the time of the call, so concurrent writes never disturb an
+in-flight read. The owner-built, peers-merge Target Architecture (immutable B-Tree segments
+written via `put!`, lazily pulled and merged) is designed but not yet implemented — see
+`dao.space.query`'s namespace docstring, which names this gap explicitly.
 
 ### Source Polymorphism
 

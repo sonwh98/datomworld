@@ -16,7 +16,7 @@
     - a raw vector of entity maps, `[{:attr val ...} ...]`
 
   Reading a `dao.jing` handle uses the simplest possible convention ahead
-  of the target B-Tree-segment architecture (dao.jing.md, Index
+  of the target B-Tree-segment architecture (dao.space.query.md, Index
   Realization): each handle's datoms live wholesale at one mutable root,
   `default-datoms-key` (`:root/datoms`), as `{:datoms [...]}`. This is the
   documented rebuild-per-query baseline (\"kept only as the conceptual
