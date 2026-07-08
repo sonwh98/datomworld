@@ -66,12 +66,12 @@
          [value]
          #?(:clj value
             :cljs (@p-resolve value)
-            :cljd (.complete ^async/Completer completer value)))
+            :cljd (do (.complete ^async/Completer completer value) nil)))
        (fail
          [ex]
          #?(:clj (throw ex)
             :cljs (@p-reject ex)
-            :cljd (.completeError ^async/Completer completer ex)))
+            :cljd (do (.completeError ^async/Completer completer ex) nil)))
        (poll
          [cursor attempts]
          (if (> attempts attempts-max)
@@ -95,10 +95,11 @@
                                (recur cursor (inc attempts)))
                       :cljs (js/setTimeout #(poll cursor (inc attempts))
                                            poll-interval-ms)
-                      :cljd (.then (async/Future.delayed (core/Duration
-                                                           .milliseconds
-                                                           poll-interval-ms))
-                                   (fn [_] (poll cursor (inc attempts)))))
+                      :cljd (do (.then (async/Future.delayed
+                                         (core/Duration .milliseconds
+                                                        poll-interval-ms))
+                                       (fn [_] (poll cursor (inc attempts))))
+                                nil))
                    :else (fail (ex-info
                                  "Stream error while waiting for response"
                                  {:request-id req-id, :result result}))))))]
@@ -127,12 +128,12 @@
          []
          #?(:clj client
             :cljs (@p-resolve client)
-            :cljd (.complete ^async/Completer completer client)))
+            :cljd (do (.complete ^async/Completer completer client) nil)))
        (fail
          [ex]
          #?(:clj (throw ex)
             :cljs (@p-reject ex)
-            :cljd (.completeError ^async/Completer completer ex)))
+            :cljd (do (.completeError ^async/Completer completer ex) nil)))
        (poll
          [attempts]
          (let [status (ws/connection-status stream)]
@@ -146,10 +147,11 @@
                                    (recur (inc attempts)))
                           :cljs (js/setTimeout #(poll (inc attempts))
                                                poll-interval-ms)
-                          :cljd (.then (async/Future.delayed
-                                         (core/Duration .milliseconds
-                                                        poll-interval-ms))
-                                       (fn [_] (poll (inc attempts))))))))]
+                          :cljd (do (.then (async/Future.delayed
+                                             (core/Duration .milliseconds
+                                                            poll-interval-ms))
+                                           (fn [_] (poll (inc attempts))))
+                                    nil)))))]
       #?(:clj (poll 0)
          :cljs (do (poll 0) p)
          :cljd (do (poll 0) (.-future ^async/Completer completer))))))

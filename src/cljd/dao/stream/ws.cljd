@@ -105,6 +105,13 @@
   (swap! (:link-state-atom ws-stream) assoc :status :closed))
 
 
+(defn connection-status
+  "Return the current link status for a WebSocketStream, or nil for other streams."
+  [stream]
+  (when (instance? WebSocketStream stream)
+    (:status @(:link-state-atom stream))))
+
+
 (defn- attach-websocket!
   ([stream ws]
    (let [ws ^io/WebSocket ws]

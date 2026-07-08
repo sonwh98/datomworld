@@ -21,9 +21,9 @@
 (def ^:dynamic *store* nil)
 
 
-(defn- random-port
-  []
-  (+ 10000 (rand-int 50000)))
+#?(:clj (defn- random-port
+          []
+          (+ 10000 (rand-int 50000))))
 
 
 #?(:clj (defn- with-remote-server

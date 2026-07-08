@@ -129,16 +129,13 @@
   ([handlers port opts]
    (let [stop-atom (atom false)
          conns-atom (atom #{})
-         futures-atom (atom #{})
          server-handle
          (ws/listen!
            port
            (assoc opts
-                  :on-connect
-                  (fn [stream]
-                    (swap! conns-atom conj stream)
-                    (let [f (serve-connection! handlers stream stop-atom)]
-                      (swap! futures-atom conj f)))
+                  :on-connect (fn [stream]
+                                (swap! conns-atom conj stream)
+                                (serve-connection! handlers stream stop-atom))
                   :on-disconnect (fn [stream] (swap! conns-atom disj stream))))]
      {:port port,
       :stop! (fn []
