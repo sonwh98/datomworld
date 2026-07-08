@@ -7,16 +7,9 @@
             [clojure.test :refer [deftest is testing]]
             [dao.stream :as ds]
             [dao.stream.apply :as dao-apply]
-            [dao.stream.ringbuffer :as ringbuffer]
             [dao.stream.ws]
             [dao.stream.rpc.client :as rpc-client]
-            [dao.stream.rpc.server :as rpc-server]
             [yin.repl :as repl]))
-
-
-(defn- make-stream
-  []
-  (ds/open! {:type :ringbuffer, :capacity nil}))
 
 
 (defn- fact?
@@ -418,7 +411,7 @@
   #?(:clj (testing
             "connect waits until the remote websocket link reaches :connected"
             (let [client {:stream ::stream}]
-              (with-redefs [dao.stream.rpc.client/connect! (fn [url & _]
+              (with-redefs [dao.stream.rpc.client/connect! (fn [_url & _]
                                                              client)]
                 (let [[state result] @(repl/eval-input
                                         (repl/create-state)
@@ -469,8 +462,8 @@
                eval-handler (get (repl/make-handlers state-atom) :op/eval)]
            (with-redefs [dao.stream.rpc.client/connect!
                          (fn
-                           ([url] (js/Promise.resolve client))
-                           ([url _opts] (js/Promise.resolve client)))]
+                           ([_url] (js/Promise.resolve client))
+                           ([_url _opts] (js/Promise.resolve client)))]
              (->
                (eval-handler "(connect \"ws://remote\")")
                (.then
@@ -534,8 +527,8 @@
               (is (= "60" result-4))
               ;; If *1 is a function (from a previous eval), it should be
               ;; callable
-              (let [[state-5 result-5] @(repl/eval-input (repl/create-state)
-                                                         "(fn [x] (* x x))")
+              (let [[state-5 _result-5] @(repl/eval-input (repl/create-state)
+                                                          "(fn [x] (* x x))")
                     [_state-6 result-6] @(repl/eval-input state-5 "(*1 5)")]
                 (is (= "25" result-6)))))
      :cljs
@@ -552,10 +545,10 @@
          (.then (fn [[state-3 result-3]]
                   (is (= "30" result-3))
                   (repl/eval-input state-3 "(+ *1 *2 *3)")))
-         (.then (fn [[state-4 result-4]]
+         (.then (fn [[_state-4 result-4]]
                   (is (= "60" result-4))
                   (repl/eval-input (repl/create-state) "(fn [x] (* x x))")))
-         (.then (fn [[state-5 result-5]] (repl/eval-input state-5 "(*1 5)")))
+         (.then (fn [[state-5 _result-5]] (repl/eval-input state-5 "(*1 5)")))
          (.then (fn [[_state-6 result-6]] (is (= "25" result-6)) (done)))))))
 
 

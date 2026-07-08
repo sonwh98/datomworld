@@ -6,7 +6,6 @@
             [clojure.string :as str]
             [dao.pretty :as pretty]
             [dao.stream :as ds]
-            [dao.stream.apply :as dao-apply]
             [dao.stream.ws :as ws]
             [dao.stream.rpc.client :as rpc-client]
             [dao.stream.rpc.server :as rpc-server]
