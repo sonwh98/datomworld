@@ -14,19 +14,36 @@
 
    Utilities (non-protocol):
      drain-one!      — destructive read from remote-stream (legacy support)"
-  (:require
-    #?(:cljd ["dart:async" :as async])
-    #?(:cljd ["dart:io" :as io])
-    [dao.stream :as ds]
-    [dao.stream.link :as link]
-    [dao.stream.ringbuffer :as ringbuffer]
-    [dao.stream.transit :as transit]
-    #?(:clj [org.httpkit.server :as http-server])))
+  (:require #?(:cljd ["dart:async" :as async])
+            #?(:cljd ["dart:io" :as io])
+            [dao.stream :as ds]
+            [dao.stream.link :as link]
+            [dao.stream.ringbuffer :as ringbuffer]
+            [dao.stream.transit :as transit]
+            #?(:clj [org.httpkit.server :as http-server])))
 
 
 ;; =============================================================================
 ;; WebSocketStream record
 ;; =============================================================================
+
+(defn- do-put!
+  "Apply val to link-state-atom's local side and send it over the wire if
+   connected. Not safe to run concurrently on the same link-state-atom -- callers
+   on platforms with real thread parallelism (:clj) must serialize calls (see
+   WebSocketStream's put!, which locks on link-state-atom for :clj; :cljs/:cljd
+   have no true concurrent threads calling into one stream, so no lock is
+   needed there)."
+  [link-state-atom send-fn-atom val]
+  (let [state @link-state-atom
+        [state' msg] (link/local-put state val)]
+    (if-let [send-fn @send-fn-atom]
+      (do (reset! link-state-atom (assoc state'
+                                         :local-sent-pos (:local-pos state')))
+          (send-fn (transit/encode msg)))
+      (reset! link-state-atom state'))
+    {:result :ok, :woke []}))
+
 
 (defrecord WebSocketStream
   [link-state-atom send-fn-atom]
@@ -35,14 +52,15 @@
 
   (put!
     [_ val]
-    (let [state @link-state-atom
-          [state' msg] (link/local-put state val)]
-      (if-let [send-fn @send-fn-atom]
-        (do (reset! link-state-atom (assoc state'
-                                           :local-sent-pos (:local-pos state')))
-            (send-fn (transit/encode msg)))
-        (reset! link-state-atom state'))
-      {:result :ok, :woke []}))
+    ;; :clj's send-fn synchronously blocks on the in-flight send
+    ;; (java.net.http's WebSocket throws if a second sendText is issued
+    ;; before the first completes), so concurrent put! calls on one
+    ;; stream must be serialized; :cljs/:cljd have no real concurrent
+    ;; threads sharing one stream.
+    #?(:clj (locking link-state-atom
+              (do-put! link-state-atom send-fn-atom val))
+       :cljs (do-put! link-state-atom send-fn-atom val)
+       :cljd (do-put! link-state-atom send-fn-atom val)))
 
 
   ds/IDaoStreamReader
@@ -359,14 +377,34 @@
          :conns conns}))))
 
 
+;; =============================================================================
+;; CLJD: connect! (dart:io WebSocket client)
+;; =============================================================================
+
+#?(:cljd (defn connect!
+           "Connect to a WebSocket server at url. Returns WebSocketStream."
+           ([url] (connect! url nil))
+           ([url opts]
+            (let [local (ds/open! {:type :ringbuffer,
+                                   :capacity (:capacity opts)})
+                  stream (make-ws-stream local)]
+              (-> (io/WebSocket.connect url)
+                  (.then (fn [ws]
+                           (let [ws ^io/WebSocket ws]
+                             (on-open! stream (fn [msg] (.add ws msg)))
+                             (.listen ws
+                                      (fn [raw] (on-message! stream raw))
+                                      :onDone
+                                      (fn [] (on-close! stream)))))))
+              stream))))
+
+
 #?(:cljd (defmethod ds/open! :websocket
            [descriptor]
            (let [{:keys [mode url port capacity], :as opts} descriptor]
              (case mode
                :listen (listen! port opts)
-               :connect (throw (ex-info
-                                 "websocket mode :connect not supported in CLJD"
-                                 {:descriptor descriptor}))
+               :connect (connect! url {:capacity capacity})
                (throw (ex-info
                         "websocket transport mode must be :listen or :connect"
                         {:descriptor descriptor, :mode mode}))))))
