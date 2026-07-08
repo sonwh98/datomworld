@@ -10,7 +10,7 @@
 - `docs/postgres.md` — the deep dive on the PostgreSQL architecture this design defines itself against
 - `docs/design/dao.space.v0.md` — superseded framing; still the reference for resources, typed streams, and the geometry/gauge material
 - `docs/design/dao.space.locality.md`, `dao.space.metaphors.md`, `dao.space.discrete-to-continuous.md` — the geometry/locality cluster: theoretical justification (gauge, spectral, locality) the spec defers to, not required to read it
-- `docs/design/ffi-design.md` — Yin.VM's `dao.stream.apply` bridge, one consumer of the protocol `IKVStore` can be exposed through (designed, not built)
+- `docs/design/yin.vm.ffi.md` — Yin.VM's `dao.stream.apply` bridge, one consumer of the protocol `IKVStore` can be exposed through (designed, not built)
 - `docs/design/dao.space.security.md`, `docs/design/adr/0002-share-governed-computation-not-data.md` — the controlled-mode model that motivates exposing storage through a mediated bridge rather than a direct binding
 
 ## What DaoJing Is
@@ -161,7 +161,7 @@ would be a third way to reach `IKVStore`, alongside a plain in-process handle an
   binding to storage by construction: its Environment/Store is scoped to only the datoms
   its capability authorizes, with no I/O or exfiltration primitives. Yin.VM already has a
   generic `dao.stream.apply` bridge for exactly this kind of confined host access
-  (`yin.vm.host-ffi`; see `docs/design/ffi-design.md`), one consumer of the protocol among
+  (`yin.vm.ffi`; see `docs/design/yin.vm.ffi.md`), one consumer of the protocol among
   others, not a dependency that `dao.jing` or `dao.stream.apply` has on `yin.vm`. Registering
   `IKVStore` as capability-gated handlers there — present but refused when the capability
   doesn't cover the call, an empty allow-set equivalent to no handler at all — is exactly

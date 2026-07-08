@@ -37,7 +37,7 @@ Build a new shared CLJC telemetry module that all current CLJC VMs use to publis
   - after every handled effect in `yin.vm.engine/handle-effect`
   - after `park-continuation`
   - after `resume-continuation`
-  - after bridge dispatch in `yin.vm.host-ffi/bridge-step`
+  - after bridge dispatch in `yin.vm.ffi/bridge-step`
   - when the run loop leaves the VM blocked or halted
 - Keep GC support at "allocation and roots only" in v1.
   - Snapshot serialization must preserve enough structure for downstream analyzers to identify:

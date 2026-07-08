@@ -16,21 +16,18 @@
    1. Stack assembly: project :yin/ datoms to symbolic stack instructions
    2. Assembly to numeric bytecode encoding (assemble)
    3. Numeric bytecode VM (step, run via protocols)"
-  (:require
-    [dao.stream :as ds]
-    [dao.stream.apply :as dao.stream.apply]
-    [yin.module :as module]
-    #?(:clj [yin.vm :as vm :refer [opcase]]
-       :cljs [yin.vm :as vm]
-       :cljd [yin.vm :as vm])
-    [yin.vm.engine :as engine]
-    [yin.vm.host-ffi :as host-ffi]
-    [yin.vm.macro :as macro]
-    [yin.vm.semantic :as semantic]
-    [yin.vm.telemetry :as telemetry])
-  #?(:cljs
-     (:require-macros
-       [yin.vm :refer [opcase]])))
+  (:require [dao.stream :as ds]
+            [dao.stream.apply :as dao.stream.apply]
+            [yin.module :as module]
+            #?(:clj [yin.vm :as vm :refer [opcase]]
+               :cljs [yin.vm :as vm]
+               :cljd [yin.vm :as vm])
+            [yin.vm.engine :as engine]
+            [yin.vm.ffi :as ffi]
+            [yin.vm.macro :as macro]
+            [yin.vm.semantic :as semantic]
+            [yin.vm.telemetry :as telemetry])
+  #?(:cljs (:require-macros [yin.vm :refer [opcase]])))
 
 
 (declare restore-frame)
@@ -1375,7 +1372,7 @@
                                                     stack-vm-load-program
                                                     stack-step)
                              :step))
-  (run [vm] (host-ffi/maybe-run vm stack-vm-run-on-stream))
+  (run [vm] (ffi/maybe-run vm stack-vm-run-on-stream))
   (eval [vm ast] (stack-vm-eval vm ast))
   (reset [vm] (stack-vm-reset vm))
   (halted? [vm] (stack-vm-halted? vm))
@@ -1398,7 +1395,7 @@
   ([] (create-vm {}))
   ([opts]
    (let [env (or (:env opts) {})
-         bridge-state (host-ffi/bridge-from-opts opts)
+         bridge-state (ffi/bridge-from-opts opts)
          in-stream (:in-stream opts)
          base (vm/empty-state {:primitives (:primitives opts),
                                :telemetry (:telemetry opts),

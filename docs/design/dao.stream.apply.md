@@ -7,7 +7,7 @@ Its only dependency should be `dao.stream`.
 
 **Related documents:**
 - `docs/design/daostream-design.md` — the stream abstraction and transport model that underpins this protocol
-- `docs/design/ffi-design.md` — how Yin VM uses this protocol to implement FFI
+- `docs/design/yin.vm.ffi.md` — how Yin VM uses this protocol to implement FFI
 
 The protocol reifies function application as explicit stream traffic:
 - a caller emits a request with an opaque call id, an operation keyword, and evaluated arguments
@@ -241,7 +241,7 @@ This namespace should not own:
 It should not depend on:
 - `yin.vm`
 - `yin.vm.engine`
-- `yin.vm.host-ffi`
+- `yin.vm.ffi`
 - any semantic, stack, register, or AST-walker interpreter namespace
 
 ### Public API Shape

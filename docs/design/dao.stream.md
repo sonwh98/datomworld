@@ -469,7 +469,7 @@ The VM uses `IDaoStreamWaitable.register-reader-waiter!` to let the transport st
 bypassing scheduler polling. If a transport does not implement `IDaoStreamWaitable` (e.g.,
 networked transports), the VM falls back to polling via `check-wait-set`.
 
-See `docs/design/ffi-design.md` for how Yin VM uses DaoStream for FFI (function calls across stream boundaries).
+See `docs/design/yin.vm.ffi.md` for how Yin VM uses DaoStream for FFI (function calls across stream boundaries).
 
 ### `dao.stream.apply` Pattern (Cross-Stream RPC)
 

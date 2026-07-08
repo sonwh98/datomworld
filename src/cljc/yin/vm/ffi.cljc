@@ -1,4 +1,4 @@
-(ns yin.vm.host-ffi
+(ns yin.vm.ffi
   "Explicit host-side dao.stream.apply bridge state for Yin VMs.
 
    The bridge is data carried by the VM itself:

@@ -1,16 +1,15 @@
 (ns yin.vm.semantic
-  (:require
-    [dao.datom :as datom]
-    [dao.db :as db]
-    [dao.db.in-memory :as in-memory]
-    [dao.stream :as ds]
-    [dao.stream.apply :as dao.stream.apply]
-    [yin.module :as module]
-    [yin.vm :as vm]
-    [yin.vm.engine :as engine]
-    [yin.vm.host-ffi :as host-ffi]
-    [yin.vm.macro :as macro]
-    [yin.vm.telemetry :as telemetry]))
+  (:require [dao.datom :as datom]
+            [dao.db :as db]
+            [dao.db.in-memory :as in-memory]
+            [dao.stream :as ds]
+            [dao.stream.apply :as dao.stream.apply]
+            [yin.module :as module]
+            [yin.vm :as vm]
+            [yin.vm.engine :as engine]
+            [yin.vm.ffi :as ffi]
+            [yin.vm.macro :as macro]
+            [yin.vm.telemetry :as telemetry]))
 
 
 (declare semantic-vm-restore)
@@ -1441,7 +1440,7 @@
                                                     semantic-vm-load-program
                                                     semantic-vm-step)
                              :step))
-  (run [vm] (host-ffi/maybe-run vm semantic-vm-run-on-stream))
+  (run [vm] (ffi/maybe-run vm semantic-vm-run-on-stream))
   (eval [vm ast] (semantic-vm-eval vm ast))
   (reset [vm] (semantic-vm-reset vm))
   (halted? [vm] (semantic-vm-halted? vm))
@@ -1467,7 +1466,7 @@
          base (vm/empty-state {:primitives (:primitives opts),
                                :telemetry (:telemetry opts),
                                :vm-model :semantic})
-         bridge-state (host-ffi/bridge-from-opts opts)
+         bridge-state (ffi/bridge-from-opts opts)
          in-stream (:in-stream opts)]
      (-> (map->SemanticVM
            (merge base

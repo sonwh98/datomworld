@@ -1,4 +1,4 @@
-# dao.stream.apply Bridge Design: Datom Streams as the Universal Application Interface
+# FFI Bridge Design: Datom Streams as the Universal Application Interface
 
 **Note:** This document describes Yin VM's integration with the `dao.stream.apply` protocol.
 For the protocol specification itself, see `docs/design/dao.stream.apply.md`.
@@ -93,7 +93,7 @@ The instruction set remains bounded. New host capabilities are added by register
 - **`ast->datoms`**: handles `:dao.stream.apply/call` node.
 - **`empty-state`**: initializes `call-in` and `call-out` streams in the store.
 
-### `src/cljc/yin/vm/host_ffi.cljc` (Bridge implementation)
+### `src/cljc/yin/vm/ffi.cljc` (Bridge implementation)
 
 Provides `bridge-step` to read from `call-in` and write to `call-out`. Provides `maybe-run` to wrap VM execution with bridge stepping.
 
