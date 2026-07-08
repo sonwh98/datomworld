@@ -174,7 +174,7 @@ No protocol changes needed. The request/response shapes are invariant across ope
 ## See Also
 
 - `docs/design/daostream-design.md` — DaoStream abstraction
-- `docs/design/daostream-apply-design.md` — Protocol specification
+- `docs/design/dao.stream.apply.md` — Protocol specification
 - `docs/design/ffi-design.md` — Yin VM FFI (which also uses this protocol)
 - `src/cljc/dao/stream.cljc` — Stream protocols
 - `src/cljc/dao/stream/apply.cljc` — Request/response helpers

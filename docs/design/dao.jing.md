@@ -10,6 +10,8 @@
 - `docs/postgres.md` — the deep dive on the PostgreSQL architecture this design defines itself against
 - `docs/design/dao.space.v0.md` — superseded framing; still the reference for resources, typed streams, and the geometry/gauge material
 - `docs/design/dao.space.locality.md`, `dao.space.metaphors.md`, `dao.space.discrete-to-continuous.md` — the geometry/locality cluster: theoretical justification (gauge, spectral, locality) the spec defers to, not required to read it
+- `docs/design/ffi-design.md` — Yin.VM's `dao.stream.apply` bridge, one consumer of the protocol `IKVStore` can be exposed through (designed, not built)
+- `docs/design/dao.space.security.md`, `docs/design/adr/0002-share-governed-computation-not-data.md` — the controlled-mode model that motivates exposing storage through a mediated bridge rather than a direct binding
 
 ## What DaoJing Is
 
@@ -131,6 +133,40 @@ What v1 implements at the storage boundary, and the contracts it pins down.
 `dao.jing` is implemented as cross-platform `.cljc` — its storage logic (the `IKVStore`
 contract and the in-memory, file, and DHT backends) operates identically across Clojure
 (`clj`), ClojureScript (`cljs`), and ClojureDart (`cljd`).
+
+## Reaching `IKVStore` via `dao.stream.apply`
+
+**Status: designed, not implemented.** No handler map anywhere in the codebase currently
+registers `dao.jing` operations against `dao.stream.apply`.
+
+`dao.stream.apply` (`src/cljc/dao/stream/apply.cljc`; `docs/design/dao.stream.md`,
+*"dao.stream.apply Pattern"*) reifies function application as request/response datoms over
+a stream pair — independently of any particular caller. Nothing stops registering
+`put!`/`cas!`/`get` as handlers under that protocol — e.g. `{:jing/put! ..., :jing/cas! ...,
+:jing/get ...}` — so that a caller reaches storage only by appending a request datom to a
+request stream and reading the matching response off a response stream, never through a
+direct imperative reference to a store. A plain agent can do this today with
+`dao.stream.apply/put-request!` and `next-response` on the caller side and
+`dispatch-request`/`serve-once!` on the callee side; no VM involvement is required. This
+would be a third way to reach `IKVStore`, alongside a plain in-process handle and the
+`dao.jing.dht` network backend (see The Storage Interface, above):
+
+- **Cross-process reach.** Because the request/response streams are ordinary streams, the
+  transport underneath can be a socket instead of an in-process ring buffer. An agent could
+  reach a remote `dao.jing` this way, as an alternative to `dao.jing.dht`'s purpose-built
+  `IDhtNet` transport.
+- **Controlled-mode confinement (the more load-bearing case).** A governed interpreter —
+  per the "share governed computation, not data" model (`dao.space.security.md`, ADR
+  0002), specifically a `yin.vm` AST evaluated in a confined runtime — is denied any direct
+  binding to storage by construction: its Environment/Store is scoped to only the datoms
+  its capability authorizes, with no I/O or exfiltration primitives. Yin.VM already has a
+  generic `dao.stream.apply` bridge for exactly this kind of confined host access
+  (`yin.vm.host-ffi`; see `docs/design/ffi-design.md`), one consumer of the protocol among
+  others, not a dependency that `dao.jing` or `dao.stream.apply` has on `yin.vm`. Registering
+  `IKVStore` as capability-gated handlers there — present but refused when the capability
+  doesn't cover the call, an empty allow-set equivalent to no handler at all — is exactly
+  the mediator the security model requires: one instance of the "effect handlers that
+  securely honor capability tokens" the security doc names as not yet built.
 
 ## The Block Storage Metaphor (Hardware Analogies)
 

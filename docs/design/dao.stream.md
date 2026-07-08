@@ -475,7 +475,7 @@ See `docs/design/ffi-design.md` for how Yin VM uses DaoStream for FFI (function 
 
 `dao.stream.apply` follows the same pattern: suspended work emits a request on a stream, then later resumes when a response is observed.
 
-**Full specification:** see `docs/design/daostream-apply-design.md` for the complete protocol definition and standalone usage examples.
+**Full specification:** see `docs/design/dao.stream.apply.md` for the complete protocol definition and standalone usage examples.
 
 In a runtime that uses continuations:
 - park continuation (await)

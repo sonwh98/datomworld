@@ -1,7 +1,7 @@
 # dao.stream.apply Bridge Design: Datom Streams as the Universal Application Interface
 
 **Note:** This document describes Yin VM's integration with the `dao.stream.apply` protocol.
-For the protocol specification itself, see `docs/design/daostream-apply-design.md`.
+For the protocol specification itself, see `docs/design/dao.stream.apply.md`.
 For the DaoStream transport abstraction, see `docs/design/daostream-design.md`.
 
 ## Context
