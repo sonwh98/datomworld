@@ -67,7 +67,7 @@
        (catch #?(:clj Exception
                  :cljs :default
                  :cljd Object)
-              e
+              _
          {:cursor (update cursor :position (fnil inc 0)), :malformed? true})))
 
 
@@ -92,9 +92,13 @@
                                        (core/Duration .milliseconds 10))
                                      (fn [_]
                                        (step (:cursor result) errors'))))))
-                 (map? result) #?(:clj (recur (:cursor result) 0)
-                                  :cljs (step (:cursor result) 0)
-                                  :cljd (step (:cursor result) 0))
+                 ;; No async boundary is crossed here (unlike the :blocked
+                 ;; and :malformed? branches, which must hand off to
+                 ;; setTimeout/Future.delayed), so recur is valid -- and
+                 ;; required -- on every platform: a plain (step ...) call
+                 ;; on :cljs/:cljd would grow the stack on every request in
+                 ;; a back-to-back burst with no :blocked gap between them.
+                 (map? result) (recur (:cursor result) 0)
                  (= result :blocked)
                  #?(:clj (do (Thread/sleep 10) (recur cursor 0))
                     :cljs (js/setTimeout #(step cursor 0) 10)

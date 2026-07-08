@@ -26,22 +26,24 @@
   (+ 10000 (rand-int 50000)))
 
 
-(defn- with-remote-server
-  [store-type f]
-  (let [port (random-port)
-        ;; Create backing store (memory for speed, file for persistence
-        ;; tests)
-        backing-store (case store-type
-                        :memory (jing/create-kv-mem)
-                        :file (jing.file/create-kv-file
-                                (str "/tmp/dao-jing-remote-test-"
-                                     (rand-int 1000000))))
-        ;; Start WebSocket server exposing the store
-        server (remote-server/start! backing-store port)
-        ;; Give server time to start
-        _ (Thread/sleep 100)]
-    (try (binding [*server* server *store* backing-store] (f))
-         (finally (remote-server/stop! server) (jing/close! backing-store)))))
+#?(:clj (defn- with-remote-server
+          [store-type f]
+          (let [port (random-port)
+                ;; Create backing store (memory for speed, file for
+                ;; persistence
+                ;; tests)
+                backing-store (case store-type
+                                :memory (jing/create-kv-mem)
+                                :file (jing.file/create-kv-file
+                                        (str "/tmp/dao-jing-remote-test-"
+                                             (rand-int 1000000))))
+                ;; Start WebSocket server exposing the store
+                server (remote-server/start! backing-store port)
+                ;; Give server time to start
+                _ (Thread/sleep 100)]
+            (try (binding [*server* server *store* backing-store] (f))
+                 (finally (remote-server/stop! server)
+                          (jing/close! backing-store))))))
 
 
 ;; =============================================================================
