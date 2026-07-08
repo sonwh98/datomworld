@@ -37,6 +37,7 @@
       (send-fn (transit/encode (link/close-msg))))
     (let [state (:remote-stream @link-state-atom)] (ds/close! state))
     (swap! link-state-atom assoc :status :closed)
+    (when-let [close-fn (:socket-close-fn @link-state-atom)] (close-fn))
     {:woke []})
 
 
@@ -115,6 +116,9 @@
 (defn- attach-websocket!
   ([stream ws]
    (let [ws ^io/WebSocket ws]
+     (swap! (:link-state-atom stream) assoc
+            :socket-close-fn
+            (fn [] (.close ws)))
      (on-open! stream (fn [msg] (.add ws msg)))
      (.listen ws
               (fn [raw] (on-message! stream raw))
@@ -122,6 +126,9 @@
               (fn [] (on-close! stream)))))
   ([stream ws opts conns]
    (let [ws ^io/WebSocket ws]
+     (swap! (:link-state-atom stream) assoc
+            :socket-close-fn
+            (fn [] (.close ws)))
      (on-open! stream (fn [msg] (.add ws msg)))
      (swap! conns conj stream)
      (when-let [on-connect (:on-connect opts)] (on-connect stream))

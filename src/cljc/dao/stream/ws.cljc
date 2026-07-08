@@ -76,6 +76,7 @@
       (send-fn (transit/encode (link/close-msg))))
     (let [state (:remote-stream @link-state-atom)] (ds/close! state))
     (swap! link-state-atom assoc :status :closed)
+    (when-let [close-fn (:socket-close-fn @link-state-atom)] (close-fn))
     {:woke []})
 
 
@@ -178,6 +179,9 @@
                         stream (make-ws-stream local)]
                     {:on-open
                      (fn [ch]
+                       (swap! (:link-state-atom stream) assoc
+                              :socket-close-fn
+                              (fn [] (http-server/close ch)))
                        (on-open! stream
                                  (fn [msg] (http-server/send! ch msg)))
                        (swap! conns conj stream)
@@ -212,6 +216,12 @@
                    (onOpen
                      [_ ws]
                      (reset! ws-ref ws)
+                     (swap! (:link-state-atom stream) assoc
+                            :socket-close-fn
+                            (fn []
+                              (.sendClose ws
+                                          java.net.http.WebSocket/NORMAL_CLOSURE
+                                          "close")))
                      ;; Java's WebSocket client sends text frames
                      ;; asynchronously. Block each send until it is
                      ;; accepted so the initial sync-request and the
@@ -256,7 +266,10 @@
             stream (make-ws-stream local)
             ws (js/WebSocket. url)]
         (set! (.-onopen ws)
-              #(do (on-open! stream (fn [msg] (.send ws msg)))
+              #(do (swap! (:link-state-atom stream) assoc
+                          :socket-close-fn
+                          (fn [] (.close ws)))
+                   (on-open! stream (fn [msg] (.send ws msg)))
                    (when-let [callback (:on-open opts)] (callback stream %))))
         (set! (.-onmessage ws)
               #(do (on-message! stream (.-data %))
@@ -306,6 +319,9 @@
                                       :eviction-policy (:eviction-policy
                                                          opts)})
                      stream (make-ws-stream local)]
+                 (swap! (:link-state-atom stream) assoc
+                        :socket-close-fn
+                        (fn [] (.close ^js ws)))
                  (on-open! stream (fn [msg] (.send ^js ws msg)))
                  (swap! conns conj stream)
                  (when-let [oc (:on-connect opts)] (oc stream))

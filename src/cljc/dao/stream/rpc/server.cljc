@@ -80,33 +80,33 @@
        [cursor consecutive-errors]
        (when-not (or @stop-atom (ds/closed? stream))
          (let [result (handle-one! handlers stream cursor)]
-           (cond (:malformed? result)
-                 (let [errors' (inc consecutive-errors)]
-                   (if (> errors' max-consecutive-errors)
-                     (ds/close! stream)
-                     #?(:clj (do (Thread/sleep 10)
-                                 (recur (:cursor result) errors'))
-                        :cljs (js/setTimeout #(step (:cursor result) errors')
-                                             10)
-                        :cljd (.then (async/Future.delayed
-                                       (core/Duration .milliseconds 10))
-                                     (fn [_]
-                                       (step (:cursor result) errors'))))))
-                 ;; No async boundary is crossed here (unlike the :blocked
-                 ;; and :malformed? branches, which must hand off to
-                 ;; setTimeout/Future.delayed), so recur is valid -- and
-                 ;; required -- on every platform: a plain (step ...) call
-                 ;; on :cljs/:cljd would grow the stack on every request in
-                 ;; a back-to-back burst with no :blocked gap between them.
-                 (map? result) (recur (:cursor result) 0)
-                 (= result :blocked)
-                 #?(:clj (do (Thread/sleep 10) (recur cursor 0))
-                    :cljs (js/setTimeout #(step cursor 0) 10)
+           (cond
+             (:malformed? result)
+             (let [errors' (inc consecutive-errors)]
+               (if (> errors' max-consecutive-errors)
+                 (ds/close! stream)
+                 #?(:clj (do (Thread/sleep 10)
+                             (recur (:cursor result) errors'))
+                    :cljs (js/setTimeout #(step (:cursor result) errors') 10)
                     :cljd (.then (async/Future.delayed
                                    (core/Duration .milliseconds 10))
-                                 (fn [_] (step cursor 0))))
-                 ;; Stream ended (:end / :daostream/gap) -- exit the loop.
-                 :else nil))))]
+                                 (fn [_] (step (:cursor result) errors'))))))
+             ;; No async boundary is crossed here (unlike the :blocked
+             ;; and :malformed? branches, which must hand off to
+             ;; setTimeout/Future.delayed), so recur is valid -- and
+             ;; required -- on every platform: a plain (step ...) call
+             ;; on :cljs/:cljd would grow the stack on every request in
+             ;; a back-to-back burst with no :blocked gap between them.
+             (map? result) (recur (:cursor result) 0)
+             (or (= result :blocked) (= result :end) (= result :daostream/gap))
+             #?(:clj (do (Thread/sleep 10) (recur cursor 0))
+                :cljs (js/setTimeout #(step cursor 0) 10)
+                :cljd (.then (async/Future.delayed
+                               (core/Duration .milliseconds 10))
+                             (fn [_] (step cursor 0))))
+             ;; Anything else (unrecognized sentinel/empty loop exit) --
+             ;; exit the loop.
+             :else nil))))]
     #?(:clj (future (step {:position 0} 0))
        :cljs (step {:position 0} 0)
        :cljd (step {:position 0} 0))))
@@ -129,14 +129,21 @@
   ([handlers port opts]
    (let [stop-atom (atom false)
          conns-atom (atom #{})
-         server-handle
-         (ws/listen!
-           port
-           (assoc opts
-                  :on-connect (fn [stream]
-                                (swap! conns-atom conj stream)
-                                (serve-connection! handlers stream stop-atom))
-                  :on-disconnect (fn [stream] (swap! conns-atom disj stream))))]
+         caller-on-connect (:on-connect opts)
+         caller-on-disconnect (:on-disconnect opts)
+         server-handle (ws/listen!
+                         port
+                         (assoc opts
+                                :on-connect
+                                (fn [stream]
+                                  (swap! conns-atom conj stream)
+                                  (serve-connection! handlers stream stop-atom)
+                                  (when caller-on-connect
+                                    (caller-on-connect stream)))
+                                :on-disconnect (fn [stream]
+                                                 (swap! conns-atom disj stream)
+                                                 (when caller-on-disconnect
+                                                   (caller-on-disconnect stream)))))]
      {:port port,
       :stop! (fn []
                (reset! stop-atom true)
