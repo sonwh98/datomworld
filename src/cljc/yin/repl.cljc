@@ -1,6 +1,8 @@
 (ns yin.repl
   (:require #?(:cljd ["dart:async" :as async])
             #?(:cljd ["dart:core" :as core])
+            #?(:cljd ["dart:convert" :as convert])
+            #?(:cljd ["dart:io" :as io])
             #?(:cljs [cljs.reader :as edn]
                :default [clojure.edn :as edn])
             [clojure.string :as str]
@@ -780,23 +782,304 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
 (defn serve!
   ([state-atom port] (serve! state-atom port {}))
   ([state-atom port opts]
-   (let [handlers (make-handlers state-atom)
-         server-handle
-         (rpc-server/start!
-           handlers
-           port
-           (assoc opts
-                  :on-connect
-                  (fn [stream]
-                    (log-repl!
-                      (str "Yin REPL client connected on ws://localhost:" port))
-                    (when-let [on-connect (:on-connect opts)]
-                      (on-connect stream)))))]
+   (let [host (or (:host opts) "127.0.0.1")
+         handlers (make-handlers state-atom)
+         server-handle (rpc-server/start!
+                         handlers
+                         port
+                         (assoc opts
+                                :host host
+                                :on-connect
+                                (fn [stream]
+                                  (log-repl!
+                                    (str "Yin REPL client connected on ws://" host
+                                         ":" port))
+                                  (when-let [on-connect (:on-connect opts)]
+                                    (on-connect stream)))))]
      (swap! state-atom expose-repl-server port (:server server-handle))
-     (log-repl! (str "Yin REPL server listening on ws://localhost:" port))
+     (log-repl! (str "Yin REPL server listening on ws://" host ":" port))
      {:port port,
       :server (:server server-handle),
       :conns (:conns server-handle),
       :stop! (fn []
                (rpc-server/stop! server-handle)
                (swap! state-atom unexpose-repl-server))})))
+
+
+(defn- parse-args
+  [args]
+  (loop [args (seq args)
+         opts {:headless? false,
+               :host nil,
+               :port nil,
+               :telemetry? false,
+               :telemetry-stream nil}]
+    (if-let [arg (first args)]
+      (case arg
+        "--port" (let [port-str (second args)]
+                   (recur (nnext args)
+                          (assoc opts
+                                 :port (if port-str
+                                         #?(:clj (Long/parseLong port-str)
+                                            :cljs (js/parseInt port-str 10)
+                                            :cljd (int/parse port-str))
+                                         nil))))
+        "--host" (recur (nnext args) (assoc opts :host (second args)))
+        "--telemetry" (recur (next args) (assoc opts :telemetry? true))
+        "--telemetry-stream"
+        (recur (nnext args) (assoc opts :telemetry-stream (second args)))
+        "--headless" (recur (next args) (assoc opts :headless? true))
+        (recur (next args) (update opts :extra (fnil conj []) arg)))
+      opts)))
+
+
+#?(:clj (do (defn- configure-state
+              [state opts]
+              (let [[state telemetry-msg]
+                    @(cond (:telemetry-stream opts)
+                           (eval-input state
+                                       (str "(telemetry "
+                                            (pr-str (:telemetry-stream
+                                                      opts))
+                                            ")"))
+                           (:telemetry? opts) (eval-input state "(telemetry)")
+                           :else (deliver (promise) [state nil]))]
+                (when telemetry-msg (println telemetry-msg))
+                state))
+            (defn- print-prompt!
+              []
+              (print "yin> ") (flush))
+            (defn- run-cli!
+              [state-atom]
+              (loop []
+                (when (:running? @state-atom)
+                  (print-prompt!)
+                  (when-let [line (read-line)]
+                    (when-not (str/blank? line)
+                      (let [[state result] @(eval-input @state-atom line)]
+                        (reset! state-atom state)
+                        (when (some? result) (println result))))
+                    (recur)))))
+            (defn -main
+              [& args]
+              (let [opts (parse-args args)
+                    state-atom (atom (configure-state (create-state) opts))
+                    server (when-let [port (:port opts)]
+                             (serve! state-atom port {:host (:host opts)}))]
+                (try (if (:headless? opts)
+                       (when server @(promise))
+                       (run-cli! state-atom))
+                     (finally (when server ((:stop! server)))))
+                (.halt (Runtime/getRuntime) 0)))))
+
+
+#?(:cljs
+   (do
+     (defn- configure-state-cljs
+       [state opts]
+       (let [p (cond (:telemetry-stream opts)
+                     (eval-input state
+                                 (str "(telemetry "
+                                      (pr-str (:telemetry-stream opts))
+                                      ")"))
+                     (:telemetry? opts) (eval-input state "(telemetry)")
+                     :else (js/Promise.resolve [state nil]))]
+         (.then p
+                (fn [[state telemetry-msg]]
+                  (when telemetry-msg (js/console.log telemetry-msg))
+                  state))))
+     (defn- run-cli-cljs!
+       [state-atom]
+       (let [readline (js/require "readline")
+             rl (.createInterface readline
+                                  #js {:input (.-stdin js/process),
+                                       :output (.-stdout js/process),
+                                       :prompt "yin> "})]
+         (.prompt rl)
+         (.on rl
+              "line"
+              (fn [line]
+                (when-not (str/blank? line)
+                  (-> (eval-input @state-atom line)
+                      (.then (fn [[state result]]
+                               (reset! state-atom state)
+                               (when (some? result) (js/console.log result))
+                               (if (:running? @state-atom)
+                                 (.prompt rl)
+                                 (.close rl))))))))
+         (.on rl "close" (fn [] (js/process.exit 0)))))
+     (defn -main
+       [& args]
+       (let [opts (parse-args args)]
+         (-> (configure-state-cljs (create-state) opts)
+             (.then
+               (fn [state]
+                 (let [state-atom (atom state)
+                       server
+                       (when-let [port (:port opts)]
+                         (serve! state-atom port {:host (:host opts)}))]
+                   (when (and (:headless? opts) (not server))
+                     (js/console.error "Error: --headless requires --port")
+                     (js/process.exit 1))
+                   (when-not (:headless? opts)
+                     (run-cli-cljs! state-atom))))))))))
+
+
+#?(:cljd
+   (do
+     (defn- write-out!
+       [message]
+       (print message))
+     (defn- write-err!
+       [message]
+       (binding [*out* *err*] (println message)))
+     (defn- print-prompt!
+       []
+       (.write io/stdout "yin> ") (.flush io/stdout))
+     (defn- print-continuation-prompt!
+       []
+       (.write io/stdout "yin.. ")
+       (.flush io/stdout))
+     (defn- clean-cljd-input
+       "Works around a CLJD bug where spaces before closing delimiters cause reader errors."
+       [s]
+       (let [res (reduce
+                   (fn [{:keys [state], :as acc} char]
+                     (case state
+                       :normal (case char
+                                 \" (-> acc
+                                        (update :result conj char)
+                                        (assoc :state :string))
+                                 \; (-> acc
+                                        (update :result conj char)
+                                        (assoc :state :comment))
+                                 (\space \tab \newline \return)
+                                 (assoc acc :state :whitespace)
+                                 (update acc :result conj char))
+                       :string (if (= char \")
+                                 (-> acc
+                                     (update :result conj char)
+                                     (assoc :state :normal))
+                                 (if (= char \\)
+                                   (-> acc
+                                       (update :result conj char)
+                                       (assoc :state :string-escape))
+                                   (update acc :result conj char)))
+                       :string-escape (-> acc
+                                          (update :result conj char)
+                                          (assoc :state :string))
+                       :comment (if (= char \newline)
+                                  (-> acc
+                                      (update :result conj char)
+                                      (assoc :state :normal))
+                                  (update acc :result conj char))
+                       :whitespace (case char
+                                     (\] \} \)) (-> acc
+                                                    (update :result conj char)
+                                                    (assoc :state :normal))
+                                     (\space \tab \newline \return) acc
+                                     \" (-> acc
+                                            (update :result conj \space)
+                                            (update :result conj char)
+                                            (assoc :state :string))
+                                     \; (-> acc
+                                            (update :result conj \space)
+                                            (update :result conj char)
+                                            (assoc :state :comment))
+                                     (-> acc
+                                         (update :result conj \space)
+                                         (update :result conj char)
+                                         (assoc :state :normal)))))
+                   {:state :normal, :result []}
+                   s)]
+         (apply str (:result res))))
+     (defn- balanced?
+       [s]
+       (let [counts (reduce (fn [counts char]
+                              (case char
+                                \( (update counts :paren inc)
+                                \) (update counts :paren dec)
+                                \[ (update counts :bracket inc)
+                                \] (update counts :bracket dec)
+                                \{ (update counts :brace inc)
+                                \} (update counts :brace dec)
+                                counts))
+                            {:paren 0, :bracket 0, :brace 0}
+                            s)]
+         (every? (fn [v] (<= v 0)) (vals counts))))
+     (defn- complete-form?
+       [input-str]
+       (let [trimmed (str/trim input-str)]
+         (if (or (str/blank? trimmed) (str/starts-with? trimmed ";"))
+           true
+           (balanced? input-str))))
+     (defn- configure-state-cljd
+       [state opts]
+       (let [p (cond (:telemetry-stream opts)
+                     (eval-input state
+                                 (str "(telemetry "
+                                      (pr-str (:telemetry-stream opts))
+                                      ")"))
+                     (:telemetry? opts) (eval-input state "(telemetry)")
+                     :else (async/Future.value [state nil]))]
+         (.then ^async/Future p
+                (fn [[state telemetry-msg]]
+                  (when telemetry-msg (write-out! telemetry-msg))
+                  state))))
+     (defn- run-cli-cljd!
+       [state-atom]
+       (let [acc (atom "")]
+         (letfn
+           [(show-prompt!
+              []
+              (if (empty? @acc) (print-prompt!) (print-continuation-prompt!)))
+            (handle-line!
+              [line]
+              (let [new-acc (str @acc "\n" line)]
+                (if (complete-form? new-acc)
+                  (if (str/blank? (str/trim new-acc))
+                    (do (reset! acc "") (show-prompt!))
+                    (let [cleaned (clean-cljd-input new-acc)]
+                      (reset! acc "")
+                      (-> ^async/Future (eval-input @state-atom cleaned)
+                          (.then (fn [[state result]]
+                                   (reset! state-atom state)
+                                   (when (some? result)
+                                     (write-out! result)
+                                     (println))
+                                   (when (:running? @state-atom)
+                                     (show-prompt!))))
+                          (.catchError (fn [e]
+                                         (write-err! (str "Error: " e))
+                                         (when (:running? @state-atom)
+                                           (show-prompt!)))))))
+                  (do (reset! acc new-acc) (show-prompt!)))))]
+           (show-prompt!)
+           (-> io/stdin
+               (.transform (.-decoder convert/utf8))
+               (.transform (convert/LineSplitter.))
+               (.listen handle-line!
+                        .onDone
+                        (fn []
+                          (when (:running? @state-atom)
+                            (println)
+                            (swap! state-atom assoc :running? false))))))))
+     (defn -main
+       [& args]
+       (let [opts (parse-args args)]
+         (-> ^async/Future (configure-state-cljd (create-state) opts)
+             (.then
+               (fn [state]
+                 (let [state-atom (atom state)
+                       server
+                       (when-let [port (:port opts)]
+                         (serve! state-atom port {:host (:host opts)}))]
+                   (if (and (:headless? opts) (not server))
+                     (do (write-err! "Error: --headless requires --port")
+                         (throw (ex-info "Error: --headless requires --port"
+                                         {})))
+                     (when-not (:headless? opts)
+                       (run-cli-cljd! state-atom)))))))))
+     (defn run-main
+       [args]
+       (apply -main args))))

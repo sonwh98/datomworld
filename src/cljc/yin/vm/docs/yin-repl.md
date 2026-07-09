@@ -4,7 +4,7 @@ The Yin REPL can operate as both a local interactive shell and a WebSocket serve
 
 ## Starting the REPL Server
 
-You can start a REPL server on a specific port using the `--port` flag. This is supported on both the JVM and Dart platforms.
+You can start a REPL server on a specific port using the `--port` flag. By default, the server binds to `127.0.0.1` (localhost only) for security. To bind to a different interface (e.g. `0.0.0.0` to allow external connections), use the `--host` flag. This is supported across JVM, Node.js, and Dart VM platforms.
 
 ### Clojure (JVM)
 To run the JVM REPL server with a local prompt:
@@ -20,7 +20,7 @@ clj -M:yin-repl --port 8080 --headless
 ### ClojureDart (Dart VM)
 To compile the Dart REPL entrypoint:
 ```bash
-clj -M:cljd compile yin.repl-main.cljd
+clj -M:cljd compile yin.repl
 ```
 
 To run the Dart REPL server:
@@ -79,5 +79,3 @@ Once a REPL server is running, you can connect to it from another interactive JV
 | `(lang :lang)` | Switch input language (`:clojure`, `:python`, `:php`) |
 | `(telemetry)` | Enable/disable telemetry output |
 | `(quit)` | Exit the REPL |
-
-(connect "daostream:ws://10.153.137.250:7777")

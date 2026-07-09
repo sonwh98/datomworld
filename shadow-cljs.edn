@@ -27,7 +27,7 @@
                   :output-to "target/bench.js"}
 
           :yin-repl {:target :node-script
-                     :main yin.repl-main.node/-main
+                     :main yin.repl/-main
                      :output-to "target/yin-repl.js"}
 
           :ws-client-demo {:target :node-script

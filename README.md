@@ -185,7 +185,7 @@ The ClojureDart source for the Yin REPL is located in `src/cljd/yin/repl_main/cl
 Compile the ClojureDart namespace to Dart:
 
 ```bash
-clj -M:cljd compile yin.repl-main.cljd
+clj -M:cljd compile yin.repl
 ```
 
 Then run the generated Dart entry point:

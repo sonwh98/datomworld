@@ -192,7 +192,7 @@
                                  (swap! conns disj stream)
                                  (when-let [od (:on-disconnect opts)]
                                    (od stream)))})))
-              {:port port})]
+              {:port port, :ip (or (:host opts) "127.0.0.1")})]
         {:stop-fn stop!, :conns conns}))))
 
 
@@ -309,7 +309,8 @@
      ([port] (listen! port nil))
      ([port opts]
       (let [WebSocket (js/require "ws")
-            wss (new (.-Server WebSocket) #js {:port port})
+            wss (new (.-Server WebSocket)
+                     #js {:port port, :host (or (:host opts) "127.0.0.1")})
             conns (atom #{})]
         (.on ^js wss
              "connection"
@@ -358,7 +359,7 @@
       (let [conns (atom #{})
             server-ref (atom nil)]
         (->
-          (io/HttpServer.bind "0.0.0.0" port)
+          (io/HttpServer.bind (or (:host opts) "127.0.0.1") port)
           (.then
             (fn [server]
               (let [server ^io/HttpServer server]
