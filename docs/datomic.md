@@ -371,3 +371,364 @@ The node records themselves (from the bytecode): `RootNode` is `{keydata, dirids
 4. It extracts the associated child pointer value: **`"uuid-abc"`**.
 5. The Peer uses this extracted string to fetch the child segment:
    `SELECT val FROM datomic_kvs WHERE id = 'uuid-abc';`
+
+---
+
+## Appendix: Discovered Datoms-Reading Functions (JAR Analysis)
+
+This section documents the actual functions found via bytecode analysis of `peer-1.0.7482.jar` that Datomic Peers use to read datoms from storage. These are internal implementation details, not public API.
+
+### Public API Layer (datomic.Database interface)
+
+The Peer exposes three methods for reading datoms, all returning `Iterable<datomic.Datom>`:
+
+| Method | Signature | Purpose |
+|--------|-----------|---------|
+| `datoms` | `datoms(Object index, Object... components)` | Returns datoms from specified index (EAVT, AEVT, AVET, VAET) matching component pattern |
+| `seekDatoms` | `seekDatoms(Object index, Object... components)` | Seeks to position in index, returns all datoms from that point |
+| `indexRange` | `indexRange(Object attrId, Object start, Object end)` | Returns datoms in range for given attribute |
+
+These methods are implemented by `datomic.db.Db` — a record holding `id`, `memidx`, `indexing`, `mid_index`, `index`, `history`, `memlog`, and basis-t tracking fields (`basisT`, `nextT`, `indexBasisT`).
+
+### Implementation Layer (datomic.db namespace)
+
+The core datom-reading implementations (Clojure functions compiled to classes):
+
+* **`datomic.db$datoms`** — Core implementation of `datoms()` API method
+* **`datomic.db$seek_datoms`** — Core implementation of `seekDatoms()` 
+* **`datomic.db$rseek_datoms`** — Reverse seek implementation
+* **`datomic.db$get_eidx`** — Gets entity index
+* **`datomic.db$get_entity`** — Gets entity by ID
+
+### Index Tree Layer (datomic.index namespace)
+
+The persistent index structure that organizes datoms into B-tree segments:
+
+* **`datomic.index.Index`** — Main index class implementing `IIndex`
+  - `seek()` → returns `datomic.iter.Iter` for iterating datoms
+  - `seek_seg()` — seeks to specific segment
+  - `seekLast()` — seek to end of index
+
+* **`datomic.index.TreeIter`** — Iterator over index tree
+  - `next()` / `prev()` — navigate datoms
+  - `get()` — get current datom
+  - Fields: `lookup`, `root`, `ridx`, `dir`, `didx`, `seg`, `sidx`
+
+* **`datomic.index.RootNode`** — Root of index tree: `{keydata, dirids, dirs}`
+* **`datomic.index.DirNode`** — Directory node: `{keydata, segids, offsets, counts, segs}`
+* **`datomic.index.TransposedData`** — Leaf segment (columnar datom storage): `{cnt, eas, vs, ts, ops}`
+
+### Storage Backend Layer
+
+The path from index traversal to actual storage read:
+
+* **`datomic.kv_store.KVStore`** — Protocol/interface for storage backends
+  - `get(key, consistent?)` — Read entry by key; `consistent?` flag for strong consistency
+  - `put(val-map)` — Write with CAS
+  - `delete(key, arg2)` — Remove entry
+  - Implementations: `KVSql`, `KVMem`, `KVDynamo`, `KVHotRod`, `KVCassandra`/`KVCassandra2`/`KVCassandra3`
+
+* **`datomic.core2.val_store.spi.Get`** — Second-gen value store protocol
+  - `_get(store, key)` — Fetch segment from storage
+
+* **`datomic.cluster_stack.ValStoreOnKvCache`** — L1 cache layer over KV store
+* **`datomic.cluster_stack.ValStoreOnCluster`** — Cluster storage implementation
+
+### Iterator Infrastructure (datomic.iter / datomic.btset)
+
+* **`datomic.iter.Iter`** — Base iterator interface
+* **`datomic.iter.Iterator`** — Iterator wrapper
+* **`datomic.iter.MapIter`** — Map-transforming iterator
+* **`datomic.iter.IterCat`** — Concatenated iterator
+* **`datomic.iter.MergeIter`** — Merge-sorted iterator (for joining indexes)
+* **`datomic.iter.ReversedIter`** — Reverse iterator
+* **`datomic.btset.BTSet`** — In-memory B-tree set for novelty
+* **`datomic.btset.BTSetIter`** — Iterator over BTSet
+
+### Data Flow Summary
+
+```
+datoms() / seekDatoms()                    [Public API]
+    ↓
+datomic.db$datoms / $seek_datoms           [Implementation]
+    ↓
+datomic.index.Index.seek()                [Index traversal]
+    ↓
+datomic.index.TreeIter                    [Tree navigation]
+    ↓
+datomic.index.RootNode / DirNode          [Node lookup]
+    ↓
+datomic.core2.val_store$get               [Value store read]
+    ↓
+datomic.kv_store.KVStore.get()            [Storage backend]
+    ↓
+Storage (SQL/DynamoDB/Cassandra/files)    [Dumb KV store]
+```
+
+Datoms are stored in sorted segments (immutable B-trees). The Peer traverses the tree lazily, pulling only the segments it needs from storage. Segments are cached in the Peer's LRU object cache (L1); cold segments are fetched via `KVStore/get` on cache miss. The index tree has exactly three levels: RootNode → DirNode → leaf segments, with high branching factor (~1000) keeping tree depth small even for large datasets.
+
+---
+
+## Appendix B: Datomic Public API Reference
+
+This section documents the public Java API that applications use to interact with Datomic. These interfaces and classes are the stable, supported API surface (recovered from `datomic-transactor-pro-1.0.7482.jar`).
+
+### datomic.Peer — Entry Point
+
+The `Peer` class provides static methods for database lifecycle, querying, and utility functions. It is the primary entry point for Datomic applications.
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `connect(Object uri)` | `Connection` | Connect to a database at the given URI (e.g., `datomic:sql://dbname?jdbc:postgresql://...`) |
+| `createDatabase(Object uri)` | `boolean` | Create a new database; returns true if created, false if already exists |
+| `deleteDatabase(Object uri)` | `boolean` | Delete a database and all its data |
+| `renameDatabase(Object uri, String newName)` | `boolean` | Rename a database |
+| `getDatabaseNames(Object uri)` | `List<String>` | List all database names in a storage |
+| `administerSystem(Map params)` | `Object` | Perform administrative operations |
+| `q(Object query, Object... args)` | `Collection<List<Object>>` | Execute a Datalog query |
+| `query(Object query, Object... args)` | `<T> T` | Execute a query with typed result |
+| `qseq(Object query, Object... args)` | `Stream<Object>` | Execute query returning a lazy stream |
+| `tempid(Object partition)` | `Object` | Create a temporary ID for a partition |
+| `tempid(Object partition, long num)` | `Object` | Create a temporary ID with explicit number |
+| `resolveTempid(Database db, Object tempids, Object tempid)` | `Object` | Resolve a tempid to a permanent entity ID after transaction |
+| `toT(Object tx)` | `long` | Convert transaction identifier to transaction number (t) |
+| `toTx(long t)` | `Object` | Convert transaction number to transaction entity ID |
+| `part(Object entityId)` | `Object` | Get the partition of an entity ID |
+| `squuid()` | `UUID` | Generate a sequential UUID (SQUUID) for better indexing locality |
+| `squuidTimeMillis(UUID squuid)` | `long` | Extract timestamp from a SQUUID |
+| `function(Map params)` | `Fn` | Create a transaction function from code |
+| `shutdown(boolean shutdownCaffeine)` | `void` | Shut down the Peer (release resources) |
+| `cancel(Object fut)` | `void` | Cancel a running future/query |
+
+### datomic.Connection — Database Connection
+
+A `Connection` represents a connection to a specific database. It is the interface for submitting transactions and accessing the database value.
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `db()` | `Database` | Get the current database value (immutable snapshot) |
+| `log()` | `Log` | Get the transaction log for this database |
+| `transact(List txData)` | `ListenableFuture<Map>` | Submit a transaction synchronously; returns future with result map |
+| `transact(List txData, Object timeout)` | `ListenableFuture<Map>` | Submit transaction with explicit timeout |
+| `transactAsync(List txData)` | `ListenableFuture<Map>` | Submit transaction asynchronously |
+| `transactAsync(List txData, Object timeout)` | `ListenableFuture<Map>` | Submit async with timeout |
+| `sync()` | `ListenableFuture<Database>` | Wait for all transactions up to current time to complete |
+| `sync(long t)` | `ListenableFuture<Database>` | Wait for database to reach at least transaction t |
+| `syncIndex(long t)` | `ListenableFuture<Database>` | Wait for index to include transactions up to t |
+| `syncSchema(long t)` | `ListenableFuture<Database>` | Wait for schema changes up to t to be visible |
+| `syncExcise(long t)` | `ListenableFuture<Database>` | Wait for excision (deletion) up to t to complete |
+| `requestIndex()` | `boolean` | Request background indexing job to run |
+| `txReportQueue()` | `BlockingQueue<Map>` | Subscribe to transaction report queue (receives all committed transactions) |
+| `removeTxReportQueue()` | `void` | Unsubscribe from transaction report queue |
+| `gcStorage(Date olderThan)` | `void` | Trigger garbage collection of storage older than date |
+| `release()` | `void` | Release connection resources |
+
+**Transaction Result Map Keys:**
+- `:db-before` — Database value before transaction
+- `:db-after` — Database value after transaction
+- `:tx-data` — List of datoms asserted/retracted by transaction
+- `:tempids` — Map of tempids to permanent entity IDs
+
+### datomic.Database — Database Value
+
+A `Database` is an immutable value representing a snapshot of the database at a specific point in time. It provides methods for querying and traversing datoms.
+
+**Constants (Index Identifiers):**
+| Constant | Description |
+|----------|-------------|
+| `EAVT` | Entity-Attribute-Value-Tx index (row-like, entity-first) |
+| `AEVT` | Attribute-Entity-Value-Tx index (column-like, attribute-first) |
+| `AVET` | Attribute-Value-Entity-Tx index (value lookups, requires `:db/index` or `:db/unique`) |
+| `VAET` | Value-Attribute-Entity-Tx index (reverse references, for `:db.type/ref`) |
+
+**Metadata Methods:**
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `id()` | `String` | Database ID |
+| `basisT()` | `long` | Transaction number (t) of this database value |
+| `nextT()` | `long` | Next available transaction number |
+| `asOfT()` | `Long` | If this is an as-of view, the basis t; null otherwise |
+| `sinceT()` | `Long` | If this is a since view, the basis t; null otherwise |
+| `isHistory()` | `boolean` | True if this is a history database (includes retractions) |
+| `isFiltered()` | `boolean` | True if this database has a filter applied |
+
+**Navigation Methods:**
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `entity(Object entityId)` | `Entity` | Get entity by ID, ident, or lookup ref |
+| `attribute(Object attrId)` | `Attribute` | Get attribute by ID or ident |
+| `ident(Object entityId)` | `Object` | Get the ident keyword for a schema entity |
+| `entid(Object ident)` | `Object` | Get the entity ID for an ident |
+| `entidAt(Object ident, Object t)` | `Object` | Get entity ID for ident at a specific time |
+
+**Datom Access Methods:**
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `datoms(Object index, Object... components)` | `Iterable<Datom>` | Get datoms matching pattern from index |
+| `seekDatoms(Object index, Object... components)` | `Iterable<Datom>` | Seek to position, return all datoms from there |
+| `indexRange(Object attrId, Object start, Object end)` | `Iterable<Datom>` | Get datoms in value range for attribute |
+
+**Query Methods:**
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `pull(Object pattern, Object eid)` | `Map` | Pull entity data using pull pattern |
+| `pull(Object pattern, Object eid, Object opts)` | `Object` | Pull with options |
+| `pullMany(Object pattern, List eids)` | `List<Map>` | Pull multiple entities |
+| `pullMany(Object pattern, List eids, Object opts)` | `Object` | Pull many with options |
+| `indexPull(Object opts)` | `Stream<Object>` | Streaming index pull |
+
+**Database View Methods:**
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `asOf(Object point)` | `Database` | View database as of a specific time/point |
+| `since(Object point)` | `Database` | View database since a specific time/point |
+| `history()` | `Database` | View full history (includes retractions) |
+| `filter(Predicate<Datom> pred)` | `Database` | Create filtered view with custom predicate |
+| `filter(Object filterFn)` | `Database` | Create filtered view with filter function |
+| `with(List txData)` | `Map` | Simulate transaction (returns db-with-tx, does not commit) |
+| `with(List txData, Object txMeta)` | `Map` | Simulate with transaction metadata |
+| `invoke(Object fn, Object... args)` | `Object` | Invoke a database function |
+| `dbStats()` | `Map` | Get database statistics |
+
+### datomic.Entity — Entity Interface
+
+Represents a single entity in the database.
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `get(Object attr)` | `Object` | Get attribute value (returns set for cardinality-many) |
+| `touch()` | `Entity` | Eagerly load all attributes (returns self) |
+| `keySet()` | `Set<String>` | Set of attribute idents this entity has |
+| `db()` | `Database` | Database this entity belongs to |
+
+### datomic.Attribute — Schema Attribute Interface
+
+Represents a schema attribute definition.
+
+| Constant | Description |
+|----------|-------------|
+| `CARDINALITY_ONE` | Single value per entity |
+| `CARDINALITY_MANY` | Multiple values per entity (set) |
+| `UNIQUE_IDENTITY` | Unique identity constraint (upsert) |
+| `UNIQUE_VALUE` | Unique value constraint (no duplicates) |
+| `TYPE_REF` | Reference type |
+| `TYPE_STRING`, `TYPE_LONG`, `TYPE_DOUBLE`, etc. | Value types |
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `id()` | `Object` | Entity ID of this attribute |
+| `ident()` | `Object` | Keyword ident (e.g., `:user/email`) |
+| `valueType()` | `Object` | Value type keyword |
+| `cardinality()` | `Object` | Cardinality (`:db.cardinality/one` or `/many`) |
+| `unique()` | `Object` | Uniqueness constraint or null |
+| `isComponent()` | `boolean` | True if this is a component attribute |
+| `isIndexed()` | `boolean` | True if AVET index is maintained |
+| `hasAVET()` | `boolean` | True if AVET index is maintained |
+| `hasNoHistory()` | `boolean` | True if history is not retained |
+| `hasFulltext()` | `boolean` | True if fulltext index is maintained |
+
+### datomic.Datom — Single Datum Interface
+
+A datom is a single 5-tuple fact: `[entity attribute value tx added]`.
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `e()` | `Object` | Entity ID (e) |
+| `a()` | `Object` | Attribute ID (a) |
+| `v()` | `Object` | Value (v) |
+| `tx()` | `Object` | Transaction entity ID (tx) |
+| `added()` | `boolean` | True if assertion, false if retraction |
+| `get(int n)` | `Object` | Get component by index (0=e, 1=a, 2=v, 3=tx, 4=added) |
+
+### datomic.Log — Transaction Log Interface
+
+Access to the immutable transaction log.
+
+| Constant | Description |
+|----------|-------------|
+| `T` | Key for transaction number in log entries |
+| `DATA` | Key for transaction data in log entries |
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `txRange(Object start, Object end)` | `Iterable<Map>` | Get transactions in range (inclusive start, exclusive end) |
+
+Each log entry map contains:
+- `:t` — Transaction number
+- `:data` — Collection of datoms in that transaction
+
+### datomic.functions.Fn — Transaction Function Interface
+
+For defining functions that run inside the transactor.
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `lang()` | `String` | Language (`"clojure"` or `"java"`) |
+| `params()` | `List<String>` | Parameter names |
+| `code()` | `String` | Function source code |
+
+Transaction functions are created via `Peer.function(Map)` with keys:
+- `:lang` — `"clojure"` (default) or `"java"`
+- `:params` — Vector of parameter symbols
+- `:code` — Function body as string
+
+### datomic.QueryRequest — Query Configuration
+
+Builder for configuring complex queries with timeouts.
+
+| Constant | Description |
+|----------|-------------|
+| `QUERY` | Query key |
+| `ARGS` | Arguments key |
+| `TIMEOUT` | Timeout milliseconds key |
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `create(Object query, Object... args)` | `QueryRequest` | Static factory method |
+| `timeout(long ms)` | `QueryRequest` | Set query timeout |
+| `asData()` | `Map` | Convert to map representation |
+
+### datomic.ListenableFuture — Async Result Interface
+
+Returned by async operations; extends `java.util.concurrent.Future`.
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `addListener(Runnable listener, Executor executor)` | `void` | Add callback to run when future completes |
+
+### Usage Summary: Transactor Interaction Flow
+
+The transactor is a background process; applications interact with it through the Peer API:
+
+```
+// 1. Connect (establishes connection to transactor)
+Connection conn = Peer.connect("datomic:sql://mydb?jdbc:postgresql://localhost/datomic");
+
+// 2. Query current database value (reads directly from storage, no transactor involved)
+Database db = conn.db();
+Iterable<Datom> datoms = db.datoms(Database.AVET, 
+                                   db.entid("user/email"), 
+                                   "alice@example.com");
+
+// 3. Submit transaction (goes to transactor for serialization)
+List tx = Arrays.asList(
+    Peer.tempid(":db.part/user"),
+    ":db/add",
+    ":user/name",
+    "Alice"
+);
+ListenableFuture<Map> future = conn.transact(tx);
+Map result = future.get();  // Wait for completion
+
+// 4. Access transaction result
+Database dbAfter = (Database) result.get(Connection.DB_AFTER);
+Map tempids = (Map) result.get(Connection.TEMPIDS);
+```
+
+The transactor handles:
+- Transaction serialization and validation
+- Schema enforcement
+- Unique constraint checking
+- Transaction function execution
+- Root pointer CAS for atomic commits
+- Broadcasting novelty to all connected Peers
