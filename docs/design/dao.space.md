@@ -47,6 +47,7 @@ facts; whatever else an interpreter materializes is its own, not the medium).
 **Related documents:**
 - `docs/design/dao.qi.md` — the sibling point in the moduli space: the vector field made from the same n-tuples, matching by geometric proximity (cosine) rather than exact unification
 - `docs/design/dao.jing.md` — the storage boundary: the content-addressed store of opaque bytes this space reads as datoms
+- `docs/design/dao.space.query.md` — the query library's design record: index realization, the `read-datoms` contract, and the Target Architecture rulings
 - `docs/design/dao.stream.md` — the append-only log primitive datoms are written through
 - `docs/agents/datom-spec.md` — datoms, content-addressed identity, the gauge/base framing
 - `docs/datomic.md` — the Datomic architecture the Transactor/Storage/Query split maps to
@@ -124,7 +125,10 @@ in-memory index, answer. It owns no durable state.
 ```clojure
 (require '[dao.space.query :as query])
 
-;; q — full Datalog (joins, negation, aggregation, predicates) over all of storage
+;; q — Datalog over all of storage. The design contract is full Datalog
+;; (joins, negation, aggregation, predicates); today's implementation is
+;; joins only — negation-free conjunction, per dao.space.query's own
+;; namespace docstring. Negation/aggregation/predicates are target surface.
 (query/q '[:find ?id ?task
            :where [?id :work/status :todo]
                   [?id :work/task ?task]]
@@ -364,6 +368,19 @@ identity. Because streams are append-only there is no destructive `take`: to "cl
 agent *appends a new datom* asserting the claim, and "current state" is a read-side query over
 the accreted datoms. This is the tuple space working as designed — coordination with no
 broker, no message-format negotiation, and no leader election.
+
+**The example below is target surface, not runnable today**, on three counts. The
+`(not [_ :work/claims ?w])` clause needs negation, which `q` does not implement yet (see The
+Query Library, above). The `{:type :dao-stream :store store ...}` descriptor — a stream that
+persists its appends into a jing store — is not a registered `dao.stream` type; today a
+stream owner publishes by `cas!` on its `:root/datoms` root directly, and the dependency
+between the layers is in fact inverted (`dao.jing`'s file backend uses `dao.stream.log`
+internally as its byte transport; see `dao.space.query.md`, *Reality check*). And
+"current state" as a query result — masking retracted datoms and superseded claims — is
+deferred: `match`/`q` today answer over the historical log exactly as given, retractions and
+all, and a caller wanting current state must filter by `dao.datom/asserted?` itself
+(see `dao.space.query`'s namespace docstring). The example expresses the coordination
+model those pieces exist to serve:
 
 ```clojure
 (defn producer [store]

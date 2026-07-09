@@ -1,6 +1,9 @@
 # Coordinate Addressing & Materialized Views — Design Discussion
 
-Status: discussion record (2026-07-04). Decisions are tentative; open items marked below.
+Status: rulings recorded 2026-07-09 (see *Rulings*, below), resolving the tentative "Lean"
+framing of the 2026-07-04 discussion that precedes them. Rulings are design decisions, not
+implementation: the Target Architecture (owner-built, peers-merge B-Tree segments) is not yet
+built — see `dao.jing.md`, *Current Scope*.
 Origin: follow-on from the n-tuple query work (`docs/design/dao.space.md`, *Arity: n-tuples*) and
 `docs/glm-review.md`.
 
@@ -252,25 +255,70 @@ projection of some prefix of the log. And because any reader can reproduce a ser
 folding the canonical tuples, a served view stays "acceleration of the one medium," not a second
 coordinating substrate — preserving the doc's "views are interpreter-local / not the medium" intent.
 
-## Open decisions
+## Rulings
 
-- **Layering** — *converged*: convention-over-KV at the semantic layer; coordinate-aware at the
-  structural layer.
-- **Expose how** — *open*. Opt-in capability protocol (keep `IKVStore` minimal; add a separate
-  `CoordinateStore`/`IndexedLogStore` protocol backends may implement; query fast-paths when
-  present, folds when not) vs. grow `IKVStore` itself. Lean: opt-in capability.
-- **Coordinate semantics** — *open*. Reference (lazy, reads live logs) vs. snapshot value (carries
-  tuples). Lean: reference for a coordinating medium.
-- **Provenance** — *open*. Retain each tuple's source-log identity (traceable; "same entity across
-  logs" as a real join) vs. merge away boundaries. Lean: retain.
-- **Freshness policy** — *open*. Served views fresh-to-tip vs. explicit (monotone) lag. Lean:
-  explicit lag; default to interpreter-materialized fold for correctness, storage-materialized
-  views as opt-in acceleration.
+**Layering** — *converged* (unchanged from the 2026-07-04 discussion): convention-over-KV at
+the semantic layer; coordinate-aware at the structural layer.
 
-## What this does not decide
+Every ruling below resolves by the same move: it turns out to already be answered by decisions
+this project made elsewhere (the kickoff-hash namespace in `datom-spec.md`, immutable
+content-addressed segments in `dao.jing.md`, `tonsky/persistent-sorted-set`'s durable-storage
+API named in *Index Realization*, above) — they just hadn't been connected back to this
+document. Only Ruling 1 is a genuinely new call, and it is forced, not really contestable
+either: it follows directly from "storage never interprets," the one invariant repeated in
+every `dao.jing*` doc.
 
-- Whether `dao.stream` and `dao.jing` get formally unified or the coordinate stays a convention
-  layered over the dumb KV (the layering lean is the latter, entangled with "expose how").
-- Index maintenance ownership (writer-built / incremental / rebuild-per-query) — see
-  *Index Realization*, above.
-- Whether the coordinate carries arity declarations (schema) or infers arity from contents.
+**Ruling 1 — Expose how: no new protocol.** Not "opt-in capability protocol vs. grow
+`IKVStore`" — neither. Everything the Target Architecture needs is buildable on the existing
+four `IKVStore` methods (`put!`/`cas!`/`get`/`delete!`). Immutable B-Tree nodes are just more
+content-addressed blobs, written with `jing/segment-key` (real as of this session — see
+`dao.jing.md`, *The Segment and Root Keyspace*). Lazy traversal is a **reader-side** property:
+`persistent-sorted-set`'s durable-storage API pulls a node only when the traversal reaches it,
+calling `jing/get` per node; storage never scans or seeks, it just answers `get k`. The
+stream's mutable root moves from `{:datoms [...]}` to `{:indexes {:eavt <segment-key>, :aevt
+<segment-key>, :avet <segment-key>}}`, published with the same `cas!` as today. Any richer
+"storage-side materialization" would mean a backend *computing* something, which collides
+head-on with storage-never-interprets — so this isn't a coin flip, it resolves by refusing to
+let storage get smarter, ever. A backend-private network shortcut (e.g. `dao.jing.dht`
+batching a segment range in one round trip) stays possible, but lives entirely inside that
+backend's own transport, invisible to `IKVStore` — never a protocol addition.
+
+**Ruling 2 — Coordinate semantics: reference at naming, snapshot at read.** Not actually
+either/or. A coordinate (a stream's `:root/<name>` key) is a **reference** —
+dereferencing it always gets the current published root. But each individual `get` of that
+root resolves to an **immutable value**: the segment tree reachable from that `:rev`. This is
+Datomic's `d/db` pattern exactly (a db value is immutable; calling `d/db` again gets a fresher
+one). No new mechanism — it falls straight out of "immutable segments + mutable root pointer,"
+the shape `dao.jing.md` already commits to.
+
+**Ruling 3 — Provenance: retain, via namespace stamping — not a separate mechanism.**
+"Retain each tuple's source-log identity" *is* the namespace-stamping mechanism already fully
+specified in `datom-spec.md`: stream identity = kickoff hash, global entity form
+`[namespace offset]`, stamped only at fold time, never by a writer. This was never an
+independent decision — it is the same not-yet-implemented piece `dao.jing.md`'s Current Scope
+and this document's `read-datoms` Contract (above) both flag as "not yet." Nothing new to
+design; it resolves by implementing what is already on paper.
+
+**Ruling 4 — Freshness: explicit, monotone lag — confirmed, not new.** Owner-built segments
+mean a reader's merged view reflects whatever root revision each source stream had *at fold
+time* — never live, never blocking. This is exactly what *Freshness*, above, already argues
+("a served view is always a faithful projection of some prefix of the log"). A caller wanting
+fresher data re-reads the roots and re-folds; there is no promise beyond that. This ruling
+was already answered by this document's own reasoning one section up — Ruling 4 just marks
+it resolved rather than open.
+
+**Ruling 5 — `dao.stream`/`dao.jing` unification: ruled out.** The coordinate stays a
+convention layered over the dumb KV. Every doc in this cluster (`dao.jing.dht.md`'s division
+of labor, `dao.jing.md`'s layering) depends on `dao.stream` staying upstream plumbing and
+`dao.jing` staying the dumb boundary; formally unifying them would undo that.
+
+**Ruling 6 — Index maintenance ownership: owner-built, peers-merge is the Target.** Full stop
+— matches this document's own naming in *Index Realization*, above. Incremental indexing is
+the degenerate case where owner and reader coincide. Rebuild-per-query stays the permanent
+fallback for small stores or when no persisted index exists yet — never removed, just no
+longer the only option.
+
+**Ruling 7 — Coordinate arity: declared, at kickoff — not inferred.** `datom-spec.md`'s
+kickoff metadata already includes `:dimension`: arity is declared at stream creation, at the
+kickoff-hash layer. The coordinate model needs no new declaration mechanism; it reads what is
+already there.
