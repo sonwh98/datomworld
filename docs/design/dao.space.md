@@ -165,7 +165,7 @@ never on a stream-local id.
 
 `dao.jing` holds only the index's immutable byte segments and a mutable root reference — the
 same substrate Datomic persists its covered indexes into (opaque segment blobs plus a root
-pointer; see [`dao.jing.md`](dao.jing.md), *The Index Substrate*). The *index* itself — a
+pointer; see [`dao.jing.md`](dao.jing.md), *The Segment and Root Keyspace*). The *index* itself — a
 covered B-Tree (EAVT/AEVT/AVET/VAET) a reader can traverse and answer queries from — is the
 interpretation this library projects onto those bytes; storage never knows the segments form
 an index. How the index is maintained (rebuild-per-query, incremental, or

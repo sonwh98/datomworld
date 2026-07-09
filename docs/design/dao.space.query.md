@@ -138,8 +138,8 @@ itself. Same views, different layer.
 ## Index Realization
 
 `dao.jing` exposes only the substrate an index is built from — immutable, content-addressed
-byte segments plus one mutable root pointer (see [`dao.jing.md`](dao.jing.md), *The Index
-Substrate*) — and knows nothing of indexes. The *index* itself, a covered B-Tree
+byte segments plus one mutable root pointer (see [`dao.jing.md`](dao.jing.md), *The Segment
+and Root Keyspace*) — and knows nothing of indexes. The *index* itself, a covered B-Tree
 (EAVT/AEVT/AVET/VAET) a query can traverse and answer from, is the interpretation this
 library projects onto those bytes. How a reader builds and maintains it is a pure performance
 choice made *above* the storage boundary; all strategies answer identically, the index being
@@ -172,6 +172,71 @@ environments it degrades to the built-in `clojure.core/sorted-set-by` (a standar
 tree). Because the built-in set cannot lazily load chunks over the network, Dart peers must
 load the entire index into memory. The fix is either a pure-Clojure B-Tree port or a custom
 Dart lazy-loading implementation.
+
+## The `read-datoms` Contract
+
+`dao.space.md`'s `fold` sketch calls a function, `read-datoms`, to turn what `IKVStore/get`
+returns into the `[e a v t m]` vectors the index is built from (`docs/design/dao.space.md`,
+*The Query Library*: "`read-datoms` parses B-Tree segments pulled from `dao.jing` into datoms —
+storage has no datoms API of its own"). That phrasing describes the Target Architecture this
+document defers to below (segmented, lazily-pulled B-Tree chunks) — the actual function today
+does something narrower, spelled out next. Either way, this is the exact seam Datomic's Peer
+occupies internally when it decompresses and decodes storage's index-segment blobs before
+building indexes from them — see `docs/datomic.md`. `dao.jing.md` correctly says nothing about
+this: decoding bytes into datoms is meaning-making, and storage stays pure syntax
+(`dao.jing.md`, *What DaoJing Is*). The contract belongs here, at the Peer layer.
+
+**Where the byte decode actually happens, today: inside the `IKVStore` backend, not in
+`read-datoms` itself.** The real function (`src/cljc/dao/space/query.cljc:69-73`):
+
+```clojure
+(defn read-datoms
+  ([store] (read-datoms store default-datoms-key))
+  ([store datoms-key] (:datoms (jing/get store datoms-key {:datoms []}))))
+```
+
+is a pure `:datoms` extraction over whatever `jing/get` returns — it never touches bytes or
+calls `edn/read-string` itself. `IKVStore/get`'s contract is "returns the v-map," already
+decoded data, not bytes (`dao.jing.md`, *The Storage Interface*); `read-datoms` just pulls the
+`:datoms` key out of that map. The `pr-str`→`edn/read-string` round-trip is a `KVFile`-specific
+wire format, not something every `IKVStore` backend does: `KVFile.get`
+(`src/cljc/dao/jing/file.cljc:206-226`) reads its on-disk bytes and calls
+`(edn/read-string payload)` before returning the v-map, while `KVMem.get` returns the map it
+already holds in an atom — no bytes, no decode, ever. So for `KVMem`, "`dao.jing` hands back
+opaque bytes" isn't even true; only `KVFile` (and, differently, `dao.jing.dht`) has bytes to
+decode at all, and that decode is already finished by the time `read-datoms` sees the result.
+
+**Current contract** (matches `dao.jing.md`, *Current Scope*):
+
+- **Input.** A single `IKVStore` `get` of the stream's root key (`:root/datoms`), returning an
+  already-decoded v-map shaped `{:datoms [...]}` — one flat vector of already-formed datom
+  tuples, not yet segmented into B-Tree chunks. Whether that map arrived via a `pr-str`/`edn`
+  round-trip (`KVFile`), a plain in-memory reference (`KVMem`), or a network fetch
+  (`dao.jing.dht`) is backend-internal and invisible to `read-datoms`.
+- **Extract.** `read-datoms` pulls the `:datoms` vector out of that map and returns it as-is —
+  no parsing, no B-Tree traversal, no lazy pull, consistent with today's "rebuild per query"
+  strategy (*Index Realization*, above). (Where a backend does decode bytes, it
+  uses safe deserializers — such as `clojure.edn/read-string` for `KVFile` or
+  Transit for `dao.jing.dht` — never unsafe `read-string`/`eval`.)
+- **Namespace stamping: not yet applied.** `dao.space.md` describes each stream's datoms as
+  stamped with the stream's namespace before indexing so that two streams' local id `1025`
+  stay distinct. `dao.jing.md`'s Current Scope defers this ("the reader's per-member namespace
+  is not yet derived from the canonical kickoff hash, because content addressing is not yet
+  load-bearing"). `read-datoms` today therefore returns datoms *unstamped*; cross-stream id
+  collision is a known, currently-open gap, not a `read-datoms` bug, until content addressing
+  lands.
+- **`t`/`m` defaults.** Frames missing a transaction coordinate or metadata slot fall back to
+  `dao.datom/default-op`, the same convention `dao.space.md`'s entity-map normalization uses
+  (*Source Polymorphism*).
+
+**Target contract** (not yet implemented; see *Index Realization*, above): once segments are
+B-Tree chunks written via `put!`, `read-datoms` becomes the layer that actually pulls and
+decodes bytes — each traversal step fetches only the chunk it needs from `IKVStore` and
+interprets those bytes into B-Tree nodes, rather than extracting one flat `:datoms` vector up
+front. The function name stays, and callers still hand it a store (and optionally a key) and
+get datoms back — same `(store)`/`(store datoms-key)` call shape as today's
+`query.cljc:69-73` — but what happens between call and return changes: `read-datoms` itself
+starts doing the byte-level work it does not do today.
 
 ## Freshness
 
