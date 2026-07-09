@@ -144,13 +144,17 @@ Within a single stream `as-of t` is exact (the stream's own append order). A **c
 rather than per-stream `t` — and its precise semantics are deferred (see ADR 0001, Open
 Question 2).
 
-Internally the library folds the store's datoms into an index and queries it. Each stream's
-datoms are stamped with the stream's namespace before indexing, so two streams' local id
-`1025` stay distinct; "same logical entity across streams" is a join on shared *values*,
-never on a stream-local id.
+Internally the library folds the store's datoms into an index and queries it. The design calls
+for each stream's datoms to be stamped with the stream's namespace before indexing, so two
+streams' local id `1025` stay distinct; "same logical entity across streams" is meant to be a
+join on shared *values*, never on a stream-local id. **Not yet implemented**: `dao.jing.md`'s
+Current Scope is explicit that this namespace stamping is not yet derived from the canonical
+kickoff hash, and `dao.space.query.md`'s `read-datoms` Contract confirms `read-datoms` today
+returns datoms *unstamped* — cross-stream local-id collision is a known, currently-open gap,
+not a bug, until content addressing is load-bearing enough to derive a stream's namespace.
 
 ```clojure
-;; Sketch of the library, rebuild-per-query form (pedagogical; not the v1 path).
+;; Sketch of the library, rebuild-per-query form (pedagogical; not today's path).
 ;; `read-datoms` parses B-Tree
 ;; segments pulled from dao.jing into datoms — storage has no datoms API of its own.
 (ns dao.space.query
@@ -173,8 +177,8 @@ owner-built/peers-merge) is a concern of the reader above storage, realized on
 `tonsky/persistent-sorted-set`; see [`dao.space.query.md`](dao.space.query.md), *Index
 Realization*. All variants answer identically.
 
-**v1 status.** v1 stores a stream's full datom vector under one mutable root key
-(`default-datoms-key`, `:root/datoms`, as `{:datoms [...]}`) and reads it wholesale, folding
+**Current status.** Today the store holds a stream's full datom vector under one mutable root
+key (`default-datoms-key`, `:root/datoms`, as `{:datoms [...]}`) and reads it wholesale, folding
 it into a fresh in-memory index on every query with `tonsky/persistent-sorted-set` as the
 sorted-set implementation — not yet as a lazily-pulled B-Tree segment store. This is the
 "rebuild per query" strategy ("kept only as the conceptual baseline"; see
@@ -279,13 +283,13 @@ Trusted peers and public data are the common case: embedded library, direct acce
 match. When control is required, the architecture switches to controlled mode, where the unit
 of sharing is the governed interpreter, backed by an immutable accountability log.
 
-**v1 ships public mode only.** Controlled mode — the governed interpreter, capabilities,
-`m`-policy — is specified but out of scope for v1 (see the security doc and ADR 0002).
+**Public mode only, today.** Controlled mode — the governed interpreter, capabilities,
+`m`-policy — is specified but not yet implemented (see the security doc and ADR 0002).
 
 ## A Family of Interpreters
 
 The query library above presents one surface: Datalog over the covered-index view
-(EAVT/AEVT/AVET/VAET). That is the default and the v1 package, but it is not the definition of
+(EAVT/AEVT/AVET/VAET). That is the default and what's implemented today, but it is not the definition of
 `dao.space`. More generally, **`dao.space` is a family of interpreters over one canonical
 datom history** — a *moduli space* of databases. The datoms in [`dao.jing`](dao.jing.md) are
 the fixed substrate every member shares; a member is fixed by which **materialized views** it
