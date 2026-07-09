@@ -1,9 +1,10 @@
 # Coordinate Addressing & Materialized Views — Design Discussion
 
 Status: rulings recorded 2026-07-09 (see *Rulings*, below), resolving the tentative "Lean"
-framing of the 2026-07-04 discussion that precedes them. Rulings are design decisions, not
-implementation: the Target Architecture (owner-built, peers-merge B-Tree segments) is not yet
-built — see `dao.jing.md`, *Current Scope*.
+framing of the 2026-07-04 discussion that precedes them. The Target Architecture
+(owner-built, lazily-pulled B-Tree segments) shipped 2026-07-10 on the JVM via
+`dao.space.query/publish-index!` — see *Index Realization*, below, for what is implemented
+and what remains (non-JVM laziness, segment GC, k-way federated merge).
 Origin: follow-on from the n-tuple query work (`docs/design/dao.space.md`, *Arity: n-tuples*) and
 `docs/glm-review.md`.
 
@@ -159,22 +160,43 @@ the same set of datoms (see ADR 0001's monoid homomorphism):
   decentralized analog of Datomic's transactor-built index (see ADR 0001, ruling 5 and Open
   Question 1).
 
-The index-once / lazy-pull behavior in the Target Architecture is realized using
-**tonsky/persistent-sorted-set**, which provides a B-Tree implementation that natively
-supports lazy loading and segment chunking:
+**Status: implemented** (`dao.space.query/publish-index!`, 2026-07-10). The owner builds the
+three covered indexes with **tonsky/persistent-sorted-set** (`from-sequential`, default
+`:branching-factor 512` — Datomic-style fat segments) and persists them through psset's
+`IStorage` hook implemented over `IKVStore`:
 
-1. The index builder (a reader concern, in this library) writes segment chunks to `dao.jing`
-   as opaque bytes with `put!`.
-2. The query lazily pulls those segments from the store *only* when traversed, interpreting
-   the bytes back into B-Tree nodes.
+1. `publish-index!` (the index builder — a reader-layer concern, in this library) writes each
+   B-Tree node as an immutable, content-addressed segment blob (`put!` under
+   `jing/segment-key`; Merkle by construction, since psset stores children before parents),
+   then advances the stream root to `{:indexes {:eavt <segment-key> ...} :count n}` via
+   `cas!`. Republishing unchanged data is idempotent: same content, same keys, same roots.
+2. On the JVM, a single-handle query restores those indexes lazily (`psset/restore-by`):
+   nothing is fetched until a traversal reaches it, and `slice`-based seeks load only the
+   descent path plus the matching range — measured in the test suite as 2 segment fetches
+   out of 26 for a bound-`e` match over 600 datoms at `:branching-factor 32`
+   (`publish-index-lazy-fetch`, which asserts the point lookup stays under 6 fetches while
+   the tree exceeds 15 segments).
+3. Node blobs are plain EDN maps (leaf `{:keys [...]}`, branch
+   `{:level n :keys [...] :addresses [...]}`), so **readability is universal**: cljs/cljd —
+   and the as-of and federated paths on any platform — read an `{:indexes ...}` root by
+   eagerly walking the node graph with ordinary `jing/get` (`walk-index-datoms`), no psset
+   involvement. Both root shapes (`{:datoms [...]}` wholesale and `{:indexes ...}`) stay
+   readable everywhere.
+
+**Laziness is JVM-only for now.** psset's durability API (`IStorage`/`restore`) is a
+Clojure-only feature of that library — absent from its ClojureScript implementation in the
+latest release (0.3.0) and master (its README scopes durability to "Clojure version"), and
+`cljd` has no port at all — quite apart from the deeper issue that JS's async-only IO cannot
+block mid-traversal the way a synchronous node fault requires. Non-JVM platforms therefore
+read eagerly (correct, not lazy). Known gap, deliberately out of scope: orphaned segments
+from superseded publishes are never collected (`psset/walk-addresses` is the future GC hook),
+and federated queries over multiple lazy indexes fall back to the eager walk rather than
+k-way merging.
 
 **Platform degradation (`cljd`).** This library uses `tonsky/persistent-sorted-set` for its
-sorted-set (and, in the Target Architecture, for lazy B-Tree chunk pulling). That library
-lacks a Dart (`cljd`) implementation and relies heavily on JVM/JS macros, so in `cljd`
-environments it degrades to the built-in `clojure.core/sorted-set-by` (a standard red-black
-tree). Because the built-in set cannot lazily load chunks over the network, Dart peers must
-load the entire index into memory. The fix is either a pure-Clojure B-Tree port or a custom
-Dart lazy-loading implementation.
+in-memory sorted-set on clj/cljs. That library lacks a Dart (`cljd`) implementation, so in
+`cljd` environments it degrades to the built-in `clojure.core/sorted-set-by` (a standard
+red-black tree), and index reads take the eager walk described above.
 
 ## The `read-datoms` Contract
 
@@ -232,14 +254,16 @@ decode at all, and that decode is already finished by the time `read-datoms` see
   `dao.datom/default-op`, the same convention `dao.space.md`'s entity-map normalization uses
   (*Source Polymorphism*).
 
-**Target contract** (not yet implemented; see *Index Realization*, above): once segments are
-B-Tree chunks written via `put!`, `read-datoms` becomes the layer that actually pulls and
-decodes bytes — each traversal step fetches only the chunk it needs from `IKVStore` and
-interprets those bytes into B-Tree nodes, rather than extracting one flat `:datoms` vector up
-front. The function name stays, and callers still hand it a store (and optionally a key) and
-get datoms back — same `(store)`/`(store datoms-key)` call shape as today's
-`query.cljc:69-73` — but what happens between call and return changes: `read-datoms` itself
-starts doing the byte-level work it does not do today.
+**Segmented roots** (implemented 2026-07-10; see *Index Realization*, above): `read-datoms`
+now also accepts the owner-built root shape `{:indexes {:eavt <segment-key> ...}}`, reading
+it by eagerly walking the `:eavt` node graph with per-node `jing/get` calls
+(`walk-index-datoms`) and returning the collected datoms — same `(store)`/`(store datoms-key)`
+call shape, same datoms-out contract, both root shapes handled. Note where the *lazy* path
+ended up living: not in `read-datoms` (which is by definition the eager collect-everything
+read) but in `fold` — a single-handle JVM query bypasses `read-datoms` entirely and restores
+the persisted indexes lazily via psset `IStorage`, fetching nodes only as traversal reaches
+them. `read-datoms` remains the correctness path every platform and every fallback
+(as-of, federation) shares.
 
 ## Freshness
 

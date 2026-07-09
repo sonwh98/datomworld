@@ -1,11 +1,14 @@
 (ns dao.space.query
   "The Query boundary of the tuple space: `match` (Linda-style positional
   templates) and `q` (Datalog: joins, negation-free conjunction, one merged
-  index) over a **source**. Pure and stateless — it owns no durable state,
-  performs no writes, and enforces no schema; those are the write-side
-  Transactor's job (each `dao.stream` writer is its own), never the query
-  library's. See docs/design/dao.space.md, \"The Query Library\" and
-  \"Source Polymorphism\".
+  index) over a **source**. The read side is pure and stateless — it owns
+  no durable state and enforces no schema; schema is the write-side
+  Transactor's job (each `dao.stream` writer is its own). The one writing
+  entry point here is `publish-index!`, the owner-side index builder (a
+  reader-layer concern per dao.space.query.md, Index Realization): it
+  persists a stream's covered indexes as content-addressed segments and
+  advances the stream root. See docs/design/dao.space.md, \"The Query
+  Library\" and \"Source Polymorphism\".
 
   A source is, interchangeably (and freely mixed in a collection):
     - a single `dao.jing` IKVStore handle
@@ -15,13 +18,24 @@
     - a raw vector of datoms, `[[e a v t m] ...]`
     - a raw vector of entity maps, `[{:attr val ...} ...]`
 
-  Reading a `dao.jing` handle uses the simplest possible convention ahead
-  of the target B-Tree-segment architecture (dao.space.query.md, Index
-  Realization): each handle's datoms live wholesale at one mutable root,
-  `default-datoms-key` (`:root/datoms`), as `{:datoms [...]}`. This is the
-  documented rebuild-per-query baseline (\"kept only as the conceptual
-  baseline\", dao.space.md) — dao.space.query never writes there; a stream
-  owner does, exactly as it writes any other root.
+  Reading a `dao.jing` handle supports both root shapes at
+  `default-datoms-key` (`:root/datoms`):
+
+    - `{:datoms [...]}` — the wholesale rebuild-per-query baseline; the
+      whole vector is read and folded into a fresh in-memory index.
+    - `{:indexes {:eavt <segment-key> ...} :count n}` — owner-built covered
+      indexes, published by `publish-index!` as immutable content-addressed
+      B-Tree node blobs (dao.space.query.md, Index Realization). On the JVM
+      a single-handle query restores these lazily (psset IStorage: nothing
+      is fetched until a traversal reaches it, and slice-based seeks load
+      only the path plus the matching range). Everywhere else — cljs/cljd,
+      as-of bounds, federated collections — the node graph is walked
+      eagerly with plain jing/get: node blobs are ordinary EDN, so
+      readability is universal even though laziness is JVM-only for now
+      (psset durability is a Clojure-only feature of that library).
+
+  dao.space.query's read side never writes; a stream owner publishes,
+  either by cas!-ing `{:datoms [...]}` wholesale or via `publish-index!`.
 
   Deferred, not built here: current-state resolution (masking retracted
   datoms and superseding cardinality-one values) is named in ADR 0001 as a
@@ -31,7 +45,14 @@
   wanting current state must filter by `dao.datom/asserted?` itself."
   (:require [dao.datom :as datom]
             [dao.jing :as jing]
-            #?(:cljs [me.tonsky.persistent-sorted-set :as psset])))
+            ;; :cljd FIRST: the cljd host pass also matches :clj, and
+            ;; persistent-sorted-set has no Dart implementation.
+            #?@(:cljd []
+                :default [[me.tonsky.persistent-sorted-set :as psset]]))
+  #?@(:cljd []
+      :clj
+      [(:import
+         (me.tonsky.persistent_sorted_set Branch IStorage Leaf Settings))]))
 
 
 (def default-datoms-key
@@ -66,11 +87,37 @@
 ;; Source -> datoms
 ;; =============================================================================
 
+(defn- walk-index-datoms
+  "Eagerly collect every datom reachable from a persisted index node, in
+  index order, by walking the node graph with plain `jing/get`. Node blobs
+  are ordinary EDN maps (leaf `{:keys [...]}`, branch `{:level n :keys
+  [...] :addresses [...]}`), so this works on every platform — it needs no
+  persistent-sorted-set support, only storage reads. This is the
+  cross-platform (and as-of / federated) read path for `{:indexes ...}`
+  roots; the lazy path is `restored-indexes`, below, JVM-only."
+  [store address]
+  (if (nil? address)
+    () ; an empty index has no root node (psset/store of an empty set)
+    (let [node (jing/get store address nil)]
+      (when (nil? node)
+        (throw (ex-info "missing index segment" {:address address})))
+      (if-some [addresses (:addresses node)]
+        (mapcat #(walk-index-datoms store %) addresses)
+        (:keys node)))))
+
+
 (defn read-datoms
   "Read the datoms held at a dao.jing handle's datoms-key (default
-  `default-datoms-key`), or [] if never seeded."
+  `default-datoms-key`), or [] if never seeded. Handles both root shapes:
+  the wholesale `{:datoms [...]}` baseline, and the owner-built
+  `{:indexes {:eavt <segment-key> ...}}` shape published by
+  `publish-index!` (read by eagerly walking the `:eavt` node graph)."
   ([store] (read-datoms store default-datoms-key))
-  ([store datoms-key] (:datoms (jing/get store datoms-key {:datoms []}))))
+  ([store datoms-key]
+   (let [root (jing/get store datoms-key {:datoms []})]
+     (if-some [indexes (:indexes root)]
+       (vec (walk-index-datoms store (:eavt indexes)))
+       (:datoms root)))))
 
 
 (defn- entity-map->datoms
@@ -180,15 +227,19 @@
 
 (defn- sorted-index-by
   [cmp]
-  #?(:clj ((requiring-resolve 'me.tonsky.persistent-sorted-set/sorted-set-by)
-           cmp)
-     :cljs (psset/sorted-set-by cmp)
-     :cljd (sorted-set-by cmp)))
+  #?(:cljd (sorted-set-by cmp)
+     :default (psset/sorted-set-by cmp)))
 
 
 (defn- subseq-from
+  "All elements >= sentinel, in index order. On psset platforms this is
+  `slice` — a log-n descent that, on a lazily-restored set, loads only the
+  nodes on the seek path plus the matching range, never the nodes left of
+  the sentinel. The cljd fallback set has no slice; drop-while over seq is
+  linear but correct."
   [sorted-set cmp sentinel]
-  (drop-while #(neg? (cmp % sentinel)) (seq sorted-set)))
+  #?(:cljd (drop-while #(neg? (cmp % sentinel)) (seq sorted-set))
+     :default (psset/slice sorted-set sentinel nil cmp)))
 
 
 (defn index-datoms
@@ -200,15 +251,144 @@
    :avet (into (sorted-index-by avet-cmp) datoms)})
 
 
+;; =============================================================================
+;; Persisted indexes (Target Architecture: owner-built, lazily pulled)
+;; =============================================================================
+;; A stream owner persists its covered indexes as immutable, content-
+;; addressed B-Tree node blobs (put! under jing/segment-key — Merkle by
+;; construction, since psset stores children before parents) and publishes
+;; `{:indexes {:eavt <segment-key> ...} :count n}` at the stream root via
+;; cas!. Node blobs are plain EDN, so any platform can read them eagerly
+;; (walk-index-datoms, above); the *lazy* read path below rides
+;; persistent-sorted-set's IStorage/restore machinery, a Clojure-only
+;; feature of that library, so it is JVM-only for now.
+;; :cljd FIRST in every conditional: the cljd host pass also matches :clj.
+
+#?(:cljd nil
+   :clj
+   (defn- kv-storage
+     "psset IStorage over an IKVStore: nodes store as content-addressed
+     segment blobs; addresses are the segment keys."
+     ^IStorage [store]
+     (reify
+       IStorage
+       (store
+         [_ node]
+         (let [v (if (instance? Branch node)
+                   {:level (.level ^Branch node),
+                    :keys (vec (.keys ^Branch node)),
+                    :addresses (vec (.addresses ^Branch node))}
+                   {:keys (vec (.keys ^Leaf node))})
+               k (jing/segment-key v)]
+           (jing/put! store k v)
+           k))
+
+       (restore
+         [_ address]
+         (let [{:keys [level keys addresses], :as node}
+               (jing/get store address nil)]
+           (when (nil? node)
+             (throw (ex-info "missing index segment" {:address address})))
+           (if addresses
+             (Branch. (int level)
+                      ^java.util.List keys
+                      ^java.util.List addresses
+                      (Settings.))
+             (Leaf. ^java.util.List keys (Settings.))))))))
+
+
+#?(:cljd nil
+   :clj
+   (defn- restored-indexes
+     "Lazily-loaded {:eavt :aevt :avet} psset sets over a published root's
+     `:indexes` map. Nothing is fetched until a query traverses; slice
+     (subseq-from) then loads only the seek path plus the matching range."
+     [store indexes]
+     (let [storage (kv-storage store)]
+       {:eavt (psset/restore-by eavt-cmp (:eavt indexes) storage),
+        :aevt (psset/restore-by aevt-cmp (:aevt indexes) storage),
+        :avet (psset/restore-by avet-cmp (:avet indexes) storage)})))
+
+
+(defn- bound-datoms
+  [datoms as-of]
+  (if as-of (filter #(<= (compare-vals (datom-t %) as-of) 0) datoms) datoms))
+
+
 (defn fold
-  "Fold a source into an index, optionally bounded to datoms with t <= as-of."
+  "Fold a source into an index, optionally bounded to datoms with t <= as-of.
+  A single dao.jing handle whose root carries owner-built `:indexes` folds
+  lazily on the JVM (nothing loaded until traversal); every other shape —
+  as-of bounds, federated collections, raw vectors, non-JVM platforms —
+  takes the eager path (for `:indexes` roots, via walk-index-datoms)."
   ([source] (fold source nil))
   ([source as-of]
-   (let [datoms (source->datoms source)
-         datoms (if as-of
-                  (filter #(<= (compare-vals (datom-t %) as-of) 0) datoms)
-                  datoms)]
-     (index-datoms datoms))))
+   (or #?(:cljd nil
+          :clj (when (dao-jing-handle? source)
+                 ;; single-handle: read the root exactly once and dispatch
+                 ;; on its shape here, rather than falling through to
+                 ;; source->datoms and re-reading the same key
+                 (let [root (jing/get source default-datoms-key nil)
+                       indexes (:indexes root)]
+                   (if (and (nil? as-of)
+                            ;; a complete manifest only: an empty published
+                            ;; index has nil root addresses (walk of nil =>
+                            ;; ()), and a partial hand-crafted one must not
+                            ;; reach restore-by
+                            (every? #(some? (get indexes %))
+                                    [:eavt :aevt :avet]))
+                     (restored-indexes source indexes)
+                     (-> (if indexes
+                           (walk-index-datoms source (:eavt indexes))
+                           (:datoms root))
+                         (bound-datoms as-of)
+                         index-datoms)))))
+       (-> (source->datoms source)
+           (bound-datoms as-of)
+           index-datoms))))
+
+
+(defn publish-index!
+  "Owner-side publish: build the three covered indexes from the stream's
+  datoms, persist them as immutable content-addressed segment blobs
+  (put!), and advance the stream root to `{:indexes {...} :count n}` via
+  cas!. Republishing unchanged data is idempotent — content addressing
+  yields the same segment keys, so the same root addresses. Single-writer
+  discipline: throws if the root cas! is lost to a concurrent writer.
+  JVM-only for now (psset durability is a Clojure-only feature); non-JVM
+  readers still read the result eagerly via read-datoms.
+
+  opts: {:branching-factor n} — max keys per node (default 512, Datomic-
+  style fat segments)."
+  ([store] (publish-index! store (read-datoms store)))
+  ([store datoms] (publish-index! store datoms {}))
+  ([store datoms opts]
+   #?(:cljd (throw (ex-info "publish-index! is JVM-only for now"
+                            {:store store, :datoms datoms, :opts opts}))
+      :clj (let [branching (:branching-factor opts 512)
+                 storage (kv-storage store)
+                 root-addr (fn [cmp]
+                             ;; an empty index has no root node:
+                             ;; psset/store of an empty set yields a
+                             ;; phantom; nil is the
+                             ;; explicit "nothing here" (walk of nil => ())
+                             (when (seq datoms)
+                               (-> (psset/from-sequential cmp
+                                                          datoms
+                                                          {:branching-factor
+                                                           branching})
+                                   (psset/store storage))))
+                 indexes {:eavt (root-addr eavt-cmp),
+                          :aevt (root-addr aevt-cmp),
+                          :avet (root-addr avet-cmp)}
+                 rev (:rev (jing/get store default-datoms-key nil) 0)
+                 v {:indexes indexes, :count (count datoms)}]
+             (when-not (jing/cas! store default-datoms-key rev v)
+               (throw (ex-info "publish-index! lost the root cas!"
+                               {:key default-datoms-key, :rev rev})))
+             indexes)
+      :cljs (throw (ex-info "publish-index! is JVM-only for now"
+                            {:store store, :datoms datoms, :opts opts})))))
 
 
 ;; =============================================================================

@@ -181,18 +181,22 @@ owner-built/peers-merge) is a concern of the reader above storage, realized on
 `tonsky/persistent-sorted-set`; see [`dao.space.query.md`](dao.space.query.md), *Index
 Realization*. All variants answer identically.
 
-**Current status.** Today the store holds a stream's full datom vector under one mutable root
-key (`default-datoms-key`, `:root/datoms`, as `{:datoms [...]}`) and reads it wholesale, folding
-it into a fresh in-memory index on every query with `tonsky/persistent-sorted-set` as the
-sorted-set implementation — not yet as a lazily-pulled B-Tree segment store. This is the
-"rebuild per query" strategy ("kept only as the conceptual baseline"; see
-[`dao.space.query.md`](dao.space.query.md), *Index Realization*), shipped first for its
-simplicity; it does not reuse `dao.db`'s in-memory sorted-set engine. A read resolves the
-stream's root reference from the `IKVStore` with a single `get`, targeting an immutable
-snapshot of that root's value at the time of the call, so concurrent writes never disturb an
-in-flight read. The owner-built, peers-merge Target Architecture (immutable B-Tree segments
-written via `put!`, lazily pulled and merged) is designed but not yet implemented — see
-`dao.space.query`'s namespace docstring, which names this gap explicitly.
+**Current status.** Two root shapes coexist at `default-datoms-key` (`:root/datoms`). The
+baseline holds a stream's full datom vector wholesale (`{:datoms [...]}`) and folds it into a
+fresh in-memory index on every query — the "rebuild per query" strategy ("kept only as the
+conceptual baseline"; see [`dao.space.query.md`](dao.space.query.md), *Index Realization*),
+with `tonsky/persistent-sorted-set` as the sorted-set implementation. Since 2026-07-10 the
+owner-built Target Architecture is also implemented: `dao.space.query/publish-index!`
+persists a stream's covered indexes as immutable, content-addressed B-Tree segments (`put!`
+under `segment-key`) and advances the root to `{:indexes {:eavt :segment/<hash> ...}}`; a
+JVM reader restores those indexes lazily (a bound-`e` lookup fetches only the seek path — 2
+segments of 26 in the test suite), while cljs/cljd readers, and the as-of/federated paths
+everywhere, read the same segments eagerly by walking the plain-EDN node graph. Laziness is
+JVM-only for now (psset durability is a Clojure-only feature); readability is universal. A
+read still resolves the stream's root with a single `get` targeting an immutable snapshot,
+so concurrent writes never disturb an in-flight read. Remaining gaps: segment GC, non-JVM
+laziness, and k-way merge of multiple lazy indexes (federated queries fall back to the eager
+walk); see *Index Realization*.
 
 ### Source Polymorphism
 

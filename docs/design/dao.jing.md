@@ -139,19 +139,25 @@ This is one evolving spec, not a series of frozen releases — "not yet" below m
 that, work still to land in this same document, not a v2 to be written later. What's
 implemented at the storage boundary today, and the contracts already pinned down.
 
-- **Storage root today: one mutable key, no segments yet.** The store holds a stream's full
-  datom vector under one mutable root key, `:root/datoms` as `{:datoms [...]}`, written and
-  read as a single blob rather than segmented into immutable B-Tree chunks. The key name
-  itself (`default-datoms-key`) is a reader-owned convention defined in
-  `src/cljc/dao/space/query.cljc:37`, not a `dao.jing` constant — storage only ever sees the
-  keyword its caller hands it. What a reader builds over that blob is outside this boundary.
+- **Storage root today: one mutable key; segments shipped.** The stream root at
+  `:root/datoms` holds either a stream's full datom vector wholesale (`{:datoms [...]}`) or,
+  since 2026-07-10, an owner-built index manifest (`{:indexes {:eavt :segment/<hash> ...}
+  :count n}`) whose values point at immutable, content-addressed B-Tree node segments written
+  with `put!` under `segment-key` — published by `dao.space.query/publish-index!`. Both the
+  root-key name (`default-datoms-key`) and both root shapes are reader-owned conventions
+  defined in `src/cljc/dao/space/query.cljc`, not `dao.jing` constants — storage only ever
+  sees the keywords and blobs its caller hands it, and never knows the segments form an index.
 - **Member layout and discovery.** A stream owner performs an atomic `cas!` on the stream's
-  mutable root reference (`:root/datoms`) to publish the updated `{:datoms [...]}` blob.
-  Segmenting those datoms into immutable B-Tree chunks written with `put!` is not yet shipped.
+  mutable root reference (`:root/datoms`) to publish either shape: the wholesale
+  `{:datoms [...]}` blob, or the `{:indexes ...}` manifest after `put!`-ing the segments it
+  references. Republishing unchanged data is idempotent — content-derived keys make the same
+  segments land at the same addresses.
 - **Querying (reader side).** A read resolves the stream's root reference from the `IKVStore`
   with a single `get`, which targets an immutable snapshot of that root's value at the time
-  of the call — concurrent writes never disturb an in-flight read. What a reader does with
-  the resulting bytes is outside this boundary.
+  of the call — concurrent writes never disturb an in-flight read. For an `{:indexes ...}`
+  root the reader then `get`s the immutable segments that root references (all of them on an
+  eager walk; only the traversal path on the JVM's lazy path). What a reader builds from the
+  resulting bytes is outside this boundary.
 - **Namespace stamping.** Not yet: the reader's per-member namespace is not yet derived from
   the canonical kickoff hash, because content addressing is not yet load-bearing (below).
 - **Compaction / GC.** The `KVFile` backend implements Bitcask-style file compaction via the
