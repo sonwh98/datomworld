@@ -72,18 +72,19 @@ a `put!` over a `cas!`-governed key resets its revision and breaks the optimisti
 guard.
 
 The content-derived key half of that discipline has a concrete mechanism: `dao.jing` itself
-(not any one backend) will own `canonical` (order-normalize a value so equal values print
-identical bytes), `content-hash` (sha256 of the canonical print, excluding `:rev`), and
-`segment-key` (mint `:segment/<hash>` from a v-map) — that set, plus `key-class` (dispatch a
-key to `:segment` or `:root`), the DHT backend already implements for its own routing
-(`dao.jing.dht.cljc`; only `canonical` is `defn-`, private; the other three are already plain
-`defn`, public, but scoped to that one namespace — see `dao.jing.dht.md`, *Key classes*). Hoisting it into `dao.jing` makes the discipline available to every backend (Mem,
-File, DHT alike), not DHT-only, and gives `put!`'s "fresh, content-derived keys" wording above
-something any caller can actually invoke rather than a convention only the DHT backend
-happens to honor. The dependency direction already says this is backwards: `dao.jing.dht` is
-built *on top of* core `dao.jing` (`dao.jing.dht.cljc` requires `dao.jing`, implementing the
-`IKVStore` protocol `dao.jing` defines) — a downstream backend is not where a property of the
-storage boundary itself belongs.
+(not any one backend) owns `canonical` (order-normalize a value so equal values print
+identical bytes, `defn-`, private), `content-hash` (sha256 of the canonical print, excluding
+`:rev`), `segment-key` (mint `:segment/<hash>` from a v-map), and `key-class` (dispatch a key
+to `:segment` or `:root`) — see `src/cljc/dao/jing.cljc`. `dao.jing.dht` (`dao.jing.dht.cljc`)
+consumes these (`jing/segment-key`, `jing/key-class`, `jing/content-hash`) for its own routing
+and key-discipline enforcement rather than defining its own copies — see `dao.jing.dht.md`,
+*Key classes*. Every backend (Mem, File, DHT alike) can now mint content-addressed keys the
+same way, and `put!`'s "fresh, content-derived keys" wording above is something any caller can
+actually invoke, not a convention only the DHT backend happened to honor. This also fixes the
+dependency direction: `dao.jing.dht` is built *on top of* core `dao.jing`
+(`dao.jing.dht.cljc` requires `dao.jing`, implementing the `IKVStore` protocol `dao.jing`
+defines) — a downstream backend was never the right place for a property of the storage
+boundary itself.
 
 This is not a networking feature that happens to be implemented in the networking backend —
 content addressing is a property of what an immutable segment *is* ("What DaoJing Is," above:
@@ -93,11 +94,11 @@ benefits: identical content mints the same key regardless of which caller wrote 
 (dedup for free, no coordination needed), and a segment's identity is stable *before* it is
 ever replicated — so a store can be swapped from `KVMem` to `KVFile` to `dao.jing.dht` later
 without re-keying anything, because the keys were never a networking artifact to begin with.
-Today's `dao.jing.dht`-only placement gets this backwards: it makes content addressing look
-like something that starts mattering once peers exist, when it is actually a local identity
-guarantee the network backend merely goes on to *rely on* (hash-verified fetch against
-untrusted peers), not one it invents. **Status: named here, not yet moved** — the code still
-lives in `dao.jing.dht.cljc` as of this writing; see *Current Scope*, Encoding, below for what
+A `dao.jing.dht`-only placement would have gotten this backwards: it would make content
+addressing look like something that starts mattering once peers exist, when it is actually a
+local identity guarantee the network backend merely goes on to *rely on* (hash-verified fetch
+against untrusted peers), not one it invents. **Status: done** — the mechanism lives in
+`dao.jing.cljc`; `dao.jing.dht.cljc` consumes it. See *Current Scope*, Encoding, below for what
 it does and does not buy.
 
 ## Structural Ignorance: Format Stability Without the Engine

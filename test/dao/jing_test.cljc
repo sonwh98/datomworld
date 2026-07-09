@@ -349,6 +349,34 @@
            (finally (jing/close! store) (.delete (java.io.File. path))))))))
 
 
+;; ---------------------------------------------------------------------------
+;; Content addressing (segment-key / content-hash / key-class)
+;; ---------------------------------------------------------------------------
+;; Pure-logic tests over dao.jing itself — no backend, no network. DHT-
+;; specific enforcement of this discipline (KVDht's put!/cas!/get actually
+;; throwing on a violation) is tested separately in dao.jing.dht-test,
+;; key-discipline.
+
+(deftest segment-key-is-content-addressed
+  (testing "the key is deterministic, order-insensitive, and excludes :rev"
+    (is (= (jing/segment-key {:a 1, :b 2}) (jing/segment-key {:b 2, :a 1})))
+    (is (= (jing/segment-key {:a 1}) (jing/segment-key {:a 1, :rev 7}))
+        ":rev is the backend's stamp, not content")
+    (is (not= (jing/segment-key {:a 1}) (jing/segment-key {:a 2})))
+    (is (= "segment" (namespace (jing/segment-key {:a 1}))))))
+
+
+(deftest key-class-dispatches-by-namespace
+  (testing "a key's class is recoverable from the key alone"
+    (is (= :segment (jing/key-class :segment/abc)))
+    (is (= :root (jing/key-class :root/pointer)))
+    (is (thrown? #?(:clj Exception
+                    :cljs js/Error
+                    :cljd Object)
+          (jing/key-class :plain))
+        "un-namespaced keys have no class")))
+
+
 (deftest compaction-failure-leaves-store-usable
   #?(:clj
      (testing

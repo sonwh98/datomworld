@@ -3,8 +3,16 @@
    This protocol represents the 'dumb storage' layer (analogous to Datomic's KVStore,
    as specified in docs/datomic.md) that holds immutable datom segments and mutable
    stream references. It is entirely agnostic to Datalog, indexing, or datoms.
-   It only stores opaque byte maps."
-  (:refer-clojure :exclude [get]))
+   It only stores opaque byte maps.
+
+   Also owns dao.jing's content-addressing discipline (canonical, content-hash,
+   segment-key, key-class): minting a fresh, content-derived key for an
+   immutable segment is a property of the storage boundary itself, not of any
+   one backend (see docs/design/dao.jing.md, \"The Segment and Root Keyspace\").
+   A backend like dao.jing.dht enforces this discipline over an untrusted
+   network; it does not invent it."
+  (:refer-clojure :exclude [get])
+  (:require [datomworld :as dw]))
 
 
 (defprotocol IKVStore
@@ -81,3 +89,50 @@
    Useful for testing and single-process ephemeral spaces."
   []
   (->KVMem (atom {})))
+
+
+;; =============================================================================
+;; Content addressing
+;; =============================================================================
+
+(defn key-class
+  "Dispatch a storage key to its class, :segment or :root. Throws on
+  anything else: the class must be recoverable from the key itself, and an
+  un-namespaced key has no class."
+  [k]
+  (case (and (keyword? k) (namespace k))
+    "segment" :segment
+    "root" :root
+    (throw (ex-info "dao.jing keys must be :segment/<hash> or :root/<name>"
+                    {:k k}))))
+
+
+(defn- canonical
+  "Order-normalize a value so equal values print identical bytes. This is a
+  stand-in for the pinned Eve Flat encoding (see docs/design/dao.jing.dht.md,
+  Zero-copy): whatever canonical form a caller relies on must be
+  bit-identical on every peer, or content addressing silently fractures."
+  [v]
+  (cond (map? v) (->> v
+                      (map (fn [[k x]] [(canonical k) (canonical x)]))
+                      ;; a pr-str-keyed sorted map prints its keys in a
+                      ;; fixed
+                      ;; order on every platform (array-map is not in
+                      ;; ClojureDart)
+                      (into (sorted-map-by #(compare (pr-str %1) (pr-str %2)))))
+        (set? v) (list 'set (sort-by pr-str (map canonical v)))
+        (sequential? v) (mapv canonical v)
+        :else v))
+
+
+(defn content-hash
+  "SHA-256 of the canonical print of v-map, excluding :rev (:rev is the
+  backend's revision stamp, not content)."
+  [v-map]
+  (dw/sha256 (pr-str (canonical (dissoc v-map :rev)))))
+
+
+(defn segment-key
+  "Mint the content-addressed key for an immutable segment: k = hash(v-map)."
+  [v-map]
+  (keyword "segment" (content-hash v-map)))

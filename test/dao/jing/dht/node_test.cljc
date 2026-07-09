@@ -43,7 +43,7 @@
             (with-cluster 3
               (fn [[a _ c]]
                 (let [v {:bytes [1 2 3]}
-                      k (dht/segment-key v)]
+                      k (jing/segment-key v)]
                   (is (true? (jing/put! a k v)))
                   ;; drop c's replica so the read exercises the
                   ;; network path
@@ -74,7 +74,7 @@
          2
          (fn [[a b]]
            (let [v {:bytes (apply str (repeat 3000 "x"))}
-                 k (dht/segment-key v)]
+                 k (jing/segment-key v)]
              (is (true? (jing/put! a k v))
                  "the local write succeeds; replication is best-effort")
              (is (= :none (jing/get b k :none))
@@ -89,7 +89,7 @@
              local (jing/create-kv-mem)
              table (atom {})
              v {:bytes [1]}
-             hash (dht/content-hash v)]
+             hash (jing/content-hash v)]
          (is (true? (:ok (handle
                            local
                            table
@@ -132,7 +132,7 @@
              ;; b's receiver must survive to send the fetch and accept
              ;; the reply
              (let [v {:bytes [42]}
-                   k (dht/segment-key v)]
+                   k (jing/segment-key v)]
                (is (true? (jing/put! a k v)))
                (jing/delete! b k)
                (is (= {:bytes [42], :rev 0} (jing/get b k nil))))))))))
@@ -165,9 +165,9 @@
          2
          (fn [[a b]]
            (let [v-small {:bytes [1]}
-                 k-small (dht/segment-key v-small)
+                 k-small (jing/segment-key v-small)
                  v-large {:bytes (vec (repeat 400 2))}
-                 k-large (dht/segment-key v-large)]
+                 k-large (jing/segment-key v-large)]
              ;; 1. Small write & read (sets receiver packet length to
              ;; small)
              (is (true? (jing/put! a k-small v-small)))

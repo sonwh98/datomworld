@@ -20,10 +20,10 @@
   - Peers are untrusted: incoming :store requests re-verify the content
     hash before writing. No address validation or rate limiting yet
     (Operational reality, UDP amplification)."
-  (:require [dao.jing :as jing]
-            [dao.jing.dht :as dht]
-            [dao.jing.dht.kad :as kad]
-            [dao.stream.transit :as transit])
+  #?(:clj (:require [dao.jing :as jing]
+                    [dao.jing.dht :as dht]
+                    [dao.jing.dht.kad :as kad]
+                    [dao.stream.transit :as transit]))
   ;; :cljd nil must come FIRST: reader conditionals take the first
   ;; matching branch, and the cljd host pass also matches :clj, so with
   ;; :clj written first the import still reaches the Dart compiler.
@@ -92,7 +92,7 @@
             ;; and foreign namespaces (:root/<hash> — an unconditional put!
             ;; over a cas!-managed key), bypassing the key-class discipline
             :store (let [{:keys [k v]} msg]
-                     (if (= k (dht/segment-key v))
+                     (if (= k (jing/segment-key v))
                        {:ok (boolean (jing/put! local k v))}
                        {:ok false, :error :bad-hash}))
             :fetch (let [v (jing/get local (:k msg) ::none)]

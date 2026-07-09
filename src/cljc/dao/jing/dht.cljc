@@ -32,48 +32,10 @@
 ;; =============================================================================
 ;; Key discipline
 ;; =============================================================================
-
-(defn key-class
-  "Dispatch a storage key to its class, :segment or :root. Throws on
-  anything else: the class must be recoverable from the key itself, and an
-  un-namespaced key has no class."
-  [k]
-  (case (and (keyword? k) (namespace k))
-    "segment" :segment
-    "root" :root
-    (throw (ex-info "dao.jing.dht keys must be :segment/<hash> or :root/<name>"
-                    {:k k}))))
-
-
-(defn- canonical
-  "Order-normalize a value so equal values print identical bytes. This is a
-  stand-in for the pinned Eve Flat encoding named in the design doc
-  (Zero-copy): whatever canonical form the network uses must be bit-identical
-  on every peer, or content addressing silently fractures."
-  [v]
-  (cond (map? v) (->> v
-                      (map (fn [[k x]] [(canonical k) (canonical x)]))
-                      ;; a pr-str-keyed sorted map prints its keys in a
-                      ;; fixed order on every platform (array-map is not
-                      ;; in
-                      ;; ClojureDart)
-                      (into (sorted-map-by #(compare (pr-str %1) (pr-str %2)))))
-        (set? v) (list 'set (sort-by pr-str (map canonical v)))
-        (sequential? v) (mapv canonical v)
-        :else v))
-
-
-(defn content-hash
-  "SHA-256 of the canonical print of v-map, excluding :rev (:rev is the
-  backend's revision stamp, not content)."
-  [v-map]
-  (dw/sha256 (pr-str (canonical (dissoc v-map :rev)))))
-
-
-(defn segment-key
-  "Mint the content-addressed key for an immutable segment: k = hash(v-map)."
-  [v-map]
-  (keyword "segment" (content-hash v-map)))
+;; canonical/content-hash/segment-key/key-class are dao.jing's own
+;; content-addressing discipline, not DHT-specific; they live in dao.jing
+;; itself (see docs/design/dao.jing.md, "The Segment and Root Keyspace").
+;; This backend just consumes them, the way any backend could.
 
 
 (defn node-id
@@ -87,7 +49,7 @@
   "The routing target for a key: segment names already are content hashes;
   root names are hashed into the same id space."
   [k]
-  (case (key-class k)
+  (case (jing/key-class k)
     :segment (name k)
     :root (dw/sha256 (str k))))
 
@@ -201,11 +163,11 @@
 
   (put!
     [_ k v-map]
-    (when (not= :segment (key-class k))
+    (when (not= :segment (jing/key-class k))
       (throw (ex-info
                "put! is for immutable segments only; roots are cas!-managed"
                {:k k})))
-    (let [expected (segment-key v-map)]
+    (let [expected (jing/segment-key v-map)]
       (when (not= k expected)
         (throw (ex-info "a segment key must be the content hash of its value"
                         {:k k, :expected expected}))))
@@ -228,7 +190,7 @@
 
   (cas!
     [_ k old-rev v-map]
-    (when (not= :root (key-class k))
+    (when (not= :root (jing/key-class k))
       (throw (ex-info "cas! is for mutable roots only; segments are immutable"
                       {:k k})))
     (let [own (owner net k)]
@@ -245,33 +207,33 @@
 
   (get
     [_ k not-found]
-    (case (key-class k)
-      :segment (let [v (jing/get local k ::none)]
-                 (if (not= ::none v)
-                   v
-                   (let [self-id (:id (self-peer net))
-                         ;; sequential and nearest-first by design: stop
-                         ;; at the first peer whose bytes verify,
-                         ;; spending no traffic on the rest
-                         fetched
-                         (some (fn [peer]
-                                 (when (not= self-id (:id peer))
-                                   (when-let [v (fetch-segment net peer k)]
-                                     ;; integrity: received bytes must
-                                     ;; hash back to k (peers are
-                                     ;; untrusted)
-                                     (when (= (name k) (content-hash v))
-                                       v))))
-                               (lookup net (key->target k)))]
-                     (if (some? fetched)
-                       (do
-                         ;; immutable, so cache forever
-                         (jing/put! local k fetched)
-                         ;; normalize the stamp: the remote :rev is that
-                         ;; store's artifact, not content, and local put!
-                         ;; stamped 0
-                         (assoc fetched :rev 0))
-                       not-found))))
+    (case (jing/key-class k)
+      :segment
+      (let [v (jing/get local k ::none)]
+        (if (not= ::none v)
+          v
+          (let [self-id (:id (self-peer net))
+                ;; sequential and nearest-first by design: stop
+                ;; at the first peer whose bytes verify,
+                ;; spending no traffic on the rest
+                fetched (some (fn [peer]
+                                (when (not= self-id (:id peer))
+                                  (when-let [v (fetch-segment net peer k)]
+                                    ;; integrity: received bytes must
+                                    ;; hash back to k (peers are
+                                    ;; untrusted)
+                                    (when (= (name k) (jing/content-hash v))
+                                      v))))
+                              (lookup net (key->target k)))]
+            (if (some? fetched)
+              (do
+                ;; immutable, so cache forever
+                (jing/put! local k fetched)
+                ;; normalize the stamp: the remote :rev is that
+                ;; store's artifact, not content, and local put!
+                ;; stamped 0
+                (assoc fetched :rev 0))
+              not-found))))
       :root
       ;; never cached: a root read must be fresh or fail loudly
       (let [own (owner net k)]
@@ -287,7 +249,7 @@
     [_ k]
     ;; advisory unpin (design doc, delete! option 1): drop this node's
     ;; copy only; replicas elsewhere are outside our control
-    (key-class k)
+    (jing/key-class k)
     (jing/delete! local k))
 
 

@@ -87,8 +87,12 @@
 
 
 ;; ---------------------------------------------------------------------------
-;; Key discipline
+;; Key discipline (DHT enforcement)
 ;; ---------------------------------------------------------------------------
+;; canonical/content-hash/segment-key/key-class as pure functions are tested
+;; against dao.jing directly in test/dao/jing_test.cljc. This test is
+;; DHT-specific: it exercises KVDht's put!/cas!/get actually enforcing the
+;; discipline over the grid — dao.jing's own KVMem enforces none of this.
 
 (deftest key-discipline
   (testing "keys must be :segment/<hash> or :root/<name>, used by class"
@@ -110,22 +114,13 @@
       (is (thrown? #?(:clj Exception
                       :cljs js/Error
                       :cljd Object)
-            (jing/cas! a (dht/segment-key {:x 1}) 0 {:x 1}))
+            (jing/cas! a (jing/segment-key {:x 1}) 0 {:x 1}))
           "segments are immutable")
       (is (thrown? #?(:clj Exception
                       :cljs js/Error
                       :cljd Object)
             (jing/put! a :segment/not-the-hash {:x 1}))
           "a segment key must be the content hash of its value"))))
-
-
-(deftest segment-key-is-content-addressed
-  (testing "the key is deterministic, order-insensitive, and excludes :rev"
-    (is (= (dht/segment-key {:a 1, :b 2}) (dht/segment-key {:b 2, :a 1})))
-    (is (= (dht/segment-key {:a 1}) (dht/segment-key {:a 1, :rev 7}))
-        ":rev is the backend's stamp, not content")
-    (is (not= (dht/segment-key {:a 1}) (dht/segment-key {:a 2})))
-    (is (= "segment" (namespace (dht/segment-key {:a 1}))))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -136,7 +131,7 @@
   (testing "a segment put! on one node is readable from every node"
     (let [{[a b c] :stores} (grid 3)
           v {:bytes [1 2 3]}
-          k (dht/segment-key v)]
+          k (jing/segment-key v)]
       (is (true? (jing/put! a k v)))
       (is (= {:bytes [1 2 3], :rev 0} (jing/get b k nil)))
       (is (= {:bytes [1 2 3], :rev 0} (jing/get c k nil))))))
@@ -144,14 +139,14 @@
 
 (deftest get-absent-returns-not-found
   (let [{[a] :stores} (grid 2)]
-    (is (= :none (jing/get a (dht/segment-key {:ghost 1}) :none)))))
+    (is (= :none (jing/get a (jing/segment-key {:ghost 1}) :none)))))
 
 
 (deftest put-is-idempotent
   (testing "re-put! of the same content is a no-op that still returns true"
     (let [{[a] :stores} (grid 2)
           v {:bytes [4]}
-          k (dht/segment-key v)]
+          k (jing/segment-key v)]
       (is (true? (jing/put! a k v)))
       (is (true? (jing/put! a k v)))
       (is (= {:bytes [4], :rev 0} (jing/get a k nil))))))
@@ -161,7 +156,7 @@
   (testing "delete! drops only the local copy; get refetches from the grid"
     (let [{[a] :stores} (grid 3)
           v {:bytes [9]}
-          k (dht/segment-key v)]
+          k (jing/segment-key v)]
       (jing/put! a k v)
       (is (true? (jing/delete! a k)))
       (is (= {:bytes [9], :rev 0} (jing/get a k nil))
@@ -172,7 +167,7 @@
   (testing "a segment fetched from the grid is cached forever locally"
     (let [{[a b] :stores} (grid 3)
           v {:bytes [7]}
-          k (dht/segment-key v)]
+          k (jing/segment-key v)]
       (jing/put! a k v)
       (jing/delete! b k)
       (is (= :miss (jing/get (:local b) k :miss)))
@@ -185,7 +180,7 @@
   (testing "a peer returning bytes that do not hash to k is ignored"
     (let [{[a b] :stores} (grid 2)
           v {:bytes [1]}
-          k (dht/segment-key v)]
+          k (jing/segment-key v)]
       ;; poison b's local copy directly, bypassing the contract checks
       (jing/put! (:local b) k {:bytes [:evil]})
       (is (= :none (jing/get a k :none))
@@ -220,7 +215,7 @@
   (testing "a grid of one peer degenerates to a local store"
     (let [{[a] :stores} (grid 1)
           v {:bytes [5]}
-          k (dht/segment-key v)]
+          k (jing/segment-key v)]
       (is (true? (jing/put! a k v)))
       (is (= {:bytes [5], :rev 0} (jing/get a k nil)))
       (is (true? (jing/cas! a :root/r 0 {:p "x"})))
