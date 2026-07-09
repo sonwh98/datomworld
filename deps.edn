@@ -53,7 +53,13 @@
            :server {:extra-deps {http-kit/http-kit {:mvn/version "2.8.0"}}
                     :jvm-opts ["-Dconfig=config.clj"]
                     :main-opts ["-m" "world.server"]}
-           :yin-repl {:main-opts ["-m" "yin.repl"]}
+           :clj-yin-repl {:main-opts ["-m" "yin.repl"]}
+           :cljs-yin-repl
+           {:extra-paths ["test" "src/dev"]
+            :extra-deps {thheller/shadow-cljs {:mvn/version "3.3.5"}
+                         reagent/reagent {:mvn/version "2.0.1"}
+                         com.cognitect/transit-cljs {:mvn/version "0.8.280"}}
+            :main-opts ["-m" "shadow.cljs.devtools.cli" "run" "yin.repl/-main"]}
            :fmt {:extra-paths ["src/dev"]
                  :exec-fn tasks/fix-all}
            :kondo {:extra-deps {clj-kondo/clj-kondo {:mvn/version "2026.01.19"}}
@@ -63,6 +69,11 @@
                  :main-opts ["-m" "debug-cljd"]
                  :cljd/opts {:kind :flutter :main datomworld.demo.main}}
            :cljd-yin-repl
+           {:extra-deps {tensegritics/clojuredart
+                         {:git/url "https://github.com/tensegritics/ClojureDart.git"
+                          :sha "81b5c03a55cf52b21dc0be8ccfa4827b9889f488"}}
+            :main-opts ["-m" "yin.repl.runner"]}
+           :cljd-yin-repl-build
            {:extra-deps {tensegritics/clojuredart
                          {:git/url "https://github.com/tensegritics/ClojureDart.git"
                           :sha "81b5c03a55cf52b21dc0be8ccfa4827b9889f488"}}

@@ -9,34 +9,34 @@ You can start a REPL server on a specific port using the `--port` flag. By defau
 ### Clojure (JVM)
 To run the JVM REPL server with a local prompt:
 ```bash
-clj -M:yin-repl --port 8080
+clj -M:clj-yin-repl --port 8080
 ```
 
 To run the JVM REPL server in **headless** mode:
 ```bash
-clj -M:yin-repl --port 8080 --headless
-```
-
-### ClojureDart (Dart VM)
-To compile the Dart REPL entrypoint:
-```bash
-clj -M:cljd compile yin.repl
-```
-
-To run the Dart REPL server:
-```bash
-dart bin/yin_repl_main.dart --port 8080
+clj -M:clj-yin-repl --port 8080 --headless
 ```
 
 ### Node.js (ClojureScript)
-To compile the Node.js REPL entrypoint:
+To compile and run the Node.js REPL server directly in one command:
 ```bash
-clj -M:cljs -m shadow.cljs.devtools.cli compile yin-repl
+clj -M:cljs-yin-repl --port 8080
 ```
 
-To run the Node.js REPL server:
+To run the Node.js REPL server in **headless** mode:
 ```bash
-node target/yin-repl.js --port 8080
+clj -M:cljs-yin-repl --port 8080 --headless
+```
+
+### ClojureDart (Dart VM)
+To compile and run the ClojureDart REPL server directly in one command:
+```bash
+clj -M:cljd-yin-repl --port 8080
+```
+
+To run the ClojureDart REPL server in **headless** mode:
+```bash
+clj -M:cljd-yin-repl --port 8080 --headless
 ```
 
 ## Connecting to a Remote REPL

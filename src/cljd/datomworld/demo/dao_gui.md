@@ -114,7 +114,7 @@ iproxy 7778 7778
 Start a JVM Yin REPL:
 
 ```bash
-mise exec -- clj -M:yin-repl
+mise exec -- clj -M:clj-yin-repl
 ```
 
 Connect to the Flutter app (Android):

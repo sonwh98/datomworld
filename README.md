@@ -160,36 +160,4 @@ clj -M -m agent.tzu
 
 Launch the interactive Yin REPL to experiment with the Yin VM and manipulate datoms directly.
 
-### Clojure (JVM)
-```bash
-clj -M:yin-repl
-```
-
-### ClojureScript (Node.js)
-
-First, compile the ClojureScript source to a Node.js script:
-
-```bash
-clj -M:cljs -m shadow.cljs.devtools.cli compile yin-repl
-```
-
-Then, run the compiled script:
-
-```bash
-node target/yin-repl.js
-```
-
-### ClojureDart (cljd)
-The ClojureDart source for the Yin REPL is located in `src/cljd/yin/repl_main/cljd.cljd`.
-
-Compile the ClojureDart namespace to Dart:
-
-```bash
-clj -M:cljd compile yin.repl
-```
-
-Then run the generated Dart entry point:
-
-```bash
-dart run bin/yin_repl_main.dart
-```
+For details on how to build, run, and connect to the Yin REPL across all platforms (JVM, Node.js, and ClojureDart), see the [Yin REPL Usage Guide](src/cljc/yin/vm/docs/yin.repl.md).
