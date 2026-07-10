@@ -1,18 +1,17 @@
 (ns yin.vm.macro-test
   "Tests for the unified compile-time and runtime macro expansion engine.
    Covers the spec from docs/macros.md."
-  (:require
-    [clojure.test :refer [deftest is testing]]
-    [dao.db :as dao-db]
-    [dao.stream :as ds]
-    [dao.stream.ringbuffer]
-    [yang.clojure :as yang]
-    [yin.vm :as vm]
-    [yin.vm.macro :as macro]
-    [yin.vm.register :as register]
-    [yin.vm.semantic :as semantic]
-    [yin.vm.stack :as stack]
-    [yin.vm.test-utils :as vtu]))
+  (:require [clojure.test :refer [deftest is testing]]
+            [dao.space.query :as query]
+            [dao.stream :as ds]
+            [dao.stream.ringbuffer]
+            [yang.clojure :as yang]
+            [yin.vm :as vm]
+            [yin.vm.macro :as macro]
+            [yin.vm.register :as register]
+            [yin.vm.semantic :as semantic]
+            [yin.vm.stack :as stack]
+            [yin.vm.test-utils :as vtu]))
 
 
 (defn- make-literal-macro
@@ -684,6 +683,6 @@
       ;; Original program still evaluates correctly
       (is (= 1 (vm/value (vm/run vm-loaded))))
       ;; After append, new node is accessible in the index
-      (is (seq (dao-db/q '[:find ?e :where [?e :yin/value 99]]
-                         (:db vm-appended)))
+      (is (seq (query/q '[:find ?e :where [?e :yin/value 99]]
+                        (:db vm-appended)))
           "Appended node is queryable through the DaoDB-backed AST"))))

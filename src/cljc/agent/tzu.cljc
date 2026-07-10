@@ -1,15 +1,14 @@
 (ns agent.tzu
-  (:require
-    #?@(:cljd [["dart:convert" :as convert]]
-        :cljs []
-        :clj [[clojure.pprint :as pprint] [clojure.data.json :as json]])
-    [agent.tools :as tools]
-    #?@(:cljs [[cljs.reader :as edn]]
-        :default [[clojure.edn :as edn]])
-    [clojure.string :as str]
-    [dao.stream :as ds]
-    [dao.stream.http]
-    #?(:clj [dao.stream.ringbuffer])))
+  (:require #?@(:cljd [["dart:convert" :as convert]]
+                :cljs []
+                :clj [[clojure.pprint :as pprint] [clojure.data.json :as json]])
+            [agent.tools :as tools]
+            #?@(:cljs [[cljs.reader :as edn]]
+                :default [[clojure.edn :as edn]])
+            [clojure.string :as str]
+            [dao.stream :as ds]
+            [dao.stream.http]
+            #?(:clj [dao.stream.ringbuffer])))
 
 
 (defn api-key
@@ -255,7 +254,7 @@
 
 
 (defn datoms->tx-data
-  "Wrap [e a v] triples as [:db/add e a v] ops suitable for (dao.db/transact db ...)."
+  "Wrap [e a v] triples as [:db/add e a v] ops suitable for dao.space.transact."
   [datoms]
   (mapv (fn [[e a v]] [:db/add e a v]) datoms))
 

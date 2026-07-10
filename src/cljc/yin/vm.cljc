@@ -2,13 +2,11 @@
   "Defines the canonical data model (Datoms), schema, and primitives for the Yin Abstract Machine.
    This namespace acts as the shared kernel/substrate for all execution engines (stack, register, walker)."
   (:refer-clojure :exclude [eval])
-  (:require
-    [dao.datom :as datom]
-    [dao.db :as dao-db]
-    [dao.stream :as ds]
-    #?(:clj [dao.stream.ringbuffer])
-    #?(:cljs [dao.stream.ringbuffer])
-    #?(:cljd [dao.stream.ringbuffer :as ringbuffer])))
+  (:require [dao.datom :as datom]
+            [dao.stream :as ds]
+            #?(:clj [dao.stream.ringbuffer])
+            #?(:cljs [dao.stream.ringbuffer])
+            #?(:cljd [dao.stream.ringbuffer :as ringbuffer])))
 
 
 ;; =============================================================================
@@ -529,44 +527,6 @@
                  (or (last (sort unreferenced))
                      (apply max (keys by-entity))))))]
      {:by-entity by-entity, :get-attr get-attr, :root-id root-id})))
-
-
-(defn- dao-datom->tuple
-  [d]
-  [(:e d) (:a d) (:v d) (:t d) (:m d)])
-
-
-(defn- ast-dao-datom?
-  [d]
-  (= "yin" (namespace (:a d))))
-
-
-(defn- dao-db-ast-datoms
-  [db]
-  (if (satisfies? dao-db/IDaoStorage db)
-    (let [active (set (dao-db/datoms db :eavt))
-          entries (dao-db/read-segments db 0 (dao-db/basis-t db))]
-      (second (reduce (fn [[seen acc] [_t added _retracted]]
-                        (reduce (fn [[seen acc] d]
-                                  (if (or (contains? seen d)
-                                          (not (contains? active d))
-                                          (not (ast-dao-datom? d)))
-                                    [seen acc]
-                                    [(conj seen d)
-                                     (conj acc (dao-datom->tuple d))]))
-                                [seen acc]
-                                added))
-                      [#{} []]
-                      entries)))
-    (mapv dao-datom->tuple (filter ast-dao-datom? (dao-db/datoms db :eavt)))))
-
-
-(defn index-datoms-with-db
-  "Index AST datoms from a DaoDB instance by entity.
-   This keeps DaoDB as the source of truth while preserving the index-datoms
-   contract used by macro expansion and analysis helpers."
-  ([dao-db] (index-datoms-with-db dao-db {}))
-  ([dao-db opts] (index-datoms (dao-db-ast-datoms dao-db) opts)))
 
 
 (defn empty-state

@@ -358,3 +358,76 @@
    :cljs (deftest publish-index-is-jvm-only
            (is (thrown? js/Error
                  (query/publish-index! (jing/create-kv-mem) [])))))
+
+
+;; ---------------------------------------------------------------------------
+;; :in bindings
+;; ---------------------------------------------------------------------------
+
+(deftest in-bindings-test
+  (testing "scalar binding"
+    (is (= #{[1]}
+           (query/q '[:find ?e :in $ ?name :where [?e :name ?name]]
+                    [[1 :name "Alice" 0 1] [2 :name "Bob" 0 1]]
+                    "Alice"))))
+  (testing "collection binding"
+    (is (= #{["Alice"] ["Bob"]}
+           (query/q '[:find ?name :in $ [?id ...] :where [?id :name ?name]]
+                    [[1 :name "Alice" 0 1] [2 :name "Bob" 0 1]
+                     [3 :name "Charlie" 0 1]]
+                    [1 2]))))
+  (testing "tuple binding"
+    (is (= #{[1]}
+           (query/q '[:find ?e :in $ [?name ?age] :where [?e :name ?name]
+                      [?e :age ?age]]
+                    [[1 :name "Alice" 0 1] [1 :age 30 0 1] [2 :name "Bob" 0 1]
+                     [2 :age 30 0 1]]
+                    ["Alice" 30]))))
+  (testing "relation binding"
+    (is (= #{[1] [2]}
+           (query/q '[:find ?e :in $ [[?name ?age]] :where [?e :name ?name]
+                      [?e :age ?age]]
+                    [[1 :name "Alice" 0 1] [1 :age 30 0 1] [2 :name "Bob" 0 1]
+                     [2 :age 40 0 1] [3 :name "Charlie" 0 1] [3 :age 50 0 1]]
+                    [["Alice" 30] ["Bob" 40]]))))
+  (testing "multiple db sources"
+    (is (= #{[1 "Alice" 30] [2 "Bob" 40]}
+           (query/q '[:find ?e ?name ?age :in $a $b :where [$a ?e :name ?name]
+                      [$b ?e :age ?age]]
+                    [[1 :name "Alice" 0 1] [2 :name "Bob" 0 1]]
+                    [[1 :age 30 0 1] [2 :age 40 0 1]])))))
+
+
+;; ---------------------------------------------------------------------------
+;; current-state resolution
+;; ---------------------------------------------------------------------------
+
+(deftest current-state-resolution-test
+  (testing "latest t supersedes older t, retracted facts are dropped"
+    (let [datoms [[1 :color "red" 1 1]     ; asserted at t=1
+                  [1 :color "red" 2 0]     ; retracted at t=2
+                  [1 :color "blue" 2 1]    ; asserted at t=2
+                  [2 :status "active" 1 1] ; asserted at t=1
+                  [2 :status "active" 3 0]]]
+      ;; For entity 1, "red" is retracted and "blue" is asserted
+      (is (= #{["blue"]} (query/q '[:find ?c :where [1 :color ?c]] datoms)))
+      ;; For entity 2, "active" is retracted entirely
+      (is (= #{} (query/q '[:find ?s :where [2 :status ?s]] datoms)))
+      ;; With as-of 1, "red" is still asserted and "active" is still
+      ;; asserted
+      (is (= #{["red"]}
+             (query/q '[:find ?c :where [1 :color ?c]] datoms {:as-of 1})))
+      (is (= #{["active"]}
+             (query/q '[:find ?s :where [2 :status ?s]] datoms {:as-of 1}))))))
+
+
+;; ---------------------------------------------------------------------------
+;; entity-attrs
+;; ---------------------------------------------------------------------------
+
+(deftest entity-attrs-test
+  (testing "returns a map of attributes for the entity"
+    (let [datoms [[1 :name "Alice" 1 1] [1 :age 30 1 1] [1 :hobby "reading" 1 1]
+                  [1 :hobby "coding" 2 1]]]
+      (is (= {:name "Alice", :age 30, :hobby ["coding" "reading"]}
+             (query/entity-attrs datoms 1))))))

@@ -1,14 +1,13 @@
 (ns yin.vm.semantic-test
-  (:require
-    [clojure.test :refer [deftest is testing]]
-    [dao.db :as dao-db]
-    [dao.stream :as ds]
-    [dao.stream.apply :as dao.stream.apply]
-    [dao.stream.ringbuffer]
-    [yin.vm :as vm]
-    [yin.vm.engine :as engine]
-    [yin.vm.semantic :as semantic]
-    [yin.vm.test-utils :as vtu]))
+  (:require [clojure.test :refer [deftest is testing]]
+            [dao.space.query :as query]
+            [dao.stream :as ds]
+            [dao.stream.apply :as dao.stream.apply]
+            [dao.stream.ringbuffer]
+            [yin.vm :as vm]
+            [yin.vm.engine :as engine]
+            [yin.vm.semantic :as semantic]
+            [yin.vm.test-utils :as vtu]))
 
 
 ;; =============================================================================
@@ -89,13 +88,13 @@
           loaded (-> (vtu/queue-vm (semantic/create-vm) datoms)
                      (vm/run))
           ast-db (:db loaded)
-          root-eid (ffirst (dao-db/q '[:find ?e :where
-                                       [?e :yin/type :application]]
-                                     ast-db))]
-      (is (satisfies? dao-db/IDaoDB ast-db))
-      (is (= :application (:yin/type (dao-db/entity-attrs ast-db root-eid))))
+          root-eid (ffirst (query/q '[:find ?e :where
+                                      [?e :yin/type :application]]
+                                    ast-db))]
+      (is (vector? ast-db))
+      (is (= :application (:yin/type (query/entity-attrs ast-db root-eid))))
       (is (= #{['+]}
-             (dao-db/q '[:find ?name :where [_ :yin/name ?name]] ast-db)))
+             (query/q '[:find ?name :where [_ :yin/name ?name]] ast-db)))
       (is (= 3
              (-> loaded
                  vm/run
@@ -105,9 +104,9 @@
                                                            :value nil})
           loaded (-> (vtu/queue-vm (semantic/create-vm) datoms)
                      (vm/run))
-          root-eid (ffirst (dao-db/q '[:find ?e :where [?e :yin/type :literal]]
-                                     (:db loaded)))
-          attrs (dao-db/entity-attrs (:db loaded) root-eid)
+          root-eid (ffirst (query/q '[:find ?e :where [?e :yin/type :literal]]
+                                    (:db loaded)))
+          attrs (query/entity-attrs (:db loaded) root-eid)
           result loaded]
       (is (contains? attrs :yin/value))
       (is (vm/halted? result))
@@ -555,7 +554,7 @@
           node-ids (->> datoms
                         (keep (fn [[e a _v _t _m]] (when (= :yin/type a) e)))
                         set)]
-      (is (satisfies? dao-db/IDaoDB (:db vm-3)))
+      (is (vector? (:db vm-3)))
       (is
         (every? #(and (integer? %) (pos? %)) node-ids)
         "All accumulated AST node tempids should resolve to permanent DaoDB IDs")

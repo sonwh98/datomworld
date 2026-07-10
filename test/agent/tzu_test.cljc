@@ -1,9 +1,8 @@
 (ns agent.tzu-test
-  (:require
-    [agent.tzu :as tzu]
-    [clojure.test :refer [deftest is testing]]
-    #?(:clj [dao.stream :as ds])
-    #?(:clj [dao.stream.ringbuffer])))
+  (:require [agent.tzu :as tzu]
+            [clojure.test :refer [deftest is testing]]
+            #?(:clj [dao.stream :as ds])
+            #?(:clj [dao.stream.ringbuffer])))
 
 
 ;; `prompt` blocks on the stream (ds/take!!), so it is JVM-only; mock the
@@ -78,7 +77,7 @@
 
 
 (deftest datoms-to-tx-data-test
-  (testing "plain datom triples become dao.db transaction ops"
+  (testing "plain datom triples become transaction ops"
     (is (= [[:db/add -1 :name "Linda"] [:db/add -1 :created-in-year 1986]]
            (tzu/datoms->tx-data [[-1 :name "Linda"]
                                  [-1 :created-in-year 1986]])))))

@@ -37,12 +37,9 @@
   dao.space.query's read side never writes; a stream owner publishes,
   either by cas!-ing `{:datoms [...]}` wholesale or via `publish-index!`.
 
-  Deferred, not built here: current-state resolution (masking retracted
-  datoms and superseding cardinality-one values) is named in ADR 0001 as a
-  query-time concern (\"resolved at query time, not destructively at index
-  time\") but is not implemented yet. `match`/`q` today answer over the
-  historical datom log exactly as given, retractions and all — a caller
-  wanting current state must filter by `dao.datom/asserted?` itself."
+  Current-state resolution (masking retracted datoms and superseding
+  cardinality-one values) is resolved dynamically at query time using
+  `current-state-seq`."
   (:require [dao.datom :as datom]
             [dao.jing :as jing]
             ;; :cljd FIRST: the cljd host pass also matches :clj, and
@@ -80,7 +77,14 @@
   [a b]
   (let [ra (type-rank a)
         rb (type-rank b)]
-    (if (= ra rb) (compare a b) (compare ra rb))))
+    (if (= ra rb)
+      (try (compare a b)
+           (catch #?(:clj ClassCastException
+                     :cljs js/Error
+                     :cljd Exception)
+                  _
+             (compare (str a) (str b))))
+      (compare ra rb))))
 
 
 ;; =============================================================================
@@ -187,6 +191,11 @@
   (nth d 3))
 
 
+(defn- datom-m
+  [d]
+  (nth d 4))
+
+
 (defn- cmp-field
   "Nil-first, heterogeneous-safe field comparison. Entity ids are not
   guaranteed to be integers here the way dao.db's tempid pipeline
@@ -203,7 +212,13 @@
   (let [c (cmp-field (datom-e d1) (datom-e d2))]
     (if (zero? c)
       (let [c (cmp-field (datom-a d1) (datom-a d2))]
-        (if (zero? c) (cmp-field (datom-v d1) (datom-v d2)) c))
+        (if (zero? c)
+          (let [c (cmp-field (datom-v d1) (datom-v d2))]
+            (if (zero? c)
+              (let [c (cmp-field (datom-t d1) (datom-t d2))]
+                (if (zero? c) (cmp-field (datom-m d1) (datom-m d2)) c))
+              c))
+          c))
       c)))
 
 
@@ -212,7 +227,13 @@
   (let [c (cmp-field (datom-a d1) (datom-a d2))]
     (if (zero? c)
       (let [c (cmp-field (datom-e d1) (datom-e d2))]
-        (if (zero? c) (cmp-field (datom-v d1) (datom-v d2)) c))
+        (if (zero? c)
+          (let [c (cmp-field (datom-v d1) (datom-v d2))]
+            (if (zero? c)
+              (let [c (cmp-field (datom-t d1) (datom-t d2))]
+                (if (zero? c) (cmp-field (datom-m d1) (datom-m d2)) c))
+              c))
+          c))
       c)))
 
 
@@ -221,7 +242,13 @@
   (let [c (cmp-field (datom-a d1) (datom-a d2))]
     (if (zero? c)
       (let [c (cmp-field (datom-v d1) (datom-v d2))]
-        (if (zero? c) (cmp-field (datom-e d1) (datom-e d2)) c))
+        (if (zero? c)
+          (let [c (cmp-field (datom-e d1) (datom-e d2))]
+            (if (zero? c)
+              (let [c (cmp-field (datom-t d1) (datom-t d2))]
+                (if (zero? c) (cmp-field (datom-m d1) (datom-m d2)) c))
+              c))
+          c))
       c)))
 
 
@@ -406,18 +433,43 @@
   (or (= x '_) (nil? x) (= x FREE)))
 
 
+(defn current-state-seq
+  "Takes a sequence of datoms (the log) and returns a sequence of currently asserted datoms.
+   If a datom is retracted, it masks prior assertions."
+  ([s] (current-state-seq s nil))
+  ([s pending]
+   (lazy-seq (if-let [s (seq s)]
+               (let [d (first s)]
+                 (if pending
+                   (if (and (= (datom-e pending) (datom-e d))
+                            (= (datom-a pending) (datom-a d))
+                            (= (datom-v pending) (datom-v d)))
+                     (current-state-seq (rest s) d)
+                     (if (not= (datom-m pending) 0)
+                       (cons pending (current-state-seq (rest s) d))
+                       (current-state-seq (rest s) d)))
+                   (current-state-seq (rest s) d)))
+               (when (and pending (not= (datom-m pending) 0))
+                 (list pending))))))
+
+
 (defn- select-by-index
   [idx e a v]
-  (cond (not (wildcard? e))
-        (take-while #(= e (datom-e %))
-                    (subseq-from (:eavt idx) eavt-cmp [e nil nil nil nil]))
-        (and (not (wildcard? a)) (not (wildcard? v)))
-        (take-while #(and (= a (datom-a %)) (= v (datom-v %)))
-                    (subseq-from (:avet idx) avet-cmp [nil a v nil nil]))
-        (not (wildcard? a))
-        (take-while #(= a (datom-a %))
-                    (subseq-from (:aevt idx) aevt-cmp [nil a nil nil nil]))
-        :else (seq (:eavt idx))))
+  (let [candidates (cond
+                     (not (wildcard? e))
+                     (take-while
+                       #(= e (datom-e %))
+                       (subseq-from (:eavt idx) eavt-cmp [e nil nil nil nil]))
+                     (and (not (wildcard? a)) (not (wildcard? v)))
+                     (take-while
+                       #(and (= a (datom-a %)) (= v (datom-v %)))
+                       (subseq-from (:avet idx) avet-cmp [nil a v nil nil]))
+                     (not (wildcard? a))
+                     (take-while
+                       #(= a (datom-a %))
+                       (subseq-from (:aevt idx) aevt-cmp [nil a nil nil nil]))
+                     :else (seq (:eavt idx)))]
+    (current-state-seq candidates)))
 
 
 (defn match
@@ -439,7 +491,7 @@
 
 
 ;; =============================================================================
-;; q: Datalog (:find / :where, one merged index)
+;; q: Datalog (:find / :in / :where, one merged index)
 ;; =============================================================================
 
 (defn- resolve-binding
@@ -470,34 +522,99 @@
   (select-by-index idx e a v))
 
 
+(defn- db-sym?
+  [x]
+  (and (symbol? x) (= \$ (first (name x)))))
+
+
+(defn- classify-in-pattern
+  [pattern]
+  (cond (db-sym? pattern) :db
+        (symbol? pattern) :scalar
+        (and (vector? pattern) (vector? (first pattern))) :relation
+        (and (vector? pattern) (= '... (last pattern))) :coll
+        (vector? pattern) :tuple
+        :else (throw (ex-info "Unknown :in pattern" {:pattern pattern}))))
+
+
+(defn- expand-in-binding
+  [pattern value as-of]
+  (case (classify-in-pattern pattern)
+    :db [{::dbs {pattern (fold value as-of)}}]
+    :scalar [{pattern value}]
+    :coll (let [sym (first pattern)] (mapv (fn [elem] {sym elem}) value))
+    :tuple [(zipmap pattern value)]
+    :relation (let [vars (first pattern)]
+                (mapv (fn [tup] (zipmap vars tup)) value))))
+
+
+(defn- merge-bindings
+  [b1 b2]
+  (let [merged-dbs (merge (get b1 ::dbs {}) (get b2 ::dbs {}))]
+    (cond-> (merge b1 b2) (seq merged-dbs) (assoc ::dbs merged-dbs))))
+
+
+(defn- cross-join-bindings
+  [rows1 rows2]
+  (for [b1 rows1 b2 rows2] (merge-bindings b1 b2)))
+
+
+(defn- build-init-bindings
+  [in-patterns inputs as-of]
+  (reduce (fn [acc [pat val]]
+            (cross-join-bindings acc (expand-in-binding pat val as-of)))
+          [{}]
+          (map vector in-patterns inputs)))
+
+
+(defn- clause-db-and-pattern
+  [clause]
+  (if (db-sym? (first clause))
+    [(first clause) (vec (rest clause))]
+    ['$ (vec clause)]))
+
+
+(defn- resolve-db
+  [binding db-sym]
+  (get (get binding ::dbs) db-sym))
+
+
 (defn- eval-clause
-  [idx clause binding]
-  (let [[ce ca cv ct cm] (pad-to-5 clause)
-        e-val (resolve-binding binding ce)
-        a-val (resolve-binding binding ca)
-        v-val (resolve-binding binding cv)
-        datoms (select-datoms idx e-val a-val v-val)]
-    (keep (fn [d]
-            (-> binding
-                (unify ce (nth d 0))
-                (and-then #(unify % ca (nth d 1)))
-                (and-then #(unify % cv (nth d 2)))
-                (and-then #(unify % ct (nth d 3)))
-                (and-then #(unify % cm (nth d 4)))))
-          datoms)))
+  [clause binding]
+  (let [[db-sym pattern] (clause-db-and-pattern clause)
+        idx (resolve-db binding db-sym)]
+    (if-not idx
+      []
+      (let [[ce ca cv ct cm] (pad-to-5 pattern)
+            e-val (resolve-binding binding ce)
+            a-val (resolve-binding binding ca)
+            v-val (resolve-binding binding cv)
+            datoms (select-datoms idx e-val a-val v-val)]
+        (keep (fn [d]
+                (-> binding
+                    (unify ce (nth d 0))
+                    (and-then #(unify % ca (nth d 1)))
+                    (and-then #(unify % cv (nth d 2)))
+                    (and-then #(unify % ct (nth d 3)))
+                    (and-then #(unify % cm (nth d 4)))))
+              datoms)))))
 
 
 (defn- estimate-clause-cost
   [clause binding]
-  (let [[ce ca cv] (pad-to-5 clause)
-        e-val (resolve-binding binding ce)
-        a-val (resolve-binding binding ca)
-        v-val (resolve-binding binding cv)]
-    (cond (and (not= e-val FREE) (not= a-val FREE) (not= v-val FREE)) 1
-          (not= e-val FREE) 2
-          (and (not= a-val FREE) (not= v-val FREE)) 4
-          (not= a-val FREE) 16
-          :else 1024)))
+  (let [[db-sym pattern] (clause-db-and-pattern clause)
+        idx (resolve-db binding db-sym)]
+    (if-not idx
+      1000000
+      (let [[ce ca cv] (pad-to-5 pattern)
+            e-val (resolve-binding binding ce)
+            a-val (resolve-binding binding ca)
+            v-val (resolve-binding binding cv)]
+        (cond (and (not= e-val FREE) (not= a-val FREE) (not= v-val FREE)) 1
+              (not= e-val FREE) 2
+              (and (not= a-val FREE) (not= v-val FREE)) 4
+              (not= a-val FREE) 16
+              :else 1024)))))
 
 
 (defn- plan-where
@@ -511,8 +628,8 @@
 
 
 (defn- eval-where
-  [idx clauses init-bindings]
-  (reduce (fn [bindings clause] (mapcat #(eval-clause idx clause %) bindings))
+  [clauses init-bindings]
+  (reduce (fn [bindings clause] (mapcat #(eval-clause clause %) bindings))
           init-bindings
           (plan-where clauses init-bindings)))
 
@@ -529,7 +646,7 @@
         (if (>= i (count v))
           (if cur-key (assoc result cur-key cur-vals) result)
           (let [x (nth v i)]
-            (if (#{:find :where} x)
+            (if (#{:find :in :where} x)
               (recur (inc i)
                      (if cur-key (assoc result cur-key cur-vals) result)
                      x
@@ -538,11 +655,37 @@
 
 
 (defn q
-  "Datalog: [:find ?a ?b :where [pattern] ...] over source. Options:
-  {:as-of t}. Returns a set of result tuples."
-  ([query source] (q query source nil))
-  ([query source {:keys [as-of]}]
-   (let [{:keys [find where]} (normalize-query query)
-         idx (fold source as-of)
-         result (eval-where idx where [{}])]
-     (into #{} (map (fn [b] (mapv #(get b %) find))) result))))
+  "Datalog: (q query & inputs) where $ binds to first input.
+   Example: (q '[:find ?e :where [?e :name \"Alice\"]] source)
+   Options like {:as-of t} can be passed as a final argument if not bound by :in."
+  [query & inputs]
+  (let [{:keys [find in where]} (normalize-query query)
+        in-patterns (or in '[$])
+        [bind-inputs opts] (if (> (count inputs) (count in-patterns))
+                             [(take (count in-patterns) inputs) (last inputs)]
+                             [inputs nil])
+        as-of (:as-of opts)
+        init-bindings (build-init-bindings in-patterns bind-inputs as-of)
+        result (eval-where where init-bindings)]
+    (into #{} (map (fn [b] (mapv #(get b %) find))) result)))
+
+
+;; =============================================================================
+;; Entity Attributes
+;; =============================================================================
+
+(defn entity-attrs
+  "Convenience: return a map of {attr val} for the given entity in source.
+   If multiple datoms exist for an attribute, returns a vector of values."
+  ([source eid] (entity-attrs source eid nil))
+  ([source eid {:keys [as-of]}]
+   (let [datoms (match source [eid '_ '_] {:as-of as-of})]
+     (reduce (fn [m d]
+               (let [a (nth d 1)
+                     v (nth d 2)
+                     existing (get m a)]
+                 (cond (nil? existing) (assoc m a v)
+                       (vector? existing) (update m a conj v)
+                       :else (assoc m a [existing v]))))
+             {}
+             datoms))))
