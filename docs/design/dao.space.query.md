@@ -265,6 +265,23 @@ the persisted indexes lazily via psset `IStorage`, fetching nodes only as traver
 them. `read-datoms` remains the correctness path every platform and every fallback
 (as-of, federation) shares.
 
+## Current-state resolution
+
+The log is append-only, so a retraction or a cardinality-one update is itself another
+datom appended after the assertion it undoes; a raw fold would see the whole history,
+retractions included. `dao.space.query` resolves current state **at query time**:
+`current-state-seq` (`src/cljc/dao/space/query.cljc`) walks the candidate datoms
+`select-by-index` gathered for a clause and emits only those still asserted, masking any
+datom whose `(e a v)` was later retracted (the `m` slot, per `dao.datom`). Cardinality-one
+supersession resolves the same way, because the writer-side local transactor
+(`dao.space.transact/prepare-tx`) emits an explicit `:db/retract` for the value being
+superseded, which `current-state-seq` then masks, leaving the latest value. Because both
+`match` and `q` select through `select-by-index`, both return only currently asserted
+facts by default; a caller does not filter by `dao.datom/asserted?` by hand. `as-of`
+composes: it bounds the datoms considered first, so `as-of t` yields current state *as of*
+`t`. Historical reads (the raw log, retractions and all) remain available to a caller who
+bypasses the library.
+
 ## Freshness
 
 Calling them materialized views forces an explicit answer the "coordinate-aware KV" framing hid:

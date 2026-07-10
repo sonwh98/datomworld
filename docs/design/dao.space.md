@@ -373,18 +373,20 @@ agent *appends a new datom* asserting the claim, and "current state" is a read-s
 the accreted datoms. This is the tuple space working as designed — coordination with no
 broker, no message-format negotiation, and no leader election.
 
-**The example below is target surface, not runnable today**, on three counts. The
+**The example below is target surface, not runnable today**, on two counts. The
 `(not [_ :work/claims ?w])` clause needs negation, which `q` does not implement yet (see The
-Query Library, above). The `{:type :dao-stream :store store ...}` descriptor — a stream that
-persists its appends into a jing store — is not a registered `dao.stream` type; today a
+Query Library, above). And the `{:type :dao-stream :store store ...}` descriptor — a stream
+that persists its appends into a jing store — is not a registered `dao.stream` type; today a
 stream owner publishes by `cas!` on its `:root/datoms` root directly, and the dependency
 between the layers is in fact inverted (`dao.jing`'s file backend uses `dao.stream.log`
-internally as its byte transport; see `dao.space.query.md`, *Reality check*). And
-"current state" as a query result — masking retracted datoms and superseded claims — is
-deferred: `match`/`q` today answer over the historical log exactly as given, retractions and
-all, and a caller wanting current state must filter by `dao.datom/asserted?` itself
-(see `dao.space.query`'s namespace docstring). The example expresses the coordination
-model those pieces exist to serve:
+internally as its byte transport; see `dao.space.query.md`, *Reality check*).
+
+"Current state" as a query result is no longer one of the blockers: `match`/`q` now mask
+retracted datoms and supersede cardinality-one values at query time via `current-state-seq`
+(see `dao.space.query`'s namespace docstring, and `dao.space.query.md`, *Current-state
+resolution*), so they return only currently asserted facts without the caller filtering by
+`dao.datom/asserted?`. The example expresses the coordination model the remaining two
+pieces (negation, `:dao-stream`) exist to serve:
 
 ```clojure
 (defn producer [store]
