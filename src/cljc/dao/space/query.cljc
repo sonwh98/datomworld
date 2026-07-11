@@ -575,8 +575,12 @@
 
 (defn- pattern-clause?
   [clause]
-  (not (or (and (seq? clause) (#{'not 'not-join} (first clause)))
-           (and (vector? clause) (seq? (first clause))))))
+  ;; Only a plain [e a v (t m)] vector is a reorderable pattern clause.
+  ;; Every list form is an order barrier: not/not-join (negation) and any
+  ;; other list (a rule invocation). The clause planner can't see inside a
+  ;; rule, so it must not reorder one by a selectivity estimate that would
+  ;; treat the rule name as an entity id.
+  (not (or (seq? clause) (and (vector? clause) (seq? (first clause))))))
 
 
 (defn- clause-db-and-pattern
@@ -717,8 +721,9 @@
 (defn- eval-rule
   "Evaluates a rule invocation (head) by finding matching rule definitions,
   unifying arguments with the rule head, evaluating the body, and unifying
-  the results back to the caller's context. Tracks active rules to ensure
-  cycle also has a finite acyclic derivation."
+  the results back to the caller's context. Tracks active rules to terminate
+  on cyclic data, sound because every fact derivable through a cycle also has
+  a finite acyclic derivation."
   [clause binding ctx]
   (let [[rule-name & call-args] clause
         rules (get binding '%)]
