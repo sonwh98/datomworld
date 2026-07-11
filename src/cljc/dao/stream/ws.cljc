@@ -210,6 +210,16 @@
                  stream (make-ws-stream local)
                  client (java.net.http.HttpClient/newHttpClient)
                  ws-ref (atom nil)
+                 ;; Java's WebSocket client delivers a text message in
+                 ;; PARTS
+                 ;; (onText's last? flag): once cumulative traffic crosses
+                 ;; the
+                 ;; client's internal buffer boundary, a message arrives
+                 ;; split. Parts accumulate here until last? marks the
+                 ;; message complete. Listener callbacks for one connection
+                 ;; are never invoked concurrently, so a plain
+                 ;; StringBuilder is safe.
+                 text-buf (StringBuilder.)
                  listener
                  (reify
                    java.net.http.WebSocket$Listener
@@ -233,8 +243,12 @@
                      (.request ws 1))
 
                    (onText
-                     [_ ws data _last?]
-                     (on-message! stream (str data))
+                     [_ ws data last?]
+                     (.append text-buf data)
+                     (when last?
+                       (let [msg (.toString text-buf)]
+                         (.setLength text-buf 0)
+                         (on-message! stream msg)))
                      (.request ws 1)
                      (java.util.concurrent.CompletableFuture/completedFuture
                        nil))

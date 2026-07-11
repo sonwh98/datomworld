@@ -1,8 +1,13 @@
 # DaoSpace for Agent Collaboration
 
-Status: design discussion (2026-07-10); minimum-viable-stack prototype implemented and run
-live the same day with GLM- and DeepSeek-backed Claude Code workers
-(`prototypes/dao-space-stigmergy/` — coordinator, CLI, worker prompt, launchers, loop test).
+Status: design discussion (2026-07-10); a coordinator-mediated prototype ran live the same
+day, then was **superseded (2026-07-12) by the streams-native model**: there is no
+coordinator. Stigmergy is writing datoms to the agent's own `dao.stream` via `ds/put!` and
+reading dao.space with `q`/`match` — nothing else. The living contract is
+`test/dao/space/stigmergy_test.clj`: agents coordinate over a network-accessible
+`dao.jing.file` store (served with `dao.stream.rpc` as plain `IKVStore` ops — the rpc is an
+implementation detail below the store handle), and the finished space persists at
+`target/stigmergy-space.db` for inspection with `dao.space.query`.
 Describes how `dao.space` serves as a coordination medium for autonomous agents — LLM agents
 specifically — and enumerates what exists today versus what is still needed. Nothing here
 proposes changing the tuple-space model; the model is the point.
@@ -205,30 +210,44 @@ broker, and no change to the medium:
   lands, which settles the task permanently. An expired claim without a result counts for
   nothing — the datom stays in the log forever; only its *interpretation* changes — so the
   task reappears as unclaimed and anyone may re-claim. This also heals the crashed-winner
-  case, which previously orphaned the task forever. In the prototype the coordinator stamps
-  `:claim/expires` (= `t` + lease window) on every claim deposit, the same way it stamps `t`
-  and `:dao/agent`, and its `:space/board` read applies the lease and winner rules as the
-  documented fold every reader shares (gap 5's coordinator-side reasoning). Exercised by
-  `simulate.sh` scene 2 and the `claim-leases` test.
+  case, which previously orphaned the task forever. With no coordinator, the *depositing
+  agent* stamps `:claim/expires` (= `t` + lease window) the same way it stamps wall-clock
+  `t` and `:dao/agent`, and every reader applies the lease and winner rules as the same
+  documented queries (a `not-join` with a `[(< ?now ?exp)]` predicate for availability; a
+  claims query binding the datom `t` for the `[t agent]` tie-break). Exercised by the
+  `claim-leases` test.
 - **Randomized backoff before claiming** (*still open*). Each worker waits a small random
   interval before depositing a claim, decorrelating claim times from model latency and
   spreading work across the fleet. Cheap, prompt-level, and composable with leases.
 
-Neither needs library or storage changes: leases shipped as a coordinator convention plus a
-read-side rule, exactly as predicted.
+Neither needs library or storage changes: leases are a writer convention plus a read-side
+query rule, exactly as predicted.
 
 ## The minimum viable stack
 
-For a first working multi-agent system on today's code, trusted agents only:
+For a working multi-agent system on today's code, trusted agents only — no coordinator, no
+deposit API, no new namespaces:
 
-1. One shared `dao.jing` store (mem or file), or one per agent federated at read time.
-2. A JVM-side coordinator process embedding `dao.space.query`, exposing MCP tools
-   `query`/`deposit` over `dao.stream.rpc`'s WebSocket server (gap 1 — the only new code).
-3. A pinned attribute vocabulary in every agent's system prompt (gap 3, manual version).
-4. Conventions in the prompt: UUID task ids (gap 6), wall-clock stamps on claims (gap 7),
-   the claim tie-break rule, filter-by-`asserted?` semantics handled coordinator-side
-   (gap 5, interim), and the two-query workaround for "unclaimed" (gap 4, interim).
+1. **One shared `dao.jing.file` store**, made network-accessible by registering its four
+   `IKVStore` ops as `dao.stream.rpc` handlers (`{:jing/get ... :jing/cas! ...}` — plain
+   call-site wiring; dao.stream.rpc makes any function remotely callable). A remote agent
+   holds a ~10-line `reify jing/IKVStore` over `rpc-client/call!`; everything above the
+   handle is unchanged.
+2. **Writes**: each agent opens its own `:dao-stream` on that handle
+   (`(ds/open! {:type :dao-stream :store handle :name agent-id})`) and deposits with
+   `ds/put!` — nothing else. The agent stamps its own conventions into the datoms it
+   builds: fresh UUID entity id, `:dao/agent` self-stamp, wall-clock `t` in the t slot,
+   `:claim/expires` on claims.
+3. **Reads**: `query/q` and `query/match` over the same handle. "Available work" is one
+   query (negation + lease predicate); claims and results are joins; the winner rule is
+   the documented `[t agent]` sort every reader applies identically.
+4. A pinned attribute vocabulary and these conventions in every agent's system prompt
+   (gap 3, manual version).
 
-Everything else — negation, current-state flags, namespace stamping, controlled mode — makes
+The contract is executable: `test/dao/space/stigmergy_test.clj` runs the full loop —
+post, associative discovery, racing claims, leases, retraction, settle — over the wire,
+and leaves the space on disk for post-hoc inspection with `dao.space.query`.
+
+Everything else — namespace stamping, per-agent stream roots, controlled mode — makes
 the system better without changing what the agents already do: read the medium, decide,
 deposit a trace.

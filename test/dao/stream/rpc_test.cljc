@@ -132,3 +132,19 @@
                  (= 5 (rpc-client/call! client :demo/add [2 3]))
                  "a transient :end read from the underlying stream should not permanently stop the connection's request loop -- it should retry like :blocked does")
                (finally (rpc-client/close! client)))))))))
+
+
+(deftest long-lived-connection-test
+  ;; Regression: the Java 11 WebSocket client delivers a text message in
+  ;; PARTS (onText's last? flag). Ignoring last? treats each part as a
+  ;; whole message, so once cumulative traffic crosses the client's
+  ;; internal buffer boundary a message arrives split, transit decode
+  ;; throws, and the connection dies -- deterministically around the 114th
+  ;; round trip. A connection must survive an arbitrary number of calls.
+  #?(:clj (with-rpc-server
+            {:demo/echo identity}
+            (fn [port]
+              (let [client (rpc-client/connect! (str "ws://localhost:" port))]
+                (try (dotimes [i 300]
+                       (is (= i (rpc-client/call! client :demo/echo [i]))))
+                     (finally (rpc-client/close! client))))))))
