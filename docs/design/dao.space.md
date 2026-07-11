@@ -376,21 +376,18 @@ agent *appends a new datom* asserting the claim, and "current state" is a read-s
 the accreted datoms. This is the tuple space working as designed — coordination with no
 broker, no message-format negotiation, and no leader election.
 
-**The example below is target surface, not runnable today**, on one count. The
-`{:type :dao-stream :store store ...}` descriptor — a stream
-that persists its appends into a jing store — is not a registered `dao.stream` type; today a
-stream owner publishes by `cas!` on its `:root/datoms` root directly, and the dependency
-between the layers is in fact inverted (`dao.jing`'s file backend uses `dao.stream.log`
-internally as its byte transport; see `dao.space.query.md`, *Reality check*).
-
-"Current state" as a query result is no longer one of the blockers: `match`/`q` now mask
+**The example below is runnable.** Every former blocker is implemented: `match`/`q` mask
 retracted datoms and supersede cardinality-one values at query time via `current-state-seq`
-(see `dao.space.query`'s namespace docstring, and `dao.space.query.md`, *Current-state
-resolution*), so they return only currently asserted facts without the caller filtering by
-`dao.datom/asserted?`. Negation is no longer a blocker either: `q` implements
-`not`/`not-join` (stratified, evaluated over the current-state-resolved index), so the
-`(not [_ :work/claims ?w])` clause below executes as written. The example expresses the
-coordination model the one remaining piece (`:dao-stream`) exists to serve:
+(see `dao.space.query.md`, *Current-state resolution*); `q` implements `not`/`not-join`
+(stratified, over the current-state-resolved index), so the `(not [_ :work/claims ?w])`
+clause executes as written; and `{:type :dao-stream :store store :name ...}` is a
+registered `dao.stream` type (`dao.space.stream`) whose `ds/put!` deposits an entity map
+or datom vector into the store's `:root/datoms` root through a read-modify-`cas!`
+owner-append (the interim pattern of `docs/dao.space.stigmergy.md`; per-stream roots
+merged at read time wait on namespace stamping). One layering note stands: `dao.jing`'s
+file backend still uses `dao.stream.log` internally as its byte transport (see
+`dao.space.query.md`, *Reality check*), so the layers remain mutually acquainted even
+though the write path now runs top-down:
 
 ```clojure
 (defn producer [store]
