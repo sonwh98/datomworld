@@ -261,6 +261,27 @@
 
 #?(:cljd nil
    :clj
+   (deftest publish-index-round-trips-through-file-store
+     (testing
+       "segment keys survive the file backend's EDN persistence —
+              an indexed root must be readable after reopen from disk"
+       (let [path (str "target/query-test-" (random-uuid) ".db")
+             store (file/create-kv-file path)]
+         (try (query/publish-index! store
+                                    [[1 :work/status :todo 0 1]
+                                     [2 :work/status :done 0 1]])
+              (jing/close! store)
+              (let [store2 (file/create-kv-file path)]
+                (try (is (= #{[1]}
+                            (query/q '[:find ?e :where
+                                       [?e :work/status :todo]]
+                                     store2)))
+                     (finally (jing/close! store2))))
+              (finally (.delete (java.io.File. path))))))))
+
+
+#?(:cljd nil
+   :clj
    (deftest publish-index-republish-is-idempotent
      (testing
        "content addressing: unchanged data yields identical root

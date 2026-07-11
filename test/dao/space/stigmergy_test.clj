@@ -281,21 +281,20 @@
 
 
 (deftest indexed-root-survival
-  ;; Local store, not the shared remote medium: publish-index! roots hold
-  ;; segment keywords (:segment/<sha>) whose names start with a digit —
-  ;; unreadable EDN, so an indexed root cannot cross the rpc transport
-  ;; today. The subject here is the stream write path's fold, which is
-  ;; transport-independent.
-  (let [store (jing/create-kv-mem)
-        agent (open-agent store "indexer")
-        {before :e} (put-entity! agent "indexer" {:marker/id "pre-index"})]
-    (query/publish-index! store)
-    (let [{after :e} (put-entity! agent "indexer" {:marker/id "post-index"})]
-      (is
-        (= #{[before "pre-index"] [after "post-index"]}
-           (query/q '[:find ?e ?id :where [?e :marker/id ?id]] store))
-        "a stream append onto a publish-index!-ed root folds the indexed
-           datoms back rather than dropping them"))))
+  (with-remote
+    (fn [remote]
+      (let [agent (open-agent remote "indexer")
+            {before :e} (put-entity! agent "indexer" {:marker/id "pre-index"})]
+        ;; the owner publishes covered indexes on the server-side store;
+        ;; the indexed root (segment keys and all) must survive the file
+        ;; backend's EDN persistence and the rpc, and a later stream append
+        ;; must fold the indexed datoms back rather than dropping them
+        (query/publish-index! *store*)
+        (let [{after :e}
+              (put-entity! agent "indexer" {:marker/id "post-index"})]
+          (is (= #{[before "pre-index"] [after "post-index"]}
+                 (query/q '[:find ?e ?id :where [?e :marker/id ?id]]
+                          remote))))))))
 
 
 (deftest transport-transparency

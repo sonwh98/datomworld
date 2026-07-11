@@ -84,7 +84,7 @@
 #?(:cljd nil
    :clj
    (deftest store-handler-enforces-key-discipline
-     (testing "an incoming :store must present the exact :segment/<hash> key"
+     (testing "an incoming :store must present the exact segment key"
        (let [handle (deref #'node/handle)
              local (jing/create-kv-mem)
              table (atom {})
@@ -93,7 +93,7 @@
          (is (true? (:ok (handle
                            local
                            table
-                           {:op :store, :k (keyword "segment" hash), :v v}))))
+                           {:op :store, :k (jing/segment-key v), :v v}))))
          (is (false? (:ok (handle local table {:op :store, :k hash, :v v})))
              "a bare string key is rejected")
          (is

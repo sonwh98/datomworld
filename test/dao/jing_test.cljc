@@ -6,6 +6,7 @@
   one, a stale rev fails without mutating the entry), delete!, and, on the JVM
   only, cas! under contention with no lost updates."
   (:require [clojure.test :refer [deftest is testing]]
+            #?(:clj [clojure.edn])
             [dao.jing :as jing]
             [dao.jing.file :as file]))
 
@@ -364,6 +365,27 @@
         ":rev is the backend's stamp, not content")
     (is (not= (jing/segment-key {:a 1}) (jing/segment-key {:a 2})))
     (is (= "segment" (namespace (jing/segment-key {:a 1}))))))
+
+
+(deftest segment-keys-are-readable-edn
+  ;; An EDN keyword name must not start with a digit, but a bare sha-256
+  ;; hex often does. A key that cannot survive print -> read poisons every
+  ;; EDN boundary a root or segment crosses (the file backend's own
+  ;; persistence, first of all).
+  (testing "no minted key starts with a digit"
+    (doseq [n (range 16)]
+      (let [k (jing/segment-key {:n n})]
+        (is (not (contains? (set "0123456789") (first (name k))))
+            (str k " is not readable EDN")))))
+  #?(:clj (testing "a minted key survives print -> read"
+            (let [k (jing/segment-key {:a 1})]
+              (is (= k (clojure.edn/read-string (pr-str k))))))))
+
+
+(deftest segment-hash-recovers-the-content-hash
+  (testing "the hash is extractable from the key and matches the content"
+    (let [v {:a 1}]
+      (is (= (jing/content-hash v) (jing/segment-hash (jing/segment-key v)))))))
 
 
 (deftest key-class-dispatches-by-namespace

@@ -5,7 +5,7 @@
   The backend tightens the IKVStore contract with two key classes, each
   recoverable from the key alone (get sees only the key):
 
-    :segment/<sha256>  content-addressed immutable segments, put!-only.
+    :segment/sha256-<hash>  content-addressed immutable segments, put!-only.
                        k = hash(v-map), so fetched bytes verify against the
                        key and any node may cache any segment forever.
     :root/<name>       caller-named mutable references, cas!-only, never
@@ -46,11 +46,12 @@
 
 
 (defn- key->target
-  "The routing target for a key: segment names already are content hashes;
-  root names are hashed into the same id space."
+  "The routing target for a key: segment keys carry their content hash
+  (behind the algorithm prefix); root names are hashed into the same id
+  space."
   [k]
   (case (jing/key-class k)
-    :segment (name k)
+    :segment (jing/segment-hash k)
     :root (dw/sha256 (str k))))
 
 
@@ -208,32 +209,33 @@
   (get
     [_ k not-found]
     (case (jing/key-class k)
-      :segment
-      (let [v (jing/get local k ::none)]
-        (if (not= ::none v)
-          v
-          (let [self-id (:id (self-peer net))
-                ;; sequential and nearest-first by design: stop
-                ;; at the first peer whose bytes verify,
-                ;; spending no traffic on the rest
-                fetched (some (fn [peer]
-                                (when (not= self-id (:id peer))
-                                  (when-let [v (fetch-segment net peer k)]
-                                    ;; integrity: received bytes must
-                                    ;; hash back to k (peers are
-                                    ;; untrusted)
-                                    (when (= (name k) (jing/content-hash v))
-                                      v))))
-                              (lookup net (key->target k)))]
-            (if (some? fetched)
-              (do
-                ;; immutable, so cache forever
-                (jing/put! local k fetched)
-                ;; normalize the stamp: the remote :rev is that
-                ;; store's artifact, not content, and local put!
-                ;; stamped 0
-                (assoc fetched :rev 0))
-              not-found))))
+      :segment (let [v (jing/get local k ::none)]
+                 (if (not= ::none v)
+                   v
+                   (let [self-id (:id (self-peer net))
+                         ;; sequential and nearest-first by design: stop
+                         ;; at the first peer whose bytes verify,
+                         ;; spending no traffic on the rest
+                         fetched
+                         (some (fn [peer]
+                                 (when (not= self-id (:id peer))
+                                   (when-let [v (fetch-segment net peer k)]
+                                     ;; integrity: received bytes must
+                                     ;; hash back to k (peers are
+                                     ;; untrusted); exact-key equality,
+                                     ;; same as node.cljc's :store
+                                     ;; check
+                                     (when (= k (jing/segment-key v)) v))))
+                               (lookup net (key->target k)))]
+                     (if (some? fetched)
+                       (do
+                         ;; immutable, so cache forever
+                         (jing/put! local k fetched)
+                         ;; normalize the stamp: the remote :rev is that
+                         ;; store's artifact, not content, and local put!
+                         ;; stamped 0
+                         (assoc fetched :rev 0))
+                       not-found))))
       :root
       ;; never cached: a root read must be fresh or fail loudly
       (let [own (owner net k)]

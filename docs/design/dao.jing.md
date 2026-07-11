@@ -74,7 +74,7 @@ guard.
 The content-derived key half of that discipline has a concrete mechanism: `dao.jing` itself
 (not any one backend) owns `canonical` (order-normalize a value so equal values print
 identical bytes, `defn-`, private), `content-hash` (sha256 of the canonical print, excluding
-`:rev`), `segment-key` (mint `:segment/<hash>` from a v-map), and `key-class` (dispatch a key
+`:rev`), `segment-key` (mint `:segment/sha256-<hash>` from a v-map; the prefix keeps the keyword readable EDN), and `key-class` (dispatch a key
 to `:segment` or `:root`) — see `src/cljc/dao/jing.cljc`. `dao.jing.dht` (`dao.jing.dht.cljc`)
 consumes these (`jing/segment-key`, `jing/key-class`, `jing/content-hash`) for its own routing
 and key-discipline enforcement rather than defining its own copies — see `dao.jing.dht.md`,
@@ -141,7 +141,7 @@ implemented at the storage boundary today, and the contracts already pinned down
 
 - **Storage root today: one mutable key; segments shipped.** The stream root at
   `:root/datoms` holds either a stream's full datom vector wholesale (`{:datoms [...]}`) or,
-  since 2026-07-10, an owner-built index manifest (`{:indexes {:eavt :segment/<hash> ...}
+  since 2026-07-10, an owner-built index manifest (`{:indexes {:eavt :segment/sha256-<hash> ...}
   :count n}`) whose values point at immutable, content-addressed B-Tree node segments written
   with `put!` under `segment-key` — published by `dao.space.query/publish-index!`. Both the
   root-key name (`default-datoms-key`) and both root shapes are reader-owned conventions

@@ -191,7 +191,7 @@ conceptual baseline"; see [`dao.space.query.md`](dao.space.query.md), *Index Rea
 with `tonsky/persistent-sorted-set` as the sorted-set implementation. Since 2026-07-10 the
 owner-built Target Architecture is also implemented: `dao.space.query/publish-index!`
 persists a stream's covered indexes as immutable, content-addressed B-Tree segments (`put!`
-under `segment-key`) and advances the root to `{:indexes {:eavt :segment/<hash> ...}}`; a
+under `segment-key`) and advances the root to `{:indexes {:eavt :segment/sha256-<hash> ...}}`; a
 JVM reader restores those indexes lazily (a bound-`e` lookup fetches only the seek path — 2
 segments of 26 in the test suite), while cljs/cljd readers, and the as-of/federated paths
 everywhere, read the same segments eagerly by walking the plain-EDN node graph. Laziness is

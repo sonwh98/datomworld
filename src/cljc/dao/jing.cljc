@@ -12,7 +12,8 @@
    A backend like dao.jing.dht enforces this discipline over an untrusted
    network; it does not invent it."
   (:refer-clojure :exclude [get])
-  (:require [datomworld :as dw]))
+  (:require [clojure.string :as str]
+            [datomworld :as dw]))
 
 
 (defprotocol IKVStore
@@ -116,8 +117,8 @@
   (cond (map? v) (->> v
                       (map (fn [[k x]] [(canonical k) (canonical x)]))
                       ;; a pr-str-keyed sorted map prints its keys in a
-                      ;; fixed
-                      ;; order on every platform (array-map is not in
+                      ;; fixed order on every platform (array-map is not
+                      ;; in
                       ;; ClojureDart)
                       (into (sorted-map-by #(compare (pr-str %1) (pr-str %2)))))
         (set? v) (list 'set (sort-by pr-str (map canonical v)))
@@ -133,6 +134,20 @@
 
 
 (defn segment-key
-  "Mint the content-addressed key for an immutable segment: k = hash(v-map)."
+  "Mint the content-addressed key for an immutable segment:
+  :segment/sha256-<hash(v-map)>. The algorithm prefix is load-bearing twice
+  over: it names the hash function, and it keeps the keyword readable EDN —
+  a name starting with a bare hex digit cannot survive print -> read, which
+  poisons every EDN boundary a root crosses (the file backend's own
+  persistence, first of all)."
   [v-map]
-  (keyword "segment" (content-hash v-map)))
+  (keyword "segment" (str "sha256-" (content-hash v-map))))
+
+
+(defn segment-hash
+  "The content hash carried by a segment key (strips the algorithm prefix)."
+  [k]
+  (let [n (name k)]
+    (if (str/starts-with? n "sha256-")
+      (subs n 7)
+      (throw (ex-info "not a sha256 segment key" {:k k})))))
