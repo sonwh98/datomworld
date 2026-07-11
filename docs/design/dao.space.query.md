@@ -311,10 +311,19 @@ Beyond positive-conjunction pattern clauses, `q` implements (as of 2026-07-11):
   boolean contract, so a predicate returning `0` keeps the row where Datomic would be
   a type error.
 
+- **Rules (recursion)** — Datomic syntax: a rule set bound to `%` via `:in $ %`, invoked
+  as `(rule-name arg ...)` clauses. Multiple definitions of one head are a disjunction
+  (the only OR the surface has — `or`/`or-join` clauses are not implemented). A rule
+  body runs in a fresh scope seeded from the caller's resolved args, so body vars are
+  rule-local like not-join locals; head vars must be bound by the body (throw
+  otherwise). Recursion terminates on cyclic data by failing any in-progress call with
+  identical resolved args — sound for Datalog, where every fact derivable through a
+  cycle also has a finite acyclic derivation. Required-bound head vars (`[(rule [?a] ?b)
+  ...]`) are not implemented (throw).
+
 The clause planner (`plan-where`) reorders only contiguous runs of pattern clauses by
-selectivity; negation and fn clauses are order barriers that stay in source position, so
-their vars are bound by the clauses the query author placed before them. **Rules
-(recursion) are not implemented** — target surface.
+selectivity; negation, rule, and fn clauses are order barriers that stay in source
+position, so their vars are bound by the clauses the query author placed before them.
 
 ## Freshness
 

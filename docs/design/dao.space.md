@@ -126,11 +126,12 @@ in-memory index, answer. It owns no durable state.
 (require '[dao.space.query :as query])
 
 ;; q — Datalog over all of storage. The design contract is full Datalog
-;; (joins, negation, aggregation, predicates); the implementation covers
-;; it: not/not-join, :find aggregates (count, count-distinct, sum, min,
-;; max, avg) with :with, and predicate/function clauses via a
-;; caller-supplied {:fns {sym fn}} option. Rules (recursion) remain
-;; target surface.
+;; (joins, negation, aggregation, predicates, recursion); the
+;; implementation covers it: not/not-join, :find aggregates (count,
+;; count-distinct, sum, min, max, avg) with :with, predicate/function
+;; clauses via a caller-supplied {:fns {sym fn}} option, and recursive
+;; rules bound to % via :in (Datomic syntax; multiple bodies = OR,
+;; terminates on cyclic data).
 (query/q '[:find ?id ?task
            :where [?id :work/status :todo]
                   [?id :work/task ?task]]

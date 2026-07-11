@@ -741,3 +741,117 @@
              (query/q '[:find ?name :where [?u :user/name ?name]
                         (not (not-join [?u] [?r :review/reviewer ?u]))]
                       datoms))))))
+
+
+;; ---------------------------------------------------------------------------
+;; Rules (recursion), Datomic-style: rules bound to % via :in
+;; ---------------------------------------------------------------------------
+
+(def family-datoms
+  [["adam" :parent "beth" 1 1] ["beth" :parent "cara" 1 1]
+   ["cara" :parent "dave" 1 1] ["xeno" :parent "yara" 1 1]])
+
+
+(def ancestor-rules
+  '[[(ancestor ?a ?d) [?a :parent ?d]]
+    [(ancestor ?a ?d) [?a :parent ?c] (ancestor ?c ?d)]])
+
+
+(deftest rules-test
+  (testing "a non-recursive rule is a named sub-query"
+    (let [datoms [[1 :user/friend 2 1 1] [3 :user/follows 1 1 1]
+                  [4 :user/name "loner" 1 1]]
+          rules '[[(social ?e) [?e :user/friend _]]
+                  [(social ?e) [?e :user/follows _]]]]
+      (testing "multiple bodies for one head are a disjunction (OR)"
+        (is (=
+              #{[1] [3]}
+              (query/q '[:find ?e :in $ % :where (social ?e)] datoms rules))))))
+  (testing "recursive rule computes the transitive closure"
+    (is (= #{["beth"] ["cara"] ["dave"]}
+           (query/q '[:find ?d :in $ % :where (ancestor "adam" ?d)]
+                    family-datoms
+                    ancestor-rules))))
+  (testing "recursion with the value side bound works too"
+    (is (= #{["adam"] ["beth"] ["cara"]}
+           (query/q '[:find ?a :in $ % :where (ancestor ?a "dave")]
+                    family-datoms
+                    ancestor-rules))))
+  (testing "rule invocations join with ordinary clauses"
+    ;; every ancestor of the one :active person
+    (let [datoms (conj family-datoms ["dave" :status :active 1 1])]
+      (is (= #{["adam" "dave"] ["beth" "dave"] ["cara" "dave"]}
+             (query/q '[:find ?a ?d :in $ % :where (ancestor ?a ?d)
+                        [?d :status :active]]
+                      datoms
+                      ancestor-rules)))))
+  (testing "recursion terminates on cyclic data"
+    (let [cycle [["a" :edge "b" 1 1] ["b" :edge "c" 1 1] ["c" :edge "a" 1 1]]
+          rules '[[(reach ?x ?y) [?x :edge ?y]]
+                  [(reach ?x ?y) [?x :edge ?z] (reach ?z ?y)]]]
+      (is (= #{["a"] ["b"] ["c"]}
+             (query/q '[:find ?y :in $ % :where (reach "a" ?y)] cycle rules)))))
+  (testing "rule body vars are locally scoped, even under colliding names"
+    ;; ?c is bound to :blue outside AND is ancestor's internal chain var.
+    ;; If the rule saw the outer ?c, its recursive body [?a :parent ?c]
+    ;; would unify against :blue and recursion would die after "beth".
+    (let [datoms (conj family-datoms ["adam" :color :blue 1 1])]
+      (is (= #{[:blue "beth"] [:blue "cara"] [:blue "dave"]}
+             (query/q '[:find ?c ?d :in $ % :where ["adam" :color ?c]
+                        (ancestor "adam" ?d)]
+                      datoms
+                      ancestor-rules)))))
+  (testing
+    "rule head with repeated var yields no solutions for contradictory args"
+    (let [datoms [[1 :val 1 1 1] [2 :val 2 1 1]]
+          rules '[[(same ?x ?x)]]]
+      (is (= #{}
+             (query/q '[:find ?e :in $ % :where [?e :val ?v] (same ?v 99)]
+                      datoms
+                      rules))))))
+
+
+(deftest rules-error-paths
+  (testing "invoking a rule with no % bound throws"
+    (is (thrown-with-msg? #?(:cljs js/Error
+                             :cljd Object
+                             :default Exception)
+                          #"[Nn]o rules"
+          (query/q '[:find ?d :where (ancestor "adam" ?d)]
+                   family-datoms))))
+  (testing "invoking an undefined rule throws"
+    (is (thrown-with-msg? #?(:cljs js/Error
+                             :cljd Object
+                             :default Exception)
+                          #"Unknown rule"
+          (query/q '[:find ?d :in $ % :where
+                     (descendant "adam" ?d)]
+                   family-datoms
+                   ancestor-rules)))))
+
+
+;; ---------------------------------------------------------------------------
+;; Bug-exposing tests (RED) — EXPECTED TO FAIL until the bug is fixed.
+;; Per TDD red phase: these document real defects found in code review.
+;; ---------------------------------------------------------------------------
+
+
+
+(def side-effect (atom []))
+
+
+(defn do-something
+  [x]
+  (swap! side-effect conj x) [x])
+
+
+(deftest rule-body-execution-bug
+  (testing "contradictory rule head args short-circuit before the body runs"
+    (let [datoms [[1 :val 1 1 1]]
+          rules '[[(same ?x ?x) [(dao.space.query_test/do-something ?x) [?y]]]]]
+      (reset! side-effect [])
+      (query/q '[:find ?e :in $ % :where [?e :val ?v] (same ?v 99)]
+               datoms
+               rules
+               {:fns {'dao.space.query_test/do-something do-something}})
+      (is (= [] @side-effect)))))

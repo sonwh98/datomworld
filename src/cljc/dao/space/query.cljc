@@ -714,12 +714,73 @@
             (if b [b] [])))))))
 
 
+(defn- eval-rule
+  "Evaluates a rule invocation (head) by finding matching rule definitions,
+  unifying arguments with the rule head, evaluating the body, and unifying
+  the results back to the caller's context. Tracks active rules to ensure
+  cycle also has a finite acyclic derivation."
+  [clause binding ctx]
+  (let [[rule-name & call-args] clause
+        rules (get binding '%)]
+    (when-not rules
+      (throw (ex-info "No rules bound; pass a rule set via :in $ %"
+                      {:clause clause})))
+    (let [defs (filter #(= rule-name (first (first %))) rules)]
+      (when (empty? defs)
+        (throw (ex-info "Unknown rule"
+                        {:rule rule-name,
+                         :known (vec (distinct (map ffirst rules)))})))
+      (let [arg-vals (mapv #(resolve-binding binding %) call-args)
+            call-key [rule-name arg-vals]
+            active (::active-rules ctx #{})]
+        (if (contains? active call-key)
+          []
+          (let [ctx (assoc ctx ::active-rules (conj active call-key))]
+            (distinct
+              (mapcat
+                (fn [[head & body]]
+                  (let [head-vars (vec (rest head))]
+                    (when (some vector? head-vars)
+                      (throw
+                        (ex-info
+                          "Required-bound rule vars ([?a ...] in the head) are not implemented"
+                          {:head head})))
+                    (when (not= (count head-vars) (count arg-vals))
+                      (throw (ex-info "Rule invoked with wrong arity"
+                                      {:rule rule-name,
+                                       :head head,
+                                       :args (vec call-args)})))
+                    (let [seed (reduce (fn [b [hv av]]
+                                         (if (= FREE av)
+                                           b
+                                           (and-then b #(unify % hv av))))
+                                       (select-keys binding [::dbs '%])
+                                       (map vector head-vars arg-vals))]
+                      (when seed
+                        (keep
+                          (fn [res]
+                            (reduce
+                              (fn [b [arg hv]]
+                                (let [v (get res hv FREE)]
+                                  (when (= FREE v)
+                                    (throw
+                                      (ex-info
+                                        "Rule head var not bound by rule body"
+                                        {:rule rule-name, :var hv})))
+                                  (and-then b #(unify % arg v))))
+                              binding
+                              (map vector call-args head-vars)))
+                          (eval-where (vec body) [seed] ctx))))))
+                defs))))))))
+
+
 (defn- eval-clause
   [clause bindings ctx]
   (cond (and (seq? clause) (= 'not (first clause)))
         (eval-not clause bindings ctx)
         (and (seq? clause) (= 'not-join (first clause)))
         (mapcat #(eval-not-join clause % ctx) bindings)
+        (seq? clause) (mapcat #(eval-rule clause % ctx) bindings)
         (and (vector? clause) (seq? (first clause)))
         (mapcat #(eval-fn-clause clause % ctx) bindings)
         :else (mapcat #(eval-pattern-clause clause % ctx) bindings)))
