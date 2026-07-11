@@ -126,9 +126,11 @@ in-memory index, answer. It owns no durable state.
 (require '[dao.space.query :as query])
 
 ;; q — Datalog over all of storage. The design contract is full Datalog
-;; (joins, negation, aggregation, predicates); today's implementation is
-;; joins only — negation-free conjunction, per dao.space.query's own
-;; namespace docstring. Negation/aggregation/predicates are target surface.
+;; (joins, negation, aggregation, predicates); the implementation covers
+;; it: not/not-join, :find aggregates (count, count-distinct, sum, min,
+;; max, avg) with :with, and predicate/function clauses via a
+;; caller-supplied {:fns {sym fn}} option. Rules (recursion) remain
+;; target surface.
 (query/q '[:find ?id ?task
            :where [?id :work/status :todo]
                   [?id :work/task ?task]]
@@ -373,9 +375,8 @@ agent *appends a new datom* asserting the claim, and "current state" is a read-s
 the accreted datoms. This is the tuple space working as designed — coordination with no
 broker, no message-format negotiation, and no leader election.
 
-**The example below is target surface, not runnable today**, on two counts. The
-`(not [_ :work/claims ?w])` clause needs negation, which `q` does not implement yet (see The
-Query Library, above). And the `{:type :dao-stream :store store ...}` descriptor — a stream
+**The example below is target surface, not runnable today**, on one count. The
+`{:type :dao-stream :store store ...}` descriptor — a stream
 that persists its appends into a jing store — is not a registered `dao.stream` type; today a
 stream owner publishes by `cas!` on its `:root/datoms` root directly, and the dependency
 between the layers is in fact inverted (`dao.jing`'s file backend uses `dao.stream.log`
@@ -385,8 +386,10 @@ internally as its byte transport; see `dao.space.query.md`, *Reality check*).
 retracted datoms and supersede cardinality-one values at query time via `current-state-seq`
 (see `dao.space.query`'s namespace docstring, and `dao.space.query.md`, *Current-state
 resolution*), so they return only currently asserted facts without the caller filtering by
-`dao.datom/asserted?`. The example expresses the coordination model the remaining two
-pieces (negation, `:dao-stream`) exist to serve:
+`dao.datom/asserted?`. Negation is no longer a blocker either: `q` implements
+`not`/`not-join` (stratified, evaluated over the current-state-resolved index), so the
+`(not [_ :work/claims ?w])` clause below executes as written. The example expresses the
+coordination model the one remaining piece (`:dao-stream`) exists to serve:
 
 ```clojure
 (defn producer [store]

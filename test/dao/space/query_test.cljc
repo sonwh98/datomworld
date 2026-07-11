@@ -431,3 +431,313 @@
                   [1 :hobby "coding" 2 1]]]
       (is (= {:name "Alice", :age 30, :hobby ["coding" "reading"]}
              (query/entity-attrs datoms 1))))))
+
+
+;; ---------------------------------------------------------------------------
+;; Negation (not / not-join)
+;; ---------------------------------------------------------------------------
+
+(deftest negation-test
+  (testing "not clause filters out bindings that satisfy the inner clauses"
+    (let [datoms [[1 :work/posted true 1 1] [1 :work/task "Clean room" 1 1]
+                  [2 :work/posted true 1 1] [2 :work/task "Buy groceries" 1 1]
+                  [2 :work/claims "user1" 1 1]]]
+      (is (= #{[1 "Clean room"]}
+             (query/q '[:find ?w ?task :where [?w :work/posted true]
+                        [?w :work/task ?task] (not [?w :work/claims _])]
+                      datoms)))
+      (testing
+        "a retracted claim makes the item reappear (current-state interaction)"
+        (let [datoms-retracted (conj datoms [2 :work/claims "user1" 2 0])]
+          (is (= #{[1 "Clean room"] [2 "Buy groceries"]}
+                 (query/q '[:find ?w ?task :where [?w :work/posted true]
+                            [?w :work/task ?task] (not [?w :work/claims _])]
+                          datoms-retracted)))))
+      (testing
+        "claims modeled as [claim-entity :work/claims ?w] (wildcard e inside not)"
+        (let [datoms [[1 :work/posted true 1 1] [1 :work/task "Clean room" 1 1]
+                      [2 :work/posted true 1 1]
+                      [2 :work/task "Buy groceries" 1 1]
+                      [100 :work/claims 2 1 1]]]
+          (is (= #{[1 "Clean room"]}
+                 (query/q '[:find ?w ?task :where [?w :work/posted true]
+                            [?w :work/task ?task] (not [_ :work/claims ?w])]
+                          datoms)))))))
+  (testing
+    "not-join specifies exactly which variables unify with the outer scope"
+    (let [datoms [[1 :user/name "Alice" 1 1] [2 :user/name "Bob" 1 1]
+                  ;; 3 is a document Alice authored
+                  [3 :doc/author 1 1 1]
+                  ;; 4 is a document Bob authored
+                  [4 :doc/author 2 1 1]
+                  ;; 3 is published
+                  [3 :doc/published true 1 1]]]
+      ;; Find users who have NO published documents. The not-join [?u]
+      ;; means ?doc is free and local to the not clause.
+      (is
+        (= #{["Bob"]}
+           (query/q
+             '[:find ?name :where [?u :user/name ?name]
+               (not-join [?u] [?doc :doc/author ?u] [?doc :doc/published true])]
+             datoms)))))
+  (testing "not-join treats non-joined vars as fresh even when names collide"
+    (let [datoms [[1 :user/name "Alice" 1 1] [2 :user/name "Bob" 1 1]
+                  ;; doc 5 is favorited by both; Alice authored doc 6
+                  [5 :doc/fav 1 1 1] [5 :doc/fav 2 1 1] [6 :doc/author 1 1 1]]]
+      ;; ?d is bound to 5 outside, but is NOT in the join vars, so inside
+      ;; the not-join it must be fresh: "?u authored ANY doc", not "?u
+      ;; authored doc 5".
+      (is (= #{["Bob"]}
+             (query/q '[:find ?name :where [?u :user/name ?name]
+                        [?d :doc/fav ?u] (not-join [?u] [?d :doc/author ?u])]
+                      datoms)))))
+  (testing "special-form clauses are recognized as seqs, not only literal lists"
+    (let [datoms [[1 :work/posted true 1 1] [2 :work/posted true 1 1]
+                  [2 :work/claims "user1" 1 1]]
+          not-clause (cons 'not '([?w :work/claims _]))]
+      (is (= #{[1]}
+             (query/q [:find '?w :where '[?w :work/posted true] not-clause]
+                      datoms)))))
+  (testing "planner barrier: var bound before use"
+    (let [datoms [[1 :work/posted true 1 1] [1 :work/task "Clean room" 1 1]]]
+      (is (= #{[1 "Clean room"]}
+             (query/q '[:find ?w ?task :where [?w :work/posted true]
+                        (not [?w :work/claims _]) [?w :work/task ?task]]
+                      datoms))))))
+
+
+;; ---------------------------------------------------------------------------
+;; Aggregation (:find aggregates + :with)
+;; ---------------------------------------------------------------------------
+
+(deftest aggregation-test
+  (testing "grouping: :find ?status (count ?e) groups by ?status"
+    (let [datoms [[1 :task/status :open 1 1] [2 :task/status :open 1 1]
+                  [3 :task/status :done 1 1]]]
+      (is (= #{[:open 2] [:done 1]}
+             (query/q '[:find ?status (count ?e) :where
+                        [?e :task/status ?status]]
+                      datoms)))))
+  (testing "sum/min/max/avg over numerics"
+    (let [datoms [[1 :item/price 10 1 1] [2 :item/price 20 1 1]
+                  [3 :item/price 30 1 1]]]
+      (is (= #{[60]}
+             (query/q '[:find (sum ?p) :where [?e :item/price ?p]] datoms)))
+      (is (= #{[10]}
+             (query/q '[:find (min ?p) :where [?e :item/price ?p]] datoms)))
+      (is (= #{[30]}
+             (query/q '[:find (max ?p) :where [?e :item/price ?p]] datoms)))
+      (is (= #{[20.0]}
+             (query/q '[:find (avg ?p) :where [?e :item/price ?p]] datoms)))))
+  (testing "count-distinct"
+    (let [datoms [[1 :item/color :red 1 1] [2 :item/color :red 1 1]
+                  [3 :item/color :blue 1 1]]]
+      (is (= #{[2]}
+             (query/q '[:find (count-distinct ?c) :with ?e :where
+                        [?e :item/color ?c]]
+                      datoms)))))
+  (testing ":with keeps intended duplicates without appearing in the result"
+    ;; Two entities share the same price: projected tuples collapse to one
+    ;; without :with, so the sum dedupes; :with ?e keeps them distinct.
+    (let [datoms [[1 :item/price 10 1 1] [2 :item/price 10 1 1]]]
+      (is (= #{[10]}
+             (query/q '[:find (sum ?p) :where [?e :item/price ?p]] datoms)))
+      (is (= #{[20]}
+             (query/q '[:find (sum ?p) :with ?e :where [?e :item/price ?p]]
+                      datoms)))))
+  (testing
+    "dedupe-before-aggregate: an extra joined var must not inflate the sum"
+    ;; Entity 1 has one price but two tags; the ?t join produces two raw
+    ;; bindings. Projection to find ∪ :with vars must dedupe them.
+    (let [datoms [[1 :item/price 10 1 1] [1 :item/tag :a 1 1]
+                  [1 :item/tag :b 1 1]]]
+      (is (= #{[10]}
+             (query/q '[:find (sum ?p) :with ?e :where [?e :item/price ?p]
+                        [?e :item/tag ?t]]
+                      datoms)))
+      (testing "putting the extra var in :with restores the duplicates"
+        (is (= #{[20]}
+               (query/q '[:find (sum ?p) :with ?e ?t :where [?e :item/price ?p]
+                          [?e :item/tag ?t]]
+                        datoms))))))
+  (testing "scalar aggregate with no grouping vars yields a single row"
+    (let [datoms [[1 :task/status :open 1 1] [2 :task/status :open 1 1]]]
+      (is (= #{[2]}
+             (query/q '[:find (count ?e) :where [?e :task/status ?s]] datoms)))
+      (testing "and an empty result set stays empty"
+        (is (= #{}
+               (query/q '[:find (count ?e) :where [?e :task/status :missing]]
+                        datoms))))))
+  (testing "unknown aggregate throws"
+    (is (thrown-with-msg? #?(:cljs js/Error
+                             :cljd Object
+                             :default Exception)
+                          #"Unknown aggregate"
+          (query/q '[:find (median ?p) :where
+                     [?e :item/price ?p]]
+                   [[1 :item/price 10 1 1]]))))
+  (testing "queries without aggregates are unchanged"
+    (is (= #{[1 "write tests"] [2 "ship it"]}
+           (query/q '[:find ?id ?task :where [?id :work/task ?task]]
+                    sample-datoms)))))
+
+
+;; ---------------------------------------------------------------------------
+;; Predicates & function clauses (caller-supplied :fns registry)
+;; ---------------------------------------------------------------------------
+
+(deftest fn-clause-test
+  (testing "predicate clause filters bindings"
+    (let [datoms [[1 :item/qty 5 1 1] [2 :item/qty 15 1 1]]]
+      (is (= #{[1]}
+             (query/q '[:find ?e :where [?e :item/qty ?n] [(< ?n 10)]]
+                      datoms
+                      {:fns {'< <}})))))
+  (testing "function clause binds its result var"
+    (let [datoms [[1 :item/price 10 1 1] [1 :item/qty 3 1 1]]]
+      (is (= #{[1 30]}
+             (query/q '[:find ?e ?total :where [?e :item/price ?price]
+                        [?e :item/qty ?qty] [(* ?price ?qty) ?total]]
+                      datoms
+                      {:fns {'* *}})))))
+  (testing "function clause result unifies (filters) an already-bound var"
+    (let [datoms [[1 :item/price 10 1 1] [1 :item/total 30 1 1]
+                  [1 :item/qty 3 1 1] [2 :item/price 10 1 1]
+                  [2 :item/total 99 1 1] [2 :item/qty 3 1 1]]]
+      (is (= #{[1]}
+             (query/q '[:find ?e :where [?e :item/price ?price]
+                        [?e :item/qty ?qty] [?e :item/total ?total]
+                        [(* ?price ?qty) ?total]]
+                      datoms
+                      {:fns {'* *}})))))
+  (testing "multi-return vector destructuring"
+    (let [datoms [[1 :item/n 7 1 1]]]
+      (is (= #{[1 2 1]}
+             (query/q '[:find ?e ?q ?r :where [?e :item/n ?n]
+                        [(div-mod ?n 3) [?q ?r]]]
+                      datoms
+                      {:fns {'div-mod (fn [n d] [(quot n d) (rem n d)])}})))))
+  (testing "unknown fn throws"
+    (is (thrown-with-msg? #?(:cljs js/Error
+                             :cljd Object
+                             :default Exception)
+                          #"Unknown query fn"
+          (query/q '[:find ?e :where [?e :item/qty ?n]
+                     [(< ?n 10)]]
+                   [[1 :item/qty 5 1 1]]
+                   {:fns {}}))))
+  (testing "unbound arg throws"
+    (is (thrown-with-msg? #?(:cljs js/Error
+                             :cljd Object
+                             :default Exception)
+                          #"Unbound variable in fn clause"
+          (query/q '[:find ?e :where [(< ?unbound 10)]
+                     [?e :item/qty ?n]]
+                   [[1 :item/qty 5 1 1]]
+                   {:fns {'< <}}))))
+  (testing
+    "multiple bare result vars throw (Datomic wants a tuple binding [?a ?b])"
+    (is (thrown-with-msg? #?(:cljs js/Error
+                             :cljd Object
+                             :default Exception)
+                          #"one binding form"
+          (query/q '[:find ?e ?q ?r :where [?e :item/n ?n]
+                     [(div-mod ?n 3) ?q ?r]]
+                   [[1 :item/n 7 1 1]]
+                   {:fns {'div-mod (fn [n d]
+                                     [(quot n d)
+                                      (rem n d)])}}))))
+  (testing "tuple binding arity mismatch throws instead of silently truncating"
+    (is (thrown-with-msg? #?(:cljs js/Error
+                             :cljd Object
+                             :default Exception)
+                          #"tuple binding arity"
+          (query/q '[:find ?e ?q ?r ?s :where [?e :item/n ?n]
+                     [(div-mod ?n 3) [?q ?r ?s]]]
+                   [[1 :item/n 7 1 1]]
+                   {:fns {'div-mod (fn [n d]
+                                     [(quot n d)
+                                      (rem n d)])}}))))
+  (testing "unsupported binding forms (collection/relation) throw"
+    (is (thrown-with-msg? #?(:cljs js/Error
+                             :cljd Object
+                             :default Exception)
+                          #"Unsupported binding form"
+          (query/q '[:find ?e ?y :where [?e :item/n ?n]
+                     [(seq-fn ?n) [?y ...]]]
+                   [[1 :item/n 7 1 1]]
+                   {:fns {'seq-fn (fn [n] [n n])}})))))
+
+
+;; ---------------------------------------------------------------------------
+;; Negation error paths (all vars inside not must be bound; not-join join
+;; vars must be bound)
+;; ---------------------------------------------------------------------------
+
+(deftest negation-unbound-var-test
+  (testing
+    "not with a var no prior clause bound throws instead of wildcard-scanning"
+    ;; Without the check, FREE ?w acts as a wildcard: any claim anywhere
+    ;; makes the negation fail for every candidate — silently wrong #{}.
+    (is (thrown-with-msg? #?(:cljs js/Error
+                             :cljd Object
+                             :default Exception)
+                          #"inside not must be bound"
+          (query/q '[:find ?w :where (not [?w :work/claims _])]
+                   [[1 :work/claims 2 1 1]]))))
+  (testing "not with a var found only inside it throws (Datomic: use not-join)"
+    (is (thrown-with-msg? #?(:cljs js/Error
+                             :cljd Object
+                             :default Exception)
+                          #"inside not must be bound"
+          (query/q '[:find ?w :where [?w :work/posted true]
+                     (not [?c :work/claims ?w])]
+                   [[1 :work/posted true 1 1]]))))
+  (testing "not-join with an unbound join var throws"
+    (is (thrown-with-msg? #?(:cljs js/Error
+                             :cljd Object
+                             :default Exception)
+                          #"not-join variables must be bound"
+          (query/q
+            '[:find ?name :where
+              (not-join [?unbound] [?doc :doc/author ?unbound])]
+            [[1 :doc/author 2 1 1]])))))
+
+
+;; ---------------------------------------------------------------------------
+;; Bug-exposing tests (RED) — EXPECTED TO FAIL until the bug is fixed.
+;; Per TDD red phase: these document real defects found in code review.
+;; ---------------------------------------------------------------------------
+
+(deftest nested-not-join-inside-not-bug
+  ;; Review finding: eval-not's var-bound check used to flatten EVERY ?-var
+  ;; under the `not` via tree-seq, including vars legitimately scoped to a
+  ;; nested not-join, throwing spuriously on a legal query. not-join is the
+  ;; explicit mechanism for local vars, so the outer `not` must not demand
+  ;; them bound. Note the semantics: not-join is itself negation, so
+  ;; (not (not-join ...)) is DOUBLE negation — "exists".
+  (testing "a not-join nested inside a not scopes its own local var (?r)"
+    (let [datoms [[1 :user/name "Alice" 1 1] [2 :user/name "Bob" 1 1]
+                  [10 :review/of 1 1 1]]] ; Alice is reviewed, Bob is not
+      (testing "single negation: users with no reviews => Bob"
+        (is (= #{["Bob"]}
+               (query/q '[:find ?name :where [?u :user/name ?name]
+                          (not-join [?u] [?r :review/of ?u])]
+                        datoms))))
+      (testing "double negation: not(no review of ?u) = reviewed users => Alice"
+        (is (= #{["Alice"]}
+               (query/q '[:find ?name :where [?u :user/name ?name]
+                          (not (not-join [?u] [?r :review/of ?u]))]
+                        datoms)))))))
+
+
+(deftest nested-not-join-local-in-entity-slot-bug
+  (testing "same over-reach with the not-join local in the entity slot"
+    (let [datoms [[1 :user/name "Alice" 1 1] [2 :user/name "Bob" 1 1]
+                  ;; review 10 is BY Alice (reviewer); none by Bob.
+                  [10 :review/reviewer 1 1 1]]]
+      ;; not(no review by ?u) = users who reviewed something => Alice.
+      (is (= #{["Alice"]}
+             (query/q '[:find ?name :where [?u :user/name ?name]
+                        (not (not-join [?u] [?r :review/reviewer ?u]))]
+                      datoms))))))

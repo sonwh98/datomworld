@@ -1,7 +1,10 @@
 (ns dao.space.query
   "The Query boundary of the tuple space: `match` (Linda-style positional
-  templates) and `q` (Datalog: joins, negation-free conjunction, one merged
-  index) over a **source**. The read side is pure and stateless — it owns
+  templates) and `q` (Datalog: joins, `not`/`not-join` negation, `:find`
+  aggregates — count, count-distinct, sum, min, max, avg — with `:with`,
+  and predicate/function clauses whose fns come from a caller-supplied
+  `{:fns {sym fn}}` option; one merged index; rules/recursion not
+  implemented) over a **source**. The read side is pure and stateless — it owns
   no durable state and enforces no schema; schema is the write-side
   Transactor's job (each `dao.stream` writer is its own). The one writing
   entry point here is `publish-index!`, the owner-side index builder (a
@@ -494,6 +497,9 @@
 ;; q: Datalog (:find / :in / :where, one merged index)
 ;; =============================================================================
 
+(declare eval-where)
+
+
 (defn- resolve-binding
   [binding sym]
   (if (symbol? sym) (get binding sym FREE) sym))
@@ -567,6 +573,12 @@
           (map vector in-patterns inputs)))
 
 
+(defn- pattern-clause?
+  [clause]
+  (not (or (and (seq? clause) (#{'not 'not-join} (first clause)))
+           (and (vector? clause) (seq? (first clause))))))
+
+
 (defn- clause-db-and-pattern
   [clause]
   (if (db-sym? (first clause))
@@ -579,8 +591,8 @@
   (get (get binding ::dbs) db-sym))
 
 
-(defn- eval-clause
-  [clause binding]
+(defn- eval-pattern-clause
+  [clause binding _ctx]
   (let [[db-sym pattern] (clause-db-and-pattern clause)
         idx (resolve-db binding db-sym)]
     (if-not idx
@@ -598,6 +610,119 @@
                     (and-then #(unify % ct (nth d 3)))
                     (and-then #(unify % cm (nth d 4)))))
               datoms)))))
+
+
+(defn- query-var?
+  [x]
+  (and (symbol? x) (= \? (first (name x)))))
+
+
+(defn- not-required-vars
+  "Vars a plain `not` requires bound in the outer scope: every ?var under it,
+  except those scoped to a nested not-join — a nested not-join requires only
+  its own join vars; everything else under it is locally scoped."
+  [clauses]
+  (distinct (mapcat (fn [clause]
+                      (cond (and (seq? clause) (= 'not-join (first clause)))
+                            (filter query-var? (nth clause 1))
+                            (and (seq? clause) (= 'not (first clause)))
+                            (not-required-vars (rest clause))
+                            :else (filter query-var?
+                                          (tree-seq coll? seq clause))))
+                    clauses)))
+
+
+(defn- eval-not
+  [clause bindings ctx]
+  (let [inner-clauses (rest clause)
+        ;; Datomic: every var inside a plain not unifies with the outer
+        ;; scope and must be bound there — an unbound var would act as a
+        ;; wildcard and make the negation silently fail for every
+        ;; candidate. not-join is the form that introduces not-local vars.
+        ;; Computed once per clause, not per candidate binding.
+        req-vars (not-required-vars inner-clauses)]
+    (mapcat
+      (fn [binding]
+        (doseq [v req-vars]
+          (when (= FREE (resolve-binding binding v))
+            (throw
+              (ex-info
+                "All variables inside not must be bound; use not-join to introduce local variables"
+                {:var v, :clause clause}))))
+        (if (seq (eval-where inner-clauses [binding] ctx)) [] [binding]))
+      bindings)))
+
+
+(defn- eval-not-join
+  [clause binding ctx]
+  (let [req-vars (nth clause 1)
+        inner-clauses (drop 2 clause)]
+    (doseq [v req-vars]
+      (when (= FREE (resolve-binding binding v))
+        (throw (ex-info "not-join variables must be bound"
+                        {:var v, :binding binding}))))
+    ;; Only the declared join vars unify with the outer scope; any other
+    ;; inner var is fresh, even if it shares a name with an outer var.
+    (let [inner-binding (into (select-keys binding [::dbs])
+                              (map (fn [v] [v (get binding v)]))
+                              req-vars)]
+      (if (seq (eval-where inner-clauses [inner-binding] ctx)) [] [binding]))))
+
+
+(defn- eval-fn-clause
+  "[(f arg ...)] is a predicate: keep the binding iff (f args) is truthy.
+  [(f arg ...) ?out] or [(f arg ...) [?a ?b ...]] is a function clause:
+  unify the return value into the output var(s). f is looked up in the
+  caller-supplied :fns registry — no symbol resolution, no hidden globals."
+  [clause binding ctx]
+  (let [[[fsym & args] & result-vars] clause
+        f (get-in ctx [:fns fsym])]
+    (when-not f
+      (throw (ex-info "Unknown query fn — pass it via the :fns option"
+                      {:fn fsym, :clause clause})))
+    (let [arg-vals (mapv (fn [a]
+                           (let [v (resolve-binding binding a)]
+                             (when (= FREE v)
+                               (throw (ex-info "Unbound variable in fn clause"
+                                               {:var a, :clause clause})))
+                             v))
+                         args)
+          ret (apply f arg-vals)]
+      (if (empty? result-vars)
+        (if ret [binding] [])
+        (let [out (first result-vars)]
+          (when (> (count result-vars) 1)
+            (throw
+              (ex-info
+                "Function clause takes one binding form; use a tuple [?a ?b] for multi-return"
+                {:clause clause})))
+          (when (and (vector? out) (some #(or (= '... %) (vector? %)) out))
+            (throw
+              (ex-info
+                "Unsupported binding form — only a scalar ?out or tuple [?a ?b]"
+                {:binding-form out, :clause clause})))
+          (when (and (vector? out)
+                     (or (not (sequential? ret))
+                         (not= (count out) (count ret))))
+            (throw (ex-info
+                     "Function return does not match tuple binding arity"
+                     {:binding-form out, :returned ret, :clause clause})))
+          (let [pairs (if (vector? out) (map vector out ret) [[out ret]])
+                b (reduce (fn [b [sym val]] (when b (unify b sym val)))
+                          binding
+                          pairs)]
+            (if b [b] [])))))))
+
+
+(defn- eval-clause
+  [clause bindings ctx]
+  (cond (and (seq? clause) (= 'not (first clause)))
+        (eval-not clause bindings ctx)
+        (and (seq? clause) (= 'not-join (first clause)))
+        (mapcat #(eval-not-join clause % ctx) bindings)
+        (and (vector? clause) (seq? (first clause)))
+        (mapcat #(eval-fn-clause clause % ctx) bindings)
+        :else (mapcat #(eval-pattern-clause clause % ctx) bindings)))
 
 
 (defn- estimate-clause-cost
@@ -622,14 +747,21 @@
   (if (or (<= (count clauses) 1) (empty? init-bindings))
     clauses
     (let [binding (first init-bindings)]
-      (mapv second
-            (sort-by (fn [[idx clause]] [(estimate-clause-cost clause binding) idx])
-                     (map-indexed vector clauses))))))
+      (mapcat (fn [chunk]
+                (if (pattern-clause? (first chunk))
+                  (mapv second
+                        (sort-by (fn [[idx clause]]
+                                   [(estimate-clause-cost clause
+                                                          binding)
+                                    idx])
+                                 (map-indexed vector chunk)))
+                  chunk))
+              (partition-by pattern-clause? clauses)))))
 
 
 (defn- eval-where
-  [clauses init-bindings]
-  (reduce (fn [bindings clause] (mapcat #(eval-clause clause %) bindings))
+  [clauses init-bindings ctx]
+  (reduce (fn [bindings clause] (eval-clause clause bindings ctx))
           init-bindings
           (plan-where clauses init-bindings)))
 
@@ -646,7 +778,7 @@
         (if (>= i (count v))
           (if cur-key (assoc result cur-key cur-vals) result)
           (let [x (nth v i)]
-            (if (#{:find :in :where} x)
+            (if (#{:find :in :with :where} x)
               (recur (inc i)
                      (if cur-key (assoc result cur-key cur-vals) result)
                      x
@@ -654,20 +786,69 @@
               (recur (inc i) result cur-key (conj cur-vals x)))))))))
 
 
+(def ^:private aggregate-fns
+  {'count count,
+   'count-distinct (fn [xs] (count (distinct xs))),
+   'sum (fn [xs] (reduce + 0 xs)),
+   'min (fn [xs] (reduce min xs)),
+   'max (fn [xs] (reduce max xs)),
+   'avg (fn [xs] (double (/ (reduce + 0 xs) (count xs))))})
+
+
+(defn- parse-find-element
+  [el]
+  (if (seq? el)
+    (let [[agg-sym arg] el
+          agg-fn (get aggregate-fns agg-sym)]
+      (when-not agg-fn
+        (throw (ex-info "Unknown aggregate in :find" {:aggregate agg-sym})))
+      {:agg agg-fn, :arg arg})
+    {:var el}))
+
+
+(defn- project-find
+  "Datomic aggregation pipeline: project each binding to the find ∪ :with ∪
+  aggregate-arg vars, dedupe those tuples as a set (bindings carry every
+  joined var, whose multiplicity must not leak into aggregates — :with is
+  the mechanism for keeping intended duplicates), then group by the
+  find vars ONLY (:with vars grant multiplicity within a group, they never
+  split groups) and aggregate per group."
+  [find with bindings]
+  (let [elements (mapv parse-find-element find)]
+    (if (not-any? :agg elements)
+      (into #{} (map (fn [b] (mapv #(get b %) find))) bindings)
+      (let [grouping-vars (filterv some? (mapv :var elements))
+            proj-vars (-> grouping-vars
+                          (into with)
+                          (into (keep :arg elements)))
+            rows (into #{} (map #(select-keys % proj-vars)) bindings)
+            groups (vals (group-by (fn [row] (mapv #(get row %) grouping-vars))
+                                   rows))]
+        (into #{}
+              (map (fn [group]
+                     (mapv (fn [{:keys [var agg arg]}]
+                             (if agg
+                               (agg (map #(get % arg) group))
+                               (get (first group) var)))
+                           elements)))
+              groups)))))
+
+
 (defn q
   "Datalog: (q query & inputs) where $ binds to first input.
    Example: (q '[:find ?e :where [?e :name \"Alice\"]] source)
    Options like {:as-of t} can be passed as a final argument if not bound by :in."
   [query & inputs]
-  (let [{:keys [find in where]} (normalize-query query)
+  (let [{:keys [find in with where]} (normalize-query query)
         in-patterns (or in '[$])
         [bind-inputs opts] (if (> (count inputs) (count in-patterns))
                              [(take (count in-patterns) inputs) (last inputs)]
                              [inputs nil])
         as-of (:as-of opts)
         init-bindings (build-init-bindings in-patterns bind-inputs as-of)
-        result (eval-where where init-bindings)]
-    (into #{} (map (fn [b] (mapv #(get b %) find))) result)))
+        ctx {:fns (:fns opts)}
+        result (eval-where where init-bindings ctx)]
+    (project-find find with result)))
 
 
 ;; =============================================================================

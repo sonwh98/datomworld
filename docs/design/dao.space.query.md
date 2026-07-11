@@ -282,6 +282,40 @@ composes: it bounds the datoms considered first, so `as-of t` yields current sta
 `t`. Historical reads (the raw log, retractions and all) remain available to a caller who
 bypasses the library.
 
+## Datalog surface
+
+Beyond positive-conjunction pattern clauses, `q` implements (as of 2026-07-11):
+
+- **Negation** — `(not clause ...)` and `(not-join [?join-var ...] clause ...)`. Stratified,
+  evaluated as a failed sub-query per candidate binding over the already
+  current-state-resolved index (above), so retractions and supersessions are honored.
+  Plain `not` unifies every var it contains with the outer scope, and every one of them
+  must be bound there (informative throw otherwise — an unbound var would act as a
+  wildcard and silently negate everything), except vars scoped to a nested `not-join`,
+  which contributes only its join vars to the requirement; `not-join`'s vector names the
+  *only* vars that unify — any other inner var is fresh even under a colliding name —
+  and those join vars must be bound. Negation forms nest (note `(not (not-join ...))`
+  is double negation: "exists").
+- **Aggregates** — `count`, `count-distinct`, `sum`, `min`, `max`, `avg` in `:find`, with
+  `:with` for multiplicity. Pipeline is Datomic's: project each result to the
+  find ∪ `:with` ∪ aggregate-arg vars, dedupe those tuples as a set, group by the find
+  vars only (`:with` vars keep intended duplicates within a group, never split groups),
+  aggregate per group.
+- **Predicates & function clauses** — `[(f ?a ...)]` filters; `[(f ?a ...) ?out]` (or
+  `[?o1 ?o2]` for tuple destructuring) binds. `f` resolves from a caller-supplied
+  `{:fns {sym fn}}` entry in `q`'s trailing options map — no symbol `resolve`, no hidden
+  global registry, so the surface stays pure and clj/cljs/cljd-portable. Unknown fn,
+  unbound argument, more than one binding form, tuple-arity mismatch, and the
+  collection/relation binding forms (`[?y ...]`, `[[?a ?b]]` — not implemented) all
+  throw. Predicates keep a binding on any *truthy* return — broader than Datomic's
+  boolean contract, so a predicate returning `0` keeps the row where Datomic would be
+  a type error.
+
+The clause planner (`plan-where`) reorders only contiguous runs of pattern clauses by
+selectivity; negation and fn clauses are order barriers that stay in source position, so
+their vars are bound by the clauses the query author placed before them. **Rules
+(recursion) are not implemented** — target surface.
+
 ## Freshness
 
 Calling them materialized views forces an explicit answer the "coordinate-aware KV" framing hid:
