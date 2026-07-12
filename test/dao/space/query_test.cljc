@@ -508,15 +508,14 @@
                         [(div-mod ?n 3) [?q ?r]]]
                       datoms
                       {:fns {'div-mod (fn [n d] [(quot n d) (rem n d)])}})))))
-  (testing "unknown fn throws"
+  (testing "unknown fn throws when not in the registry or builtins"
     (is (thrown-with-msg? #?(:cljs js/Error
                              :cljd Object
                              :default Exception)
                           #"Unknown query fn"
           (query/q '[:find ?e :where [?e :item/qty ?n]
-                     [(< ?n 10)]]
-                   [[1 :item/qty 5 1 1]]
-                   {:fns {}}))))
+                     [(unknown-fn ?n 10)]]
+                   [[1 :item/qty 5 1 1]]))))
   (testing "unbound arg throws"
     (is (thrown-with-msg? #?(:cljs js/Error
                              :cljd Object
@@ -746,3 +745,341 @@
                rules
                {:fns {'dao.space.query_test/do-something do-something}})
       (is (= [] @side-effect)))))
+
+
+;; ---------------------------------------------------------------------------
+;; or / or-join / and (Phase 1)
+;; ---------------------------------------------------------------------------
+
+(deftest or-test
+  (testing "or unifies bindings from any branch (set semantics across branches)"
+    (let [datoms [[1 :type :dog 1 1] [2 :type :cat 1 1] [3 :type :fish 1 1]]]
+      (is (= #{[1] [2]}
+             (query/q '[:find ?e :where (or [?e :type :dog] [?e :type :cat])]
+                      datoms)))))
+  (testing "an or branch with extra free vars must be detected (same-var rule)"
+    (is (thrown-with-msg? #?(:cljs js/Error
+                             :cljd Object
+                             :default Exception)
+                          #"[Ss]ame.*variable|branches"
+          (query/q '[:find ?e :where (or [?e :a ?x] [?e :b ?y])]
+                   [[1 :a 1 1 1] [1 :b 2 1 1]]))))
+  (testing "set semantics: identical bindings from two branches appear once"
+    (let [datoms [[1 :kind :cat 1 1] [1 :pet true 1 1]]]
+      (is (= #{[1]}
+             (query/q '[:find ?e :where (or [?e :kind :cat] [?e :pet true])]
+                      datoms)))))
+  (testing "or with no branch satisfied yields no bindings"
+    (is (= #{}
+           (query/q '[:find ?e :where (or [?e :a 1] [?e :a 2])]
+                    [[1 :a 3 1 1]])))))
+
+
+(deftest or-join-test
+  (testing "or-join declares which vars unify with the outer scope"
+    (let [datoms [[1 :x 10 1 1] [1 :flag true 1 1] [2 :x 20 1 1]
+                  [2 :flag false 1 1]]]
+      ;; ?x is declared in the join vars so it is allowed to flow out
+      ;; of either branch (the engine strips branch-only vars; ?x is
+      ;; not branch-only here).
+      (is
+        (=
+          #{[1 10] [2 20] [1 1]}
+          (query/q '[:find ?e ?x :where
+                     (or-join
+                       [?e ?x]
+                       [?e :x ?x]
+                       (and [?e :flag true] [(identity ?e) ?x]))]
+                   datoms
+                   {:fns {'identity identity}})))))
+  (testing "branch-only vars do not escape the join declaration"
+    ;; ?x is bound inside the branch but not declared in the join;
+    ;; it must not appear in the outer result.
+    (let [datoms [[1 :x 10 1 1] [2 :x 20 1 1]]]
+      (is (= #{[1] [2]}
+             (query/q '[:find ?e :where (or-join [?e] [?e :x ?x])] datoms)))))
+  (testing "or-join can introduce its own join var when unbound"
+    (is (= #{[1] [2]}
+           (query/q '[:find ?e :where (or-join [?e] [?e :a 1] [?e :a 2])]
+                    [[1 :a 1 1 1] [2 :a 2 1 1] [3 :a 3 1 1]]))))
+  (testing "or-join preserves outer-scope vars (merge back into outer binding)"
+    ;; ?n is bound by the top-level pattern; the or-join then adds
+    ;; a join var (or introduces a new one). The merged binding must
+    ;; carry ?n through — the engine should augment, not replace.
+    (is (= #{["a" 1]}
+           (query/q '[:find ?n ?e :where [?e :name ?n]
+                      (or-join [?e] [?e :flag true])]
+                    [[1 :name "a" 1 1] [1 :flag true 1 1]]))))
+  (testing "branches do not see non-join outer vars (isolation)"
+    ;; ?v is bound to 99 in the outer scope but NOT declared as a join var.
+    ;; Inside the branch, ?v should be a fresh local var that ranges
+    ;; freely, NOT filtered by the outer binding's ?v = 99. If isolation is
+    ;; broken, the branch would filter on ?v = 99 (no match). With correct
+    ;; isolation, ?v matches the :tag value (1) and succeeds.
+    (let [datoms [[1 :name "a" 1 1] [1 :val 99 1 1] [1 :tag 1 1 1]]]
+      (is (= #{["a" 1]}
+             (query/q '[:find ?n ?e :where [?e :name ?n] [?e :val ?v]
+                        (or-join [?e] [?e :tag ?v])]
+                      datoms))))))
+
+
+(deftest and-test
+  (testing "and groups clauses inside an or branch"
+    (let [datoms [[1 :x 5 1 1] [1 :y 5 1 1] [2 :x 5 1 1] [2 :y 4 1 1]
+                  [3 :flag true 1 1]]]
+      (is
+        (=
+          #{[1] [3]}
+          (query/q '[:find ?e :where
+                     (or-join
+                       [?e]
+                       (and [?e :x ?x] [?e :y ?y] [(= ?x ?y)])
+                       [?e :flag true])]
+                   datoms
+                   {:fns {'= =}}))))))
+
+
+;; ---------------------------------------------------------------------------
+;; Find specs and return maps (Phase 2)
+;; ---------------------------------------------------------------------------
+
+(deftest find-scalar-test
+  (testing "[:find ?x .] returns a single value, or nil for no results"
+    (let [datoms [[1 :name "Alice" 1 1] [2 :name "Bob" 1 1]]]
+      (is (= "Alice" (query/q '[:find ?n . :where [1 :name ?n]] datoms)))
+      (is (nil? (query/q '[:find ?n . :where [99 :name ?n]] datoms)))))
+  (testing "scalar find spec composes with aggregates"
+    (is (= 3
+           (query/q '[:find (count ?e) . :where [?e :task/status :open]]
+                    [[1 :task/status :open 1 1] [2 :task/status :open 1 1]
+                     [3 :task/status :open 1 1]])))))
+
+
+(deftest find-coll-test
+  (testing "single var coll returns flat vector of values"
+    (let [datoms [[1 :name "Alice" 1 1] [2 :name "Bob" 1 1]
+                  [3 :name "Charlie" 1 1]]]
+      (is (= #{"Alice" "Bob" "Charlie"}
+             (set (query/q '[:find [?n ...] :where [_ :name ?n]] datoms))))))
+  (testing "collection find on empty results is an empty vector"
+    (is (= [] (query/q '[:find [?n ...] :where [_ :name ?n]] []))))
+  (testing "multi-var coll returns vector of tuples"
+    (let [datoms [[1 :name "Alice" 1 1] [2 :name "Bob" 1 1]]]
+      (is (= #{[1 "Alice"] [2 "Bob"]}
+             (set (query/q '[:find [?e ?n ...] :where [?e :name ?n]]
+                           datoms)))))))
+
+
+(deftest find-tuple-test
+  (testing "[:find [?x ?y]] returns a single tuple (or nil)"
+    (let [datoms [[1 :name "Alice" 1 1] [1 :age 30 1 1]]]
+      (is (= ["Alice" 30]
+             (query/q '[:find [?n ?a] :where [1 :name ?n] [1 :age ?a]]
+                      datoms))))
+    (testing "no results yields nil"
+      (is (nil? (query/q '[:find [?n ?a] :where [99 :name ?n]] []))))))
+
+
+(deftest return-maps-keys-test
+  (testing ":keys returns a seq of maps with the named keys"
+    (let [datoms [[1 :name "Alice" 1 1] [1 :age 30 1 1] [2 :name "Bob" 1 1]
+                  [2 :age 40 1 1]]]
+      (is (= #{{:e 1, :n "Alice", :a 30} {:e 2, :n "Bob", :a 40}}
+             (set (query/q '[:find ?e ?n ?a :keys e n a :where [?e :name ?n]
+                             [?e :age ?a]]
+                           datoms))))))
+  (testing ":keys arity must match the find vars (throws otherwise)"
+    (is (thrown-with-msg? #?(:cljs js/Error
+                             :cljd Object
+                             :default Exception)
+                          #"[Rr]eturn map arity|arity must match"
+          (query/q '[:find ?e ?n :keys e :where [?e :name ?n]]
+                   [[1 :name "Alice" 1 1]]))))
+  (testing ":keys is relation-only (no scalar/coll/tuple find specs)"
+    (is (thrown-with-msg? #?(:cljs js/Error
+                             :cljd Object
+                             :default Exception)
+                          #"[Rr]eturn map form.*relation"
+          (query/q '[:find ?e . :keys e :where [?e :name ?n]]
+                   [[1 :name "Alice" 1 1]])))))
+
+
+(deftest return-maps-syms-strs-test
+  (testing ":syms returns a seq of maps with symbol keys"
+    (let [datoms [[1 :name "Alice" 1 1] [1 :age 30 1 1] [2 :name "Bob" 1 1]
+                  [2 :age 40 1 1]]
+          result (query/q '[:find ?e ?n :syms e n :where [?e :name ?n]
+                            [?e :age ?a]]
+                          datoms)]
+      (is (every? map? result))
+      (is (= #{[1 "Alice"] [2 "Bob"]} (set (map (juxt 'e 'n) result))))))
+  (testing ":syms keys are symbols (e n), not keywords (:e :n)"
+    (let [datoms [[1 :name "Alice" 1 1]]
+          result (query/q '[:find ?e :syms e :where [?e :name _]] datoms)]
+      (is (every? #(contains? % 'e) result))
+      (is (not-any? #(contains? % :e) result))))
+  (testing ":strs returns a seq of maps with string keys"
+    (let [datoms [[1 :name "Alice" 1 1] [1 :age 30 1 1] [2 :name "Bob" 1 1]
+                  [2 :age 40 1 1]]
+          result (query/q '[:find ?e ?n :strs e n :where [?e :name ?n]
+                            [?e :age ?a]]
+                          datoms)]
+      (is (every? map? result))
+      (is (= #{[1 "Alice"] [2 "Bob"]}
+             (set (map (juxt #(get % "e") #(get % "n")) result)))))))
+
+
+;; ---------------------------------------------------------------------------
+;; VAET read path (Phase 4): v-only patterns answer from the VAET index
+;; ---------------------------------------------------------------------------
+
+(deftest vaet-vbound-test
+  (testing "v-only match over a raw datom vector exercises in-memory VAET"
+    (let [datoms [[1 :item/category :fruit 1 1] [2 :item/category :fruit 1 1]
+                  [3 :item/category :vegetable 1 1]]]
+      (is (= #{[1 :item/category :fruit 1 1] [2 :item/category :fruit 1 1]}
+             (set (query/match datoms ['_ '_ :fruit]))))))
+  (testing "v-only q (who points at X?) over a raw datom vector"
+    (let [datoms [[1 :doc/author 2 1 1] [3 :doc/author 2 1 1]
+                  [4 :doc/author 5 1 1]]]
+      (is (= #{[1] [3]}
+             (query/q '[:find ?e :where [?e :doc/author 2]] datoms)))))
+  (testing "v-only with as-of bounds the index slice"
+    (let [datoms [[1 :doc/author 2 1 1] [1 :doc/author 2 5 1]
+                  [3 :doc/author 2 3 1]]]
+      ;; as-of 1 excludes the t=3 and t=5 datoms
+      (is (= #{[1]}
+             (query/q '[:find ?e :where [?e :doc/author 2]] datoms {:as-of 1})))
+      ;; as-of 4 includes t=1 and t=3
+      (is (= #{[1] [3]}
+             (query/q '[:find ?e :where [?e :doc/author 2]]
+                      datoms
+                      {:as-of 4}))))))
+
+
+;; ---------------------------------------------------------------------------
+
+(deftest builtin-fns-test
+  (testing "comparators are in the default registry (no :fns option needed)"
+    (let [datoms [[1 :item/qty 5 1 1] [2 :item/qty 15 1 1]]]
+      (is (= #{[1]}
+             (query/q '[:find ?e :where [?e :item/qty ?n] [(< ?n 10)]]
+                      datoms)))))
+  (testing "arithmetic fns are in the default registry"
+    (let [datoms [[1 :item/price 10 1 1] [1 :item/qty 3 1 1]]]
+      (is (= #{[1 30]}
+             (query/q '[:find ?e ?total :where [?e :item/price ?p]
+                        [?e :item/qty ?q] [(* ?p ?q) ?total]]
+                      datoms)))))
+  (testing "str / count / first / last / get / nth are builtins"
+    (is (= #{["Alice"]}
+           (query/q '[:find ?u :where [1 :name ?n] [(str ?n) ?u]]
+                    [[1 :name "Alice" 1 1]])))
+    (let [datoms [[1 :name "Alice" 1 1] [2 :name "Bob" 1 1]]]
+      (is (= #{["Alice!"] ["Bob!"]}
+             (query/q '[:find ?c :where [?e :name ?n] [(str ?n "!") ?c]]
+                      datoms))))
+    (is (= #{[5]}
+           (query/q '[:find ?l :where [_ :name "Alice"] [(count "Alice") ?l]]
+                    [[1 :name "Alice" 1 1]]))))
+  (testing "ground binds a literal to a variable"
+    (is (= #{[42]} (query/q '[:find ?x :where [(ground 42) ?x]] [])))))
+
+
+(deftest get-else-test
+  (testing "returns the attr value or the default when the entity lacks it"
+    (is (= #{["Alice"]}
+           (query/q '[:find ?v :where [(get-else $ 1 :name "anon") ?v]]
+                    [[1 :name "Alice" 1 1]])))
+    (is (= #{["anon"]}
+           (query/q '[:find ?v :where [(get-else $ 2 :name "anon") ?v]]
+                    [[1 :name "Alice" 1 1]])))))
+
+
+(deftest missing?-test
+  (testing "predicate is true when the entity lacks the attribute"
+    (is (= #{[1]}
+           (query/q '[:find ?e :where [?e :name "Alice"] [(missing? $ 1 :age)]]
+                    [[1 :name "Alice" 1 1]])))
+    (is (= #{}
+           (query/q '[:find ?e :where [?e :name "Alice"] [(missing? $ 1 :name)]]
+                    [[1 :name "Alice" 1 1]])))))
+
+
+(deftest builtins-disable-test
+  (testing "the explicit :builtins false opt removes the default registry"
+    (is (thrown-with-msg? #?(:cljs js/Error
+                             :cljd Object
+                             :default Exception)
+                          #"Unknown query fn"
+          (query/q '[:find ?e :where [?e :item/qty ?n]
+                     [(< ?n 10)]]
+                   [[1 :item/qty 5 1 1]]
+                   {:builtins false})))))
+
+
+;; ---------------------------------------------------------------------------
+;; Bug-exposing tests
+;; ---------------------------------------------------------------------------
+
+(deftest get-else-with-query-var-test
+  (testing "get-else resolves query variables in entity position"
+    (let [datoms [[1 :name "Alice" 1 1] [2 :age 30 1 1]]]
+      ;; ?e is bound by the pattern clause, then used in get-else
+      (is (= #{[1 "Alice"]}
+             (query/q '[:find ?e ?v :where [?e :name _]
+                        [(get-else $ ?e :name "anon") ?v]]
+                      datoms)))
+      ;; entity 2 lacks :name, should return default
+      (is (= #{[2 "anon"]}
+             (query/q '[:find ?e ?v :where [?e :age _]
+                        [(get-else $ ?e :name "anon") ?v]]
+                      datoms))))))
+
+
+(deftest missing?-with-query-var-test
+  (testing "missing? resolves query variables in entity position"
+    (let [datoms [[1 :name "Alice" 1 1] [2 :age 30 1 1]]]
+      ;; entity 2 is missing :name -> predicate is true -> binding survives
+      (is (= #{[2]}
+             (query/q '[:find ?e :where [?e :age _] [(missing? $ ?e :name)]]
+                      datoms)))
+      ;; entity 1 has :name -> predicate is false -> binding filtered out
+      (is (= #{}
+             (query/q '[:find ?e :where [?e :name _] [(missing? $ ?e :name)]]
+                      datoms))))))
+
+
+(deftest or-with-not-local-vars-test
+  (testing "or same-var rule ignores vars local to not/not-join"
+    (let [datoms [[1 :a 1 1 1] [1 :b 1 1 1] [2 :a 2 1 1] [2 :c 2 1 1]]]
+      ;; Branch 1 has ?x in a positive clause (output). Branch 2 has ?x in
+      ;; a positive clause AND ?y inside a not-join
+      ;; (a free, existentially-scoped var that must NOT count toward
+      ;; the branch's output set for the same-var rule).
+      ;; The same-var rule should see both branches as {?e, ?x} and
+      ;; pass. Branch 1 yields {?e 1, ?x 1} and {?e 2, ?x 2}.
+      ;; Branch 2 yields {?e 1, ?x 1} only (entity 2 lacks :b).
+      ;; Union: {[1 1] [2 2]}.
+      (is (= #{[1 1] [2 2]}
+             (query/q
+               '[:find ?e ?x :where
+                 (or [?e :a ?x] (and [?e :b ?x] (not-join [?e ?x] [?e :c ?y])))]
+               datoms))))))
+
+
+(deftest rules-inside-not-or-join-test
+  (testing "rules can be called inside not-join and or-join"
+    (let [datoms [[1 :type :dog 1 1] [2 :type :cat 1 1] [3 :type :bird 1 1]]
+          rules '[[(is-cat ?e) [?e :type :cat]]]]
+      ;; test not-join with rule
+      (is (= #{[1] [3]}
+             (query/q '[:find ?e :in $ % :where [?e :type _]
+                        (not-join [?e] (is-cat ?e))]
+                      datoms
+                      rules)))
+      ;; test or-join with rule
+      (is (= #{[2]}
+             (query/q '[:find ?e :in $ % :where (or-join [?e] (is-cat ?e))]
+                      datoms
+                      rules))))))

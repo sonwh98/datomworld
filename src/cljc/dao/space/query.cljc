@@ -206,6 +206,45 @@
 ;; q: Datalog (:find / :in / :where, one merged index)
 ;; =============================================================================
 
+(def ^:private builtins
+  "The default fn registry: pure, data-first functions that the engine
+  resolves before any caller-supplied fns. The fn names mirror the most
+  common DataScript builtins; `tuple` and `untuple` are alias-shaped
+  (tuple/untuple) to ease cross-engine query portability. `ground` is
+  the literal-binder used in attribute-equality queries. Pass
+  `{:builtins false}` to opt out (governed/confined callers)."
+  {'= =,
+   'not= not=,
+   '< <,
+   '> >,
+   '<= <=,
+   '>= >=,
+   '+ +,
+   '- -,
+   '* *,
+   '/ /,
+   'quot quot,
+   'rem rem,
+   'mod mod,
+   'inc inc,
+   'dec dec,
+   'min min,
+   'max max,
+   'abs abs,
+   'str str,
+   'subs subs,
+   'count count,
+   'first first,
+   'last last,
+   'get get,
+   'nth nth,
+   'identity identity,
+   'vector vector,
+   'tuple vector,
+   'untuple identity,
+   'ground identity})
+
+
 (declare eval-where)
 
 
@@ -366,6 +405,118 @@
       bindings)))
 
 
+(defn- branch-clauses
+  "The list of clauses inside one branch of an or / or-join. A bare
+  clause is a one-element group; `(and …)` is the only explicit group."
+  [branch]
+  (if (and (seq? branch) (= 'and (first branch))) (rest branch) [branch]))
+
+
+(defn- branch-free-vars
+  "Every ?var that an or/or-join branch *outputs* — i.e. would be bound
+  after the branch succeeds, and so must match the same-var rule across
+  branches. A `not` or `not-join` clause contributes no output vars:
+  everything inside is existentially scoped to the negation (it is
+  freed, not projected), the same way `not-required-vars` excludes a
+  nested not-join's local vars from the outer not's required set.
+  Branch-local vars introduced inside a branch (e.g. ?x in
+  `(or-join [?e] [?e :a ?x])`) are outputs here; `eval-or-join` strips
+  them post-hoc via the join-var projection when it merges results
+  back into the outer binding."
+  [clauses]
+  (distinct (mapcat
+              (fn [clause]
+                (cond (and (seq? clause) (#{'not 'not-join} (first clause))) nil
+                      :else (filter query-var? (tree-seq coll? seq clause))))
+              clauses)))
+
+
+(defn- check-same-var-rule
+  "Datomic: every branch of plain `or` must bind the same set of free
+  variables — the unions of all branch vars must equal the first branch's
+  vars, AND vice versa, so no branch binds an extra var."
+  [branches]
+  (let [var-sets (map (comp set branch-free-vars branch-clauses) branches)]
+    (when-not (apply = var-sets)
+      (throw (ex-info "All branches of or must bind the same set of variables"
+                      {:branches (vec branches),
+                       :branch-vars (vec var-sets)})))))
+
+
+(defn- eval-or
+  "Plain `(or branch+)` — every branch is evaluated over the same outer
+  bindings; a binding survives if any branch satisfies it (union). Each
+  branch starts from the candidate binding (not from a fresh one)."
+  [clause bindings ctx]
+  (let [branches (rest clause)]
+    (check-same-var-rule branches)
+    (distinct (mapcat (fn [branch]
+                        (eval-where (branch-clauses branch) bindings ctx))
+                      branches))))
+
+
+(defn- eval-or-join
+  "`(or-join [vars] branch+)` — only the declared join vars unify with
+  the outer scope; any other branch var is fresh. Unlike not-join, the
+  join vars need not be bound in the outer scope: when they are FREE,
+  the branches introduce them (the typical top-level case, e.g.
+  `(or-join [?e] [?e :a _] [?e :b _])` enumerates ?e).
+
+  Mirrors `eval-not-join` but positively: for each outer binding, run
+  every branch from a seed (the binding's join-vars + ::dbs only), then
+  take only the join vars from each branch result and unify them into
+  the *original* outer binding. Branches see ONLY join vars from the
+  outer scope (not other outer vars), enforcing Datalog's or-join
+  isolation rule. Branch-local vars (everything outside the join-var
+  list) are stripped before merging, so they do not escape the join
+  declaration. Dedupe is per outer binding (set semantics across
+  branches), not across the whole `bindings` set — a single `distinct`
+  over the join would collapse distinct outer rows that happen to agree
+  on join vars."
+  [clause bindings ctx]
+  (let [join-vars (nth clause 1)
+        branches (drop 2 clause)
+        ;; Seed: join vars (if bound) + dbs. Branches see ONLY these,
+        ;; not other outer vars (Datalog or-join isolation).
+        seed-for (fn [b]
+                   (into (select-keys b [::dbs '%])
+                         (keep (fn [v]
+                                 (let [v' (get b v FREE)]
+                                   (when (not= v' FREE) [v v']))))
+                         join-vars))
+        ;; Augment an outer binding with a branch result: take only
+        ;; the join vars from the branch, and unify them in. `unify`
+        ;; enforces same-var semantics: a join var already bound in
+        ;; the outer scope must agree with the branch's value
+        ;; (returns nil on conflict), a previously FREE join var is
+        ;; filled in. Branch-only vars are simply not selected, so
+        ;; they cannot escape the join declaration. The dbs index
+        ;; carried in the binding is preserved as-is (it is a
+        ;; Clojure-namespaced key, not a query var, so `unify` would
+        ;; silently drop it).
+        augment (fn [b branch-result]
+                  (reduce (fn [acc k] (unify acc k (get branch-result k FREE)))
+                          b
+                          join-vars))]
+    (mapcat (fn [b]
+              (let [seed (seed-for b)]
+                (->> branches
+                     (mapcat #(eval-where (branch-clauses %) [seed] ctx))
+                     (map #(augment b %))
+                     (remove nil?)
+                     distinct)))
+            bindings)))
+
+
+(defn- eval-and
+  "An explicit `(and clause+)` group inside an or/or-join branch: a
+  conjunction. A bare conjunction is just a sequence of clauses, so the
+  group is a no-op; we keep the form for symmetry and for parsers that
+  want to thread it through a single fn."
+  [clause bindings ctx]
+  (eval-where (rest clause) bindings ctx))
+
+
 (defn- eval-not-join
   [clause binding ctx]
   (let [req-vars (nth clause 1)
@@ -376,55 +527,132 @@
                         {:var v, :binding binding}))))
     ;; Only the declared join vars unify with the outer scope; any other
     ;; inner var is fresh, even if it shares a name with an outer var.
-    (let [inner-binding (into (select-keys binding [::dbs])
+    (let [inner-binding (into (select-keys binding [::dbs '%])
                               (map (fn [v] [v (get binding v)]))
                               req-vars)]
       (if (seq (eval-where inner-clauses [inner-binding] ctx)) [] [binding]))))
+
+
+(defn- select-probe
+  "Index probe for the two special-form predicates: returns the v slot of
+  the first match (with :missing false) or :missing when no datom
+  matches the [e a v] pattern. The :eavt branch in select-by-index
+  filters on `e` only; this filter layers on `a`/`v` so the result is a
+  true existence test for [e a v], not [e * *]."
+  [idx e a v]
+  (when idx
+    (let [matches (filter (fn [d]
+                            (and (or (wildcard? a) (= a (index/datom-a d)))
+                                 (or (wildcard? v) (= v (index/datom-v d)))))
+                          (select-datoms idx e '_ '_))]
+      (if (seq matches)
+        (let [vs (mapv #(nth % 2) matches)] {:v vs, :missing false})
+        {:missing true}))))
+
+
+(defn- resolve-special-arg
+  "Resolve one argument of a special form: literals (non-symbols) pass
+  through, query vars (symbols starting with `?`) resolve against the
+  binding and throw on FREE. The first argument of a special form is
+  a db-sym (e.g. `$`); `resolve-db` reads it from `::dbs`, so we use
+  it directly without going through the binding."
+  [binding a]
+  (let [v (resolve-binding binding a)]
+    (when (= v FREE)
+      (throw (ex-info "Unbound variable in special-form clause"
+                      {:var a, :binding binding})))
+    v))
+
+
+(defn- eval-special-fn
+  "Dispatch the two built-in special forms that need an index probe.
+  Resolves every argument (literal, query var, or db-sym for the
+  first one) — a query var like `?e` must arrive at the probe as the
+  bound value, not the raw symbol, otherwise the probe looks for the
+  literal entity `'?e` (which never matches) and every row reports
+  missing. Returns {:ret v} where v is the return value, or nil if
+  fsym is not a special form (caller falls through to registry
+  lookup). The result-var binding (the `?out` after the fn call) is
+  handled by the normal fn-clause path."
+  [fsym args binding]
+  (case fsym
+    get-else (let [[_src e a default] args
+                   idx (resolve-db binding _src)
+                   e' (resolve-special-arg binding e)
+                   a' (resolve-special-arg binding a)
+                   d' (resolve-special-arg binding default)
+                   probe (select-probe idx e' a' '_)
+                   vs (:v probe)]
+               {:ret (if (seq vs) (first vs) d')})
+    missing? (let [[_src e a] args
+                   idx (resolve-db binding _src)
+                   e' (resolve-special-arg binding e)
+                   a' (resolve-special-arg binding a)
+                   probe (select-probe idx e' a' '_)]
+               {:ret (boolean (:missing probe))})
+    nil))
 
 
 (defn- eval-fn-clause
   "[(f arg ...)] is a predicate: keep the binding iff (f args) is truthy.
   [(f arg ...) ?out] or [(f arg ...) [?a ?b ...]] is a function clause:
   unify the return value into the output var(s). f is looked up in the
-  caller-supplied :fns registry — no symbol resolution, no hidden globals."
+  caller-supplied :fns registry — no symbol resolution, no hidden globals.
+  Special forms (get-else, missing?) dispatch on binding semantics
+  before the registry is consulted and resolve their own args (so
+  `$`-style db-syms work in this one fn clause path)."
   [clause binding ctx]
-  (let [[[fsym & args] & result-vars] clause
-        f (get-in ctx [:fns fsym])]
-    (when-not f
-      (throw (ex-info "Unknown query fn — pass it via the :fns option"
-                      {:fn fsym, :clause clause})))
-    (let [arg-vals (mapv (fn [a]
-                           (let [v (resolve-binding binding a)]
-                             (when (= FREE v)
-                               (throw (ex-info "Unbound variable in fn clause"
-                                               {:var a, :clause clause})))
-                             v))
-                         args)
-          ret (apply f arg-vals)]
-      (if (empty? result-vars)
-        (if ret [binding] [])
-        (let [out (first result-vars)]
-          (when (> (count result-vars) 1)
-            (throw
-              (ex-info
-                "Function clause takes one binding form; use a tuple [?a ?b] for multi-return"
-                {:clause clause})))
-          (when (and (vector? out) (some #(or (= '... %) (vector? %)) out))
-            (throw
-              (ex-info
-                "Unsupported binding form — only a scalar ?out or tuple [?a ?b]"
-                {:binding-form out, :clause clause})))
-          (when (and (vector? out)
-                     (or (not (sequential? ret))
-                         (not= (count out) (count ret))))
-            (throw (ex-info
-                     "Function return does not match tuple binding arity"
-                     {:binding-form out, :returned ret, :clause clause})))
-          (let [pairs (if (vector? out) (map vector out ret) [[out ret]])
-                b (reduce (fn [b [sym val]] (when b (unify b sym val)))
-                          binding
-                          pairs)]
-            (if b [b] [])))))))
+  (let [[fsym-and-args & result-vars] clause
+        fsym (first fsym-and-args)
+        args (rest fsym-and-args)
+        special (eval-special-fn fsym args binding)]
+    (if special
+      (let [{:keys [ret]} special]
+        (if (empty? result-vars)
+          (if ret [binding] [])
+          (let [out (first result-vars)]
+            (when (vector? out)
+              (throw (ex-info
+                       "get-else / missing? take a scalar binding, not a tuple"
+                       {:binding-form out, :clause clause})))
+            (let [b (unify binding out ret)] (if b [b] [])))))
+      (let [f (get-in ctx [:fns fsym])]
+        (when-not f
+          (throw (ex-info "Unknown query fn — pass it via the :fns option"
+                          {:fn fsym, :clause clause})))
+        (let [arg-vals (mapv (fn [a]
+                               (let [v (resolve-binding binding a)]
+                                 (when (= FREE v)
+                                   (throw (ex-info
+                                            "Unbound variable in fn clause"
+                                            {:var a, :clause clause})))
+                                 v))
+                             args)
+              ret (apply f arg-vals)]
+          (if (empty? result-vars)
+            (if ret [binding] [])
+            (let [out (first result-vars)]
+              (when (> (count result-vars) 1)
+                (throw
+                  (ex-info
+                    "Function clause takes one binding form; use a tuple [?a ?b] for multi-return"
+                    {:clause clause})))
+              (when (and (vector? out) (some #(or (= '... %) (vector? %)) out))
+                (throw
+                  (ex-info
+                    "Unsupported binding form — only a scalar ?out or tuple [?a ?b]"
+                    {:binding-form out, :clause clause})))
+              (when (and (vector? out)
+                         (or (not (sequential? ret))
+                             (not= (count out) (count ret))))
+                (throw (ex-info
+                         "Function return does not match tuple binding arity"
+                         {:binding-form out, :returned ret, :clause clause})))
+              (let [pairs (if (vector? out) (map vector out ret) [[out ret]])
+                    b (reduce (fn [b [sym val]] (when b (unify b sym val)))
+                              binding
+                              pairs)]
+                (if b [b] [])))))))))
 
 
 (defn- eval-rule
@@ -490,7 +718,12 @@
 
 (defn- eval-clause
   [clause bindings ctx]
-  (cond (and (seq? clause) (= 'not (first clause)))
+  (cond (and (seq? clause) (= 'or (first clause))) (eval-or clause bindings ctx)
+        (and (seq? clause) (= 'or-join (first clause)))
+        (eval-or-join clause bindings ctx)
+        (and (seq? clause) (= 'and (first clause)))
+        (eval-and clause bindings ctx)
+        (and (seq? clause) (= 'not (first clause)))
         (eval-not clause bindings ctx)
         (and (seq? clause) (= 'not-join (first clause)))
         (mapcat #(eval-not-join clause % ctx) bindings)
@@ -554,7 +787,7 @@
         (if (>= i (count v))
           (if cur-key (assoc result cur-key cur-vals) result)
           (let [x (nth v i)]
-            (if (#{:find :in :with :where} x)
+            (if (#{:find :in :with :where :keys :syms :strs} x)
               (recur (inc i)
                      (if cur-key (assoc result cur-key cur-vals) result)
                      x
@@ -582,13 +815,53 @@
     {:var el}))
 
 
-(defn- project-find
-  "Datomic aggregation pipeline: project each binding to the find ∪ :with ∪
-  aggregate-arg vars, dedupe those tuples as a set (bindings carry every
-  joined var, whose multiplicity must not leak into aggregates — :with is
-  the mechanism for keeping intended duplicates), then group by the
-  find vars ONLY (:with vars grant multiplicity within a group, they never
-  split groups) and aggregate per group."
+(def ^:private find-scalar-marker (symbol "."))
+
+
+(defn- parse-find
+  "Read the raw :find list into a {find-vars spec} map. The list is one of:
+
+    (relation)            default — a set of tuples (spec :relation)
+    ?vars... .            scalar spec, vars = ?vars
+    [?vars...]            tuple spec, vars = ?vars
+    [?vars... ...]        coll spec, vars = ?vars (no '... in vars)
+    (?var | (?agg ?arg))  an aggregate counts as relation; the agg
+                          result is a phantom value, no var extracted
+
+  The return-map form (`:keys`/`:syms`/`:strs`) is stored separately by
+  the query map and consulted at apply-return-map time."
+  [find]
+  (let [scalar? (and (some #(= find-scalar-marker %) find)
+                     (not (vector? (first find))))
+        coll? (and (vector? (first find)) (some #(= '... %) (first find)))
+        tuple? (and (vector? (first find)) (not coll?))
+        spec (cond scalar? :scalar
+                   coll? :coll
+                   tuple? :tuple
+                   :else :relation)
+        vars (cond scalar? (vec (remove #(= find-scalar-marker %) find))
+                   coll? (vec (remove #(= '... %) (first find)))
+                   tuple? (vec (first find))
+                   :else find)]
+    {:find-vars vars, :spec spec}))
+
+
+(defn- check-return-map-arity
+  "`:keys :syms :strs` is relation-only and the key count must match the
+  find-var count. Throws with a clear message otherwise."
+  [find-vars spec rm-key rm-keys]
+  (when (not= :relation spec)
+    (throw (ex-info
+             "Return map form (:keys/:syms/:strs) requires a relation find"
+             {:spec spec, :rm-key rm-key})))
+  (when (not= (count find-vars) (count rm-keys))
+    (throw (ex-info "Return map arity must match find vars"
+                    {:find-vars find-vars, :rm-keys rm-keys}))))
+
+
+(defn- relation-result
+  "Compute the set-of-tuples relation (the core of project-find). Handles
+  aggregates: groups by find vars, applies aggregate fns."
   [find with bindings]
   (let [elements (mapv parse-find-element find)]
     (if (not-any? :agg elements)
@@ -610,21 +883,94 @@
               groups)))))
 
 
+(defn- apply-spec
+  "Post-process the relation set into the requested find spec."
+  [spec relation]
+  (case spec
+    :relation relation
+    :scalar (let [rows (seq relation)] (when rows (first (first rows))))
+    :coll (let [rows (seq relation)]
+            (if rows
+              (let [first-row (first rows)]
+                (if (= 1 (count first-row)) (mapv first rows) (mapv vec rows)))
+              []))
+    :tuple (let [rows (seq relation)] (when rows (first rows)))))
+
+
+(defn- key-fn-for
+  "Return the (key -> k-fn) transform: keyword, symbol, or string key."
+  [rm-key]
+  (case rm-key
+    :keys keyword
+    :syms (fn [x] (if (symbol? x) x (symbol (name x))))
+    :strs str
+    nil))
+
+
+(defn- apply-return-map
+  "If :keys/:syms/:strs is in the parsed query, return a seq of maps.
+  Otherwise leave the relation set of tuples alone."
+  [parsed relation]
+  (if-let [rm-key (:return-map-key parsed)]
+    (let [k-fn (key-fn-for rm-key)
+          rm-keys (:return-map-keys parsed)]
+      (mapv #(zipmap (map k-fn rm-keys) %) relation))
+    relation))
+
+
+(defn- project-find
+  "Datomic aggregation pipeline: project each binding to the find ∪ :with ∪
+  aggregate-arg vars, dedupe those tuples as a set (bindings carry every
+  joined var, whose multiplicity must not leak into aggregates — :with is
+  the mechanism for keeping intended duplicates), then group by the
+  find vars ONLY (:with vars grant multiplicity within a group, they never
+  split groups) and aggregate per group. Post-process through the find
+  spec (`.`, `[?x ...]`, tuple) and the return-map form (`:keys`,
+  `:syms`, `:strs`) when present."
+  [parsed with bindings]
+  (let [find (:find-vars parsed)
+        relation (relation-result find with bindings)
+        spec (:spec parsed)
+        spec-result (apply-spec spec relation)]
+    (if (:return-map-key parsed)
+      (apply-return-map parsed spec-result)
+      spec-result)))
+
+
 (defn q
   "Datalog: (q query & inputs) where $ binds to first input.
    Example: (q '[:find ?e :where [?e :name \"Alice\"]] source)
    Options like {:as-of t} can be passed as a final argument if not bound by :in."
   [query & inputs]
-  (let [{:keys [find in with where]} (normalize-query query)
+  (let [{:keys [find in with where keys syms strs]} (normalize-query query)
         in-patterns (or in '[$])
         [bind-inputs opts] (if (> (count inputs) (count in-patterns))
                              [(take (count in-patterns) inputs) (last inputs)]
                              [inputs nil])
         as-of (:as-of opts)
         init-bindings (build-init-bindings in-patterns bind-inputs as-of)
-        ctx {:fns (:fns opts)}
-        result (eval-where where init-bindings ctx)]
-    (project-find find with result)))
+        ;; fn registry: builtins under caller's :fns (caller wins). Pass
+        ;; {:builtins false} to opt out (governed/confined callers).
+        fns (if (false? (:builtins opts))
+              (or (:fns opts) {})
+              (merge builtins (:fns opts)))
+        ctx {:fns fns}
+        result (eval-where where init-bindings ctx)
+        parsed (parse-find find)
+        [rm-key rm-keys] (cond keys [:keys keys]
+                               syms [:syms syms]
+                               strs [:strs strs]
+                               :else [nil nil])
+        parsed (cond-> parsed
+                 rm-key (assoc :return-map-key
+                               rm-key :return-map-keys
+                               rm-keys))
+        _ (when rm-key
+            (check-return-map-arity (:find-vars parsed)
+                                    (:spec parsed)
+                                    rm-key
+                                    rm-keys))]
+    (project-find parsed with result)))
 
 
 ;; =============================================================================
