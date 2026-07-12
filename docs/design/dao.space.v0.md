@@ -392,7 +392,7 @@ Stripped of metaphor, the structure is set-theoretic and categorical:
   fibered set with **constant fiber** (fixed arity and slot types); `:strict?
   false` ⇒ **variable fiber**.
 
-This is the spec's own framing: datoms are "tuples in a moduli space, graded by
+This is the spec's own framing: tuples are "elements in a moduli space, graded by
 dimension n" (`datom-spec.md` line 7), with content hash as gauge-invariant
 identity and entity IDs as local coordinates. Here "dimension n" is that moduli
 grading (arity + encoding + morphisms), not a vector-space or manifold dimension.

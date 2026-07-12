@@ -1,9 +1,9 @@
 # datom.world
 A world built on datoms
 
-datom.world is a multi-platform system built on **datoms** and **streams**. It treats all computation as stream processing, where functions consume and produce streams of datoms.
+datom.world is a multi-platform system built on **tuples** and **streams**. It treats all computation as stream processing, where functions consume and produce streams of tuples.
 
-Datoms are immutable tuples in an open moduli space, graded by dimension *n*. The vocabulary of dimensions is open: applications declare new dimensions as needed. The canonical persistent fact is the 5-tuple `[e a v t m]` (entity, attribute, value, transaction, metadata), known as *d5*. Shorter projections — `[v]` (d1, content-addressed blobs) and `[s a v]` (d3, RDF-style triples) — serve as universal floors: d1 for content addressing, d3 for semantic interpretability of fact-shaped data.
+Tuples are immutable elements in an open moduli space, graded by dimension *n*. The vocabulary of dimensions is open: applications declare new dimensions as needed. A **datom** is specifically the canonical 5-tuple `[e a v t m]` (entity, attribute, value, transaction, metadata), known as *d5*. Shorter projections — `[v]` (d1, content-addressed blobs) and `[s a v]` (d3, RDF-style triples) — serve as universal floors: d1 for content addressing, d3 for semantic interpretability of fact-shaped data.
 
 **Core components:**
 - **Yang**: Compiler frontend that transforms source code (Clojure/Python/PHP) into Universal AST datoms

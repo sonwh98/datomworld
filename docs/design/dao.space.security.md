@@ -15,7 +15,7 @@ Therefore, **the unit of sharing is not the datom; it is the governed interprete
 ## Grounding in Existing Primitives
 
 This model builds naturally upon datom.world's existing primitives:
-- **`m`-slot Access Control:** The `m` slot in the d5 tuple (see `docs/agents/datom-spec.md`) references a reified metadata entity (where `dao.datom/reserved` governs low IDs). This provides the natural per-datom policy handle.
+- **`m`-slot Access Control:** The `m` slot in the d5 datom (see `docs/agents/datom-spec.md`) references a reified metadata entity (where `dao.datom/reserved` governs low IDs). This provides the natural per-datom policy handle.
 - **Confinement:** The architectural stance to "prefer confinement over verification" (see `docs/agents/advanced-concepts.md`). Trust must be contextual, revocable, and stream-scoped.
 - **Immutable Provenance:** An accountability floor based on an immutable log that records derivation and access.
 

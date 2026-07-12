@@ -1,48 +1,48 @@
 ---
-description: Datom moduli space; meta-protocol over open dimensions; N-dimensional tuples, entity IDs, content addressing, namespaces; d5 documented as the original 5-tuple instance
+description: Moduli space of tuples; meta-protocol over open dimensions; N-dimensional tuples, entity IDs, content addressing, namespaces; datom defined as the 5-tuple [e a v t m] instance
 ---
 
-# DATOMS
+# TUPLES AND DATOMS
 
-Datoms are tuples in a moduli space, graded by dimension n.
-The canonical format for persistent facts is the 5-tuple: (e a v t m).
-Each dimension dn is a distinct kind of fact, fit for a distinct role.
+Tuples are elements in a moduli space, graded by dimension n.
+A tuple can be any dimension/size; each dimension dn is a distinct kind of fact, fit for a distinct role.
+A datom is specifically the canonical 5-tuple: [e a v t m].
 The moduli space is open: applications declare new dimensions as needed. No dimension is canonical.
 
-Datoms are immutable facts, not objects.
-Datoms are the universal format for persistent facts in dao.jing: AST, schema, provenance.
-Streams carry whatever values the consumer needs (datoms for persistent layers, entities or scalars for ephemeral layers).
+Tuples (including datoms) are immutable facts, not objects.
+Tuples are the universal format for persistent facts in dao.jing: AST, schema, provenance.
+Streams carry whatever values the consumer needs (datoms or other tuples for persistent layers, entities or scalars for ephemeral layers).
 
 Dimensions in use:
   d1: (v). Pure values; identity = hash(v). Blob storage, primitive interning.
   d3: (s, a, v). Bare facts (RDF-style triples). The semantic floor for fact-shaped dimensions.
-  d5: (e, a, v, t, m). Provenanced temporal facts. The original 5-tuple. Documented in detail below.
+  d5: (e, a, v, t, m). Provenanced temporal facts. The original 5-tuple, specifically called a **datom**. Documented in detail below.
   Higher / domain-specific: signatures, capabilities, sensor frames, vector clocks, named-graph quads.
 
 Two universal floors:
-  d1 (content-addressing floor): every datom of any dimension reduces to its hash, itself a d1 datom. Universal addressability.
+  d1 (content-addressing floor): every tuple of any dimension reduces to its hash, itself a d1 tuple. Universal addressability.
   d3 (semantic floor): every fact-shaped dimension projects to (subject, attribute, value). Universal interpretability for the fact-shaped subset.
 
 Not every dimension is fact-shaped. Some are tuple-shaped without subject (capabilities, signatures, sensor frames).
 For those, d1 is still a floor; d3 is not.
 
 Universal principles (apply to all dimensions):
-  Do not embed behavior inside datoms.
+  Do not embed behavior inside tuples.
   Content hashes are derived by interpreters, not intrinsic to the tuple.
   Interpretation is local: agents decide meaning, not global ontologies.
   Graphs are constructed from tuples, not assumed.
   Restrictions are a feature: dimension choice constrains shape, enabling efficient per-shape indexing.
 
 Intuition (physics metaphor):
-  The datom stream is the unitary wave function: it contains the complete state of the universe.
+  The tuple stream is the unitary wave function: it contains the complete state of the universe.
   Each dimension is a different chart on that universe.
-  A datom at dimension n is a tuple-shaped event in n coordinates.
-  A canonical datom [e a v t m] is like a space-time event:
+  A tuple at dimension n is a tuple-shaped event in n coordinates.
+  A datom (the canonical d5 5-tuple [e a v t m]) is like a space-time event:
   Space (structural): [e a v] defines what exists (entity, attribute, value).
   Time (causal): [t m] defines when and why (transaction, metadata).
   Interpreters observe parts of the stream and construct higher-dimensional structures.
   Like quantum measurement, each interpreter projects the stream differently: same data, different meanings.
-  Higher-dimensional datoms (6-tuple, 7-tuple, etc.) can be used for specialized streams (e.g., spatial coordinates, confidence scores, or parallel transport context).
+  Higher-dimensional tuples (6-tuple, 7-tuple, etc.) can be used for specialized streams (e.g., spatial coordinates, confidence scores, or parallel transport context).
 
 # META-PROTOCOL
 
@@ -58,10 +58,10 @@ A dimension dn is declared as a small d3 subgraph:
 The content hash of this subgraph IS the dimension's identity.
 New dimensions are introduced by publishing such a bundle. No external schema authority is needed.
 
-Per-datom hash:
-  hash(datom) = hash(dimension-hash || canonical-encoded-slots-in-order).
+Per-tuple hash:
+  hash(tuple) = hash(dimension-hash || canonical-encoded-slots-in-order).
   Different dimensions never collide on the same slot values.
-  A d3 fact and a d5 fact with the same (s, a, v) hash to different values: they are different things in the moduli space.
+  A d3 fact and a d5 fact (datom) with the same (s, a, v) hash to different values: they are different things in the moduli space.
 
 Morphisms:
   Projections (dn -> dm where m < n): drop slots; lossy.
@@ -70,7 +70,7 @@ Morphisms:
   Composite morphisms are computed transitively.
 
 Equivalence:
-  Two datoms are equal iff their canonical hashes match within the same dimension.
+  Two tuples are equal iff their canonical hashes match within the same dimension.
   Cross-dimensional equality goes through projection: a in dn matches b in dm iff pi(a) = b.
 
 # CANONICAL ENCODING
@@ -99,12 +99,12 @@ A slot value is always small: an inline canonical primitive or a fixed-size cont
 
 Every dimension carries content-addressing for free.
 
-Per-datom hash (universal):
-  hash(datom) = hash(dimension-hash || canonical-encoded-slots-in-order).
+Per-tuple hash (universal):
+  hash(tuple) = hash(dimension-hash || canonical-encoded-slots-in-order).
 
 Cross-dimension addressing:
-  d1 floor: every datom reduces to its hash, a d1 datom. Universal.
-  d3 floor: every fact-shaped datom projects to (s, a, v). Universal for the fact-shaped subset.
+  d1 floor: every tuple reduces to its hash, a d1 tuple. Universal.
+  d3 floor: every fact-shaped tuple projects to (s, a, v). Universal for the fact-shaped subset.
 
 Cycles:
   Pure content addressing forbids value-level cycles (the hash would have to be known to compute itself).
@@ -119,17 +119,17 @@ Streams:
 Hashing is triggered by persistence, not by existence.
 Like git: working directory has no SHA; only committed content is hashed.
 
-# d5: PROVENANCED TEMPORAL FACTS
+# d5: DATOMS (PROVENANCED TEMPORAL FACTS)
 
-d5 is the original datom shape: the 5-tuple (e a v t m). It packages fact + transaction + provenance + entity handle + value in one row, suitable for column-store layouts and EAVT/AEVT indexing. It is the dimension most of dao.jing currently uses.
+A datom is the canonical 5-tuple shape [e a v t m] like in Datomic, except the m position is a metadata entity ID. It packages fact + transaction + provenance + entity handle + value in one row, suitable for column-store layouts and EAVT/AEVT indexing. It is the dimension most of dao.jing currently uses.
 
-The remainder of this document defines d5 in detail: components, sizing, value constraints, reserved entities, namespaces.
+The remainder of this document defines the datom (d5) in detail: components, sizing, value constraints, reserved entities, namespaces.
 Other dimensions (d1, d3, etc.) are documented separately when introduced.
 
 Tuple shape:
-  (e a v t m)
+  [e a v t m]
 
-Components (for canonical 5-tuples):
+Components (for canonical 5-tuples/datoms):
   e: Entity ID. Local handle for evolving identity. Relative offset from zero basis.
      Negative IDs are temporary local IDs (tempids), used during compilation and before commitment.
      Positive IDs are permanent IDs assigned by the authoring stream's writer after a successful transaction.
@@ -181,7 +181,7 @@ Components (for canonical 5-tuples):
      never compare m against a bare integer literal.
 
 Sizing:
-  d5 datoms can be variable-size (general case) or fixed-size (typed streams).
+  Datoms can be variable-size (general case) or fixed-size (typed streams).
   A stream can declare a type that constrains the size of each slot.
   Fixed-size streams enable: cache-efficient layouts, SIMD operations, O(1) indexing.
   Variable-size streams provide flexibility at the cost of offset-table overhead.
@@ -217,8 +217,8 @@ Validity fold (deferred):
   rewritten m:0->1 first, or it will read as a retraction. (There is currently no such
   data: AST datoms are regenerated at runtime via ast->datoms.)
 
-d5-specific principles:
-  Content hashes for d5 are computed over [a v] pairs only (not e, t, or m).
+Datom-specific principles (d5):
+  Content hashes for datoms are computed over [a v] pairs only (not e, t, or m).
   Content hash input is the assert(1) datoms; retract(0) and derived(2) are excluded.
   Content hash datoms themselves use m=2 (:db/derived) and so are excluded from their
   own computation.

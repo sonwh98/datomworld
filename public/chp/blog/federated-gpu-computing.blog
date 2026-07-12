@@ -96,10 +96,10 @@
            [:strong "The continuation is parked."]
            " The library merely emits the effect that makes the suspension point explicit."]
 
-          [:h2 "Generalized datoms make tensors stream-native"]
+          [:h2 "Generalized tuples make tensors stream-native"]
 
           [:p
-           "Older discussions of datoms often start from the five-tuple. Datom.World has since relaxed that definition: a datom can be any N-dimensional tuple, and tuples can be bitpacked into integers. That matters enormously for machine learning."]
+           "Older discussions of datoms often start from the five-tuple. Datom.World has since clarified that definition: a datom is specifically the canonical five-tuple, whereas a tuple can have any dimension N, and tuples can be bitpacked into integers. That matters enormously for machine learning."]
 
           [:p
            "Under this generalized model, tensors do not need to be treated as opaque foreign blobs with metadata on the side. They can be represented as streams of packed tuples. The same is true for KV cache, gradients, optimizer state, and parameter shards."]

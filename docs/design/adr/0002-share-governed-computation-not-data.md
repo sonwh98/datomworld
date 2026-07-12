@@ -18,7 +18,7 @@ However, a counterparty benefits only if it comes to hold `f(X)` for an authoriz
 We adopt the model: **share governed computation, not data**.
 - The unit of sharing is the governed interpreter, not the datom. In datom.world, this interpreter `f` is realized natively as a **`yin.vm` program or continuation**.
 - Capabilities govern interpreters (using a Shibi / `:yin/capability` Macaroon-style design with attenuatable, revocable caveats bounding the `yin.vm` execution).
-- The `m` slot of the d5 tuple carries the access policy.
+- The `m` slot of the d5 datom carries the access policy.
 - An always-on accountability floor guarantees immutable provenance of every derivation.
 
 ## Consequences

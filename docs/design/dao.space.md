@@ -56,7 +56,7 @@ facts; whatever else an interpreter materializes is its own, not the medium).
 - `docs/design/dao.space.query.md` — the query library's design record: index realization, the `read-datoms` contract, and the Target Architecture rulings
 - `docs/design/dao.space.index.md` — the transactor-side indexing library: every agent indexes its own datoms; the covered-index realization both sides share
 - `docs/design/dao.stream.md` — the append-only log primitive datoms are written through
-- `docs/agents/datom-spec.md` — datoms, content-addressed identity, the gauge/base framing
+- `docs/agents/datom-spec.md` — tuples and datoms, content-addressed identity, the gauge/base framing
 - `docs/datomic.md` — the Datomic architecture the Transactor/Storage/Query split maps to
 - `docs/design/adr/0001-dao-space-as-storage-boundary.md` — the decision this design records
 - `docs/design/adr/0002-share-governed-computation-not-data.md` — the access-mode security model

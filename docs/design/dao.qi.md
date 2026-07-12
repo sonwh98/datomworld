@@ -47,7 +47,7 @@ view.
 **Related documents:**
 - `docs/design/dao.space.md` — the sibling point: the tuple space, exact associative matching, and the moduli-space framing both share
 - `docs/design/dao.jing.md` — the storage boundary both read: the content-addressed store of opaque bytes served as datoms
-- `docs/agents/datom-spec.md` — datoms as N-dimensional tuples in an open moduli space; the `d_k` dimension a vector inhabits
+- `docs/agents/datom-spec.md` — tuples of any dimension/size in an open moduli space; the `d_k` dimension a vector inhabits
 - `docs/design/dao.space.discrete-to-continuous.md` — why the datom set carries a metric at all: `ℓ²(E)`, spectral decomposition, the discrete→continuous correspondence this doc rests on
 - `docs/design/dao.space.locality.md`, `dao.space.metaphors.md` — the geometry/locality cluster
 
@@ -62,13 +62,12 @@ live. `dao.qi` is the shadow whose natural basis is **metric** — the ℓ²(E) 
 angle and distance live. Same `E`; different quotient. In the project's Taoist vocabulary this
 is 陰陽: `dao.space` is the **form** of the essence, `dao.qi` its **flow**.
 
-## A vector *is* a datom (the `d_k` floor)
+## A vector *is* a tuple (the `d_k` floor)
 
-`dao.qi` needs no new storage primitive because a vector is already a datom.
-[`datom-spec.md`](../agents/datom-spec.md) grades the moduli space by dimension `n` — "a datom
-at dimension `n` is a tuple-shaped event in **n coordinates**" — and the space is **open**:
+`dao.qi` needs no new storage primitive because a vector is already a tuple.
+[`datom-spec.md`](../agents/datom-spec.md) grades the moduli space by dimension `n` — "a tuple at dimension `n` is a tuple-shaped event in **n coordinates**" — and the space is **open**:
 applications declare new dimensions as needed, no dimension canonical. A `k`-dimensional
-embedding is therefore a **`d_k` datom**: its `k` slots *are* the coordinates.
+embedding is therefore a **`d_k` tuple**: its `k` slots *are* the coordinates.
 
 This dissolves the usual "where do the vectors live" question:
 
@@ -84,10 +83,10 @@ This dissolves the usual "where do the vectors live" question:
   analogous to the wave-mechanics side. A query vector induces an attention vector in `ℓ²(E)` via 
   `e ↦ cos(q, embed(e))`, so geometric matching is mathematically native to the algebra, not a 
   foreign operation grafted on.
-- **Embeddings are derived datoms.** A vector is *computed* from a fact by a model, so it must be
+- **Embeddings are derived.** A vector is *computed* from a fact by a model, so it must be
   excluded from the canonical content-hash computation. The vector itself is just a `d_k` coordinate tuple,
   identified by its hash. The association datom that binds the vector back to what it embeds, e.g.
-  `[e :qi/embeds <hash-of-the-d_k-datom> t m=2]`, is a `:db/derived` (m=2) `d5` datom; the coordinates
+  `[e :qi/embeds <hash-of-the-d_k-tuple> t m=2]`, is a `:db/derived` (m=2) `d5` datom; the coordinates
   live at `d_k`, while the derivation marker lives on the association at the `d5` floor.
 
 The `d_k` dimension is declared through the ordinary meta-protocol (`:dim/arity`,
@@ -97,24 +96,24 @@ identity, so vectors produced under one embedding scheme never collide with anot
 ## Geometric Matching: the read surface
 
 Like `dao.space.query`, `dao.qi` is a **library** any interpreter embeds and runs against a
-`dao.jing`. It is pure: pull the `d_k` datoms, build a proximity index, answer. It owns no
+`dao.jing`. It is pure: pull the `d_k` tuples, build a proximity index, answer. It owns no
 durable state, and it reads the *global* store by default — a query vector surfaces geometrically close
-datoms from writers the reader never heard of, associative by content.
+tuples from writers the reader never heard of, associative by content.
 
 ```clojure
 (require '[dao.qi :as qi])
 
-;; near — the top-n datoms geometrically nearest a query vector, by cosine similarity.
+;; near — the top-n tuples geometrically nearest a query vector, by cosine similarity.
 ;; The metric sibling of dao.space.query/match: match returns tuples that unify exactly,
 ;; near returns tuples that are geometrically close, ranked by descending similarity.
 (qi/near store query-vector {:top-n 8})
-;; => [[datom similarity] ...]
+;; => [[tuple similarity] ...]
 
-;; near also accepts a d_k datom already in the store as the probe
-(qi/near store probe-datom {:top-n 8 :threshold 0.75})
+;; near also accepts a d_k tuple already in the store as the probe
+(qi/near store probe-tuple {:top-n 8 :threshold 0.75})
 
-;; embed — project a value into a d_k datom under an explicitly named model,
-;; then append it (a :db/derived datom) to the caller's own stream.
+;; embed — project a value into a d_k tuple under an explicitly named model,
+;; then append the association (a :db/derived datom) to the caller's own stream.
 (qi/embed store value {:model model-ref})
 ```
 
@@ -126,15 +125,15 @@ the metric one, because they read the same `dao.jing`.
 ## What carries over, and the one thing that does not
 
 `dao.qi` inherits the whole substrate discipline unchanged. Writes are **append-only**: a
-vector enters by being appended to a `dao.stream` member log, exactly as any datom does (see
+vector enters by being appended to a `dao.stream` member log, exactly as any tuple does (see
 [The Write Path](dao.space.md#the-write-path)); there is no destructive update. Reads are
 **global and associative**, scoped only by content predicates, governed by the same public /
 controlled access modes as `dao.space` (see
-[`dao.space.security.md`](dao.space.security.md)) — an embedding is just a datom, so per-stream
+[`dao.space.security.md`](dao.space.security.md)) — an embedding is just a tuple, so per-stream
 permissions and confined interpreters apply without change (though v1 ships public mode only, see `dao.space.md`). Coordination is **stigmergy**:
 agents leave `d_k` traces and others follow the gradient, no broker, no addressing.
 
-The one thing that does **not** carry over for free is **replayability**. A `d_k` datom's
+The one thing that does **not** carry over for free is **replayability**. A `d_k` tuple's
 coordinates are self-contained data — its hash pins the vector — but *which* `d_k` a given
 value maps to is the embedding **model's** doing, and content hashes are "derived by
 interpreters, not intrinsic to the tuple." So a geometric query result only replays identically if
@@ -152,9 +151,9 @@ storage and log traditions (Datomic, Plan 9) live in [`dao.jing`](dao.jing.md) a
 and geometric proximity as the coordination
 verb, and the matrix→wave / discrete→continuous correspondence
 ([`dao.space.discrete-to-continuous.md`](dao.space.discrete-to-continuous.md)) as the
-justification that the datom set carries a real geometry, not a metaphorical one.
+justification that the tuple set carries a real geometry, not a metaphorical one.
 
 The synthesis: **`dao.qi` is the vector field that emerges when the embeddable `dao.qi` library
-reads the same `dao.jing` datoms as `d_k` coordinates and agents coordinate by the geometric proximity
+reads the same `dao.jing` tuples as `d_k` coordinates and agents coordinate by the geometric proximity
 between the traces they leave there — the metric sibling of the tuple space
 `dao.space`, both points in one moduli space of databases over n-tuples.**
