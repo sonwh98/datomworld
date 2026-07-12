@@ -1083,3 +1083,30 @@
              (query/q '[:find ?e :in $ % :where (or-join [?e] (is-cat ?e))]
                       datoms
                       rules))))))
+
+
+(deftest or-join-branch-must-bind-join-vars-test
+  (testing
+    "a branch that fails to bind a declared join var throws
+            instead of leaking the engine's FREE sentinel into results"
+    ;; (or-join [?e ?x] [?e :a 1]) — the single branch binds ?e but
+    ;; never ?x. DataScript rejects this via the same-var rule; without
+    ;; validation the engine binds ?x to the internal ::free sentinel
+    ;; and it escapes into the :find output.
+    (is (thrown-with-msg? #?(:cljs js/Error
+                             :cljd Object
+                             :default Exception)
+                          #"join var"
+          (query/q '[:find ?e ?x :where
+                     (or-join [?e ?x] [?e :a 1])]
+                   [[1 :a 1 1 1]]))))
+  (testing
+    "the check is per branch: one conforming branch does not
+            excuse another that misses a join var"
+    (is (thrown-with-msg? #?(:cljs js/Error
+                             :cljd Object
+                             :default Exception)
+                          #"join var"
+          (query/q '[:find ?e ?x :where
+                     (or-join [?e ?x] [?e :a ?x] [?e :b 1])]
+                   [[1 :a 1 1 1] [1 :b 1 1 1]])))))

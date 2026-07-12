@@ -462,6 +462,12 @@
   the branches introduce them (the typical top-level case, e.g.
   `(or-join [?e] [?e :a _] [?e :b _])` enumerates ?e).
 
+  Validates statically: every declared join var must appear in each
+  branch's positive clauses (per `branch-free-vars`). This catches
+  malformed queries regardless of data, matching DataScript's up-front
+  rejection. A branch that omits a join var would leak the internal
+  ::free sentinel into results.
+
   Mirrors `eval-not-join` but positively: for each outer binding, run
   every branch from a seed (the binding's join-vars + ::dbs only), then
   take only the join vars from each branch result and unify them into
@@ -476,6 +482,18 @@
   [clause bindings ctx]
   (let [join-vars (nth clause 1)
         branches (drop 2 clause)
+        ;; Static validation: every branch must reference all join vars
+        ;; in its positive clauses. This is data-independent — fires
+        ;; regardless of what's in the store.
+        _ (doseq [branch branches]
+            (let [branch-vars (set (branch-free-vars (branch-clauses branch)))
+                  missing (seq (remove branch-vars join-vars))]
+              (when missing
+                (throw (ex-info (str "or-join branch did not bind join var(s): "
+                                     (vec missing))
+                                {:unbound (vec missing),
+                                 :join-vars join-vars,
+                                 :branch branch})))))
         ;; Seed: join vars (if bound) + dbs. Branches see ONLY these,
         ;; not other outer vars (Datalog or-join isolation).
         seed-for (fn [b]
