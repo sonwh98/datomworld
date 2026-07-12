@@ -1,13 +1,16 @@
 (ns dao.space.query
   "The Query boundary of the tuple space: `match` (Linda-style positional
-  templates) and `q` (Datalog: joins, `not`/`not-join` negation, `:find`
+  templates), `q` (Datalog: joins, `not`/`not-join` negation, `:find`
   aggregates — count, count-distinct, sum, min, max, avg — with `:with`,
   predicate/function clauses whose fns come from a caller-supplied
   `{:fns {sym fn}}` option, and recursive rules bound to `%` via `:in`;
-  one merged index) over a **source**. The read side is pure and stateless —
-  it owns no durable state, never writes, and enforces no schema; schema is
-  the write-side Transactor's job (each `dao.stream` writer is its own).
-  This library is the embeddable Peer: it consumes the covered-index
+  one merged index), and `pull` (declarative entity projection: entity →
+  tree, the third read verb alongside match/q — see the Pull section,
+  below, and docs/datomic-pull.md for the schema-free design rulings)
+  over a **source**. The read side is pure and stateless — it owns no
+  durable state, never writes, and enforces no schema; schema is the
+  write-side Transactor's job (each `dao.stream` writer is its own). This
+  library is the embeddable Peer: it consumes the covered-index
   realization owned by `dao.space.index` (root shapes, sort orders, the
   persisted node-blob format, and the owner-side `publish-index!` — see
   docs/design/dao.space.index.md). See docs/design/dao.space.md, \"The
@@ -188,8 +191,9 @@
   "Index-routed datom selector: returns current-state datoms matching
   the [e a v] pattern. Wildcards are `_`, nil, or FREE. Routes through
   EAVT (e bound), AVET (a+v bound), VAET (v bound), or AEVT (a bound).
-  The index must be pre-folded (see `fold`). Public API for external
-  consumers like `dao.space.pull`."
+  The index must be pre-folded (see `fold`). The peer of DataScript's
+  `datoms` API; the Pull section below is its main internal consumer,
+  but it's public for any other idx-level caller."
   [idx e a v]
   (let [candidates (select-by-index idx e a v)]
     (filter (fn [d]
@@ -215,6 +219,257 @@
                          (or (wildcard? tt) (= tt (nth d 3)))
                          (or (wildcard? tm) (= tm (nth d 4)))))
                   candidates)))))
+
+
+;; =============================================================================
+;; Pull: declarative entity projection (entity -> tree)
+;; =============================================================================
+;; Third read verb next to match (template -> datoms) and q (Datalog ->
+;; relations). Design rulings, spelled out in full in docs/datomic-pull.md:
+;;   - No schema: every attr is potentially multi-valued. Forward attrs
+;;     follow the entity-attrs convention (one datom -> scalar, more ->
+;;     vector). Reverse attrs (`:_attr`) always return a vector.
+;;   - Ref-ness is asserted by the pattern, not guessed. A nested map spec
+;;     navigates values as entity ids.
+;;   - Missing attrs are omitted, not nil-valued, unless the pattern gives
+;;     :default. `:db/id` is included in every pull result map.
+;;   - Recursion markers (`'...` / depth limits) are deferred: finite
+;;     patterns bound the walk by construction.
+;;   - Nested map specs ({:friend [...]}) do not support :limit/:as
+;;     (only flat vector elements do).
+;; Pull was originally its own namespace (dao.space.pull); merged in
+;; 2026-07-13 because the two namespaces already depended on each other's
+;; internals (pull needed fold/datoms, q's `(pull ?e pattern)` find
+;; element needed to call back into pull) — the split forced a
+;; dependency-injection seam (`:pull-fn` in query opts) purely to dodge a
+;; require cycle, not because the concerns were actually decoupled. One
+;; namespace lets q's find-element integration call pull directly against
+;; the already-folded index (see pull-idx, below), instead of re-folding
+;; the raw source on every row.
+
+(defn- wildcard-symbol?
+  "The wildcard marker is the symbol `* (not a keyword)."
+  [x]
+  (and (symbol? x) (= x '*)))
+
+
+(defn- parse-attr-options
+  "Parse [:attr :default v :limit n :as k] into {:attr :attr :default v ...}."
+  [[attr & opts]]
+  (when-not (keyword? attr)
+    (throw
+      (ex-info
+        (str "malformed pull pattern: attr options require keyword first, got "
+             (pr-str attr))
+        {:element [attr opts]})))
+  (loop [opts opts
+         acc {:attr attr}]
+    (if (seq opts) (let [[k v & rest] opts] (recur rest (assoc acc k v))) acc)))
+
+
+(defn parse-pattern
+  "Parse a pull pattern into a normalized spec:
+    {:attrs [...] :wildcard? bool :nested {...}}
+
+  attrs: keywords (simple) or maps (with options {:attr :x :default v ...})
+  wildcard?: true if pattern contains '*
+  nested: {attr subpattern-spec} for map specs
+
+  Throws ex-info on malformed elements."
+  [pattern]
+  (loop [elems pattern
+         acc {:attrs [], :wildcard? false, :nested {}}]
+    (if (seq elems)
+      (let [e (first elems)
+            rest (rest elems)]
+        (cond
+          ;; wildcard
+          (wildcard-symbol? e) (recur rest (assoc acc :wildcard? true))
+          ;; simple keyword attr
+          (keyword? e) (recur rest (update acc :attrs conj e))
+          ;; nested map spec
+          (map? e) (let [[attr subpattern] (first e)
+                         sub-spec (parse-pattern subpattern)]
+                     (recur rest (assoc-in acc [:nested attr] sub-spec)))
+          ;; attr with options
+          (vector? e) (let [opts (parse-attr-options e)]
+                        (recur rest (update acc :attrs conj opts)))
+          :else (throw (ex-info (str "malformed pull pattern: " (pr-str e))
+                                {:element e}))))
+      acc)))
+
+
+(defn- reverse-attr?
+  "Reverse attrs start with :_ (e.g. :_friend)."
+  [attr]
+  (and (keyword? attr) (= \_ (first (name attr)))))
+
+
+(defn- forward-attr-name
+  "Extract the base attr name from a spec element (keyword or {:attr ...})."
+  [spec]
+  (if (keyword? spec) spec (:attr spec)))
+
+
+(defn- apply-options
+  "Apply :as rename to the output key."
+  [spec key]
+  (if-let [as-key (and (map? spec) (:as spec))]
+    as-key
+    key))
+
+
+(defn- reverse-to-forward
+  "Convert :_friend to :friend."
+  [attr]
+  (keyword (namespace attr) (subs (name attr) 1)))
+
+
+(defn- project-reverse-attr
+  "Project a reverse attribute: entities whose [e :attr eid] points here.
+  Always returns a vector of maps with :db/id (per design ruling). Falls
+  back to :default when no reverse datoms match, same as a forward attr."
+  [idx eid spec]
+  (let [rev-attr (forward-attr-name spec)
+        fwd-attr (reverse-to-forward rev-attr)
+        ;; Query AVET: who has [e fwd-attr eid]?
+        matching (datoms idx '_ fwd-attr eid)
+        eids (mapv #(nth % 0) matching)
+        results (mapv (fn [e] {:db/id e}) eids)]
+    (if (seq results)
+      [(apply-options spec rev-attr)
+       (if (and (map? spec) (:limit spec))
+         (take (:limit spec) results)
+         results)]
+      (when (and (map? spec) (contains? spec :default))
+        [(apply-options spec rev-attr) (:default spec)]))))
+
+
+(defn- project-flat-attr
+  "Project one attribute from the datoms. Returns [output-key value] or nil."
+  [idx eid spec]
+  (let [attr (forward-attr-name spec)]
+    (if (reverse-attr? attr)
+      (project-reverse-attr idx eid spec)
+      (let [matching (datoms idx eid attr '_)
+            values (mapv #(nth % 2) matching)]
+        (cond
+          ;; no datoms: use :default if present, else omit
+          (empty? values) (when (and (map? spec) (contains? spec :default))
+                            [(apply-options spec attr) (:default spec)])
+          ;; single datom: scalar
+          (= 1 (count values)) [(apply-options spec attr) (first values)]
+          ;; multiple datoms: vector, apply :limit if present
+          :else (let [limit (and (map? spec) (:limit spec))
+                      result (if limit (take limit values) values)]
+                  [(apply-options spec attr) result]))))))
+
+
+(defn- project-wildcard
+  "Project all attributes of the entity."
+  [idx eid]
+  (let [matching (datoms idx eid '_ '_)
+        grouped (group-by #(nth % 1) matching)]
+    (reduce (fn [m [attr ds]]
+              (let [values (mapv #(nth % 2) ds)]
+                (assoc m attr (if (= 1 (count values)) (first values) values))))
+            {}
+            grouped)))
+
+
+(defn- pull-flat
+  "Flat pull: project attrs and wildcard, no nested navigation."
+  [idx eid parsed]
+  (let [base (if (:wildcard? parsed) (project-wildcard idx eid) {})
+        with-attrs (reduce (fn [m spec]
+                             (if-let [[k v] (project-flat-attr idx eid spec)]
+                               (assoc m k v)
+                               m))
+                           base
+                           (:attrs parsed))]
+    (assoc with-attrs :db/id eid)))
+
+
+(declare pull-full-impl)
+
+
+(defn- project-nested-attr
+  "Project a nested attribute: for each value (entity id), recursively pull."
+  [idx eid attr sub-spec]
+  (if (reverse-attr? attr)
+    ;; Reverse nested: entities pointing here, then pull their attrs
+    (let [fwd-attr (reverse-to-forward attr)
+          matching (datoms idx '_ fwd-attr eid)
+          values (mapv #(nth % 0) matching)
+          results (keep (fn [v]
+                          (when (seq (datoms idx v '_ '_))
+                            (pull-full-impl idx v sub-spec)))
+                        values)]
+      (when (seq results) [attr results]))
+    ;; Forward nested: values are entity ids, pull them
+    (let [matching (datoms idx eid attr '_)
+          values (mapv #(nth % 2) matching)
+          results (keep (fn [v]
+                          (when (seq (datoms idx v '_ '_))
+                            (pull-full-impl idx v sub-spec)))
+                        values)]
+      (when (seq results)
+        (if (= 1 (count results)) [attr (first results)] [attr results])))))
+
+
+(defn- pull-full-impl
+  "Full pull: flat attrs + nested navigation."
+  [idx eid parsed]
+  (let [base (pull-flat idx eid parsed)
+        with-nested
+        (reduce (fn [m [attr sub-spec]]
+                  (if-let [[k v] (project-nested-attr idx eid attr sub-spec)]
+                    (assoc m k v)
+                    m))
+                base
+                (:nested parsed))]
+    with-nested))
+
+
+(defn- pull-full
+  "Full pull with shared index."
+  [idx eid pattern]
+  (let [parsed (parse-pattern pattern)] (pull-full-impl idx eid parsed)))
+
+
+(defn- pull-idx
+  "idx-level pull: the index has already been folded. nil if eid has no
+  datoms. This is the direct call `q`'s `(pull ?e pattern)` find element
+  uses — no re-fold per row, unlike routing back through the public
+  `pull` (which folds its `source` argument)."
+  [idx eid pattern]
+  (when (seq (datoms idx eid '_ '_)) (pull-full idx eid pattern)))
+
+
+(defn pull
+  "Declarative entity projection: walk the index from eid and return a
+  map shaped by pattern. Returns nil if no datoms exist at eid.
+
+  Options:
+    :as-of - temporal bound (t <= as-of)
+
+  Example:
+    (pull source 123 [:name :age {:friend [:name]}])"
+  ([source eid pattern] (pull source eid pattern nil))
+  ([source eid pattern opts]
+   (pull-idx (fold source (:as-of opts)) eid pattern)))
+
+
+(defn pull-many
+  "Pull multiple entities with a shared fold."
+  ([source eids pattern] (pull-many source eids pattern nil))
+  ([source eids pattern opts]
+   (let [idx (fold source (:as-of opts))
+         parsed (parse-pattern pattern)]
+     (mapv (fn [eid]
+             (when (seq (datoms idx eid '_ '_))
+               (pull-full-impl idx eid parsed)))
+           eids))))
 
 
 ;; =============================================================================
@@ -908,35 +1163,41 @@
 
 (defn- project-element
   "Resolve one parsed find element against a binding: a plain var reads
-  the binding, a pull element calls the caller-supplied :pull-fn (see
-  ctx) against the $ source and the entity bound to the pull var."
-  [element b ctx]
+  the binding, a pull element resolves the entity from the pull var and
+  calls the shared pull-idx against the $ source's already-folded index
+  (see resolve-db) — no DI, no re-fold per row, since pull lives in this
+  same namespace."
+  [element b]
   (if (:pull-var element)
     (let [eid (get b (:pull-var element))
-          pull-fn (:pull-fn ctx)]
-      (when-not pull-fn
-        (throw (ex-info "pull find element requires :pull-fn in query opts"
+          idx (resolve-db b '$)]
+      (when-not idx
+        (throw (ex-info "pull find element requires a bound $ source"
                         {:element element})))
-      (pull-fn (:pull-source ctx) eid (:pull-pattern element)))
+      (pull-idx idx eid (:pull-pattern element)))
     (get b (:var element))))
 
 
 (defn- relation-result
   "Compute the set-of-tuples relation (the core of project-find). Handles
   aggregates: groups by find vars, applies aggregate fns."
-  [find with bindings ctx]
+  [find with bindings]
   (let [elements (mapv parse-find-element find)]
     (if (not-any? :agg elements)
-      (into #{}
-            (map (fn [b] (mapv #(project-element % b ctx) elements)))
-            bindings)
+      (into #{} (map (fn [b] (mapv #(project-element % b) elements))) bindings)
       (let [grouping-vars (filterv some?
                                    (mapv #(or (:var %) (:pull-var %)) elements))
             proj-vars (-> grouping-vars
                           (into with)
                           (into (keep :arg elements))
                           distinct)
-            rows (into #{} (map #(select-keys % proj-vars)) bindings)
+            ;; a pull element's project-element needs ::dbs (the $
+            ;; source's folded index) even though it is not itself a
+            ;; proj-var — select-keys would otherwise silently strip it
+            ;; from every group's representative row.
+            rows (into #{}
+                       (map #(select-keys % (conj (vec proj-vars) ::dbs)))
+                       bindings)
             groups (vals (group-by (fn [row] (mapv #(get row %) grouping-vars))
                                    rows))]
         (into #{}
@@ -945,7 +1206,7 @@
                              (let [{:keys [agg arg]} element]
                                (if agg
                                  (agg (map #(get % arg) group))
-                                 (project-element element (first group) ctx))))
+                                 (project-element element (first group)))))
                            elements)))
               groups)))))
 
@@ -994,9 +1255,9 @@
   split groups) and aggregate per group. Post-process through the find
   spec (`.`, `[?x ...]`, tuple) and the return-map form (`:keys`,
   `:syms`, `:strs`) when present."
-  [parsed with bindings ctx]
+  [parsed with bindings]
   (let [find (:find-vars parsed)
-        relation (relation-result find with bindings ctx)
+        relation (relation-result find with bindings)
         spec (:spec parsed)
         spec-result (apply-spec spec relation)]
     (if (:return-map-key parsed)
@@ -1021,11 +1282,7 @@
         fns (if (false? (:builtins opts))
               (or (:fns opts) {})
               (merge builtins (:fns opts)))
-        ;; pull find elements bind to $ only in this pass — the
-        ;; original raw source, not the folded index bindings carry,
-        ;; since :pull-fn (e.g. dao.space.pull/pull) folds internally.
-        ctx
-        {:fns fns, :pull-fn (:pull-fn opts), :pull-source (first bind-inputs)}
+        ctx {:fns fns}
         result (eval-where where init-bindings ctx)
         parsed (parse-find find)
         [rm-key rm-keys] (cond keys [:keys keys]
@@ -1041,7 +1298,7 @@
                                     (:spec parsed)
                                     rm-key
                                     rm-keys))]
-    (project-find parsed with result ctx)))
+    (project-find parsed with result)))
 
 
 ;; =============================================================================
