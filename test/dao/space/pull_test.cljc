@@ -5,7 +5,8 @@
   (:require [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
             [dao.space.index :as index]
-            [dao.space.pull :as pull]))
+            [dao.space.pull :as pull]
+            [dao.space.query :as query]))
 
 
 ;; ---------------------------------------------------------------------------
@@ -215,3 +216,103 @@
               (is (= "Bob" (:name flat)))
               (is (= [{:db/id 1}]
                      (mapv #(select-keys % [:db/id]) (:_friend flat))))))))
+
+
+;; ---------------------------------------------------------------------------
+;; Increment 6: (pull ?e pattern) as a q find element
+;; ---------------------------------------------------------------------------
+;;
+;; `dao.space.pull` requires `dao.space.query` (for `fold`/`datoms`), so
+;; `query.cljc` cannot require `dao.space.pull` back — that would be a
+;; require cycle. `q` stays ignorant of pull.cljc's existence and is
+;; handed a `:pull-fn` in the query opts instead, the same
+;; dependency-injection shape `:fns` already uses for caller-supplied
+;; predicates. `:pull-fn` is called as `(pull-fn source eid pattern)`
+;; with the *original* `$`-bound source `q` was called with (`pull/pull`
+;; folds internally, so this is exactly its signature — no new pull.cljc
+;; API needed). Pull find elements bind to `$` only in this pass.
+
+
+(deftest pull-find-element-basic-test
+  (testing "(pull ?e pattern) as a find element projects each row through pull"
+    (let [datoms [[1 :name "Alice" 1 1] [1 :age 30 1 1] [2 :name "Bob" 1 1]]]
+      (is (= #{[{:db/id 1, :name "Alice", :age 30}] [{:db/id 2, :name "Bob"}]}
+             (set (query/q '[:find (pull ?e [:name :age]) :where [?e :name _]]
+                           datoms
+                           {:pull-fn pull/pull}))))))
+  (testing "pull find element composes with a plain var in the same relation"
+    (let [datoms [[1 :name "Alice" 1 1]]]
+      (is (= #{[1 {:db/id 1, :name "Alice"}]}
+             (set (query/q '[:find ?e (pull ?e [:name]) :where [?e :name _]]
+                           datoms
+                           {:pull-fn pull/pull})))))))
+
+
+(deftest pull-find-element-nested-and-reverse-test
+  (testing
+    "pull find element pattern supports nested/reverse specs, same as direct pull"
+    (let [datoms [[1 :name "Alice" 1 1] [1 :friend 2 1 1] [2 :name "Bob" 1 1]]]
+      (is (= #{[{:db/id 1, :name "Alice", :friend {:db/id 2, :name "Bob"}}]}
+             (set (query/q '[:find (pull ?e [:name {:friend [:name]}]) :where
+                             [?e :name "Alice"]]
+                           datoms
+                           {:pull-fn pull/pull})))))))
+
+
+(deftest pull-find-element-scalar-spec-test
+  (testing "pull composes with the scalar find spec"
+    (is (= {:db/id 1, :name "Alice"}
+           (query/q '[:find (pull ?e [:name]) . :where [?e :name "Alice"]]
+                    [[1 :name "Alice" 1 1]]
+                    {:pull-fn pull/pull})))))
+
+
+(deftest pull-find-element-coll-spec-test
+  (testing "pull composes with the collection find spec"
+    (let [datoms [[1 :name "Alice" 1 1] [2 :name "Bob" 1 1]]]
+      (is (= #{{:db/id 1, :name "Alice"} {:db/id 2, :name "Bob"}}
+             (set (query/q '[:find [(pull ?e [:name]) ...] :where [?e :name _]]
+                           datoms
+                           {:pull-fn pull/pull})))))))
+
+
+(deftest pull-find-element-tuple-spec-test
+  (testing "pull composes with the tuple find spec, alongside a plain var"
+    (is (= [1 {:db/id 1, :name "Alice"}]
+           (query/q '[:find [?e (pull ?e [:name])] :where [?e :name "Alice"]]
+                    [[1 :name "Alice" 1 1]]
+                    {:pull-fn pull/pull})))))
+
+
+(deftest pull-find-element-rejects-aggregate-test
+  (testing "an aggregate cannot wrap a pull find element"
+    (is (thrown-with-msg? #?(:cljs js/Error
+                             :cljd Object
+                             :default Exception)
+                          #"[Pp]ull"
+          (query/q '[:find (count (pull ?e [:name])) :where
+                     [?e :name _]]
+                   [[1 :name "Alice" 1 1]]
+                   {:pull-fn pull/pull})))))
+
+
+(deftest pull-find-element-missing-pull-fn-test
+  (testing "no :pull-fn supplied throws a clear error, mirroring :fns"
+    (is (thrown-with-msg? #?(:cljs js/Error
+                             :cljd Object
+                             :default Exception)
+                          #":pull-fn"
+          (query/q '[:find (pull ?e [:name]) :where
+                     [?e :name _]]
+                   [[1 :name "Alice" 1 1]])))))
+
+
+(deftest pull-find-element-with-aggregate-test
+  (testing "pull find element composes with aggregates (acts as grouping var)"
+    (let [datoms [[1 :name "Alice" 1 1] [1 :friend 2 1 1] [1 :friend 3 1 1]
+                  [2 :name "Bob" 1 1] [2 :friend 3 1 1]]]
+      (is (= #{[{:db/id 1, :name "Alice"} 2] [{:db/id 2, :name "Bob"} 1]}
+             (set (query/q '[:find (pull ?e [:name]) (count ?friend) :where
+                             [?e :name _] [?e :friend ?friend]]
+                           datoms
+                           {:pull-fn pull/pull})))))))

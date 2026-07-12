@@ -838,14 +838,28 @@
 
 
 (defn- parse-find-element
+  "An element is a plain var, an aggregate `(agg-sym arg)`, or a pull
+  spec `(pull ?var pattern)`. Pull cannot be an aggregate arg — pull
+  projects a map per row, which has no reduction semantics — so that
+  combination is rejected here rather than silently producing nil."
   [el]
-  (if (seq? el)
-    (let [[agg-sym arg] el
-          agg-fn (get aggregate-fns agg-sym)]
-      (when-not agg-fn
-        (throw (ex-info "Unknown aggregate in :find" {:aggregate agg-sym})))
-      {:agg agg-fn, :arg arg})
-    {:var el}))
+  (cond (and (seq? el) (= 'pull (first el)))
+        (let [[_ pull-var pull-pattern] el]
+          (when-not (symbol? pull-var)
+            (throw (ex-info "pull find element requires a variable"
+                            {:element el})))
+          {:pull-var pull-var, :pull-pattern pull-pattern})
+        (seq? el) (let [[agg-sym arg] el
+                        agg-fn (get aggregate-fns agg-sym)]
+                    (when-not agg-fn
+                      (throw (ex-info "Unknown aggregate in :find"
+                                      {:aggregate agg-sym})))
+                    (when (and (seq? arg) (= 'pull (first arg)))
+                      (throw (ex-info
+                               "pull cannot be used as an aggregate argument"
+                               {:element el})))
+                    {:agg agg-fn, :arg arg})
+        :else {:var el}))
 
 
 (def ^:private find-scalar-marker (symbol "."))
@@ -892,26 +906,46 @@
                     {:find-vars find-vars, :rm-keys rm-keys}))))
 
 
+(defn- project-element
+  "Resolve one parsed find element against a binding: a plain var reads
+  the binding, a pull element calls the caller-supplied :pull-fn (see
+  ctx) against the $ source and the entity bound to the pull var."
+  [element b ctx]
+  (if (:pull-var element)
+    (let [eid (get b (:pull-var element))
+          pull-fn (:pull-fn ctx)]
+      (when-not pull-fn
+        (throw (ex-info "pull find element requires :pull-fn in query opts"
+                        {:element element})))
+      (pull-fn (:pull-source ctx) eid (:pull-pattern element)))
+    (get b (:var element))))
+
+
 (defn- relation-result
   "Compute the set-of-tuples relation (the core of project-find). Handles
   aggregates: groups by find vars, applies aggregate fns."
-  [find with bindings]
+  [find with bindings ctx]
   (let [elements (mapv parse-find-element find)]
     (if (not-any? :agg elements)
-      (into #{} (map (fn [b] (mapv #(get b %) find))) bindings)
-      (let [grouping-vars (filterv some? (mapv :var elements))
+      (into #{}
+            (map (fn [b] (mapv #(project-element % b ctx) elements)))
+            bindings)
+      (let [grouping-vars (filterv some?
+                                   (mapv #(or (:var %) (:pull-var %)) elements))
             proj-vars (-> grouping-vars
                           (into with)
-                          (into (keep :arg elements)))
+                          (into (keep :arg elements))
+                          distinct)
             rows (into #{} (map #(select-keys % proj-vars)) bindings)
             groups (vals (group-by (fn [row] (mapv #(get row %) grouping-vars))
                                    rows))]
         (into #{}
               (map (fn [group]
-                     (mapv (fn [{:keys [var agg arg]}]
-                             (if agg
-                               (agg (map #(get % arg) group))
-                               (get (first group) var)))
+                     (mapv (fn [element]
+                             (let [{:keys [agg arg]} element]
+                               (if agg
+                                 (agg (map #(get % arg) group))
+                                 (project-element element (first group) ctx))))
                            elements)))
               groups)))))
 
@@ -960,9 +994,9 @@
   split groups) and aggregate per group. Post-process through the find
   spec (`.`, `[?x ...]`, tuple) and the return-map form (`:keys`,
   `:syms`, `:strs`) when present."
-  [parsed with bindings]
+  [parsed with bindings ctx]
   (let [find (:find-vars parsed)
-        relation (relation-result find with bindings)
+        relation (relation-result find with bindings ctx)
         spec (:spec parsed)
         spec-result (apply-spec spec relation)]
     (if (:return-map-key parsed)
@@ -987,7 +1021,11 @@
         fns (if (false? (:builtins opts))
               (or (:fns opts) {})
               (merge builtins (:fns opts)))
-        ctx {:fns fns}
+        ;; pull find elements bind to $ only in this pass — the
+        ;; original raw source, not the folded index bindings carry,
+        ;; since :pull-fn (e.g. dao.space.pull/pull) folds internally.
+        ctx
+        {:fns fns, :pull-fn (:pull-fn opts), :pull-source (first bind-inputs)}
         result (eval-where where init-bindings ctx)
         parsed (parse-find find)
         [rm-key rm-keys] (cond keys [:keys keys]
@@ -1003,7 +1041,7 @@
                                     (:spec parsed)
                                     rm-key
                                     rm-keys))]
-    (project-find parsed with result)))
+    (project-find parsed with result ctx)))
 
 
 ;; =============================================================================
