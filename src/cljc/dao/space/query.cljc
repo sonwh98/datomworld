@@ -184,6 +184,21 @@
     (current-state-seq candidates)))
 
 
+(defn datoms
+  "Index-routed datom selector: returns current-state datoms matching
+  the [e a v] pattern. Wildcards are `_`, nil, or FREE. Routes through
+  EAVT (e bound), AVET (a+v bound), VAET (v bound), or AEVT (a bound).
+  The index must be pre-folded (see `fold`). Public API for external
+  consumers like `dao.space.pull`."
+  [idx e a v]
+  (let [candidates (select-by-index idx e a v)]
+    (filter (fn [d]
+              (and (or (wildcard? e) (= e (index/datom-e d)))
+                   (or (wildcard? a) (= a (index/datom-a d)))
+                   (or (wildcard? v) (= v (index/datom-v d)))))
+            candidates)))
+
+
 (defn match
   "Positional template match, Linda-style: [e a v] or [e a v t m], `_` or
   nil as wildcard elsewhere. Returns the matching datoms (not bindings).
