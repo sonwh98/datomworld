@@ -6,6 +6,7 @@
   that query/q over the same store immediately sees."
   (:require [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
+            [dao.space.index :as index]
             [dao.space.query :as query]
             [dao.space.stream]
             [dao.stream :as ds]))
@@ -133,7 +134,7 @@
   (testing "a :dao-stream append preserves datoms already seeded wholesale"
     (let [store (jing/create-kv-mem)]
       (jing/cas! store
-                 query/default-datoms-key
+                 index/default-datoms-key
                  0
                  {:datoms [[1 :work/status :todo 0 1]]})
       (let [log (ds/open! {:type :dao-stream, :store store, :name "w"})]
@@ -144,7 +145,7 @@
      (testing
        "a :dao-stream append folds a publish-index!-ed root back to wholesale"
        (let [store (jing/create-kv-mem)]
-         (query/publish-index! store [[1 :work/status :todo 0 1]])
+         (index/publish-index! store [[1 :work/status :todo 0 1]])
          (let [log (ds/open! {:type :dao-stream, :store store, :name "w"})]
            (ds/put! log {:db/id 2, :work/status :todo})
            (is (= #{[1] [2]}

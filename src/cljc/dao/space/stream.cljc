@@ -20,7 +20,7 @@
   resolution stays a query-time concern of `dao.space.query`."
   (:require [dao.datom :as datom]
             [dao.jing :as jing]
-            [dao.space.query :as query]
+            [dao.space.index :as index]
             [dao.stream :as ds])
   #?(:cljs (:require-macros [dao.stream])))
 
@@ -65,7 +65,7 @@
     (let [root (jing/get store datoms-key nil)
           rev (:rev root 0)
           existing (cond (nil? root) []
-                         (:indexes root) (vec (query/read-datoms store
+                         (:indexes root) (vec (index/read-datoms store
                                                                  datoms-key))
                          :else (vec (:datoms root)))
           new-datoms (val->datoms val (count existing))]
@@ -90,7 +90,7 @@
 
   (next
     [_this cursor]
-    (let [datoms (query/read-datoms store datoms-key)
+    (let [datoms (index/read-datoms store datoms-key)
           pos (:position cursor 0)]
       (cond (< pos (count datoms)) {:ok (nth datoms pos),
                                     :cursor (assoc cursor
@@ -115,6 +115,6 @@
       (throw (ex-info ":dao-stream descriptor requires a :store dao.jing handle"
                       {:descriptor descriptor})))
     (->DaoStreamLog store
-                    (or datoms-key query/default-datoms-key)
+                    (or datoms-key index/default-datoms-key)
                     stream-name
                     (atom {:closed false}))))

@@ -21,6 +21,7 @@
             [dao.jing.file :as file]
             [dao.jing.remote.client :as remote-client]
             [dao.jing.remote.server :as remote-server]
+            [dao.space.index :as index]
             [dao.space.query :as query]
             [dao.space.stream] ; loaded for defopen :dao-stream side effect
             [dao.stream :as ds]
@@ -289,7 +290,7 @@
         ;; the indexed root (segment keys and all) must survive the file
         ;; backend's EDN persistence and the rpc, and a later stream append
         ;; must fold the indexed datoms back rather than dropping them
-        (query/publish-index! *store*)
+        (index/publish-index! *store*)
         (let [{after :e}
               (put-entity! agent "indexer" {:marker/id "post-index"})]
           (is (= #{[before "pre-index"] [after "post-index"]}

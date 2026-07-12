@@ -2,16 +2,16 @@
   "The Query boundary of the tuple space: `match` (Linda-style positional
   templates) and `q` (Datalog: joins, `not`/`not-join` negation, `:find`
   aggregates — count, count-distinct, sum, min, max, avg — with `:with`,
-  and predicate/function clauses whose fns come from a caller-supplied
-  `{:fns {sym fn}}` option; one merged index; rules/recursion not
-  implemented) over a **source**. The read side is pure and stateless — it owns
-  no durable state and enforces no schema; schema is the write-side
-  Transactor's job (each `dao.stream` writer is its own). The one writing
-  entry point here is `publish-index!`, the owner-side index builder (a
-  reader-layer concern per dao.space.query.md, Index Realization): it
-  persists a stream's covered indexes as content-addressed segments and
-  advances the stream root. See docs/design/dao.space.md, \"The Query
-  Library\" and \"Source Polymorphism\".
+  predicate/function clauses whose fns come from a caller-supplied
+  `{:fns {sym fn}}` option, and recursive rules bound to `%` via `:in`;
+  one merged index) over a **source**. The read side is pure and stateless —
+  it owns no durable state, never writes, and enforces no schema; schema is
+  the write-side Transactor's job (each `dao.stream` writer is its own).
+  This library is the embeddable Peer: it consumes the covered-index
+  realization owned by `dao.space.index` (root shapes, sort orders, the
+  persisted node-blob format, and the owner-side `publish-index!` — see
+  docs/design/dao.space.index.md). See docs/design/dao.space.md, \"The
+  Query Library\" and \"Source Polymorphism\".
 
   A source is, interchangeably (and freely mixed in a collection):
     - a single `dao.jing` IKVStore handle
@@ -22,110 +22,22 @@
     - a raw vector of entity maps, `[{:attr val ...} ...]`
 
   Reading a `dao.jing` handle supports both root shapes at
-  `default-datoms-key` (`:root/datoms`):
-
-    - `{:datoms [...]}` — the wholesale rebuild-per-query baseline; the
-      whole vector is read and folded into a fresh in-memory index.
-    - `{:indexes {:eavt <segment-key> ...} :count n}` — owner-built covered
-      indexes, published by `publish-index!` as immutable content-addressed
-      B-Tree node blobs (dao.space.query.md, Index Realization). On the JVM
-      a single-handle query restores these lazily (psset IStorage: nothing
-      is fetched until a traversal reaches it, and slice-based seeks load
-      only the path plus the matching range). Everywhere else — cljs/cljd,
-      as-of bounds, federated collections — the node graph is walked
-      eagerly with plain jing/get: node blobs are ordinary EDN, so
-      readability is universal even though laziness is JVM-only for now
-      (psset durability is a Clojure-only feature of that library).
-
-  dao.space.query's read side never writes; a stream owner publishes,
-  either by cas!-ing `{:datoms [...]}` wholesale or via `publish-index!`.
+  `index/default-datoms-key` (`:root/datoms`): the wholesale
+  `{:datoms [...]}` baseline, folded into a fresh in-memory index per
+  query, and the owner-built `{:indexes ...}` manifest, restored lazily on
+  the JVM and walked eagerly everywhere else (see dao.space.index).
 
   Current-state resolution (masking retracted datoms and superseding
   cardinality-one values) is resolved dynamically at query time using
   `current-state-seq`."
   (:require [dao.datom :as datom]
             [dao.jing :as jing]
-            ;; :cljd FIRST: the cljd host pass also matches :clj, and
-            ;; persistent-sorted-set has no Dart implementation.
-            #?@(:cljd []
-                :default [[me.tonsky.persistent-sorted-set :as psset]]))
-  #?@(:cljd []
-      :clj
-      [(:import
-         (me.tonsky.persistent_sorted_set Branch IStorage Leaf Settings))]))
-
-
-(def default-datoms-key
-  "The default root key a dao.jing handle's datoms are read from."
-  :root/datoms)
-
-
-;; =============================================================================
-;; Value comparison (heterogeneous datom values)
-;; =============================================================================
-
-(defn- type-rank
-  [x]
-  (cond (nil? x) 0
-        (boolean? x) 1
-        (number? x) 2
-        (string? x) 3
-        (keyword? x) 4
-        (symbol? x) 5
-        :else 6))
-
-
-(defn compare-vals
-  "Compare two datom values across heterogeneous types using type-rank."
-  [a b]
-  (let [ra (type-rank a)
-        rb (type-rank b)]
-    (if (= ra rb)
-      (try (compare a b)
-           (catch #?(:clj ClassCastException
-                     :cljs js/Error
-                     :cljd Exception)
-                  _
-             (compare (str a) (str b))))
-      (compare ra rb))))
+            [dao.space.index :as index]))
 
 
 ;; =============================================================================
 ;; Source -> datoms
 ;; =============================================================================
-
-(defn- walk-index-datoms
-  "Eagerly collect every datom reachable from a persisted index node, in
-  index order, by walking the node graph with plain `jing/get`. Node blobs
-  are ordinary EDN maps (leaf `{:keys [...]}`, branch `{:level n :keys
-  [...] :addresses [...]}`), so this works on every platform — it needs no
-  persistent-sorted-set support, only storage reads. This is the
-  cross-platform (and as-of / federated) read path for `{:indexes ...}`
-  roots; the lazy path is `restored-indexes`, below, JVM-only."
-  [store address]
-  (if (nil? address)
-    () ; an empty index has no root node (psset/store of an empty set)
-    (let [node (jing/get store address nil)]
-      (when (nil? node)
-        (throw (ex-info "missing index segment" {:address address})))
-      (if-some [addresses (:addresses node)]
-        (mapcat #(walk-index-datoms store %) addresses)
-        (:keys node)))))
-
-
-(defn read-datoms
-  "Read the datoms held at a dao.jing handle's datoms-key (default
-  `default-datoms-key`), or [] if never seeded. Handles both root shapes:
-  the wholesale `{:datoms [...]}` baseline, and the owner-built
-  `{:indexes {:eavt <segment-key> ...}}` shape published by
-  `publish-index!` (read by eagerly walking the `:eavt` node graph)."
-  ([store] (read-datoms store default-datoms-key))
-  ([store datoms-key]
-   (let [root (jing/get store datoms-key {:datoms []})]
-     (if-some [indexes (:indexes root)]
-       (vec (walk-index-datoms store (:eavt indexes)))
-       (:datoms root)))))
-
 
 (defn- entity-map->datoms
   "Normalize one entity map into datoms: one datom per k/v pair (no
@@ -156,7 +68,7 @@
 
 (defn- coll-source->datoms
   [source]
-  (cond (every? dao-jing-handle? source) (mapcat read-datoms source)
+  (cond (every? dao-jing-handle? source) (mapcat index/read-datoms source)
         (every? vector? source) source
         (every? map? source) (entity-maps->datoms source)
         :else (mapcat source->datoms source)))
@@ -165,184 +77,16 @@
 (defn source->datoms
   "Fold any source shape (see ns docstring) into a flat seq of datoms."
   [source]
-  (cond (dao-jing-handle? source) (read-datoms source)
+  (cond (dao-jing-handle? source) (index/read-datoms source)
         (coll? source) (coll-source->datoms source)
         :else (throw (ex-info "unrecognized query source" {:source source}))))
 
 
-;; =============================================================================
-;; Index
-;; =============================================================================
-
-(defn- datom-e
-  [d]
-  (nth d 0))
-
-
-(defn- datom-a
-  [d]
-  (nth d 1))
-
-
-(defn- datom-v
-  [d]
-  (nth d 2))
-
-
-(defn- datom-t
-  [d]
-  (nth d 3))
-
-
-(defn- datom-m
-  [d]
-  (nth d 4))
-
-
-(defn- cmp-field
-  "Nil-first, heterogeneous-safe field comparison. Entity ids are not
-  guaranteed to be integers here the way dao.db's tempid pipeline
-  guarantees — a raw entity map's :db/id is caller-chosen and can be any
-  type — so every slot, not just v, needs compare-vals."
-  [a b]
-  (cond (nil? a) (if (nil? b) 0 -1)
-        (nil? b) 1
-        :else (compare-vals a b)))
-
-
-(defn- eavt-cmp
-  [d1 d2]
-  (let [c (cmp-field (datom-e d1) (datom-e d2))]
-    (if (zero? c)
-      (let [c (cmp-field (datom-a d1) (datom-a d2))]
-        (if (zero? c)
-          (let [c (cmp-field (datom-v d1) (datom-v d2))]
-            (if (zero? c)
-              (let [c (cmp-field (datom-t d1) (datom-t d2))]
-                (if (zero? c) (cmp-field (datom-m d1) (datom-m d2)) c))
-              c))
-          c))
-      c)))
-
-
-(defn- aevt-cmp
-  [d1 d2]
-  (let [c (cmp-field (datom-a d1) (datom-a d2))]
-    (if (zero? c)
-      (let [c (cmp-field (datom-e d1) (datom-e d2))]
-        (if (zero? c)
-          (let [c (cmp-field (datom-v d1) (datom-v d2))]
-            (if (zero? c)
-              (let [c (cmp-field (datom-t d1) (datom-t d2))]
-                (if (zero? c) (cmp-field (datom-m d1) (datom-m d2)) c))
-              c))
-          c))
-      c)))
-
-
-(defn- avet-cmp
-  [d1 d2]
-  (let [c (cmp-field (datom-a d1) (datom-a d2))]
-    (if (zero? c)
-      (let [c (cmp-field (datom-v d1) (datom-v d2))]
-        (if (zero? c)
-          (let [c (cmp-field (datom-e d1) (datom-e d2))]
-            (if (zero? c)
-              (let [c (cmp-field (datom-t d1) (datom-t d2))]
-                (if (zero? c) (cmp-field (datom-m d1) (datom-m d2)) c))
-              c))
-          c))
-      c)))
-
-
-(defn- sorted-index-by
-  [cmp]
-  #?(:cljd (sorted-set-by cmp)
-     :default (psset/sorted-set-by cmp)))
-
-
-(defn- subseq-from
-  "All elements >= sentinel, in index order. On psset platforms this is
-  `slice` — a log-n descent that, on a lazily-restored set, loads only the
-  nodes on the seek path plus the matching range, never the nodes left of
-  the sentinel. The cljd fallback set has no slice; drop-while over seq is
-  linear but correct."
-  [sorted-set cmp sentinel]
-  #?(:cljd (drop-while #(neg? (cmp % sentinel)) (seq sorted-set))
-     :default (psset/slice sorted-set sentinel nil cmp)))
-
-
-(defn index-datoms
-  "Build {:eavt ... :aevt ... :avet ...} sorted indexes from a seq of
-  datoms."
-  [datoms]
-  {:eavt (into (sorted-index-by eavt-cmp) datoms),
-   :aevt (into (sorted-index-by aevt-cmp) datoms),
-   :avet (into (sorted-index-by avet-cmp) datoms)})
-
-
-;; =============================================================================
-;; Persisted indexes (Target Architecture: owner-built, lazily pulled)
-;; =============================================================================
-;; A stream owner persists its covered indexes as immutable, content-
-;; addressed B-Tree node blobs (put! under jing/segment-key — Merkle by
-;; construction, since psset stores children before parents) and publishes
-;; `{:indexes {:eavt <segment-key> ...} :count n}` at the stream root via
-;; cas!. Node blobs are plain EDN, so any platform can read them eagerly
-;; (walk-index-datoms, above); the *lazy* read path below rides
-;; persistent-sorted-set's IStorage/restore machinery, a Clojure-only
-;; feature of that library, so it is JVM-only for now.
-;; :cljd FIRST in every conditional: the cljd host pass also matches :clj.
-
-#?(:cljd nil
-   :clj
-   (defn- kv-storage
-     "psset IStorage over an IKVStore: nodes store as content-addressed
-     segment blobs; addresses are the segment keys."
-     ^IStorage [store]
-     (reify
-       IStorage
-       (store
-         [_ node]
-         (let [v (if (instance? Branch node)
-                   {:level (.level ^Branch node),
-                    :keys (vec (.keys ^Branch node)),
-                    :addresses (vec (.addresses ^Branch node))}
-                   {:keys (vec (.keys ^Leaf node))})
-               k (jing/segment-key v)]
-           (jing/put! store k v)
-           k))
-
-       (restore
-         [_ address]
-         (let [{:keys [level keys addresses], :as node}
-               (jing/get store address nil)]
-           (when (nil? node)
-             (throw (ex-info "missing index segment" {:address address})))
-           (if addresses
-             (Branch. (int level)
-                      ^java.util.List keys
-                      ^java.util.List addresses
-                      (Settings.))
-             (Leaf. ^java.util.List keys (Settings.))))))))
-
-
-#?(:cljd nil
-   :clj
-   (defn- restored-indexes
-     "Lazily-loaded {:eavt :aevt :avet} psset sets over a published root's
-     `:indexes` map. Nothing is fetched until a query traverses; slice
-     (subseq-from) then loads only the seek path plus the matching range."
-     [store indexes]
-     (let [storage (kv-storage store)]
-       {:eavt (psset/restore-by eavt-cmp (:eavt indexes) storage),
-        :aevt (psset/restore-by aevt-cmp (:aevt indexes) storage),
-        :avet (psset/restore-by avet-cmp (:avet indexes) storage)})))
-
-
 (defn- bound-datoms
   [datoms as-of]
-  (if as-of (filter #(<= (compare-vals (datom-t %) as-of) 0) datoms) datoms))
+  (if as-of
+    (filter #(<= (index/compare-vals (index/datom-t %) as-of) 0) datoms)
+    datoms))
 
 
 (defn fold
@@ -358,7 +102,7 @@
                  ;; single-handle: read the root exactly once and dispatch
                  ;; on its shape here, rather than falling through to
                  ;; source->datoms and re-reading the same key
-                 (let [root (jing/get source default-datoms-key nil)
+                 (let [root (jing/get source index/default-datoms-key nil)
                        indexes (:indexes root)]
                    (if (and (nil? as-of)
                             ;; a complete manifest only: an empty published
@@ -367,58 +111,15 @@
                             ;; reach restore-by
                             (every? #(some? (get indexes %))
                                     [:eavt :aevt :avet]))
-                     (restored-indexes source indexes)
+                     (index/restored-indexes source indexes)
                      (-> (if indexes
-                           (walk-index-datoms source (:eavt indexes))
+                           (index/walk-index-datoms source (:eavt indexes))
                            (:datoms root))
                          (bound-datoms as-of)
-                         index-datoms)))))
+                         index/index-datoms)))))
        (-> (source->datoms source)
            (bound-datoms as-of)
-           index-datoms))))
-
-
-(defn publish-index!
-  "Owner-side publish: build the three covered indexes from the stream's
-  datoms, persist them as immutable content-addressed segment blobs
-  (put!), and advance the stream root to `{:indexes {...} :count n}` via
-  cas!. Republishing unchanged data is idempotent — content addressing
-  yields the same segment keys, so the same root addresses. Single-writer
-  discipline: throws if the root cas! is lost to a concurrent writer.
-  JVM-only for now (psset durability is a Clojure-only feature); non-JVM
-  readers still read the result eagerly via read-datoms.
-
-  opts: {:branching-factor n} — max keys per node (default 512, Datomic-
-  style fat segments)."
-  ([store] (publish-index! store (read-datoms store)))
-  ([store datoms] (publish-index! store datoms {}))
-  ([store datoms opts]
-   #?(:cljd (throw (ex-info "publish-index! is JVM-only for now"
-                            {:store store, :datoms datoms, :opts opts}))
-      :clj (let [branching (:branching-factor opts 512)
-                 storage (kv-storage store)
-                 root-addr (fn [cmp]
-                             ;; an empty index has no root node:
-                             ;; psset/store of an empty set yields a
-                             ;; phantom; nil is the
-                             ;; explicit "nothing here" (walk of nil => ())
-                             (when (seq datoms)
-                               (-> (psset/from-sequential cmp
-                                                          datoms
-                                                          {:branching-factor
-                                                           branching})
-                                   (psset/store storage))))
-                 indexes {:eavt (root-addr eavt-cmp),
-                          :aevt (root-addr aevt-cmp),
-                          :avet (root-addr avet-cmp)}
-                 rev (:rev (jing/get store default-datoms-key nil) 0)
-                 v {:indexes indexes, :count (count datoms)}]
-             (when-not (jing/cas! store default-datoms-key rev v)
-               (throw (ex-info "publish-index! lost the root cas!"
-                               {:key default-datoms-key, :rev rev})))
-             indexes)
-      :cljs (throw (ex-info "publish-index! is JVM-only for now"
-                            {:store store, :datoms datoms, :opts opts})))))
+           index/index-datoms))))
 
 
 ;; =============================================================================
@@ -444,34 +145,37 @@
    (lazy-seq (if-let [s (seq s)]
                (let [d (first s)]
                  (if pending
-                   (if (and (= (datom-e pending) (datom-e d))
-                            (= (datom-a pending) (datom-a d))
-                            (= (datom-v pending) (datom-v d)))
+                   (if (and (= (index/datom-e pending) (index/datom-e d))
+                            (= (index/datom-a pending) (index/datom-a d))
+                            (= (index/datom-v pending) (index/datom-v d)))
                      (current-state-seq (rest s) d)
-                     (if (not= (datom-m pending) 0)
+                     (if (not= (index/datom-m pending) 0)
                        (cons pending (current-state-seq (rest s) d))
                        (current-state-seq (rest s) d)))
                    (current-state-seq (rest s) d)))
-               (when (and pending (not= (datom-m pending) 0))
+               (when (and pending (not= (index/datom-m pending) 0))
                  (list pending))))))
 
 
 (defn- select-by-index
   [idx e a v]
-  (let [candidates (cond
-                     (not (wildcard? e))
-                     (take-while
-                       #(= e (datom-e %))
-                       (subseq-from (:eavt idx) eavt-cmp [e nil nil nil nil]))
-                     (and (not (wildcard? a)) (not (wildcard? v)))
-                     (take-while
-                       #(and (= a (datom-a %)) (= v (datom-v %)))
-                       (subseq-from (:avet idx) avet-cmp [nil a v nil nil]))
-                     (not (wildcard? a))
-                     (take-while
-                       #(= a (datom-a %))
-                       (subseq-from (:aevt idx) aevt-cmp [nil a nil nil nil]))
-                     :else (seq (:eavt idx)))]
+  (let [candidates (cond (not (wildcard? e))
+                         (take-while #(= e (index/datom-e %))
+                                     (index/subseq-from (:eavt idx)
+                                                        index/eavt-cmp
+                                                        [e nil nil nil nil]))
+                         (and (not (wildcard? a)) (not (wildcard? v)))
+                         (take-while #(and (= a (index/datom-a %))
+                                           (= v (index/datom-v %)))
+                                     (index/subseq-from (:avet idx)
+                                                        index/avet-cmp
+                                                        [nil a v nil nil]))
+                         (not (wildcard? a))
+                         (take-while #(= a (index/datom-a %))
+                                     (index/subseq-from (:aevt idx)
+                                                        index/aevt-cmp
+                                                        [nil a nil nil nil]))
+                         :else (seq (:eavt idx)))]
     (current-state-seq candidates)))
 
 

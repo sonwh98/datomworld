@@ -143,9 +143,9 @@ implemented at the storage boundary today, and the contracts already pinned down
   `:root/datoms` holds either a stream's full datom vector wholesale (`{:datoms [...]}`) or,
   since 2026-07-10, an owner-built index manifest (`{:indexes {:eavt :segment/sha256-<hash> ...}
   :count n}`) whose values point at immutable, content-addressed B-Tree node segments written
-  with `put!` under `segment-key` — published by `dao.space.query/publish-index!`. Both the
+  with `put!` under `segment-key` — published by `dao.space.index/publish-index!`. Both the
   root-key name (`default-datoms-key`) and both root shapes are reader-owned conventions
-  defined in `src/cljc/dao/space/query.cljc`, not `dao.jing` constants — storage only ever
+  defined in `src/cljc/dao/space/index.cljc`, not `dao.jing` constants — storage only ever
   sees the keywords and blobs its caller hands it, and never knows the segments form an index.
 - **Member layout and discovery.** A stream owner performs an atomic `cas!` on the stream's
   mutable root reference (`:root/datoms`) to publish either shape: the wholesale
