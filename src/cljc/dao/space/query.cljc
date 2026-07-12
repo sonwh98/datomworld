@@ -110,7 +110,7 @@
                             ;; ()), and a partial hand-crafted one must not
                             ;; reach restore-by
                             (every? #(some? (get indexes %))
-                                    [:eavt :aevt :avet]))
+                                    [:eavt :aevt :avet :vaet]))
                      (index/restored-indexes source indexes)
                      (-> (if indexes
                            (index/walk-index-datoms source (:eavt indexes))
@@ -170,6 +170,11 @@
                                      (index/subseq-from (:avet idx)
                                                         index/avet-cmp
                                                         [nil a v nil nil]))
+                         (not (wildcard? v))
+                         (take-while #(= v (index/datom-v %))
+                                     (index/subseq-from (:vaet idx)
+                                                        index/vaet-cmp
+                                                        [nil nil v nil nil]))
                          (not (wildcard? a))
                          (take-while #(= a (index/datom-a %))
                                      (index/subseq-from (:aevt idx)
@@ -508,6 +513,7 @@
         (cond (and (not= e-val FREE) (not= a-val FREE) (not= v-val FREE)) 1
               (not= e-val FREE) 2
               (and (not= a-val FREE) (not= v-val FREE)) 4
+              (not= v-val FREE) 8
               (not= a-val FREE) 16
               :else 1024)))))
 

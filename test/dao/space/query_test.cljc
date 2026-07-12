@@ -101,7 +101,27 @@
 (deftest match-over-a-single-dao-jing-handle
   (let [store (jing/create-kv-mem)]
     (seed! store sample-datoms)
-    (is (= 1 (count (query/match store [1 :work/status '_]))))))
+    (is (= 1 (count (query/match store [1 :work/status '_]))))
+    (is
+      (= [[1 :work/status :todo 0 1]] (query/match store ['_ '_ :todo]))
+      "v-only match exercises the in-memory VAET built from the
+        wholesale root's :datoms")))
+
+
+;; A v-only match against a wholesale root only exercises the in-memory
+;; VAET that index-datoms builds. This test publishes first so the
+;; v-only branch reaches the lazy restored VAET (fold's complete-manifest
+;; guard) — the only way to prove the persisted-VAET path works.
+#?(:cljd nil
+   :clj (deftest v-only-match-reaches-the-published-vaet
+          (let [store (jing/create-kv-mem)]
+            (seed! store sample-datoms)
+            (index/publish-index! store)
+            (is (= #{[1 :work/status :todo 0 1]}
+                   (set (query/match store ['_ '_ :todo]))))
+            (is (= 1
+                   (count (query/q '[:find ?e :where [?e :work/status :todo]]
+                                   store)))))))
 
 
 (deftest empty-dao-jing-handle-yields-no-datoms

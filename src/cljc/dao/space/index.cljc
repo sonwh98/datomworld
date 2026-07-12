@@ -13,9 +13,9 @@
 
     - the root-manifest convention: `default-datoms-key` (`:root/datoms`)
       and its two shapes, wholesale `{:datoms [...]}` and owner-built
-      `{:indexes {:eavt <segment-key> ...} :count n}`
-    - the sort orders (`eavt-cmp`/`aevt-cmp`/`avet-cmp` over heterogeneous
-      values) and the in-memory index (`index-datoms`)
+      `{:indexes {:eavt <segment-key> :aevt ... :avet ... :vaet ...} :count n}`
+    - the sort orders (`eavt-cmp`/`aevt-cmp`/`avet-cmp`/`vaet-cmp` over
+      heterogeneous values) and the in-memory index (`index-datoms`)
     - the persisted node-blob format, both directions: nodes store as
       plain-EDN content-addressed segment blobs (Merkle by construction —
       psset stores children before parents); `restored-indexes` re-attaches
@@ -157,6 +157,24 @@
       c)))
 
 
+(defn vaet-cmp
+  "VAET sort: v, a, e, t, m. Reverse-reference lookup — 'which datoms
+  point to this value.' Heterogeneous-safe (the ref value is caller-chosen
+  and can be any type, the same way entity ids are)."
+  [d1 d2]
+  (let [c (cmp-field (datom-v d1) (datom-v d2))]
+    (if (zero? c)
+      (let [c (cmp-field (datom-a d1) (datom-a d2))]
+        (if (zero? c)
+          (let [c (cmp-field (datom-e d1) (datom-e d2))]
+            (if (zero? c)
+              (let [c (cmp-field (datom-t d1) (datom-t d2))]
+                (if (zero? c) (cmp-field (datom-m d1) (datom-m d2)) c))
+              c))
+          c))
+      c)))
+
+
 ;; =============================================================================
 ;; In-memory index
 ;; =============================================================================
@@ -179,12 +197,13 @@
 
 
 (defn index-datoms
-  "Build {:eavt ... :aevt ... :avet ...} sorted indexes from a seq of
-  datoms."
+  "Build {:eavt ... :aevt ... :avet ... :vaet ...} sorted indexes from a
+  seq of datoms."
   [datoms]
   {:eavt (into (sorted-index-by eavt-cmp) datoms),
    :aevt (into (sorted-index-by aevt-cmp) datoms),
-   :avet (into (sorted-index-by avet-cmp) datoms)})
+   :avet (into (sorted-index-by avet-cmp) datoms),
+   :vaet (into (sorted-index-by vaet-cmp) datoms)})
 
 
 ;; =============================================================================
@@ -269,18 +288,20 @@
 #?(:cljd nil
    :clj
    (defn restored-indexes
-     "Lazily-loaded {:eavt :aevt :avet} psset sets over a published root's
-     `:indexes` map. Nothing is fetched until a query traverses; slice
-     (subseq-from) then loads only the seek path plus the matching range."
+     "Lazily-loaded {:eavt :aevt :avet :vaet} psset sets over a published
+     root's `:indexes` map. Nothing is fetched until a query traverses;
+     slice (subseq-from) then loads only the seek path plus the matching
+     range."
      [store indexes]
      (let [storage (kv-storage store)]
        {:eavt (psset/restore-by eavt-cmp (:eavt indexes) storage),
         :aevt (psset/restore-by aevt-cmp (:aevt indexes) storage),
-        :avet (psset/restore-by avet-cmp (:avet indexes) storage)})))
+        :avet (psset/restore-by avet-cmp (:avet indexes) storage),
+        :vaet (psset/restore-by vaet-cmp (:vaet indexes) storage)})))
 
 
 (defn publish-index!
-  "The transactor entry point, owner-side: build the three covered indexes
+  "The transactor entry point, owner-side: build the four covered indexes
   from the stream's datoms, persist them as immutable content-addressed
   segment blobs (put!), and advance the stream root to
   `{:indexes {...} :count n}` via cas!. Republishing unchanged data is
@@ -312,7 +333,8 @@
                                    (psset/store storage))))
                  indexes {:eavt (root-addr eavt-cmp),
                           :aevt (root-addr aevt-cmp),
-                          :avet (root-addr avet-cmp)}
+                          :avet (root-addr avet-cmp),
+                          :vaet (root-addr vaet-cmp)}
                  rev (:rev (jing/get store default-datoms-key nil) 0)
                  v {:indexes indexes, :count (count datoms)}]
              (when-not (jing/cas! store default-datoms-key rev v)

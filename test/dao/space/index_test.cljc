@@ -66,7 +66,7 @@
              before-m (query/match store [1030 :work/task '_])
              _ (index/publish-index! store)
              root (jing/get store index/default-datoms-key nil)]
-         (is (= #{:eavt :aevt :avet} (set (keys (:indexes root)))))
+         (is (= #{:eavt :aevt :avet :vaet} (set (keys (:indexes root)))))
          (is (every? #(= "segment" (namespace %)) (vals (:indexes root)))
              "index roots are content-addressed segment keys")
          (is (= (count many-datoms) (:count root)))
@@ -107,6 +107,25 @@
              idx1 (index/publish-index! store)
              idx2 (index/publish-index! store (index/read-datoms store))]
          (is (= idx1 idx2))))))
+
+
+#?(:cljd nil
+   :clj
+   (deftest publish-index-root-has-vaet
+     (testing
+       "the published root carries a :vaet segment whose node graph
+              holds every datom the EAVT graph holds — VAET is a peer of
+              the other three covered indexes, not an optional extra"
+       (let [store (jing/create-kv-mem)
+             _ (seed! store many-datoms)
+             _ (index/publish-index! store)
+             root (jing/get store index/default-datoms-key nil)
+             vaet-addr (:vaet (:indexes root))]
+         (is (some? vaet-addr) ":vaet root is a content-addressed key")
+         (is (= "segment" (namespace vaet-addr)))
+         (is (= (set many-datoms)
+                (set (index/walk-index-datoms store vaet-addr)))
+             "VAET graph covers the same datoms as the other indexes")))))
 
 
 #?(:cljd nil
@@ -165,7 +184,7 @@
       (jing/cas! store
                  index/default-datoms-key
                  0
-                 {:indexes {:eavt kb, :aevt kb, :avet kb}, :count 3})
+                 {:indexes {:eavt kb, :aevt kb, :avet kb, :vaet kb}, :count 3})
       (is (= #{["x"]} (query/q '[:find ?v :where [1 :a ?v]] store)))
       (is (= 3 (count (query/match store ['_ '_ '_])))))))
 
@@ -176,3 +195,23 @@
    :cljs (deftest publish-index-is-jvm-only
            (is (thrown? js/Error
                  (index/publish-index! (jing/create-kv-mem) [])))))
+
+
+(deftest pre-vaet-root-takes-the-eager-path
+  (testing
+    "a published root from before the VAET addition has only the
+           original three keys; the fold guard must reject it from
+           restored-indexes (which would deref a nil :vaet address) and
+           fall through to the eager walk, so old data still queries"
+    (let [store (jing/create-kv-mem)
+          leaf {:keys [[1 :a "x" 0 1] [2 :a "y" 0 1]]}
+          k (jing/segment-key leaf)]
+      (jing/put! store k leaf)
+      (jing/cas! store
+                 index/default-datoms-key
+                 0
+                 ;; pre-VAET shape: no :vaet key
+                 {:indexes {:eavt k, :aevt k, :avet k}, :count 2})
+      (is (= #{[1 :a "x" 0 1] [2 :a "y" 0 1]}
+             (set (query/match store ['_ '_ '_]))))
+      (is (= #{["x"]} (query/q '[:find ?v :where [1 :a ?v]] store))))))
