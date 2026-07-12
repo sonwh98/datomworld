@@ -322,7 +322,12 @@
     (let [datoms [[1 :name "Alice" 1 1] [1 :age 30 1 1] [1 :hobby "reading" 1 1]
                   [1 :hobby "coding" 2 1]]]
       (is (= {:name "Alice", :age 30, :hobby ["coding" "reading"]}
-             (query/entity-attrs datoms 1))))))
+             (query/entity-attrs datoms 1)))))
+  (testing
+    "entity with no datoms returns {} — unlike pull, entity-attrs
+            never includes :db/id, matching Datomic's entity/touch
+            convention rather than pull's convention"
+    (is (= {} (query/entity-attrs [[1 :name "Alice" 1 1]] 999)))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -1227,9 +1232,12 @@
            (query/pull pull-sample-datoms 1 [[:name :as :label]])))))
 
 
-(deftest pull-flat-nil-for-absent-test
-  (testing "entity with no datoms returns nil"
-    (is (nil? (query/pull pull-sample-datoms 999 [:name])))))
+(deftest pull-flat-db-id-only-for-absent-test
+  (testing
+    "entity with no datoms returns {:db/id eid}, matching Datomic —
+            pull never returns nil at the top level, since entity ids
+            are not existence-checked; it always echoes back :db/id"
+    (is (= {:db/id 999} (query/pull pull-sample-datoms 999 [:name])))))
 
 
 ;; Increment 3: Nested maps (forward navigation)
@@ -1241,7 +1249,7 @@
 
 (deftest pull-many-test
   (testing "pull-many folds once, maps over eids"
-    (is (= [{:db/id 1, :name "Alice"} {:db/id 2, :name "Bob"} nil]
+    (is (= [{:db/id 1, :name "Alice"} {:db/id 2, :name "Bob"} {:db/id 999}]
            (query/pull-many pull-sample-datoms [1 2 999] [:name]))))
   (testing "pull-many supports nested and reverse specs"
     (let [res

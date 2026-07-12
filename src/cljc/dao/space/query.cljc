@@ -438,17 +438,23 @@
 
 
 (defn- pull-idx
-  "idx-level pull: the index has already been folded. nil if eid has no
-  datoms. This is the direct call `q`'s `(pull ?e pattern)` find element
-  uses — no re-fold per row, unlike routing back through the public
-  `pull` (which folds its `source` argument)."
+  "idx-level pull: the index has already been folded. {:db/id eid} (only)
+  if eid has no datoms — matching Datomic: entity ids are not
+  existence-checked, so pull never returns nil at the top level, it
+  always echoes back :db/id. (nil only ever appears in nested/reverse
+  navigation, when a ref value addresses no datoms and is omitted from
+  its parent — see project-nested-attr/project-reverse-attr.) This is
+  the direct call `q`'s `(pull ?e pattern)` find element uses — no
+  re-fold per row, unlike routing back through the public `pull` (which
+  folds its `source` argument)."
   [idx eid pattern]
-  (when (seq (datoms idx eid '_ '_)) (pull-full idx eid pattern)))
+  (if (seq (datoms idx eid '_ '_)) (pull-full idx eid pattern) {:db/id eid}))
 
 
 (defn pull
   "Declarative entity projection: walk the index from eid and return a
-  map shaped by pattern. Returns nil if no datoms exist at eid.
+  map shaped by pattern. {:db/id eid} if no datoms exist at eid — pull
+  never returns nil (see pull-idx).
 
   Options:
     :as-of - temporal bound (t <= as-of)
@@ -467,8 +473,9 @@
    (let [idx (fold source (:as-of opts))
          parsed (parse-pattern pattern)]
      (mapv (fn [eid]
-             (when (seq (datoms idx eid '_ '_))
-               (pull-full-impl idx eid parsed)))
+             (if (seq (datoms idx eid '_ '_))
+               (pull-full-impl idx eid parsed)
+               {:db/id eid}))
            eids))))
 
 
@@ -1307,16 +1314,11 @@
 
 (defn entity-attrs
   "Convenience: return a map of {attr val} for the given entity in source.
-   If multiple datoms exist for an attribute, returns a vector of values."
+   If multiple datoms exist for an attribute, returns a vector of values.
+   A thin wrapper over pull's wildcard flat projection, with :db/id
+   dissoc'd back off — entity-attrs predates pull and (matching
+   Datomic's entity/touch convention rather than pull's) never includes
+   :db/id, and returns {} rather than {:db/id eid} for an entity with no
+   datoms."
   ([source eid] (entity-attrs source eid nil))
-  ([source eid {:keys [as-of]}]
-   (let [datoms (match source [eid '_ '_] {:as-of as-of})]
-     (reduce (fn [m d]
-               (let [a (nth d 1)
-                     v (nth d 2)
-                     existing (get m a)]
-                 (cond (nil? existing) (assoc m a v)
-                       (vector? existing) (update m a conj v)
-                       :else (assoc m a [existing v]))))
-             {}
-             datoms))))
+  ([source eid opts] (dissoc (pull source eid '[*] opts) :db/id)))
