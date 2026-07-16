@@ -1,23 +1,29 @@
 (ns dao.space.stream
   "The `:dao-stream` transport: the tuple space's write path. Opening
   `{:type :dao-stream :store <jing> :name \"producer\"}` attaches a feeding
-  stream to the space (docs/design/dao.space.md, The Write Path); `ds/append!`
-  deposits an entity map or datom vector as datoms into the store's
-  `:root/datoms` root, where `dao.space.query`'s `q`/`match` immediately
-  see them. This is the generative-communication move: deposit, name no
-  recipient.
+  stream to the space (docs/design/dao.space.md, The Write Path):
+  the stream owns its own root, `:root/<name>` (an explicit `:key`
+  overrides), and `open!` registers that root in the store's membership
+  root (`index/members-key`) so readers can enumerate the space.
+  `ds/append!` deposits an entity map or datom vector as datoms into the
+  stream's root, where `dao.space.query`'s `q`/`match` — which fold every
+  member root — immediately see them. This is the generative-communication
+  move: deposit, name no recipient; and the single-writer log: no shared
+  write surface, no cross-agent contention.
 
-  Appends go through a read-modify-`cas!` loop on the root — the interim
-  owner-append of docs/dao.space.stigmergy.md (gap 2). The CAS serializes
-  concurrent writers on one store; the single-writer-log ideal (each
-  stream its own root, merged at read time) waits on namespace stamping.
-  A root already holding owner-built `{:indexes ...}` is folded back to
-  the wholesale `{:datoms [...]}` shape on first append, so published
-  indexes are never silently dropped.
+  Appends go through a read-modify-`cas!` loop on the stream's own root;
+  with one writer per root the CAS is uncontended and exists only to
+  serialize same-name handles. Entity-id stamping across streams (the
+  `[stream-ns offset]` global form of dao.space.query.md, Ruling 3) is
+  still pending; until then cross-stream `:db/id` collision remains the
+  documented open gap. A root already holding owner-built `{:indexes ...}`
+  is folded back to the wholesale `{:datoms [...]}` shape on first append,
+  so published indexes are never silently dropped.
 
-  Reading (`ds/next` with a `{:position n}` cursor) walks the raw datom
-  log in append order — the log, not current state; current-state
-  resolution stays a query-time concern of `dao.space.query`."
+  Reading (`ds/next` with a `{:position n}` cursor) walks the stream's own
+  raw datom log in append order — the log, not current state; cross-stream
+  reads and current-state resolution stay query-time concerns of
+  `dao.space.query`."
   (:require [dao.datom :as datom]
             [dao.jing :as jing]
             [dao.space.index :as index]
@@ -114,7 +120,11 @@
     (when-not (and store (satisfies? jing/IKVStore store))
       (throw (ex-info ":dao-stream descriptor requires a :store dao.jing handle"
                       {:descriptor descriptor})))
-    (->DaoStreamLog store
-                    (or datoms-key index/default-datoms-key)
-                    stream-name
-                    (atom {:closed false}))))
+    (when-not (or datoms-key stream-name)
+      (throw
+        (ex-info
+          ":dao-stream descriptor requires a :name (or :key) — the stream's root is :root/<name>"
+          {:descriptor descriptor})))
+    (let [k (or datoms-key (keyword "root" (str stream-name)))]
+      (index/register-member! store k)
+      (->DaoStreamLog store k stream-name (atom {:closed false})))))

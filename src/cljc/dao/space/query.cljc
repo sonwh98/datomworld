@@ -24,11 +24,14 @@
     - a raw vector of datoms, `[[e a v t m] ...]`
     - a raw vector of entity maps, `[{:attr val ...} ...]`
 
-  Reading a `dao.jing` handle supports both root shapes at
-  `index/default-datoms-key` (`:root/datoms`): the wholesale
-  `{:datoms [...]}` baseline, folded into a fresh in-memory index per
-  query, and the owner-built `{:indexes ...}` manifest, restored lazily on
-  the JVM and walked eagerly everywhere else (see dao.space.index).
+  Reading a `dao.jing` handle folds every member root
+  (`index/member-keys`: each stream's own `:root/<name>` as registered in
+  `index/members-key`, plus the legacy `:root/datoms` when seeded) and
+  supports both root shapes per member: the wholesale `{:datoms [...]}`
+  baseline, folded into a fresh in-memory index per query, and the
+  owner-built `{:indexes ...}` manifest, restored lazily on the JVM when
+  it is the store's sole member and walked eagerly everywhere else (see
+  dao.space.index).
 
   Current-state resolution (masking retracted datoms and superseding
   cardinality-one values) is resolved dynamically at query time using
@@ -71,16 +74,18 @@
 
 (defn- coll-source->datoms
   [source]
-  (cond (every? dao-jing-handle? source) (mapcat index/read-datoms source)
+  (cond (every? dao-jing-handle? source) (mapcat index/store-datoms source)
         (every? vector? source) source
         (every? map? source) (entity-maps->datoms source)
         :else (mapcat source->datoms source)))
 
 
 (defn source->datoms
-  "Fold any source shape (see ns docstring) into a flat seq of datoms."
+  "Fold any source shape (see ns docstring) into a flat seq of datoms.
+  A dao.jing handle reads every member root (index/member-keys), so all
+  streams feeding the store are folded, never a single privileged root."
   [source]
-  (cond (dao-jing-handle? source) (index/read-datoms source)
+  (cond (dao-jing-handle? source) (index/store-datoms source)
         (coll? source) (coll-source->datoms source)
         :else (throw (ex-info "unrecognized query source" {:source source}))))
 
@@ -102,11 +107,13 @@
   ([source as-of]
    (or #?(:cljd nil
           :clj (when (dao-jing-handle? source)
-                 ;; single-handle: read the root exactly once and dispatch
-                 ;; on its shape here, rather than falling through to
-                 ;; source->datoms and re-reading the same key
-                 (let [root (jing/get source index/default-datoms-key nil)
-                       indexes (:indexes root)]
+                 ;; single-handle: when the store has exactly one member
+                 ;; root holding a complete manifest, restore it lazily;
+                 ;; multiple members take the eager merge (k-way lazy
+                 ;; merge is the documented gap, see dao.space.query.md)
+                 (let [ks (index/member-keys source)
+                       indexes (when (= 1 (count ks))
+                                 (:indexes (jing/get source (first ks) nil)))]
                    (if (and (nil? as-of)
                             ;; a complete manifest only: an empty published
                             ;; index has nil root addresses (walk of nil =>
@@ -115,9 +122,7 @@
                             (every? #(some? (get indexes %))
                                     [:eavt :aevt :avet :vaet]))
                      (index/restored-indexes source indexes)
-                     (-> (if indexes
-                           (index/walk-index-datoms source (:eavt indexes))
-                           (:datoms root))
+                     (-> (index/store-datoms source)
                          (bound-datoms as-of)
                          index/index-datoms)))))
        (-> (source->datoms source)

@@ -38,8 +38,44 @@
 
 
 (def default-datoms-key
-  "The default root key a dao.jing handle's datoms are read from."
+  "The legacy shared root key. The :dao-stream transport no longer writes
+  here — each stream owns `:root/<name>` — but a store seeded wholesale at
+  this key is still read (see member-keys)."
   :root/datoms)
+
+
+(def members-key
+  "The membership root: `{:members #{:root/<name> ...}}`, the set of stream
+  roots currently feeding this store's space. Written by the write path at
+  open! (membership is intake, docs/design/dao.space.md); read by
+  member-keys to enumerate the roots a query folds. The one shared cas!
+  cell left, touched only when a stream attaches — never per append."
+  :root/members)
+
+
+(defn register-member!
+  "Add a stream root key to the store's membership root. Idempotent;
+  retries a lost cas! (open!-time contention is rare and bounded)."
+  [store k]
+  (loop []
+    (let [root (jing/get store members-key nil)
+          rev (:rev root 0)
+          members (or (:members root) #{})]
+      (or (contains? members k)
+          (jing/cas! store members-key rev {:members (conj members k)})
+          (recur)))))
+
+
+(defn member-keys
+  "Every datom-bearing root in the store, in a deterministic order:
+  the legacy default-datoms-key when present, then the registered members
+  sorted by name. This is the enumeration a query folds — IKVStore has no
+  scan, so reachability starts from the membership root."
+  [store]
+  (let [members (:members (jing/get store members-key nil))
+        legacy (when (jing/get store default-datoms-key nil)
+                 [default-datoms-key])]
+    (into (vec legacy) (sort (disj (set members) default-datoms-key)))))
 
 
 ;; =============================================================================
@@ -252,6 +288,13 @@
        (:datoms root)))))
 
 
+(defn store-datoms
+  "Every datom reachable in the store: read-datoms over each member root
+  (see member-keys), concatenated. The store-wide read a query folds."
+  [store]
+  (mapcat #(read-datoms store %) (member-keys store)))
+
+
 #?(:cljd nil
    :clj
    (defn- kv-storage
@@ -311,14 +354,17 @@
   Clojure-only feature); non-JVM readers still read the result eagerly via
   read-datoms.
 
-  opts: {:branching-factor n} — max keys per node (default 512, Datomic-
-  style fat segments)."
+  opts: {:branching-factor n  — max keys per node (default 512, Datomic-
+                                style fat segments)
+         :key k               — the stream root to advance (default
+                                `default-datoms-key`)}."
   ([store] (publish-index! store (read-datoms store)))
   ([store datoms] (publish-index! store datoms {}))
   ([store datoms opts]
    #?(:cljd (throw (ex-info "publish-index! is JVM-only for now"
                             {:store store, :datoms datoms, :opts opts}))
-      :clj (let [branching (:branching-factor opts 512)
+      :clj (let [datoms-key (:key opts default-datoms-key)
+                 branching (:branching-factor opts 512)
                  storage (kv-storage store)
                  root-addr (fn [cmp]
                              ;; an empty index has no root node:
@@ -335,11 +381,11 @@
                           :aevt (root-addr aevt-cmp),
                           :avet (root-addr avet-cmp),
                           :vaet (root-addr vaet-cmp)}
-                 rev (:rev (jing/get store default-datoms-key nil) 0)
+                 rev (:rev (jing/get store datoms-key nil) 0)
                  v {:indexes indexes, :count (count datoms)}]
-             (when-not (jing/cas! store default-datoms-key rev v)
+             (when-not (jing/cas! store datoms-key rev v)
                (throw (ex-info "publish-index! lost the root cas!"
-                               {:key default-datoms-key, :rev rev})))
+                               {:key datoms-key, :rev rev})))
              indexes)
       :cljs (throw (ex-info "publish-index! is JVM-only for now"
                             {:store store, :datoms datoms, :opts opts})))))

@@ -217,7 +217,9 @@ owner-built/peers-merge) is a concern of the layers above storage, realized on
 `tonsky/persistent-sorted-set`; see [`dao.space.query.md`](dao.space.query.md), *Index
 Realization*. All variants answer identically.
 
-**Current status.** Two root shapes coexist at `default-datoms-key` (`:root/datoms`). The
+**Current status.** Two root shapes coexist at a stream's root (`:root/<name>`, one per
+stream, enumerated by the `:root/members` membership root; the legacy shared
+`:root/datoms` is still read when present but no longer written by the transport). The
 baseline holds a stream's full datom vector wholesale (`{:datoms [...]}`) and folds it into a
 fresh in-memory index on every query — the "rebuild per query" strategy ("kept only as the
 conceptual baseline"; see [`dao.space.query.md`](dao.space.query.md), *Index Realization*),
@@ -438,9 +440,14 @@ retracted datoms and supersede cardinality-one values at query time via `current
 (stratified, over the current-state-resolved index), so the `(not [_ :work/claims ?w])`
 clause executes as written; and `{:type :dao-stream :store store :name ...}` is a
 registered `dao.stream` type (`dao.space.stream`) whose `ds/append!` deposits an entity map
-or datom vector into the store's `:root/datoms` root through a read-modify-`cas!`
-owner-append (the interim pattern of `docs/dao.space.stigmergy.md`; per-stream roots
-merged at read time wait on namespace stamping). One layering note stands: `dao.jing`'s
+or datom vector into the stream's **own** root, `:root/<name>` — each stream a single-writer
+log, no shared write surface. `open!` registers the root in the store's membership root
+(`:root/members`, the intake record of *Membership is intake*, above), and the query library
+folds every member root and merges (plus the legacy `:root/datoms` when a store was seeded
+there wholesale; the transport itself never writes that key). Entity-id namespace stamping
+(`[stream-ns offset]`, Ruling 3 of `dao.space.query.md`) is still pending, so cross-stream
+`:db/id` collision remains the documented open gap until the kickoff-hash namespace lands.
+One layering note stands: `dao.jing`'s
 file backend still uses `dao.stream.log` internally as its byte transport (see
 `dao.space.query.md`, *Reality check*), so the layers remain mutually acquainted even
 though the write path now runs top-down:

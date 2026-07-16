@@ -77,12 +77,53 @@
         (testing "and yields :end once closed"
           (ds/close! log)
           (is (= :end (ds/next log (:cursor r2))))))))
-  (testing "a second stream on the same store sees the first one's appends"
+  (testing "a second handle with the same name tails the same stream"
+    (let [store (jing/create-kv-mem)
+          a (ds/open! {:type :dao-stream, :store store, :name "a"})
+          a2 (ds/open! {:type :dao-stream, :store store, :name "a"})]
+      (ds/append! a {:db/id 1, :x true})
+      (is (map? (ds/next a2 {:position 0})))))
+  (testing "a differently-named stream's cursor does not see another's log"
     (let [store (jing/create-kv-mem)
           a (ds/open! {:type :dao-stream, :store store, :name "a"})
           b (ds/open! {:type :dao-stream, :store store, :name "b"})]
       (ds/append! a {:db/id 1, :x true})
-      (is (map? (ds/next b {:position 0}))))))
+      (is (= :blocked (ds/next b {:position 0}))))))
+
+
+(deftest per-stream-roots
+  (testing "each stream's datoms land under its own :root/<name>"
+    (let [store (jing/create-kv-mem)
+          producer (ds/open!
+                     {:type :dao-stream, :store store, :name "producer"})
+          worker (ds/open! {:type :dao-stream, :store store, :name "worker-1"})]
+      (ds/append! producer {:db/id 100, :work/posted true})
+      (ds/append! worker {:db/id 200, :work/claims 100})
+      (is (nil? (jing/get store index/default-datoms-key nil))
+          "no global :root/datoms is ever written by the transport")
+      (is (= 1 (count (:datoms (jing/get store :root/producer nil)))))
+      (is (= 1 (count (:datoms (jing/get store :root/worker-1 nil)))))
+      (testing "open! registers each stream root as a member"
+        (is (= #{:root/producer :root/worker-1}
+               (:members (jing/get store index/members-key nil)))))
+      (testing "a query over the store merges all member roots"
+        (is (= #{[100] [200]} (query/q '[:find ?e :where [?e _ _]] store))))))
+  (testing "an explicit :key override is honored and registered"
+    (let [store (jing/create-kv-mem)
+          log
+          (ds/open!
+            {:type :dao-stream, :store store, :name "a", :key :root/custom})]
+      (ds/append! log {:db/id 1, :x true})
+      (is (some? (jing/get store :root/custom nil)))
+      (is (contains? (:members (jing/get store index/members-key nil))
+                     :root/custom))))
+  (testing "a nameless, keyless descriptor throws"
+    (is (thrown-with-msg? #?(:cljs js/Error
+                             :cljd Object
+                             :default Exception)
+                          #"name"
+          (ds/open! {:type :dao-stream,
+                     :store (jing/create-kv-mem)})))))
 
 
 (deftest lifecycle
@@ -141,13 +182,16 @@
         (ds/append! log {:db/id 2, :work/status :todo})
         (is (= #{[1] [2]}
                (query/q '[:find ?e :where [?e :work/status :todo]] store))))))
-  #?(:clj
-     (testing
-       "a :dao-stream append folds a publish-index!-ed root back to wholesale"
-       (let [store (jing/create-kv-mem)]
-         (index/publish-index! store [[1 :work/status :todo 0 1]])
-         (let [log (ds/open! {:type :dao-stream, :store store, :name "w"})]
-           (ds/append! log {:db/id 2, :work/status :todo})
-           (is (= #{[1] [2]}
-                  (query/q '[:find ?e :where [?e :work/status :todo]]
-                           store))))))))
+  #?(:clj (testing
+            "an append folds a publish-index!-ed stream root back to wholesale"
+            (let [store (jing/create-kv-mem)
+                  log (ds/open! {:type :dao-stream, :store store, :name "w"})]
+              (ds/append! log {:db/id 1, :work/status :todo})
+              (index/publish-index! store
+                                    (index/read-datoms store :root/w)
+                                    {:key :root/w})
+              (is (some? (:indexes (jing/get store :root/w nil))))
+              (ds/append! log {:db/id 2, :work/status :todo})
+              (is (= #{[1] [2]}
+                     (query/q '[:find ?e :where [?e :work/status :todo]]
+                              store)))))))
