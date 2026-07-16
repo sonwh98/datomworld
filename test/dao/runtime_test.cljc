@@ -1,9 +1,8 @@
 (ns dao.runtime-test
-  (:require
-    [clojure.test :refer [deftest is testing]]
-    [dao.runtime :as rt]
-    [dao.stream :as ds]
-    [dao.stream.ringbuffer :as rb]))
+  (:require [clojure.test :refer [deftest is testing]]
+            [dao.runtime :as rt]
+            [dao.stream :as ds]
+            [dao.stream.ringbuffer :as rb]))
 
 
 (deftest basic-scheduling-test
@@ -26,7 +25,7 @@
   (testing "writer on full stream parks and is resumed after space is freed"
     (let [resumed-vals (atom [])
           stream (ds/open! {:type :ringbuffer, :capacity 1})
-          _ (ds/put! stream :first)
+          _ (ds/append! stream :first)
           task {:resume
                 (fn [rt _entry value] (swap! resumed-vals conj value) rt)}
           rt0 (rt/initial-state)
@@ -71,7 +70,7 @@
   (testing "close wakes parked writer with nil"
     (let [seen (atom [])
           stream (ds/open! {:type :ringbuffer, :capacity 1})
-          _ (ds/put! stream :full)
+          _ (ds/append! stream :full)
           task {:resume (fn [rt _entry value] (swap! seen conj value) rt)}
           rt0 (rt/initial-state)
           ;; Attempt write -> should block

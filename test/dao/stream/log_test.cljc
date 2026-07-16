@@ -41,7 +41,7 @@
           s (ds/open! {:type :append-log, :path path})]
       (is (= :blocked (ds/next s {:position 0})))
       (let [payload (->bytes [1 2 3 4])
-            {res :result, cursor :cursor} (ds/put! s payload)]
+            {res :result, cursor :cursor} (ds/append! s payload)]
         (is (= :ok res))
         (is (map? cursor))
         (is (zero? (:position cursor)))
@@ -55,9 +55,9 @@
   (testing "next at a stored cursor re-reads that exact record (get path)"
     (let [path (temp-path "dsl-pos-")
           s (ds/open! {:type :append-log, :path path})
-          c1 (:cursor (ds/put! s (->bytes [1])))
-          c2 (:cursor (ds/put! s (->bytes [2])))
-          c3 (:cursor (ds/put! s (->bytes [3])))]
+          c1 (:cursor (ds/append! s (->bytes [1])))
+          c2 (:cursor (ds/append! s (->bytes [2])))
+          c3 (:cursor (ds/append! s (->bytes [3])))]
       (is (= [2] (b->vec (:ok (ds/next s c2)))))
       (is (= [1] (b->vec (:ok (ds/next s c1)))))
       (is (= [3] (b->vec (:ok (ds/next s c3)))))
@@ -68,8 +68,8 @@
   (testing "Multiple independent cursors advance without consuming"
     (let [path (temp-path "dsl-mc-")
           s (ds/open! {:type :append-log, :path path})
-          _ (ds/put! s (->bytes [10]))
-          _ (ds/put! s (->bytes [20]))
+          _ (ds/append! s (->bytes [10]))
+          _ (ds/append! s (->bytes [20]))
           a0 {:position 0}
           b0 {:position 0}
           r-a0 (ds/next s a0)
@@ -85,8 +85,8 @@
   (testing "Reopen replays persisted records from 0"
     (let [path (temp-path "dsl-ro-")
           s1 (ds/open! {:type :append-log, :path path})
-          _ (ds/put! s1 (->bytes [55]))
-          _ (ds/put! s1 (->bytes [66]))]
+          _ (ds/append! s1 (->bytes [55]))
+          _ (ds/append! s1 (->bytes [66]))]
       (ds/close! s1)
       (let [s2 (ds/open! {:type :append-log, :path path})
             r1 (ds/next s2 {:position 0})
@@ -101,7 +101,7 @@
   (testing "Torn-tail truncation cleans up partial writes"
     (let [path (temp-path "dsl-torn-")]
       (let [s (ds/open! {:type :append-log, :path path})]
-        (ds/put! s (->bytes [11 22]))
+        (ds/append! s (->bytes [11 22]))
         (ds/close! s))
       ;; Hand-write a torn record (int32 length 999, but only 2 bytes
       ;; payload)
@@ -130,7 +130,7 @@
         (is (= [11 22] (b->vec (:ok r1))))
         (is (= :blocked (ds/next s2 (:cursor r1))))
         ;; Append lands clean
-        (ds/put! s2 (->bytes [33]))
+        (ds/append! s2 (->bytes [33]))
         (is (= [33] (b->vec (:ok (ds/next s2 (:cursor r1))))))
         (ds/close! s2)))))
 
@@ -153,7 +153,7 @@
              s (ds/open! {:type :append-log, :path path})
              ;; pre-populate some data
              cursors (vec (for [i (range 50)]
-                            (:cursor (ds/put! s (->bytes [i])))))]
+                            (:cursor (ds/append! s (->bytes [i])))))]
          (let [readers (repeatedly 20
                                    #(future (dotimes [_ 100]
                                               (let [idx (rand-int 50)
@@ -163,7 +163,8 @@
                                                        (b->vec val)))))))
                writers (repeatedly 5
                                    #(future (dotimes [_ 100]
-                                              (ds/put! s (->bytes [99])))))]
+                                              (ds/append! s
+                                                          (->bytes [99])))))]
            (run! deref readers)
            (run! deref writers))
          (ds/close! s)))))

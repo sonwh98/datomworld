@@ -1,15 +1,14 @@
 (ns yin.vm.engine
   (:refer-clojure :exclude [gensym])
-  (:require
-    [clojure.set]
-    [dao.datom :as datom]
-    [dao.runtime :as rt]
-    [dao.stream :as ds]
-    [dao.stream.ringbuffer]
-    [yin.module :as module]
-    [yin.vm.runtime-adapter :as adapter]
-    [yin.vm.stream-driver :as stream-driver]
-    [yin.vm.telemetry :as telemetry]))
+  (:require [clojure.set]
+            [dao.datom :as datom]
+            [dao.runtime :as rt]
+            [dao.stream :as ds]
+            [dao.stream.ringbuffer]
+            [yin.module :as module]
+            [yin.vm.runtime-adapter :as adapter]
+            [yin.vm.stream-driver :as stream-driver]
+            [yin.vm.telemetry :as telemetry]))
 
 
 (defn- rt-result->vm-result
@@ -153,7 +152,7 @@
         stream (get (:store state) stream-id)]
     (when (nil? stream)
       (throw (ex-info "Invalid stream reference" {:ref stream-ref})))
-    (let [result (ds/put! stream val)]
+    (let [result (ds/append! stream val)]
       (if (= :full (:result result))
         {:park true, :stream-id stream-id, :state state}
         {:value val, :state state, :woke (:woke result)}))))

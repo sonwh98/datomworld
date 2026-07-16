@@ -1,7 +1,7 @@
 (ns dao.space.stream
   "The `:dao-stream` transport: the tuple space's write path. Opening
   `{:type :dao-stream :store <jing> :name \"producer\"}` attaches a feeding
-  stream to the space (docs/design/dao.space.md, The Write Path); `ds/put!`
+  stream to the space (docs/design/dao.space.md, The Write Path); `ds/append!`
   deposits an entity map or datom vector as datoms into the store's
   `:root/datoms` root, where `dao.space.query`'s `q`/`match` immediately
   see them. This is the generative-communication move: deposit, name no
@@ -57,7 +57,7 @@
             {:val val}))))
 
 
-(defn- append!
+(defn- append-datoms!
   "Read-modify-cas! the new datoms onto the root, retrying on a lost CAS.
   `t` is the log position at append time (a monotone per-root watermark)."
   [store datoms-key val]
@@ -79,11 +79,11 @@
 
   ds/IDaoStreamWriter
 
-  (put!
+  (append!
     [_this val]
     (when (:closed @state)
       (throw (ex-info "Cannot put to closed stream" {:name stream-name})))
-    (append! store datoms-key val))
+    (append-datoms! store datoms-key val))
 
 
   ds/IDaoStreamReader

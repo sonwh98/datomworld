@@ -11,11 +11,10 @@
   ;; `(java.io.X. …)` construction inside `#?(:clj …)` branches are reader-
   ;; excluded under cljd and compile cleanly — as do plain fn calls like
   ;; (io/output-stream) and method calls on untyped receivers.
-  (:require
-    #?@(:cljd [["dart:io" :as dart-io]
-               ["dart:typed_data" :as typed-data]]
-        :clj [[clojure.java.io :as io]])
-    [dao.stream :as ds]))
+  (:require #?@(:cljd [["dart:io" :as dart-io]
+                       ["dart:typed_data" :as typed-data]]
+                :clj [[clojure.java.io :as io]])
+            [dao.stream :as ds]))
 
 
 #?(:clj (defn- ensure-output-file!
@@ -34,7 +33,7 @@
 
           ds/IDaoStreamWriter
 
-          (put!
+          (append!
             [_this val]
             (when-not (bytes? val)
               (throw (ex-info "file-output-stream expects a byte-array value"
@@ -96,7 +95,7 @@
 
            ds/IDaoStreamWriter
 
-           (put!
+           (append!
              [_this val]
              (when-not (instance? typed-data/Uint8List val)
                (throw (ex-info "file-output-stream expects a byte-array value"

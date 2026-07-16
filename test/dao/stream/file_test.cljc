@@ -1,12 +1,11 @@
 (ns dao.stream.file-test
-  (:require
-    #?@(:cljd [["dart:io" :as dart-io] ["dart:typed_data" :as typed]
-               [clojure.test :refer [deftest is testing]]]
-        :cljs [[cljs.test :refer [deftest is testing async]]]
-        :clj [[clojure.java.io :as io]
-              [clojure.test :refer [deftest is testing]]])
-    [dao.stream :as ds]
-    [dao.stream.file :as file]))
+  (:require #?@(:cljd [["dart:io" :as dart-io] ["dart:typed_data" :as typed]
+                       [clojure.test :refer [deftest is testing]]]
+                :cljs [[cljs.test :refer [deftest is testing async]]]
+                :clj [[clojure.java.io :as io]
+                      [clojure.test :refer [deftest is testing]]])
+            [dao.stream :as ds]
+            [dao.stream.file :as file]))
 
 
 ;; ---------------------------------------------------------------------------
@@ -62,7 +61,7 @@
               (write-file! path [9 9 9]) ; pre-existing history
               (let [s (ds/open! {:type :file, :path path})]
                 (is (= :blocked (ds/next s {:position 0})))
-                (ds/put! s (->bytes [1 2 3]))
+                (ds/append! s (->bytes [1 2 3]))
                 (let [r (ds/next s {:position 0})]
                   (is (map? r))
                   (is (= [1 2 3] (b->vec (:ok r)))))
@@ -70,7 +69,7 @@
        :default (let [path (temp-path "dsf-tail-")
                       s (ds/open! {:type :file, :path path})]
                   (is (= :blocked (ds/next s {:position 0})))
-                  (ds/put! s (->bytes [1 2 3]))
+                  (ds/append! s (->bytes [1 2 3]))
                   (is (= [1 2 3] (b->vec (:ok (ds/next s {:position 0})))))
                   (ds/close! s)))))
 
@@ -82,8 +81,8 @@
 (deftest multi-cursor-test
   (testing "two cursors read the same post-open writes independently"
     (let [s (ds/open! {:type :file, :path (temp-path "dsf-multi-")})]
-      (ds/put! s (->bytes [1]))
-      (ds/put! s (->bytes [2]))
+      (ds/append! s (->bytes [1]))
+      (ds/append! s (->bytes [2]))
       (let [a0 (ds/next s {:position 0})
             a1 (ds/next s (:cursor a0))
             b0 (ds/next s {:position 0})]
@@ -102,7 +101,7 @@
   (testing "a large value put! is visible to next immediately"
     (let [s (ds/open! {:type :file, :path (temp-path "dsf-live-")})
           payload (mapv #(mod % 256) (range 1000))]
-      (ds/put! s (->bytes payload))
+      (ds/append! s (->bytes payload))
       (is (= payload (b->vec (:ok (ds/next s {:position 0})))))
       (ds/close! s))))
 
@@ -114,7 +113,7 @@
 (deftest blocked-then-end-test
   (testing "blocked at the tail while open, end after close"
     (let [s (ds/open! {:type :file, :path (temp-path "dsf-end-")})]
-      (ds/put! s (->bytes [1]))
+      (ds/append! s (->bytes [1]))
       (let [r (ds/next s {:position 0})]
         (is (= :blocked (ds/next s (:cursor r))))
         (ds/close! s)
@@ -129,9 +128,9 @@
   (testing "capacity 2: after 3 writes, position 0 is gapped"
     (let [s (ds/open!
               {:type :file, :path (temp-path "dsf-evict-"), :capacity 2})]
-      (ds/put! s (->bytes [1]))
-      (ds/put! s (->bytes [2]))
-      (ds/put! s (->bytes [3]))
+      (ds/append! s (->bytes [1]))
+      (ds/append! s (->bytes [2]))
+      (ds/append! s (->bytes [3]))
       (is (= :daostream/gap (ds/next s {:position 0})))
       (testing "resync at the live tail"
         (is (= 3 (file/tail-position s)))
@@ -148,7 +147,7 @@
 (deftest non-blocking-put-test
   (testing "put! returns {:result :ok ...} without waiting on disk"
     (let [s (ds/open! {:type :file, :path (temp-path "dsf-nb-")})
-          r (ds/put! s (->bytes [1 2 3]))]
+          r (ds/append! s (->bytes [1 2 3]))]
       (is (= :ok (:result r)))
       (ds/close! s))))
 
@@ -163,7 +162,7 @@
       (is (thrown? #?(:clj Exception
                       :cljs js/Error
                       :cljd dart:core/Object)
-            (ds/put! s "not-bytes")))
+            (ds/append! s "not-bytes")))
       (ds/close! s)))
   (testing "put! after close! throws"
     (let [s (ds/open! {:type :file, :path (temp-path "dsf-closed-")})]
@@ -171,7 +170,7 @@
       (is (thrown? #?(:clj Exception
                       :cljs js/Error
                       :cljd dart:core/Object)
-            (ds/put! s (->bytes [1]))))))
+            (ds/append! s (->bytes [1]))))))
   ;; The poison fail-fast is deterministically forced on clj, where close!
   ;; also genuinely blocks: break the underlying handle, let the async
   ;; write fail, then assert the next put! throws the real cause and close!
@@ -183,10 +182,11 @@
               ;; >8KB overflows the buffer and flushes through the closed
               ;; stream, forcing a genuine async IOException into the
               ;; poison cell.
-              (ds/put! s (->bytes (vec (repeat 9000 1))))
+              (ds/append! s (->bytes (vec (repeat 9000 1))))
               (await (:agent writer)) ; let the failure land in the cell
-              (let [cause
-                    (try (ds/put! s (->bytes [2])) nil (catch Throwable t t))]
+              (let [cause (try (ds/append! s (->bytes [2]))
+                               nil
+                               (catch Throwable t t))]
                 (is (instance? java.io.IOException cause))) ; real cause, not
               ;; opaque
               (is (thrown? java.io.IOException (ds/close! s)))))))
@@ -202,8 +202,8 @@
             "creates the file if missing; post-open writes persist after close"
             (let [path (temp-path "dsf-disk-")
                   s (ds/open! {:type :file, :path path})]
-              (ds/put! s (->bytes [1 2 3]))
-              (ds/put! s (->bytes [4 5]))
+              (ds/append! s (->bytes [1 2 3]))
+              (ds/append! s (->bytes [4 5]))
               (ds/close! s) ; blocks until flushed
               (with-open [in (io/input-stream path)]
                 (is (= [1 2 3 4 5] (b->vec (.readAllBytes in)))))))))
@@ -214,8 +214,8 @@
              (async done
                     (let [path (temp-path "dsf-disk-")
                           s (ds/open! {:type :file, :path path})]
-                      (ds/put! s (->bytes [1 2 3]))
-                      (ds/put! s (->bytes [4 5]))
+                      (ds/append! s (->bytes [1 2 3]))
+                      (ds/append! s (->bytes [4 5]))
                       (ds/close! s)
                       (-> (file/flushed s)
                           (.then (fn [_]

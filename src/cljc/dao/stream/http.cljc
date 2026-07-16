@@ -15,17 +15,14 @@
       :body string | nil
       :headers {\"lowercase-string\" \"string\"}
       :error {:kind :timeout | :connection | :unknown, :message string}}"
-  (:require
-    #?@(:cljd [["package:http/http.dart" :as http]
-               ["dart:async" :as async]]
-        :cljs []
-        :clj [[org.httpkit.client :as http]])
-    [clojure.string :as str]
-    [dao.stream :as ds]
-    [dao.stream.ringbuffer :as ringbuffer])
-  #?(:cljs
-     (:require-macros
-       [dao.stream])))
+  (:require #?@(:cljd [["package:http/http.dart" :as http]
+                       ["dart:async" :as async]]
+                :cljs []
+                :clj [[org.httpkit.client :as http]])
+            [clojure.string :as str]
+            [dao.stream :as ds]
+            [dao.stream.ringbuffer :as ringbuffer])
+  #?(:cljs (:require-macros [dao.stream])))
 
 
 (defn- normalize-headers
@@ -70,45 +67,45 @@
                             (some? follow-redirects) (assoc :follow-redirects
                                                             follow-redirects))
                           (fn [resp]
-                            (ds/put! out (normalize-response resp))
+                            (ds/append! out (normalize-response resp))
                             (ds/close! out)))
-       :cljs (let [controller (when timeout (js/AbortController.))
-                   timeout-id (when timeout
-                                (js/setTimeout #(.abort controller) timeout))
-                   opts #js {:method (str/upper-case (name method)),
-                             :headers (clj->js (or headers {})),
-                             :body body,
-                             :redirect
-                             (if (false? follow-redirects) "manual" "follow"),
-                             :signal (some-> controller
-                                             .-signal)}]
-               (-> (js/fetch url opts)
-                   (.then (fn [resp]
-                            (when timeout-id (js/clearTimeout timeout-id))
-                            (-> (.text resp)
-                                (.then (fn [body-text]
-                                         (let [headers-obj (.-headers resp)
-                                               headers-map (atom {})]
-                                           (.forEach
-                                             headers-obj
+       :cljs
+       (let [controller (when timeout (js/AbortController.))
+             timeout-id (when timeout
+                          (js/setTimeout #(.abort controller) timeout))
+             opts #js {:method (str/upper-case (name method)),
+                       :headers (clj->js (or headers {})),
+                       :body body,
+                       :redirect
+                       (if (false? follow-redirects) "manual" "follow"),
+                       :signal (some-> controller
+                                       .-signal)}]
+         (->
+           (js/fetch url opts)
+           (.then (fn [resp]
+                    (when timeout-id (js/clearTimeout timeout-id))
+                    (-> (.text resp)
+                        (.then (fn [body-text]
+                                 (let [headers-obj (.-headers resp)
+                                       headers-map (atom {})]
+                                   (.forEach headers-obj
                                              (fn [v k]
                                                (swap! headers-map assoc k v)))
-                                           (ds/put! out
-                                                    {:status (.-status resp),
-                                                     :body body-text,
-                                                     :headers (normalize-headers
-                                                                @headers-map)})
-                                           (ds/close! out)))))))
-                   (.catch (fn [err]
-                             (when timeout-id (js/clearTimeout timeout-id))
-                             (let [error-map
-                                   (cond (= (.-name err) "AbortError")
-                                         {:kind :timeout,
-                                          :message "Request timed out"}
-                                         :else {:kind :unknown,
-                                                :message (.-message err)})]
-                               (ds/put! out {:status 0, :error error-map})
-                               (ds/close! out))))))
+                                   (ds/append! out
+                                               {:status (.-status resp),
+                                                :body body-text,
+                                                :headers (normalize-headers
+                                                           @headers-map)})
+                                   (ds/close! out)))))))
+           (.catch (fn [err]
+                     (when timeout-id (js/clearTimeout timeout-id))
+                     (let [error-map (cond (= (.-name err) "AbortError")
+                                           {:kind :timeout,
+                                            :message "Request timed out"}
+                                           :else {:kind :unknown,
+                                                  :message (.-message err)})]
+                       (ds/append! out {:status 0, :error error-map})
+                       (ds/close! out))))))
        :cljd (let [uri (Uri.parse url)
                    client (http/Client.)
                    request (http/Request. (str/upper-case (name method)) uri)]
@@ -124,7 +121,7 @@
                      (.then (fn [streamed-resp]
                               (http/Response.fromStream streamed-resp)))
                      (.then (fn [resp]
-                              (ds/put! out (normalize-dart-response resp))
+                              (ds/append! out (normalize-dart-response resp))
                               (ds/close! out)))
                      (.catchError
                        (fn [e]
@@ -133,7 +130,7 @@
                                           :message (.toString e)}
                                          :else {:kind :unknown,
                                                 :message (.toString e)})]
-                           (ds/put! out {:status 0, :error err})
+                           (ds/append! out {:status 0, :error err})
                            (ds/close! out))))
                      (.whenComplete (fn [] (.close client)))))))
     out))

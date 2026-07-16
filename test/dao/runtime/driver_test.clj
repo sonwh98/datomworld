@@ -1,10 +1,9 @@
 (ns dao.runtime.driver-test
-  (:require
-    [clojure.test :refer [deftest is testing]]
-    [dao.runtime :as rt]
-    [dao.runtime.driver :as driver]
-    [dao.stream :as ds]
-    [dao.test-utils :as tu]))
+  (:require [clojure.test :refer [deftest is testing]]
+            [dao.runtime :as rt]
+            [dao.runtime.driver :as driver]
+            [dao.stream :as ds]
+            [dao.test-utils :as tu]))
 
 
 (deftest blocking-driver-drains-internally-enqueued-ready-work-test
@@ -44,7 +43,7 @@
           rt-atom (atom driver-state)
           runner (future (driver/run-loop! rt-atom))]
       (Thread/sleep 20)
-      (ds/put! stream :payload)
+      (ds/append! stream :payload)
       ;; Wait for task to be processed
       (loop [i 0]
         (if (or (seq @seen) (> i 50))

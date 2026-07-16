@@ -81,7 +81,7 @@
         queued-vm (assoc vm-state
                          :in-stream in-stream
                          :in-cursor {:position 0})]
-    (ds/put! in-stream (vec datoms))
+    (ds/append! in-stream (vec datoms))
     queued-vm))
 
 

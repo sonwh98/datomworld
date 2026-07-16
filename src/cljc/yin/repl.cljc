@@ -113,7 +113,7 @@
 (defn- emit-output!
   [output-stream op text]
   (when output-stream
-    (ds/put! output-stream {:type :repl/output, :op op, :text text}))
+    (ds/append! output-stream {:type :repl/output, :op op, :text text}))
   nil)
 
 
@@ -399,7 +399,7 @@
         :stderr #?(:clj (binding [*out* *err*] (println (format-value datom)))
                    :cljs (*print-err-fn* (format-value datom))
                    :cljd (binding [*out* *err*] (println (format-value datom))))
-        :stream (ds/put! (:stream telemetry-mode) datom)
+        :stream (ds/append! (:stream telemetry-mode) datom)
         nil))
     state'))
 
@@ -455,7 +455,7 @@
   [state datoms]
   (let [state' (inject-last-value state)
         vm0 (:vm state')
-        _ (ds/put! (:in-stream vm0) (vec datoms))
+        _ (ds/append! (:in-stream vm0) (vec datoms))
         vm' (vm/run vm0)]
     (if (vm/halted? vm')
       (finalize-eval state' vm')

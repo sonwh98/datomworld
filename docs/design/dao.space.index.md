@@ -111,7 +111,7 @@ How the pieces compose for a long-lived agent (the write path is
 ```clojure
 (def log (ds/open! {:type :dao-stream :store store :name "worker-7"}))
 
-(ds/put! log {:db/id id :work/claims task})   ; 1. deposit — appends datoms
+(ds/append! log {:db/id id :work/claims task})   ; 1. deposit — appends datoms
 ;; ... more appends ...
 ;; local indexes are available immediately (dao.space.query reads them)
 (index/publish-index! store)                  ; 2. periodically: persist to dao.jing
@@ -169,7 +169,7 @@ everything published (its own previously-published data and every other agent's)
 ```
 dao.space.stream  ──►  dao.space.index  ◄──  dao.space.query
    (write path:          (realization:          (the Peer:
-    ds/put! appends;      local sorted sets,     fold, match, q —
+    ds/append! appends;      local sorted sets,     fold, match, q —
     folds indexed         publish-index!,        reads local and
     roots back)           sort orders,           persistent layers)
                           node-blob format)

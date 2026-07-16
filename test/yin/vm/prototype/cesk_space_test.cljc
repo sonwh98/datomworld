@@ -93,8 +93,7 @@
       (is (map? st) "the whole machine is one value")
       #?(:clj
          (let [wire (pr-str st) ; the entire machine — program included —
-               ;; as
-               ;; text
+               ;; as text
                revived (edn/read-string wire)]
            (is
              (= 120 (:value (m/drive revived cfg 100000)))
@@ -224,7 +223,9 @@
     (is (= 7 (:value (m/run '(let [+ (lambda (x) x)] (+ 7)))))
         "the shadowed + is an ordinary closure and applies as one")
     (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo
-                             :cljs js/Error)
+                             :cljs js/Error
+                             :cljd Object
+                             :default Exception)
                           #"cannot apply non-closure"
           (m/run '(let [+ 5] (+ 1 2))))
         "the user-bound + is 5, not the primitive: applying it must fail")))
@@ -233,7 +234,9 @@
 (deftest deadlock-in-single-machine
   (testing "drive throws when a lone machine blocks on a tuple nobody writes"
     (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo
-                             :cljs js/Error)
+                             :cljs js/Error
+                             :cljd Object
+                             :default Exception)
                           #"deadlock"
           (m/run '(rd nobody-home))))))
 

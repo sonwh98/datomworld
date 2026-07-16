@@ -111,7 +111,7 @@
                               [_ _ v-map] (edn/read-string payload)
                               new-payload (pr-str [k rev v-map])
                               {put-res :result, new-cursor :cursor}
-                              (ds/put! new-stream (->bytes new-payload))]
+                              (ds/append! new-stream (->bytes new-payload))]
                           (if (= :ok put-res)
                             (assoc idx k {:cursor new-cursor, :rev rev})
                             (throw (ex-info
@@ -172,7 +172,7 @@
                           v-map (assoc v-map :rev 0)
                           payload (pr-str [k 0 v-map])
                           {res :result, cursor :cursor}
-                          (ds/put! stream (->bytes payload))]
+                          (ds/append! stream (->bytes payload))]
                       (when (= :ok res)
                         (reset! state-atom (assoc-in state
                                                      [:index k]
@@ -194,7 +194,7 @@
                               v-map (assoc v-map :rev new-rev)
                               payload (pr-str [k new-rev v-map])
                               {res :result, cursor :cursor}
-                              (ds/put! stream (->bytes payload))]
+                              (ds/append! stream (->bytes payload))]
                           (when (= :ok res)
                             (reset! state-atom (assoc-in state
                                                          [:index k]
@@ -228,15 +228,15 @@
 
   (delete!
     [_ k]
-    (do-with-lock state-atom
-                  (fn []
-                    (let [state @state-atom
-                          stream (:stream state)
-                          payload (pr-str [k -1 nil])]
-                      (when (= :ok
-                               (:result (ds/put! stream (->bytes payload))))
-                        (reset! state-atom (update state :index dissoc k))
-                        true)))))
+    (do-with-lock
+      state-atom
+      (fn []
+        (let [state @state-atom
+              stream (:stream state)
+              payload (pr-str [k -1 nil])]
+          (when (= :ok (:result (ds/append! stream (->bytes payload))))
+            (reset! state-atom (update state :index dissoc k))
+            true)))))
 
 
   (close!

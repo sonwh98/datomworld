@@ -41,7 +41,7 @@ Separating them allows each to flow at its own rate without deadlock.
     (js/console.log "Telemetry server on :8091, REPL on :8090")))
 ```
 
-Key: `repl/create-state` wires up the VM so that `yin.vm.telemetry/emit-snapshot` calls `ds/put!` on the telemetry stream on every VM step.
+Key: `repl/create-state` wires up the VM so that `yin.vm.telemetry/emit-snapshot` calls `ds/append!` on the telemetry stream on every VM step.
 
 ## Browser App State
 

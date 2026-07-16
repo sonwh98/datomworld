@@ -1,15 +1,14 @@
 (ns agent.tools
-  (:require
-    #?@(:cljd [["dart:convert" :as convert]]
-        :cljs []
-        :clj [[clojure.data.json :as json]])
-    #?@(:cljs [[cljs.reader :as edn]]
-        :default [[clojure.edn :as edn]])
-    [clojure.string :as str]
-    [dao.stream :as ds]
-    #?(:clj [dao.stream.file-input-stream])
-    #?(:clj [dao.stream.file-output-stream])
-    [dao.stream.http]))
+  (:require #?@(:cljd [["dart:convert" :as convert]]
+                :cljs []
+                :clj [[clojure.data.json :as json]])
+            #?@(:cljs [[cljs.reader :as edn]]
+                :default [[clojure.edn :as edn]])
+            [clojure.string :as str]
+            [dao.stream :as ds]
+            #?(:clj [dao.stream.file-input-stream])
+            #?(:clj [dao.stream.file-output-stream])
+            [dao.stream.http]))
 
 
 #?(:cljd (defn- dart->clj
@@ -157,7 +156,7 @@
             {"role" "tool",
              "tool_call_id" call-id,
              "content" "(error: malformed EDN)"}
-            (let [result (ds/put! stream val)]
+            (let [result (ds/append! stream val)]
               (case (:result result)
                 :ok {"role" "tool", "tool_call_id" call-id, "content" "ok"}
                 :full {"role" "tool",
@@ -196,7 +195,7 @@
         #?(:clj (let [path (get args "path")
                       content (get args "content")
                       s (ds/open! {:type :file-output-stream, :path path})
-                      res (ds/put! s (.getBytes ^String content "UTF-8"))]
+                      res (ds/append! s (.getBytes ^String content "UTF-8"))]
                   (ds/close! s)
                   {"role" "tool",
                    "tool_call_id" call-id,

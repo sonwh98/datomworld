@@ -169,13 +169,13 @@ Standalone `dao.stream.apply` usage requires only `dao.stream` and `dao.stream.a
       response-stream (ds/open! {:transport {:type :ringbuffer :capacity nil}})
       handlers        {:op/add +}
 
-      _ (ds/put! request-stream
+      _ (ds/append! request-stream
                  (dao-apply/request :call-1 :op/add [10 20]))
 
       {:keys [ok]} (ds/next request-stream {:position 0})
       {:dao.stream.apply/keys [id op args]} ok
       result (apply (get handlers op) args)
-      _ (ds/put! response-stream
+      _ (ds/append! response-stream
                  (dao-apply/response id result))
 
       {:keys [ok]} (ds/next response-stream {:position 0})]

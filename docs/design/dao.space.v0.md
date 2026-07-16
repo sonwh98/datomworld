@@ -28,7 +28,7 @@
 
 **A DaoSpace is a catalog of tuples that enter via dao.stream member logs and are read by interpreters — a coordination medium whose contents are that catalog.** Structurally it is the accreting, content-addressed catalog of every tuple written into it; functionally it is the medium through which resources and interpreters coordinate. The two are one thing: agents coordinate *by* writing and querying the catalog, and its currency is the tuple (a datom). A **resource** is anything expressible as datoms — data, a dao.stream (its descriptor is a datom), yin.vm bytecode (AST datoms), schema, provenance, an agent's belief state — so the catalog of tuples is implicitly a catalog of resources. **Interpreters** read those tuples and realize them into meaning or behavior.
 
-Concretely, a DaoSpace is **a collection of file-backed dao.streams**. `dao.space/open!` returns a **handle** to that collection; the handle plays two roles. As a **factory**, it opens member write logs — `ds/open!` delegates through the space to realize a `dao.stream.file` member, and `ds/put!` appends datom frames to it. As a **read target**, the handle answers questions over *all* member logs at once: `dao.space/q` (Datalog) and `dao.space/match` (datom pattern). The asymmetry is deliberate — **writing is streaming, reading is querying.** You never read the space *as* a stream; member streams carry datoms in, the space answers questions out.
+Concretely, a DaoSpace is **a collection of file-backed dao.streams**. `dao.space/open!` returns a **handle** to that collection; the handle plays two roles. As a **factory**, it opens member write logs — `ds/open!` delegates through the space to realize a `dao.stream.file` member, and `ds/append!` appends datom frames to it. As a **read target**, the handle answers questions over *all* member logs at once: `dao.space/q` (Datalog) and `dao.space/match` (datom pattern). The asymmetry is deliberate — **writing is streaming, reading is querying.** You never read the space *as* a stream; member streams carry datoms in, the space answers questions out.
 
 This is datom.world's modern tuple space, generalized: not only streams-and-readers but *any resource* and interpreters, because everything reduces to tuples (CLAUDE.md: "everything is data, code is data, runtime state is data"; `datom-spec.md`: datoms are the universal format for DaoDB, AST, schema, provenance). The tuples are **named, n-dimensional** datoms (d1/d3/d5/d10), not Linda's positional, untyped arrays — so a tuple carries its own meaning, and coordination never depends on agents agreeing on field order. Unlike traditional message passing (explicit sender → receiver), DaoSpace enables **stigmergic coordination**: producers leave tuples (traces), consumers react to them, decoupled in time and identity. The space is a *passive* medium — it does not orchestrate, schedule, or decide, and it does not itself coordinate; it *enables* coordination by being the shared tuple substrate. (The medium is a logical rendezvous, which may itself be distributed; it provides a shared catalog, not global agreement — consensus, where needed, is layered on top.)
 
@@ -48,7 +48,7 @@ This design builds DaoSpace on top of DaoStream (append-only datom logs) and ind
 
 ```
 DaoSpace = a collection of file-backed dao.streams (member logs) whose union of
-           tuples is a catalog, opened as a handle, written by ds/put! to a member
+           tuples is a catalog, opened as a handle, written by ds/append! to a member
            log and read by dao.space/q / dao.space/match
 ```
 
@@ -89,7 +89,7 @@ handle (`(ds/open! {:type :dao-stream :space space ...})`) and append with that
 stream's own `put!`. Each `ds/open!` returns a **distinct** `dao.stream.file` with
 its **own** append-only log, so writers never contend and there is nothing to
 route. A strict member conforms on `put!`; an open member appends as-is. Throughout
-this document the write is `(ds/put! log datom)`, where `log` is a member stream the
+this document the write is `(ds/append! log datom)`, where `log` is a member stream the
 agent opened once (`ds` aliases `dao.stream`).
 
 **Writing is streaming; reading is querying.** DaoSpace adds exactly two read verbs
@@ -117,7 +117,7 @@ questions **out**. See *API* below.
   ;;    Entity ids are stream-local, so I never write the producer's :db/id;
   ;;    I carry ?work (the stamped id) as a value (see "Entity Identity Is
   ;;    Stream-Local").
-  (ds/put! log
+  (ds/append! log
     {:db/id (random-id)            ; my own local handle
      :a :work/claim
      :work/claims work             ; stamped ref to the producer's entity
@@ -125,7 +125,7 @@ questions **out**. See *API* below.
      :work/at (now)})
 
   ;; 3. Complete work — append another group referencing the work.
-  (ds/put! log
+  (ds/append! log
     {:db/id (random-id)
      :a :work/result
      :work/for work
@@ -157,7 +157,7 @@ cross-stream cursor merge is ever needed.
 ┌──────────────────┐  ┌──────────────────┐      │
 │ member log A     │  │ member log B     │ ...  │   (1..n member logs; each its
 │ d5, strict       │  │ d10, open        │──────┘    own append-only file log,
-│ ds/put! frames → │  │ ds/put! frames → │           typed by dimension, strict?)
+│ ds/append! frames → │  │ ds/append! frames → │           typed by dimension, strict?)
 └────────┬─────────┘  └────────┬─────────┘
          │ datom frames (self-delimiting byte records)
 ┌────────▼─────────┐  ┌────────▼─────────┐
@@ -513,7 +513,7 @@ operational rather than design-level.
   (let [log (ds/open! {:type :dao-stream :space space :name "producer"})]
     ;; Post a work group. :db/id is the producer's own local handle; readers see
     ;; it stamped as [producer-ns offset].
-    (ds/put! log
+    (ds/append! log
       {:db/id (random-id)
        :a :work/posted
        :work/task "process payment"})))
@@ -530,7 +530,7 @@ operational rather than design-level.
         (when (seq work)
           (let [[work task] (first work)]    ; ?work is the stamped [producer-ns offset]
             ;; Claim: append a NEW group in MY log that references the work.
-            (ds/put! log {:db/id (random-id) ; my own local handle
+            (ds/append! log {:db/id (random-id) ; my own local handle
                           :a :work/claim
                           :work/claims work  ; stamped ref to the producer's entity
                           :work/by worker-id
@@ -538,7 +538,7 @@ operational rather than design-level.
 
             ;; Complete: append another group referencing the work.
             (let [result (process task)]
-              (ds/put! log {:db/id (random-id)
+              (ds/append! log {:db/id (random-id)
                             :a :work/result
                             :work/for work
                             :work/result result})))
@@ -559,7 +559,7 @@ operational rather than design-level.
   (let [log (ds/open! {:type :dao-stream :space space :name colony-id})]
     (loop [path [] node (random-node)]
       ;; 1. Emit pheromone: "I visited this node"
-      (ds/put! log
+      (ds/append! log
         {:db/id (random-id)
          :pheromone/colony colony-id
          :pheromone/node node
@@ -579,7 +579,7 @@ operational rather than design-level.
           ;; Solution found
           (when (is-food? node)
             ;; Emit success trace
-            (ds/put! log
+            (ds/append! log
               {:db/id (random-id)
                :solution/path path
                :solution/cost (count path)})))))))
@@ -608,7 +608,7 @@ operational rather than design-level.
         ;; Reassign — append a NEW group REFERENCING the work, never mutate the
         ;; producer's :db/id across logs (entity ids are stream-local).
         (doseq [[work claimed-at worker] stuck]
-          (ds/put! log
+          (ds/append! log
             {:db/id (random-id)
              :a :work/reopened
              :work/reopens work             ; stamped ref to the posted work
@@ -643,7 +643,7 @@ operational rather than design-level.
 
         ;; 3. Emit shared insight if found
         (when-let [pattern (detect-pattern agent-id)]
-          (ds/put! log
+          (ds/append! log
             {:db/id (random-id)
              :pattern/discovered-by agent-id
              :pattern/rule pattern
@@ -664,7 +664,7 @@ operational rather than design-level.
 ## API
 
 The surface is small and asymmetric: **`dao.space/open!`** returns a handle;
-**`dao.stream/open!`** (through the handle) opens member write logs you `ds/put!`
+**`dao.stream/open!`** (through the handle) opens member write logs you `ds/append!`
 into; **`dao.space/q`** and **`dao.space/match`** read across all member logs.
 Member-log realization rides the same `dao.stream/open!` multimethod as every other
 stream, so there is no second realization mechanism — a space *delegates* to
@@ -680,7 +680,7 @@ stream, so there is no second realization mechanism — a space *delegates* to
 (def space (dao.space/open! {:path "/data/work"}))   ; explicit location
 ```
 
-### Writing — open a member log, `ds/put!` datom frames
+### Writing — open a member log, `ds/append!` datom frames
 
 A datom enters the space by being appended to a **member log** the agent opens
 through the handle. Each `ds/open!` returns a **distinct** `dao.stream.file` with
@@ -692,10 +692,10 @@ may reject; an open member appends as-is.
 ```clojure
 ;; Open your member log once, then append to it.
 (def log (ds/open! {:type :dao-stream :space space :name "agent-1"}))
-(ds/put! log {:db/id 42 :work/status :completed :work/result "OK"})
+(ds/append! log {:db/id 42 :work/status :completed :work/result "OK"})
 
 ;; Retraction is also just an append — a datom with retract metadata (m = :db/retract)
-(ds/put! log [:db/retract work-id :work/status])
+(ds/append! log [:db/retract work-id :work/status])
 ```
 
 ### Reading — `dao.space/q` and `dao.space/match`
@@ -740,7 +740,7 @@ whole collection (all member logs).
 
 ```clojure
 ;; Agent's view
-(ds/put! log {:db/id id :work/status :in-progress})
+(ds/append! log {:db/id id :work/status :in-progress})
 ;; Visible in a subsequent query — once flushed to disk (see Eventual Durability).
 (= :in-progress (:work/status (dao.space/q '[...] space)))
 ```
@@ -753,7 +753,7 @@ eventually durable; a future `flush!`/`sync!` would make this immediate).
 
 ```clojure
 ;; Agent 1 writes to its own log
-(ds/put! log {:db/id id :work/status :in-progress})
+(ds/append! log {:db/id id :work/status :in-progress})
 
 ;; Agent 2's view depends on whether that write is flushed when it queries
 (if (write-flushed? id)
@@ -782,10 +782,10 @@ eventually durable; a future `flush!`/`sync!` would make this immediate).
 ;; Is Stream-Local").
 
 ;; Agent A, in log-a, at t=100
-(ds/put! log-a {:db/id (random-id) :counter/id "c1" :counter 1})
+(ds/append! log-a {:db/id (random-id) :counter/id "c1" :counter 1})
 
 ;; Agent B, in log-b, at t=101
-(ds/put! log-b {:db/id (random-id) :counter/id "c1" :counter 2})
+(ds/append! log-b {:db/id (random-id) :counter/id "c1" :counter 2})
 
 ;; The fold stamps each log's ids, so these are two distinct entities that share
 ;; :counter/id "c1". A read-side interpreter groups by :counter/id and reconciles
@@ -796,22 +796,22 @@ eventually durable; a future `flush!`/`sync!` would make this immediate).
 
 **Single tuples are atomic:**
 ```clojure
-(ds/put! log {:db/id id :work/status :in-progress :worker agent-id})
+(ds/append! log {:db/id id :work/status :in-progress :worker agent-id})
 ;; Appears atomically to other agents
 ```
 
 **Multi-tuple transactions need application-level coordination:**
 ```clojure
 ;; NOT atomic across the space:
-(ds/put! log {:db/id id :work/status :in-progress})
-(ds/put! log {:db/id id :work/assigned-to agent-id})
+(ds/append! log {:db/id id :work/status :in-progress})
+(ds/append! log {:db/id id :work/assigned-to agent-id})
 
 ;; Remedies:
 ;; 1. Single tuple with multiple attributes
-(ds/put! log {:db/id id :work/status :in-progress :work/assigned-to agent-id})
+(ds/append! log {:db/id id :work/status :in-progress :work/assigned-to agent-id})
 
 ;; 2. Transaction envelope (application-defined)
-(ds/put! log
+(ds/append! log
   {:db/id (random-id)
    :transaction/id tx-id
    :transaction/committed true
@@ -819,8 +819,8 @@ eventually durable; a future `flush!`/`sync!` would make this immediate).
                         {:db/id id :work/assigned-to agent-id}]})
 
 ;; 3. Causality tracking (application-defined)
-(ds/put! log {:db/id id :version 1 :work/status :in-progress})
-(ds/put! log {:db/id id :version 2 :work/assigned-to agent-id
+(ds/append! log {:db/id id :version 1 :work/status :in-progress})
+(ds/append! log {:db/id id :version 2 :work/assigned-to agent-id
               :depends-on 1})
 ```
 
@@ -863,7 +863,7 @@ Three layers, bottom-up:
 
 ;; :dao-stream — a member write log, realized through dao.stream/open!. Carries the
 ;; :space so the realized dao.stream.file (+ datom framing) registers as a member.
-;; Returns a write stream; agents ds/put! datom frames to it.
+;; Returns a write stream; agents ds/append! datom frames to it.
 (ds/defopen :dao-stream [{:keys [space name dimension slots strict?]}] ...)
 
 ;; Read verbs — fold every member log's datoms into a dao.db, then answer.
@@ -981,7 +981,7 @@ Note: `dao.space/q` returns a **set** of tuples (per `dao.db/q`), not a vector.
           log   (ds/open! {:type :dao-stream :space space :name "a"})]
       ;; :db/id is the stream's own local handle; the fold stamps it, so queries
       ;; bind the entity by a value, never by a literal bare offset.
-      (ds/put! log {:db/id (random-id) :work/id "w1" :work/status :todo})
+      (ds/append! log {:db/id (random-id) :work/id "w1" :work/status :todo})
       (is (= #{[:todo]}
              (dao.space/q '[:find ?status
                             :where [?e :work/id "w1"] [?e :work/status ?status]] space))))))
@@ -993,8 +993,8 @@ Note: `dao.space/q` returns a **set** of tuples (per `dao.db/q`), not a vector.
           b     (ds/open! {:type :dao-stream :space space :name "b"})]
       ;; Both logs use local offset 1025 (user range); the fold stamps each to
       ;; [stream-ns 1025], so they remain two distinct entities (no collision).
-      (ds/put! a {:db/id 1025 :work/task "task-1"})
-      (ds/put! b {:db/id 1025 :work/task "task-2"})
+      (ds/append! a {:db/id 1025 :work/task "task-1"})
+      (ds/append! b {:db/id 1025 :work/task "task-2"})
       (is (= #{["task-1"] ["task-2"]}
              (dao.space/q '[:find ?task :where [?id :work/task ?task]] space)))
       (is (= 2 (count (dao.space/q '[:find ?id :where [?id :work/task _]] space))))
@@ -1006,8 +1006,8 @@ Note: `dao.space/q` returns a **set** of tuples (per `dao.db/q`), not a vector.
           log   (ds/open! {:type :dao-stream :space space :name "a"})]
       ;; In-place evolution is fine WITHIN one stream (same local handle, same log).
       ;; The query still binds by value, since the fold stamps the handle.
-      (ds/put! log {:db/id 1025 :work/id "w1" :work/status :todo})         ; t0
-      (ds/put! log {:db/id 1025 :work/id "w1" :work/status :in-progress})  ; t1
+      (ds/append! log {:db/id 1025 :work/id "w1" :work/status :todo})         ; t0
+      (ds/append! log {:db/id 1025 :work/id "w1" :work/status :in-progress})  ; t1
       (is (= #{[:todo]}
              (dao.space/q '[:find ?status
                             :where [?e :work/id "w1"] [?e :work/status ?status]]
@@ -1022,14 +1022,14 @@ Note: `dao.space/q` returns a **set** of tuples (per `dao.db/q`), not a vector.
     (let [space (dao.space/open! "work-queue")
           plog  (ds/open! {:type :dao-stream :space space :name "producer"})]
       ;; Producer posts work to its own log (each :db/id is the producer's handle)
-      (dotimes [i 10] (ds/put! plog {:db/id (random-id) :a :work/posted :work/n i}))
+      (dotimes [i 10] (ds/append! plog {:db/id (random-id) :a :work/posted :work/n i}))
 
       ;; Worker reads posted work (stamped ids), appends a result group to ITS log
       ;; that REFERENCES the work — no :db/id crosses a log.
       (let [wlog   (ds/open! {:type :dao-stream :space space :name "worker"})
             posted (dao.space/q '[:find ?work :where [?work :a :work/posted]] space)]
         (doseq [[work] posted]
-          (ds/put! wlog {:db/id (random-id) :a :work/result :work/for work}))
+          (ds/append! wlog {:db/id (random-id) :a :work/result :work/for work}))
         (is (= 10 (count (dao.space/q '[:find ?work
                                         :where [?r :a :work/result]
                                                [?r :work/for ?work]] space))))))))
@@ -1161,7 +1161,7 @@ JavaSpace mistake: Tuples auto-expire when leases expire. Agents must renew leas
 Tuple-space fix: Explicit application-controlled expiration.
 ```clojure
 ;; No implicit expiration. Agents explicitly manage work lifecycle.
-(ds/put! log {:db/id task-id
+(ds/append! log {:db/id task-id
               :work/status :in-progress
               :work/claimed-by agent-id
               :work/claimed-at (now)})
@@ -1181,17 +1181,17 @@ Linda/JavaSpace limitation: Coordination across multiple tuples is not atomic. A
 Tuple-space fix: Multiple options for atomic coordination.
 ```clojure
 ;; Option 1: Multi-attribute tuple (atomic write)
-(ds/put! log {:db/id task-id
+(ds/append! log {:db/id task-id
               :work/status :in-progress
               :work/assigned-to worker-id})
 
 ;; Option 2: Transaction envelope (application-defined)
-(ds/put! log {:transaction/id tx-id
+(ds/append! log {:transaction/id tx-id
               :transaction/datoms [{:db/id task-id :status :in-progress}
                                    {:db/id worker-id :current-task task-id}]})
 
 ;; Option 3: Idempotent operations (can safely retry)
-(ds/put! log {:db/id task-id :work/status :completed :timestamp (now)})
+(ds/append! log {:db/id task-id :work/status :completed :timestamp (now)})
 ```
 
 **Problem 8: Destructive Operations Limit Patterns**

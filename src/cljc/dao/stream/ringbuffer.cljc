@@ -8,12 +8,9 @@
      :closed          — boolean
      :reader-waiters  — map of position -> wait-set-entry; woken when put! appends at that position
      :writer-waiters  — vector of wait-set-entries; first one woken when drain-one! frees space"
-  (:require
-    [dao.stream :as ds]
-    [yin.module :as module])
-  #?(:cljs
-     (:require-macros
-       [dao.stream])))
+  (:require [dao.stream :as ds]
+            [yin.module :as module])
+  #?(:cljs (:require-macros [dao.stream])))
 
 
 (declare init-module!)
@@ -201,7 +198,7 @@
 
      ds/IDaoStreamWriter
 
-     (put!
+     (append!
        [_this val]
        (let [result
              (swap! state-atom put-state capacity eviction-policy val)]
@@ -253,7 +250,7 @@
 
           ds/IDaoStreamWriter
 
-          (put!
+          (append!
             [_this val]
             (let [result
                   (swap! state-atom put-state capacity eviction-policy val)]
@@ -306,7 +303,7 @@
 
      ds/IDaoStreamWriter
 
-     (put!
+     (append!
        [_this val]
        (let [result
              (swap! state-atom put-state capacity eviction-policy val)]

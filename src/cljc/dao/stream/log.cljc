@@ -48,7 +48,7 @@
 
           ds/IDaoStreamWriter
 
-          (put!
+          (append!
             [_ val]
             (check-put! state-atom val)
             (let [len (alength ^bytes val)]
@@ -95,7 +95,7 @@
 
            ds/IDaoStreamWriter
 
-           (put!
+           (append!
              [_ val]
              (check-put! state-atom val)
              (let [len (.-length val)
@@ -146,7 +146,7 @@
 
      ds/IDaoStreamWriter
 
-     (put!
+     (append!
        [_ ^typed/Uint8List val]
        (check-put! state-atom val)
        (let [len (.-length val)

@@ -2,7 +2,7 @@
 
 Status: design discussion (2026-07-10); a coordinator-mediated prototype ran live the same
 day, then was **superseded (2026-07-12) by the streams-native model**: there is no
-coordinator. Stigmergy is writing datoms to the agent's own `dao.stream` via `ds/put!` and
+coordinator. Stigmergy is writing datoms to the agent's own `dao.stream` via `ds/append!` and
 reading dao.space with `q`/`match` — nothing else. The living contract is
 `test/dao/space/stigmergy_test.clj`: agents coordinate over a network-accessible
 `dao.jing.file` store (served with `dao.stream.rpc` as plain `IKVStore` ops — the rpc is an
@@ -235,7 +235,7 @@ deposit API, no new namespaces:
    handle is unchanged.
 2. **Writes**: each agent opens its own `:dao-stream` on that handle
    (`(ds/open! {:type :dao-stream :store handle :name agent-id})`) and deposits with
-   `ds/put!` — nothing else. The agent stamps its own conventions into the datoms it
+   `ds/append!` — nothing else. The agent stamps its own conventions into the datoms it
    builds: fresh UUID entity id, `:dao/agent` self-stamp, wall-clock `t` in the t slot,
    `:claim/expires` on claims.
 3. **Reads**: `query/q` and `query/match` over the same handle. "Available work" is one

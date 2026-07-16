@@ -1,20 +1,19 @@
 (ns dao.stream.apply-test
-  (:require
-    [clojure.test :refer [deftest is testing]]
-    [dao.stream :as ds]
-    [dao.stream.apply :as dao-apply]
-    [dao.stream.ringbuffer]))
+  (:require [clojure.test :refer [deftest is testing]]
+            [dao.stream :as ds]
+            [dao.stream.apply :as dao-apply]
+            [dao.stream.ringbuffer]))
 
 
 (defn- make-stream
   []
-  (ds/open! {:type :ringbuffer :capacity nil}))
+  (ds/open! {:type :ringbuffer, :capacity nil}))
 
 
 (deftest endpoint-construction-test
   (testing "make-endpoint stores request and response descriptors verbatim"
-    (let [request-desc {:type :ringbuffer :capacity nil}
-          response-desc {:type :ringbuffer :capacity 8}
+    (let [request-desc {:type :ringbuffer, :capacity nil}
+          response-desc {:type :ringbuffer, :capacity 8}
           endpoint (dao-apply/make-endpoint request-desc response-desc)]
       (is (= request-desc (dao-apply/endpoint-request endpoint)))
       (is (= response-desc (dao-apply/endpoint-response endpoint))))))
@@ -27,22 +26,28 @@
       (is (= :call-7 (dao-apply/request-id request)))
       (is (= :op/add (dao-apply/request-op request)))
       (is (= [10 20] (dao-apply/request-args request)))))
-  (testing "response helpers round-trip the mandatory fields, including nil values"
+  (testing
+    "response helpers round-trip the mandatory fields, including nil values"
     (let [response (dao-apply/response :call-7 nil)]
       (is (dao-apply/response? response))
       (is (= :call-7 (dao-apply/response-id response)))
       (is (= nil (dao-apply/response-value response)))))
   (testing "request constructor enforces protocol shape"
-    (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
+    (is (thrown? #?(:clj Exception
+                    :cljs js/Error
+                    :cljd Object)
           (dao-apply/request :call-7 "op/add" [10 20])))
-    (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
+    (is (thrown? #?(:clj Exception
+                    :cljs js/Error
+                    :cljd Object)
           (dao-apply/request :call-7 :op/add '(10 20))))))
 
 
 (deftest request-and-response-stream-helpers-test
   (testing "put-request! and next-request round-trip a request value"
     (let [request-stream (make-stream)
-          put-result (dao-apply/put-request! request-stream :call-1 :op/echo [42])
+          put-result
+          (dao-apply/put-request! request-stream :call-1 :op/echo [42])
           read-result (dao-apply/next-request request-stream {:position 0})]
       (is (= :ok (:result put-result)))
       (is (= (dao-apply/request :call-1 :op/echo [42]) (:ok read-result)))
@@ -56,13 +61,17 @@
       (is (= {:position 1} (:cursor read-result)))))
   (testing "next-request rejects non-request payloads"
     (let [request-stream (make-stream)]
-      (ds/put! request-stream {:not "a request"})
-      (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
+      (ds/append! request-stream {:not "a request"})
+      (is (thrown? #?(:clj Exception
+                      :cljs js/Error
+                      :cljd Object)
             (dao-apply/next-request request-stream {:position 0})))))
   (testing "next-response rejects non-response payloads"
     (let [response-stream (make-stream)]
-      (ds/put! response-stream {:not "a response"})
-      (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
+      (ds/append! response-stream {:not "a response"})
+      (is (thrown? #?(:clj Exception
+                      :cljs js/Error
+                      :cljd Object)
             (dao-apply/next-response response-stream {:position 0}))))))
 
 
@@ -74,13 +83,16 @@
       (is (= 30 (dao-apply/response-value response)))))
   (testing "missing handler is an explicit callee error"
     (let [request (dao-apply/request :call-missing :op/missing [])]
-      (is (thrown-with-msg? #?(:clj Exception :cljs js/Error :cljd Object)
+      (is (thrown-with-msg? #?(:clj Exception
+                               :cljs js/Error
+                               :cljd Object)
                             #"No dao.stream.apply handler for op"
             (dao-apply/dispatch-request {} request))))))
 
 
 (deftest serve-once-test
-  (testing "serve-once! reads one request, dispatches it, and appends one response"
+  (testing
+    "serve-once! reads one request, dispatches it, and appends one response"
     (let [request-stream (make-stream)
           response-stream (make-stream)
           _ (dao-apply/put-request! request-stream :call-9 :op/add [7 8])

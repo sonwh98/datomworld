@@ -407,7 +407,7 @@ but without a central transactor process:
 
 Publishing is an acceleration, never a semantic change — readers answer identically over a
 wholesale root, a local index, or a persisted index — and the stages interact safely: a later
-`ds/put!` folds a persisted root back to wholesale rather than dropping it, until the owner
+`ds/append!` folds a persisted root back to wholesale rather than dropping it, until the owner
 republishes. See `dao.space.index.md`, *The agent-transactor loop*.
 
 ### Fault Tolerance (Crash-Only Semantics)
@@ -419,7 +419,7 @@ crash-only semantics natively:
   partial-update corruption window.
 - **Reader behavior:** A reader tailing a crashed writer's stream simply reaches the end and
   yields (`ds/next` returns `:blocked`); it waits for new data rather than failing.
-- **Write recovery:** A restarted writer reopens its file in append mode; the next `ds/put!`
+- **Write recovery:** A restarted writer reopens its file in append mode; the next `ds/append!`
   lands safely after the last flushed datom.
 - **Read recovery:** A reader resumes from a checkpointed cursor offset, so an incremental
   index rebuilds without reprocessing or skipping.
@@ -437,7 +437,7 @@ retracted datoms and supersede cardinality-one values at query time via `current
 (see `dao.space.query.md`, *Current-state resolution*); `q` implements `not`/`not-join`
 (stratified, over the current-state-resolved index), so the `(not [_ :work/claims ?w])`
 clause executes as written; and `{:type :dao-stream :store store :name ...}` is a
-registered `dao.stream` type (`dao.space.stream`) whose `ds/put!` deposits an entity map
+registered `dao.stream` type (`dao.space.stream`) whose `ds/append!` deposits an entity map
 or datom vector into the store's `:root/datoms` root through a read-modify-`cas!`
 owner-append (the interim pattern of `docs/dao.space.stigmergy.md`; per-stream roots
 merged at read time wait on namespace stamping). One layering note stands: `dao.jing`'s
@@ -448,7 +448,7 @@ though the write path now runs top-down:
 ```clojure
 (defn producer [store]
   (let [log (ds/open! {:type :dao-stream :store store :name "producer"})]
-    (ds/put! log {:db/id (random-id) :work/posted true :work/task "process payment"})))
+    (ds/append! log {:db/id (random-id) :work/posted true :work/task "process payment"})))
 
 (defn worker [store worker-id]
   (let [log (ds/open! {:type :dao-stream :store store :name worker-id})]
@@ -461,8 +461,8 @@ though the write path now runs top-down:
                                    (not [_ :work/claims ?w])]
                    store)]
         (when-let [[?w task] (first work)]
-          (ds/put! log {:db/id (random-id) :work/claims ?w :work/by worker-id})
-          (ds/put! log {:db/id (random-id) :work/result (process task)})
+          (ds/append! log {:db/id (random-id) :work/claims ?w :work/by worker-id})
+          (ds/append! log {:db/id (random-id) :work/result (process task)})
           (recur))))))
 ```
 

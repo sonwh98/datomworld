@@ -1,9 +1,8 @@
 (ns dao.stream-test
-  (:require
-    [clojure.test :refer [deftest is testing]]
-    [dao.stream :as ds]
-    [dao.stream.link :as link]
-    [dao.stream.ringbuffer]))
+  (:require [clojure.test :refer [deftest is testing]]
+            [dao.stream :as ds]
+            [dao.stream.link :as link]
+            [dao.stream.ringbuffer]))
 
 
 ;; =============================================================================
@@ -39,14 +38,14 @@
 (deftest ringbuffer-descriptor-open-contract-test
   (testing "ringbuffer descriptors are realizable via ds/open!"
     (let [stream (ds/open! (ringbuffer-descriptor 1))]
-      (is (= :ok (:result (ds/put! stream :value))))
+      (is (= :ok (:result (ds/append! stream :value))))
       (is (= :value (:ok (ds/drain-one! stream))))))
   (testing "higher-level link state creation can realize its remote ringbuffer"
     (let [local (ds/open! (ringbuffer-descriptor))
           state (link/make-link-state local)
           remote (:remote-stream state)]
       (is (some? remote))
-      (is (= :ok (:result (ds/put! remote :payload))))
+      (is (= :ok (:result (ds/append! remote :payload))))
       (is (= :payload (:ok (ds/drain-one! remote))))))
   (testing "nested transport descriptors are rejected"
     (is (thrown? #?(:clj Exception
@@ -60,7 +59,7 @@
     (let [stream (dao.stream.ringbuffer/make-ring-buffer-stream nil 3)]
       (is (= :daostream/gap (ds/next stream {:position 2})))
       (is (= :blocked (ds/next stream {:position 3})))
-      (is (= :ok (:result (ds/put! stream :value))))
+      (is (= :ok (:result (ds/append! stream :value))))
       (is (= {:ok :value, :cursor {:position 4}}
              (ds/next stream {:position 3}))))))
 
@@ -75,8 +74,8 @@
 (deftest put-take-test
   (testing "put! / take! round trip with length tracking"
     (let [s (make-stream)]
-      (is (= :ok (:result (ds/put! s :a))))
-      (is (= :ok (:result (ds/put! s :b))))
+      (is (= :ok (:result (ds/append! s :a))))
+      (is (= :ok (:result (ds/append! s :b))))
       (is (= 2 (count s)))
       (is (= :a (:ok (ds/drain-one! s))))
       (is (= 1 (count s)))
@@ -87,8 +86,8 @@
 (deftest cursor-next-test
   (testing "next is non-destructive, cursor position advances"
     (let [s (make-stream)
-          _ (ds/put! s :a)
-          _ (ds/put! s :b)
+          _ (ds/append! s :a)
+          _ (ds/append! s :b)
           r1 (ds/next s {:position 0})]
       (is (= :a (:ok r1)))
       (is (= {:position 1} (:cursor r1)))
@@ -104,7 +103,7 @@
       (is (= :end (ds/next s {:position 0})))))
   (testing "next on closed stream with data returns data then :end"
     (let [s (make-stream)]
-      (ds/put! s :x)
+      (ds/append! s :x)
       (ds/close! s)
       (let [r1 (ds/next s {:position 0})]
         (is (= :x (:ok r1)))
@@ -123,7 +122,7 @@
       (is (thrown? #?(:clj Exception
                       :cljs js/Error
                       :cljd Object)
-            (ds/put! s 42)))))
+            (ds/append! s 42)))))
   (testing "take! returns :end on closed empty stream"
     (let [s (make-stream)]
       (ds/close! s)
@@ -134,9 +133,9 @@
   (testing "length tracks puts and takes"
     (let [s (make-stream)]
       (is (= 0 (count s)))
-      (ds/put! s :a)
+      (ds/append! s :a)
       (is (= 1 (count s)))
-      (ds/put! s :b)
+      (ds/append! s :b)
       (is (= 2 (count s)))
       (ds/drain-one! s)
       (is (= 1 (count s)))
@@ -147,8 +146,8 @@
 (deftest gap-test
   (testing "cursor behind head returns :daostream/gap after take!"
     (let [s (make-stream)]
-      (ds/put! s :a)
-      (ds/put! s :b)
+      (ds/append! s :a)
+      (ds/append! s :b)
       (ds/drain-one! s)
       (is (= :daostream/gap (ds/next s {:position 0}))
           "Cursor at pos 0 with head at 1 should return gap")
@@ -158,9 +157,9 @@
 (deftest independent-cursors-test
   (testing "Two cursors advance independently"
     (let [s (make-stream)]
-      (ds/put! s :a)
-      (ds/put! s :b)
-      (ds/put! s :c)
+      (ds/append! s :a)
+      (ds/append! s :b)
+      (ds/append! s :c)
       (let [c1 {:position 0}
             c2 {:position 0}
             r1a (ds/next s c1)
@@ -177,8 +176,8 @@
   (testing
     "->seq produces a lazy seq of available values without mutating the stream"
     (let [s (make-stream)
-          _ (ds/put! s :alpha)
-          _ (ds/put! s :beta)
+          _ (ds/append! s :alpha)
+          _ (ds/append! s :beta)
           values (vec (ds/->seq nil s))]
       (is (= [:alpha :beta] values))
       (is (= 2 (count s)) "Calling next via ->seq must not consume values"))))
@@ -187,20 +186,20 @@
 (deftest capacity-test
   (testing "put! returns :full at capacity, :ok after take! frees space"
     (let [s (make-stream 2)]
-      (is (= :ok (:result (ds/put! s :a))))
-      (is (= :ok (:result (ds/put! s :b))))
-      (is (= :full (:result (ds/put! s :c))))
+      (is (= :ok (:result (ds/append! s :a))))
+      (is (= :ok (:result (ds/append! s :b))))
+      (is (= :full (:result (ds/append! s :c))))
       (ds/drain-one! s)
-      (is (= :ok (:result (ds/put! s :c)))))))
+      (is (= :ok (:result (ds/append! s :c)))))))
 
 
 (deftest eviction-policy-evict-oldest-test
   (testing ":evict-oldest keeps accepting writes and advances head"
     (let [s (ds/open!
               {:type :ringbuffer, :capacity 2, :eviction-policy :evict-oldest})]
-      (is (= :ok (:result (ds/put! s :a))))
-      (is (= :ok (:result (ds/put! s :b))))
-      (is (= :ok (:result (ds/put! s :c))))
+      (is (= :ok (:result (ds/append! s :a))))
+      (is (= :ok (:result (ds/append! s :b))))
+      (is (= :ok (:result (ds/append! s :c))))
       (is (= 2 (count s)))
       (is (= :daostream/gap (ds/next s {:position 0})))
       (is (= :b (:ok (ds/next s {:position 1}))))
@@ -245,8 +244,8 @@
   (testing "A stream sent through another stream arrives intact"
     (let [s1 (make-stream)
           s2 (make-stream)
-          _ (ds/put! s2 :payload)
-          _ (ds/put! s1 s2)
+          _ (ds/append! s2 :payload)
+          _ (ds/append! s1 s2)
           r1 (ds/next s1 {:position 0})
           recovered-s2 (:ok r1)]
       (is (some? recovered-s2) "Recovered value should be a stream")
@@ -260,7 +259,7 @@
   (testing "A descriptor map sent through a stream arrives intact"
     (let [s1 (make-stream)
           descriptor {:capacity 5, :closed false}
-          _ (ds/put! s1 descriptor)
+          _ (ds/append! s1 descriptor)
           r1 (ds/next s1 {:position 0})]
       (is (= descriptor (:ok r1))
           "Descriptor passes through a stream unchanged"))))
@@ -273,11 +272,11 @@
 (deftest nil-value-round-trip-test
   (testing "nil is a valid value for put!/take!"
     (let [s (make-stream)]
-      (is (= :ok (:result (ds/put! s nil))))
+      (is (= :ok (:result (ds/append! s nil))))
       (is (= nil (:ok (ds/drain-one! s))))))
   (testing "nil is a valid value for put!/next"
     (let [s (make-stream)]
-      (ds/put! s nil)
+      (ds/append! s nil)
       (let [r (ds/next s {:position 0})]
         (is (= {:ok nil, :cursor {:position 1}} r))))))
 
@@ -294,8 +293,8 @@
   (testing
     "take! drains remaining data from a closed stream before returning :end"
     (let [s (make-stream)]
-      (ds/put! s :x)
-      (ds/put! s :y)
+      (ds/append! s :x)
+      (ds/append! s :y)
       (ds/close! s)
       (is (= :x (:ok (ds/drain-one! s))))
       (is (= :y (:ok (ds/drain-one! s))))
@@ -305,8 +304,8 @@
 (deftest memory-reclamation-test
   (testing "take! removes consumed entries from the buffer map"
     (let [s (ds/open! {:type :ringbuffer, :capacity nil})]
-      (ds/put! s :a)
-      (ds/put! s :b)
+      (ds/append! s :a)
+      (ds/append! s :b)
       (ds/drain-one! s)
       (let [state @(ringbuffer-state-atom s)]
         (is (not (contains? (:buffer state) 0))
@@ -318,20 +317,20 @@
 (deftest zero-capacity-test
   (testing "capacity=0 rejects every put!"
     (let [s (ds/open! {:type :ringbuffer, :capacity 0})]
-      (is (= :full (:result (ds/put! s :a))))))
+      (is (= :full (:result (ds/append! s :a))))))
   (testing "capacity=0 with :evict-oldest still rejects every put!"
     (let [s (ds/open!
               {:type :ringbuffer, :capacity 0, :eviction-policy :evict-oldest})]
-      (is (= :full (:result (ds/put! s :a)))))))
+      (is (= :full (:result (ds/append! s :a)))))))
 
 
 (deftest capacity-one-boundary-test
   (testing "capacity=1: full after one put!, freed after take!"
     (let [s (ds/open! {:type :ringbuffer, :capacity 1})]
-      (is (= :ok (:result (ds/put! s :a))))
-      (is (= :full (:result (ds/put! s :b))))
+      (is (= :ok (:result (ds/append! s :a))))
+      (is (= :full (:result (ds/append! s :b))))
       (is (= :a (:ok (ds/drain-one! s))))
-      (is (= :ok (:result (ds/put! s :b))))
+      (is (= :ok (:result (ds/append! s :b))))
       (is (= :b (:ok (ds/drain-one! s)))))))
 
 
@@ -339,9 +338,9 @@
   (testing
     "absolute indices advance monotonically across multiple put!/take! cycles"
     (let [s (ds/open! {:type :ringbuffer, :capacity nil})]
-      (ds/put! s :a)
+      (ds/append! s :a)
       (ds/drain-one! s)
-      (ds/put! s :b)
+      (ds/append! s :b)
       (let [state @(ringbuffer-state-atom s)]
         (is (= 1 (:head state)) "head should be 1 after one take!")
         (is (= 2 (:tail state)) "tail should be 2 after two puts!"))
@@ -351,11 +350,11 @@
 (deftest next-beyond-tail-test
   (testing "next with position beyond tail returns :blocked on open stream"
     (let [s (make-stream)]
-      (ds/put! s :a)
+      (ds/append! s :a)
       (is (= :blocked (ds/next s {:position 99})))))
   (testing "next with position beyond tail returns :end on closed stream"
     (let [s (make-stream)]
-      (ds/put! s :a)
+      (ds/append! s :a)
       (ds/close! s)
       (is (= :end (ds/next s {:position 99}))))))
 
@@ -364,8 +363,8 @@
   (testing
     "->seq starting at 0 returns empty when head > 0 (cursor behind head)"
     (let [s (make-stream)]
-      (ds/put! s :a)
-      (ds/put! s :b)
+      (ds/append! s :a)
+      (ds/append! s :b)
       (ds/drain-one! s)
       ;; head is now 1; ->seq starts cursor at 0 which is a gap
       (is (= [] (vec (ds/->seq nil s)))))))
@@ -374,22 +373,22 @@
 (deftest open-descriptor-capacity-test
   (testing "open! with :capacity propagates to ringbuffer transport"
     (let [s (ds/open! {:type :ringbuffer, :mode :create, :capacity 3})]
-      (is (= :ok (:result (ds/put! s 1))))
-      (is (= :ok (:result (ds/put! s 2))))
-      (is (= :ok (:result (ds/put! s 3))))
-      (is (= :full (:result (ds/put! s 4))))))
+      (is (= :ok (:result (ds/append! s 1))))
+      (is (= :ok (:result (ds/append! s 2))))
+      (is (= :ok (:result (ds/append! s 3))))
+      (is (= :full (:result (ds/append! s 4))))))
   (testing "open! with :eviction-policy propagates to ringbuffer transport"
     (let [s (ds/open! {:type :ringbuffer,
                        :mode :create,
                        :capacity 2,
                        :eviction-policy :evict-oldest})]
-      (is (= :ok (:result (ds/put! s 1))))
-      (is (= :ok (:result (ds/put! s 2))))
-      (is (= :ok (:result (ds/put! s 3))))
+      (is (= :ok (:result (ds/append! s 1))))
+      (is (= :ok (:result (ds/append! s 2))))
+      (is (= :ok (:result (ds/append! s 3))))
       (is (= :daostream/gap (ds/next s {:position 0})))))
   (testing "open! with nil :capacity is unbounded"
     (let [s (ds/open! {:type :ringbuffer, :mode :create, :capacity nil})]
-      (dotimes [i 1000] (ds/put! s i))
+      (dotimes [i 1000] (ds/append! s i))
       (is (= 1000 (count s))))))
 
 
@@ -401,9 +400,9 @@
   (testing "drain-one! wakes a registered writer-waiter and writes its datom"
     (let [s (ds/open! {:type :ringbuffer, :capacity 1})]
       ;; Fill the stream
-      (is (= :ok (:result (ds/put! s :value1))))
+      (is (= :ok (:result (ds/append! s :value1))))
       ;; Try to put another but it's full
-      (is (= :full (:result (ds/put! s :value2))))
+      (is (= :full (:result (ds/append! s :value2))))
       ;; Register a writer-waiter with a datom
       (ds/register-writer-waiter!
         s
@@ -424,7 +423,7 @@
 (deftest drain-one-no-writer-waiters-test
   (testing "drain-one! returns empty :woke when no writers are registered"
     (let [s (ds/open! {:type :ringbuffer, :capacity nil})]
-      (ds/put! s :x)
+      (ds/append! s :x)
       (let [result (ds/drain-one! s)]
         (is (= :x (:ok result)))
         (is (= [] (:woke result)))))))
@@ -454,7 +453,7 @@
   (testing
     "close! resolves parked writers without letting drain-one! append them later"
     (let [s (ds/open! {:type :ringbuffer, :capacity 1})]
-      (is (= :ok (:result (ds/put! s :value1))))
+      (is (= :ok (:result (ds/append! s :value1))))
       (ds/register-writer-waiter!
         s
         {:reason :put, :datom :value2, :k {:type :write}})
@@ -477,9 +476,9 @@
   (testing "RingBufferStream supports clojure.core/count"
     (let [s (make-stream)]
       (is (= 0 (count s)) "Empty stream has count 0")
-      (ds/put! s :a)
+      (ds/append! s :a)
       (is (= 1 (count s)) "Stream with 1 item has count 1")
-      (ds/put! s :b)
+      (ds/append! s :b)
       (is (= 2 (count s)) "Stream with 2 items has count 2")
       (ds/drain-one! s)
       (is (= 1 (count s)) "After draining 1, count is 1")
@@ -492,7 +491,7 @@
      (do
        (testing "take!! returns a value already at the stream head"
          (let [s (make-stream)]
-           (ds/put! s :present)
+           (ds/append! s :present)
            (is (= :present (ds/take!! s)))))
        (testing "take!! returns nil when the stream closes without a value"
          (let [s (make-stream)]
@@ -500,13 +499,13 @@
            (is (nil? (ds/take!! s)))))
        (testing "take!! blocks until a value is delivered from another thread"
          (let [s (make-stream)
-               writer (future (Thread/sleep 50) (ds/put! s :delayed))]
+               writer (future (Thread/sleep 50) (ds/append! s :delayed))]
            (is (= :delayed (ds/take!! s)))
            @writer))
        (testing "take!! throws when the head position has been evicted (gap)"
          (let [s (ds/open! {:type :ringbuffer,
                             :capacity 1,
                             :eviction-policy :evict-oldest})]
-           (ds/put! s :a)
-           (ds/put! s :b)
+           (ds/append! s :a)
+           (ds/append! s :b)
            (is (thrown? Exception (ds/take!! s))))))))

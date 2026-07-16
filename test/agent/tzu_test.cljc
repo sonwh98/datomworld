@@ -10,7 +10,7 @@
 #?(:clj (defn- response-stream
           [resp]
           (doto (ds/open! {:type :ringbuffer, :capacity 1})
-            (ds/put! resp)
+            (ds/append! resp)
             ds/close!)))
 
 
@@ -187,7 +187,7 @@
    (deftest run-agent-reads-from-stream-test
      (testing "agent reads from stream when LLM requests stream_read"
        (let [s (doto (ds/open! {:type :ringbuffer, :capacity 5})
-                 (ds/put! :hello))
+                 (ds/append! :hello))
              registry {"input" s}
              call-count (atom 0)]
          (with-redefs
@@ -265,9 +265,9 @@
             ds/open! (fn [desc]
                        (if (= :http (:type desc))
                          (doto (orig-open {:type :ringbuffer, :capacity 1})
-                           (ds/put! {:status 200,
-                                     :body "example page content",
-                                     :headers {}})
+                           (ds/append! {:status 200,
+                                        :body "example page content",
+                                        :headers {}})
                            ds/close!)
                          (orig-open desc)))]
            (let [result

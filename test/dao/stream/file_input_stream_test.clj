@@ -1,9 +1,8 @@
 (ns dao.stream.file-input-stream-test
-  (:require
-    [clojure.java.io :as io]
-    [clojure.test :refer [deftest is testing]]
-    [dao.stream :as ds]
-    [dao.stream.file-input-stream]))
+  (:require [clojure.java.io :as io]
+            [clojure.test :refer [deftest is testing]]
+            [dao.stream :as ds]
+            [dao.stream.file-input-stream]))
 
 
 (defn- bytes->vec
@@ -13,8 +12,7 @@
 
 (defn- write-bytes!
   [path data]
-  (with-open [out (io/output-stream path)]
-    (.write out ^bytes data)))
+  (with-open [out (io/output-stream path)] (.write out ^bytes data)))
 
 
 (deftest file-input-stream-reads-snapshot-in-order-test
@@ -22,9 +20,8 @@
         path (.getAbsolutePath temp-file)]
     (.deleteOnExit temp-file)
     (write-bytes! path (byte-array (range 10)))
-    (let [stream (ds/open! {:type :file-input-stream
-                            :path path
-                            :chunk-size 4})]
+    (let [stream (ds/open!
+                   {:type :file-input-stream, :path path, :chunk-size 4})]
       (testing "chunks are returned in order and rereads are non-destructive"
         (let [r0 (ds/next stream {:position 0})
               r1 (ds/next stream {:position 1})
@@ -35,11 +32,8 @@
           (is (= [8 9] (bytes->vec (:ok r2))))
           (is (= [0 1 2 3] (bytes->vec (:ok r0-again))))
           (is (= :end (ds/next stream {:position 3})))))
-
       (testing "put! is unsupported"
-        (is (thrown? Exception
-              (ds/put! stream (byte-array [1 2 3])))))
-
+        (is (thrown? Exception (ds/append! stream (byte-array [1 2 3])))))
       (testing "close! marks stream closed but does not erase unread data"
         (is (false? (ds/closed? stream)))
         (ds/close! stream)
@@ -54,9 +48,8 @@
         path (.getAbsolutePath temp-file)]
     (.deleteOnExit temp-file)
     (write-bytes! path (byte-array [10 20 30 40]))
-    (let [stream (ds/open! {:type :file-input-stream
-                            :path path
-                            :chunk-size 4})]
+    (let [stream (ds/open!
+                   {:type :file-input-stream, :path path, :chunk-size 4})]
       (write-bytes! path (byte-array [99 99 99 99]))
       (is (= [10 20 30 40] (bytes->vec (:ok (ds/next stream {:position 0}))))
           "snapshot bytes are unaffected by post-open file mutation")
@@ -68,7 +61,6 @@
         path (.getAbsolutePath temp-file)]
     (.deleteOnExit temp-file)
     (write-bytes! path (byte-array 0))
-    (let [stream (ds/open! {:type :file-input-stream
-                            :path path})]
+    (let [stream (ds/open! {:type :file-input-stream, :path path})]
       (is (= :end (ds/next stream {:position 0})))
       (ds/close! stream))))

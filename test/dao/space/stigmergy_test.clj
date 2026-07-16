@@ -1,5 +1,5 @@
 (ns dao.space.stigmergy-test
-  "Agents collaborating by stigmergy over dao.space: every write is ds/put!
+  "Agents collaborating by stigmergy over dao.space: every write is ds/append!
   on the agent's own :dao-stream, every read is query/q or query/match.
   There is no coordinator and no stigmergy API — the conventions (self-stamped
   provenance, wall-clock t, claim leases, the [t agent] winner rule) are
@@ -73,7 +73,8 @@
 ;; ---------------------------------------------------------------------------
 ;; Agent-side write convention (test code, not API): fresh UUID entity id,
 ;; :dao/agent self-stamp, wall-clock t in the datom t slot, and
-;; :claim/expires = t + lease-ms on claims. The write itself is only ds/put!.
+;; :claim/expires = t + lease-ms on claims. The write itself is only
+;; ds/append!.
 ;; ---------------------------------------------------------------------------
 
 (defn- entity-datoms
@@ -93,7 +94,7 @@
   ([log agent-id entity] (put-entity! log agent-id entity {}))
   ([log agent-id entity opts]
    (let [{:keys [datoms], :as stamped} (entity-datoms agent-id entity opts)]
-     (run! #(ds/put! log %) datoms)
+     (run! #(ds/append! log %) datoms)
      (select-keys stamped [:e :t]))))
 
 
@@ -274,9 +275,9 @@
                   (current-state resolution through the stream write path)"
           ;; the retraction carries a wall-clock t after the claim's, per
           ;; the convention — current-state resolution orders by t
-          (ds/put! worker
-                   [claim :claim/task task (inc claim-t)
-                    (:db/retract datom/reserved)])
+          (ds/append! worker
+                      [claim :claim/task task (inc claim-t)
+                       (:db/retract datom/reserved)])
           (is (contains? (into #{} (map first) (available remote now))
                          task)))))))
 

@@ -468,7 +468,7 @@ Test cases:
 - Prefilled input stream: `await/<!` returns the first value.
 - Output write: `await/>!` appends to the output stream.
 - Sequencing: a go body can read, transform, write, and return the final value.
-- Empty read: the VM blocks, then resumes after `ds/put!` writes a value.
+- Empty read: the VM blocks, then resumes after `ds/append!` writes a value.
 - Full write: the VM blocks, then resumes after `ds/drain-one!` frees space.
 - Closed stream behavior follows the existing `:stream/next` and `:stream/put`
   contracts without await-specific translation.

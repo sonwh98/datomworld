@@ -791,7 +791,7 @@
               ;; Emit request to call-in stream
               call-in (get-in parked [:store vm/call-in-stream-key])
               request (dao.stream.apply/request parked-id op args)
-              _ (ds/put! call-in request)]
+              _ (ds/append! call-in request)]
           (assoc (telemetry/emit-snapshot parked :bridge {:bridge-op op})
                  :value :yin/blocked
                  :blocked? true

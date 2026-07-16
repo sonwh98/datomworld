@@ -1,6 +1,5 @@
 (ns dao.postgraphics.terminal
-  (:require
-    [dao.stream :as ds]))
+  (:require [dao.stream :as ds]))
 
 
 (defn new-generation-id
@@ -14,7 +13,7 @@
 
 (defn emit-signal!
   [signal-stream signal]
-  (when signal-stream (ds/put! signal-stream signal)))
+  (when signal-stream (ds/append! signal-stream signal)))
 
 
 (defn rejection-reason
@@ -48,7 +47,7 @@
 
 (defn put-frame!
   [frame-stream frame]
-  (let [{:keys [result woke]} (ds/put! frame-stream frame)]
+  (let [{:keys [result woke]} (ds/append! frame-stream frame)]
     (doseq [{:keys [entry value position]} woke]
       (let [ready (assoc entry
                          :value value

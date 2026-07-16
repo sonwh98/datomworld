@@ -278,8 +278,8 @@ DaoStream works as a pure message bus or event log without any VM, continuation,
 (def queue (dao.stream/open! {:type :ringbuffer :capacity 1000}))
 
 ;; Producer: append messages
-(dao.stream/put! queue {:id 1 :msg "hello"})
-(dao.stream/put! queue {:id 2 :msg "world"})
+(dao.stream/append! queue {:id 1 :msg "hello"})
+(dao.stream/append! queue {:id 2 :msg "world"})
 
 ;; Consumer: read from position 0 onwards
 (let [pos {:position 0}]
@@ -299,8 +299,8 @@ DaoStream works as a pure message bus or event log without any VM, continuation,
 (def events (dao.stream/open! {:type :ringbuffer}))
 
 ;; Append events
-(dao.stream/put! events {:type :user-created :id 42 :name "Alice"})
-(dao.stream/put! events {:type :user-updated :id 42 :email "alice@example.com"})
+(dao.stream/append! events {:type :user-created :id 42 :name "Alice"})
+(dao.stream/append! events {:type :user-updated :id 42 :email "alice@example.com"})
 
 ;; Reader 1: replays all events to build current state
 (def reader-1 {:position 0})
@@ -321,7 +321,7 @@ DaoStream works as a pure message bus or event log without any VM, continuation,
 (def response-stream (dao.stream/open! {:type :ringbuffer}))
 
 ;; Client: emit request
-(dao.stream/put! request-stream
+(dao.stream/append! request-stream
   {:id "req-1" :op :multiply :args [6 7]})
 
 ;; Handler: reads requests, writes responses (runs in different thread/process)
@@ -331,7 +331,7 @@ DaoStream works as a pure message bus or event log without any VM, continuation,
       (when (map? result)
         (let [{:keys [id op args]} (:ok result)
               res (apply {:multiply *} (assoc {} :* (fn [a b] (* a b))) args)]
-          (dao.stream/put! response-stream
+          (dao.stream/append! response-stream
             {:id id :value res})
           (recur (:cursor result)))))))
 

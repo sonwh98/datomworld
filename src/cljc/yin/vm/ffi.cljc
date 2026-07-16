@@ -8,12 +8,11 @@
    Construct VMs with {:bridge handlers} and use ordinary vm/run or vm/eval.
    This namespace provides the normalization and stepping logic those VM
    implementations delegate to."
-  (:require
-    [dao.stream :as ds]
-    [dao.stream.apply :as dao.stream.apply]
-    [yin.vm :as vm]
-    [yin.vm.engine :as engine]
-    [yin.vm.telemetry :as telemetry]))
+  (:require [dao.stream :as ds]
+            [dao.stream.apply :as dao.stream.apply]
+            [yin.vm :as vm]
+            [yin.vm.engine :as engine]
+            [yin.vm.telemetry :as telemetry]))
 
 
 (defn normalize
@@ -108,7 +107,7 @@
             result (dispatch-call handlers request-op request-args)
             call-out (get store-data vm/call-out-stream-key)
             response (dao.stream.apply/response request-id result)
-            put-result (ds/put! call-out response)
+            put-result (ds/append! call-out response)
             woke (:woke put-result)
             entries (if (seq woke)
                       (engine/make-woken-run-queue-entries vm woke)

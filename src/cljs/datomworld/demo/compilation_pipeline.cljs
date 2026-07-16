@@ -547,7 +547,7 @@
         queued-state (assoc vm-state
                             :in-stream in-stream
                             :in-cursor {:position 0})]
-    (doseq [tx txns] (ds/put! in-stream (vec tx)))
+    (doseq [tx txns] (ds/append! in-stream (vec tx)))
     (assoc queued-state :halted? false)))
 
 

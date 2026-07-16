@@ -1,6 +1,5 @@
 (ns dao.runtime
-  (:require
-    [dao.stream :as ds]))
+  (:require [dao.stream :as ds]))
 
 
 ;; =============================================================================
@@ -120,7 +119,7 @@
                                     (assoc entry
                                            :value nil
                                            :status :end)))
-                       (let [result (ds/put! stream (:datom entry))]
+                       (let [result (ds/append! stream (:datom entry))]
                          (if (= :full (:result result))
                            (recur rest-entries (conj new-wait entry) new-ready)
                            (let [woken (make-ready-entries (:woke result) :ok)]
@@ -167,11 +166,11 @@
 
 
 (defn handle-write
-  "Attempt a ds/put!. If full, park the task.
+  "Attempt a ds/append!. If full, park the task.
    Returns {:state updated-rt :result result-tag :value v}."
   ([rt stream val] (handle-write rt stream val nil))
   ([rt stream val task]
-   (let [result (ds/put! stream val)]
+   (let [result (ds/append! stream val)]
      (if (= :full (:result result))
        (if task
          (let [entry {:task task,

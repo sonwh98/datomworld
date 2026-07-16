@@ -1,14 +1,13 @@
 (ns dao.test-utils
-  (:require
-    [dao.stream :as ds]))
+  (:require [dao.stream :as ds]))
 
 
 (defrecord NonWaitableStream
   [state-atom]
   ;; A mock stream that simulates a polled (non-waitable) transport.
-  ;; Returns :blocked from ds/next and :full from ds/put! when appropriate,
-  ;; but never registers waiters or provides wakeups. Used to verify that
-  ;; runtime schedulers correctly fall back to polling.
+  ;; Returns :blocked from ds/next and :full from ds/append! when
+  ;; appropriate, but never registers waiters or provides wakeups. Used to
+  ;; verify that runtime schedulers correctly fall back to polling.
   ds/IDaoStreamReader
 
   (next
@@ -22,7 +21,7 @@
 
   ds/IDaoStreamWriter
 
-  (put!
+  (append!
     [_this val]
     (let [s @state-atom
           tail (:tail s)]

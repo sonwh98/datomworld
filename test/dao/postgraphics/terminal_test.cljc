@@ -1,9 +1,8 @@
 (ns dao.postgraphics.terminal-test
-  (:require
-    [clojure.test :refer [deftest is]]
-    [dao.postgraphics.terminal :as term]
-    [dao.stream :as ds]
-    [dao.stream.ringbuffer]))
+  (:require [clojure.test :refer [deftest is]]
+            [dao.postgraphics.terminal :as term]
+            [dao.stream :as ds]
+            [dao.stream.ringbuffer]))
 
 
 (defn- make-stream
@@ -63,8 +62,8 @@
   (let [frames (make-stream 1 :evict-oldest)
         accepted (atom [])
         signals (make-stream)]
-    (ds/put! frames [:frame/evicted])
-    (ds/put! frames [:frame/presented])
+    (ds/append! frames [:frame/evicted])
+    (ds/append! frames [:frame/presented])
     (term/bind-stream! frames
                        (merge (validating-presenter accepted)
                               {:signal-stream signals,

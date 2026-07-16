@@ -142,7 +142,7 @@
         call-in (get-in parked [:store vm/call-in-stream-key])
         ;; 5. Build and emit request
         request (dao.stream.apply/request parked-id op args)
-        _ (ds/put! call-in request)]
+        _ (ds/append! call-in request)]
     ;; 6. Return blocked state
     (assoc (telemetry/emit-snapshot parked :bridge {:bridge-op op})
            :control nil

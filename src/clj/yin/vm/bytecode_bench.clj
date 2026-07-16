@@ -1,14 +1,13 @@
 (ns yin.vm.bytecode-bench
-  (:require
-    [clojure.string :as str]
-    [criterium.core :as criterium]
-    [dao.stream :as ds]
-    [dao.stream.ringbuffer]
-    [yin.vm :as vm]
-    [yin.vm.ast-walker :as ast-walker]
-    [yin.vm.register :as register]
-    [yin.vm.semantic :as semantic]
-    [yin.vm.stack :as stack]))
+  (:require [clojure.string :as str]
+            [criterium.core :as criterium]
+            [dao.stream :as ds]
+            [dao.stream.ringbuffer]
+            [yin.vm :as vm]
+            [yin.vm.ast-walker :as ast-walker]
+            [yin.vm.register :as register]
+            [yin.vm.semantic :as semantic]
+            [yin.vm.stack :as stack]))
 
 
 (def ^:private opcode->name
@@ -17,14 +16,12 @@
 
 (defn- parse-arg-long
   [s default]
-  (if (some? s)
-    (Long/parseLong s)
-    default))
+  (if (some? s) (Long/parseLong s) default))
 
 
 (defn- parse-opts
   [args]
-  (reduce (fn [{:keys [n] :as opts} arg]
+  (reduce (fn [{:keys [n], :as opts} arg]
             (case arg
               "--fast-only" (assoc opts :fast-only? true)
               "--register-only" (assoc opts :register-only? true)
@@ -33,12 +30,12 @@
               "--ast-walker" (assoc opts :ast-walker? true)
               "--ast-walker-only" (assoc opts :ast-walker-only? true)
               (assoc opts :n (parse-arg-long arg n))))
-          {:n 1000
-           :fast-only? false
-           :register-only? false
-           :stack-only? false
-           :semantic-only? false
-           :ast-walker? false
+          {:n 1000,
+           :fast-only? false,
+           :register-only? false,
+           :stack-only? false,
+           :semantic-only? false,
+           :ast-walker? false,
            :ast-walker-only? false}
           args))
 
@@ -53,17 +50,15 @@
                                :operands [{:type :variable, :name 'n}
                                           {:type :literal, :value 1}]},
                         :consequent {:type :literal, :value 0},
-                        :alternate {:type :application,
-                                    :operator {:type :variable, :name 'self},
-                                    :operands [{:type :variable, :name 'self}
-                                               {:type :application,
-                                                :operator {:type :variable,
-                                                           :name '-},
-                                                :operands [{:type :variable,
-                                                            :name 'n}
-                                                           {:type :literal,
-                                                            :value 1}]}],
-                                    :tail? true},
+                        :alternate
+                        {:type :application,
+                         :operator {:type :variable, :name 'self},
+                         :operands [{:type :variable, :name 'self}
+                                    {:type :application,
+                                     :operator {:type :variable, :name '-},
+                                     :operands [{:type :variable, :name 'n}
+                                                {:type :literal, :value 1}]}],
+                         :tail? true},
                         :tail? true}}]
     {:type :application,
      :operator self-fn,
@@ -83,8 +78,7 @@
               op-name (get opcode->name op op)]
           (swap! counts update op-name (fnil inc 0))
           (recur (vm/step v)))
-        {:final-vm v
-         :opcode-counts @counts}))))
+        {:final-vm v, :opcode-counts @counts}))))
 
 
 (defn- run-slow
@@ -97,10 +91,11 @@
 
 (defn- queue-vm
   [vm-state datoms]
-  (let [in-stream (ds/open! {:type :ringbuffer
-                             :capacity nil})
-        queued-vm (assoc vm-state :in-stream in-stream :in-cursor {:position 0})]
-    (ds/put! in-stream (vec datoms))
+  (let [in-stream (ds/open! {:type :ringbuffer, :capacity nil})
+        queued-vm (assoc vm-state
+                         :in-stream in-stream
+                         :in-cursor {:position 0})]
+    (ds/append! in-stream (vec datoms))
     queued-vm))
 
 
@@ -128,8 +123,7 @@
         (let [node-type (get (vm/control v) :type :no-control)]
           (swap! counts update node-type (fnil inc 0))
           (recur (vm/step v)))
-        {:final-vm v
-         :step-counts @counts}))))
+        {:final-vm v, :step-counts @counts}))))
 
 
 (defn- bench-stepping-vm
@@ -152,7 +146,6 @@
 (defn- bench-bytecode-vm
   [vm-name program {:keys [fast-only?]}]
   (println (str "\n=== " vm-name " ==="))
-
   (when-not fast-only?
     ;; 1. Identify Hot Paths (Slow Path Analysis)
     (println "Analyzing hot paths (slow path)...")
@@ -163,7 +156,6 @@
     ;; 2. Slow Path Benchmarking
     (println "\nMeasuring SLOW path (Criterium quick-bench)...")
     (criterium/quick-bench (run-slow program)))
-
   ;; 3. Fast Path Benchmarking
   (println (if fast-only?
              "Measuring FAST path only (Criterium quick-bench)..."
@@ -174,7 +166,9 @@
 (defn -main
   [& args]
   (let [{:keys [n fast-only? register-only? stack-only? semantic-only?
-                ast-walker? ast-walker-only?] :as opts} (parse-opts args)
+                ast-walker? ast-walker-only?],
+         :as opts}
+        (parse-opts args)
         exclusive-flags (cond-> []
                           register-only? (conj "--register-only")
                           stack-only? (conj "--stack-only")
@@ -183,25 +177,30 @@
     (when (> (count exclusive-flags) 1)
       (throw (ex-info (str "Cannot combine " (str/join " and " exclusive-flags))
                       {:args args})))
-    (let [run-ast-walker? (or ast-walker-only? ast-walker?
-                              (and (not register-only?) (not stack-only?)
-                                   (not semantic-only?) (not ast-walker-only?)))
+    (let [run-ast-walker? (or ast-walker-only?
+                              ast-walker?
+                              (and (not register-only?)
+                                   (not stack-only?)
+                                   (not semantic-only?)
+                                   (not ast-walker-only?)))
           run-semantic? (or semantic-only?
-                            (and (not register-only?) (not stack-only?)
+                            (and (not register-only?)
+                                 (not stack-only?)
                                  (not ast-walker-only?)))
           run-register? (or register-only?
-                            (and (not stack-only?) (not semantic-only?)
+                            (and (not stack-only?)
+                                 (not semantic-only?)
                                  (not ast-walker-only?)))
           run-stack? (or stack-only?
-                         (and (not register-only?) (not semantic-only?)
+                         (and (not register-only?)
+                              (not semantic-only?)
                               (not ast-walker-only?)))
           ast (tail-countdown-ast n)
-          mode-str (cond
-                     ast-walker-only? "ast-walker-only"
-                     register-only? "register-only"
-                     stack-only? "stack-only"
-                     semantic-only? "semantic-only"
-                     :else "all")]
+          mode-str (cond ast-walker-only? "ast-walker-only"
+                         register-only? "register-only"
+                         stack-only? "stack-only"
+                         semantic-only? "semantic-only"
+                         :else "all")]
       (println "VM optimization benchmark")
       (println (str "workload: tail-recursive countdown n=" n))
       (println (str "mode: " mode-str (when fast-only? ", fast-only")))

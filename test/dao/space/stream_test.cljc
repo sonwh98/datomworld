@@ -2,7 +2,7 @@
   "Contract tests for the :dao-stream transport (dao.space.stream): a
   dao.stream whose appends persist as datoms into a dao.jing store, per
   docs/design/dao.space.md, The Write Path / Coordination: Stigmergy.
-  Opening attaches a feeding stream to the space; ds/put! deposits datoms
+  Opening attaches a feeding stream to the space; ds/append! deposits datoms
   that query/q over the same store immediately sees."
   (:require [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
@@ -17,7 +17,7 @@
     (let [store (jing/create-kv-mem)
           log (ds/open! {:type :dao-stream, :store store, :name "producer"})]
       (is (= {:result :ok, :woke []}
-             (ds/put!
+             (ds/append!
                log
                {:db/id 100, :work/posted true, :work/task "process payment"})))
       (is (= #{[100 "process payment"]}
@@ -30,14 +30,14 @@
   (testing "a raw [e a v] datom vector is padded and appended"
     (let [store (jing/create-kv-mem)
           log (ds/open! {:type :dao-stream, :store store, :name "w"})]
-      (ds/put! log [1 :work/status :todo])
+      (ds/append! log [1 :work/status :todo])
       (is (= #{[:todo]}
              (query/q '[:find ?v :where [1 :work/status ?v]] store)))))
   (testing "an explicit 5-tuple keeps its m slot — retraction works"
     (let [store (jing/create-kv-mem)
           log (ds/open! {:type :dao-stream, :store store, :name "w"})]
-      (ds/put! log {:db/id 1, :work/status :todo})
-      (ds/put! log [1 :work/status :todo nil 0])
+      (ds/append! log {:db/id 1, :work/status :todo})
+      (ds/append! log [1 :work/status :todo nil 0])
       (is (= #{} (query/q '[:find ?v :where [1 :work/status ?v]] store))))))
 
 
@@ -50,15 +50,15 @@
           worker (ds/open! {:type :dao-stream, :store store, :name "worker-1"})
           unclaimed '[:find ?w ?task :where [?w :work/posted true]
                       [?w :work/task ?task] (not [_ :work/claims ?w])]]
-      (ds/put! producer
-               {:db/id 100, :work/posted true, :work/task "process payment"})
-      (ds/put! producer
-               {:db/id 101, :work/posted true, :work/task "send invoice"})
+      (ds/append! producer
+                  {:db/id 100, :work/posted true, :work/task "process payment"})
+      (ds/append! producer
+                  {:db/id 101, :work/posted true, :work/task "send invoice"})
       (is (= #{[100 "process payment"] [101 "send invoice"]}
              (query/q unclaimed store)))
-      (ds/put! worker {:db/id 200, :work/claims 100, :work/by "worker-1"})
+      (ds/append! worker {:db/id 200, :work/claims 100, :work/by "worker-1"})
       (is (= #{[101 "send invoice"]} (query/q unclaimed store)))
-      (ds/put! worker {:db/id 201, :work/claims 101, :work/by "worker-1"})
+      (ds/append! worker {:db/id 201, :work/claims 101, :work/by "worker-1"})
       (is (= #{} (query/q unclaimed store))))))
 
 
@@ -66,8 +66,8 @@
   (testing "a cursor walks appended datoms in append order"
     (let [store (jing/create-kv-mem)
           log (ds/open! {:type :dao-stream, :store store, :name "w"})]
-      (ds/put! log {:db/id 1, :a 1})
-      (ds/put! log {:db/id 2, :a 2})
+      (ds/append! log {:db/id 1, :a 1})
+      (ds/append! log {:db/id 2, :a 2})
       (let [r1 (ds/next log {:position 0})
             r2 (ds/next log (:cursor r1))]
         (is (= [1 :a 1 0 1] (:ok r1)))
@@ -81,7 +81,7 @@
     (let [store (jing/create-kv-mem)
           a (ds/open! {:type :dao-stream, :store store, :name "a"})
           b (ds/open! {:type :dao-stream, :store store, :name "b"})]
-      (ds/put! a {:db/id 1, :x true})
+      (ds/append! a {:db/id 1, :x true})
       (is (map? (ds/next b {:position 0}))))))
 
 
@@ -96,11 +96,11 @@
                                :cljd Object
                                :default Exception)
                             #"closed"
-            (ds/put! log {:db/id 1, :a 1}))))
+            (ds/append! log {:db/id 1, :a 1}))))
     (testing "closing does not erase deposited datoms"
       (let [store2 (jing/create-kv-mem)
             log2 (ds/open! {:type :dao-stream, :store store2, :name "w"})]
-        (ds/put! log2 {:db/id 1, :a 1})
+        (ds/append! log2 {:db/id 1, :a 1})
         (ds/close! log2)
         (is (= #{[1]} (query/q '[:find ?e :where [?e :a 1]] store2)))))))
 
@@ -119,7 +119,7 @@
                                :cljd Object
                                :default Exception)
                             #":db/id"
-            (ds/put! log {:work/posted true})))))
+            (ds/append! log {:work/posted true})))))
   (testing "a value that is neither entity map nor datom vector throws"
     (let [store (jing/create-kv-mem)
           log (ds/open! {:type :dao-stream, :store store, :name "w"})]
@@ -127,7 +127,7 @@
                                :cljd Object
                                :default Exception)
                             #"entity map or datom"
-            (ds/put! log 42))))))
+            (ds/append! log 42))))))
 
 
 (deftest appends-compose-with-existing-roots
@@ -138,7 +138,7 @@
                  0
                  {:datoms [[1 :work/status :todo 0 1]]})
       (let [log (ds/open! {:type :dao-stream, :store store, :name "w"})]
-        (ds/put! log {:db/id 2, :work/status :todo})
+        (ds/append! log {:db/id 2, :work/status :todo})
         (is (= #{[1] [2]}
                (query/q '[:find ?e :where [?e :work/status :todo]] store))))))
   #?(:clj
@@ -147,7 +147,7 @@
        (let [store (jing/create-kv-mem)]
          (index/publish-index! store [[1 :work/status :todo 0 1]])
          (let [log (ds/open! {:type :dao-stream, :store store, :name "w"})]
-           (ds/put! log {:db/id 2, :work/status :todo})
+           (ds/append! log {:db/id 2, :work/status :todo})
            (is (= #{[1] [2]}
                   (query/q '[:find ?e :where [?e :work/status :todo]]
                            store))))))))

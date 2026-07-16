@@ -27,9 +27,10 @@
             ok
             result (apply (get handlers request-op) (or request-args []))
             call-out (get (vm/store vm) vm/call-out-stream-key)
-            ;; ds/put! on RingBufferStream returns woken entries
-            put-result (ds/put! call-out
-                                (dao.stream.apply/response request-id result))
+            ;; ds/append! on RingBufferStream returns woken entries
+            put-result (ds/append! call-out
+                                   (dao.stream.apply/response request-id
+                                                              result))
             woke (:woke put-result)
             ;; Use engine helper to transform woken entries into run-queue
             ;; entries

@@ -9,7 +9,7 @@
 
   IDaoStreamWriter (canonical write model):
     Append-only writes.
-    (put! [stream val]) → {:result :ok, :woke [...]} | {:result :full} (throws if closed)
+    (append! [stream val]) → {:result :ok, :woke [...]} | {:result :full} (throws if closed)
 
   IDaoStreamBound (lifecycle):
     (close! [stream]) → {:woke [...]}
@@ -48,7 +48,7 @@
 (defprotocol IDaoStreamWriter
   "Append-only writes. No destructive consumption."
 
-  (put!
+  (append!
     [this val]
     "Appends val. Returns :ok if successful, :full if transport is capacity-bounded
      and full. Throws ex-info if stream is closed."))
@@ -78,7 +78,7 @@
 
   (register-writer-waiter!
     [this entry]
-    "Register a writer waiter. Called when ds/put! returns :full to avoid polling.
+    "Register a writer waiter. Called when ds/append! returns :full to avoid polling.
      The entry contains the datom to write; drain-one! will write it and wake the waiter."))
 
 

@@ -1,11 +1,10 @@
 (ns agent.tools-test
-  (:require
-    #?@(:cljd [["dart:io" :as io]]
-        :clj [[clojure.java.io :as io]])
-    [agent.tools :as tools]
-    [clojure.test :refer [deftest is testing]]
-    #?(:clj [dao.stream :as ds])
-    #?(:clj [dao.stream.ringbuffer])))
+  (:require #?@(:cljd [["dart:io" :as io]]
+                :clj [[clojure.java.io :as io]])
+            [agent.tools :as tools]
+            [clojure.test :refer [deftest is testing]]
+            #?(:clj [dao.stream :as ds])
+            #?(:clj [dao.stream.ringbuffer])))
 
 
 ;; =============================================================================
@@ -14,30 +13,30 @@
 
 
 #?(:cljd nil
-   :clj (deftest execute-tool-call-stream-write-test
-          (testing "stream_write tool call invokes ds/put! on the right stream"
-            (let [s (ds/open! {:type :ringbuffer, :capacity 5})
-                  registry {"target" s}
-                  tool-call
-                  {"id" "call_1",
-                   "type" "function",
-                   "function"
-                   {"name" "stream_write",
-                    "arguments"
-                    "{\"stream_id\":\"target\",\"value\":\"42\"}"}}
-                  result (tools/execute-tool-call tool-call registry)]
-              (is (= {"role" "tool", "tool_call_id" "call_1", "content" "ok"}
-                     result))
-              (let [next-result (ds/next s {:position 0})]
-                (is (map? next-result))
-                (is (= 42 (:ok next-result))))))))
+   :clj
+   (deftest execute-tool-call-stream-write-test
+     (testing "stream_write tool call invokes ds/append! on the right stream"
+       (let [s (ds/open! {:type :ringbuffer, :capacity 5})
+             registry {"target" s}
+             tool-call {"id" "call_1",
+                        "type" "function",
+                        "function"
+                        {"name" "stream_write",
+                         "arguments"
+                         "{\"stream_id\":\"target\",\"value\":\"42\"}"}}
+             result (tools/execute-tool-call tool-call registry)]
+         (is (= {"role" "tool", "tool_call_id" "call_1", "content" "ok"}
+                result))
+         (let [next-result (ds/next s {:position 0})]
+           (is (map? next-result))
+           (is (= 42 (:ok next-result))))))))
 
 
 #?(:cljd nil
    :clj (deftest execute-tool-call-stream-read-test
           (testing "stream_read tool call reads from the right stream"
             (let [s (doto (ds/open! {:type :ringbuffer, :capacity 5})
-                      (ds/put! :hello))
+                      (ds/append! :hello))
                   registry {"input" s}
                   tool-call {"id" "call_2",
                              "type" "function",
@@ -129,8 +128,8 @@
             (let [s (doto (ds/open! {:type :ringbuffer,
                                      :capacity 1,
                                      :eviction-policy :evict-oldest})
-                      (ds/put! :a)
-                      (ds/put! :b))
+                      (ds/append! :a)
+                      (ds/append! :b))
                   tool-call {"id" "call_7",
                              "type" "function",
                              "function"
@@ -148,7 +147,7 @@
    :clj (deftest execute-tool-call-stream-write-full-test
           (testing "stream_write on a full stream returns full message"
             (let [s (doto (ds/open! {:type :ringbuffer, :capacity 1})
-                      (ds/put! :a))
+                      (ds/append! :a))
                   tool-call {"id" "call_8",
                              "type" "function",
                              "function"
@@ -219,7 +218,7 @@
                                                     (doto (orig-open
                                                             {:type :ringbuffer,
                                                              :capacity 1})
-                                                      (ds/put! fake-resp)
+                                                      (ds/append! fake-resp)
                                                       ds/close!)
                                                     (orig-open desc)))]
                            (tools/execute-tool-call tool-call {}))]
@@ -255,7 +254,7 @@
                                                 (doto (orig-open
                                                         {:type :ringbuffer,
                                                          :capacity 1})
-                                                  (ds/put! fake-resp)
+                                                  (ds/append! fake-resp)
                                                   ds/close!))
                                             (orig-open desc)))]
                    (tools/execute-tool-call tool-call {}))]
@@ -285,7 +284,7 @@
                                                     (doto (orig-open
                                                             {:type :ringbuffer,
                                                              :capacity 1})
-                                                      (ds/put! fake-resp)
+                                                      (ds/append! fake-resp)
                                                       ds/close!)
                                                     (orig-open desc)))]
                            (tools/execute-tool-call tool-call {}))]

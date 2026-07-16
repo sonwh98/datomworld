@@ -1,11 +1,10 @@
 (ns dao.stream.ws-test
-  (:require
-    [clojure.test :refer [deftest is testing]]
-    [dao.stream :as ds]
-    [dao.stream.link :as link]
-    [dao.stream.ringbuffer]
-    [dao.stream.transit :as transit]
-    [dao.stream.ws]))
+  (:require [clojure.test :refer [deftest is testing]]
+            [dao.stream :as ds]
+            [dao.stream.link :as link]
+            [dao.stream.ringbuffer]
+            [dao.stream.transit :as transit]
+            [dao.stream.ws]))
 
 
 (defn- make-stream
@@ -43,7 +42,7 @@
     "puts made before WebSocket open are emitted when the send function appears"
     (let [stream (dao.stream.ws/make-ws-stream (make-stream))
           sent (atom [])]
-      (ds/put! stream {:type :repl/request, :value "early"})
+      (ds/append! stream {:type :repl/request, :value "early"})
       (dao.stream.ws/on-open! stream #(swap! sent conj (transit/decode %)))
       (is (= [:datom/sync-request :datom/put] (mapv :type @sent)))
       (is (= [{:type :repl/request, :value "early"}] (:datoms (second @sent))))

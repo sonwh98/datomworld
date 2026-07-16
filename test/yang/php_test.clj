@@ -1,20 +1,20 @@
 (ns yang.php-test
-  (:require
-    [clojure.test :refer [deftest is testing]]
-    [dao.stream :as ds]
-    [dao.stream.ringbuffer]
-    [yang.clojure :as clj]
-    [yang.php :as php]
-    [yin.vm :as vm]
-    [yin.vm.ast-walker :as ast-walker]))
+  (:require [clojure.test :refer [deftest is testing]]
+            [dao.stream :as ds]
+            [dao.stream.ringbuffer]
+            [yang.clojure :as clj]
+            [yang.php :as php]
+            [yin.vm :as vm]
+            [yin.vm.ast-walker :as ast-walker]))
 
 
 (defn- queue-vm
   [vm-state datoms]
-  (let [in-stream (ds/open! {:type :ringbuffer
-                             :capacity nil})
-        queued-vm (assoc vm-state :in-stream in-stream :in-cursor {:position 0})]
-    (ds/put! in-stream (vec datoms))
+  (let [in-stream (ds/open! {:type :ringbuffer, :capacity nil})
+        queued-vm (assoc vm-state
+                         :in-stream in-stream
+                         :in-cursor {:position 0})]
+    (ds/append! in-stream (vec datoms))
     queued-vm))
 
 

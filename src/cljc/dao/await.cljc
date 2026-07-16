@@ -19,13 +19,12 @@
 
    await/go is a thin syntax+macro layer. It does not introduce a new
    interpreter, scheduler, or continuation model."
-  (:require
-    [dao.stream :as ds]
-    [yang.clojure :as yang]
-    [yin.module :as module]
-    [yin.vm :as vm]
-    [yin.vm.ast-walker :as ast-walker]
-    [yin.vm.engine :as engine]))
+  (:require [dao.stream :as ds]
+            [yang.clojure :as yang]
+            [yin.module :as module]
+            [yin.vm :as vm]
+            [yin.vm.ast-walker :as ast-walker]
+            [yin.vm.engine :as engine]))
 
 
 ;; =============================================================================
@@ -188,7 +187,7 @@
 
    To resume a blocked result after the host has put data on a waitable
    stream, call (await/resume result {:woke woke}) with the :woke vector
-   returned by ds/put!."
+   returned by ds/append!."
   ([proc] (run proc {}))
   ([proc _opts]
    (let [{:keys [env store-updates]} (prepare-env (:env proc))
@@ -200,7 +199,7 @@
 
 (defn resume
   "Resume a blocked process. The optional :woke argument is the vector of
-   woken entries returned by ds/put! on a waitable stream that the program
+   woken entries returned by ds/append! on a waitable stream that the program
    was parked on. Those entries are spliced into the VM's ready-queue so the
    engine can wake the parked task on the next run pass."
   ([blocked] (resume blocked nil))

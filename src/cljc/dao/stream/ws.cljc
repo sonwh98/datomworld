@@ -50,7 +50,7 @@
 
   ds/IDaoStreamWriter
 
-  (put!
+  (append!
     [_ val]
     ;; :clj's send-fn synchronously blocks on the in-flight send
     ;; (java.net.http's WebSocket throws if a second sendText is issued
@@ -213,11 +213,10 @@
                  ;; Java's WebSocket client delivers a text message in
                  ;; PARTS
                  ;; (onText's last? flag): once cumulative traffic crosses
-                 ;; the
-                 ;; client's internal buffer boundary, a message arrives
-                 ;; split. Parts accumulate here until last? marks the
-                 ;; message complete. Listener callbacks for one connection
-                 ;; are never invoked concurrently, so a plain
+                 ;; the client's internal buffer boundary, a message
+                 ;; arrives split. Parts accumulate here until last? marks
+                 ;; the message complete. Listener callbacks for one
+                 ;; connection are never invoked concurrently, so a plain
                  ;; StringBuilder is safe.
                  text-buf (StringBuilder.)
                  listener

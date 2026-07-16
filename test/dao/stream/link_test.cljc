@@ -1,10 +1,9 @@
 (ns dao.stream.link-test
-  (:require
-    [clojure.test :refer [deftest is testing]]
-    [dao.stream :as ds]
-    [dao.stream.link :as link]
-    [dao.stream.ringbuffer]
-    [dao.stream.transit :as transit]))
+  (:require [clojure.test :refer [deftest is testing]]
+            [dao.stream :as ds]
+            [dao.stream.link :as link]
+            [dao.stream.ringbuffer]
+            [dao.stream.transit :as transit]))
 
 
 ;; =============================================================================
@@ -19,7 +18,7 @@
 (defn- make-stream-with
   [& vals]
   (let [s (make-stream)]
-    (doseq [v vals] (ds/put! s v))
+    (doseq [v vals] (ds/append! s v))
     s))
 
 

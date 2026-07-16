@@ -1,10 +1,9 @@
 (ns dao.runtime.driver-cljs-test
-  (:require
-    [cljs.test :refer-macros [async deftest is testing]]
-    [dao.runtime :as rt]
-    [dao.runtime.driver :as driver]
-    [dao.stream :as ds]
-    [dao.test-utils :as tu]))
+  (:require [cljs.test :refer-macros [async deftest is testing]]
+            [dao.runtime :as rt]
+            [dao.runtime.driver :as driver]
+            [dao.stream :as ds]
+            [dao.test-utils :as tu]))
 
 
 (defn- fake-timeout-handle
@@ -26,7 +25,7 @@
         (driver/set-runtime! parked-state)
         (driver/schedule-work! [])
         (js/setTimeout (fn []
-                         (ds/put! stream :payload)
+                         (ds/append! stream :payload)
                          (js/setTimeout (fn [] (is (= [:payload] @seen)) (done))
                                         20))
                        0)))))

@@ -17,15 +17,12 @@
   ;; ^Class hints on receivers): ClojureDart host-eval reads it and cannot
   ;; resolve JVM types as Dart types. Interop on untyped receivers compiles
   ;; cleanly (same constraint as dao.stream.file-output-stream).
-  (:require
-    #?@(:cljd [["dart:io" :as dart-io] ["dart:async" :as dart-async]
-               ["dart:typed_data" :as typed]]
-        :clj [[clojure.java.io :as io]])
-    [dao.stream :as ds]
-    [dao.stream.ringbuffer])
-  #?(:cljs
-     (:require-macros
-       [dao.stream])))
+  (:require #?@(:cljd [["dart:io" :as dart-io] ["dart:async" :as dart-async]
+                       ["dart:typed_data" :as typed]]
+                :clj [[clojure.java.io :as io]])
+            [dao.stream :as ds]
+            [dao.stream.ringbuffer])
+  #?(:cljs (:require-macros [dao.stream])))
 
 
 ;; =============================================================================
@@ -271,13 +268,13 @@
 
   ds/IDaoStreamWriter
 
-  (put!
+  (append!
     [_this val]
     (when-not (byte-array? val)
       (throw (ex-info "dao.stream.file expects a byte-array value"
                       {:path path})))
     (when-let [e (writer-error writer)] (throw e))
-    (let [result (ds/put! ring val)]
+    (let [result (ds/append! ring val)]
       (when (= :ok (:result result))
         (schedule-write! writer val)
         (swap! puts inc))

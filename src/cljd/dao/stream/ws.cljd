@@ -12,7 +12,7 @@
 
   ds/IDaoStreamWriter
 
-  (put!
+  (append!
     [_ val]
     (let [state @link-state-atom
           [state' msg] (link/local-put state val)]

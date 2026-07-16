@@ -66,7 +66,7 @@
       (try (compare a b)
            (catch #?(:clj ClassCastException
                      :cljs js/Error
-                     :cljd Exception)
+                     :cljd Object)
                   _
              (compare (str a) (str b))))
       (compare ra rb))))

@@ -1,11 +1,10 @@
 (ns yin.vm.test-utils
-  (:require
-    [dao.stream :as ds]
-    [yin.vm :as vm]
-    [yin.vm.ast-walker :as ast-walker]
-    [yin.vm.register :as register]
-    [yin.vm.semantic :as semantic]
-    [yin.vm.stack :as stack]))
+  (:require [dao.stream :as ds]
+            [yin.vm :as vm]
+            [yin.vm.ast-walker :as ast-walker]
+            [yin.vm.register :as register]
+            [yin.vm.semantic :as semantic]
+            [yin.vm.stack :as stack]))
 
 
 (defn vm-factories
@@ -30,7 +29,7 @@
   "Convenience for 'pushing' a program into a VM's ingress stream."
   [vm-state datoms]
   (let [in-stream (ds/open! {:type :ringbuffer, :capacity nil})]
-    (ds/put! in-stream (vec datoms))
+    (ds/append! in-stream (vec datoms))
     (assoc vm-state
            :in-stream in-stream
            :in-cursor {:position 0}
