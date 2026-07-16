@@ -11,8 +11,12 @@
 
   It owns the index *realization* both sides share:
 
-    - the root-manifest convention: `default-datoms-key` (`:root/datoms`)
-      and its two shapes, wholesale `{:datoms [...]}` and owner-built
+    - the root conventions: each stream owns `:root/<name>`, enumerated
+      through the membership root (`members-key`, written at open! by the
+      `:dao-stream` transport, read by `member-keys`; the legacy shared
+      `default-datoms-key` is still read when seeded, never written by
+      the transport). Every datom root carries one of two shapes,
+      wholesale `{:datoms [...]}` or owner-built
       `{:indexes {:eavt <segment-key> :aevt ... :avet ... :vaet ...} :count n}`
     - the sort orders (`eavt-cmp`/`aevt-cmp`/`avet-cmp`/`vaet-cmp` over
       heterogeneous values) and the in-memory index (`index-datoms`)

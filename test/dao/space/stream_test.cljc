@@ -107,7 +107,12 @@
         (is (= #{:root/producer :root/worker-1}
                (:members (jing/get store index/members-key nil)))))
       (testing "a query over the store merges all member roots"
-        (is (= #{[100] [200]} (query/q '[:find ?e :where [?e _ _]] store))))))
+        (is (= #{[100] [200]} (query/q '[:find ?e :where [?e _ _]] store))))
+      (testing "match also folds all member roots"
+        (is (= [[200 :work/claims 100 0 1]]
+               (query/match store ['_ :work/claims '_])))
+        (is (= [[100 :work/posted true 0 1]]
+               (query/match store ['_ :work/posted true]))))))
   (testing "an explicit :key override is honored and registered"
     (let [store (jing/create-kv-mem)
           log
