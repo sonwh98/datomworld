@@ -1,12 +1,11 @@
 (ns dao.runtime.driver-cljd-test
-  (:require
-    #?(:cljd ["dart:async" :as async])
-    #?(:cljd ["dart:core" :as core])
-    [clojure.test :refer [deftest is testing]]
-    [dao.runtime :as rt]
-    [dao.runtime.driver :as driver]
-    [dao.stream :as ds]
-    [dao.test-utils :as tu]))
+  (:require #?(:cljd ["dart:async" :as async])
+            #?(:cljd ["dart:core" :as core])
+            [clojure.test :refer [deftest is testing]]
+            [dao.runtime :as rt]
+            [dao.runtime.driver :as driver]
+            [dao.stream :as ds]
+            [dao.test-utils :as tu]))
 
 
 #?(:cljd
@@ -27,7 +26,7 @@
          (.then ^async/Future
           (async/Future.delayed (core/Duration .milliseconds 0))
                 (fn [_]
-                  (ds/put! stream :payload)
+                  (ds/append! stream :payload)
                   (.then ^async/Future
                    (async/Future.delayed (core/Duration .milliseconds
                                                         20))

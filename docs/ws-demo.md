@@ -174,8 +174,8 @@ No protocol changes needed. The request/response shapes are invariant across ope
 ## See Also
 
 - `docs/design/daostream-design.md` — DaoStream abstraction
-- `docs/design/daostream-apply-design.md` — Protocol specification
-- `docs/design/ffi-design.md` — Yin VM FFI (which also uses this protocol)
+- `docs/design/dao.stream.apply.md` — Protocol specification
+- `docs/design/yin.vm.ffi.md` — Yin VM FFI (which also uses this protocol)
 - `src/cljc/dao/stream.cljc` — Stream protocols
 - `src/cljc/dao/stream/apply.cljc` — Request/response helpers
 - `src/cljc/dao/stream/transport/ws.cljc` — WebSocket transport

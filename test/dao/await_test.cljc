@@ -3,14 +3,11 @@
 
    Tests follow TDD: written before implementation. They drive the public API
    defined in docs/design/dao.await.md V1: explicit cursors and explicit :env."
-  (:require
-    [clojure.test :refer [deftest is testing]]
-    [dao.await :as await]
-    [dao.stream :as ds]
-    [dao.stream.ringbuffer])
-  #?(:cljs
-     (:require-macros
-       [dao.await])))
+  (:require [clojure.test :refer [deftest is testing]]
+            [dao.await :as await]
+            [dao.stream :as ds]
+            [dao.stream.ringbuffer])
+  #?(:cljs (:require-macros [dao.await])))
 
 
 ;; =============================================================================
@@ -47,7 +44,7 @@
 (deftest read-prefilled-stream-test
   (testing "await/<! returns the value pre-written to the stream"
     (let [s (ds/open! {:type :ringbuffer, :capacity 10})
-          _ (ds/put! s 42)
+          _ (ds/append! s 42)
           proc (await/go {:env {'s s}} (let [c (await/cursor s)] (await/<! c)))
           {:keys [value blocked?]} (await/run proc)]
       (is (false? blocked?))
@@ -71,7 +68,7 @@
     (let
       [in (ds/open! {:type :ringbuffer, :capacity 10})
        out (ds/open! {:type :ringbuffer, :capacity 10})
-       _ (ds/put! in 10)
+       _ (ds/append! in 10)
        ;; go* with quoted body: arithmetic on the value read from the
        ;; stream is meaningful at runtime but trips kondo's type inference
        ;; in the host scope (where <! returns the effect descriptor).
@@ -103,7 +100,7 @@
           proc (await/go {:env {'s s}} (let [c (await/cursor s)] (await/<! c)))
           blocked (await/run proc)
           _ (is (true? (:blocked? blocked)))
-          {:keys [woke]} (ds/put! s 99)
+          {:keys [woke]} (ds/append! s 99)
           done (await/resume blocked {:woke woke})]
       (is (false? (:blocked? done)))
       (is (= 99 (:value done))))))
@@ -167,8 +164,8 @@
 (deftest cursor-advances-across-reads-test
   (testing "reads through the same cursor see successive values"
     (let [s (ds/open! {:type :ringbuffer, :capacity 10})
-          _ (ds/put! s :a)
-          _ (ds/put! s :b)
+          _ (ds/append! s :a)
+          _ (ds/append! s :b)
           proc (await/go {:env {'s s}}
                          (let [c (await/cursor s)
                                _ (await/<! c)

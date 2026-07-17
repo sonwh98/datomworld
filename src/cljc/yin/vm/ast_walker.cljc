@@ -1,12 +1,11 @@
 (ns yin.vm.ast-walker
-  (:require
-    [dao.stream :as ds]
-    [dao.stream.apply :as dao.stream.apply]
-    [yin.module :as module]
-    [yin.vm :as vm]
-    [yin.vm.engine :as engine]
-    [yin.vm.host-ffi :as host-ffi]
-    [yin.vm.telemetry :as telemetry]))
+  (:require [dao.stream :as ds]
+            [dao.stream.apply :as dao.stream.apply]
+            [yin.module :as module]
+            [yin.vm :as vm]
+            [yin.vm.engine :as engine]
+            [yin.vm.ffi :as ffi]
+            [yin.vm.telemetry :as telemetry]))
 
 
 (declare ast-walker-restore)
@@ -143,7 +142,7 @@
         call-in (get-in parked [:store vm/call-in-stream-key])
         ;; 5. Build and emit request
         request (dao.stream.apply/request parked-id op args)
-        _ (ds/put! call-in request)]
+        _ (ds/append! call-in request)]
     ;; 6. Return blocked state
     (assoc (telemetry/emit-snapshot parked :bridge {:bridge-op op})
            :control nil
@@ -753,7 +752,7 @@
     (telemetry/emit-snapshot
       (engine/step-on-stream vm (:in-stream vm) vm-load-program vm-step)
       :step))
-  (run [vm] (host-ffi/maybe-run vm ast-walker-run-on-stream))
+  (run [vm] (ffi/maybe-run vm ast-walker-run-on-stream))
   (eval [vm ast] (vm-eval vm ast))
   (reset [vm] (vm-reset vm))
   (halted? [vm] (vm-halted? vm))
@@ -779,7 +778,7 @@
          base (vm/empty-state {:primitives (:primitives opts),
                                :telemetry (:telemetry opts),
                                :vm-model :ast-walker})
-         bridge-state (host-ffi/bridge-from-opts opts)
+         bridge-state (ffi/bridge-from-opts opts)
          in-stream (:in-stream opts)]
      (-> (map->ASTWalkerVM (merge base
                                   {:bridge bridge-state,

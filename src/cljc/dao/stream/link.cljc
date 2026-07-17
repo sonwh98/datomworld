@@ -9,8 +9,7 @@
 
    All handlers are pure functions from state × message → [state' response-or-nil].
    No I/O."
-  (:require
-    [dao.stream :as ds]))
+  (:require [dao.stream :as ds]))
 
 
 ;; =============================================================================
@@ -76,14 +75,14 @@
    state' has :local-pos incremented."
   [state datom]
   (let [pos (:local-pos state)]
-    (ds/put! (:local-stream state) datom)
+    (ds/append! (:local-stream state) datom)
     [(update state :local-pos inc) (put-msg [datom] pos)]))
 
 
 (defn handle-put
   "Append incoming datoms to remote-stream. Returns state'."
   [state msg]
-  (doseq [d (:datoms msg)] (ds/put! (:remote-stream state) d))
+  (doseq [d (:datoms msg)] (ds/append! (:remote-stream state) d))
   (update state :remote-pos + (count (:datoms msg))))
 
 
@@ -99,7 +98,7 @@
 (defn handle-sync-response
   "Append incoming datoms to remote-stream, set :status :connected. Returns state'."
   [state msg]
-  (doseq [d (:datoms msg)] (ds/put! (:remote-stream state) d))
+  (doseq [d (:datoms msg)] (ds/append! (:remote-stream state) d))
   (-> state
       (assoc :remote-pos (:to-pos msg))
       (assoc :status :connected)))

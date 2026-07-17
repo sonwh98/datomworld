@@ -5,17 +5,15 @@
     {:k-stream <RingBufferStream>
      :cursors {:register-vm {:position n} :stack-vm {:position n}}
      :pending-ks {position k}}"
-  (:require
-    [dao.stream :as ds]
-    [dao.stream.ringbuffer]))
+  (:require [dao.stream :as ds]
+            [dao.stream.ringbuffer]))
 
 
 (defn init-state
   "Create a fresh transport state. vm-keys is a collection of keywords
    identifying the consuming VMs (e.g. [:register-vm :stack-vm])."
   [vm-keys]
-  {:k-stream
-   (ds/open! {:type :ringbuffer, :capacity nil}),
+  {:k-stream (ds/open! {:type :ringbuffer, :capacity nil}),
    :cursors (into {} (map (fn [k] [k {:position 0}])) vm-keys),
    :pending-ks {}})
 
@@ -28,7 +26,7 @@
         e (+ 7000 len)
         t (+ 1 len)
         datom [e a v t 0]
-        _ (ds/put! transport datom)]
+        _ (ds/append! transport datom)]
     [transport datom]))
 
 
@@ -37,9 +35,7 @@
    payload off-stream in :pending-ks."
   [state summary k]
   (let [pos (count (:k-stream state))
-        [transport* _] (append-datom (:k-stream state)
-                                     :stream/k
-                                     summary)]
+        [transport* _] (append-datom (:k-stream state) :stream/k summary)]
     (-> state
         (assoc :k-stream transport*)
         (assoc-in [:pending-ks pos] k))))
@@ -91,8 +87,7 @@
                   acc
                   (let [{:keys [ok cursor]} result
                         [_e a summary _t _m] ok]
-                    (if (and (= a :stream/k)
-                             (= (:to summary) vm-key))
+                    (if (and (= a :stream/k) (= (:to summary) vm-key))
                       (recur cursor
                              (conj acc
                                    {:position (dec (:position cursor)),

@@ -27,13 +27,13 @@
              "All apps work the same way: they consume datom streams and interpret them. DaoDB interprets them as queryable indexes, PostGraphics interprets graphics frame programs as drawn output, Shibi interprets them as economic signals. "
              "The radical move is unifying code, data, and computation into a single primitive (the datom stream), making programs queryable, mobile, and evolvable."]]]
           [:details.faq
-           [:summary "What is a datom, exactly?"]
+           [:summary "What is a datom, and what is a tuple?"]
            [:div
             [:p
-             "A datom is an N-dimensional tuple. The canonical format for persistent facts is the five-tuple [e a v t m]: entity, attribute, value, transaction ID, metadata entity ID. It is an immutable fact, not an object. "
+             "A tuple is an element of any dimension/size in the moduli space. A datom is specifically the canonical persistent five-tuple [e a v t m]: entity, attribute, value, transaction ID, metadata entity ID. It is an immutable fact, not an object. "
              "The t is monotonic within its stream, not globally ordered. The m references an entity carrying causal relationships, encryption context, or expansion provenance, and is used to establish causality across streams (since t has no meaning outside its originating stream). "
              "When you transact a map, it decomposes into datoms automatically. See "
-             [:a {:href "/dao-db.chp#n-dimensional-datoms"} "DaoDB"]
+             [:a {:href "/dao-db.chp#n-dimensional-tuples"} "DaoDB"]
              " for the full structure and "
              [:a {:href "/blog/power-of-restriction-datom-tuple.blog"} "The Power of Restriction"]
              " for the design rationale."]]]

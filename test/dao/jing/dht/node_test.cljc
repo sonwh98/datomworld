@@ -1,0 +1,188 @@
+(ns dao.jing.dht.node-test
+  "JVM integration tests for the UDP Kademlia node: real sockets on
+  localhost exchanging datagrams. The transport is JVM-only today (see
+  docs/design/dao.jing.dht.md, Transport), so every test is :clj-guarded;
+  the backend semantics themselves are covered cross-platform in
+  dao.jing.dht-test."
+  ;; :cljd nil must come FIRST (first matching branch wins and the cljd
+  ;; host pass also matches :clj): otherwise the host pass sees the
+  ;; deftests, registers a test namespace, and generates a Dart test
+  ;; entrypoint with no main. The :namespaces rule is disabled
+  ;; project-wide (see root .cljstyle) because it would otherwise flip
+  ;; this order back on every `cljstyle fix`.
+  #?(:cljd nil
+     :clj (:require [clojure.test :refer [deftest is testing]]
+                    [dao.jing :as jing]
+                    [dao.jing.dht :as dht]
+                    [dao.jing.dht.node :as node]
+                    [dao.stream.transit :as transit])))
+
+
+#?(:cljd nil
+   :clj
+   (defn- with-cluster
+     "Run f with n KVDht stores over real UDP nodes on localhost, the first
+     node acting as the bootstrap peer for the rest. Closes everything."
+     [n f]
+     (let [opts {:host "127.0.0.1", :timeout-ms 300, :tries 2}
+           head (node/create-kv-dht-udp opts)
+           port (:port (dht/self-peer (:net head)))
+           tail (doall (repeatedly (dec n)
+                                   #(node/create-kv-dht-udp
+                                      (assoc opts
+                                             :bootstrap [{:host "127.0.0.1",
+                                                          :port port}]))))
+           stores (into [head] tail)]
+       (try (f stores) (finally (run! jing/close! stores))))))
+
+
+#?(:cljd nil
+   :clj (deftest udp-put-get-across-nodes
+          (testing
+            "a segment put! on one UDP node is fetched by another over the wire"
+            (with-cluster 3
+              (fn [[a _ c]]
+                (let [v {:bytes [1 2 3]}
+                      k (jing/segment-key v)]
+                  (is (true? (jing/put! a k v)))
+                  ;; drop c's replica so the read exercises the
+                  ;; network path
+                  (jing/delete! c k)
+                  (is (= {:bytes [1 2 3], :rev 0}
+                         (jing/get c k nil)))))))))
+
+
+#?(:cljd nil
+   :clj (deftest udp-root-cas-across-nodes
+          (testing "cas! and root reads agree across UDP peers"
+            (with-cluster
+              3
+              (fn [[_ b c]]
+                (is (true? (jing/cas! b :root/head 0 {:p "1"})))
+                (is (= {:p "1", :rev 1} (jing/get c :root/head nil)))
+                (is (false? (jing/cas! c :root/head 0 {:p "2"})))
+                (is (true? (jing/cas! c :root/head 1 {:p "2"})))
+                (is (= {:p "2", :rev 2} (jing/get b :root/head nil))))))))
+
+
+#?(:cljd nil
+   :clj
+   (deftest udp-oversized-segment-stays-local
+     (testing
+       "segments beyond the datagram budget degrade to local-only until DRDS exists"
+       (with-cluster
+         2
+         (fn [[a b]]
+           (let [v {:bytes (apply str (repeat 3000 "x"))}
+                 k (jing/segment-key v)]
+             (is (true? (jing/put! a k v))
+                 "the local write succeeds; replication is best-effort")
+             (is (= :none (jing/get b k :none))
+                 "the segment cannot cross the wire yet")))))))
+
+
+#?(:cljd nil
+   :clj
+   (deftest store-handler-enforces-key-discipline
+     (testing "an incoming :store must present the exact segment key"
+       (let [handle (deref #'node/handle)
+             local (jing/create-kv-mem)
+             table (atom {})
+             v {:bytes [1]}
+             hash (jing/content-hash v)]
+         (is (true? (:ok (handle
+                           local
+                           table
+                           {:op :store, :k (jing/segment-key v), :v v}))))
+         (is (false? (:ok (handle local table {:op :store, :k hash, :v v})))
+             "a bare string key is rejected")
+         (is
+           (false? (:ok (handle
+                          local
+                          table
+                          {:op :store, :k (keyword "root" hash), :v v})))
+           "a :root key cannot be planted via :store; an unconditional
+             put! over a cas!-managed key is the ABA hazard the design
+             doc names")
+         (is (= ::miss (jing/get local hash ::miss)))
+         (is (= ::miss (jing/get local (keyword "root" hash) ::miss)))))))
+
+
+#?(:cljd nil
+   :clj
+   (deftest hostile-datagram-does-not-kill-the-receiver
+     (testing
+       "a datagram with a malformed :from is dropped; the node keeps serving"
+       (with-cluster
+         2
+         (fn [[a b]]
+           (let [port (:port (dht/self-peer (:net b)))
+                 payload (.getBytes ^String
+                          (transit/encode
+                            {:op :ping, :rpc 0, :from {:id 42}})
+                                    "UTF-8")]
+             (with-open [s (java.net.DatagramSocket.)]
+               (.send s
+                      (java.net.DatagramPacket.
+                        payload
+                        (alength payload)
+                        (java.net.InetAddress/getByName "127.0.0.1")
+                        (int port))))
+             (Thread/sleep 100)
+             ;; b's receiver must survive to send the fetch and accept
+             ;; the reply
+             (let [v {:bytes [42]}
+                   k (jing/segment-key v)]
+               (is (true? (jing/put! a k v)))
+               (jing/delete! b k)
+               (is (= {:bytes [42], :rev 0} (jing/get b k nil))))))))))
+
+
+#?(:cljd nil
+   :clj
+   (deftest rpc-failure-means-unreachable-not-thrown
+     (testing
+       "a host that cannot be resolved or reached yields nil per the
+              IDhtNet contract, never an exception"
+       (let [net (node/create-node
+                   {:host "127.0.0.1", :timeout-ms 100, :tries 1})
+             bad {:id (dht/node-id "bad" 1),
+                  :host "invalid host name with spaces",
+                  :port 1}]
+         (try (is (nil? (dht/fetch-segment net bad :segment/abc)))
+              (is (nil? (dht/find-closer net bad (dht/node-id "t" 0))))
+              (is (nil? (dht/root-get net bad :root/r)))
+              (is (nil? (dht/root-cas! net bad :root/r 0 {:p "x"})))
+              (finally (dht/close-net! net)))))))
+
+
+#?(:cljd nil
+   :clj
+   (deftest udp-segment-size-variation
+     (testing
+       "packets of varying sizes can be received sequentially without truncation"
+       (with-cluster
+         2
+         (fn [[a b]]
+           (let [v-small {:bytes [1]}
+                 k-small (jing/segment-key v-small)
+                 v-large {:bytes (vec (repeat 400 2))}
+                 k-large (jing/segment-key v-large)]
+             ;; 1. Small write & read (sets receiver packet length to
+             ;; small)
+             (is (true? (jing/put! a k-small v-small)))
+             (jing/delete! b k-small)
+             (is (= (assoc v-small :rev 0) (jing/get b k-small nil)))
+             ;; 2. Large write & read (should not be truncated)
+             (is (true? (jing/put! a k-large v-large)))
+             (jing/delete! b k-large)
+             (is (= (assoc v-large :rev 0) (jing/get b k-large nil)))))))))
+
+
+#?(:cljd nil
+   :clj (deftest udp-close-is-idempotent
+          (with-cluster 1
+            (fn [[a]]
+              (is (nil? (jing/close! a)))
+              (is (nil? (jing/close! a))
+                  "closing twice is safe")))))

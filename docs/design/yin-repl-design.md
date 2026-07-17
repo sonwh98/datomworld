@@ -417,7 +417,7 @@ Flags:
 ### Node.js
 
 ```bash
-npx shadow-cljs run yin.repl-main.node/-main [FLAGS]
+npx shadow-cljs run yin.repl/-main [FLAGS]
 
 (Same flags as JVM)
 ```

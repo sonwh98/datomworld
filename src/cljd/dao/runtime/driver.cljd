@@ -1,8 +1,7 @@
 (ns dao.runtime.driver
-  (:require
-    ["dart:async" :as async]
-    ["dart:core" :as core]
-    [dao.runtime :as rt]))
+  (:require ["dart:async" :as async]
+            ["dart:core" :as core]
+            [dao.runtime :as rt]))
 
 
 (def current-rt (atom (rt/initial-state)))
@@ -15,7 +14,7 @@
   []
   (reset! scheduled? false)
   (reset! polling? false)
-  (when-let [timer ^async/Timer @active-timer]
+  (when-let [^async/Timer timer @active-timer]
     (.cancel timer)
     (reset! active-timer nil))
   (let [rt @current-rt
@@ -39,7 +38,7 @@
   (swap! current-rt rt/enqueue-ready entries)
   (when (or (not @scheduled?) @polling?)
     (when @polling?
-      (when-let [timer ^async/Timer @active-timer]
+      (when-let [^async/Timer timer @active-timer]
         (.cancel timer)
         (reset! active-timer nil)))
     (reset! scheduled? true)

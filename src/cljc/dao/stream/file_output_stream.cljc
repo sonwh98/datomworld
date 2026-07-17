@@ -1,15 +1,20 @@
 (ns dao.stream.file-output-stream
   "Append-only file writer exposed as a DaoStream sink for byte arrays."
-  ;; The :clj impl avoids JVM type references (no java.io :import, no
-  ;; ^Class / ^RandomAccessFile hints): ClojureDart host-eval reads the
-  ;; :clj branch and
-  ;; cannot resolve JVM types as Dart types. Plain fn calls
-  ;; (io/output-stream)
-  ;; and method calls on untyped receivers compile cleanly.
-  (:require
-    #?@(:cljd [["dart:io" :as dart-io]]
-        :clj [[clojure.java.io :as io]])
-    [dao.stream :as ds]))
+  ;; ClojureDart compiler bug: a bare (non-reader-conditionaled) :import of
+  ;; JVM classes in the ns form makes cljd mis-resolve the package as a
+  ;; namespace — e.g. `java.io` fails as "Could not locate java/io.cljd or
+  ;; java/io.cljc". So this ns uses only reader-conditionaled :require, no
+  ;; :import. Verified still present on pinned cljd sha 81b5c03a,
+  ;; 2026-07-01 (upstream ref 178e4fb).
+  ;;
+  ;; Only bare :import triggers it. `^java.io.X` type hints and inline
+  ;; `(java.io.X. …)` construction inside `#?(:clj …)` branches are reader-
+  ;; excluded under cljd and compile cleanly — as do plain fn calls like
+  ;; (io/output-stream) and method calls on untyped receivers.
+  (:require #?@(:cljd [["dart:io" :as dart-io]
+                       ["dart:typed_data" :as typed-data]]
+                :clj [[clojure.java.io :as io]])
+            [dao.stream :as ds]))
 
 
 #?(:clj (defn- ensure-output-file!
@@ -28,7 +33,7 @@
 
           ds/IDaoStreamWriter
 
-          (put!
+          (append!
             [_this val]
             (when-not (bytes? val)
               (throw (ex-info "file-output-stream expects a byte-array value"
@@ -90,11 +95,11 @@
 
            ds/IDaoStreamWriter
 
-           (put!
+           (append!
              [_this val]
-             (when-not (bytes? val)
+             (when-not (instance? typed-data/Uint8List val)
                (throw (ex-info "file-output-stream expects a byte-array value"
-                               {:path path, :value-type (str (type val))})))
+                               {:path path})))
              (if @closed?-atom
                (throw (ex-info "Cannot put to closed file-output-stream"
                                {:path path}))

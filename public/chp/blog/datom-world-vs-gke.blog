@@ -1,0 +1,76 @@
+#:blog{:title "Snapshot the Continuation, Not the VM: datom.world vs GKE's Agent Substrate"
+       :date #inst "2026-07-18T10:00:00.000-00:00"
+       :abstract [:p
+                  "Google's Agent Sandbox and Agent Substrate suspend idle agents by freezing entire pod memory images. datom.world suspends an agent by persisting its continuation as datoms: only the kernel of the computation. The difference is not an optimization, it is a consequence of the linkage model. When legacy libraries are processes behind streams (pi-calculus) instead of code linked into your address space, agent state never entangles with library state, and the snapshot is small because there is nothing else to capture. An agent is then just a function, written in any language Yang compiles (Python, PHP, JavaScript, Clojure), that suspends into dao.space, migrates over the network, and resumes anywhere."]
+       :content [:section.blog-article
+                 [:div.section-inner
+                  :$blog-title
+                  :$blog-date
+                  [:p
+                   "In May 2026 Google made "
+                   [:a {:href "https://cloud.google.com/blog/products/containers-kubernetes/bringing-you-agent-sandbox-on-gke-and-agent-substrate"}
+                    "Agent Sandbox generally available on GKE and introduced Agent Substrate"]
+                   ", followed by Agent Executor, a distributed runtime layer on top. The problem statement behind all three is one we recognize: agents are ephemeral, bursty, and idle most of the time. They must suspend cheaply, resume quickly, and run at a density that makes thousands of long-running services look quaint. Google's answer is to make the pod smaller, faster, and freezable. Our answer is that the pod was never the right unit."]
+                  [:h2 "What GKE Does"]
+                  [:p
+                   "Agent Sandbox is a secure execution environment: gVisor or Kata isolation, default-deny networking, and pod snapshots that suspend an idle agent's entire memory image and thaw it on demand. Warm pools keep pre-provisioned replicas ready (300 sandbox allocations per second, 90% under 200ms). Agent Substrate adds a minimal control plane that routes around the Kubernetes API server, because the API server was designed for thousands of services, not the chatter of millions of sub-second tool calls."]
+                  [:p
+                   "Look at what a pod snapshot actually captures: the language interpreter, the heap, every loaded shared library, file descriptors, page tables. Gigabytes of machinery wrapped around a small kernel: the semantically live computation. Google freezes the whole image because they cannot tell the kernel from the machinery. The agent's state is opaque to them."]
+                  [:h2 "The Continuation Is the Kernel"]
+                  [:p
+                   "Yin VM is a CESK machine: control, environment, store, kontinuation. Suspending an agent means persisting exactly those, as datoms. The interpreter is not part of the snapshot; it is shared and immutable, like a program text, and reconstructible everywhere. This is the classical split between system-level checkpointing (CRIU, pod snapshots) and application-level checkpointing (serialized continuations), and the application side wins on every axis if you own the runtime:"]
+                  [:ul
+                   [:li
+                    [:strong "Density: "]
+                    "a suspended agent is rows in a store, not a suspended VM. A million idle agents cost storage, not standby capacity buffers. Resume is a query, not a thaw. The idle-agent cost problem that motivates warm pools simply does not exist."]
+                   [:li
+                    [:strong "Portability: "]
+                    "a pod snapshot is welded to a CPU architecture, an OS build, a memory layout. A continuation as datoms is architecture-neutral data. Google cannot migrate a snapshot from x86 to Axion; we can migrate a continuation to a phone."]
+                   [:li
+                    [:strong "Legibility: "]
+                    "Substrate wants to integrate agent state with scheduling for data locality, but its agent state is a blob, so the scheduler can only guess. A continuation that references its data as datoms makes locality a query: the scheduler reads what the computation actually touches. Scheduling itself becomes matching suspended continuations to executors in dao.space, the shared tuple space. Coordination-by-RPC generates the tool-call chatter that forced Substrate to bypass the control plane; as stream effects, those calls are appends."]
+                   [:li
+                    [:strong "Isolation: "]
+                    "GKE needs gVisor because it runs arbitrary native code. When an agent is a Yin VM closure whose only exit is stream effects, the interpreter is the sandbox, and capability restriction replaces syscall interception."]]
+                  [:h2 "An Agent Is Just a Function"]
+                  [:p
+                   "Yin VM unifies functions and continuations: a continuation is a function of one argument, and any function mid-flight is a continuation waiting to be captured. So an agent in datom.world does not implement a lifecycle interface or link against a checkpointing SDK. It is a plain function. Suspension, migration over the network, and resumption are things the substrate can do to any computation at a stream boundary, not capabilities the agent must be written to support. On GKE the unit of suspension is whatever you packed into the pod; here it is any function you ever wrote."]
+                  [:p
+                   "And because a suspended agent is datoms, it suspends into dao.space itself. There is no separate snapshot store: the coordination medium is the suspension medium. A pod snapshot is an inert blob in object storage, invisible until thawed. A suspended agent in dao.space is a queryable fact among facts: other agents find it by matching, a scheduler routes it by reading what it references, an executor picks it up and resumes it. Suspension does not remove the agent from the world; the sleeping agent is still a trace in the medium. That is stigmergy applied to the agents themselves."]
+                  [:h2 "Why Google Cannot Follow: the Linkage Model"]
+                  [:p
+                   "The crux is not engineering effort, it is a constraint Google accepted on day one: run everyone's existing code. In the C linkage model, an in-flight native call threads your stack through the library's heap. Your state and the library's state are entangled, so suspending the agent means freezing both, which means freezing everything. The whole apparatus (image snapshots, warm pools, a bypass control plane, syscall sandboxes) is compensating machinery for a linkage model they cannot unpick in code they do not own."]
+                  [:h2 "The Yang Answer: Compile It In or Fence It Out"]
+                  [:p
+                   "The obvious objection is that real agents are written in Python and lean on legacy libraries, so a pure interpreted substrate is a toy. The Yang compiler and the pi-calculus dissolve that objection into two clean cases, and neither drags us back to whole-image snapshots."]
+                  [:p
+                   [:strong "Compiled in. "]
+                   "Legacy code that Yang can compile becomes Yin VM terms, at which point it is not legacy anymore. Its state is environment and store like everything else: snapshottable, migratable, and legible for free. This is not limited to libraries: the agent itself can be written in any language Yang supports (Python, PHP, JavaScript, Clojure) and compiled to Yin VM, where it inherits suspension, migration, and resumption without a line of agent-specific code. You do not port your agent to the substrate; the compiler does. Google meets existing code where it runs, at the cost of freezing the whole image; Yang meets existing code where it is written, and the image never exists."]
+                  [:p
+                   [:strong "Fenced out. "]
+                   "What cannot or should not be compiled is not called, it is communicated with. In the pi-calculus view a library is a process, and the interaction is names and channels: dao.streams. There is no in-flight call, only a continuation suspended on a stream read, holding a channel name and nothing else. The library's state is explicitly not our state. It belongs to a separate process with its own lifecycle: restartable, poolable, relocatable, checkpointed at its own granularity or not at all. And the pi-calculus's distinctive feature, mobility, is already our invariant: streams are values that can be sent through streams. A migrated continuation carries channel names; rebinding a name to a live library process is the executor's job, not the snapshot's."]
+                  [:p
+                   "The precedents are our lineage. Erlang ports: external code as a process you message, never a call that can corrupt you. Plan 9: a library is a file server; you import a namespace, you do not link an object file. Cloudflare Workers beat container cold starts by owning the runtime; we go one step further, because an isolate's state is still opaque memory, while a continuation in dao.space is data you can query, dedupe, content-address, and audit."]
+                  [:h2 "Where the Discipline Must Hold"]
+                  [:p
+                   "Two constraints keep this argument honest. First, a stateful fenced-out process is only fully first-class when its meaningful state is reconstructible from the space, by replaying its stream. A legacy process mutating hidden disk state is still a hole; the fence must be total. Second, granularity economics: a stream boundary per interaction is cheap for coarse calls (an LLM call, a matmul, a query) and expensive for a tight loop crossing a million times. The answer is not faster channels but moving the boundary: Yang compiles the fine-grained side in, and what stays out is coarse by construction. Erlang lives with the same trade (NIFs vs ports) happily."]
+                  [:h2 "The Smaller Unit Wins"]
+                  [:p
+                   "Google's stack and ours are competing answers to the same question, not complementary layers. Their machinery compensates for the linkage model; ours replaces it. The snapshot is small not because we compress better but because the semantics never let agent state entangle with anything else in the first place. The history of infrastructure is the history of the smaller unit displacing the bigger one: physical machines, then VMs, then containers, then isolates. The continuation is the smallest unit of suspended computation there is."]
+                  [:h2 "Related Blogs"]
+                  [:ul
+                   [:li
+                    [:a {:href "/blog/beyond-pi-calculus.chp"}
+                     "Beyond Pi-Calculus"]]
+                   [:li
+                    [:a {:href "/blog/beyond-ffi-yin-vm-datom-streaming.chp"}
+                     "Beyond FFI: Yin VM and Datom Streaming"]]
+                   [:li
+                    [:a {:href "/blog/computation-moves-data-stays.chp"}
+                     "Computation Moves, Data Stays"]]
+                   [:li
+                    [:a {:href "/blog/multi-agent-collaboration-with-tuple-spaces.chp"}
+                     "Multi-Agent Collaboration with Tuple Spaces"]]
+                   [:li
+                    [:a {:href "/blog/containing-agent-smith.chp"}
+                     "Containing Agent Smith"]]]]]}

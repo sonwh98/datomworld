@@ -1,9 +1,9 @@
 # datom.world
 A world built on datoms
 
-datom.world is a multi-platform system built on **datoms** and **streams**. It treats all computation as stream processing, where functions consume and produce streams of datoms.
+datom.world is a multi-platform system built on **tuples** and **streams**. It treats all computation as stream processing, where functions consume and produce streams of tuples.
 
-Datoms are immutable tuples in an open moduli space, graded by dimension *n*. The vocabulary of dimensions is open: applications declare new dimensions as needed. The canonical persistent fact is the 5-tuple `[e a v t m]` (entity, attribute, value, transaction, metadata), known as *d5*. Shorter projections — `[v]` (d1, content-addressed blobs) and `[s a v]` (d3, RDF-style triples) — serve as universal floors: d1 for content addressing, d3 for semantic interpretability of fact-shaped data.
+Tuples are immutable elements in an open moduli space, graded by dimension *n*. The vocabulary of dimensions is open: applications declare new dimensions as needed. A **datom** is specifically the canonical 5-tuple `[e a v t m]` (entity, attribute, value, transaction, metadata), known as *d5*. Shorter projections — `[v]` (d1, content-addressed blobs) and `[s a v]` (d3, RDF-style triples) — serve as universal floors: d1 for content addressing, d3 for semantic interpretability of fact-shaped data.
 
 **Core components:**
 - **Yang**: Compiler frontend that transforms source code (Clojure/Python/PHP) into Universal AST datoms
@@ -56,16 +56,20 @@ Open http://localhost:9000 (or try the live demo at [https://datom.world/demo.ht
 
 ## Testing
 
-### Clojure (JVM)
-Run the unit tests for the Clojure backend:
+The project uses unified auto-discovery for tests across all three compilation targets. Any namespace on the test path ending in `-test` will be automatically discovered and executed.
+
+We use Babashka (`bb`) as a unified task runner.
+
+To run all tests across all platforms:
 ```bash
-clj -M:test
+bb test
 ```
 
-### ClojureScript (Node.js)
-Compile and run the tests for the frontend/CLJS logic using the Clojure CLI:
+Or you can run tests for specific platforms:
 ```bash
-clj -M:cljs -m shadow.cljs.devtools.cli compile test && node target/node-tests.js
+bb test:clj   # Runs JVM tests
+bb test:cljs  # Runs Node tests via shadow-cljs
+bb test:cljd  # Runs Dart tests
 ```
 
 ## Flutter Prototype
@@ -156,36 +160,4 @@ clj -M -m agent.tzu
 
 Launch the interactive Yin REPL to experiment with the Yin VM and manipulate datoms directly.
 
-### Clojure (JVM)
-```bash
-clj -M:yin-repl
-```
-
-### ClojureScript (Node.js)
-
-First, compile the ClojureScript source to a Node.js script:
-
-```bash
-clj -M:cljs -m shadow.cljs.devtools.cli compile yin-repl
-```
-
-Then, run the compiled script:
-
-```bash
-node target/yin-repl.js
-```
-
-### ClojureDart (cljd)
-The ClojureDart source for the Yin REPL is located in `src/cljd/yin/repl_main/cljd.cljd`.
-
-Compile the ClojureDart namespace to Dart:
-
-```bash
-clj -M:cljd compile yin.repl-main.cljd
-```
-
-Then run the generated Dart entry point:
-
-```bash
-dart run bin/yin_repl_main.dart
-```
+For details on how to build, run, and connect to the Yin REPL across all platforms (JVM, Node.js, and ClojureDart), see the [Yin REPL Usage Guide](src/cljc/yin/vm/docs/yin.repl.md).

@@ -1,839 +1,505 @@
-# DaoSpace Design: Stigmergic Coordination via DaoStream
+# DaoSpace: The Tuple Space
+
+`dao.space` is **not a thing you store or a component you deploy**. It is the **tuple space
+that emerges** when agents use two libraries over a shared [`dao.jing`](dao.jing.md):
+
+- **[`dao.space.index`](dao.space.index.md)** — the transactor side: each agent builds
+  covered indexes over its own [`dao.stream`](dao.stream.md) and persists them in `dao.jing`
+  as immutable, content-addressed B-Tree segments.
+- **[`dao.space.query`](#the-query-library)** — the Peer side: agents match over the
+  persisted indexes (and each other's local indexes) associatively — by content, never by
+  address.
+
+Storage holds facts at rest; the tuple space is those facts *under shared interpretation*.
+More precisely, "tuple space" names the **associative coordination surface** of a broader
+family of interpreters over those facts (see [A Family of Interpreters](#a-family-of-interpreters)).
+A tuple space is defined by two complementary moves: how agents **read** and how they
+**write**. Reading is **associative matching** — you locate a tuple by describing its
+*content*, never by naming its address. Writing is **generative communication** — you deposit
+a tuple into the shared medium and never address a receiver. Take the read side first; its
+surfaces form a spectrum along the by-content axis:
+
+- **`match`** — a single positional datom template, Linda-style. One template, matched by
+  content, returns the tuples that fit. This is associative matching in its most basic form.
+- **`q` (Datalog)** — the *same* by-content matching **generalized to conjunctions**: many
+  templates joined on shared logic variables, plus negation, recursion, and aggregation. A
+  single-clause `q` *is* a `match`; Datalog keeps the associativity and generalizes
+  the arity from one tuple to many tuples joined. So `match ⊂ q`, both associative.
+- **Graph / tree / entity-centric / columnar traversal** — these locate data by **following a
+  reference or position**. That is navigation, not matching: addressing, not by-content. They
+  are useful *local read ergonomics* over an interpreter's own materialized views, but they sit
+  *off* the associative axis.
+
+The write side is simpler but just as load-bearing. Generative communication means an agent
+**deposits** a datom and names no recipient — it appends to its own stream and is done.
+datom.world also drops Linda's one destructive operation: Linda pairs its non-destructive read
+(`rd`) with a consuming `take` (`in`) that *removes* a tuple from the medium; datom.world has
+no such removal. Writes are **append-only**, so to claim or update something an agent appends a
+*new* datom asserting the change, and current state is a read-side query over the accreted
+facts. Each writer owns a single-writer log, so there is no
+shared write surface and no contention — writers deposit, they never address. (This is the
+decentralized Transactor; see [Three Boundaries](#three-boundaries) and
+[Coordination: Stigmergy](#coordination-stigmergy).)
+
+`match` and `q` are the privileged default and the contract strangers coordinate through; it
+is associative matching over a shared medium that makes `dao.space` a tuple space. The
+traversal surfaces are admitted by the family but are not coordination modes. The label
+therefore holds as long as two things hold: **coordination stays associative** (agents find
+each other by matching content, never by addressing each other or navigating each other's
+views by reference — the moment cross-agent coordination runs through traversal, it has left
+the tuple space), and **the shared substrate stays datoms** (agents coordinate over matchable
+facts; whatever else an interpreter materializes is its own, not the medium).
 
 **Related documents:**
-- `docs/design/daostream-design.md` — the stream transport foundation
-- `docs/design/dao.db.md` — queryable database that indexes the datom stream
+- `docs/design/dao.qi.md` — the sibling point in the moduli space: the vector field made from the same n-tuples, matching by geometric proximity (cosine) rather than exact unification
+- `docs/design/dao.jing.md` — the storage boundary: the content-addressed store of opaque bytes this space reads as datoms
+- `docs/design/dao.space.query.md` — the query library's design record: index realization, the `read-datoms` contract, and the Target Architecture rulings
+- `docs/design/dao.space.index.md` — the transactor-side indexing library: every agent indexes its own datoms; the covered-index realization both sides share
+- `docs/design/dao.stream.md` — the append-only log primitive datoms are written through
+- `docs/agents/datom-spec.md` — tuples and datoms, content-addressed identity, the gauge/base framing
+- `docs/datomic.md` — the Datomic architecture the Transactor/Storage/Query split maps to
+- `docs/design/adr/0001-dao-space-as-storage-boundary.md` — the decision this design records
+- `docs/design/adr/0002-share-governed-computation-not-data.md` — the access-mode security model
+- `docs/design/dao.space.security.md` — the controlled-mode / capability detail
+- `docs/design/dao.space.v0.md` — superseded framing; still the reference for resources, typed streams, and the geometry/gauge material
+- `docs/design/dao.space.locality.md`, `dao.space.metaphors.md`, `dao.space.discrete-to-continuous.md` — the geometry/locality cluster: theoretical justification (gauge, spectral, locality)
 
-## Overview
+## Three Boundaries
 
-**DaoSpace** is datom.world's implementation of a tuple space: a shared store of datoms (facts) that agents can collectively query and modify to coordinate work. Unlike traditional message passing (explicit sender → receiver), DaoSpace enables **stigmergic coordination**: agents read shared facts, modify them based on local logic, and implicitly coordinate through the effects of those modifications.
+Datomic's central strength is the strict separation of **Transactor**, **Storage**, and
+**Query** into *abstraction boundaries* — interfaces, not deployment tiers. They can be
+co-located in a single process with zero network overhead, or split across machines, without
+changing the contracts. datom.world keeps that separation and maps it onto streams:
 
-This design builds DaoSpace on top of DaoStream (append-only datom log) and DaoDB (Datalog query engine). The result is:
+- **Transactor (write + index)** — **decentralized.** Every agent appending to its own
+  `dao.stream` is its own transactor: it enforces local schema and appends datom frames,
+  with no global contention and no commit step. It also carries the transactor's other
+  Datomic duty — building the covered indexes over its own datoms — via the
+  [`dao.space.index`](dao.space.index.md) library: a local in-memory index over the
+  agent's stream, eventually persisted to `dao.jing` as content-addressed B-Tree segments
+  when `publish-index!` runs.
+- **Storage** — **[`dao.jing`](dao.jing.md).** The decentralized, content-addressed store
+  where indexes live persistently. It holds immutable segment blobs (the B-Tree nodes) and
+  mutable root references; it does **not** match or query.
+- **Query (read)** — **the [`dao.space.query`](#the-query-library) library any interpreter
+  embeds.** It reads from two layers — local indexes (the agent's own in-memory cache over
+  its stream) and persistent indexes in `dao.jing` (every agent's published segments) — and
+  runs pattern matching and Datalog. Pure, in-process, per-interpreter — Datomic's Peer
+  model, as a library rather than a service.
 
-- **Declarative coordination** — agents describe what they need, not who has it
-- **Implicit messaging** — agents don't need to know about each other
-- **Full queryability** — Datalog unlocks complex pattern matching
-- **Persistent history** — the entire coordination log is available for replay, debugging, and auditing
-- **Network-agnostic** — works in-process, across linked nodes, or over any DaoStream transport
+**`dao.space` is not one of the three boundaries; it is the coordination surface that spans
+all three.** The transactor writes and indexes; storage persists; the query matches. The
+tuple space is the behavior that emerges when agents exercise all three faculties — writing
+to their streams, indexing for themselves and others, and matching over the result. This
+document specifies that tuple space. Storage is specified separately in
+[`dao.jing.md`](dao.jing.md).
 
-## Core Concept: Tuple Space as a Shared Datom Log
+## What Makes It a Tuple Space
 
-```
-Tuple Space = DaoStream of Datoms + DaoDB Query Engine
-```
+Both moves the intro defines — associative matching and generative communication — are
+behaviors of the two libraries agents use, **not** properties of storage. A store that
+matched would collapse interpretation into storage, which datom.world's invariants forbid.
+So the "space-ness" lives above `dao.jing`, in the composition of index and query:
 
-### What Agents See
+- `dao.stream` — each agent's append-only log (the write path).
+- `dao.space.index` — builds local covered indexes over the stream's datoms, and persists
+  them in `dao.jing` when `publish-index!` runs.
+- `dao.space.query` — matches over both local indexes and persisted indexes, associatively.
+- Agents coordinate by what is there (stigmergy), never by addressing each other.
 
-```clojure
-;; Agent perspective:
-(let [space (open-tuple-space "work-queue")]
+A tuple space is therefore not an artifact you instantiate; it is the behavior that appears
+when agents index and match over shared storage. `dao.stream` is where an agent writes;
+`dao.jing` is where indexes persist; `dao.space` is what agents *do* across both.
 
-  ;; 1. Query: "What work is available?"
-  (q '[:find ?id ?task
-       :where [?id :work/status :todo]
-              [?id :work/task ?task]]
-    space)
+### The Convention of Datoms
 
-  ;; 2. Claim work (write a fact)
-  (put-tuple! space
-    {:db/id work-id
-     :work/status :in-progress
-     :work/worker my-id})
+Because the tuple space lives in the interpreters, the requirement that primary state be
+datoms is a **social contract**, not a limit the storage layer enforces. `dao.jing` is a dumb
+key-value store: it is **not strict about what it holds** and will accept any bytes you write —
+datoms, graphs, JSON blobs, binaries. Nothing about storage requires the datom shape.
+(Arbitrary structures are fine when an interpreter materializes them *over* the datoms — that
+is the interpreter's own responsibility, and `dao.jing` just holds the resulting bytes; see
+[A Family of Interpreters](#a-family-of-interpreters). This contract is only about what an
+interpreter writes as ground truth.)
 
-  ;; 3. Complete work (update a fact)
-  (put-tuple! space
-    {:db/id work-id
-     :work/status :completed
-     :work/result result}))
-```
+The datom shape is the **price of admission** to the tuple space, freely chosen:
+- **Opting In:** If an interpreter formats its facts as `(e a v t m)` datoms, its data
+  "enters" the tuple space. Because it conforms to the universal substrate, `dao.space.query`
+  can match over it, and strangers can query it associatively.
+- **Opting Out:** If an interpreter writes arbitrary primary state to `dao.jing` instead, the
+  store accepts it without complaint — this is permitted, not forbidden. The cost is simply
+  that the data stays *outside* the tuple space: the query library cannot match over it,
+  strangers cannot discover it, and it inherits none of the guarantees the datom log confers
+  (immutability, replayability, provenance). The interpreter has chosen a private store over a
+  shared, queryable medium. Nothing breaks; that data just does not coordinate.
 
-### What Happens Internally
+## The Query Library
 
-```
-Agent 1 writes → Stream appends [e :work/status :in-progress] → DaoDB indexes it
-Agent 2 queries → DaoDB scans indexed datoms → returns matching results
-Agent 3 reads → Stream cursor advances → sees Agent 1's update
-```
+Pattern matching and Datalog are a **library** (`dao.space.query`) that any interpreter
+embeds and runs against `dao.jing` and local indexes. It is pure: pull datoms from the two
+layers below, build an in-memory index, answer. It owns no durable state.
 
-## Architecture
+The library reads from **two layers**, reflecting the index lifecycle:
 
-```
-┌─────────────────────────────────────────────────────────┐
-│ Tuple Space (User-Facing API)                           │
-│  - query(pattern)                                       │
-│  - put-tuple!(fact)                                     │
-│  - wait-for-pattern!(pattern)                           │
-└──────────────────────┬──────────────────────────────────┘
-                       │
-┌──────────────────────▼──────────────────────────────────┐
-│ DaoDB (Queryable Index Layer)                           │
-│  - run-query(query)                                     │
-│  - datoms(index, components)                            │
-│  - as-of(t)                                             │
-│  - pull(pattern, eid)                                   │
-└──────────────────────┬──────────────────────────────────┘
-                       │
-┌──────────────────────▼──────────────────────────────────┐
-│ DaoStream (Immutable Append-Only Log)                   │
-│  - put! (append datom)                                  │
-│  - next (cursor-based read)                             │
-│  - close!                                               │
-└──────────────────────┬──────────────────────────────────┘
-                       │
-┌──────────────────────▼──────────────────────────────────┐
-│ Transport (RingBuffer, WebSocket, File, Kafka, etc.)    │
-└─────────────────────────────────────────────────────────┘
-```
+- **Local indexes** — the agent's own in-memory sorted sets over its stream's datoms.
+  Built by `dao.space.index` as a local cache; `dao.space.query` can read these directly
+  for the agent's most recent writes, before `publish-index!` has run.
+- **Persistent indexes in `dao.jing`** — every agent's published B-Tree segments.
+  Restored lazily on the JVM (only the seek path is fetched), walked eagerly elsewhere.
+  This is the shared layer: other agents' data reaches you through `dao.jing`, never
+  through their local indexes.
 
-## Stigmergic Coordination Patterns
-
-### Pattern 1: Work Queue
-
-```clojure
-;; Agents cooperate via a shared work queue
-
-(defn producer [space]
-  ;; Emit work
-  (put-tuple! space
-    {:db/id (random-id)
-     :work/task "process payment"
-     :work/status :todo}))
-
-(defn worker [space worker-id]
-  (loop []
-    ;; Find available work
-    (let [work (q '[:find ?id ?task
-                   :where [?id :work/status :todo]
-                          [?id :work/task ?task]]
-               space)]
-      (when (seq work)
-        ;; Claim work (atomic-ish via transaction)
-        (let [[id task] (first work)]
-          (put-tuple! space
-            {:db/id id
-             :work/status :in-progress
-             :work/assigned-to worker-id})
-
-          ;; Do work
-          (let [result (process task)]
-            ;; Emit result
-            (put-tuple! space
-              {:db/id id
-               :work/status :completed
-               :work/result result})))
-
-        ;; Repeat
-        (recur)))))
-```
-
-### Pattern 2: Stigmergic Search (Ant Colony Optimization)
+A query over a single agent's store may hit both layers (local cache for recent appends,
+persisted segments for previously-published data). A federated query over multiple stores
+merges the persistent layers.
 
 ```clojure
-;; Agents leave pheromone traces for others to follow
+(require '[dao.space.query :as query])
 
-(defn ant [space colony-id]
-  (loop [path [] node (random-node)]
-    ;; 1. Emit pheromone: "I visited this node"
-    (put-tuple! space
-      {:db/id (random-id)
-       :pheromone/colony colony-id
-       :pheromone/node node
-       :pheromone/strength 1.0
-       :pheromone/time (now)})
+;; q — Datalog over all of storage. The design contract is full Datalog
+;; (joins, negation, aggregation, predicates, recursion); the
+;; implementation covers it: not/not-join, :find aggregates (count,
+;; count-distinct, sum, min, max, avg) with :with, predicate/function
+;; clauses via a caller-supplied {:fns {sym fn}} option, and recursive
+;; rules bound to % via :in (Datomic syntax; multiple bodies = OR,
+;; terminates on cyclic data).
+(query/q '[:find ?id ?task
+           :where [?id :work/status :todo]
+                  [?id :work/task ?task]]
+  store)
+;; => #{[id task] ...}
 
-    ;; 2. Query pheromones: "Where should I go next?"
-    (let [neighbors (q '[:find ?next ?strength
-                        :where [?node :graph/neighbor ?next]
-                               [?p :pheromone/node ?next]
-                               [?p :pheromone/strength ?strength]]
-                      space)]
+;; match — a positional datom template (Linda-style), lighter than q
+(query/match store [_ :work/status :todo])   ; => matching datoms
 
-      ;; 3. Follow high-pheromone paths with probability
-      (if-let [next (choose-by-weight neighbors)]
-        (recur (conj path next) next)
-        ;; Solution found
-        (when (is-food? node)
-          ;; Emit success trace
-          (put-tuple! space
-            {:db/id (random-id)
-             :solution/path path
-             :solution/cost (count path)}))))))
+;; as-of — a read bound: index storage only up to `point`
+(query/q query-form store {:as-of t})
+(query/match store pattern {:as-of (instant "2026-01-01")})
 ```
 
-### Pattern 3: Watchdog / Exception Handling
+Within a single stream `as-of t` is exact (the stream's own append order). A **cross-stream**
+`as-of` needs a time coordinate comparable across streams — a wall-clock instant (as shown)
+rather than per-stream `t` — and its precise semantics are deferred (see ADR 0001, Open
+Question 2).
+
+Internally the library folds the store's datoms into an index and queries it. The design calls
+for each stream's datoms to be stamped with the stream's namespace before indexing, so two
+streams' local id `1025` stay distinct; "same logical entity across streams" is meant to be a
+join on shared *values*, never on a stream-local id. **Not yet implemented**: `dao.jing.md`'s
+Current Scope is explicit that this namespace stamping is not yet derived from the canonical
+kickoff hash, and `dao.space.query.md`'s `read-datoms` Contract confirms `read-datoms` today
+returns datoms *unstamped* — cross-stream local-id collision is a known, currently-open gap,
+not a bug, until content addressing is load-bearing enough to derive a stream's namespace.
 
 ```clojure
-;; Agents monitor state and react to anomalies
+;; Sketch of the library, rebuild-per-query form (pedagogical; not today's path).
+;; `read-datoms` parses B-Tree
+;; segments pulled from dao.jing into datoms — storage has no datoms API of its own.
+(ns dao.space.query
+  (:require [dao.jing :as store]))   ; the store handle namespace
 
-(defn watchdog [space timeout-seconds]
-  (loop []
-    ;; Query: "Find work that's been in-progress too long"
-    (let [stuck (q '[:find ?id ?started ?worker
-                    :where [?id :work/status :in-progress]
-                           [?id :work/assigned-to ?worker]
-                           [?id :work/started-at ?started]
-                           [(elapsed-seconds ?started) ?elapsed]
-                           [(> ?elapsed ?timeout)]]
-                  space)]
+(defn- fold [store as-of]
+  (index (read-datoms store {:as-of as-of})))   ; build EAVT/AEVT/AVET
 
-      ;; Reassign stuck work
-      (doseq [[id started worker] stuck]
-        (put-tuple! space
-          {:db/id id
-           :work/status :todo
-           :work/assigned-to nil
-           :work/reassigned-from worker
-           :work/reassignment-reason :timeout}))
-
-      ;; Check again soon
-      (Thread/sleep (* timeout-seconds 1000))
-      (recur))))
+(defn q     [query-form store & {:keys [as-of]}] (run-datalog query-form (fold store as-of)))
+(defn match [store pattern    & {:keys [as-of]}] (scan-pattern  pattern    (fold store as-of)))
 ```
 
-### Pattern 4: Collaborative Filtering
+`dao.jing` holds only the index's immutable byte segments and a mutable root reference — the
+same substrate Datomic persists its covered indexes into (opaque segment blobs plus a root
+pointer; see [`dao.jing.md`](dao.jing.md), *The Segment and Root Keyspace*). The *index* itself — a
+covered B-Tree (EAVT/AEVT/AVET/VAET) a reader can traverse and answer queries from — is an
+interpretation projected onto those bytes; storage never knows the segments form an index.
+That interpretation — the sort orders, the node-blob format, the root-manifest convention —
+is owned by [`dao.space.index`](dao.space.index.md), the transactor-side indexing library
+this Peer consumes. How the index is maintained (rebuild-per-query, incremental, or
+owner-built/peers-merge) is a concern of the layers above storage, realized on
+`tonsky/persistent-sorted-set`; see [`dao.space.query.md`](dao.space.query.md), *Index
+Realization*. All variants answer identically.
+
+**Current status.** Two root shapes coexist at a stream's root (`:root/<name>`, one per
+stream, enumerated by the `:root/members` membership root; the old shared
+`:root/datoms` is removed). The
+baseline holds a stream's full datom vector wholesale (`{:datoms [...]}`) and folds it into a
+fresh in-memory index on every query — the "rebuild per query" strategy ("kept only as the
+conceptual baseline"; see [`dao.space.query.md`](dao.space.query.md), *Index Realization*),
+with `tonsky/persistent-sorted-set` as the sorted-set implementation. Since 2026-07-10 the
+owner-built Target Architecture is also implemented: `dao.space.index/publish-index!`
+(the transactor-side indexing library, `docs/design/dao.space.index.md`)
+persists a stream's covered indexes as immutable, content-addressed B-Tree segments (`put!`
+under `segment-key`) and advances the root to `{:indexes {:eavt :segment/sha256-<hash> ...}}`; a
+JVM reader restores those indexes lazily (a bound-`e` lookup fetches only the seek path — 2
+segments of 26 in the test suite), while cljs/cljd readers, and the as-of/federated paths
+everywhere, read the same segments eagerly by walking the plain-EDN node graph. Laziness is
+JVM-only for now (psset durability is a Clojure-only feature); readability is universal. A
+read still resolves the stream's root with a single `get` targeting an immutable snapshot,
+so concurrent writes never disturb an in-flight read. Remaining gaps: segment GC, non-JVM
+laziness, and k-way merge of multiple lazy indexes (federated queries fall back to the eager
+walk); see *Index Realization*.
+
+### Source Polymorphism
+
+`q` and `match`'s second argument is a **source**, not narrowly a `dao.jing` handle. The
+library must accept, interchangeably:
+
+- **A single `dao.jing` handle** — the case above; `fold` pulls B-Tree segments through
+  `read-datoms` and indexes them.
+- **A collection of `dao.jing` handles** — a *federated* query over several stores at once,
+  e.g. a local `KVFile` plus a peer's `KVDht` node. This is not a new mechanism: ADR 0001's
+  monoid-homomorphism proof (`index(S₁ ⊎ … ⊎ Sₙ) = merge(index(S₁), …, index(Sₙ))`) already
+  establishes that folding N stores and merging is the same index as one store holding
+  everything, so `fold` over a collection is `merge` over the per-store folds, not a
+  different code path.
+- **A raw Clojure vector of datoms** — `[[e a v t m] ...]`. This skips the byte-parsing step
+  entirely (`read-datoms` exists only to turn `dao.jing` bytes into this shape); a caller who
+  already has datoms in hand — a REPL scratch value, a test fixture, an in-memory scratchpad
+  never destined for storage — indexes them directly.
+- **A raw Clojure vector of entity maps** — `[{:work/status :todo, :work/task "x"} ...]`.
+  Normalized to datoms first: a map without `:db/id` gets a fresh tempid (mirroring
+  `dao.db.in_memory`'s existing map-form-entity convention), then each `k v` pair becomes an
+  `[e k v]` datom (`t`/`m` defaulted, same as `dao.datom/default-op`).
+
+A mix is legal too — a collection argument may hold `dao.jing` handles and raw datom/entity
+vectors side by side; each element is folded by whichever rule matches its shape and the
+results are merged. This makes the library useful standalone, the same way Datomic's `d/q`
+takes db values and in-memory rel/collection inputs interchangeably — a caller should never
+need a throwaway `dao.jing/create-kv-mem` just to query a handful of test datoms. It does
+not change what the tuple space *is*: coordination between agents still runs through shared
+`dao.jing` storage (see *What Makes It a Tuple Space*, above), because a raw in-memory vector
+is by definition not shared. Source polymorphism is an ergonomic property of the query
+*function*, not a second medium.
 
 ```clojure
-;; Agents collectively build and improve models
+;; source dispatch: each shape folds to the same datom shape before indexing
+(defn- source->datoms
+  [source as-of]
+  (cond
+    (satisfies? store/IKVStore source) (read-datoms source {:as-of as-of})
+    (and (coll? source) (every? #(satisfies? store/IKVStore %) source))
+    (mapcat #(read-datoms % {:as-of as-of}) source)
+    (and (coll? source) (every? vector? source)) source          ; already datoms
+    (and (coll? source) (every? map? source)) (entity-maps->datoms source)
+    :else (throw (ex-info "unrecognized query source" {:source source}))))
 
-(defn agent-observer [space agent-id]
-  (loop [last-t 0]
-    ;; 1. Observe recent events
-    (let [events (q '[:find ?e ?action ?time
-                     :where [?e :event/action ?action]
-                            [?e :event/time ?time]
-                            [(> ?time ?last-t)]]
-                   space)]
-
-      ;; 2. Update local belief
-      (doseq [[e action time] events]
-        (update-model! agent-id action))
-
-      ;; 3. Emit shared insight if found
-      (when-let [pattern (detect-pattern agent-id)]
-        (put-tuple! space
-          {:db/id (random-id)
-           :pattern/discovered-by agent-id
-           :pattern/rule pattern
-           :pattern/confidence (calculate-confidence agent-id)}))
-
-      ;; 4. Read and apply patterns from other agents
-      (let [patterns (q '[:find ?rule ?author
-                         :where [?p :pattern/rule ?rule]
-                                [?p :pattern/discovered-by ?author]
-                                [(> ?author ?agent-id)]]
-                       space)]
-        (doseq [[rule author] patterns]
-          (apply-pattern! agent-id rule)))
-
-      (recur (+ 1 last-t)))))
+(defn- fold [source as-of] (index (source->datoms source as-of)))
 ```
 
-## API
+### Global match and scoping
 
-### Core Operations
+The library reads `dao.jing`, and `dao.jing` is the *global* repository, so any interpreter
+that embeds the library matches over **everything** by default — global, associative,
+addressed by content, never by producer. That global reach is the identity of a tuple space;
+the per-interpreter *embedding* of the library does not scope it, because the *storage* it
+reads is shared.
 
-#### `open-tuple-space [name & {:keys [transport]}]`
+Two different things hide under "scoping," and only one is a security mechanism.
 
-Open a new tuple space.
+**Relevance / performance scoping** is a **predicate over content** inside the query — never
+an enumeration of producers. A scoped view is "the datoms matching `P`," where `P` names
+shapes (`[?e :work/* ?v]`), so the reader still surfaces tuples from writers it never heard
+of. This is a *trusted* reader choosing to look at less; it is **not** security — choosing to
+read less never stops you from reading more.
+
+**Security and Access Modes**
+
+datom.world's security model rests on the principle: **"share governed computation, not
+data."** Sharing bits is losing control of those bits, and encryption only relocates the
+problem to key-sharing. Plaintext result-filtering *does* need a mediator — but rather than
+pretend to escape that, the model makes the mediator **generic and accountable**: control is
+held by never emitting raw datoms, only the bounded result `f(X)` of an authorized
+interpreter `f`.
+
+This yields two distinct access modes (see [dao.space.security.md](dao.space.security.md) and
+[ADR 0002](adr/0002-share-governed-computation-not-data.md) for full details):
+
+- **Public (pull-to-reader):** the default mode. The reader embeds the library and pulls
+  datom streams from `dao.jing` directly. There is no fine-grained control; the only
+  security is coarse, per-stream access (POSIX-style filesystem permissions on the member
+  logs). Use this when it is safe to ship the datoms.
+- **Controlled (push-interpreter-to-data / confined):** when fine-grained per-datom control
+  is needed, the topology inverts and the data never leaves its owner's control. The reader
+  submits a governed interpreter (a `yin.vm` AST) wrapped in a capability; it runs in a
+  confined environment scoped to the authorized datoms, and only the attenuated answer
+  returns. The **capability token** is cryptographically authenticated; the **content
+  predicate** (the `m` slot carries the policy) is enforced by the evaluation substrate —
+  operationally by a confined CESK runtime, or cryptographically by an MPC/FHE circuit —
+  which is distinct from authenticating the token. The owner is the mediator by default; MPC
+  removes even that (see the security doc).
+
+Trusted peers and public data are the common case: embedded library, direct access, global
+match. When control is required, the architecture switches to controlled mode, where the unit
+of sharing is the governed interpreter, backed by an immutable accountability log.
+
+**Public mode only, today.** Controlled mode — the governed interpreter, capabilities,
+`m`-policy — is specified but not yet implemented (see the security doc and ADR 0002).
+
+## A Family of Interpreters
+
+The query library above presents one surface: Datalog over the covered-index view
+(EAVT/AEVT/AVET/VAET). That is the default and what's implemented today, but it is not the definition of
+`dao.space`. More generally, **`dao.space` is a family of interpreters over one canonical
+datom history** — a *moduli space* of databases. The datoms in [`dao.jing`](dao.jing.md) are
+the fixed substrate every member shares; a member is fixed by which **materialized views** it
+constructs and which surface it exposes. One point looks relational (covered indexes plus
+Datalog); another document-oriented (entity-centric maps); others columnar, graph-oriented, or
+logic-oriented. The substrate stays the same; only the materialized construction laid over it
+changes — and `dao.jing` stores whatever an interpreter builds as ordinary bytes, since it is
+dumb storage that holds anything (see [`dao.jing.md`](dao.jing.md)).
+
+Two consequences follow, and both tighten the existing invariants rather than relax them:
+
+- **Datalog is a capability, not the ontology.** It stays the relational front-end wherever
+  relational views exist, but it is one front-end among several, not the essence. The essence
+  is lower: datom streams plus *declared* structural interpretation.
+- **Views are named and declared, not infinite magic.** An interpreter does not navigate
+  every imaginable materialization; it exposes a sanctioned set and answers explicit
+  questions: which views exist, which can be built on demand, whether a view is
+  relational / graph / tree / associative / sequential, what its legal traversals are, and
+  what its `as-of`/`since` semantics are. A query may trigger on-demand derivation, but only
+  through a declared interpreter with known semantics — explicit causality and explicit
+  capability, nothing implicit. (*Do not assume graphs*: graph structure is one materialized
+  interpretation constructed from datoms, never an implicit truth.)
+
+This reframes querying as **compilation** rather than handing a sentence to a fixed engine: a
+caller states intent, a planner inspects the declared view capabilities and rewrites that
+intent into an access plan, and an executor runs the plan against a materialized view or
+triggers a declared derivation. The same "find user by email" intent compiles to an indexed
+`AVET` lookup against one interpreter and an entity scan against another — same family,
+different database. The concrete compiler pipeline (a planner/optimizer front-end lowering
+into a traversal-IR back-end) is a direction, not yet specified here.
+
+## The Write Path
+
+The read side is matching; the write side is how datoms get into the shared medium. A datom
+enters by being appended to a `dao.stream` member log — an append-only file the writer owns
+and never edits in place. Opening a log is what makes a writer a participant: it attaches a
+feeding stream to the space; closing it detaches. This is the mechanics behind the
+generative-communication move described in the intro (deposit by appending, name no
+recipient) and behind the decentralized Transactor of [Three Boundaries](#three-boundaries).
+
+### Membership is intake, not identity
+
+**Membership** names which streams currently feed the space at a given moment — a write-path
+concern, not the space's identity. The space is the shared, queryable medium of the datoms
+those streams have contributed, not "a set of streams": streams join and leave at runtime,
+while the medium persists. (Storage, [`dao.jing`](dao.jing.md), is the dumb KV the streams
+feed; the read side never sees the streams, only the bytes in storage.)
+
+Because each writer owns a single-writer log, two agents never write the same stream. If
+1,000 agents want to send messages to one recipient, they append to 1,000 distinct
+single-writer streams, and the recipient merges them on the read side — no shared write
+surface, no contention.
+
+### Indexing is the writer's duty
+
+The write path does not end at the append. In Datomic the transactor also builds the covered
+indexes and saves them to storage; here that duty is decentralized with the rest of the
+Transactor. Indexing has two stages, mirroring Datomic's memory-index → disk-index pipeline
+but without a central transactor process:
+
+1. **Local indexes** — `dao.space.index` builds in-memory sorted sets over the agent's
+   stream datoms. This is the agent's own cache: `dao.space.query` reads it directly, so
+   the agent's recent writes are immediately queryable without publishing.
+2. **Persistent indexes** — when the agent runs
+   [`dao.space.index/publish-index!`](dao.space.index.md), the local indexes are serialized
+   as immutable, content-addressed B-Tree segments and stored in `dao.jing`. The root
+   advances to the `{:indexes ...}` manifest. Other agents now see this data through
+   `dao.jing`; the local cache and the persisted segments cover the same datoms at
+   different lifecycle stages.
+
+Publishing is an acceleration, never a semantic change — readers answer identically over a
+wholesale root, a local index, or a persisted index — and the stages interact safely: a later
+`ds/append!` folds a persisted root back to wholesale rather than dropping it, until the owner
+republishes. See `dao.space.index.md`, *The agent-transactor loop*.
+
+### Fault Tolerance (Crash-Only Semantics)
+
+Because the write path uses persistent append-only `dao.stream` files, the space inherits
+crash-only semantics natively:
+
+- **Data safety:** Datoms flushed before a crash are safe; append-only files have no
+  partial-update corruption window.
+- **Reader behavior:** A reader tailing a crashed writer's stream simply reaches the end and
+  yields (`ds/next` returns `:blocked`); it waits for new data rather than failing.
+- **Write recovery:** A restarted writer reopens its file in append mode; the next `ds/append!`
+  lands safely after the last flushed datom.
+- **Read recovery:** A reader resumes from a checkpointed cursor offset, so an incremental
+  index rebuilds without reprocessing or skipping.
+
+## Coordination: Stigmergy
+
+Agents coordinate by leaving datoms in `dao.jing` for others to query, decoupled in time and
+identity. Because streams are append-only there is no destructive `take`: to "claim" work an
+agent *appends a new datom* asserting the claim, and "current state" is a read-side query over
+the accreted datoms. This is the tuple space working as designed — coordination with no
+broker, no message-format negotiation, and no leader election.
+
+**The example below is runnable.** Every former blocker is implemented: `match`/`q` mask
+retracted datoms and supersede cardinality-one values at query time via `current-state-seq`
+(see `dao.space.query.md`, *Current-state resolution*); `q` implements `not`/`not-join`
+(stratified, over the current-state-resolved index), so the `(not [_ :work/claims ?w])`
+clause executes as written; and `{:type :dao-stream :store store :name ...}` is a
+registered `dao.stream` type (`dao.space.stream`) whose `ds/append!` deposits an entity map
+or datom vector into the stream's **own** root, `:root/<name>` — each stream a single-writer
+log, no shared write surface. `open!` registers the root in the store's membership root
+(`:root/members`, the intake record of *Membership is intake*, above), and the query library
+folds every member root and merges (the old shared `:root/datoms` is removed; a store seeded
+directly must register its root via `index/register-member!`). Entity-id namespace stamping
+(`[stream-ns offset]`, Ruling 3 of `dao.space.query.md`) is still pending, so cross-stream
+`:db/id` collision remains the documented open gap until the kickoff-hash namespace lands.
+One layering note stands: `dao.jing`'s
+file backend still uses `dao.stream.log` internally as its byte transport (see
+`dao.space.query.md`, *Reality check*), so the layers remain mutually acquainted even
+though the write path now runs top-down:
 
 ```clojure
-;; In-process (default)
-(def space (open-tuple-space "work-queue"))
+(defn producer [store]
+  (let [log (ds/open! {:type :dao-stream :store store :name "producer"})]
+    (ds/append! log {:db/id (random-id) :work/posted true :work/task "process payment"})))
 
-;; File-backed
-(def space (open-tuple-space "audit-log"
-  :transport {:type :file
-              :path "/var/log/tuples.log"}))
-
-;; Network-backed (future)
-(def space (open-tuple-space "distributed"
-  :transport {:type :websocket
-              :url "ws://broker:8000"}))
+(defn worker [store worker-id]
+  (let [log (ds/open! {:type :dao-stream :store store :name worker-id})]
+    (loop []
+      ;; "posted work nothing has claimed" — negation + join over the whole store,
+      ;; the query that justifies a tuple space (not a per-datom scan).
+      (let [work (query/q '[:find ?w ?task
+                            :where [?w :work/posted true]
+                                   [?w :work/task ?task]
+                                   (not [_ :work/claims ?w])]
+                   store)]
+        (when-let [[?w task] (first work)]
+          (ds/append! log {:db/id (random-id) :work/claims ?w :work/by worker-id})
+          (ds/append! log {:db/id (random-id) :work/result (process task)})
+          (recur))))))
 ```
 
-#### `query [space datalog-query & inputs]`
-
-Query the current state of the tuple space.
-
-```clojure
-;; Simple pattern
-(query space '[:find ?id ?task
-              :where [?id :work/status :todo]
-                     [?id :work/task ?task]])
-
-;; With bindings
-(query space '[:find ?result
-              :where [?e :work/id ?id]
-                     [?e :work/result ?result]]
-       {:id work-id})
-
-;; Aggregation
-(query space '[:find (count ?id)
-              :where [?id :work/status :completed]])
-```
-
-#### `put-tuple! [space fact]`
-
-Append a tuple (datom) to the tuple space.
-
-```clojure
-;; Single fact
-(put-tuple! space
-  {:db/id 42
-   :work/status :completed
-   :work/result "OK"})
-
-;; Entity reference
-(put-tuple! space
-  {:db/id work-id
-   :work/assigned-to agent-id})
-
-;; Retractable fact (future)
-(retract-tuple! space work-id :work/status)
-```
-
-#### `wait-for-pattern [space query & {:keys [timeout]}]`
-
-Block until a pattern matches (convenience for polling).
-
-```clojure
-;; Wait for any completed work
-(wait-for-pattern space
-  '[:find ?id ?result
-    :where [?id :work/status :completed]
-           [?id :work/result ?result]])
-
-;; With timeout
-(wait-for-pattern space pattern :timeout 5000)
-```
-
-#### `bounded-stream->db [stream cursor]`
-
-Materialize a stream prefix into a queryable DaoDB snapshot.
-
-```clojure
-;; Get queryable DB up to current position
-(let [db (bounded-stream->db (tuple-space->stream space) cursor)]
-  (q '[:find ?e :where [?e :work/status :completed]] db))
-```
-
-#### `as-of-time [space timestamp]`
-
-Query the tuple space state at a specific historical point.
-
-```clojure
-;; "What was the work queue state at 2024-01-01?"
-(query (as-of-time space (instant "2024-01-01"))
-  '[:find ?id ?status
-    :where [?id :work/status ?status]])
-```
-
-## Coordination Semantics
-
-### Consistency
-
-**Strong consistency within a single-threaded agent:**
-
-```clojure
-;; Agent's view
-(put-tuple! space {:db/id id :work/status :in-progress})
-;; Immediately visible in subsequent queries
-(= :in-progress (:work/status (query space '[...])))
-```
-
-**Eventual consistency across agents:**
-
-```clojure
-;; Agent 1 writes
-(put-tuple! space {:db/id id :work/status :in-progress})
-
-;; Agent 2's view depends on stream position
-(if (>= agent-2-cursor (position-of-write))
-  ;; Agent 2 sees the write
-  (assert (= :in-progress (query space '[...])))
-  ;; Agent 2 hasn't caught up yet
-  (assert (not= :in-progress (query space '[...]))))
-```
-
-### Ordering
-
-**Within an agent's timeline:**
-- Writes are totally ordered (append-only stream)
-- Reads of a materialized DB snapshot are consistent
-- Re-querying at a later cursor position includes later writes
-
-**Across agents:**
-- No global ordering of operations
-- Agents see facts in append order but may process them at different rates
-- Causality is preserved via timestamps in tuples (application's responsibility)
-
-**Example: two agents updating the same entity**
-
-```clojure
-;; Agent A at t=100
-(put-tuple! space {:db/id 42 :counter 1})
-
-;; Agent B at t=101
-(put-tuple! space {:db/id 42 :counter 2})
-
-;; Both updates are in the stream, in order
-;; Agents see both; interpretation is application-defined
-;; (Last-write-wins? Sum them? Conflict detection?)
-```
-
-### Atomicity
-
-**Single tuples are atomic:**
-```clojure
-(put-tuple! space {:db/id id :work/status :in-progress :worker agent-id})
-;; Appears atomically to other agents
-```
-
-**Multi-tuple transactions need application-level coordination:**
-```clojure
-;; NOT atomic across the space:
-(put-tuple! space {:db/id id :work/status :in-progress})
-(put-tuple! space {:db/id id :work/assigned-to agent-id})
-
-;; Remedies:
-;; 1. Single tuple with multiple attributes
-(put-tuple! space {:db/id id :work/status :in-progress :work/assigned-to agent-id})
-
-;; 2. Transaction envelope (application-defined)
-(put-tuple! space
-  {:db/id (random-id)
-   :transaction/id tx-id
-   :transaction/committed true
-   :transaction/datoms [{:db/id id :work/status :in-progress}
-                        {:db/id id :work/assigned-to agent-id}]})
-
-;; 3. Causality tracking (application-defined)
-(put-tuple! space {:db/id id :version 1 :work/status :in-progress})
-(put-tuple! space {:db/id id :version 2 :work/assigned-to agent-id
-                   :depends-on 1})
-```
-
-## Implementation
-
-### What's Already Available
-
-- **DaoStream** (`src/cljc/dao/stream.cljc`): append-only datom log
-- **DaoDB** (`src/cljc/dao/db.cljc`): queryable index with Datalog
-- **IDaoStreamWaitable**: transport-local notifications when data arrives
-- **Cursors**: independent read positions for multiple agents
-
-### What Needs to Be Built
-
-New namespace: `src/cljc/dao/tuple-space.cljc`
-
-```clojure
-(ns dao.tuple-space
-  "Tuple space: stigmergic coordination via DaoStream + DaoDB")
-
-;; Core functions (to implement)
-(defn open-tuple-space [name & opts])
-(defn query [space datalog-query & inputs])
-(defn put-tuple! [space fact])
-(defn retract-tuple! [space id attr])
-(defn wait-for-pattern [space query & opts])
-(defn bounded-stream->db [stream cursor])
-(defn as-of-time [space timestamp])
-
-;; Internal helpers
-(defn- stream-datoms [stream from-cursor to-cursor])
-(defn- materialize-db [datoms])
-(defn- cursor-position [stream])
-(defn- apply-datoms-to-db [db datoms])
-```
-
-### Reference Implementation Pattern
-
-```clojure
-(defrecord TupleSpace [stream db cursor-ref]
-
-  ;; Query current state
-  IDaoDB
-  (run-query [this query inputs]
-    ;; 1. Advance to latest stream position
-    (let [latest-cursor (advance-cursor stream cursor-ref)]
-      ;; 2. Load any new datoms since last query
-      (let [new-datoms (read-since cursor-ref stream)]
-        ;; 3. Update DB with new datoms
-        (let [db' (apply-datoms-to-db db new-datoms)]
-          ;; 4. Execute query against updated DB
-          (run-query db' query inputs)))))
-
-  ;; Append to stream
-  (put-tuple! [this fact]
-    (ds/put! stream fact)))
-```
-
-## Use Cases
-
-### 1. Distributed Work Queue
-- **Agents**: workers
-- **Tuples**: `{:work/id :work/status :work/assigned-to :work/result}`
-- **Patterns**: "find todo items", "find my completed items", "find overdue items"
-
-### 2. Agent Swarm Coordination
-- **Agents**: independent agents (bots, particles, etc.)
-- **Tuples**: `{:agent/id :agent/position :agent/state}`
-- **Patterns**: "neighbors within radius", "highest-scoring agents", "consensus decisions"
-
-### 3. Event Sourcing
-- **Agents**: domain services, projections
-- **Tuples**: domain events `{:event/type :event/aggregate-id :event/data}`
-- **Patterns**: "events for aggregate X", "events since timestamp", "by event type"
-
-### 4. Pub-Sub / Fan-Out
-- **Agents**: subscribers
-- **Tuples**: published messages `{:message/id :message/topic :message/data}`
-- **Patterns**: "all messages on topic X", "unread messages for agent Y"
-
-### 5. Audit Log
-- **Agents**: services, compliance systems
-- **Tuples**: audit events `{:audit/actor :audit/action :audit/resource :audit/timestamp}`
-- **Patterns**: "all actions by user X", "all resource modifications", "compliance queries"
-
-### 6. Collaborative Filtering
-- **Agents**: recommendation engines, data collectors
-- **Tuples**: observations, models, patterns
-- **Patterns**: "recent observations", "high-confidence models", "novelty detection"
-
-## Verification and Testing
-
-### Unit Tests
-
-```clojure
-(deftest open-tuple-space-test
-  (testing "Open in-memory tuple space"
-    (let [space (open-tuple-space "test")]
-      (is (some? space)))))
-
-(deftest put-query-test
-  (testing "Put and query round trip"
-    (let [space (open-tuple-space "test")]
-      (put-tuple! space {:db/id 1 :work/status :todo})
-      (let [result (query space '[:find ?status
-                                 :where [1 :work/status ?status]])]
-        (is (= [[:todo]] result))))))
-
-(deftest multiple-agents-test
-  (testing "Two agents coordinate via tuple space"
-    (let [space (open-tuple-space "test")]
-      ;; Agent 1 writes
-      (put-tuple! space {:db/id 1 :work/task "task-1"})
-      ;; Agent 2 reads
-      (let [tasks (query space '[:find ?task :where [?id :work/task ?task]])]
-        (is (= [["task-1"]] tasks))))))
-
-(deftest as-of-time-test
-  (testing "Historical query returns state at point in time"
-    (let [space (open-tuple-space "test")
-          t0 (now)]
-      (put-tuple! space {:db/id 1 :work/status :todo})
-      (let [t1 (now)]
-        (put-tuple! space {:db/id 1 :work/status :in-progress})
-        (let [past-state (as-of-time space t0)
-              result (query past-state '[:find ?status
-                                        :where [1 :work/status ?status]])]
-          (is (= [[:todo]] result)))))))
-```
-
-### Integration Tests
-
-```clojure
-(deftest work-queue-pattern-test
-  (testing "Producer-worker coordination"
-    (let [space (open-tuple-space "work-queue")]
-      ;; Producer emits work
-      (future (dotimes [i 10]
-                (put-tuple! space {:db/id i :work/status :todo})
-                (Thread/sleep 10)))
-
-      ;; Worker processes work
-      (let [completed (atom [])]
-        (dotimes [i 10]
-          (wait-for-pattern space '[:find ?id :where [?id :work/status :todo]])
-          (let [[[id]] (query space '[:find ?id :where [?id :work/status :todo]])]
-            (put-tuple! space {:db/id id :work/status :completed})
-            (swap! completed conj id)))
-
-        ;; Verify all work completed
-        (is (= 10 (count @completed)))))))
-```
-
-## Design Lessons from Linda and JavaSpace
-
-Tuple spaces have a rich history (Linda 1986, JavaSpace 2000s). This design incorporates hard-won lessons from their successes and mistakes, creating a modernized approach that addresses their fundamental limitations.
-
-### Quick Comparison
-
-| Aspect | Linda | JavaSpace | Tuple-Space |
-|--------|-------|-----------|-------------|
-| **Data Model** | Untyped positional tuples | Java objects | Named attributes (datoms) |
-| **Pattern Matching** | Wildcards only | Field-based matching | Full Datalog queries |
-| **Read Operations** | Blocking `in()` / `rd()` | Blocking `read()` / `take()` | Non-blocking `query()` + optional `wait-for-pattern()` |
-| **History** | Lost (destructive) | Lost | Immutable append-only log |
-| **Observability** | None (opaque space) | Limited | Full Datalog queries over state |
-| **Transport** | Tightly coupled | Java/Jini specific | DaoStream-agnostic (ringbuffer, WebSocket, Kafka, etc.) |
-| **Expiration** | None | Leasing (complex, fragile) | Application-controlled |
-| **Multi-tuple Atomicity** | Per-tuple only | Per-object only | Via envelopes or multi-attribute tuples |
-| **Debugging** | Blind (no visibility) | Blind | Full queryable history |
-| **Multi-reader Fan-Out** | Manual copying | Manual copying | Automatic (independent cursors) |
-
----
-
-### ✅ Good Ideas We Adopt
-
-1. **Pattern matching as coordination primitive** — but improved with full Datalog instead of wildcards
-2. **Non-destructive read** — agents can observe without consuming
-3. **Asynchronous coordination** — no agent blocks another; coordination happens via shared state
-4. **Declarative queries** — agents describe what they need, not how to get it
-
-### ❌ Critical Problems We Avoid
-
-**Problem 1: Blocking Operations Cause Deadlock**
-
-Linda/JavaSpace mistake: `in(tuple)` and `take(tuple)` block agents, leading to circular waits and deadlock.
-
-Tuple-space fix: All operations are non-blocking.
-```clojure
-;; Non-blocking query (always returns immediately)
-(query space '[:find ?worker :where [?worker "ready"]])
-;; → [] if no match (no deadlock possible)
-
-;; Optional blocking is explicit and interruptible
-(wait-for-pattern space pattern :timeout 5000)
-```
-
-**Problem 2: Untyped/Loosely Structured Data Causes Confusion**
-
-Linda mistake: Tuples are positional, untyped arrays. Agents can't coordinate reliably because schema is implicit.
-```clojure
-[42 "task" :status]  ;; What does 42 mean? What's the order?
-["task" 42 :status]  ;; Same semantics? Different?
-```
-
-Tuple-space fix: Named attributes enable schema clarity and querying.
-```clojure
-{:db/id task-id
- :work/status :todo
- :work/task "process payment"}
-;; Clear, queryable, validatable, self-describing
-```
-
-**Problem 3: Limited Pattern Matching Restricts Coordination Logic**
-
-Linda limitation: Can only match on specific values or wildcards. Can't express OR, arithmetic, joins, or aggregations.
-
-Tuple-space fix: Full Datalog unlocks complex coordination patterns.
-```clojure
-;; Linda can't express this:
-(query space '[:find ?id ?task
-              :where (or [?id :work/status :todo]
-                         [?id :work/status :in-progress])
-                     [?id :work/timeout ?t]
-                     [(> ?t 3600)]])
-```
-
-**Problem 4: No Causality / History**
-
-Linda/JavaSpace mistake: Destructive read (take) means tuples vanish. No audit trail, no debugging visibility, no replay capability.
-
-Tuple-space fix: Append-only immutable log preserves complete history.
-```clojure
-;; Time travel: see state at any point
-(as-of-time space (instant "2024-01-01"))
-
-;; Full audit trail
-(query space '[:find ?who ?action ?when
-              :where [?log :action/who ?who]
-                     [?log :action/type ?action]
-                     [?log :action/time ?when]])
-
-;; Debugging: "what happened to task X?" Answer: see full history
-```
-
-**Problem 5: Tight Coupling to Runtime**
-
-JavaSpace mistake: Tightly bound to Java serialization, Java Jini protocol, and complex leasing semantics. Hard to use from other languages, fragile on network failures.
-
-Tuple-space fix: Transport-agnostic via DaoStream abstraction.
-```clojure
-;; Same API, different transport
-(open-tuple-space "work" :transport {:type :ringbuffer})   ;; in-process
-(open-tuple-space "work" :transport {:type :websocket :url "..."})  ;; remote
-(open-tuple-space "work" :transport {:type :kafka :broker "..."})  ;; distributed
-
-;; All use same query language, same semantics
-```
-
-**Problem 6: Complex Leasing/Expiration**
-
-JavaSpace mistake: Tuples auto-expire when leases expire. Agents must renew leases, and leases can expire while processing (losing work). Complex state machine, fragile behavior.
-
-Tuple-space fix: Explicit application-controlled expiration.
-```clojure
-;; No implicit expiration. Agents explicitly manage work lifecycle.
-(put-tuple! space {:db/id task-id
-                  :work/status :in-progress
-                  :work/claimed-by agent-id
-                  :work/claimed-at (now)})
-
-;; Watchdog agent explicitly detects timeouts (no risk of silent loss)
-(query space '[:find ?id ?claimed-at
-              :where [?id :work/status :in-progress]
-                     [?id :work/claimed-at ?claimed-at]
-                     [(> (elapsed ?claimed-at) 3600)]])
-```
-
-**Problem 7: No Transactional Semantics**
-
-Linda/JavaSpace limitation: Coordination across multiple tuples is not atomic. Agent can crash between operations, losing work or leaving inconsistent state.
-
-Tuple-space fix: Multiple options for atomic coordination.
-```clojure
-;; Option 1: Multi-attribute tuple (atomic write)
-(put-tuple! space {:db/id task-id
-                   :work/status :in-progress
-                   :work/assigned-to worker-id})
-
-;; Option 2: Transaction envelope (application-defined)
-(put-tuple! space {:transaction/id tx-id
-                   :transaction/datoms [{:db/id task-id :status :in-progress}
-                                        {:db/id worker-id :current-task task-id}]})
-
-;; Option 3: Idempotent operations (can safely retry)
-(put-tuple! space {:db/id task-id :work/status :completed :timestamp (now)})
-```
-
-**Problem 8: Destructive Operations Limit Patterns**
-
-Linda/JavaSpace mistake: `take()` is destructive. Only one agent can process a tuple. Fan-out requires manual copying. No re-processing capability.
-
-Tuple-space fix: Non-destructive reads with independent cursors enable multi-agent processing.
-```clojure
-;; All agents see all events, independently
-;; No contention, no copying needed
-;; Multiple workers can process same event
-
-(defn worker-1 [space]
-  ;; Processes events at its own pace
-  (loop [cursor {:position 0}]
-    ...))
-
-(defn worker-2 [space]
-  ;; Processes same events independently
-  (loop [cursor {:position 0}]
-    ...))
-```
-
-**Problem 9: No Visibility into Coordination**
-
-Linda/JavaSpace opacity: Can't query the space itself. No visibility into pending work, who's processing what, historical trends. Debugging is blind guessing.
-
-Tuple-space fix: Datalog makes the coordination space itself observable.
-```clojure
-;; How much work is waiting?
-(query space '[:find (count ?id) :where [?id :work/status :todo]])
-
-;; Who is processing what?
-(query space '[:find ?worker (count ?id)
-              :where [?id :work/assigned-to ?worker]
-                     [?id :work/status :in-progress]])
-
-;; Historical trends
-(query (as-of-time space one-hour-ago)
-  '[:find (count ?id) :where [?id :work/status :completed]])
-
-;; Debug: What happened to task X?
-(query space '[:find ?who ?action ?when
-              :where [?log :entity ?task-id]
-                     [?log :action ?action]
-                     [?log :who ?who]
-                     [?log :when ?when]])
-```
-
-## Design Rationale
-
-### Why Build on DaoStream + DaoDB?
-
-1. **Immutability** — coordination history is preserved, enabling replay and auditing
-2. **Queryability** — full Datalog power instead of limited pattern matching (Linda)
-3. **Scalability** — cursor-based reads allow independent agent throughput
-4. **Transport Agnosticity** — agents work in-process, across nodes, or over any DaoStream transport
-5. **Causality** — append-only log preserves causality naturally
-
-### Why Stigmergic (Not Linda)?
-
-Linda's tuple space suffers from fundamental design choices:
-- **Untyped data** prevents schema-aware coordination
-- **Blocking operations** (in, take) cause deadlocks
-- **Destructive reads** prevent replay and multi-reader patterns
-- **Limited pattern matching** restricts coordination logic
-- **No history** makes debugging and auditing impossible
-
-Stigmergic coordination fixes these issues:
-- **Declarative queries** (Datalog) instead of imperative blocking
-- **Non-destructive reads** via independent cursors
-- **Named attributes** (datoms) instead of positional tuples
-- **Complete history** for audit, replay, and time-travel queries
-- **Implicit coordination** through shared immutable log
-- **Observable** state via full Datalog queries
-- **Composable** patterns that can be layered and refined
-
-### Relationship to Event Sourcing
-
-Tuple spaces are **event sourcing + queryability**.
-
-- **Event sourcing**: replay history to reconstruct state
-- **Tuple space**: replay history + full query power at any point in time
-
-A tuple space is essentially "event sourcing where the 'events' are datoms and the 'store' is queryable."
-
-## Design Philosophy: Modern Tuple Spaces
-
-This design is **Linda for the 2020s**: it preserves the elegant core idea (agents coordinate via shared facts) while fixing the fundamental problems that plagued Linda and JavaSpace.
-
-### Core Principles
-
-1. **Immutability First** — The tuple space is an append-only log, not a mutable heap. This prevents races, enables replay, and preserves history.
-
-2. **Non-Blocking by Default** — Queries never block. Blocking is optional, explicit, and interruptible. This prevents deadlocks and makes failure modes clear.
-
-3. **Declarative Coordination** — Agents describe what they need (via Datalog), not what to do (imperative blocking). This enables complex patterns without tight coupling.
-
-4. **Full Queryability** — The space itself is queryable via Datalog. Observability, debugging, auditing, and historical analysis are built-in, not bolted on.
-
-5. **Transport Agnostic** — Built on DaoStream abstraction. Same API works in-process, cross-process, or over any transport. No binding to specific serialization, language, or protocol.
-
-6. **Schema-Aware** — Named attributes replace positional tuples. Agents can understand and validate the data they coordinate on.
-
-7. **Explicit Over Implicit** — No hidden expiration, no automatic cleanup, no magic. Application logic drives coordination policy.
-
-### Why This Matters
-
-Linda and JavaSpace failed because they treated the tuple space as a **mutable shared heap**. This led to:
-- **Blocking semantics** (one agent blocks another)
-- **Opacity** (can't see what's in the space)
-- **Fragility** (deadlocks, lost work, mysterious failures)
-- **Limited expressiveness** (pattern matching is weak)
-
-By building on **append-only streams + Datalog queries**, tuple-space achieves:
-- **Safety** (no deadlocks, clear failure modes)
-- **Clarity** (full observability and queryability)
-- **Expressiveness** (full Datalog power)
-- **Debuggability** (complete immutable history)
-- **Auditability** (all coordination actions are recorded)
-
-## Deferred
-
-- Retract/update semantics (currently append-only; retractions require new datoms)
-- Subscription filtering (notify agents only on matching patterns)
-- Distributed consensus for multi-agent decisions
-- Conflict resolution strategies (last-write-wins, CRDTs, application-defined)
-- Tuple space garbage collection / archival
-- Schema validation (cardinality, value types)
-- Full-text search integration
-- Temporal query operators (before, after, during)
+The naive version hides a familiar race: two workers can run the claim query before either
+appends, and both then claim the same task. That is not a storage bug; it is check-then-act
+over an append-only log. There is no lock and no `cas!` over a shared stream to force
+exclusion — both claims are simply recorded in their own owners' logs. The conflict is
+resolved **on the read side**: a downstream reader sees both claims, sorts by timestamp,
+breaks ties by worker id, and deterministically yields one winner. Exclusion is a query rule
+in the interpreters, not a guarantee the store enforces — which is exactly why the
+tuple-space character belongs to `dao.space`, not `dao.jing`.
+
+## Lineage
+
+The tuple space is **Linda's** contribution: generative communication (write into a shared
+medium, don't address a receiver), spatial and temporal decoupling, non-destructive
+associative matching. The divergences are immutability (append, never `take`) and named
+n-tuples (datoms) in place of untyped positional arrays. Matching stays global by default,
+because a coordination medium for strangers must let any reader match the whole store, not
+only what it bound.
+
+The other two traditions live in the layers below and have their own docs:
+
+- **Datomic** owns [`dao.jing`](dao.jing.md) — the dumb KV store of immutable segments and
+  the Peer-as-library read model.
+- **Plan 9** owns [`dao.stream`](dao.stream.md) — the independent, location-transparent,
+  append-only log substrate.
+
+The synthesis: **`dao.space` is the tuple space that emerges when agents index their streams
+(via `dao.space.index`, persisting covered indexes in `dao.jing`) and match over the result
+(via the `dao.space.query` Peer library).** Indexing creates queryable structure from raw
+appends; matching finds content associatively across every agent's published data; the tuple
+space is the coordination these two moves compose.

@@ -14,35 +14,53 @@
 
    Utilities (non-protocol):
      drain-one!      — destructive read from remote-stream (legacy support)"
-  (:require
-    #?(:cljd ["dart:async" :as async])
-    #?(:cljd ["dart:io" :as io])
-    [dao.stream :as ds]
-    [dao.stream.link :as link]
-    [dao.stream.ringbuffer :as ringbuffer]
-    [dao.stream.transit :as transit]
-    #?(:clj [org.httpkit.server :as http-server])))
+  (:require #?(:cljd ["dart:async" :as async])
+            #?(:cljd ["dart:io" :as io])
+            [dao.stream :as ds]
+            [dao.stream.link :as link]
+            [dao.stream.ringbuffer :as ringbuffer]
+            [dao.stream.transit :as transit]
+            #?(:clj [org.httpkit.server :as http-server])))
 
 
 ;; =============================================================================
 ;; WebSocketStream record
 ;; =============================================================================
 
+(defn- do-put!
+  "Apply val to link-state-atom's local side and send it over the wire if
+   connected. Not safe to run concurrently on the same link-state-atom -- callers
+   on platforms with real thread parallelism (:clj) must serialize calls (see
+   WebSocketStream's put!, which locks on link-state-atom for :clj; :cljs/:cljd
+   have no true concurrent threads calling into one stream, so no lock is
+   needed there)."
+  [link-state-atom send-fn-atom val]
+  (let [state @link-state-atom
+        [state' msg] (link/local-put state val)]
+    (if-let [send-fn @send-fn-atom]
+      (do (reset! link-state-atom (assoc state'
+                                         :local-sent-pos (:local-pos state')))
+          (send-fn (transit/encode msg)))
+      (reset! link-state-atom state'))
+    {:result :ok, :woke []}))
+
+
 (defrecord WebSocketStream
   [link-state-atom send-fn-atom]
 
   ds/IDaoStreamWriter
 
-  (put!
+  (append!
     [_ val]
-    (let [state @link-state-atom
-          [state' msg] (link/local-put state val)]
-      (if-let [send-fn @send-fn-atom]
-        (do (reset! link-state-atom (assoc state'
-                                           :local-sent-pos (:local-pos state')))
-            (send-fn (transit/encode msg)))
-        (reset! link-state-atom state'))
-      {:result :ok, :woke []}))
+    ;; :clj's send-fn synchronously blocks on the in-flight send
+    ;; (java.net.http's WebSocket throws if a second sendText is issued
+    ;; before the first completes), so concurrent put! calls on one
+    ;; stream must be serialized; :cljs/:cljd have no real concurrent
+    ;; threads sharing one stream.
+    #?(:clj (locking link-state-atom
+              (do-put! link-state-atom send-fn-atom val))
+       :cljs (do-put! link-state-atom send-fn-atom val)
+       :cljd (do-put! link-state-atom send-fn-atom val)))
 
 
   ds/IDaoStreamReader
@@ -58,6 +76,7 @@
       (send-fn (transit/encode (link/close-msg))))
     (let [state (:remote-stream @link-state-atom)] (ds/close! state))
     (swap! link-state-atom assoc :status :closed)
+    (when-let [close-fn (:socket-close-fn @link-state-atom)] (close-fn))
     {:woke []})
 
 
@@ -68,7 +87,7 @@
 ;; Shared internal helpers
 ;; =============================================================================
 
-(defn- make-ws-stream
+(defn make-ws-stream
   [local]
   (->WebSocketStream (atom (assoc (link/make-link-state local)
                                   :local-sent-pos 0))
@@ -92,7 +111,7 @@
     (when (seq datoms) (link/put-msg datoms from-pos))))
 
 
-(defn- on-open!
+(defn on-open!
   [ws-stream send-fn]
   (swap! (:link-state-atom ws-stream)
          (fn [state]
@@ -111,7 +130,7 @@
              (:local-pos state)))))
 
 
-(defn- on-message!
+(defn on-message!
   [ws-stream raw]
   (let [msg (transit/decode raw)
         state @(:link-state-atom ws-stream)
@@ -122,7 +141,7 @@
         (send-fn (transit/encode resp))))))
 
 
-(defn- on-close!
+(defn on-close!
   [ws-stream]
   (let [remote (:remote-stream @(:link-state-atom ws-stream))]
     (when-not (ds/closed? remote) (ds/close! remote)))
@@ -160,6 +179,9 @@
                         stream (make-ws-stream local)]
                     {:on-open
                      (fn [ch]
+                       (swap! (:link-state-atom stream) assoc
+                              :socket-close-fn
+                              (fn [] (http-server/close ch)))
                        (on-open! stream
                                  (fn [msg] (http-server/send! ch msg)))
                        (swap! conns conj stream)
@@ -170,7 +192,7 @@
                                  (swap! conns disj stream)
                                  (when-let [od (:on-disconnect opts)]
                                    (od stream)))})))
-              {:port port})]
+              {:port port, :ip (or (:host opts) "127.0.0.1")})]
         {:stop-fn stop!, :conns conns}))))
 
 
@@ -188,12 +210,27 @@
                  stream (make-ws-stream local)
                  client (java.net.http.HttpClient/newHttpClient)
                  ws-ref (atom nil)
+                 ;; Java's WebSocket client delivers a text message in
+                 ;; PARTS
+                 ;; (onText's last? flag): once cumulative traffic crosses
+                 ;; the client's internal buffer boundary, a message
+                 ;; arrives split. Parts accumulate here until last? marks
+                 ;; the message complete. Listener callbacks for one
+                 ;; connection are never invoked concurrently, so a plain
+                 ;; StringBuilder is safe.
+                 text-buf (StringBuilder.)
                  listener
                  (reify
                    java.net.http.WebSocket$Listener
                    (onOpen
                      [_ ws]
                      (reset! ws-ref ws)
+                     (swap! (:link-state-atom stream) assoc
+                            :socket-close-fn
+                            (fn []
+                              (.sendClose ws
+                                          java.net.http.WebSocket/NORMAL_CLOSURE
+                                          "close")))
                      ;; Java's WebSocket client sends text frames
                      ;; asynchronously. Block each send until it is
                      ;; accepted so the initial sync-request and the
@@ -205,8 +242,12 @@
                      (.request ws 1))
 
                    (onText
-                     [_ ws data _last?]
-                     (on-message! stream (str data))
+                     [_ ws data last?]
+                     (.append text-buf data)
+                     (when last?
+                       (let [msg (.toString text-buf)]
+                         (.setLength text-buf 0)
+                         (on-message! stream msg)))
                      (.request ws 1)
                      (java.util.concurrent.CompletableFuture/completedFuture
                        nil))
@@ -238,7 +279,10 @@
             stream (make-ws-stream local)
             ws (js/WebSocket. url)]
         (set! (.-onopen ws)
-              #(do (on-open! stream (fn [msg] (.send ws msg)))
+              #(do (swap! (:link-state-atom stream) assoc
+                          :socket-close-fn
+                          (fn [] (.close ws)))
+                   (on-open! stream (fn [msg] (.send ws msg)))
                    (when-let [callback (:on-open opts)] (callback stream %))))
         (set! (.-onmessage ws)
               #(do (on-message! stream (.-data %))
@@ -278,7 +322,8 @@
      ([port] (listen! port nil))
      ([port opts]
       (let [WebSocket (js/require "ws")
-            wss (new (.-Server WebSocket) #js {:port port})
+            wss (new (.-Server WebSocket)
+                     #js {:port port, :host (or (:host opts) "127.0.0.1")})
             conns (atom #{})]
         (.on ^js wss
              "connection"
@@ -288,6 +333,9 @@
                                       :eviction-policy (:eviction-policy
                                                          opts)})
                      stream (make-ws-stream local)]
+                 (swap! (:link-state-atom stream) assoc
+                        :socket-close-fn
+                        (fn [] (.close ^js ws)))
                  (on-open! stream (fn [msg] (.send ^js ws msg)))
                  (swap! conns conj stream)
                  (when-let [oc (:on-connect opts)] (oc stream))
@@ -324,7 +372,7 @@
       (let [conns (atom #{})
             server-ref (atom nil)]
         (->
-          (io/HttpServer.bind "0.0.0.0" port)
+          (io/HttpServer.bind (or (:host opts) "127.0.0.1") port)
           (.then
             (fn [server]
               (let [server ^io/HttpServer server]
@@ -359,14 +407,34 @@
          :conns conns}))))
 
 
+;; =============================================================================
+;; CLJD: connect! (dart:io WebSocket client)
+;; =============================================================================
+
+#?(:cljd (defn connect!
+           "Connect to a WebSocket server at url. Returns WebSocketStream."
+           ([url] (connect! url nil))
+           ([url opts]
+            (let [local (ds/open! {:type :ringbuffer,
+                                   :capacity (:capacity opts)})
+                  stream (make-ws-stream local)]
+              (-> (io/WebSocket.connect url)
+                  (.then (fn [ws]
+                           (let [ws ^io/WebSocket ws]
+                             (on-open! stream (fn [msg] (.add ws msg)))
+                             (.listen ws
+                                      (fn [raw] (on-message! stream raw))
+                                      :onDone
+                                      (fn [] (on-close! stream)))))))
+              stream))))
+
+
 #?(:cljd (defmethod ds/open! :websocket
            [descriptor]
            (let [{:keys [mode url port capacity], :as opts} descriptor]
              (case mode
                :listen (listen! port opts)
-               :connect (throw (ex-info
-                                 "websocket mode :connect not supported in CLJD"
-                                 {:descriptor descriptor}))
+               :connect (connect! url {:capacity capacity})
                (throw (ex-info
                         "websocket transport mode must be :listen or :connect"
                         {:descriptor descriptor, :mode mode}))))))

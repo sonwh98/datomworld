@@ -63,7 +63,12 @@
           (repl/serve!
             repl-state
             port
-            {:on-connect (fn [_stream]
+            {;; Unlike the CLI entrypoints, this server is meant to be reached
+             ;; from another device on the same LAN (see device-ip/
+             ;; interface-addresses above), so it opts back into binding all
+             ;; interfaces rather than yin.repl/serve!'s localhost-only default.
+             :host "0.0.0.0",
+             :on-connect (fn [_stream]
                            (let [client-count (swap! active-clients inc)]
                              (set! (.-value ^m/ValueNotifier server-status)
                                    (repl/connection-status-text client-count)))),

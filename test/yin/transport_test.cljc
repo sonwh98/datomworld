@@ -1,12 +1,11 @@
 (ns yin.transport-test
-  (:require
-    [clojure.test :refer [deftest is testing]]
-    [dao.stream :as ds]
-    [dao.stream.ringbuffer]
-    [yin.content :as content]
-    [yin.transport :as transport]
-    [yin.vm :as vm]
-    [yin.vm.semantic :as semantic]))
+  (:require [clojure.test :refer [deftest is testing]]
+            [dao.stream :as ds]
+            [dao.stream.ringbuffer]
+            [yin.content :as content]
+            [yin.transport :as transport]
+            [yin.vm :as vm]
+            [yin.vm.semantic :as semantic]))
 
 
 ;; =============================================================================
@@ -20,7 +19,7 @@
         queued-vm (assoc vm-state
                          :in-stream in-stream
                          :in-cursor {:position 0})]
-    (ds/put! in-stream (vec datoms))
+    (ds/append! in-stream (vec datoms))
     queued-vm))
 
 

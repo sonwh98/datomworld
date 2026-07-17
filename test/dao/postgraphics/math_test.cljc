@@ -11,7 +11,7 @@
 
 (defn- approx=
   [a b]
-  (let [delta (- (double a) (double b))] (< (Math/abs delta) 1.0e-6)))
+  (let [delta (- (double a) (double b))] (< (math/mabs delta) 1.0e-6)))
 
 
 (defn- approx-vec=
@@ -83,7 +83,7 @@
 
 (deftest mat4-mul-rotation-identity
   (let [id (math/identity-mat4)
-        rx (math/mat4-rotation-x (* 0.5 Math/PI))]
+        rx (math/mat4-rotation-x (* 0.5 math/PI))]
     (is (approx-vec= rx (math/mat4-mul id rx)))
     (is (approx-vec= rx (math/mat4-mul rx id)))))
 
@@ -106,7 +106,7 @@
 
 
 (deftest mat4-invert-rotation
-  (let [r (math/mat4-rotation-z (* 0.5 Math/PI))
+  (let [r (math/mat4-rotation-z (* 0.5 math/PI))
         inv (math/mat4-invert r)
         prod (math/mat4-mul r inv)]
     (is (approx-vec= (math/identity-mat4) prod))))
@@ -125,7 +125,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest mat4-rotation-x-point
-  (let [r90 (math/mat4-rotation-x (* 0.5 Math/PI))
+  (let [r90 (math/mat4-rotation-x (* 0.5 math/PI))
         result [(+ (* (nth r90 0) 0)
                    (* (nth r90 4) 0)
                    (* (nth r90 8) 1.0)
@@ -168,7 +168,7 @@
 
 (deftest op->mat4-from-ops
   (let [m (math/op->mat4
-            {:translate [10 20 30], :rotate (/ Math/PI 2), :scale [2 2 2]})]
+            {:translate [10 20 30], :rotate (/ math/PI 2), :scale [2 2 2]})]
     (is (= 16 (count m)))
     (is (approx= 0.0 (nth m 0))) ; cos(pi/2)*2 = 0
     (is (approx= 2.0 (nth m 1))) ; sin(pi/2)*2 = 2
@@ -188,7 +188,7 @@
                                800
                                600)]
     (is (= 16 (count cam)))
-    (is (> (Math/abs (nth cam 0)) 0.0))))
+    (is (> (math/mabs (nth cam 0)) 0.0))))
 
 
 (deftest build-camera-orthographic
@@ -375,8 +375,8 @@
 
 (deftest affine-scale-x-rotation-preserves-length
   (testing "a pure rotation has unit scale (sqrt(cos^2+sin^2))"
-    (let [c (Math/cos 0.7)
-          s (Math/sin 0.7)]
+    (let [c (math/mcos 0.7)
+          s (math/msin 0.7)]
       (is (approx= 1.0
                    (math/affine-scale-x [c s 0 0 (- s) c 0 0 0 0 1 0 0 0 0
                                          1]))))))

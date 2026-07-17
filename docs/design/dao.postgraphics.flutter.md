@@ -715,9 +715,9 @@ read from `frame-stream`.
 
 - **`(put-frame! frame-stream frame)`** — push one frame onto
   `frame-stream` and wake any reader waiting on it. Returns the
-  stream's `:result` value. Equivalent to `(ds/put! frame-stream frame)`
+  stream's `:result` value. Equivalent to `(ds/append! frame-stream frame)`
   followed by resuming registered reader waiters; producers that
-  already use `ds/put!` and manage their own readers do not need this
+  already use `ds/append!` and manage their own readers do not need this
   helper.
 
 ### Compositional Rules

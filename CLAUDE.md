@@ -7,7 +7,7 @@
 Everything is data.
 Streams are data. Code is data. Runtime state is data.
 Everything is a stream.
-State is represented as immutable datoms.
+State is represented as immutable tuples (including datoms).
 Interpretation > abstraction.
 Explicit causality > implicit assumptions.
 Restrictions are a feature.
@@ -21,10 +21,10 @@ Do not introduce shared mutable state.
 Do not collapse interpretation and execution into the same layer.
 Do not assume graphs: graphs must be constructed explicitly from tuples.
 
-# DATOMS
+# TUPLES AND DATOMS
 
-Datoms are N-dimensional tuples. Immutable facts, not objects.
-Canonical format for persistent facts: DaoDB, AST, schema, provenance is the 5-tuple: (e a v t m).
+Tuples are elements in an open moduli space, graded by dimension n. A tuple can be any dimension/size.
+A datom is specifically the canonical persistent 5-tuple `[e a v t m]` (entity, attribute, value, transaction, metadata).
 Streams carry whatever values the consumer needs.
 
 See docs/agents/datom-spec.md for full specification.
@@ -48,6 +48,7 @@ Run tests:           clj -M:test
 Run CLJS tests:      clj -M:cljs -m shadow.cljs.devtools.cli compile test && node target/node-tests.js
 Run Node.js tests:    npm test
 Compile CLJD:        clj -M:cljd compile
+Run CLJD tests:      clj -M:cljd test     (requires flutter on PATH, e.g. via mise exec --)
 Lint a file:         clj -M:kondo --lint <path>
 ClojureScript dev:   npx shadow-cljs watch demo
 ClojureScript build: npx shadow-cljs compile demo

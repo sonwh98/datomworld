@@ -7,23 +7,26 @@
    explicit init call needed."
   (:require
     [clojure.test :refer [deftest is testing]]
-    ;; Required for side effects: each namespace calls register-module!
-    ;; and register-effect-handler! at top level when loaded.
-    [yin.io.file-input-stream]
-    [yin.io.file-output-stream]
+    ;; Required for side effects: each namespace calls
+    ;; register-module! And register-effect-handler! at top level
+    ;; when loaded.
+    [yin.io.file-input-stream :as fis]
+    [yin.io.file-output-stream :as fos]
     [yin.module :as module]
     #?(:clj [yin.vm :as vm])))
 
 
-#?(:clj
+#?(:cljd nil
+   :clj
    (deftest module-require-effect-handler-test
      (testing ":module/require effect handler is registered"
        (is (fn? (module/get-effect-handler :module/require))))
-
-     (testing ":module/require handler loads namespace and makes module binding available"
+     (testing
+       ":module/require handler loads namespace and makes module binding available"
        (let [handler (module/get-effect-handler :module/require)
              state {}
-             effect {:effect :module/require :module 'yin.io.file-input-stream}
+             effect {:effect :module/require,
+                     :module 'yin.io.file-input-stream}
              result (handler state effect nil)]
          (is (= 'yin.io.file-input-stream (:value result)))
          (is (= state (:state result)))
@@ -31,14 +34,30 @@
 
 
 (deftest io-module-registers-on-require-test
-  (testing "requiring yin.io.file-input-stream registers file-input-stream into 'yin.io module"
-    (is (fn? (module/resolve-module 'yin.io.file-input-stream))))
-
-  (testing "requiring yin.io.file-output-stream registers file-output-stream into 'yin.io module"
-    (is (fn? (module/resolve-module 'yin.io.file-output-stream))))
-
-  (testing "requiring yin.io.file-input-stream registers its effect handler"
-    (is (fn? (module/get-effect-handler :io/file-input-stream))))
-
-  (testing "requiring yin.io.file-output-stream registers its effect handler"
-    (is (fn? (module/get-effect-handler :io/file-output-stream)))))
+  #?(:cljd
+     (do
+       (testing
+         "requiring yin.io.file-input-stream registers file-input-stream into 'yin.io module"
+         (identity fis/_init)
+         (is (fn? (module/resolve-module 'yin.io.file-input-stream))))
+       (testing
+         "requiring yin.io.file-output-stream registers file-output-stream into 'yin.io module"
+         (identity fos/_init)
+         (is (fn? (module/resolve-module 'yin.io.file-output-stream)))))
+     :default
+     (do
+       (testing
+         "requiring yin.io.file-input-stream registers file-input-stream into 'yin.io module"
+         (is (fn? (module/resolve-module 'yin.io.file-input-stream))))
+       (testing
+         "requiring yin.io.file-output-stream registers file-output-stream into 'yin.io module"
+         (is (fn? (module/resolve-module 'yin.io.file-output-stream))))
+       #?(:clj
+          (testing
+            "requiring yin.io.file-input-stream registers its effect handler"
+            (is (fn? (module/get-effect-handler :io/file-input-stream)))))
+       #?(:clj
+          (testing
+            "requiring yin.io.file-output-stream registers its effect handler"
+            (is (fn? (module/get-effect-handler
+                       :io/file-output-stream))))))))

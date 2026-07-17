@@ -287,7 +287,7 @@
                     .children
                     [(flutter-repl/info-card {}) (m/SizedBox .height 8.0)
                      (mono
-                       "1. Run `mise exec -- clj -M:yin-repl` on your desktop.")
+                       "1. Run `mise exec -- clj -M:clj-yin-repl` on your desktop.")
                      (mono (str
                              "2. Connect with `(connect \"daostream:ws://<ip>:"
                              flutter-repl/default-port

@@ -1,0 +1,12 @@
+{:tasks
+ {test:clj {:doc "Run JVM tests (via clj)"
+            :task (shell "clojure -M:test")}
+  
+  test:cljs {:doc "Run Node tests (via shadow-cljs)"
+             :task (shell "npx shadow-cljs compile test")}
+  
+  test:cljd {:doc "Run Dart tests (via clojure -M:cljd)"
+             :task (shell "clojure -M:cljd test")}
+  
+  test {:doc "Run all tests"
+        :depends [test:clj test:cljs test:cljd]}}}

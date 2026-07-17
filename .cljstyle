@@ -1,8 +1,21 @@
+;; :namespaces is disabled project-wide. It rewrites ns forms, which is
+;; unsafe on this multi-platform codebase in two distinct ways:
+;; 1. ClojureDart uses string-prefixed :import forms (e.g.
+;;    (:import ["dart:core" BigInt DateTime])); the rule rewrites these
+;;    into JVM-style forms, which the cljd compiler then fails to resolve.
+;; 2. .cljc files that guard a JVM-only :import/:require clause with
+;;    #?(:cljd nil :clj ...) rely on :cljd appearing FIRST (the cljd
+;;    host-eval pass also matches :clj, so first-match-wins order is
+;;    load-bearing — see the reader-conditional trap in project memory).
+;;    The rule reorders reader-conditional branches alphabetically
+;;    (:clj before :cljd), silently re-breaking the guard on every
+;;    `cljstyle fix` — this bit dao.jing.dht.node.cljc and cost a lost
+;;    commit before being traced back here.
 {:files {:extensions #{"blog" "chp" "clj" "cljc" "cljd" "cljs" "edn"},
          :ignore #{".cpcache" ".git" ".shadow-cljs" "node_modules" "target"}},
  :rules {:blank-lines {:enabled? true, :max-consecutive 2},
          :eof-newline {:enabled? true},
          :indentation {:enabled? true},
-         :namespaces {:enabled? true},
+         :namespaces {:enabled? false},
          :whitespace
            {:enabled? true, :insert-missing? true, :remove-trailing? true}}}

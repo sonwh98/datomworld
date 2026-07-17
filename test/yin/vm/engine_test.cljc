@@ -1,13 +1,12 @@
 (ns yin.vm.engine-test
-  (:require
-    [clojure.test :refer [deftest is testing]]
-    [dao.datom :as datom]
-    [dao.stream :as ds]
-    [dao.stream.apply :as dao.stream.apply]
-    [dao.stream.ringbuffer :as stream]
-    [dao.test-utils :as tu]
-    [yin.vm :as vm]
-    [yin.vm.engine :as engine]))
+  (:require [clojure.test :refer [deftest is testing]]
+            [dao.datom :as datom]
+            [dao.stream :as ds]
+            [dao.stream.apply :as dao.stream.apply]
+            [dao.stream.ringbuffer :as stream]
+            [dao.test-utils :as tu]
+            [yin.vm :as vm]
+            [yin.vm.engine :as engine]))
 
 
 (deftest run-loop-resumes-when-blocked-with-preexisting-run-queue-test
@@ -187,7 +186,7 @@
              state-still-blocked (#'yin.vm.engine/check-wait-set state)
              _ (is (= 1 (count (:wait-set state-still-blocked))))
              ;; 3. Put data manually
-             _ (ds/put! stream 42)
+             _ (ds/append! stream 42)
              ;; 4. check-wait-set should now wake it
              state-runnable (#'yin.vm.engine/check-wait-set
                              state-still-blocked)]
@@ -256,7 +255,7 @@
 
   ds/IDaoStreamWriter
 
-  (put!
+  (append!
     [_this val]
     (let [s @state-atom
           capacity 1] ; fixed capacity for test
@@ -497,7 +496,7 @@
           _ (ds/register-reader-waiter! call-out 0 waiter-entry)
           ;; 2. Bridge puts response to call-out
           response (dao.stream.apply/response :parked-0 42)
-          put-result (ds/put! call-out response)
+          put-result (ds/append! call-out response)
           woke (:woke put-result)
           _ (is (= 1 (count woke)))
           ;; 3. Use engine to process woken entries

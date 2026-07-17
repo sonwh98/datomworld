@@ -11,17 +11,18 @@
 (deftest jvm-http-uniformity-test
   #?(:clj (let [port 18999
                 url (str "http://localhost:" port)
-                stop-server (http-server/run-server
-                              (fn [req]
-                                (case (:uri req)
-                                  "/slow" (do (Thread/sleep 500)
-                                              {:status 200, :body "finally"})
-                                  {:status 200,
-                                   :headers {"X-Echo-Method"
-                                             (name (:request-method req)),
-                                             "Content-Type" "text/plain"},
-                                   :body (when-let [b (:body req)] (slurp b))}))
-                              {:port port})]
+                stop-server
+                (http-server/run-server
+                  (fn [req]
+                    (case (:uri req)
+                      "/slow" (do (try (Thread/sleep 500)
+                                       (catch InterruptedException _))
+                                  {:status 200, :body "finally"})
+                      {:status 200,
+                       :headers {"X-Echo-Method" (name (:request-method req)),
+                                 "Content-Type" "text/plain"},
+                       :body (when-let [b (:body req)] (slurp b))}))
+                  {:port port})]
             (try
               (testing "GET request"
                 (let [stream (ds/open! {:type :http, :url url, :method :get})

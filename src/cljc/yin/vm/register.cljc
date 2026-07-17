@@ -17,19 +17,16 @@
    Executes numeric bytecode produced by assemble.
    The compilation pipeline is: AST datoms -> ast-datoms->asm (symbolic IR) -> assemble (numeric).
    See ast-datoms->asm docstring for the full instruction set."
-  (:require
-    [dao.stream :as ds]
-    [dao.stream.apply :as dao.stream.apply]
-    [yin.module :as module]
-    [yin.vm :as vm]
-    [yin.vm.engine :as engine]
-    [yin.vm.host-ffi :as host-ffi]
-    [yin.vm.macro :as macro]
-    [yin.vm.semantic :as semantic]
-    [yin.vm.telemetry :as telemetry])
-  #?(:cljs
-     (:require-macros
-       [yin.vm :refer [opcase]])))
+  (:require [dao.stream :as ds]
+            [dao.stream.apply :as dao.stream.apply]
+            [yin.module :as module]
+            [yin.vm :as vm]
+            [yin.vm.engine :as engine]
+            [yin.vm.ffi :as ffi]
+            [yin.vm.macro :as macro]
+            [yin.vm.semantic :as semantic]
+            [yin.vm.telemetry :as telemetry])
+  #?(:cljs (:require-macros [yin.vm :refer [opcase]])))
 
 
 (declare register-vm-restore)
@@ -794,7 +791,7 @@
               ;; Emit request to call-in stream
               call-in (get-in parked [:store vm/call-in-stream-key])
               request (dao.stream.apply/request parked-id op args)
-              _ (ds/put! call-in request)]
+              _ (ds/append! call-in request)]
           (assoc (telemetry/emit-snapshot parked :bridge {:bridge-op op})
                  :value :yin/blocked
                  :blocked? true
@@ -1403,7 +1400,7 @@
                                                     reg-vm-load-program
                                                     reg-vm-step)
                              :step))
-  (run [vm] (host-ffi/maybe-run vm reg-vm-run-on-stream))
+  (run [vm] (ffi/maybe-run vm reg-vm-run-on-stream))
   (eval [vm ast] (reg-vm-eval vm ast))
   (reset [vm] (reg-vm-reset vm))
   (halted? [vm] (reg-vm-halted? vm))
@@ -1427,7 +1424,7 @@
   ([] (create-vm {}))
   ([opts]
    (let [env (or (:env opts) {})
-         bridge-state (host-ffi/bridge-from-opts opts)
+         bridge-state (ffi/bridge-from-opts opts)
          in-stream (:in-stream opts)
          base (vm/empty-state {:primitives (:primitives opts),
                                :telemetry (:telemetry opts),

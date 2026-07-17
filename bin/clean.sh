@@ -17,7 +17,7 @@
     []))
 
 (let [paths [".cpcache" "target" ".shadow-cljs" "public/js" "lib/cljd-out"
-             ".clojuredart"]
+             ".clojuredart" "test/cljd-out"]
       existing-paths (filter #(.exists (io/file %)) paths)
       emacs-files (emacs-temp-files ".")
       emacs-paths (map #(.getPath %) emacs-files)]

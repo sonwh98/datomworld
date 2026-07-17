@@ -1,11 +1,10 @@
 (ns agent.tools-test
-  (:require
-    #?@(:cljd [["dart:io" :as io]]
-        :clj [[clojure.java.io :as io]])
-    [agent.tools :as tools]
-    [clojure.test :refer [deftest is testing]]
-    #?(:clj [dao.stream :as ds])
-    #?(:clj [dao.stream.ringbuffer])))
+  (:require #?@(:cljd [["dart:io" :as io]]
+                :clj [[clojure.java.io :as io]])
+            [agent.tools :as tools]
+            [clojure.test :refer [deftest is testing]]
+            #?(:clj [dao.stream :as ds])
+            #?(:clj [dao.stream.ringbuffer])))
 
 
 ;; =============================================================================
@@ -13,29 +12,31 @@
 ;; =============================================================================
 
 
-#?(:clj (deftest execute-tool-call-stream-write-test
-          (testing "stream_write tool call invokes ds/put! on the right stream"
-            (let [s (ds/open! {:type :ringbuffer, :capacity 5})
-                  registry {"target" s}
-                  tool-call
-                  {"id" "call_1",
-                   "type" "function",
-                   "function"
-                   {"name" "stream_write",
-                    "arguments"
-                    "{\"stream_id\":\"target\",\"value\":\"42\"}"}}
-                  result (tools/execute-tool-call tool-call registry)]
-              (is (= {"role" "tool", "tool_call_id" "call_1", "content" "ok"}
-                     result))
-              (let [next-result (ds/next s {:position 0})]
-                (is (map? next-result))
-                (is (= 42 (:ok next-result))))))))
+#?(:cljd nil
+   :clj
+   (deftest execute-tool-call-stream-write-test
+     (testing "stream_write tool call invokes ds/append! on the right stream"
+       (let [s (ds/open! {:type :ringbuffer, :capacity 5})
+             registry {"target" s}
+             tool-call {"id" "call_1",
+                        "type" "function",
+                        "function"
+                        {"name" "stream_write",
+                         "arguments"
+                         "{\"stream_id\":\"target\",\"value\":\"42\"}"}}
+             result (tools/execute-tool-call tool-call registry)]
+         (is (= {"role" "tool", "tool_call_id" "call_1", "content" "ok"}
+                result))
+         (let [next-result (ds/next s {:position 0})]
+           (is (map? next-result))
+           (is (= 42 (:ok next-result))))))))
 
 
-#?(:clj (deftest execute-tool-call-stream-read-test
+#?(:cljd nil
+   :clj (deftest execute-tool-call-stream-read-test
           (testing "stream_read tool call reads from the right stream"
             (let [s (doto (ds/open! {:type :ringbuffer, :capacity 5})
-                      (ds/put! :hello))
+                      (ds/append! :hello))
                   registry {"input" s}
                   tool-call {"id" "call_2",
                              "type" "function",
@@ -50,7 +51,8 @@
                      result))))))
 
 
-#?(:clj (deftest execute-tool-call-unknown-tool-test
+#?(:cljd nil
+   :clj (deftest execute-tool-call-unknown-tool-test
           (testing "unknown tool returns error message"
             (let [s (ds/open! {:type :ringbuffer, :capacity 1})
                   tool-call {"id" "call_3",
@@ -69,7 +71,8 @@
 ;; =============================================================================
 
 
-#?(:clj (deftest execute-tool-call-stream-id-missing-test
+#?(:cljd nil
+   :clj (deftest execute-tool-call-stream-id-missing-test
           (testing "stream_id not in registry returns error message"
             (let [s (ds/open! {:type :ringbuffer, :capacity 1})
                   tool-call
@@ -85,7 +88,8 @@
               (is (.startsWith ^String (get result "content") "error:"))))))
 
 
-#?(:clj (deftest execute-tool-call-stream-read-blocked-test
+#?(:cljd nil
+   :clj (deftest execute-tool-call-stream-read-blocked-test
           (testing "stream_read on empty open stream returns blocked message"
             (let [s (ds/open! {:type :ringbuffer, :capacity 5})
                   tool-call {"id" "call_5",
@@ -101,7 +105,8 @@
                      result))))))
 
 
-#?(:clj (deftest execute-tool-call-stream-read-end-test
+#?(:cljd nil
+   :clj (deftest execute-tool-call-stream-read-end-test
           (testing "stream_read on closed empty stream returns end message"
             (let [s (doto (ds/open! {:type :ringbuffer, :capacity 5}) ds/close!)
                   tool-call {"id" "call_6",
@@ -117,13 +122,14 @@
                      result))))))
 
 
-#?(:clj (deftest execute-tool-call-stream-read-gap-test
+#?(:cljd nil
+   :clj (deftest execute-tool-call-stream-read-gap-test
           (testing "stream_read on evicted position returns gap message"
             (let [s (doto (ds/open! {:type :ringbuffer,
                                      :capacity 1,
                                      :eviction-policy :evict-oldest})
-                      (ds/put! :a)
-                      (ds/put! :b))
+                      (ds/append! :a)
+                      (ds/append! :b))
                   tool-call {"id" "call_7",
                              "type" "function",
                              "function"
@@ -137,10 +143,11 @@
                      result))))))
 
 
-#?(:clj (deftest execute-tool-call-stream-write-full-test
+#?(:cljd nil
+   :clj (deftest execute-tool-call-stream-write-full-test
           (testing "stream_write on a full stream returns full message"
             (let [s (doto (ds/open! {:type :ringbuffer, :capacity 1})
-                      (ds/put! :a))
+                      (ds/append! :a))
                   tool-call {"id" "call_8",
                              "type" "function",
                              "function"
@@ -154,7 +161,8 @@
                      result))))))
 
 
-#?(:clj (deftest execute-tool-call-stream-write-malformed-edn-test
+#?(:cljd nil
+   :clj (deftest execute-tool-call-stream-write-malformed-edn-test
           (testing "stream_write with malformed EDN returns an error message"
             (let [s (ds/open! {:type :ringbuffer, :capacity 5})
                   tool-call
@@ -171,7 +179,8 @@
                      result))))))
 
 
-#?(:clj
+#?(:cljd nil
+   :clj
    (deftest execute-tool-call-stream-list-test
      (testing "stream_list returns the keys of the registry"
        (let [s1 (ds/open! {:type :ringbuffer, :capacity 1})
@@ -191,7 +200,8 @@
 ;; =============================================================================
 
 
-#?(:clj (deftest execute-tool-call-http-fetch-test
+#?(:cljd nil
+   :clj (deftest execute-tool-call-http-fetch-test
           (testing
             "http_fetch tool call opens an HTTP stream and returns the body"
             (let [orig-open ds/open!
@@ -208,7 +218,7 @@
                                                     (doto (orig-open
                                                             {:type :ringbuffer,
                                                              :capacity 1})
-                                                      (ds/put! fake-resp)
+                                                      (ds/append! fake-resp)
                                                       ds/close!)
                                                     (orig-open desc)))]
                            (tools/execute-tool-call tool-call {}))]
@@ -219,7 +229,8 @@
                 (is (.contains ^String content "hello world")))))))
 
 
-#?(:clj
+#?(:cljd nil
+   :clj
    (deftest execute-tool-call-http-fetch-with-method-headers-test
      (testing "http_fetch passes method, headers, and body to the HTTP stream"
        (let
@@ -243,7 +254,7 @@
                                                 (doto (orig-open
                                                         {:type :ringbuffer,
                                                          :capacity 1})
-                                                  (ds/put! fake-resp)
+                                                  (ds/append! fake-resp)
                                                   ds/close!))
                                             (orig-open desc)))]
                    (tools/execute-tool-call tool-call {}))]
@@ -256,7 +267,8 @@
            (is (.contains ^String content "201")))))))
 
 
-#?(:clj (deftest execute-tool-call-http-fetch-error-test
+#?(:cljd nil
+   :clj (deftest execute-tool-call-http-fetch-error-test
           (testing "http_fetch returns error details on transport failure"
             (let [orig-open ds/open!
                   fake-resp {:status 0,
@@ -272,7 +284,7 @@
                                                     (doto (orig-open
                                                             {:type :ringbuffer,
                                                              :capacity 1})
-                                                      (ds/put! fake-resp)
+                                                      (ds/append! fake-resp)
                                                       ds/close!)
                                                     (orig-open desc)))]
                            (tools/execute-tool-call tool-call {}))]
@@ -285,7 +297,8 @@
 ;; =============================================================================
 
 
-#?(:clj (deftest execute-tool-call-file-read-write-test
+#?(:cljd nil
+   :clj (deftest execute-tool-call-file-read-write-test
           (testing "file_write and file_read tool calls work together"
             (let [path "target/test-file.txt"
                   _ (when (.exists (io/file path)) (io/delete-file path))

@@ -8,12 +8,15 @@
     [yin.module :as module]))
 
 
-(module/register-module!
-  'yin.stream
-  {'make   (fn
-             ([] {:effect :stream/make :capacity nil})
-             ([capacity] {:effect :stream/make :capacity capacity}))
-   'cursor (fn [stream-ref] {:effect :stream/cursor :stream stream-ref})
-   'next   (fn [cursor-ref] {:effect :stream/next :cursor cursor-ref})
-   'put    (fn [stream-ref val] {:effect :stream/put :stream stream-ref :val val})
-   'close  (fn [stream-ref] {:effect :stream/close :stream stream-ref})})
+(def ^:private stream-bindings
+  {'make (fn
+           ([] {:effect :stream/make, :capacity nil})
+           ([capacity] {:effect :stream/make, :capacity capacity})),
+   'cursor (fn [stream-ref] {:effect :stream/cursor, :stream stream-ref}),
+   'next (fn [cursor-ref] {:effect :stream/next, :cursor cursor-ref}),
+   'put (fn [stream-ref val]
+          {:effect :stream/put, :stream stream-ref, :val val}),
+   'close (fn [stream-ref] {:effect :stream/close, :stream stream-ref})})
+
+
+(module/register-module! 'yin.stream stream-bindings)

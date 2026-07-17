@@ -1,13 +1,12 @@
 (ns yin.vm.ast-walker-test
-  (:require
-    [clojure.test :refer [deftest is testing]]
-    [dao.db.in-memory :as in-m]
-    [dao.stream :as ds]
-    [dao.stream.apply :as dao.stream.apply]
-    [dao.stream.ringbuffer]
-    [yin.vm :as vm]
-    [yin.vm.ast-walker :as ast-walker]
-    [yin.vm.engine :as engine]))
+  (:require [clojure.test :refer [deftest is testing]]
+            [dao.space.transact :as transact]
+            [dao.stream :as ds]
+            [dao.stream.apply :as dao.stream.apply]
+            [dao.stream.ringbuffer]
+            [yin.vm :as vm]
+            [yin.vm.ast-walker :as ast-walker]
+            [yin.vm.engine :as engine]))
 
 
 ;; =============================================================================
@@ -22,7 +21,7 @@
                          :in-stream in-stream
                          :in-cursor {:position 0}
                          :halted? false)]
-    (ds/put! in-stream (vec (vm/ast->datoms ast)))
+    (ds/append! in-stream (vec (vm/ast->datoms ast)))
     queued-vm))
 
 
@@ -38,9 +37,10 @@
             ok
             result (apply (get handlers request-op) (or request-args []))
             call-out (get (vm/store vm) vm/call-out-stream-key)
-            ;; ds/put! on RingBufferStream returns woken entries
-            put-result (ds/put! call-out
-                                (dao.stream.apply/response request-id result))
+            ;; ds/append! on RingBufferStream returns woken entries
+            put-result (ds/append! call-out
+                                   (dao.stream.apply/response request-id
+                                                              result))
             woke (:woke put-result)
             ;; Use engine helper to transform woken entries into run-queue
             ;; entries
@@ -466,12 +466,14 @@
     "Transacting nil literals succeeds by omitting nil :db/add assertions"
     (let [datoms (vec (vm/ast->datoms {:type :literal, :value nil}))
           tx-data (vec (vm/datoms->tx-data datoms))
-          {:keys [db]} (in-m/run-tx (in-m/create vm/schema) tx-data)]
+          {:keys [datoms]}
+          (transact/prepare-tx
+            {:base-datoms [], :tx-data tx-data, :next-t 1, :next-eid 1025})]
       (is (some #(= :yin/type (nth % 2)) tx-data)
           "Type assertion should still be projected to tx-data")
       (is (not-any? #(and (= :yin/value (nth % 2)) (nil? (nth % 3))) tx-data)
           "Nil-valued assertions should be omitted from tx-data")
-      (is (some? db) "Transaction should succeed and return a db"))))
+      (is (some? datoms) "Transaction should succeed and return datoms"))))
 
 
 (deftest ast->datoms-fibonacci-test

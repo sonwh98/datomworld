@@ -11,25 +11,23 @@
   "Returns an effect descriptor that opens a file input stream."
   ([path] (file-input-stream path nil))
   ([path opts]
-   (merge {:effect :io/file-input-stream
-           :path path}
+   (merge {:effect :io/file-input-stream, :path path}
           (if (number? opts) {:chunk-size opts} opts))))
 
 
-(module/register-module! 'yin.io {'file-input-stream file-input-stream})
+(def _init
+  (module/register-module! 'yin.io {'file-input-stream file-input-stream}))
 
 
-#?(:clj
-   (do
-     (defn- handle
-       [state effect opts]
-       (let [stream-id (:id opts)
-             descriptor (cond-> {:type :file-input-stream
-                                 :path (:path effect)}
-                          (:chunk-size effect) (assoc :chunk-size (:chunk-size effect)))
-             stream (ds/open! descriptor)
-             stream-ref {:type :stream-ref :id stream-id}]
-         {:value stream-ref
-          :state (assoc-in state [:store stream-id] stream)}))
-
-     (module/register-effect-handler! :io/file-input-stream handle)))
+#?(:clj (do (defn- handle
+              [state effect opts]
+              (let [stream-id (:id opts)
+                    descriptor (cond-> {:type :file-input-stream,
+                                        :path (:path effect)}
+                                 (:chunk-size effect) (assoc :chunk-size
+                                                             (:chunk-size effect)))
+                    stream (ds/open! descriptor)
+                    stream-ref {:type :stream-ref, :id stream-id}]
+                {:value stream-ref,
+                 :state (assoc-in state [:store stream-id] stream)}))
+            (module/register-effect-handler! :io/file-input-stream handle)))

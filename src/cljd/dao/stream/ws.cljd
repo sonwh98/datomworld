@@ -12,7 +12,7 @@
 
   ds/IDaoStreamWriter
 
-  (put!
+  (append!
     [_ val]
     (let [state @link-state-atom
           [state' msg] (link/local-put state val)]
@@ -37,6 +37,7 @@
       (send-fn (transit/encode (link/close-msg))))
     (let [state (:remote-stream @link-state-atom)] (ds/close! state))
     (swap! link-state-atom assoc :status :closed)
+    (when-let [close-fn (:socket-close-fn @link-state-atom)] (close-fn))
     {:woke []})
 
 
@@ -105,9 +106,19 @@
   (swap! (:link-state-atom ws-stream) assoc :status :closed))
 
 
+(defn connection-status
+  "Return the current link status for a WebSocketStream, or nil for other streams."
+  [stream]
+  (when (instance? WebSocketStream stream)
+    (:status @(:link-state-atom stream))))
+
+
 (defn- attach-websocket!
   ([stream ws]
    (let [ws ^io/WebSocket ws]
+     (swap! (:link-state-atom stream) assoc
+            :socket-close-fn
+            (fn [] (.close ws)))
      (on-open! stream (fn [msg] (.add ws msg)))
      (.listen ws
               (fn [raw] (on-message! stream raw))
@@ -115,6 +126,9 @@
               (fn [] (on-close! stream)))))
   ([stream ws opts conns]
    (let [ws ^io/WebSocket ws]
+     (swap! (:link-state-atom stream) assoc
+            :socket-close-fn
+            (fn [] (.close ws)))
      (on-open! stream (fn [msg] (.add ws msg)))
      (swap! conns conj stream)
      (when-let [on-connect (:on-connect opts)] (on-connect stream))

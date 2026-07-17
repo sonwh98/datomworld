@@ -5,10 +5,9 @@
    - Subsequent mutations to the underlying file do not affect reads.
    - close! marks the stream closed but does not erase unread data;
      cursors can continue draining the snapshot after close."
-  (:require
-    #?@(:cljd [["dart:io" :as dart-io] ["dart:typed_data" :as typed]]
-        :clj [[clojure.java.io :as io]])
-    [dao.stream :as ds]))
+  (:require #?@(:cljd [["dart:io" :as dart-io] ["dart:typed_data" :as typed]]
+                :clj [[clojure.java.io :as io]])
+            [dao.stream :as ds]))
 
 
 #?(:clj (defn- normalize-chunk-size
@@ -26,7 +25,7 @@
 
           ds/IDaoStreamWriter
 
-          (put!
+          (append!
             [_this _val]
             (throw (ex-info "file-input-stream is read-only" {:path path})))
 
@@ -104,7 +103,7 @@
 
      ds/IDaoStreamWriter
 
-     (put!
+     (append!
        [_this _val]
        (throw (ex-info "file-input-stream is read-only" {:path path})))
 

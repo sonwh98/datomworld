@@ -1,15 +1,14 @@
 (ns yin.vm.runtime-regression-test
-  (:require
-    [clojure.test :refer [deftest is testing]]
-    [dao.stream :as ds]
-    [dao.test-utils :as tu]
-    [yin.vm :as vm]
-    [yin.vm.ast-walker :as ast-walker]
-    [yin.vm.engine :as engine]
-    [yin.vm.register :as register]
-    [yin.vm.semantic :as semantic]
-    [yin.vm.stack :as stack]
-    [yin.vm.test-utils :as vtu]))
+  (:require [clojure.test :refer [deftest is testing]]
+            [dao.stream :as ds]
+            [dao.test-utils :as tu]
+            [yin.vm :as vm]
+            [yin.vm.ast-walker :as ast-walker]
+            [yin.vm.engine :as engine]
+            [yin.vm.register :as register]
+            [yin.vm.semantic :as semantic]
+            [yin.vm.stack :as stack]
+            [yin.vm.test-utils :as vtu]))
 
 
 (deftest waitable-stream-next-advances-cursor-when-retried-immediately-test
@@ -68,7 +67,7 @@
         (is (= {:stream-id stream-key, :position 0}
                (get (vm/store blocked) cursor-key))
             (str vm-type " should preserve cursor position while parked"))
-        (ds/put! stream 41)
+        (ds/append! stream 41)
         (let [resumed (vm/eval blocked nil)]
           (is (= 42 (vm/value resumed))
               (str vm-type " should resume with the newly readable value"))
@@ -101,7 +100,7 @@
             blocked (vm/eval vm0 ast)]
         (is (vm/blocked? blocked)
             (str vm-type " should block on empty waitable stream"))
-        (let [{:keys [woke]} (ds/put! stream 41)
+        (let [{:keys [woke]} (ds/append! stream 41)
               resumed-state (update blocked
                                     :ready-queue
                                     into

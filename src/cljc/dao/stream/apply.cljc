@@ -5,8 +5,7 @@
    application as explicit data. A caller emits an operation plus evaluated
    arguments on the request stream, and a callee emits the resulting value on
    the reply stream."
-  (:require
-    [dao.stream :as ds]))
+  (:require [dao.stream :as ds]))
 
 
 (defn endpoint-request
@@ -36,7 +35,7 @@
     (make-endpoint {:type :ringbuffer :capacity nil}
                    {:type :ringbuffer :capacity nil})"
   [request-descriptor response-descriptor]
-  {:dao.stream.apply/request request-descriptor
+  {:dao.stream.apply/request request-descriptor,
    :dao.stream.apply/response response-descriptor})
 
 
@@ -55,16 +54,12 @@
   [id op args]
   (when-not (keyword? op)
     (throw (ex-info "dao.stream.apply request op must be a keyword"
-                    {:id id
-                     :op op
-                     :args args})))
+                    {:id id, :op op, :args args})))
   (when-not (vector? args)
     (throw (ex-info "dao.stream.apply request args must be a vector"
-                    {:id id
-                     :op op
-                     :args args})))
-  {:dao.stream.apply/id id
-   :dao.stream.apply/op op
+                    {:id id, :op op, :args args})))
+  {:dao.stream.apply/id id,
+   :dao.stream.apply/op op,
    :dao.stream.apply/args args})
 
 
@@ -105,8 +100,7 @@
   Returns:
     {:dao.stream.apply/id <id> :dao.stream.apply/value <value>}"
   [id value]
-  {:dao.stream.apply/id id
-   :dao.stream.apply/value value})
+  {:dao.stream.apply/id id, :dao.stream.apply/value value})
 
 
 (defn response?
@@ -132,16 +126,14 @@
 (defn- expect-request
   [value]
   (when-not (request? value)
-    (throw (ex-info "Expected dao.stream.apply request"
-                    {:value value})))
+    (throw (ex-info "Expected dao.stream.apply request" {:value value})))
   value)
 
 
 (defn- expect-response
   [value]
   (when-not (response? value)
-    (throw (ex-info "Expected dao.stream.apply response"
-                    {:value value})))
+    (throw (ex-info "Expected dao.stream.apply response" {:value value})))
   value)
 
 
@@ -151,7 +143,7 @@
    Arity 2 expects a fully formed request map.
    Arity 4 constructs the request from id/op/args before appending."
   ([request-stream request-value]
-   (ds/put! request-stream (expect-request request-value)))
+   (ds/append! request-stream (expect-request request-value)))
   ([request-stream id op args]
    (put-request! request-stream (request id op args))))
 
@@ -162,7 +154,7 @@
    Arity 2 expects a fully formed response map.
    Arity 3 constructs the response from id/value before appending."
   ([response-stream response-value]
-   (ds/put! response-stream (expect-response response-value)))
+   (ds/append! response-stream (expect-response response-value)))
   ([response-stream id value]
    (put-response! response-stream (response id value))))
 
@@ -175,14 +167,10 @@
 
    When a value is present, validates that the payload is a request map and
    returns {:ok request :cursor cursor'}."
-  ([request-stream]
-   (next-request request-stream {:position 0}))
+  ([request-stream] (next-request request-stream {:position 0}))
   ([request-stream cursor]
    (let [result (ds/next request-stream cursor)]
-     (if (map? result)
-       (do (expect-request (:ok result))
-           result)
-       result))))
+     (if (map? result) (do (expect-request (:ok result)) result) result))))
 
 
 (defn next-response
@@ -193,14 +181,10 @@
 
    When a value is present, validates that the payload is a response map and
    returns {:ok response :cursor cursor'}."
-  ([response-stream]
-   (next-response response-stream {:position 0}))
+  ([response-stream] (next-response response-stream {:position 0}))
   ([response-stream cursor]
    (let [result (ds/next response-stream cursor)]
-     (if (map? result)
-       (do (expect-response (:ok result))
-           result)
-       result))))
+     (if (map? result) (do (expect-response (:ok result)) result) result))))
 
 
 (defn dispatch-request
@@ -215,10 +199,9 @@
         args (request-args request*)
         handler (get handlers op)]
     (when-not handler
-      (throw (ex-info "No dao.stream.apply handler for op"
-                      {:id request-id*
-                       :op op
-                       :available (vec (keys handlers))})))
+      (throw (ex-info
+               "No dao.stream.apply handler for op"
+               {:id request-id*, :op op, :available (vec (keys handlers))})))
     (response request-id* (apply handler args))))
 
 
@@ -232,7 +215,7 @@
    {:request  <request>
     :response <response>
     :cursor   <next-request-cursor>
-    :put-result <ds/put! result>}"
+    :append-result <ds/append! result>}"
   ([handlers request-stream response-stream]
    (serve-once! handlers request-stream response-stream {:position 0}))
   ([handlers request-stream response-stream cursor]
@@ -241,8 +224,8 @@
        (let [request-value (:ok read-result)
              response-value (dispatch-request handlers request-value)
              put-result (put-response! response-stream response-value)]
-         {:request request-value
-          :response response-value
-          :cursor (:cursor read-result)
+         {:request request-value,
+          :response response-value,
+          :cursor (:cursor read-result),
           :put-result put-result})
        read-result))))

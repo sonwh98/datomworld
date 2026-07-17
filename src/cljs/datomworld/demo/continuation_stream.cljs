@@ -1,22 +1,21 @@
 (ns datomworld.demo.continuation-stream
-  (:require
-    ["@codemirror/state" :refer [EditorState]]
-    ["@codemirror/theme-one-dark" :refer [oneDark]]
-    ["@codemirror/view" :refer [EditorView]]
-    ["@nextjournal/lang-clojure" :refer [clojure]]
-    ["codemirror" :refer [basicSetup]]
-    [cljs.reader :as reader]
-    [clojure.string :as str]
-    [dao.stream :as ds]
-    [datomworld.continuation-transport :as ct]
-    [datomworld.demo.continuation-handoff :as handoff]
-    [datomworld.demo.responsive :as responsive]
-    [reagent.core :as r]
-    [yang.clojure :as yang]
-    [yin.demo.utils :as demo.utils]
-    [yin.vm :as vm]
-    [yin.vm.register :as register]
-    [yin.vm.stack :as stack]))
+  (:require ["@codemirror/state" :refer [EditorState]]
+            ["@codemirror/theme-one-dark" :refer [oneDark]]
+            ["@codemirror/view" :refer [EditorView]]
+            ["@nextjournal/lang-clojure" :refer [clojure]]
+            ["codemirror" :refer [basicSetup]]
+            [cljs.reader :as reader]
+            [clojure.string :as str]
+            [dao.stream :as ds]
+            [datomworld.continuation-transport :as ct]
+            [datomworld.demo.continuation-handoff :as handoff]
+            [datomworld.demo.responsive :as responsive]
+            [reagent.core :as r]
+            [yang.clojure :as yang]
+            [yin.demo.utils :as demo.utils]
+            [yin.vm :as vm]
+            [yin.vm.register :as register]
+            [yin.vm.stack :as stack]))
 
 
 (def source-example
@@ -207,7 +206,7 @@
         queued-vm (assoc vm-state
                          :in-stream in-stream
                          :in-cursor {:position 0})]
-    (ds/put! in-stream (vec datoms))
+    (ds/append! in-stream (vec datoms))
     queued-vm))
 
 

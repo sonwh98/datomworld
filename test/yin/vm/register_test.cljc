@@ -1,13 +1,12 @@
 (ns yin.vm.register-test
-  (:require
-    [clojure.test :refer [deftest is testing]]
-    [dao.stream :as ds]
-    [dao.stream.apply :as dao.stream.apply]
-    [dao.stream.ringbuffer]
-    [yang.clojure :as yang]
-    [yin.vm :as vm]
-    [yin.vm.engine :as engine]
-    [yin.vm.register :as register]))
+  (:require [clojure.test :refer [deftest is testing]]
+            [dao.stream :as ds]
+            [dao.stream.apply :as dao.stream.apply]
+            [dao.stream.ringbuffer]
+            [yang.clojure :as yang]
+            [yin.vm :as vm]
+            [yin.vm.engine :as engine]
+            [yin.vm.register :as register]))
 
 
 ;; =============================================================================
@@ -26,7 +25,7 @@
 (defn- queue-program!
   [vm-state {:keys [datoms]}]
   (let [vm-state' (ensure-program-stream vm-state)]
-    (ds/put! (:in-stream vm-state') (vec datoms))
+    (ds/append! (:in-stream vm-state') (vec datoms))
     (assoc vm-state' :halted? false)))
 
 
@@ -47,9 +46,10 @@
             ok
             result (apply (get handlers request-op) (or request-args []))
             call-out (get (vm/store vm) vm/call-out-stream-key)
-            ;; ds/put! on RingBufferStream returns woken entries
-            put-result (ds/put! call-out
-                                (dao.stream.apply/response request-id result))
+            ;; ds/append! on RingBufferStream returns woken entries
+            put-result (ds/append! call-out
+                                   (dao.stream.apply/response request-id
+                                                              result))
             woke (:woke put-result)
             ;; Use engine helper to transform woken entries into run-queue
             ;; entries

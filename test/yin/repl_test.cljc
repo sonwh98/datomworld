@@ -1,21 +1,15 @@
 (ns yin.repl-test
-  (:require
-    #?(:cljs [cljs.test :refer-macros [async]])
-    #?(:clj [clojure.edn :as edn]
-       :cljs [cljs.reader :as edn]
-       :cljd [clojure.edn :as edn])
-    [clojure.string :as str]
-    [clojure.test :refer [deftest is testing]]
-    [dao.stream :as ds]
-    [dao.stream.apply :as dao-apply]
-    [dao.stream.ringbuffer :as ringbuffer]
-    [dao.stream.ws]
-    [yin.repl :as repl]))
-
-
-(defn- make-stream
-  []
-  (ds/open! {:type :ringbuffer, :capacity nil}))
+  (:require #?(:cljs [cljs.test :refer-macros [async]])
+            #?(:clj [clojure.edn :as edn]
+               :cljs [cljs.reader :as edn]
+               :cljd [clojure.edn :as edn])
+            [clojure.string :as str]
+            [clojure.test :refer [deftest is testing]]
+            [dao.stream :as ds]
+            [dao.stream.apply :as dao-apply]
+            [dao.stream.ws]
+            [dao.stream.rpc.client :as rpc-client]
+            [yin.repl :as repl]))
 
 
 (defn- fact?
@@ -309,122 +303,49 @@
 
 
 (deftest request-handling-test
+  (testing "op/eval handler evaluates input and updates state"
+    (let [state-atom (atom (repl/create-state))
+          eval-handler (get (repl/make-handlers state-atom) :op/eval)]
+      (is (= "42" (eval-handler "(+ 9 33)")))
+      (is (= :semantic (:vm-type @state-atom)))))
+  (testing "op/eval handler persists shell state across requests"
+    (let [state-atom (atom (repl/create-state))
+          eval-handler (get (repl/make-handlers state-atom) :op/eval)]
+      (is (= "7" (eval-handler "(def x 7)")))
+      (is (= "7" (eval-handler "x"))))))
+
+
+(deftest op-eval-forwards-to-servers-own-remote-endpoint-test
   #?(:clj
-     (do
-       (testing
-         "handle-request evaluates input and returns a response payload"
-         (let [[state response]
-               @(repl/handle-request
-                  (repl/create-state)
-                  (dao-apply/request :req-1 :op/eval ["(+ 9 33)"]))]
-           (is (= :req-1 (dao-apply/response-id response)))
-           (is (= "42" (dao-apply/response-value response)))
-           (is (= :semantic (:vm-type state)))))
-       (testing "serve-once! persists shell state across requests"
-         (let [state-atom (atom (repl/create-state))
-               request-stream (make-stream)
-               response-stream (make-stream)
-               _ (dao-apply/put-request! request-stream
-                                         :req-1
-                                         :op/eval
-                                         ["(def x 7)"])
-               served-1 @(repl/serve-once! state-atom
-                                           request-stream
-                                           response-stream
-                                           {:position 0})
-               _ (dao-apply/put-request! request-stream :req-2 :op/eval ["x"])
-               served-2 @(repl/serve-once! state-atom
-                                           request-stream
-                                           response-stream
-                                           (:cursor served-1))
-               response-1 (dao-apply/next-response response-stream
-                                                   {:position 0})
-               response-2 (dao-apply/next-response response-stream
-                                                   (:cursor response-1))]
-           (is (= "7" (dao-apply/response-value (:ok response-1))))
-           (is (= "7" (dao-apply/response-value (:ok response-2))))
-           (is (= {:position 2} (:cursor served-2))))))
-     :cljs
-     (async
-       done
-       (let [state-atom (atom (repl/create-state))
-             request-stream (make-stream)
-             response-stream (make-stream)]
-         (-> (repl/handle-request
-               (repl/create-state)
-               (dao-apply/request :req-1 :op/eval ["(+ 9 33)"]))
-             (.then (fn [[state response]]
-                      (is (= :req-1 (dao-apply/response-id response)))
-                      (is (= "42" (dao-apply/response-value response)))
-                      (is (= :semantic (:vm-type state)))
-                      (dao-apply/put-request! request-stream
-                                              :req-1
-                                              :op/eval
-                                              ["(def x 7)"])
-                      (repl/serve-once! state-atom
-                                        request-stream
-                                        response-stream
-                                        {:position 0})))
-             (.then
-               (fn [served-1]
-                 (dao-apply/put-request! request-stream :req-2 :op/eval ["x"])
-                 (repl/serve-once! state-atom
-                                   request-stream
-                                   response-stream
-                                   (:cursor served-1))))
-             (.then
-               (fn [served-2]
-                 (let [response-1 (dao-apply/next-response response-stream
-                                                           {:position 0})
-                       response-2 (dao-apply/next-response response-stream
-                                                           (:cursor
-                                                             response-1))]
-                   (is (= "7" (dao-apply/response-value (:ok response-1))))
-                   (is (= "7" (dao-apply/response-value (:ok response-2))))
-                   (is (= {:position 2} (:cursor served-2)))
-                   (done)))))))))
+     (testing
+       "a server with its own outbound remote-endpoint forwards incoming op/eval requests upstream instead of always evaluating locally"
+       (with-redefs [dao.stream.rpc.client/call! (constantly "FORWARDED")]
+         (let [state-atom (atom (assoc (repl/create-state)
+                                       :remote-endpoint {:stream ::stream,
+                                                         :response-cursor-atom
+                                                         (atom {:position 0}),
+                                                         :request-id-atom (atom 0),
+                                                         :closed-atom (atom
+                                                                        false)}))
+               eval-handler (get (repl/make-handlers state-atom) :op/eval)]
+           (is
+             (= "FORWARDED" (eval-handler "(+ 1 2)"))
+             "op/eval should proxy-chain through the server's own remote-endpoint, not evaluate (+ 1 2) locally"))))
+     :default (is true)))
 
 
 (deftest remote-eval-input-contract-test
   #?(:clj (testing "remote eval keeps the same derefable contract as local eval"
-            (with-redefs [dao.stream.apply/put-request!
-                          (fn [_request-stream _request-id _op _args]
-                            {:result :ok})
-                          yin.repl/wait-for-response
-                          (fn [state request-id]
-                            [state (dao-apply/response request-id "3")])]
+            (with-redefs [dao.stream.rpc.client/call! (constantly "3")]
               (let [state (assoc (repl/create-state)
-                                 :remote-endpoint {:request-stream ::request,
-                                                   :response-stream ::response})
+                                 :remote-endpoint {:stream ::stream,
+                                                   :response-cursor-atom
+                                                   (atom {:position 0}),
+                                                   :request-id-atom (atom 0),
+                                                   :closed-atom (atom false)})
                     result (repl/eval-input state "(+ 1 2)")]
                 (is (instance? clojure.lang.IDeref result))
-                (is (= [(update state :request-id inc) "3"] @result)))))
-     :default (is true)))
-
-
-(deftest remote-connect-ignores-stale-response-history-test
-  #?(:clj
-     (testing
-       "reconnecting to a persistent remote endpoint does not reuse stale response ids"
-       (let [request-stream (make-stream)
-             response-stream (make-stream)
-             stale-id :yin.repl/request-0
-             endpoint {:request-stream request-stream,
-                       :response-stream response-stream}]
-         (dao-apply/put-response! response-stream stale-id "STALE")
-         (with-redefs [yin.repl/open-remote-endpoint (fn [_url] endpoint)
-                       dao.stream.ws/connection-status (fn [_stream]
-                                                         :connected)
-                       dao.stream.apply/put-request!
-                       (fn [_request-stream request-id _op _args]
-                         (dao-apply/put-response! response-stream
-                                                  request-id
-                                                  "FRESH")
-                         {:result :ok})]
-           (let [[state-1 _] @(repl/eval-input (repl/create-state)
-                                               "(connect \"ws://remote\")")
-                 [_state-2 result] @(repl/eval-input state-1 "(+ 1 2)")]
-             (is (= "FRESH" result))))))
+                (is (= [state "3"] @result)))))
      :default (is true)))
 
 
@@ -438,8 +359,11 @@
                                                              [state "REMOTE"])
                                                     p))]
          (let [state (assoc (repl/create-state)
-                            :remote-endpoint {:request-stream ::request,
-                                              :response-stream ::response})
+                            :remote-endpoint {:stream ::request,
+                                              :response-cursor-atom
+                                              (atom {:position 0}),
+                                              :request-id-atom (atom 0),
+                                              :closed-atom (atom false)})
                result @(repl/eval-input state "(repl-state)")
                [_state summary-str] result]
            (is (not= "REMOTE" summary-str))
@@ -458,50 +382,104 @@
   #?(:clj
      (testing
        "connecting again closes the previous remote request and response streams"
-       (let [closed-streams (atom [])
-             endpoint-1 {:request-stream ::request-1,
-                         :response-stream ::response-1}
-             endpoint-2 {:request-stream ::request-2,
-                         :response-stream ::response-2}]
-         (with-redefs [yin.repl/open-remote-endpoint (fn [url]
-                                                       (case url
-                                                         "ws://one" endpoint-1
-                                                         "ws://two"
-                                                         endpoint-2))
-                       dao.stream.ws/connection-status (fn [_stream]
-                                                         :connected)
-                       dao.stream/close! (fn [stream]
-                                           (swap! closed-streams conj stream)
-                                           {:woke []})]
+       (let [closed-clients (atom [])
+             client-1 {:stream ::stream-1,
+                       :response-cursor-atom (atom {:position 0}),
+                       :request-id-atom (atom 0),
+                       :closed-atom (atom false)}
+             client-2 {:stream ::stream-2,
+                       :response-cursor-atom (atom {:position 0}),
+                       :request-id-atom (atom 0),
+                       :closed-atom (atom false)}]
+         (with-redefs [dao.stream.rpc.client/connect! (fn [url & _]
+                                                        (case url
+                                                          "ws://one" client-1
+                                                          "ws://two"
+                                                          client-2))
+                       dao.stream.rpc.client/close!
+                       (fn [client] (swap! closed-clients conj client))]
            (let [[state-1 _] @(repl/eval-input (repl/create-state)
                                                "(connect \"ws://one\")")
                  [state-2 _] @(repl/eval-input state-1
                                                "(connect \"ws://two\")")]
-             (is (= endpoint-2 (:remote-endpoint state-2)))
-             (is (= [::request-1 ::response-1] @closed-streams))))))
+             (is (= client-2 (:remote-endpoint state-2)))
+             (is (= [client-1] @closed-clients))))))
      :default (is true)))
 
 
 (deftest connect-waits-for-transport-readiness-test
-  #?(:clj
-     (testing
-       "connect waits until the remote websocket link reaches :connected"
-       (let [statuses (atom [:connecting :connecting :connected])
-             stream (Object.)]
-         (with-redefs [yin.repl/open-remote-endpoint
-                       (fn [_url]
-                         {:request-stream stream, :response-stream stream})
-                       dao.stream.ws/connection-status
-                       (fn [_stream]
-                         (let [status (or (first @statuses) :connected)]
-                           (swap! statuses #(if (seq %) (vec (rest %)) %))
-                           status))]
-           (let [[state result] @(repl/eval-input
-                                   (repl/create-state)
-                                   "(connect \"ws://remote\")")]
-             (is (= "Connected to ws://remote" result))
-             (is (= {:request-stream stream, :response-stream stream}
-                    (:remote-endpoint state)))))))
+  #?(:clj (testing
+            "connect waits until the remote websocket link reaches :connected"
+            (let [client {:stream ::stream}]
+              (with-redefs [dao.stream.rpc.client/connect! (fn [_url & _]
+                                                             client)]
+                (let [[state result] @(repl/eval-input
+                                        (repl/create-state)
+                                        "(connect \"ws://remote\")")]
+                  (is (= "Connected to ws://remote" result))
+                  (is (= client (:remote-endpoint state)))))))
+     :default (is true)))
+
+
+(deftest failed-reconnect-preserves-prior-connection-test
+  #?(:cljs
+     (async
+       done
+       (let [good-client {:stream ::good}]
+         (with-redefs [dao.stream.rpc.client/connect!
+                       (fn
+                         ([url]
+                          (case url
+                            "ws://good" (js/Promise.resolve good-client)
+                            "ws://bad" (js/Promise.reject (js/Error.
+                                                            "boom"))))
+                         ([url _opts]
+                          (case url
+                            "ws://good" (js/Promise.resolve good-client)
+                            "ws://bad" (js/Promise.reject (js/Error.
+                                                            "boom")))))]
+           (->
+             (repl/eval-input (repl/create-state) "(connect \"ws://good\")")
+             (.then (fn [[state-1 _msg]]
+                      (repl/eval-input state-1 "(connect \"ws://bad\")")))
+             (.then
+               (fn [[state-2 _msg]]
+                 (is
+                   (= good-client (:remote-endpoint state-2))
+                   "a failed reconnect attempt should leave the prior working connection intact, not tear it down before the new connection is confirmed")
+                 (done)))))))
+     :default (is true)))
+
+
+(deftest op-eval-handler-with-async-local-command-test
+  #?(:cljs
+     (async
+       done
+       (testing
+         "op/eval handler should not corrupt state when the evaluated command resolves asynchronously on this platform"
+         (let [state-atom (atom (repl/create-state))
+               client {:stream ::stream}
+               eval-handler (get (repl/make-handlers state-atom) :op/eval)]
+           (with-redefs [dao.stream.rpc.client/connect!
+                         (fn
+                           ([_url] (js/Promise.resolve client))
+                           ([_url _opts] (js/Promise.resolve client)))]
+             (->
+               (eval-handler "(connect \"ws://remote\")")
+               (.then
+                 (fn [_]
+                   (is
+                     (= client (:remote-endpoint @state-atom))
+                     "a remote op/eval request for a command that resolves asynchronously (like connect on :cljs/:cljd) should still correctly attach the client, not destructure the pending Promise as [state result]")
+                   (done)))
+               (.catch
+                 (fn [e]
+                   (is
+                     false
+                     (str
+                       "op/eval handler threw while evaluating an async local command: "
+                       (.-message e)))
+                   (done))))))))
      :default (is true)))
 
 
@@ -511,42 +489,6 @@
     (is (= "listening" (repl/connection-status-text -1)))
     (is (= "client connected" (repl/connection-status-text 1)))
     (is (= "client connected" (repl/connection-status-text 2)))))
-
-
-(deftest repl-server-worker-retries-after-stream-end-test
-  #?(:clj
-     (testing
-       "serve! keeps polling after a transient :end so reconnects can resume"
-       (let [calls (atom [])
-             results (atom [:end :blocked :blocked])
-             state-atom (atom (repl/create-state))
-             stream (ringbuffer/make-ring-buffer-stream nil)]
-         (with-redefs [dao.stream/open! (fn [descriptor]
-                                          (if-let [on-connect (:on-connect
-                                                                descriptor)]
-                                            (do
-                                              ;; simulate a connection
-                                              ;; happening immediately
-                                              (on-connect stream)
-                                              {:stop-fn (constantly nil),
-                                               :conns (atom #{stream})})
-                                            stream))
-                       yin.repl/serve-once!
-                       (fn [_state-atom _request-stream _response-stream
-                            cursor]
-                         (swap! calls conj cursor)
-                         (let [result (or (first @results) :blocked)
-                               p (promise)]
-                           (swap! results #(if (seq %) (vec (rest %)) %))
-                           (deliver p result)
-                           p))
-                       dao.stream/close! (fn [_] {:woke []})]
-           (let [server (repl/serve! state-atom 7779 {:sleep-ms 1})]
-             (Thread/sleep 100)
-             ((:stop! server))
-             (is (<= 2 (count @calls)))
-             (is (= [{:position 0} {:position 0}] (take 2 @calls)))))))
-     :default (is true)))
 
 
 (deftest telemetry-reroute-closes-previous-sink-test
@@ -585,8 +527,8 @@
               (is (= "60" result-4))
               ;; If *1 is a function (from a previous eval), it should be
               ;; callable
-              (let [[state-5 result-5] @(repl/eval-input (repl/create-state)
-                                                         "(fn [x] (* x x))")
+              (let [[state-5 _result-5] @(repl/eval-input (repl/create-state)
+                                                          "(fn [x] (* x x))")
                     [_state-6 result-6] @(repl/eval-input state-5 "(*1 5)")]
                 (is (= "25" result-6)))))
      :cljs
@@ -603,10 +545,10 @@
          (.then (fn [[state-3 result-3]]
                   (is (= "30" result-3))
                   (repl/eval-input state-3 "(+ *1 *2 *3)")))
-         (.then (fn [[state-4 result-4]]
+         (.then (fn [[_state-4 result-4]]
                   (is (= "60" result-4))
                   (repl/eval-input (repl/create-state) "(fn [x] (* x x))")))
-         (.then (fn [[state-5 result-5]] (repl/eval-input state-5 "(*1 5)")))
+         (.then (fn [[state-5 _result-5]] (repl/eval-input state-5 "(*1 5)")))
          (.then (fn [[_state-6 result-6]] (is (= "25" result-6)) (done)))))))
 
 
@@ -671,7 +613,7 @@
                              (let [response (:ok res)]
                                (if (= req-id
                                       (dao-apply/response-id response))
-                                 (dao-apply/response-value response)
+                                 (:ok (dao-apply/response-value response))
                                  (recur (dec attempts) (:cursor res))))
                              (= :blocked res) (do (Thread/sleep 50)
                                                   (recur (dec attempts)

@@ -1,10 +1,10 @@
 ---
-description: Advanced concepts - parallel transport across DaoDB nodes, capability tokens, entanglement/consensus
+description: Advanced concepts - parallel transport across dao.jing instances, capability tokens, entanglement/consensus
 ---
 
 # PARALLEL TRANSPORT
 
-Parallel transport moves datoms from one DaoDB to another.
+Parallel transport moves datoms from one dao.jing to another.
 Entity-ref v values are local gauge; they must be resolved for transport.
 
 AST parallel transport (content-hash based):
@@ -19,7 +19,7 @@ AST parallel transport (content-hash based):
 Continuation parallel transport (serialization based):
   Continuations are ephemeral runtime state. They do not have content hashes.
   A continuation references AST nodes (where in the code) and runtime values (computed state).
-  AST references resolve via content hash (AST is content-addressed in DaoDB).
+  AST references resolve via content hash (AST is content-addressed in dao.jing).
   Runtime values serialize and travel as-is (no hashing, no deduplication).
   Transport protocol:
     1. Serialize runtime state (environment, partial results, frames).
@@ -34,7 +34,7 @@ Continuation parallel transport (serialization based):
 Possession of a capability is necessary but not sufficient for trust.
 Trust must be contextual, revocable, and stream-scoped.
 Never assume a valid signature implies safe execution.
-Prefer confinement over verification.
+Prefer confinement over verification (see `docs/design/dao.space.security.md` for the elaboration of this model: sharing governed computation instead of data).
 
 # ENTANGLEMENT
 

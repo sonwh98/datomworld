@@ -21,7 +21,7 @@
   ^type/Float32List [op]
   (let [^type/Float32List data (type/Float32List. (* (count (:vertices op))
                                                      12))]
-    (pack/pack-vertex-floats! op (fn [i x] (aset data i x)))
+    (pack/pack-vertex-floats! op (fn [i x] (aset ^type/Float32List data i x)))
     data))
 
 
@@ -33,7 +33,9 @@
         ^type/Float32List data (type/Float32List. n)]
     (loop [i 0
            s (seq floats)]
-      (when s (aset data i (double (first s))) (recur (inc i) (next s))))
+      (when s
+        (aset ^type/Float32List data i (double (first s)))
+        (recur (inc i) (next s))))
     (.emplace host-buffer (.asByteData (.-buffer data)))))
 
 
@@ -42,7 +44,7 @@
    packing/pack-indices! layout."
   ^type/Uint16List [tuples width]
   (let [^type/Uint16List data (type/Uint16List. (* width (count tuples)))]
-    (pack/pack-indices! tuples (fn [i x] (aset data i x)))
+    (pack/pack-indices! tuples (fn [i x] (aset ^type/Uint16List data i x)))
     data))
 
 
@@ -162,8 +164,9 @@
   []
   (or (.containsKey (.-environment io/Platform) "SIMULATOR_DEVICE_NAME")
       (try (= "1"
-              (.trim (.-stdout
-                       (.runSync io/Process "getprop" ["ro.kernel.qemu"]))))
+              (.trim ^String
+               (.-stdout
+                 (.runSync io/Process "getprop" ["ro.kernel.qemu"]))))
            (catch Object _ false))))
 
 
@@ -225,7 +228,7 @@
                     (:white-texture @gpu-state))
         sampler (sampler-options op)
         v-data (vertices->float32-list op)
-        i-data (indices->uint16-list indices 3)
+        ^type/Uint16List i-data (indices->uint16-list indices 3)
         ;; Upload vertex and index data via HostBuffer
         v-view (.emplace host-buffer (.asByteData (.-buffer v-data)))
         i-view (.emplace host-buffer (.asByteData (.-buffer i-data)))
@@ -267,7 +270,7 @@
         texture (:white-texture @gpu-state)
         sampler (sampler-options line-op)
         v-data (vertices->float32-list line-op)
-        i-data (indices->uint16-list edges 2)
+        ^type/Uint16List i-data (indices->uint16-list edges 2)
         v-view (.emplace host-buffer (.asByteData (.-buffer v-data)))
         i-view (.emplace host-buffer (.asByteData (.-buffer i-data)))
         u-view (floats->view host-buffer

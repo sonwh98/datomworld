@@ -1,20 +1,20 @@
 (ns yang.clojure-test
-  (:require
-    [clojure.test :refer [deftest is testing]]
-    [dao.stream :as ds]
-    [dao.stream.ringbuffer]
-    [dao.stream.ringbuffer]
-    [yang.clojure :as yang]
-    [yin.vm :as vm]
-    [yin.vm.ast-walker :as ast-walker]))
+  (:require [clojure.test :refer [deftest is testing]]
+            [dao.stream :as ds]
+            [dao.stream.ringbuffer]
+            [dao.stream.ringbuffer]
+            [yang.clojure :as yang]
+            [yin.vm :as vm]
+            [yin.vm.ast-walker :as ast-walker]))
 
 
 (defn- queue-vm
   [vm-state datoms]
-  (let [in-stream (ds/open! {:type :ringbuffer
-                             :capacity nil})
-        queued-vm (assoc vm-state :in-stream in-stream :in-cursor {:position 0})]
-    (ds/put! in-stream (vec datoms))
+  (let [in-stream (ds/open! {:type :ringbuffer, :capacity nil})
+        queued-vm (assoc vm-state
+                         :in-stream in-stream
+                         :in-cursor {:position 0})]
+    (ds/append! in-stream (vec datoms))
     queued-vm))
 
 
@@ -96,8 +96,7 @@
     (let [ast (yang/compile '(dao.stream.apply/call :op/echo 1 2))]
       (is (= :dao.stream.apply/call (:type ast)))
       (is (= :op/echo (:op ast)))
-      (is (= [{:type :literal, :value 1}
-              {:type :literal, :value 2}]
+      (is (= [{:type :literal, :value 1} {:type :literal, :value 2}]
              (:operands ast))))))
 
 
@@ -182,11 +181,10 @@
              (compile-and-run '(dao.stream.apply/call :op/echo 42)
                               {}
                               {:bridge {:op/echo identity}})))
-      (is (nil?
-            (compile-and-run '(dao.stream.apply/call :clj/println "FFI hello world")
-                             {}
-                             {:bridge {:clj/println println}}))))
-
+      (is (nil? (compile-and-run
+                  '(dao.stream.apply/call :clj/println "FFI hello world")
+                  {}
+                  {:bridge {:clj/println println}}))))
     (testing "Complex expression"
       (is
         (= 22
@@ -295,28 +293,21 @@
     (testing "Two-argument recursive function"
       (is (= 3
              (compile-program-and-run
-               '((def walk
-                   (fn [x max]
-                     (if (> x max)
-                       x
-                       (walk (+ x 1) max))))
+               '((def walk (fn [x max] (if (> x max) x (walk (+ x 1) max))))
                  (walk -2 2))))))
     (testing "Three-argument recursive function"
-      (is (= 11
-             (compile-program-and-run
-               '((def add-until
-                   (fn [x y max]
-                     (if (> x max)
-                       y
-                       (add-until (+ x 1) (+ y 1) max))))
-                 (add-until 0 5 5))))))))
+      (is
+        (= 11
+           (compile-program-and-run
+             '((def add-until
+                 (fn [x y max] (if (> x max) y (add-until (+ x 1) (+ y 1) max))))
+               (add-until 0 5 5))))))))
 
 
 (deftest test-compile-program-top-level-redefinition
   (testing "Top-level def redefinition updates subsequent lookups"
     (is (= 8
-           (compile-program-and-run
-             '((def f (fn [x] (* x x)))
-               (def use-f (fn [x] (f x)))
-               (def f (fn [x] (* x (* x x))))
-               (use-f 2)))))))
+           (compile-program-and-run '((def f (fn [x] (* x x)))
+                                      (def use-f (fn [x] (f x)))
+                                      (def f (fn [x] (* x (* x x))))
+                                      (use-f 2)))))))

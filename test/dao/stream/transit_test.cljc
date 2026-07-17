@@ -16,6 +16,7 @@
    #?(:clj (let [out (java.io.ByteArrayOutputStream.)]
              (transit/write (transit/writer out :json opts) v)
              (.toString out "UTF-8"))
+      :cljs (transit/write (transit/writer nil :json opts) v)
       :cljd (let [out (StringBuffer.)]
               (transit/write (transit/writer out :json opts) v)
               (.toString out)))))
@@ -26,6 +27,7 @@
   ([s opts]
    #?(:clj (let [in (java.io.ByteArrayInputStream. (.getBytes s "UTF-8"))]
              (transit/read (transit/reader in :json opts)))
+      :cljs (transit/read (transit/reader nil :json opts) s)
       :cljd (transit/read (transit/reader s :json opts) s))))
 
 
@@ -70,8 +72,8 @@
 (deftest custom-handler-test
   (testing "custom write and read handlers compose"
     (let [p (->Point 10 20)
-          handler-key #?(:clj Point
-                         :cljd (str (.-runtimeType p)))
+          handler-key #?(:cljd (str (.-runtimeType p))
+                         :default Point)
           encoded (write-str p
                              {:handlers {handler-key (transit/write-handler
                                                        (fn [_] "point")

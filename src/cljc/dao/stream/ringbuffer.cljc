@@ -8,13 +8,12 @@
      :closed          — boolean
      :reader-waiters  — map of position -> wait-set-entry; woken when put! appends at that position
      :writer-waiters  — vector of wait-set-entries; first one woken when drain-one! frees space"
-  (:require
-    [dao.stream :as ds]
-    [yin.module :as module])
-  #?(:cljs
-     (:require-macros
-       [dao.stream])))
+  (:require [dao.stream :as ds]
+            [yin.module :as module])
+  #?(:cljs (:require-macros [dao.stream])))
 
+
+(declare init-module!)
 
 (def ^:private put-result-key ::put-result)
 (def ^:private closed-put-result ::closed)
@@ -199,7 +198,7 @@
 
      ds/IDaoStreamWriter
 
-     (put!
+     (append!
        [_this val]
        (let [result
              (swap! state-atom put-state capacity eviction-policy val)]
@@ -251,7 +250,7 @@
 
           ds/IDaoStreamWriter
 
-          (put!
+          (append!
             [_this val]
             (let [result
                   (swap! state-atom put-state capacity eviction-policy val)]
@@ -304,7 +303,7 @@
 
      ds/IDaoStreamWriter
 
-     (put!
+     (append!
        [_this val]
        (let [result
              (swap! state-atom put-state capacity eviction-policy val)]
@@ -350,6 +349,7 @@
 
 (defn- make-ring-buffer-stream*
   [capacity eviction-policy position]
+  @init-module!
   (->RingBufferStream capacity
                       (normalize-eviction-policy eviction-policy)
                       (atom (initial-state position))))
@@ -400,10 +400,11 @@
   {:effect :stream/close, :stream s})
 
 
-(module/register-module! 'stream
-                         {'make make,
-                          'put! put!,
-                          'cursor cursor,
-                          'next! next!,
-                          'take! take!,
-                          'close! close!})
+(def ^:private init-module!
+  (delay (module/register-module! 'stream
+                                  {'make make,
+                                   'put! put!,
+                                   'cursor cursor,
+                                   'next! next!,
+                                   'take! take!,
+                                   'close! close!})))

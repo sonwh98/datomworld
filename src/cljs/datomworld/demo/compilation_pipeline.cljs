@@ -1,29 +1,28 @@
 (ns datomworld.demo.compilation-pipeline
-  (:require
-    ["@codemirror/lang-php" :refer [php]]
-    ["@codemirror/lang-python" :refer [python]]
-    ["@codemirror/state" :refer
-     [EditorState StateField StateEffect RangeSet]]
-    ["@codemirror/theme-one-dark" :refer [oneDark]]
-    ["@codemirror/view" :refer [EditorView Decoration]]
-    ["@nextjournal/lang-clojure" :refer [clojure]]
-    ["codemirror" :refer [basicSetup]]
-    [cljs.reader :as reader]
-    [clojure.walk :as walk]
-    [dao.db :as dao.db]
-    [dao.db.in-memory :as in-m]
-    [dao.stream :as ds]
-    [dao.stream.ringbuffer]
-    [reagent.core :as r]
-    [yang.clojure :as yang]
-    [yang.php :as php-comp]
-    [yang.python :as py]
-    [yin.demo.utils :as demo.utils]
-    [yin.vm :as vm]
-    [yin.vm.ast-walker :as walker]
-    [yin.vm.register :as register]
-    [yin.vm.semantic :as semantic]
-    [yin.vm.stack :as stack]))
+  (:require ["@codemirror/lang-php" :refer [php]]
+            ["@codemirror/lang-python" :refer [python]]
+            ["@codemirror/state" :refer
+             [EditorState StateField StateEffect RangeSet]]
+            ["@codemirror/theme-one-dark" :refer [oneDark]]
+            ["@codemirror/view" :refer [EditorView Decoration]]
+            ["@nextjournal/lang-clojure" :refer [clojure]]
+            ["codemirror" :refer [basicSetup]]
+            [cljs.reader :as reader]
+            [clojure.walk :as walk]
+            [dao.space.query :as query]
+            [dao.space.transact :as transact]
+            [dao.stream :as ds]
+            [dao.stream.ringbuffer]
+            [reagent.core :as r]
+            [yang.clojure :as yang]
+            [yang.php :as php-comp]
+            [yang.python :as py]
+            [yin.demo.utils :as demo.utils]
+            [yin.vm :as vm]
+            [yin.vm.ast-walker :as walker]
+            [yin.vm.register :as register]
+            [yin.vm.semantic :as semantic]
+            [yin.vm.stack :as stack]))
 
 
 (def ^:private pretty-print demo.utils/pretty-print)
@@ -378,12 +377,10 @@
         delta (/ dy (max 1 height))]
     (clamp-pane-ratios
       (case divider
-        :top-middle {:top (+ top delta),
-                     :middle (- middle delta),
-                     :bottom bottom}
-        :middle-bottom {:top top,
-                        :middle (+ middle delta),
-                        :bottom (- bottom delta)}
+        :top-middle
+        {:top (+ top delta), :middle (- middle delta), :bottom bottom}
+        :middle-bottom
+        {:top top, :middle (+ middle delta), :bottom (- bottom delta)}
         {:top top, :middle middle, :bottom bottom}))))
 
 
@@ -395,14 +392,18 @@
                        [:vm-pane-ratios vm-key]
                        (get default-vm-pane-ratios vm-key))
         height (or (get-in @app-state [:ui-positions vm-key :h])
-                   (some-> e .-currentTarget .-parentElement .-clientHeight)
+                   (some-> e
+                           .-currentTarget
+                           .-parentElement
+                           .-clientHeight)
                    1)]
     (swap! app-state assoc
-           :panel-resize-state {:vm-key vm-key,
-                                :divider divider,
-                                :start-y (.-clientY e),
-                                :height height,
-                                :ratios (clamp-pane-ratios ratios)})))
+           :panel-resize-state
+           {:vm-key vm-key,
+            :divider divider,
+            :start-y (.-clientY e),
+            :height height,
+            :ratios (clamp-pane-ratios ratios)})))
 
 
 (defn- relayout-ui!
@@ -542,28 +543,26 @@
    transactions on it. Each element of `txns` is a vector of datoms
    representing a single program form / transaction."
   [vm-state txns]
-  (let [in-stream (ds/open! {:type :ringbuffer
-                             :capacity nil})
+  (let [in-stream (ds/open! {:type :ringbuffer, :capacity nil})
         queued-state (assoc vm-state
                             :in-stream in-stream
                             :in-cursor {:position 0})]
-    (doseq [tx txns]
-      (ds/put! in-stream (vec tx)))
+    (doseq [tx txns] (ds/append! in-stream (vec tx)))
     (assoc queued-state :halted? false)))
 
 
 (defn load-stack-state
-  [root-id datom-groups]
+  [_root-id datom-groups]
   (queue-vm-state (stack/create-vm) datom-groups))
 
 
 (defn load-register-state
-  [root-id datom-groups]
+  [_root-id datom-groups]
   (queue-vm-state (register/create-vm) datom-groups))
 
 
 (defn load-semantic-state
-  [root-id datom-groups]
+  [_root-id datom-groups]
   (queue-vm-state (semantic/create-vm) datom-groups))
 
 
@@ -574,42 +573,43 @@
 
 (defn compile-stack
   [app-state]
-  (try (let [forms (read-ast-forms @app-state)
-             results (mapv (fn [ast]
-                             (let [datoms (vm/ast->datoms ast)
-                                   root-id (apply max (map first datoms))
-                                   asm (stack/ast-datoms->asm datoms)
-                                   result (stack/assemble asm)]
-                               {:asm asm,
-                                :datoms datoms,
-                                :root-id root-id,
-                                :bytecode (:bytecode result),
-                                :pool (:pool result),
-                                :source-map (:source-map result)}))
-                           forms)
-             last-result (last results)
-             initial-state (when last-result
-                             (load-stack-state (:root-id last-result)
-                                               (mapv :datoms results)))]
-         (swap! app-state assoc
-                :stack-asm (mapv :asm results)
-                :stack-datoms (mapv :datoms results)
-                :stack-root-ids (mapv :root-id results)
-                :stack-bytecode (mapv :bytecode results)
-                :stack-pool (mapv :pool results)
-                :stack-source-map (mapv :source-map results)
-                :error nil)
-         (set-vm-state! app-state :stack initial-state)
-         results)
-       (catch :default e
-         (swap! app-state assoc
-                :error (str "Stack Compile Error: " (.-message e))
-                :stack-asm nil
-                :stack-datoms nil
-                :stack-root-ids nil
-                :stack-bytecode nil)
-         (clear-vm-state! app-state :stack)
-         nil)))
+  (try
+    (let [forms (read-ast-forms @app-state)
+          results (mapv (fn [ast]
+                          (let [datoms (vm/ast->datoms ast)
+                                root-id (apply max (map first datoms))
+                                asm (stack/ast-datoms->asm datoms)
+                                result (stack/assemble asm)]
+                            {:asm asm,
+                             :datoms datoms,
+                             :root-id root-id,
+                             :bytecode (:bytecode result),
+                             :pool (:pool result),
+                             :source-map (:source-map result)}))
+                        forms)
+          last-result (last results)
+          initial-state (when last-result
+                          (load-stack-state (:root-id last-result)
+                                            (mapv :datoms results)))]
+      (swap! app-state assoc
+             :stack-asm (mapv :asm results)
+             :stack-datoms (mapv :datoms results)
+             :stack-root-ids (mapv :root-id results)
+             :stack-bytecode (mapv :bytecode results)
+             :stack-pool (mapv :pool results)
+             :stack-source-map (mapv :source-map results)
+             :error nil)
+      (set-vm-state! app-state :stack initial-state)
+      results)
+    (catch :default e
+      (swap! app-state assoc
+             :error (str "Stack Compile Error: " (.-message e))
+             :stack-asm nil
+             :stack-datoms nil
+             :stack-root-ids nil
+             :stack-bytecode nil)
+      (clear-vm-state! app-state :stack)
+      nil)))
 
 
 (defn reset-stack
@@ -658,8 +658,8 @@
                          (swap! app-state assoc-in
                                 [:vm-states vm-key :running]
                                 false))
-                     (js/requestAnimationFrame #(run-vm-loop app-state vm-key
-                                                             result-key))))
+                     (js/requestAnimationFrame
+                       #(run-vm-loop app-state vm-key result-key))))
                (recur (inc i) (vm/step state))))
            (catch js/Error e
              (swap! app-state assoc
@@ -703,11 +703,14 @@
           all-datoms-before (vec (mapcat identity all-datom-groups))
           root-ids (mapv (fn [dg] (apply max (map first dg))) all-datom-groups)
           tx-data (vm/datoms->tx-data all-datoms-before)
-          {:keys [db tempids]} (in-m/run-tx (in-m/create vm/schema) tx-data)
-          dao-db db
-          all-datoms (mapv (fn [d]
-                             [(:e d) (:a d) (:v d) (:t d) nil])
-                           (dao.db/datoms dao-db :eavt))
+          ast-db (semantic/create-ast-db)
+          max-schema-eid (apply max (map first ast-db))
+          {:keys [tempids datoms]} (transact/prepare-tx
+                                     {:base-datoms ast-db,
+                                      :next-eid (max 1025 (inc max-schema-eid)),
+                                      :tx-data tx-data})
+          dao-db (into ast-db datoms)
+          all-datoms (vec (query/current-state-seq dao-db))
           root-eids (mapv #(get tempids % %) root-ids)
           stats {:total-datoms (count all-datoms),
                  :lambdas (count (semantic/find-lambdas dao-db)),
@@ -778,7 +781,7 @@
                               (let [input-text (or (:query-inputs @app-state)
                                                    "")]
                                 (reader/read-string (str "[" input-text "]"))))
-                 result (apply dao.db/q query db (or extra-vals []))]
+                 result (apply query/q query db (or extra-vals []))]
              (swap! app-state assoc :query-result result :error nil))
            (catch js/Error e
              (swap! app-state assoc
@@ -1519,7 +1522,8 @@
               (fn [] (compile-register app-state) (compile-stack app-state))]
              [connection-line bytecode-fork-point :register nil nil]
              [connection-line bytecode-fork-point :stack nil nil]
-             #_[connection-line :semantic :query "d/q ->" (fn [] (run-query app-state))]])
+             #_[connection-line :semantic :query "d/q ->"
+                  (fn [] (run-query app-state))]])
           [draggable-card :source "Source Code"
            [:div
             {:style {:display "flex",
@@ -1584,7 +1588,8 @@
                [vm-control-buttons app-state
                 {:vm-key :walker,
                  :step-fn #(step-vm app-state :walker :walker-result),
-                 :toggle-run-fn #(toggle-run-vm app-state :walker :walker-result),
+                 :toggle-run-fn
+                 #(toggle-run-vm app-state :walker :walker-result),
                  :reset-fn #(reset-walker app-state)}]
                [:div {:style {:flex "1", :min-height "0", :overflow "hidden"}}
                 [vm-state-display app-state codemirror-editor
@@ -1605,14 +1610,14 @@
                                 (when (not (vm/halted? state))
                                   (let [ctrl (:control state)]
                                     (when ctrl {:control ctrl})))),
-                  :expanded-fn
-                  (fn [state]
-                    {:control (:control state),
-                     :env-keys (vec (keys (:env state))),
-                     :continuation-depth
-                     (count (or (vm/continuation state) [])),
-                     :value (:value state)})}]]]
-              [vm-result-editor codemirror-editor walker-value walker-halted?]])]
+                  :expanded-fn (fn [state]
+                                 {:control (:control state),
+                                  :env-keys (vec (keys (:env state))),
+                                  :continuation-depth
+                                  (count (or (vm/continuation state) [])),
+                                  :value (:value state)})}]]]
+              [vm-result-editor codemirror-editor walker-value
+               walker-halted?]])]
           [draggable-card :semantic "Semantic VM"
            [vm-split-layout :semantic
             [datom-list-view (:datoms @app-state) active-asm-id]
@@ -1626,7 +1631,8 @@
              [vm-control-buttons app-state
               {:vm-key :semantic,
                :step-fn #(step-vm app-state :semantic :semantic-result),
-               :toggle-run-fn #(toggle-run-vm app-state :semantic :semantic-result),
+               :toggle-run-fn
+               #(toggle-run-vm app-state :semantic :semantic-result),
                :reset-fn #(reset-semantic app-state)}]
              [:div {:style {:flex "1", :min-height "0", :overflow "hidden"}}
               [vm-state-display app-state codemirror-editor
@@ -1642,18 +1648,21 @@
                 (fn [state]
                   (when (not (:halted? state))
                     (let [ctrl (:control state)
-                          info
-                          (if (= :node (:type ctrl))
-                            (let [attrs
-                                  (let [tx-data (vm/datoms->tx-data
-                                                  (:datoms state))
-                                        {dao-db :db}
-                                        (in-m/run-tx (in-m/create vm/schema)
-                                                     tx-data)]
-                                    (dao.db/entity-attrs dao-db
-                                                         (:id ctrl)))]
-                              (str (:yin/type attrs)))
-                            "Returning...")]
+                          info (if (= :node (:type ctrl))
+                                 (let [attrs
+                                       (let [tx-data (vm/datoms->tx-data
+                                                       (:datoms state))
+                                             ast-db
+                                             (semantic/create-ast-db)
+                                             {:keys [datoms]}
+                                             (transact/prepare-tx
+                                               {:base-datoms ast-db,
+                                                :tx-data tx-data})
+                                             dao-db (into ast-db datoms)]
+                                         (query/entity-attrs dao-db
+                                                             (:id ctrl)))]
+                                   (str (:yin/type attrs)))
+                                 "Returning...")]
                       {:control ctrl, :info info}))),
                 :expanded-fn (fn [state]
                                {:control (:control state),
@@ -1676,16 +1685,16 @@
              [vm-control-buttons app-state
               {:vm-key :register,
                :step-fn #(step-vm app-state :register :register-result),
-               :toggle-run-fn #(toggle-run-vm app-state :register :register-result),
+               :toggle-run-fn
+               #(toggle-run-vm app-state :register :register-result),
                :reset-fn #(reset-register app-state)}]
              [:div {:style {:flex "1", :min-height "0", :overflow "hidden"}}
               [vm-state-display app-state codemirror-editor
                {:vm-key :register,
-                :status-fn
-                (fn [state]
-                  (if (:halted? state)
-                    "HALTED"
-                    (str "control: " (:control state)))),
+                :status-fn (fn [state]
+                             (if (:halted? state)
+                               "HALTED"
+                               (str "control: " (:control state)))),
                 :summary-fn (fn [state]
                               (let [regs (:regs state)
                                     active (filter (fn [[_i v]] (some? v))
@@ -1719,11 +1728,10 @@
              [:div {:style {:flex "1", :min-height "0", :overflow "hidden"}}
               [vm-state-display app-state codemirror-editor
                {:vm-key :stack,
-                :status-fn
-                (fn [state]
-                  (if (:halted? state)
-                    "HALTED"
-                    (str "control: " (:control state)))),
+                :status-fn (fn [state]
+                             (if (:halted? state)
+                               "HALTED"
+                               (str "control: " (:control state)))),
                 :summary-fn (fn [state]
                               {:control (:control state),
                                :stack-tail (vec (take-last 3 (:stack state))),

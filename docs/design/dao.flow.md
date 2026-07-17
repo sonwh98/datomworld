@@ -4,8 +4,8 @@
 
 `dao.flow` is the datom coordination protocol that runs on `dao.space`. It
 is not a separate software component — it is the set of conventions that let
-datoms be matched and processed like network packets. `dao.space` (`dao.stream` +
-`dao.db`) is the medium; `dao.flow` is the protocol.
+datoms be matched and processed like network packets. `dao.space` (the tuple space over
+`dao.jing`, built on `dao.stream`) is the medium; `dao.flow` is the protocol.
 
 `dao.space` on its own is a general-purpose tuple space that already enables
 stigmergic coordination: agents write datoms to shared space, other agents
@@ -19,9 +19,11 @@ continuation scheduling, batching, stream injection, fork / join, and lineage.
 ML kernel agents make it an ML workflow substrate. The workload type is
 determined by which agents run, not by `dao.flow` itself.
 
-`dao.space` is built on `dao.stream` (append-only event log) and `dao.db`
-(Datalog query engine). `dao.flow` runs on `dao.space`; it does not call
-`dao.stream` or `dao.db` directly — it depends on them only through `dao.space`.
+`dao.space` is the tuple space that emerges when interpreters match Datalog over
+`dao.jing` (the store of opaque bytes, built on `dao.stream`, the append-only event log
+that feeds it); a Datalog query is one such interpreter (`:query`). `dao.flow`
+runs on `dao.space`; it does not call `dao.jing` or `dao.stream` directly — it depends on
+them only through `dao.space`.
 
 Agents write datoms into `dao.space`. Other agents pattern-match on those datoms
 and pick them up. When an agent processes matched datoms, it writes new datoms to
@@ -35,7 +37,8 @@ No agent needs to know what other agents exist.
 application  (inference engine, training engine, agent runtime, pipeline)
     provides: workflow graph, agent patterns, output handling
 
-dao.space  (tuple space: dao.stream + dao.db)
+dao.space  (coordination medium: a catalog of tuples over dao.stream,
+             read by interpreters — Datalog queries are one interpreter)
     provides: datom coordination medium — agents write/read datoms,
               pattern matching determines flow, history is preserved
 
@@ -82,9 +85,9 @@ shared tuple space:
 
 ```text
 agent A writes datoms with type value :some/effect to dao.space
--> agent B wait-for-pattern [:a :some/effect], picks it up
+-> agent B matches [?e :a :some/effect], picks it up
 -> agent B processes, writes datoms with type value :next/effect to dao.space
--> agent C wait-for-pattern [:a :next/effect], picks it up
+-> agent C matches [?e :a :next/effect], picks it up
 -> ...
 ```
 
@@ -108,7 +111,11 @@ message abstraction.
 A datom is an n-tuple — a single fact, a sequence of values at named positions.
 There is no fixed arity or mandatory position schema.
 
-Related datoms sharing the same entity identity form a group. One of those
+Related datoms sharing the same entity identity form a group. A group is
+authored by one agent into one stream, so its datoms share that agent's
+stream-local entity id; cohesion comes from that shared id (not from atomic
+authoring — a group's datoms may land as several non-atomic put!s), and survives
+folding (see `dao.space.v0.md`, "Entity Identity Is Stream-Local"). One of those
 datoms can be the type datom, which interpreters match on to identify work they
 can process.
 The remaining datoms are payload facts carrying the data the handler needs.
@@ -198,15 +205,15 @@ mechanism:
 
 ### dao.space and dao.stream
 
-`dao.space` is built on `dao.stream`. Their roles differ:
+`dao.space` (the tuple space) reads `dao.jing`, which is built on `dao.stream`. Their roles differ:
 
 | Dimension    | dao.space / dao.flow               | dao.stream                                |
 |--------------|------------------------------------|-------------------------------------------|
 | Role         | Coordinate agents via shared space | Deliver events reliably and in order      |
-| Abstraction  | Tuple space: query + coordination  | Append-only event log                     |
+| Abstraction  | Coordination medium: catalog of tuples (DaoStream descriptor types) | Append-only event log      |
 | State        | Stateful: full queryable history   | Stateful: cursors, positions, causality   |
 | Addressing   | Type value → agent                 | Stream id + cursor → subscriber           |
-| Query power  | Full Datalog                       | Cursor-based read                         |
+| Query power  | Full Datalog (a `:query` interpreter over the catalog) | Cursor-based read             |
 
 ## Scope
 
@@ -276,6 +283,22 @@ An agent may emit intent datoms:
 
 Other agents decide how those intents are executed or committed. An agent
 emits datoms. It does not directly mutate the world.
+
+### 4. Entity ids are stream-local; cross-group references are stamped
+
+Entity ids are local to the authoring stream (see `dao.space.v0.md`, "Entity
+Identity Is Stream-Local"). Two consequences for `dao.flow`:
+
+- **Flow advances by appending typed groups, not by mutating across streams.** An
+  agent does not update another stream's entity in place; it writes a *new* group
+  with a new type value that references the prior one (e.g.
+  `[result-id :kernel/result-for effect-id t m]`). The flow chain is immutable
+  groups linked by references; "state" is reconstructed by reading the chain.
+- **A cross-group reference value is a stamped id.** An agent references another
+  group by the stamped `[stream-ns offset]` it observed when reading the folded
+  space, never by a bare offset. Bare offsets are valid only inside the group's
+  own authoring stream. Entities that genuinely evolve (e.g. KV-cache lifecycle)
+  have a single owning agent, so their mutations stay within one stream.
 
 ## First-Class Values
 
@@ -356,21 +379,21 @@ coordination via `dao.space`:
 HTTP / queue
   -> datoms with type value :inference/request written to dao.space
 
-scheduler agent (wait-for-pattern [:a :inference/request])
+scheduler agent (matches [?e :a :inference/request])
   -> Datalog: find pending requests + available KV-cache block datoms
   -> claims cache blocks (writes allocation datoms to dao.space)
   -> writes datoms with type value :ml/kernel-effect (:kernel/op :kernel/prefill)
 
-ML kernel agent (wait-for-pattern [:a :ml/kernel-effect])
+ML kernel agent (matches [?e :a :ml/kernel-effect])
   -> resolves VRAM handles from cache datoms in dao.space
   -> runs prefill + decode loop internally
   -> writes datoms with type value :ml/kernel-result back to dao.space
 
-inference adapter agent (wait-for-pattern [:a :ml/kernel-result])
+inference adapter agent (matches [?e :a :ml/kernel-result])
   -> converts logits / sampled token results into datoms with type value
      :inference/token
 
-result-collector agent (wait-for-pattern [:a :inference/token])
+result-collector agent (matches [?e :a :inference/token])
   -> streams tokens to caller
 ```
 
@@ -512,7 +535,7 @@ coordinates the passes — no agent understands another agent's internal data.
 ```text
 datoms with type value :compile/request
 -> parse agent           (source string -> :ast/datoms)
--> macro-expand agent    (wait-for-pattern on datoms with type value
+-> macro-expand agent    (matches datoms with type value
                           :macro/definition)
 -> cps agent             (:ast/datoms -> :cps/datoms)
 -> closure-convert agent (:cps/datoms -> :closure/datoms)
@@ -521,7 +544,7 @@ datoms with type value :compile/request
 -> commit agent          (writes artifact to dao.db)
 ```
 
-**Macro expansion:** the macro-expand agent `wait-for-pattern` on
+**Macro expansion:** the macro-expand agent opens a live `:query` stream for
 `[:find ?d :where [?d :a :macro/definition] [?d :macro/name macro-name]]` in
 `dao.space`. When a sibling compilation agent writes the macro definition datoms,
 the macro-expand agent resumes.
@@ -658,8 +681,8 @@ The main idea is simple:
 
 - `dao.flow` is the datom coordination protocol running on `dao.space` —
   not a separate software component
-- `dao.space` (`dao.stream` + `dao.db`) is the medium; agents coordinate by
-  writing and reading datoms
+- `dao.space` (the tuple space over `dao.jing`, built on `dao.stream`) is the medium;
+  agents coordinate by writing and reading datoms
 - flow is emergent: agents match datoms and write new datoms; no central
   dispatcher is involved
 - the scheduler agent makes `dao.flow` behave as a workflow runtime — it is an

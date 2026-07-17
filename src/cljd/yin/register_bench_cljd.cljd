@@ -1,12 +1,9 @@
 (ns yin.register-bench-cljd
-  (:require
-    [dao.stream :as ds]
-    [dao.stream.ringbuffer :as ringbuffer]
-    [yin.vm :as vm]
-    [yin.vm.register :as register])
-  (:import
-    (dart:core
-      DateTime)))
+  (:require [dao.stream :as ds]
+            [dao.stream.ringbuffer :as ringbuffer]
+            [yin.vm :as vm]
+            [yin.vm.register :as register])
+  (:import ["dart:core" DateTime]))
 
 
 (def ^:private benchmark-config
@@ -84,7 +81,7 @@
         queued-vm (assoc vm-state
                          :in-stream in-stream
                          :in-cursor {:position 0})]
-    (ds/put! in-stream (vec datoms))
+    (ds/append! in-stream (vec datoms))
     queued-vm))
 
 
