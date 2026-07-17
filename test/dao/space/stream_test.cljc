@@ -99,7 +99,7 @@
           worker (ds/open! {:type :dao-stream, :store store, :name "worker-1"})]
       (ds/append! producer {:db/id 100, :work/posted true})
       (ds/append! worker {:db/id 200, :work/claims 100})
-      (is (nil? (jing/get store index/default-datoms-key nil))
+      (is (nil? (jing/get store :root/datoms nil))
           "no global :root/datoms is ever written by the transport")
       (is (= 1 (count (:datoms (jing/get store :root/producer nil)))))
       (is (= 1 (count (:datoms (jing/get store :root/worker-1 nil)))))
@@ -128,7 +128,41 @@
                              :default Exception)
                           #"name"
           (ds/open! {:type :dao-stream,
-                     :store (jing/create-kv-mem)})))))
+                     :store (jing/create-kv-mem)}))))
+  (testing "a stream named members throws due to membership root collision"
+    (is (thrown-with-msg? #?(:cljs js/Error
+                             :cljd Object
+                             :default Exception)
+                          #"cannot target the membership root"
+          (ds/open! {:type :dao-stream,
+                     :store (jing/create-kv-mem),
+                     :name "members"}))))
+  (testing
+    "a stream with custom key :root/members throws due to membership root collision"
+    (is (thrown-with-msg? #?(:cljs js/Error
+                             :cljd Object
+                             :default Exception)
+                          #"cannot target the membership root"
+          (ds/open! {:type :dao-stream,
+                     :store (jing/create-kv-mem),
+                     :name "a",
+                     :key :root/members}))))
+  (testing "a stream with empty name key throws with register-member! context"
+    (is (thrown-with-msg? #?(:cljs js/Error
+                             :cljd Object
+                             :default Exception)
+                          #"register-member! requires a non-empty"
+          (ds/open! {:type :dao-stream,
+                     :store (jing/create-kv-mem),
+                     :key (keyword "root" "")}))))
+  (testing "a stream with segment key throws with register-member! context"
+    (is (thrown-with-msg? #?(:cljs js/Error
+                             :cljd Object
+                             :default Exception)
+                          #"register-member! requires a :root"
+          (ds/open! {:type :dao-stream,
+                     :store (jing/create-kv-mem),
+                     :key :segment/foo})))))
 
 
 (deftest lifecycle
@@ -179,10 +213,8 @@
 (deftest appends-compose-with-existing-roots
   (testing "a :dao-stream append preserves datoms already seeded wholesale"
     (let [store (jing/create-kv-mem)]
-      (jing/cas! store
-                 index/default-datoms-key
-                 0
-                 {:datoms [[1 :work/status :todo 0 1]]})
+      (index/register-member! store :root/w)
+      (jing/cas! store :root/w 0 {:datoms [[1 :work/status :todo 0 1]]})
       (let [log (ds/open! {:type :dao-stream, :store store, :name "w"})]
         (ds/append! log {:db/id 2, :work/status :todo})
         (is (= #{[1] [2]}

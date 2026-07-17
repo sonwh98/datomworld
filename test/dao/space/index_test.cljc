@@ -20,7 +20,8 @@
      "Write datoms into a dao.jing handle under the wholesale root shape, as
      a stream owner would before publishing indexes."
      [store datoms]
-     (jing/cas! store index/default-datoms-key 0 {:datoms datoms})))
+     (index/register-member! store :root/test)
+     (jing/cas! store :root/test 0 {:datoms datoms})))
 
 
 ;; publish-index! is JVM-only for now (psset durability is a Clojure-only
@@ -64,8 +65,8 @@
              q-form '[:find ?v :where [1030 :work/task ?v]]
              before-q (query/q q-form store)
              before-m (query/match store [1030 :work/task '_])
-             _ (index/publish-index! store)
-             root (jing/get store index/default-datoms-key nil)]
+             _ (index/publish-index! store :root/test)
+             root (jing/get store :root/test nil)]
          (is (= #{:eavt :aevt :avet :vaet} (set (keys (:indexes root)))))
          (is (every? #(= "segment" (namespace %)) (vals (:indexes root)))
              "index roots are content-addressed segment keys")
@@ -83,9 +84,11 @@
               an indexed root must be readable after reopen from disk"
        (let [path (str "target/index-test-" (random-uuid) ".db")
              store (file/create-kv-file path)]
-         (try (index/publish-index! store
+         (try (index/register-member! store :root/test)
+              (index/publish-index! store
                                     [[1 :work/status :todo 0 1]
-                                     [2 :work/status :done 0 1]])
+                                     [2 :work/status :done 0 1]]
+                                    {:key :root/test})
               (jing/close! store)
               (let [store2 (file/create-kv-file path)]
                 (try (is (= #{[1]}
@@ -104,8 +107,10 @@
               addresses on republish"
        (let [store (jing/create-kv-mem)
              _ (seed! store many-datoms)
-             idx1 (index/publish-index! store)
-             idx2 (index/publish-index! store (index/read-datoms store))]
+             idx1 (index/publish-index! store :root/test)
+             idx2 (index/publish-index! store
+                                        (index/read-datoms store :root/test)
+                                        {:key :root/test})]
          (is (= idx1 idx2))))))
 
 
@@ -118,8 +123,8 @@
               the other three covered indexes, not an optional extra"
        (let [store (jing/create-kv-mem)
              _ (seed! store many-datoms)
-             _ (index/publish-index! store)
-             root (jing/get store index/default-datoms-key nil)
+             _ (index/publish-index! store :root/test)
+             root (jing/get store :root/test nil)
              vaet-addr (:vaet (:indexes root))]
          (is (some? vaet-addr) ":vaet root is a content-addressed key")
          (is (= "segment" (namespace vaet-addr)))
@@ -138,7 +143,9 @@
              gets (atom [])
              store (recording-store inner gets)
              _ (seed! store many-datoms)
-             _ (index/publish-index! store many-datoms {:branching-factor 32})
+             _ (index/publish-index! store
+                                     many-datoms
+                                     {:key :root/test, :branching-factor 32})
              total-segments (count (filter #(= "segment" (namespace %))
                                            (keys @(:state-atom inner))))
              _ (reset! gets [])
@@ -159,9 +166,120 @@
        "publishing an empty stream yields nil index roots that read
               back as no datoms, not an error"
        (let [store (jing/create-kv-mem)]
-         (index/publish-index! store [])
+         (index/register-member! store :root/test)
+         (index/publish-index! store [] {:key :root/test})
          (is (= [] (query/match store ['_ '_ '_])))
          (is (= #{} (query/q '[:find ?e :where [?e _ _]] store)))))))
+
+
+(deftest publish-index-2-arity-guard
+  (testing "the re-aritied 2-arity rejects a datom seq on all platforms"
+    (let [store (jing/create-kv-mem)]
+      (is (thrown-with-msg? #?(:cljs js/Error
+                               :cljd Object
+                               :default Exception)
+                            #"keyword key"
+            (index/publish-index! store [])))))
+  (testing "the re-aritied 2-arity rejects a segment key on all platforms"
+    (let [store (jing/create-kv-mem)]
+      (is (thrown-with-msg? #?(:cljs js/Error
+                               :cljd Object
+                               :default Exception)
+                            #":root/<name>"
+            (index/publish-index! store :segment/foo)))))
+  (testing "the re-aritied 2-arity rejects an empty name key on all platforms"
+    (let [store (jing/create-kv-mem)]
+      (is (thrown-with-msg? #?(:cljs js/Error
+                               :cljd Object
+                               :default Exception)
+                            #"non-empty"
+            (index/publish-index! store (keyword "root" ""))))))
+  (testing "the re-aritied 2-arity rejects the membership root on all platforms"
+    (let [store (jing/create-kv-mem)]
+      (is (thrown-with-msg? #?(:cljs js/Error
+                               :cljd Object
+                               :default Exception)
+                            #"membership root"
+            (index/publish-index! store :root/members))))))
+
+
+#?(:cljd nil
+   :clj
+   (deftest publish-index-3-arity-guard
+     (testing "the 3-arity rejects a non-root key"
+       (let [store (jing/create-kv-mem)]
+         (is (thrown-with-msg? Exception
+                               #"keyword key"
+               (index/publish-index! store [] {:key []})))))
+     (testing "the 3-arity rejects a segment key"
+       (let [store (jing/create-kv-mem)]
+         (is (thrown-with-msg?
+               Exception
+               #":root/<name>"
+               (index/publish-index! store [] {:key :segment/foo})))))
+     (testing "the 3-arity rejects an empty name key"
+       (let [store (jing/create-kv-mem)]
+         (is (thrown-with-msg?
+               Exception
+               #"non-empty"
+               (index/publish-index! store [] {:key (keyword "root" "")})))))
+     (testing "the 3-arity rejects the membership root"
+       (let [store (jing/create-kv-mem)]
+         (is (thrown-with-msg?
+               Exception
+               #"membership root"
+               (index/publish-index! store [] {:key :root/members})))))
+     (testing "the 3-arity accepts a valid root key"
+       (let [store (jing/create-kv-mem)]
+         (index/register-member! store :root/datoms)
+         (is (some? (index/publish-index! store [] {:key :root/datoms})))))))
+
+
+(deftest register-member-guard
+  (testing
+    "register-member! rejects invalid, empty, or members keys on all platforms"
+    (let [store (jing/create-kv-mem)]
+      (is (thrown-with-msg? #?(:cljs js/Error
+                               :cljd Object
+                               :default Exception)
+                            #"non-empty"
+            (index/register-member! store (keyword "root" ""))))
+      (is (thrown-with-msg? #?(:cljs js/Error
+                               :cljd Object
+                               :default Exception)
+                            #"membership root"
+            (index/register-member! store :root/members)))
+      (is (thrown-with-msg? #?(:cljs js/Error
+                               :cljd Object
+                               :default Exception)
+                            #":root/<name>"
+            (index/register-member! store :segment/foo))))))
+
+
+(deftest read-datoms-guard
+  (testing
+    "read-datoms rejects invalid, empty, or members keys on all platforms"
+    (let [store (jing/create-kv-mem)]
+      (is (thrown-with-msg? #?(:cljs js/Error
+                               :cljd Object
+                               :default Exception)
+                            #"keyword key"
+            (index/read-datoms store [])))
+      (is (thrown-with-msg? #?(:cljs js/Error
+                               :cljd Object
+                               :default Exception)
+                            #"non-empty"
+            (index/read-datoms store (keyword "root" ""))))
+      (is (thrown-with-msg? #?(:cljs js/Error
+                               :cljd Object
+                               :default Exception)
+                            #"membership root"
+            (index/read-datoms store :root/members)))
+      (is (thrown-with-msg? #?(:cljs js/Error
+                               :cljd Object
+                               :default Exception)
+                            #":root/<name>"
+            (index/read-datoms store :segment/foo))))))
 
 
 (deftest index-root-readable-from-plain-node-blobs
@@ -181,8 +299,9 @@
       (jing/put! store k1 leaf-1)
       (jing/put! store k2 leaf-2)
       (jing/put! store kb branch)
+      (index/register-member! store :root/test)
       (jing/cas! store
-                 index/default-datoms-key
+                 :root/test
                  0
                  {:indexes {:eavt kb, :aevt kb, :avet kb, :vaet kb}, :count 3})
       (is (= #{["x"]} (query/q '[:find ?v :where [1 :a ?v]] store)))
@@ -190,11 +309,16 @@
 
 
 #?(:cljd (deftest publish-index-is-jvm-only
-           (is (thrown? Object (index/publish-index! (jing/create-kv-mem) []))))
+           (is (thrown? Object
+                 (index/publish-index! (jing/create-kv-mem)
+                                       []
+                                       {:key :root/test}))))
    :clj nil
    :cljs (deftest publish-index-is-jvm-only
            (is (thrown? js/Error
-                 (index/publish-index! (jing/create-kv-mem) [])))))
+                 (index/publish-index! (jing/create-kv-mem)
+                                       []
+                                       {:key :root/test})))))
 
 
 (deftest pre-vaet-root-takes-the-eager-path
@@ -207,8 +331,9 @@
           leaf {:keys [[1 :a "x" 0 1] [2 :a "y" 0 1]]}
           k (jing/segment-key leaf)]
       (jing/put! store k leaf)
+      (index/register-member! store :root/test)
       (jing/cas! store
-                 index/default-datoms-key
+                 :root/test
                  0
                  ;; pre-VAET shape: no :vaet key
                  {:indexes {:eavt k, :aevt k, :avet k}, :count 2})

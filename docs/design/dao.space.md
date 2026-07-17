@@ -218,8 +218,8 @@ owner-built/peers-merge) is a concern of the layers above storage, realized on
 Realization*. All variants answer identically.
 
 **Current status.** Two root shapes coexist at a stream's root (`:root/<name>`, one per
-stream, enumerated by the `:root/members` membership root; the legacy shared
-`:root/datoms` is still read when present but no longer written by the transport). The
+stream, enumerated by the `:root/members` membership root; the old shared
+`:root/datoms` is removed). The
 baseline holds a stream's full datom vector wholesale (`{:datoms [...]}`) and folds it into a
 fresh in-memory index on every query — the "rebuild per query" strategy ("kept only as the
 conceptual baseline"; see [`dao.space.query.md`](dao.space.query.md), *Index Realization*),
@@ -443,8 +443,8 @@ registered `dao.stream` type (`dao.space.stream`) whose `ds/append!` deposits an
 or datom vector into the stream's **own** root, `:root/<name>` — each stream a single-writer
 log, no shared write surface. `open!` registers the root in the store's membership root
 (`:root/members`, the intake record of *Membership is intake*, above), and the query library
-folds every member root and merges (plus the legacy `:root/datoms` when a store was seeded
-there wholesale; the transport itself never writes that key). Entity-id namespace stamping
+folds every member root and merges (the old shared `:root/datoms` is removed; a store seeded
+directly must register its root via `index/register-member!`). Entity-id namespace stamping
 (`[stream-ns offset]`, Ruling 3 of `dao.space.query.md`) is still pending, so cross-stream
 `:db/id` collision remains the documented open gap until the kickoff-hash namespace lands.
 One layering note stands: `dao.jing`'s

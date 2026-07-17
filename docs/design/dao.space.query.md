@@ -72,8 +72,8 @@ fold; the engine folds them and joins by variable name.
 The coordinate does **not** describe today's code:
 
 - `dao.jing` is a flat KV — each key a single mutable root updated via `cas!`, holding an opaque
-  value. The query reads one `:root/datoms` per store (the doc itself flags this as "the simplest
-  possible convention ahead of the target B-Tree-segment architecture").
+  value. The query enumerates the store's member roots (`:root/members` → each stream's
+  `:root/<name>`; see [dao.space.index.md](dao.space.index.md), *The root conventions*) and folds them all.
 - `dao.stream` is a separate abstraction (ringbuffer / append-log / file / http / ws / udp) that
   carries opaque **bytes** and does **not** persist into a jing store. The dependency is inverted —
   `dao.jing/file` *uses* `dao.stream.log` internally as its byte transport.
@@ -220,12 +220,11 @@ this: decoding bytes into datoms is meaning-making, and storage stays pure synta
 
 ```clojure
 (defn read-datoms
-  ([store] (read-datoms store default-datoms-key))
-  ([store datoms-key]
-   (let [root (jing/get store datoms-key {:datoms []})]
-     (if-some [indexes (:indexes root)]
-       (vec (walk-index-datoms store (:eavt indexes)))
-       (:datoms root)))))
+  [store datoms-key]
+  (let [root (jing/get store datoms-key {:datoms []})]
+    (if-some [indexes (:indexes root)]
+      (vec (walk-index-datoms store (:eavt indexes)))
+      (:datoms root))))
 ```
 
 is a pure data-structure walk or extraction over whatever `jing/get` returns — it never touches bytes or
@@ -240,7 +239,7 @@ decode at all, and that decode is already finished by the time `read-datoms` see
 
 **Current contract** (matches `dao.jing.md`, *Current Scope*):
 
-- **Input.** A single `IKVStore` `get` of the stream's root key (`:root/datoms`), returning an
+- **Input.** A single `IKVStore` `get` of the stream's root key (`:root/<name>`), returning an
   already-decoded v-map shaped `{:datoms [...]}` or `{:indexes ...}`. Whether that map arrived via a `pr-str`/`edn`
   round-trip (`KVFile`), a plain in-memory reference (`KVMem`), or a network fetch
   (`dao.jing.dht`) is backend-internal and invisible to `read-datoms`.

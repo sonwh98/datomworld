@@ -139,19 +139,23 @@ This is one evolving spec, not a series of frozen releases — "not yet" below m
 that, work still to land in this same document, not a v2 to be written later. What's
 implemented at the storage boundary today, and the contracts already pinned down.
 
-- **Storage root today: one mutable key; segments shipped.** The stream root at
-  `:root/datoms` holds either a stream's full datom vector wholesale (`{:datoms [...]}`) or,
-  since 2026-07-10, an owner-built index manifest (`{:indexes {:eavt :segment/sha256-<hash> ...}
+- **Storage roots today: one mutable key per stream; segments shipped.** Each stream's
+  root (`:root/<name>`) holds either the stream's full datom vector wholesale
+  (`{:datoms [...]}`) or, since 2026-07-10, an owner-built index manifest
+  (`{:indexes {:eavt :segment/sha256-<hash> ...}
   :count n}`) whose values point at immutable, content-addressed B-Tree node segments written
-  with `put!` under `segment-key` — published by `dao.space.index/publish-index!`. Both the
-  root-key name (`default-datoms-key`) and both root shapes are reader-owned conventions
+  with `put!` under `segment-key` — published by `dao.space.index/publish-index!`. The
+  root-naming conventions (per-stream `:root/<name>`, the `:root/members` membership root)
+  and both root shapes are reader-owned conventions
   defined in `src/cljc/dao/space/index.cljc`, not `dao.jing` constants — storage only ever
   sees the keywords and blobs its caller hands it, and never knows the segments form an index.
-- **Member layout and discovery.** A stream owner performs an atomic `cas!` on the stream's
-  mutable root reference (`:root/datoms`) to publish either shape: the wholesale
+- **Member layout and discovery.** A stream owner performs an atomic `cas!` on its own
+  mutable root reference (`:root/<name>`) to publish either shape: the wholesale
   `{:datoms [...]}` blob, or the `{:indexes ...}` manifest after `put!`-ing the segments it
   references. Republishing unchanged data is idempotent — content-derived keys make the same
-  segments land at the same addresses.
+  segments land at the same addresses. Discovery is the membership root (`:root/members`),
+  written once per stream at `open!` and enumerated by readers — `IKVStore` has no scan, so
+  reachability starts there.
 - **Querying (reader side).** A read resolves the stream's root reference from the `IKVStore`
   with a single `get`, which targets an immutable snapshot of that root's value at the time
   of the call — concurrent writes never disturb an in-flight read. For an `{:indexes ...}`

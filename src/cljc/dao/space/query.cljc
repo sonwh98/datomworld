@@ -26,7 +26,7 @@
 
   Reading a `dao.jing` handle folds every member root
   (`index/member-keys`: each stream's own `:root/<name>` as registered in
-  `index/members-key`, plus the legacy `:root/datoms` when seeded) and
+  `index/members-key`) and
   supports both root shapes per member: the wholesale `{:datoms [...]}`
   baseline, folded into a fresh in-memory index per query, and the
   owner-built `{:indexes ...}` manifest, restored lazily on the JVM when

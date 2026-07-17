@@ -291,7 +291,7 @@
         ;; the indexed root (segment keys and all) must survive the file
         ;; backend's EDN persistence and the rpc, and a later stream append
         ;; must fold the indexed datoms back rather than dropping them
-        (index/publish-index! *store*)
+        (index/publish-index! *store* :root/indexer)
         (let [{after :e}
               (put-entity! agent "indexer" {:marker/id "post-index"})]
           (is (= #{[before "pre-index"] [after "post-index"]}

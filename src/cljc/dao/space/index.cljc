@@ -13,9 +13,8 @@
 
     - the root conventions: each stream owns `:root/<name>`, enumerated
       through the membership root (`members-key`, written at open! by the
-      `:dao-stream` transport, read by `member-keys`; the legacy shared
-      `default-datoms-key` is still read when seeded, never written by
-      the transport). Every datom root carries one of two shapes,
+      `:dao-stream` transport, read by `member-keys`). Every datom root
+      carries one of two shapes,
       wholesale `{:datoms [...]}` or owner-built
       `{:indexes {:eavt <segment-key> :aevt ... :avet ... :vaet ...} :count n}`
     - the sort orders (`eavt-cmp`/`aevt-cmp`/`avet-cmp`/`vaet-cmp` over
@@ -41,13 +40,6 @@
          (me.tonsky.persistent_sorted_set Branch IStorage Leaf Settings))]))
 
 
-(def default-datoms-key
-  "The legacy shared root key. The :dao-stream transport no longer writes
-  here — each stream owns `:root/<name>` — but a store seeded wholesale at
-  this key is still read (see member-keys)."
-  :root/datoms)
-
-
 (def members-key
   "The membership root: `{:members #{:root/<name> ...}}`, the set of stream
   roots currently feeding this store's space. Written by the write path at
@@ -57,10 +49,28 @@
   :root/members)
 
 
+(defn validate-root-key!
+  "Throw if `k` is not a valid stream root key. `context` is prepended to the
+  error message (e.g. \"open!\" or \"register-member!\")."
+  [k context]
+  (when-not (keyword? k)
+    (throw (ex-info (str context " requires a keyword key") {:key k})))
+  (when-not (= "root" (namespace k))
+    (throw (ex-info (str context " requires a :root/<name> key") {:key k})))
+  (when (= "" (name k))
+    (throw (ex-info (str context " requires a non-empty :root/<name> key")
+                    {:key k})))
+  (when (= members-key k)
+    (throw (ex-info
+             (str context " cannot target the membership root: " members-key)
+             {:key k}))))
+
+
 (defn register-member!
   "Add a stream root key to the store's membership root. Idempotent;
   retries a lost cas! (open!-time contention is rare and bounded)."
   [store k]
+  (validate-root-key! k "register-member!")
   (loop []
     (let [root (jing/get store members-key nil)
           rev (:rev root 0)
@@ -71,15 +81,11 @@
 
 
 (defn member-keys
-  "Every datom-bearing root in the store, in a deterministic order:
-  the legacy default-datoms-key when present, then the registered members
-  sorted by name. This is the enumeration a query folds — IKVStore has no
-  scan, so reachability starts from the membership root."
+  "Every datom-bearing root in the store, sorted by name. This is the
+  enumeration a query folds — IKVStore has no scan, so reachability starts
+  from the membership root."
   [store]
-  (let [members (:members (jing/get store members-key nil))
-        legacy (when (jing/get store default-datoms-key nil)
-                 [default-datoms-key])]
-    (into (vec legacy) (sort (disj (set members) default-datoms-key)))))
+  (sort (:members (jing/get store members-key nil))))
 
 
 ;; =============================================================================
@@ -279,17 +285,17 @@
 
 
 (defn read-datoms
-  "Read the datoms held at a dao.jing handle's datoms-key (default
-  `default-datoms-key`), or [] if never seeded. Handles both root shapes:
-  the wholesale `{:datoms [...]}` baseline, and the owner-built
-  `{:indexes {:eavt <segment-key> ...}}` shape published by
-  `publish-index!` (read by eagerly walking the `:eavt` node graph)."
-  ([store] (read-datoms store default-datoms-key))
-  ([store datoms-key]
-   (let [root (jing/get store datoms-key {:datoms []})]
-     (if-some [indexes (:indexes root)]
-       (vec (walk-index-datoms store (:eavt indexes)))
-       (:datoms root)))))
+  "Read the datoms held at a dao.jing handle's datoms-key, or [] if never
+  seeded. Handles both root shapes: the wholesale `{:datoms [...]}`
+  baseline, and the owner-built `{:indexes {:eavt <segment-key> ...}}`
+  shape published by `publish-index!` (read by eagerly walking the `:eavt`
+  node graph)."
+  [store datoms-key]
+  (validate-root-key! datoms-key "read-datoms")
+  (let [root (jing/get store datoms-key {:datoms []})]
+    (if-some [indexes (:indexes root)]
+      (vec (walk-index-datoms store (:eavt indexes)))
+      (:datoms root))))
 
 
 (defn store-datoms
@@ -348,48 +354,55 @@
 
 
 (defn publish-index!
-  "The transactor entry point, owner-side: build the four covered indexes
-  from the stream's datoms, persist them as immutable content-addressed
-  segment blobs (put!), and advance the stream root to
+  "The transactor entry point, owner-side. Builds the four covered indexes
+  from the stream's datoms, persists them as immutable content-addressed
+  segment blobs (put!), and advances the stream root to
   `{:indexes {...} :count n}` via cas!. Republishing unchanged data is
-  idempotent — content addressing yields the same segment keys, so the same
-  root addresses. Single-writer discipline: throws if the root cas! is lost
-  to a concurrent writer. JVM-only for now (psset durability is a
-  Clojure-only feature); non-JVM readers still read the result eagerly via
-  read-datoms.
+  idempotent. Single-writer discipline: throws if the root cas! is lost.
+  JVM-only for now.
+
+  Usage:
+    (publish-index! store datoms-key)  — reindexes the current contents of datoms-key
+    (publish-index! store datoms opts) — indexes an explicit datom seq
 
   opts: {:branching-factor n  — max keys per node (default 512, Datomic-
                                 style fat segments)
-         :key k               — the stream root to advance (default
-                                `default-datoms-key`)}."
-  ([store] (publish-index! store (read-datoms store)))
-  ([store datoms] (publish-index! store datoms {}))
+         :key k               — the stream root to advance (required)}."
+  ([store datoms-key]
+   ;; guard the re-aritied API: the old 2-arity took a datom seq, and a
+   ;; vector silently becomes a phantom root key. read-datoms handles this.
+   (publish-index! store (read-datoms store datoms-key) {:key datoms-key}))
   ([store datoms opts]
    #?(:cljd (throw (ex-info "publish-index! is JVM-only for now"
                             {:store store, :datoms datoms, :opts opts}))
-      :clj (let [datoms-key (:key opts default-datoms-key)
-                 branching (:branching-factor opts 512)
-                 storage (kv-storage store)
-                 root-addr (fn [cmp]
-                             ;; an empty index has no root node:
-                             ;; psset/store of an empty set yields a
-                             ;; phantom; nil is the
-                             ;; explicit "nothing here" (walk of nil => ())
-                             (when (seq datoms)
-                               (-> (psset/from-sequential cmp
-                                                          datoms
-                                                          {:branching-factor
-                                                           branching})
-                                   (psset/store storage))))
-                 indexes {:eavt (root-addr eavt-cmp),
-                          :aevt (root-addr aevt-cmp),
-                          :avet (root-addr avet-cmp),
-                          :vaet (root-addr vaet-cmp)}
-                 rev (:rev (jing/get store datoms-key nil) 0)
-                 v {:indexes indexes, :count (count datoms)}]
-             (when-not (jing/cas! store datoms-key rev v)
-               (throw (ex-info "publish-index! lost the root cas!"
-                               {:key datoms-key, :rev rev})))
-             indexes)
+      :clj (let [datoms-key (or (:key opts)
+                                (throw (ex-info
+                                         "publish-index! requires a :key option"
+                                         {:opts opts})))]
+             (validate-root-key! datoms-key "publish-index! 3-arity")
+             (let [branching (:branching-factor opts 512)
+                   storage (kv-storage store)
+                   root-addr (fn [cmp]
+                               ;; an empty index has no root node:
+                               ;; psset/store of an empty set yields a
+                               ;; phantom; nil is the
+                               ;; explicit "nothing here" (walk of nil =>
+                               ;; ())
+                               (when (seq datoms)
+                                 (-> (psset/from-sequential cmp
+                                                            datoms
+                                                            {:branching-factor
+                                                             branching})
+                                     (psset/store storage))))
+                   indexes {:eavt (root-addr eavt-cmp),
+                            :aevt (root-addr aevt-cmp),
+                            :avet (root-addr avet-cmp),
+                            :vaet (root-addr vaet-cmp)}
+                   rev (:rev (jing/get store datoms-key nil) 0)
+                   v {:indexes indexes, :count (count datoms)}]
+               (when-not (jing/cas! store datoms-key rev v)
+                 (throw (ex-info "publish-index! lost the root cas!"
+                                 {:key datoms-key, :rev rev})))
+               indexes))
       :cljs (throw (ex-info "publish-index! is JVM-only for now"
                             {:store store, :datoms datoms, :opts opts})))))

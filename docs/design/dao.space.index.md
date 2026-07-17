@@ -44,9 +44,12 @@ here "the transactor" is not a process but a library duty every agent carries.
 One namespace, `src/cljc/dao/space/index.cljc`. Everything below is the index
 *realization*: the shared vocabulary a builder and a reader must agree on.
 
-- **The root-manifest convention** — `default-datoms-key` (`:root/datoms`)
-  and the two root shapes: wholesale `{:datoms [...]}` and owner-built
-  `{:indexes {:eavt <segment-key> :aevt ... :avet ...} :count n}`.
+- **The root conventions** — each stream owns its root, `:root/<name>`,
+  enumerated through the membership root (`members-key`, `:root/members`,
+  written at `open!` by the `:dao-stream` transport, read by `member-keys`;
+  the old shared `default-datoms-key` / `:root/datoms` is removed), and the
+  two root shapes every datom root carries: wholesale `{:datoms [...]}` and
+  owner-built `{:indexes {:eavt <segment-key> :aevt ... :avet ...} :count n}`.
 - **Sort orders** — `eavt-cmp` / `aevt-cmp` / `avet-cmp` over heterogeneous
   values (`compare-vals`: type-ranked, nil-first — entity ids are
   caller-chosen and can be any type), plus the datom slot accessors
@@ -62,7 +65,7 @@ One namespace, `src/cljc/dao/space/index.cljc`. Everything below is the index
   psset stores children before parents. `restored-indexes` re-attaches a
   published manifest lazily (JVM); `walk-index-datoms` reads the node graph
   eagerly on every platform; `read-datoms` reads either root shape.
-- **The transactor entry point** — `publish-index!`: build the three indexes
+- **The transactor entry point** — `publish-index!`: build the four covered indexes
   from the stream's datoms, persist the segments (`put!`), `cas!` the root to
   the manifest.
 
@@ -72,21 +75,25 @@ One namespace, `src/cljc/dao/space/index.cljc`. Everything below is the index
 (require '[dao.space.index :as index])
 
 ;; the transactor's move (JVM-only for now)
-(index/publish-index! store)                    ; index the root's current datoms
-(index/publish-index! store datoms)             ; index an explicit datom seq
+(index/publish-index! store :root/w)            ; index the stream at that root
+(index/publish-index! store datoms {:key :root/w})  ; index an explicit datom seq
 (index/publish-index! store datoms
-                      {:branching-factor 512})  ; max keys per node (default 512,
+                      {:key :root/w
+                       :branching-factor 512})  ; max keys per node (default 512,
                                                 ; Datomic-style fat segments)
 ;; => {:eavt :segment/sha256-… :aevt … :avet …}
 
 ;; the format's readers (every platform)
-(index/read-datoms store)                       ; either root shape -> datoms
-(index/read-datoms store some-root-key)
+(index/read-datoms store some-root-key)         ; either root shape -> datoms
+(index/store-datoms store)                      ; every member root, concatenated
 (index/walk-index-datoms store segment-key)     ; eager node-graph walk
 (index/restored-indexes store indexes)          ; lazy psset re-attach (JVM)
 
 ;; the shared vocabulary
-index/default-datoms-key                        ; :root/datoms
+index/members-key                               ; :root/members
+(index/register-member! store :root/w)          ; open!-time intake
+(index/validate-root-key! :root/w "context")    ; validate root key shape/name
+(index/member-keys store)                       ; sorted member roots
 (index/index-datoms datoms)                     ; in-memory {:eavt :aevt :avet}
 (index/subseq-from sorted-set index/eavt-cmp sentinel)
 (index/compare-vals a b)
@@ -114,7 +121,7 @@ How the pieces compose for a long-lived agent (the write path is
 (ds/append! log {:db/id id :work/claims task})   ; 1. deposit — appends datoms
 ;; ... more appends ...
 ;; local indexes are available immediately (dao.space.query reads them)
-(index/publish-index! store)                  ; 2. periodically: persist to dao.jing
+(index/publish-index! store :root/w)          ; 2. periodically: persist to dao.jing
 ;; other agents now see this data through dao.jing
 ```
 
@@ -182,7 +189,7 @@ dao.space.stream  ──►  dao.space.index  ◄──  dao.space.query
   `persistent-sorted-set` dependency entirely — every psset touchpoint lives
   in the index library.
 - `dao.space.stream` requires only `dao.space.index` (`read-datoms`,
-  `default-datoms-key`) — the write path does not drag in the Datalog engine.
+  `register-member!`) — the write path does not drag in the Datalog engine.
 - `dao.space.index` requires `dao.jing` and (JVM/cljs) psset; never
   `dao.space.query`. No cycle is possible: realization below, interpretation
   above.

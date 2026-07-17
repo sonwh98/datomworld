@@ -87,7 +87,8 @@
   convention, as a stream owner would (dao.space.query itself never
   writes; see its ns docstring)."
   [store datoms]
-  (jing/cas! store index/default-datoms-key 0 {:datoms datoms}))
+  (index/register-member! store :root/test)
+  (jing/cas! store :root/test 0 {:datoms datoms}))
 
 
 (deftest q-over-a-single-dao-jing-handle
@@ -117,7 +118,7 @@
    :clj (deftest v-only-match-reaches-the-published-vaet
           (let [store (jing/create-kv-mem)]
             (seed! store sample-datoms)
-            (index/publish-index! store)
+            (index/publish-index! store :root/test)
             (is (= #{[1 :work/status :todo 0 1]}
                    (set (query/match store ['_ '_ :todo]))))
             (is (= 1
@@ -242,7 +243,7 @@
        (let [a (jing/create-kv-mem)
              b (jing/create-kv-mem)]
          (seed! a [[1 :work/status :todo 0 1] [1 :work/status :done 5 1]])
-         (index/publish-index! a)
+         (index/publish-index! a :root/test)
          (seed! b [[2 :work/status :todo 0 1]])
          (is (=
                #{[:todo]}
@@ -1319,11 +1320,8 @@
 #?(:cljd nil
    :clj (deftest pull-reverse-reaches-the-published-index
           (let [store (jing/create-kv-mem)]
-            (jing/cas! store
-                       index/default-datoms-key
-                       0
-                       {:datoms pull-nested-datoms})
-            (index/publish-index! store)
+            (seed! store pull-nested-datoms)
+            (index/publish-index! store :root/test)
             (let [result (query/pull store 3 [:name {:_friend [:name]}])
                   friends (sort-by :db/id (:_friend result))]
               (is (= "Charlie" (:name result)))
