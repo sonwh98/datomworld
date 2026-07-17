@@ -1,7 +1,7 @@
 #:blog{:title "Snapshot the Continuation, Not the VM: datom.world vs GKE's Agent Substrate"
        :date #inst "2026-07-18T10:00:00.000-00:00"
        :abstract [:p
-                  "Google's Agent Sandbox and Agent Substrate suspend idle agents by freezing entire pod memory images. datom.world suspends an agent by persisting its continuation as datoms: only the kernel of the computation. The difference is not an optimization, it is a consequence of the linkage model. When legacy libraries are processes behind streams (pi-calculus) instead of code linked into your address space, agent state never entangles with library state, and the snapshot is small because there is nothing else to capture. An agent is then just a function, written in any language Yang compiles (Python, PHP, JavaScript, Clojure), that suspends into dao.space, migrates over the network, and resumes anywhere."]
+                  "GKE's Agent Sandbox suspends agents by freezing entire pod memory images. datom.world suspends agents by persisting their continuation as datoms: only the kernel of the computation. By communicating with legacy libraries over streams (pi-calculus) instead of linking them in-process, agent state never entangles with library state. The result is lightweight, architecture-neutral agents (written in Python, Clojure, JS, or PHP) that suspend, migrate, and resume seamlessly via dao.space."]
        :content [:section.blog-article
                  [:div.section-inner
                   :$blog-title
