@@ -183,7 +183,7 @@
           [:h2 "Implication 7: The IDE Becomes a Database Query UI"]
           [:p
            "If code is a "
-           [:a {:href "/dao-db.chp"} "Datalog database"]
+           [:a {:href "/dao-space.chp"} "Datalog database"]
            ", the IDE is a "
            [:strong "query interface"]
            "."]
@@ -358,7 +358,7 @@
              "Yin.vm: Chinese Characters for Programming Languages"]
             " (the Universal Semantic AST)"]
            [:li
-            [:a {:href "/dao-db.chp"} "DaoDB"]
+            [:a {:href "/dao-space.chp"} "DaoDB"]
             " (the Datalog database powering queryable ASTs)"]
            [:li
             [:a {:href "/yin.chp"} "Yin VM Documentation"]

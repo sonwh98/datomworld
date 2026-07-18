@@ -44,7 +44,7 @@
          [:p
           "The " [:a {:href "/yang.chp"} "Yang compiler"] " can generate the Universal AST in two forms. "
           "It can directly emit the map projection for immediate use by Yin.vm's API. "
-          "Or it can directly generate the datom representation, which can be streamed directly into " [:a {:href "/dao-db.chp"} "DaoDB"] ", "
+          "Or it can directly generate the datom representation, which can be streamed directly into " [:a {:href "/dao-space.chp"} "DaoDB"] ", "
           "bypassing the map form entirely. "
           "In DaoDB, datoms are indexed as covering indexes for efficient Datalog queries."]
          [:p
@@ -137,7 +137,7 @@
           "Surface-level language features collapse into a small universal kernel."]
          [:h3 "Computation becomes data"]
          [:p
-          "Because both AST and runtime state (including continuations, environments, and stores) are just datoms in " [:a {:href "/dao-db.chp"} "DaoDB"] ", "
+          "Because both AST and runtime state (including continuations, environments, and stores) are just datoms in " [:a {:href "/dao-space.chp"} "DaoDB"] ", "
           "the boundary between program and process disappears. Everything—from source code to execution state—is queryable with Datalog, modifiable, and transferable."]
          [:ul.bulleted
           [:li [:strong "Query with Datalog"] " : inspect active continuations, find bottlenecks, trace execution paths, analyze runtime state"]

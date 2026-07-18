@@ -215,7 +215,7 @@
           [:h2 "Learn More"]
           [:ul.bulleted
            [:li
-            [:a {:href "/dao-db.chp"} "DaoDB"]
+            [:a {:href "/dao-space.chp"} "DaoDB"]
             ": The Datalog database that stores everything as datoms"]
            [:li
             [:a

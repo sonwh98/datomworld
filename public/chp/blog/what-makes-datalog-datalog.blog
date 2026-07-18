@@ -552,7 +552,7 @@
           [:h2 "DaoDB's Datalog Design"]
           [:p
            "When building "
-           [:a {:href "/dao-db.chp"} "DaoDB"]
+           [:a {:href "/dao-space.chp"} "DaoDB"]
            " for "
            [:a {:href "/yin.chp"} "Yin.vm"]
            ", the design choices are clear:"]
@@ -695,7 +695,7 @@
            "This is why "
            [:a {:href "/"} "datom.world"]
            " chose Datalog as the foundation for "
-           [:a {:href "/dao-db.chp"} "DaoDB"]
+           [:a {:href "/dao-space.chp"} "DaoDB"]
            " and "
            [:a {:href "/yin.chp"} "Yin.vm"]
            ". The evaluation model—not the syntax—is what makes Datalog the perfect query language for "
@@ -719,7 +719,7 @@
              "AST Datom Streams: Bytecode Performance with Semantic Preservation"]
             " (execution + queries)"]
            [:li
-            [:a {:href "/dao-db.chp"} "DaoDB Documentation"]
+            [:a {:href "/dao-space.chp"} "DaoDB Documentation"]
             " (the Datalog database powering datom.world)"]
            [:li
             [:a {:href "/yin.chp"} "Yin VM Documentation"]

@@ -590,7 +590,7 @@
              "Why yin.vm Succeeds Where Previous Attempts Failed"]
             " (addressing skeptical objections to this architecture)"]
            [:li
-            [:a {:href "/dao-db.chp"} "DaoDB"]
+            [:a {:href "/dao-space.chp"} "DaoDB"]
             " (the Datalog database powering datom streams)"]
            [:li
             [:a {:href "/yin.chp"} "Yin VM Documentation"]

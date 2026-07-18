@@ -503,7 +503,7 @@
             [:a {:href "/dao-stream.chp"} "DaoStream"]
             " — The interaction substrate"]
            [:li
-            [:a {:href "/dao-db.chp"} "DaoDB"]
+            [:a {:href "/dao-space.chp"} "DaoDB"]
             " — Query interaction histories with Datalog"]
            [:li
             [:a

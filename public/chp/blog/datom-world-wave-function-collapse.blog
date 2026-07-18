@@ -873,7 +873,7 @@
           [:p [:strong "Learn more:"]]
           [:ul.bulleted
            [:li
-            [:a {:href "/dao-db.chp"} "DaoDB Documentation"]
+            [:a {:href "/dao-space.chp"} "DaoDB Documentation"]
             " (local-first distributed tuple store)"]
            [:li
             [:a

@@ -129,7 +129,7 @@
           [:p [:strong "This is NOT the case for:"] " JVM, WASM, LLVM, BEAM, or most other IRs."]
           [:p
            "In Yin, a continuation is literally just data in "
-           [:a {:href "/dao-db.chp"} "DaoDB"]
+           [:a {:href "/dao-space.chp"} "DaoDB"]
            ":"]
           [:pre
            [:code
@@ -318,7 +318,7 @@
              "Why yin.vm Succeeds Where Previous Attempts Failed"]
             " (addressing skeptical objections to continuation-based mobile computation)"]
            [:li
-            [:a {:href "/dao-db.chp"} "DaoDB"]
+            [:a {:href "/dao-space.chp"} "DaoDB"]
             " (the Datalog database powering datom streams)"]
            [:li
             [:a {:href "/yin.chp"} "Yin VM Documentation"]

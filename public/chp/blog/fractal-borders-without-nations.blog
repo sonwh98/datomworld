@@ -233,5 +233,5 @@
            [:li [:a {:href "/blog/all-money-is-monopoly-money.blog"} "All Money Is Monopoly Money"]]
            [:li [:a {:href "/blog/maxwells-demon-economic-value.blog"} "Maxwell's Demon and Economic Value"]]
            [:li [:a {:href "/blog/shibi-as-money.blog"} "ShiBi as Money"]]
-           [:li [:a {:href "/dao-db.chp"} "DaoDB"] " - The data substrate"]
+           [:li [:a {:href "/dao-space.chp"} "DaoDB"] " - The data substrate"]
            [:li [:a {:href "/dao-stream.chp"} "DaoStream"] " - Flow-based architecture"]]]]]}

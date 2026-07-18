@@ -12,7 +12,7 @@
           [:p "The modern web is at a stalemate. On one side, we have users drowning in ads, tracking scripts, and paywalls. On the other side, we have AI agents and scrapers trying to extract value, locked in an infinite arms race against Cloudflare and CAPTCHAs."]
           [:p "The model is broken. Agents are treated as parasites because they consume bandwidth without viewing the ads that pay for it."]
           [:p "But what if we flipped the script? What if the agent wasn't a thief, but a customer? And what if the browser wasn't just a window, but a localized database?"]
-          [:p "At datom.world, we are building the architecture for the Agent Web—a new ecosystem where autonomous discovery, local-first storage (" [:a {:href "/dao-db.chp"} "DaoDB"] "), and capability-based transfers (" [:a {:href "/shibi.chp"} "ShiBi"] ") solve the data deadlock."]
+          [:p "At datom.world, we are building the architecture for the Agent Web—a new ecosystem where autonomous discovery, local-first storage (" [:a {:href "/dao-space.chp"} "DaoDB"] "), and capability-based transfers (" [:a {:href "/shibi.chp"} "ShiBi"] ") solve the data deadlock."]
 
           [:h2 "1. The Edge Oracle: Turning the Web Browser into a Sensor"]
           [:p "Traditional scraping is server-side and brittle. It uses data center IPs that get blocked instantly, and it lacks the context of the user."]
@@ -61,4 +61,4 @@
           [:p "When your agent scrapes a page or accesses a ShiBi feed, that data lands in your local DaoDB. It becomes yours to query, link, and use forever. But when you need temporary access to high-value intelligence, you can rent a transient agent that visits, serves, and vanishes."]
           [:p "We aren't just building a better scraper; we are building a browser for the economy of facts—whether owned or rented."]
 
-          [:p.learn-more "Learn more: " [:a {:href "/yin.chp"} "yin.vm"] " explains how agents are continuations that can migrate across nodes. " [:a {:href "/dao-db.chp"} "DaoDB"] " covers the local-first database where your knowledge graph lives. " [:a {:href "/shibi.chp"} "ShiBi"] " describes the capability-based utility token system that enables machine-to-machine transfers."]]]]}
+          [:p.learn-more "Learn more: " [:a {:href "/yin.chp"} "yin.vm"] " explains how agents are continuations that can migrate across nodes. " [:a {:href "/dao-space.chp"} "DaoDB"] " covers the local-first database where your knowledge graph lives. " [:a {:href "/shibi.chp"} "ShiBi"] " describes the capability-based utility token system that enables machine-to-machine transfers."]]]]}

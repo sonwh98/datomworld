@@ -133,7 +133,7 @@
            "a node that does it once."]
 
           [:p
-           [:a {:href "/dao-db.chp"} "DaoDB"]
+           [:a {:href "/dao-space.chp"} "DaoDB"]
            ", with its Datomic-inspired architecture of immutable facts "
            [:code "(e a v t m)"]
            ", provides the perfect substrate for long-term reputation. We don't just store the final "
@@ -179,7 +179,7 @@
            [:li
             [:a {:href "/yin.chp"} "Yin VM Documentation"]]
            [:li
-            [:a {:href "/dao-db.chp"} "DaoDB Documentation"]]
+            [:a {:href "/dao-space.chp"} "DaoDB Documentation"]]
            [:li
             [:a {:href "/blog/shibi-as-money.blog"} "Shibi as Money"]]
            [:li

@@ -57,7 +57,7 @@
           [:p "But if firms dissolve into streams, what happens to their most guarded asset: data?"]
 
           [:h2 "Data Sovereignty: The Resource-Based View"]
-          [:p "Firms hoard data. That's their moat. In the Theory of the Firm, companies thrive by controlling unique resources, specifically data and knowledge. Datom.world inverts this. Our local-first model gives users (and employees) custody over their own data in " [:a {:href "/dao-db.chp"} "DaoDB"] ", preventing firms from monopolizing it."]
+          [:p "Firms hoard data. That's their moat. In the Theory of the Firm, companies thrive by controlling unique resources, specifically data and knowledge. Datom.world inverts this. Our local-first model gives users (and employees) custody over their own data in " [:a {:href "/dao-space.chp"} "DaoDB"] ", preventing firms from monopolizing it."]
           [:p "This forces a shift to \"invitation-based\" data sharing. Employees or partners contribute streams voluntarily, creating a transparent transaction log that reduces agency problems. While this creates challenges for enforcing traditional IP moats, it enables secure, multi-perspective data interpretation without schema lock-in."]
 
           [:h2 "Internal Economies and Resilience"]
@@ -77,7 +77,7 @@
 
           [:h2 "When Fluids Freeze: Failure Modes"]
           [:p "No system is immune to adversarial behavior. What happens when agent swarms collude, when computational contracts contain ambiguous clauses, or when bad actors exploit the speed of automated negotiation?"]
-          [:p "The answer lies in the same primitives that enable the system. Because all interactions are recorded as immutable datoms in " [:a {:href "/dao-db.chp"} "DaoDB"] ", forensic analysis becomes trivial. Reputation streams accumulate over time, making sustained bad behavior economically irrational. And for truly novel disputes (situations no code anticipated), humans remain the final arbiters, informed by complete, verifiable transaction histories."]
+          [:p "The answer lies in the same primitives that enable the system. Because all interactions are recorded as immutable datoms in " [:a {:href "/dao-space.chp"} "DaoDB"] ", forensic analysis becomes trivial. Reputation streams accumulate over time, making sustained bad behavior economically irrational. And for truly novel disputes (situations no code anticipated), humans remain the final arbiters, informed by complete, verifiable transaction histories."]
           [:p "The goal is not to eliminate all friction, but to make the cost of misbehavior exceed its rewards."]
 
           [:h2 "Conclusion: The Great Unbundling"]

@@ -476,7 +476,7 @@
            [:li
             [:a {:href "/blog/datom-world-wave-function-collapse.blog"}
              "Datom.World and the Collapse of the Wave Function"]]
-           [:li [:a {:href "/dao-db.chp"} "DaoDB"] " - The dimensional substrate"]
+           [:li [:a {:href "/dao-space.chp"} "DaoDB"] " - The dimensional substrate"]
            [:li
             [:a {:href "/dao-stream.chp"} "DaoStream"]
             " - Stream-based architecture"]

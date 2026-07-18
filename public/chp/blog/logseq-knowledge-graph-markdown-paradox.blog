@@ -274,7 +274,7 @@
            ", not the storage format."]
           [:h3 "3. Multi-Device Sync Without Servers"]
           [:p
-           [:a {:href "/dao-db.chp"} "DaoDB"]
+           [:a {:href "/dao-space.chp"} "DaoDB"]
            " is "
            [:strong "designed for distributed sync"]
            ":"]
@@ -336,7 +336,7 @@
           [:ul.bulleted
            [:li
             "Stored datoms natively (via "
-            [:a {:href "/dao-db.chp"} "DaoDB"]
+            [:a {:href "/dao-space.chp"} "DaoDB"]
             ")"]
            [:li
             "Rendered Markdown as a "
@@ -477,7 +477,7 @@
           [:h2 "Learn More"]
           [:ul.bulleted
            [:li
-            [:a {:href "/dao-db.chp"} "DaoDB"]
+            [:a {:href "/dao-space.chp"} "DaoDB"]
             ": Distributed Datalog database for datom storage"]
            [:li
             [:a

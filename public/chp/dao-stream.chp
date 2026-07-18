@@ -23,7 +23,7 @@
           [:p [:strong "Realization"] " : " [:code "open!"] " turns that data into an operational transport."]
           [:p [:strong "Transport"] " : runtime state produced locally, not the canonical identity of the stream."]]
          [:p
-          "In Datom.World, the most common payload is a stream of datoms, but DaoStream itself is broader than " [:a {:href "/dao-db.chp"} "DaoDB"] " or " [:a {:href "/yin.chp"} "Yin"] ". DaoDB consumes streams. FFI can use streams. Runtime services can observe streams. The substrate stays the same."]]]
+          "In Datom.World, the most common payload is a stream of datoms, but DaoStream itself is broader than " [:a {:href "/dao-space.chp"} "DaoDB"] " or " [:a {:href "/yin.chp"} "Yin"] ". DaoDB consumes streams. FFI can use streams. Runtime services can observe streams. The substrate stays the same."]]]
 
        [:section.section-light
         [:div.section-inner
@@ -164,11 +164,11 @@
         [:div.section-inner
          [:h2 "Relation to DaoDB"]
          [:p
-          "Streams are independent of " [:a {:href "/dao-db.chp"} "DaoDB"] ". DaoDB consumes streams. In Datom.World, DaoStream is the general stream substrate and DaoDB is a datom consumer over that substrate."]
+          "Streams are independent of " [:a {:href "/dao-space.chp"} "DaoDB"] ". DaoDB consumes streams. In Datom.World, DaoStream is the general stream substrate and DaoDB is a datom consumer over that substrate."]
          [:p
           "DaoStream can carry arbitrary values or bytes, but the dominant system use case is datom transport. That is why most streams in Datom.World are streams of datoms. A bounded stream is a stable value that DaoDB can consume to build indexes or answer queries. Stream semantics do not depend on those indexes."]
          [:p
           "The design target is descriptor-first, transport-agnostic, cursor-based, gap-aware, and explicit about backpressure and trust. The ringbuffer transport is the reference shape. Richer descriptor fields such as " [:code ":stream/id"] ", retention, backpressure, and " [:code ":shibi"] " extend the same model rather than replacing it."]
          [:p.next
-          "See how " [:a {:href "/dao-db.chp"} "DaoDB"] " interprets datom streams as indexes, or explore " [:a {:href "/yin.chp"} "Yin"] " to see one runtime that treats blocked stream demand as parked continuations."]]])}
+          "See how " [:a {:href "/dao-space.chp"} "DaoDB"] " interprets datom streams as indexes, or explore " [:a {:href "/yin.chp"} "Yin"] " to see one runtime that treats blocked stream demand as parked continuations."]]])}
     template))

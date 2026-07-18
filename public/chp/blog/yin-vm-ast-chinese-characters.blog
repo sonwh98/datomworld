@@ -200,7 +200,7 @@
             " between languages are datom transactions with lineage preserved"]]
           [:p
            "The entire system is a "
-           [:strong [:a {:href "/dao-db.chp"} "Datalog database"]]
+           [:strong [:a {:href "/dao-space.chp"} "Datalog database"]]
            ". You can query across languages, across time, across execution states:"]
           [:ul.bulleted
            [:li

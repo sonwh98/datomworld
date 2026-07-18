@@ -343,7 +343,7 @@
            [:li
             [:strong "DaoDB materializes an index:"]
             " The database is just a queryable view over the stream, built by "
-            [:a {:href "/dao-db.chp"} "DaoDB"]
+            [:a {:href "/dao-space.chp"} "DaoDB"]
             ". It doesn't \"store\" the user. It indexes datoms for fast queries."]
            [:li
             [:strong "The API streams datoms:"]
@@ -913,7 +913,7 @@
           [:ul.bulleted
            [:li [:a {:href "/yin.chp"} "Yin.VM"] ": The CESK continuation machine"]
            [:li [:a {:href "/dao-stream.chp"} "DaoStream"] ": Universal streaming API"]
-           [:li [:a {:href "/dao-db.chp"} "DaoDB"] ": Materialized views from streams"]
+           [:li [:a {:href "/dao-space.chp"} "DaoDB"] ": Materialized views from streams"]
            [:li [:a {:href "/post-graphics.chp"} "PostGraphics"] ": Frame-program graphics vocabulary and renderer"]]
 
           [:p [:em "Related:"]]

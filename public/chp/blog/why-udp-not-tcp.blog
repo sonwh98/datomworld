@@ -598,5 +598,5 @@
              "Computation Moves, Data Stays: The Yin.vm Continuation Model"]
             " (how continuations become lightweight enough to migrate)"]
            [:li
-            [:a {:href "/dao-db.chp"} "DaoDB"]
+            [:a {:href "/dao-space.chp"} "DaoDB"]
             " (the stream database powering Datom.world)"]]]]]}

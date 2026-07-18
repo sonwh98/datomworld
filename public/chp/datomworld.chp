@@ -88,7 +88,7 @@
           [:a {:href "/dao-stream.chp"} "DaoStream"]
           ", the universal streaming API where data flows continuously between entangled peers through append-only datom streams. "
           "LocalStorage becomes "
-          [:a {:href "/dao-db.chp"} "DaoDB"]
+          [:a {:href "/dao-space.chp"} "DaoDB"]
           ", an app that materializes queryable indexes from those streams. "
           "The shared coordination space becomes "
           [:a {:href "/dao-space.chp"} "DaoSpace"]

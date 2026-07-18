@@ -26,7 +26,7 @@
            "?"]
           [:p
            "When you store ASTs as datoms in "
-           [:a {:href "/dao-db.chp"} "DaoDB"]
+           [:a {:href "/dao-space.chp"} "DaoDB"]
            ", you've "
            [:strong
             "turned the compiler into a queryable semantic database"]
@@ -830,7 +830,7 @@
           [:h2 "The Implementation: DaoDB"]
           [:p
            "This vision requires a database designed for code. "
-           [:a {:href "/dao-db.chp"} "DaoDB"]
+           [:a {:href "/dao-space.chp"} "DaoDB"]
            " is built specifically for storing ASTs as datoms:"]
           [:ul.bulleted
            [:li
@@ -996,7 +996,7 @@
              "Yin.vm: Chinese Characters for Programming Languages"]
             " (the Universal Semantic AST)"]
            [:li
-            [:a {:href "/dao-db.chp"} "DaoDB"]
+            [:a {:href "/dao-space.chp"} "DaoDB"]
             " (the Datalog database powering all of this)"]
            [:li
             [:a {:href "/yin.chp"} "Yin VM Documentation"]

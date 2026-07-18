@@ -43,7 +43,6 @@
      [:a {:href "/yin.chp"} "Yin"]
      [:a {:href "/yang.chp"} "Yang"]
      [:a {:href "/dao-stream.chp"} "DaoStream"]
-     [:a {:href "/dao-db.chp"} "DaoDB"]
      [:a {:href "/dao-space.chp"} "DaoSpace"]
      [:a {:href "/post-graphics.chp"} "PostGraphics"]
      [:a {:href "/shibi.chp"} "Shibi"]

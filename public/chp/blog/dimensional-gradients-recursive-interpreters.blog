@@ -575,7 +575,7 @@
            [:li
             [:a {:href "/blog/datom-world-wave-function-collapse.blog"}
              "Wave Function Collapse as Dimensional Reduction"]]
-           [:li [:a {:href "/dao-db.chp"} "DaoDB"] " — Minimal gradient architecture"]
+           [:li [:a {:href "/dao-space.chp"} "DaoDB"] " — Minimal gradient architecture"]
            [:li
             [:a {:href "/dao-stream.chp"} "DaoStream"]
             " — The fundamental 1D substrate"]

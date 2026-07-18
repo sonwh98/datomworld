@@ -62,7 +62,7 @@
           [:h4 "The Problem"]
           [:p "Centralized platforms extract high commissions, monopolize user data, and exert absolute control over participants. Drivers and hosts are at the mercy of a single algorithm."]
           [:h4 "The Datom.world Solution"]
-          [:p "Peer-to-peer coordination via datom streams. Drivers/Hosts broadcast availability and terms. Users discover services via Datalog. Trust is established through immutable reputation logs in " [:a {:href "/dao-db.chp"} "DaoDB"] ". Compensation is direct via " [:a {:href "/shibi.chp"} "ShiBi"] " utility tokens. No central intermediary."]
+          [:p "Peer-to-peer coordination via datom streams. Drivers/Hosts broadcast availability and terms. Users discover services via Datalog. Trust is established through immutable reputation logs in " [:a {:href "/dao-space.chp"} "DaoDB"] ". Compensation is direct via " [:a {:href "/shibi.chp"} "ShiBi"] " utility tokens. No central intermediary."]
 
           [:h3 "7. Hyper-Local Social & Discovery (Dating, Twitter, Facebook)"]
           [:h4 "The Problem"]
@@ -104,7 +104,7 @@
           [:h4 "The Problem"]
           [:p "Modern apps break without the internet. 'Offline mode' is usually a hack."]
           [:h4 "The Datom.world Solution"]
-          [:p [:a {:href "/dao-db.chp"} "DaoDB"] " is local-first. Every device has a complete, functional database. Sync is a background optimization, not a foreground requirement."]
+          [:p [:a {:href "/dao-space.chp"} "DaoDB"] " is local-first. Every device has a complete, functional database. Sync is a background optimization, not a foreground requirement."]
           [:p [:em "Related blog: "] [:a {:href "/blog/datoms-as-streams.blog"} "Streaming Datoms"]]
 
           [:h2 "Part 2: Technical & Architectural Enablers"]
@@ -212,7 +212,7 @@
           [:ul.bulleted
            [:li [:a {:href "/blog/the-firm.blog"} "The Firm"] ": Transforming the nature of the firm"]
            [:li [:a {:href "/blog/maxwells-demon-economic-value.blog"} "Maxwell's Demon"] ": How interpreters unlock economic value"]
-           [:li [:a {:href "/dao-db.chp"} "DaoDB"] ": The Datalog database that stores everything as datoms"]
+           [:li [:a {:href "/dao-space.chp"} "DaoDB"] ": The Datalog database that stores everything as datoms"]
            [:li [:a {:href "/yin.chp"} "Yin.vm"] ": Mobile continuations and universal execution"]
            [:li [:a {:href "/yang.chp"} "Yang Compiler"] ": Universal AST for polyglot systems"]
            [:li [:a {:href "/post-graphics.chp"} "PostGraphics"] ": Frame-program graphics rendered over streams"]

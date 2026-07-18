@@ -221,13 +221,13 @@
           [:h2 "The Implementation"]
           [:p
            "Yin.vm implements this using "
-           [:strong [:a {:href "/dao-db.chp"} "DaoDB"]]
+           [:strong [:a {:href "/dao-space.chp"} "DaoDB"]]
            ", a Datalog database built for datom.world. The Yang compiler parses code and emits datom transactions. Each parse, each type inference, each transformation, each execution step "
            [:strong "adds datoms to the stream"]
            "."]
           [:p
            "The AST you see is a materialized view. A "
-           [:a {:href "/dao-db.chp"} "Datalog"]
+           [:a {:href "/dao-space.chp"} "Datalog"]
            " query. Project different dimensions, get different views. Same underlying datom stream."]
           [:h2 "Conclusion: Everything Is a Datom Stream"]
           [:p
@@ -263,7 +263,7 @@
              "Yin.vm: Chinese Characters for Programming Languages"]
             " (how the Universal AST enables cross-language interoperability)"]
            [:li
-            [:a {:href "/dao-db.chp"} "DaoDB"]
+            [:a {:href "/dao-space.chp"} "DaoDB"]
             " (the Datalog database powering datom streams)"]
            [:li
             [:a {:href "/yin.chp"} "Yin VM Documentation"]

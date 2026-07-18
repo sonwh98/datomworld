@@ -35,7 +35,7 @@
            "This seemingly simple choice has profound implications. When your AST "
            [:em "is"]
            " data, stored in "
-           [:a {:href "/dao-db.chp"} "DaoDB"]
+           [:a {:href "/dao-space.chp"} "DaoDB"]
            "'s distributed tuple store, you get:"]
           [:ul.bulleted
            [:li
@@ -463,7 +463,7 @@
              "DaoDB: Distributed Database Built on Immutable Streams"]
             " (where ASTs and continuations live)"]
            [:li
-            [:a {:href "/dao-db.chp"} "DaoDB Documentation"]
+            [:a {:href "/dao-space.chp"} "DaoDB Documentation"]
             " (Datalog queries over datom streams)"]
            [:li
             [:a {:href "/yin.chp"} "Yin VM Documentation"]

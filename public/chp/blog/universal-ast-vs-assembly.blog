@@ -320,7 +320,7 @@
            [:li
             [:strong "AST (datoms)"]
             " stored in "
-            [:a {:href "/dao-db.chp"} "DaoDB"]
+            [:a {:href "/dao-space.chp"} "DaoDB"]
             " for queryability"]
            [:li
             [:strong "Bytecode"]
@@ -408,5 +408,5 @@
              "Yin.vm: Chinese Characters for Programming Languages"]
             " (the Universal Semantic AST)"]
            [:li
-            [:a {:href "/dao-db.chp"} "DaoDB"]
+            [:a {:href "/dao-space.chp"} "DaoDB"]
             " (the Datalog database storing AST datoms)"]]]]]}

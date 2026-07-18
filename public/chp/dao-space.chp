@@ -8,48 +8,40 @@
          [:span.status-pill "The Coordinator"]
          [:h1 "DaoSpace"]
          [:p.section-lead
-          "DaoSpace is datom.world's implementation of a " [:strong "tuple space"] ": a shared store of datoms that agents can collectively query and modify to coordinate work. "
-          "Built on top of " [:a {:href "/dao-stream.chp"} "DaoStream"] " and " [:a {:href "/dao-db.chp"} "DaoDB"] ", it enables declarative, stigmergic coordination without explicit message passing."]
+          "DaoSpace is not a component you deploy or a store you instantiate. It is the " [:strong "tuple space that emerges"] " when agents use two libraries over shared storage: "
+          [:code "dao.space.index"] " builds covered indexes over each agent's own " [:a {:href "/dao-stream.chp"} "DaoStream"] " and persists them in DaoJing, the content-addressed store, and "
+          [:code "dao.space.query"] " matches over the persisted indexes associatively: by content, never by address."]
          [:p
-          "Unlike traditional messaging (sender → receiver), DaoSpace agents coordinate by " [:strong "leaving traces in the environment"] ". "
-          "An agent reads shared facts, modifies them based on local logic, and implicitly coordinates through the effects of those modifications. "
-          "This is stigmergy: coordination through the environment, as seen in ant colonies and social insects."]
+          "A tuple space is defined by two complementary moves. Reading is " [:strong "associative matching"] ": you locate a tuple by describing its content, never by naming its address. "
+          "Writing is " [:strong "generative communication"] ": you deposit a tuple into the shared medium and never address a receiver. "
+          "Agents coordinate by " [:strong "leaving traces in the environment"] ", the way ant colonies do. This is stigmergy: coordination through the environment, not through messages."]
          [:div.feature-grid
           [:article.feature-card
-           [:h3 "Declarative coordination"]
-           [:p "Agents describe what they need via Datalog, not who has it. The environment handles matching."]]
+           [:h3 "Associative reads"]
+           [:p "Agents describe what they need via positional match or Datalog, not who has it. A single-clause query is a match; Datalog generalizes the same by-content move to joins, negation, and aggregation."]]
           [:article.feature-card
-           [:h3 "Implicit messaging"]
-           [:p "Agents don't need to know about each other. They interact through the shared datom stream."]]
+           [:h3 "Generative writes"]
+           [:p "An agent deposits a datom by appending to its own single-writer log and is done. No recipient is named, no broker mediates, and no write surface is shared."]]
           [:article.feature-card
-           [:h3 "Persistent history"]
-           [:p "The entire coordination log is available for replay, debugging, and audit trails."]]]]]
+           [:h3 "Append-only, no take"]
+           [:p "Linda paired its read with a destructive take. DaoSpace has no removal: to claim or update, an agent appends a new datom, and current state is a query over the accreted facts."]]]]]
        [:section.section-light
         [:div.section-inner
-         [:h2 "Stigmergy: Coordination via Traces"]
+         [:h2 "Three Boundaries"]
          [:p
-          "The core concept of DaoSpace is " [:strong "Tuple Space = DaoStream of Datoms + DaoDB Query Engine"] ". "
-          "Agents see a shared log of facts that they can query using Datalog. "
-          "When an agent needs to coordinate, it appends a new datom to the stream. "
-          "Other agents observe this change through their own stream cursors and react accordingly."]
-         [:p
-          "This architecture provides several fundamental advantages over traditional coordination models:"]
+          "DaoSpace keeps Datomic's strict separation of Transactor, Storage, and Query as abstraction boundaries, interfaces rather than deployment tiers, and maps them onto streams:"]
          [:ul.bulleted
-          [:li [:strong "Full Queryability"] " — Datalog unlocks complex pattern matching across the entire coordination state."]
-          [:li [:strong "Network Agnostic"] " — Works in-process, across linked nodes, or over any DaoStream transport."]
-          [:li [:strong "Time Travel"] " — Query the coordination state at any historical point via " [:code "as-of-time"] "."]
-          [:li [:strong "Fault Tolerance"] " — If an agent crashes, its traces remain in the stream for others to audit or recover."]]
+          [:li [:strong "Transactor (write + index), decentralized"] ": every agent appending to its own " [:a {:href "/dao-stream.chp"} "DaoStream"] " is its own transactor. It enforces local schema, appends datom frames, and builds the covered indexes over its own datoms via " [:code "dao.space.index"] ", with no global contention and no commit step."]
+          [:li [:strong "Storage: DaoJing"] ", the decentralized, content-addressed store where indexes live persistently. It holds immutable B-Tree segment blobs and mutable root references. It does not match and it does not query."]
+          [:li [:strong "Query (read): the " [:code "dao.space.query"] " library"] " any interpreter embeds. Pure and in-process, it reads the agent's local in-memory indexes and every agent's published segments in DaoJing, then runs pattern matching and Datalog. This is Datomic's Peer model as a library rather than a service."]]
          [:p
-          "DaoSpace is inspired by the "
-          [:a {:href "https://en.wikipedia.org/wiki/Linda_(coordination_language)"
-               :target "_blank"}
-           [:strong "Linda"]]
-          " coordination language and "
-          [:a {:href "https://www.oracle.com/technical-resources/articles/javase/javaspaces.html"
-               :target "_blank"}
-           [:strong "JavaSpace"]]
-          ", but modernized for the datom-stream paradigm. "
-          "By replacing positional tuples with named datoms and wildcard matching with Datalog, DaoSpace removes the fragility and opacity that limited earlier tuple space implementations."]]]
+          "DaoSpace is not one of the three boundaries; it is the coordination surface that spans all three. "
+          "Storage holds facts at rest; the tuple space is those facts " [:em "under shared interpretation"] ". "
+          "A store that matched would collapse interpretation into storage, so the space-ness lives above DaoJing, in the composition of index and query."]
+         [:p
+          "The datom shape is the price of admission, freely chosen. DaoJing is a dumb key-value store that accepts any bytes. "
+          "An interpreter that formats its facts as datoms enters the tuple space: strangers can match over its data associatively. "
+          "One that writes arbitrary primary state opts out: nothing breaks, but that data cannot coordinate."]]]
        [:section.section-dark
         [:div.section-inner
          [:h2 "Code Can Live in DaoSpace"]
@@ -65,36 +57,63 @@
           "."]]]
        [:section.section-dark
         [:div.section-inner
-         [:h2 "Coordination Patterns"]
+         [:h2 "Coordination: Stigmergy"]
          [:p
-          "DaoSpace supports a wide range of stigmergic patterns, from simple work queues to complex collaborative filtering."]
+          "Agents coordinate by leaving datoms in storage for others to query, decoupled in time and identity. "
+          "A producer appends a task to its own stream. A worker queries the whole store for posted work nothing has claimed, a negation-plus-join query that justifies a tuple space, then appends its claim to its own log. "
+          "No broker, no message-format negotiation, no leader election."]
+         [:p
+          "Even races resolve declaratively. Two workers can claim the same task; both claims are simply recorded in their owners' logs. "
+          "A downstream reader sees both, sorts by timestamp, breaks ties by worker id, and deterministically yields one winner. "
+          "Exclusion is a query rule in the interpreters, not a guarantee the store enforces."]
          [:div.feature-grid
           [:article.feature-card
            [:h3 "Distributed Work Queues"]
-           [:p "Workers query for 'todo' tasks, claim them by asserting an 'in-progress' status, and emit results. No central broker required."]]
+           [:p "Workers query for posted tasks, claim them by appending a claim datom to their own log, and emit results. Conflicting claims resolve on the read side."]]
           [:article.feature-card
-           [:h3 "Agent Swarm Coordination"]
-           [:p "Agents leave 'pheromone' traces (datoms with strength and decay) that others follow to discover paths or consensus."]]
+           [:h3 "Single-writer logs"]
+           [:p "If 1,000 agents message one recipient, they append to 1,000 distinct streams and the recipient merges them on the read side. No shared write surface, no contention."]]
           [:article.feature-card
-           [:h3 "Watchdogs & Exception Handling"]
-           [:p "Monitoring agents query for anomalies (e.g., tasks stuck in-progress too long) and reassign work by asserting new facts."]]
+           [:h3 "Crash-only semantics"]
+           [:p "Append-only files have no partial-update corruption window. A restarted writer reopens in append mode; a reader resumes from a checkpointed cursor offset."]]
           [:article.feature-card
-           [:h3 "Collaborative Filtering"]
-           [:p "Agents build models from shared observations and emit insights that others can join and refine in real-time."]]]]]
+           [:h3 "Time Travel"]
+           [:p "Queries accept an as-of bound, indexing storage only up to a point in time. The entire coordination log is available for replay, debugging, and audit."]]]]]
        [:section.section-light
         [:div.section-inner
-         [:h2 "Beyond Linda: A Modern Approach"]
+         [:h2 "A Family of Interpreters"]
          [:p
-          "Traditional tuple spaces like Linda used destructive reads (" [:code "take"] ") that caused deadlocks and lost history. "
-          "DaoSpace is " [:strong "immutable and non-destructive"] ". Cursors allow multiple agents to observe the same facts independently, and history is preserved forever."]
+          "Datalog over covered indexes is the default surface, but it is a capability, not the ontology. "
+          "More generally, DaoSpace is a " [:strong "family of interpreters over one canonical datom history"] ": a moduli space of databases. "
+          "The datoms are the fixed substrate every member shares; a member is fixed by which materialized views it constructs. "
+          "One point looks relational, another document-oriented, others columnar, graph-oriented, or logic-oriented."]
          [:p
-          "Where Linda matched only on positional wildcards, DaoSpace supports " [:strong "both positional matching and Datalog"] ". "
-          "Simple agents can use fast, positional lookups on datom values, while complex agents use Datalog to express logic involving joins, aggregations, and temporal constraints directly in their queries. "
-          "Coordination becomes a database query problem, not a distributed systems protocol problem."]
+          "Views are named and declared, never implicit: graph structure is one materialized interpretation constructed from datoms, not an assumed truth. "
+          "Associative matching remains the privileged default and the contract strangers coordinate through; the moment cross-agent coordination runs through reference-following traversal, it has left the tuple space."]
+         [:p
+          "Sharing is governed the same way. The default mode is public: readers embed the query library and pull datom streams directly, with coarse per-stream access control. "
+          "When fine-grained control is needed, the topology inverts: the reader submits a governed interpreter wrapped in a capability, it runs confined against the authorized datoms, and only the bounded answer returns. "
+          [:strong "Share governed computation, not data."]]]]
+       [:section.section-dark
+        [:div.section-inner
+         [:h2 "Lineage"]
+         [:p
+          "The tuple space is "
+          [:a {:href "https://en.wikipedia.org/wiki/Linda_(coordination_language)"
+               :target "_blank"}
+           [:strong "Linda"]]
+          "'s contribution: generative communication, spatial and temporal decoupling, non-destructive associative matching. "
+          "DaoSpace diverges by being immutable (append, never take) and by using named n-tuples, datoms, in place of untyped positional arrays."]
+         [:p
+          "The other two traditions live in the layers below. " [:strong "Datomic"] " owns DaoJing: the dumb store of immutable segments and the Peer-as-library read model. "
+          [:strong "Plan 9"] " owns " [:a {:href "/dao-stream.chp"} "DaoStream"] ": the independent, location-transparent, append-only log substrate."]
+         [:p
+          "The synthesis: DaoSpace is the tuple space that emerges when agents index their streams and match over the result. "
+          "Indexing creates queryable structure from raw appends; matching finds content associatively across every agent's published data; the tuple space is the coordination these two moves compose."]
          [:p.next
           "Learn how "
           [:a {:href "/dao-stream.chp"} "DaoStream"]
-          " carries these facts, or see "
-          [:a {:href "/dao-db.chp"} "DaoDB"]
-          " to understand the query engine behind DaoSpace."]]])}
+          " carries these facts, or explore "
+          [:a {:href "/yin.chp"} "Yin"]
+          " to see the interpreters that inhabit the space."]]])}
     template))

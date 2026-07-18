@@ -315,7 +315,7 @@
            ": the first write defines the type, subsequent writes are validated and optimized."]
           [:h2 "DaoDB's Approach"]
           [:p
-           [:a {:href "/dao-db.chp"} "DaoDB"]
+           [:a {:href "/dao-space.chp"} "DaoDB"]
            " combines multiple strategies:"]
           [:ul.bulleted
            [:li
@@ -424,7 +424,7 @@
           [:h2 "Learn More"]
           [:ul.bulleted
            [:li
-            [:a {:href "/dao-db.chp"} "DaoDB"]
+            [:a {:href "/dao-space.chp"} "DaoDB"]
             ": How the datom database optimizes representation"]
            [:li
             [:a

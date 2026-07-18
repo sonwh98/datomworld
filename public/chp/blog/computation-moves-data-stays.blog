@@ -259,5 +259,5 @@
             [:a {:href "/yin.chp"} "Yin VM Documentation"]
             " (technical deep dive)"]
            [:li
-            [:a {:href "/dao-db.chp"} "DaoDB"]
+            [:a {:href "/dao-space.chp"} "DaoDB"]
             " (the stream database)"]]]]]}

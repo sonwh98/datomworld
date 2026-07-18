@@ -220,5 +220,5 @@
            [:li [:a {:href "/blog/datoms-as-streams.blog"} "Datoms as Streams"] " , on the stream-first model behind durable facts"]
            [:li [:a {:href "/blog/computation-dimensional-expansion-compression.blog"} "What Is Computation?"] " , on streams expanding into structure and compressing back into invariants"]
            [:li [:a {:href "/yin.chp"} "Yin.VM"] " , on continuations as first-class execution"]
-           [:li [:a {:href "/dao-db.chp"} "DaoDB"] " , on bounded datom streams as durable memory"]
+           [:li [:a {:href "/dao-space.chp"} "DaoDB"] " , on bounded datom streams as durable memory"]
            [:li [:a {:href "/blog/architecture.blog"} "Architecture"] " , on restriction, explicit causality, and stream-based systems"]]]]]}

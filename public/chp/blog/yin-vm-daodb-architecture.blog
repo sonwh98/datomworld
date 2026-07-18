@@ -76,7 +76,7 @@
           [:h3 "DaoDB: the specialized indexer"]
 
           [:p
-           [:a {:href "/dao-db.chp"} "DaoDB"]
+           [:a {:href "/dao-space.chp"} "DaoDB"]
            " is an interpreter that subscribes to the datom stream and continuously builds efficient query structures. "
            "It's responsible for:"]
 
@@ -433,7 +433,7 @@
 
           [:ul.bulleted
            [:li [:a {:href "/yin.chp"} "Yin.VM"] " : the CESK continuation machine"]
-           [:li [:a {:href "/dao-db.chp"} "DaoDB"] " : materialized views from streams"]
+           [:li [:a {:href "/dao-space.chp"} "DaoDB"] " : materialized views from streams"]
            [:li [:a {:href "/datomworld.chp"} "Datom.World"] " : platform overview"]
            [:li [:a {:href "/blog/stream-vs-interface-architecture.blog"} "Beyond Interfaces"] " : why streams mirror evolution"]
            [:li [:a {:href "/blog/universal-ast-vs-assembly.blog"} "Universal AST vs Assembly"] " : code representation"]

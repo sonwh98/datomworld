@@ -325,7 +325,7 @@
           [:p
            "Appending to immutable logs and querying via Datalog adds overhead compared to direct pointer access in traditional VMs. "
            "However, this is mitigated through the architecture of "
-           [:a {:href "/dao-db.chp"} "DaoDB"]
+           [:a {:href "/dao-space.chp"} "DaoDB"]
            " and Yin.VM working together."]
 
           [:p
@@ -411,7 +411,7 @@
           [:ul.bulleted
            [:li [:a {:href "/datomworld.chp"} "Datom.World"] ": platform overview"]
            [:li [:a {:href "/yin.chp"} "Yin.VM"] ": the CESK continuation machine"]
-           [:li [:a {:href "/dao-db.chp"} "DaoDB"] ": materialized views from streams"]
+           [:li [:a {:href "/dao-space.chp"} "DaoDB"] ": materialized views from streams"]
            [:li [:a {:href "/dao-stream.chp"} "DaoStream"] ": universal streaming API"]
            [:li [:a {:href "/blog/architecture.blog"} "The Trillion-Dollar Glitch"] ": why software architecture fails"]
            [:li [:a {:href "/blog/power-of-restriction-datom-tuple.blog"} "The Power of Restriction"] ": why fixed tuples enable flexibility"]
