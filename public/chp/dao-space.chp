@@ -66,14 +66,15 @@
          [:p
           "Even races resolve declaratively. Two workers can claim the same task; both claims are simply recorded in their owners' logs. "
           "A downstream reader sees both, sorts by timestamp, breaks ties by worker id, and deterministically yields one winner. "
-          "Exclusion is a query rule in the interpreters, not a guarantee the store enforces."]
+          "Exclusion is a query rule in the interpreters, not a guarantee the store enforces. "
+          "One documented open gap remains: entity-id namespace stamping is still pending, so cross-stream " [:code ":db/id"] " collision is possible until the kickoff-hash namespace lands."]
          [:div.feature-grid
           [:article.feature-card
            [:h3 "Distributed Work Queues"]
            [:p "Workers query for posted tasks, claim them by appending a claim datom to their own log, and emit results. Conflicting claims resolve on the read side."]]
           [:article.feature-card
            [:h3 "Single-writer logs"]
-           [:p "If 1,000 agents message one recipient, they append to 1,000 distinct streams and the recipient merges them on the read side. No shared write surface, no contention."]]
+           [:p "If 1,000 agents message one recipient, they append to 1,000 distinct streams and the recipient merges them on the read side. No shared write surface, no contention. Federated queries currently fall back to the eager walk on every host; lazy index re-attach is JVM-only."]]
           [:article.feature-card
            [:h3 "Crash-only semantics"]
            [:p "Append-only files have no partial-update corruption window. A restarted writer reopens in append mode; a reader resumes from a checkpointed cursor offset."]]
@@ -93,7 +94,7 @@
           "Associative matching remains the privileged default and the contract strangers coordinate through; the moment cross-agent coordination runs through reference-following traversal, it has left the tuple space."]
          [:p
           "Sharing is governed the same way. The default mode is public: readers embed the query library and pull datom streams directly, with coarse per-stream access control. "
-          "When fine-grained control is needed, the topology inverts: the reader submits a governed interpreter wrapped in a capability, it runs confined against the authorized datoms, and only the bounded answer returns. "
+          "When fine-grained control is needed, the topology inverts in principle: the reader submits a governed interpreter wrapped in a capability, it runs confined against the authorized datoms, and only the bounded answer returns. "
           [:strong "Share governed computation, not data."]]]]
        [:section.section-dark
         [:div.section-inner
@@ -104,7 +105,8 @@
                :target "_blank"}
            [:strong "Linda"]]
           "'s contribution: generative communication, spatial and temporal decoupling, non-destructive associative matching. "
-          "DaoSpace diverges by being immutable (append, never take) and by using named n-tuples, datoms, in place of untyped positional arrays."]
+          "DaoSpace diverges by being immutable (append, never take) and by being an n-tuple space: tuples of any dimension, not untyped positional arrays. "
+          "The datom, the canonical persistent 5-tuple " [:code "[e a v t m]"] " of entity, attribute, value, transaction, and metadata, is the special case where DaoSpace behaves like Datomic. Unlike Datomic, " [:code "dao.space.query/q"] " is specified to query over n-tuples of any dimension, not just the 5-tuple datom shape. (Today's implementation still pads query templates to the datom 5-tuple; general n-tuple matching is specified, not yet implemented.)"]
          [:p
           "The other two traditions live in the layers below. " [:strong "Datomic"] " owns DaoJing: the dumb store of immutable segments and the Peer-as-library read model. "
           [:strong "Plan 9"] " owns " [:a {:href "/dao-stream.chp"} "DaoStream"] ": the independent, location-transparent, append-only log substrate."]

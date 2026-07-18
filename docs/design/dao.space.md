@@ -234,8 +234,9 @@ everywhere, read the same segments eagerly by walking the plain-EDN node graph. 
 JVM-only for now (psset durability is a Clojure-only feature); readability is universal. A
 read still resolves the stream's root with a single `get` targeting an immutable snapshot,
 so concurrent writes never disturb an in-flight read. Remaining gaps: segment GC, non-JVM
-laziness, and k-way merge of multiple lazy indexes (federated queries fall back to the eager
-walk); see *Index Realization*.
+laziness, k-way merge of multiple lazy indexes (federated queries fall back to the eager
+walk), and general n-tuple matching (`match`/`q` pad templates to the datom 5-tuple; other
+dimensions are specified, not implemented — see *Lineage*); see *Index Realization*.
 
 ### Source Polymorphism
 
@@ -486,8 +487,14 @@ tuple-space character belongs to `dao.space`, not `dao.jing`.
 
 The tuple space is **Linda's** contribution: generative communication (write into a shared
 medium, don't address a receiver), spatial and temporal decoupling, non-destructive
-associative matching. The divergences are immutability (append, never `take`) and named
-n-tuples (datoms) in place of untyped positional arrays. Matching stays global by default,
+associative matching. The divergences are immutability (append, never `take`) and being an
+**n-tuple space**: tuples of any dimension (the moduli-space framing of
+`docs/agents/datom-spec.md`) in place of untyped positional arrays. The datom — the canonical
+persistent 5-tuple `[e a v t m]` — is the special case where `dao.space` behaves like Datomic.
+Unlike Datomic, `dao.space.query/q` is specified to match over n-tuples of any dimension, not
+just the datom shape; the implementation today is still datom-shaped (`match` and `q` pad
+positional templates to five via `pad-to-5` and unify against 5-tuples), so general n-tuple
+matching is spec, not yet implemented. Matching stays global by default,
 because a coordination medium for strangers must let any reader match the whole store, not
 only what it bound.
 
