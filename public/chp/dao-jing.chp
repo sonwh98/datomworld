@@ -1,0 +1,116 @@
+(let [template (load-file "public/chp/template.chp")]
+  (clojure.walk/postwalk-replace
+    {:template/title "Datom.World - DaoJing"
+     :template/content
+     (list
+       [:section#dao-jing.section-dark
+        [:div.section-inner
+         [:span.status-pill "The Storage Boundary"]
+         [:h1 "DaoJing"]
+         [:p.section-lead
+          "DaoJing is the storage boundary: a decentralized key-value store of opaque bytes, designed to hold immutable, content-addressed segments plus mutable stream-root references."]
+         [:p
+          "Jing (井) is the Chinese character for a well, the place where water is stored. The name is the design: a well holds whatever is poured into it and gives it back when drawn, without knowing or caring what the water is for. DaoJing is that well for bytes."]
+         [:p
+          "DaoJing is pure syntax. It holds " [:em "form"] ", never " [:em "meaning"] ". What any byte denotes, whether \"datom,\" \"view,\" or \"query,\" is semantics an interpreter projects onto it, never something storage knows. Concretely it is a dumb key-value store, the decentralized analog to Datomic's storage layer."]
+         [:p
+          "A store is defined by what it holds, not the pipe data arrived through. Datoms enter through " [:a {:href "/dao-stream.chp"} "DaoStream"] " member logs, exactly as a transaction log feeds Datomic's storage, but the streams are upstream of the store, not its identity."]
+         [:div.principle-box
+          [:p [:strong "Syntax"] " : storage holds bytes; it never knows what a datom is."]
+          [:p [:strong "Segments"] " : immutable, content-addressed chunks written once under fresh keys."]
+          [:p [:strong "Roots"] " : mutable references advanced under optimistic concurrency."]]
+         [:p
+          "The physical store is deliberately dumb. It does not pattern-match and it does not run Datalog. Those belong to " [:a {:href "/dao-space.chp"} "DaoSpace"] ", the embeddable reader above it. This is the Datomic discipline taken literally: storage is a dumb KV blob store; all intelligence lives in the reader on top."]]]
+
+       [:section.section-light
+        [:div.section-inner
+         [:h2 "The Storage Interface"]
+         [:p
+          "The " [:code "IKVStore"] " protocol is the single interface a writer publishes bytes through and a reader reads them back from. It does not interpret what passes through it. This is a storage API both sides share, not a query API. The interface is inspired by Datomic Storage: the same handful of dumb key-value operations Datomic asks of its pluggable storage services, with " [:code "get"] " deliberately mirroring both " [:code "clojure.core/get"] " and Datomic's " [:code "KVStore"] " get."]
+         [:div.code-block
+          [:pre [:code
+                 ";; The dumb storage API (src/cljc/dao/jing.cljc)\n(defprotocol IKVStore\n\n  (put! [this k v-map]\n    \"Write an entry unconditionally. Used for writing new\n     immutable segments (which never overwrite).\")\n\n  (cas! [this k old-rev v-map]\n    \"Compare-And-Swap an entry. Only writes v-map if the current\n     revision matches old-rev. Used for updating mutable\n     references like the stream root pointer.\")\n\n  (get [this k not-found]\n    \"Read an entry by key. Returns the v-map (which includes its\n     :rev), or not-found if the key is absent.\")\n\n  (delete! [this k]\n    \"Remove an entry by key.\")\n\n  (close! [this]\n    \"Release the storage backend resources.\"))"]]]
+         [:div.feature-grid
+          [:article.feature-card
+           [:h3 [:code "put!"]]
+           [:p "Writes unconditionally at the caller's key. Callers mint fresh, content-derived segment keys with " [:code "segment-key"] ", so identical content lands at the same address and republishing unchanged data is idempotent."]]
+          [:article.feature-card
+           [:h3 [:code "cas!"]]
+           [:p "Advances a mutable root reference under optimistic concurrency: the write lands only if the current " [:code ":rev"] " matches, and a false return means another writer won. Roots are how readers find the current state of a stream's published segments."]]
+          [:article.feature-card
+           [:h3 [:code "get"]]
+           [:p "Resolves a key to its stored value, including its " [:code ":rev"] ", or the caller's not-found value when the key is absent. Distributed backends may throw when a root's authority is unreachable rather than pass off a freshness failure as absence."]]]
+         [:p
+          "Immutability and content addressing are a discipline callers observe over the " [:code "IKVStore"] " contract, not a guarantee the protocol enforces: " [:code "put!"] " will overwrite any key with anything. The keyspace itself is classed by the key alone, " [:code ":segment/sha256-<hash>"] " or " [:code ":root/<name>"] ", and the layers above keep the two disjoint."]]]
+
+       [:section.section-dark
+        [:div.section-inner
+         [:h2 "Content-Addressed Identity"]
+         [:p
+          "DaoJing itself owns the key-minting mechanism: canonicalize a value so equal values print identical bytes, hash the canonical print, and mint a segment key from the hash."]
+         [:div.code-block
+          [:pre [:code
+                 ";; A segment's key is derived from its content\n(jing/segment-key v-map)\n;; => :segment/sha256-<hash>\n\n(jing/key-class :segment/sha256-abc)  ;; => :segment\n(jing/key-class :root/my-stream)      ;; => :root"]]]
+         [:p
+          "Content addressing is a property of what an immutable segment " [:em "is"] ", independent of whether that segment is ever exposed to a peer. A single-process in-memory store still benefits: identical content deduplicates for free, with no coordination, and a segment's identity is stable before it is ever replicated."]
+         [:p
+          "That is why a store can be swapped from memory to file to DHT without re-keying anything. The keys were never a networking artifact to begin with. The network backend merely goes on to rely on them, using hash-verified fetch against untrusted peers."]]]
+
+       [:section.section-light
+        [:div.section-inner
+         [:h2 "Structural Ignorance"]
+         [:p
+          "PostgreSQL couples its storage engine to its data structures because that coupling makes it fast. The price is vacuum, WAL record types per structure, a lock manager, and a storage format that admits new structures only through years of C."]
+         [:p
+          "DaoJing is built on the opposite bet: in-place readability is a property of the byte layout, not of the storage engine. A flat, self-describing layout can be traversed in place by the reader while the store remains a dumb map of opaque blobs. Structural awareness is one way to obtain format stability; it is the expensive way, because it welds the layout to the engine."]
+         [:div.feature-grid
+          [:article.feature-card
+           [:h3 "What it gives up"]
+           [:p "In-place updates, fine-grained retrieval, and storage-level MVCC. Updates are naturally out-of-place: new segments are written, old ones are orphaned."]]
+          [:article.feature-card
+           [:h3 "What it buys"]
+           [:p "Invent a new data structure without touching storage code. Swap a local disk for a peer-to-peer network without touching query code."]]
+          [:article.feature-card
+           [:h3 "Why it stays simple"]
+           [:p "Strip structural awareness and the storage layer becomes a hash table of blobs, simple enough to own rather than delegate."]]]
+         [:p
+          "A store that never knew your structures never needs to learn new ones."]]]
+
+       [:section.section-dark
+        [:div.section-inner
+         [:h2 "Backends"]
+         [:p
+          "Because the boundary is thin, backends are interchangeable realizations of the same contract. DaoJing is implemented as cross-platform " [:code ".cljc"] ": the in-memory and file backends operate identically across Clojure, ClojureScript, and ClojureDart, while the remote client is Clojure-only today."]
+         [:div.feature-grid
+          [:article.feature-card
+           [:h3 "Memory"]
+           [:p "An in-process map. The reference backend for tests and single-process use."]]
+          [:article.feature-card
+           [:h3 "File"]
+           [:p "A Bitcask-style append-only log with compaction: sweep the live keyset, rewrite live values to a new log, and atomically swap the file beneath the interface."]]
+          [:article.feature-card
+           [:h3 "DHT"]
+           [:p "A UDP Kademlia peer grid. Segments are hash-verified against their keys and cacheable anywhere; roots are never cached, and their reads and writes are forwarded to the root's owner peer."]]
+          [:article.feature-card
+           [:h3 "Remote"]
+           [:p "A local store exposed over the network: every IKVStore method becomes an RPC call over a DaoStream WebSocket transport."]]]
+         [:p
+          "The protocol is so primitive that it behaves almost exactly like a hardware block device, and proven hardware patterns map directly onto it: out-of-place writes with garbage collection mirror SSD flash translation, per-writer logs give NVMe-style zero-contention queues, and caching, mirroring, and erasure-coding stores compose as decorators with zero changes to the query logic above."]]]
+
+       [:section.section-light
+        [:div.section-inner
+         [:h2 "Lineage"]
+         [:p
+          "DaoJing is the meeting point of two traditions, one for what it holds and one for what it is built from."]
+         [:div.feature-grid
+          [:article.feature-card
+           [:h3 "Datomic"]
+           [:p "The storage discipline: a dumb KV store of immutable segments under a strict Transactor / Storage / Query separation, with content-addressed identity and the Peer-as-library read model. DaoJing is the decentralized Storage; the reader library above it is the Peer."]]
+          [:article.feature-card
+           [:h3 "Plan 9"]
+           [:p "The substrate, one level down in DaoStream: the member logs the store is fed through are independent, location-transparent, append-only streams. The store inherits this only because its intake is streams."]]]
+         [:p
+          "The associative-matching, generative-communication behavior built on top of these bytes is not here. That lineage, Linda, belongs to " [:a {:href "/dao-space.chp"} "DaoSpace"] ", the reader above this boundary."]
+         [:p.next
+          "See how datoms arrive through " [:a {:href "/dao-stream.chp"} "DaoStream"] " member logs, and how " [:a {:href "/dao-space.chp"} "DaoSpace"] " projects indexes and queries onto the bytes DaoJing holds."]]])}
+    template))
