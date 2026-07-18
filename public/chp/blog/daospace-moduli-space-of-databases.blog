@@ -1,8 +1,8 @@
-#:blog{:title "DaoDB Beyond Covered Indexes: A Moduli Space of Databases",
+#:blog{:title "DaoSpace Beyond Covered Indexes: A Moduli Space of Databases",
        :date #inst "2026-03-22T00:00:00.000-00:00",
        :abstract
        [:p
-        "DaoDB should not be treated as one fixed database architecture. It is a "
+        "DaoSpace should not be treated as one fixed database architecture. It is a "
         [:strong "family of stream interpreters"]
         " over datoms. Covered indexes are one materialized-view package, Datalog is one query surface, and query execution can be compiled from intent into traversal plans."],
        :content
@@ -11,10 +11,9 @@
          [:article
           :$blog-title
           :$blog-date
-          [:p [:em "Editor's note: DaoDB has since been merged into " [:a {:href "/dao-space.chp"} "DaoSpace"] ". This post predates the merge and uses the original name."]]
 
           [:p
-           "DaoDB is easy to picture as a Datomic-shaped database with a canonical set of covered indexes, "
+           "DaoSpace is easy to picture as a Datomic-shaped database with a canonical set of covered indexes, "
            [:code "EAVT"]
            ", "
            [:code "AEVT"]
@@ -29,26 +28,26 @@
 
           [:p
            "The stronger framing is this: "
-           [:strong "DaoDB is not a single database. It is a family of databases."]
+           [:strong "DaoSpace is not a single database. It is a family of databases."]
            " What the family shares is not one fixed index set, but a common substrate and a common discipline: immutable datom streams, explicit causality, bounded snapshots, and interpreters that construct useful views over those streams."]
 
           [:blockquote
            [:p
-            "DaoDB: here are events, and here are sanctioned ways to construct and traverse structures from them."]]
+            "DaoSpace: here are events, and here are sanctioned ways to construct and traverse structures from them."]]
 
           [:p
-           "Once it is framed that way, several consequences follow immediately. Covered indexes stop being essential. Datalog stops being the obvious core. Querying starts to look less like sending a sentence to a logic engine and more like compiling an access plan against the materialized views a particular DaoDB instance actually exposes."]
+           "Once it is framed that way, several consequences follow immediately. Covered indexes stop being essential. Datalog stops being the obvious core. Querying starts to look less like sending a sentence to a logic engine and more like compiling an access plan against the materialized views a particular DaoSpace instance actually exposes."]
 
           [:h2 "The Stream Is the Substrate"]
 
           [:p
            "The stream remains the invariant. Datoms arrive in transaction order as "
            [:code "[e a v t m]"]
-           ". That is the canonical serialization format for DaoDB, the common causal history, the thing every DaoDB in the family must be able to observe and replay."]
+           ". That is the canonical serialization format for DaoSpace, the common causal history, the thing every DaoSpace in the family must be able to observe and replay."]
 
           [:p
            "But a stream alone is not yet a database. A raw stream is only sequence. It records what was appended and in what order. "
-           "A DaoDB adds sanctioned interpretation: how to bound the stream, how to reconstruct a snapshot, how to derive structures, how to traverse those structures, and which views are available or can be derived on demand."]
+           "A DaoSpace adds sanctioned interpretation: how to bound the stream, how to reconstruct a snapshot, how to derive structures, how to traverse those structures, and which views are available or can be derived on demand."]
 
           [:p
            "So the distinction is simple:"]
@@ -58,16 +57,16 @@
             [:strong "Raw stream"]
             ": here are events in order."]
            [:li
-            [:strong "DaoDB"]
+            [:strong "DaoSpace"]
             ": here are events, plus a contract for constructing and traversing structures from them."]]
 
           [:p
-           "That contract is what makes DaoDB a family of databases rather than a storage format."]
+           "That contract is what makes DaoSpace a family of databases rather than a storage format."]
 
           [:p
-           "This model allows DaoDB to be understood as a kind of "
+           "This model allows DaoSpace to be understood as a kind of "
            [:strong "moduli space"]
-           " of databases. The canonical datom history stays fixed, but different DaoDB implementations occupy different points in that space by choosing different materialized views, maintenance strategies, physical layouts, and query surfaces."]
+           " of databases. The canonical datom history stays fixed, but different DaoSpace implementations occupy different points in that space by choosing different materialized views, maintenance strategies, physical layouts, and query surfaces."]
 
           [:p
            "One point in that space looks relational, with covered indexes and Datalog. Another looks document-oriented, with entity-centric materializations. Another looks columnar, time-series, graph-oriented, or logic-oriented. The substrate stays the same; what changes is the derived construction laid over it."]
@@ -83,15 +82,15 @@
            [:code "AVET"]
            ", and "
            [:code "VAET"]
-           " are not the essence of DaoDB. They are "
+           " are not the essence of DaoSpace. They are "
            [:strong "materialized views"]
            " over the datom stream."]
 
           [:p
-           "That sounds almost obvious once stated, but it matters. If those indexes are materialized views, then a DaoDB implementation is free to expose them, omit them, or replace them with other structures more appropriate to its workload."]
+           "That sounds almost obvious once stated, but it matters. If those indexes are materialized views, then a DaoSpace implementation is free to expose them, omit them, or replace them with other structures more appropriate to its workload."]
 
           [:p
-           "A default DaoDB implementation may still choose the familiar covered indexes because they make a Datalog-flavored relational surface practical and fast. But another DaoDB might expose:"]
+           "A default DaoSpace implementation may still choose the familiar covered indexes because they make a Datalog-flavored relational surface practical and fast. But another DaoSpace might expose:"]
 
           [:ul.bulleted
            [:li "entity-centric maps"]
@@ -102,7 +101,7 @@
            [:li "capability or provenance projections"]]
 
           [:p
-           "All of these are still DaoDBs if they share the stream substrate and the view contract. They are different interpreters over the same kind of reality, different points in the same moduli space of admissible database designs."]
+           "All of these are still DaoSpaces if they share the stream substrate and the view contract. They are different interpreters over the same kind of reality, different points in the same moduli space of admissible database designs."]
 
           [:h2 "What This Means for Datalog"]
 
@@ -113,7 +112,7 @@
           [:p
            "That remains extremely valuable. "
            [:a {:href "/blog/what-makes-datalog-datalog.blog"} "Datalog is still Datalog because of its semantics"]
-           ", and DaoDB should absolutely keep a Datalog layer where relational views are available."]
+           ", and DaoSpace should absolutely keep a Datalog layer where relational views are available."]
 
           [:p
            "But the role changes. Datalog becomes:"]
@@ -124,7 +123,7 @@
            [:li "one front-end syntax among several possible front-ends"]]
 
           [:p
-           "It is no longer the essence of DaoDB. The essence is lower-level: datom streams plus sanctioned structural interpretation."]
+           "It is no longer the essence of DaoSpace. The essence is lower-level: datom streams plus sanctioned structural interpretation."]
 
           [:p
            "This is not a rejection of Datalog. It is a clarification. Datalog is not removed. It is demoted from ontology to capability."]
@@ -132,7 +131,7 @@
           [:h2 "Why Traversal Looks More General"]
 
           [:p
-           "Once DaoDB is a family of databases with heterogeneous materialized views, traversal starts to look like the more general core query surface."]
+           "Once DaoSpace is a family of databases with heterogeneous materialized views, traversal starts to look like the more general core query surface."]
 
           [:p
            "Relational queries ask: which tuples satisfy these joins? "
@@ -140,7 +139,7 @@
            "When the exposed view may be a graph, tree, ordered sequence, entity map, or hybrid structure, traversal is often the more natural primitive."]
 
           [:p
-           "A useful comparison point is that a DaoDB structural API may feel closer to "
+           "A useful comparison point is that a DaoSpace structural API may feel closer to "
            [:code "Specter"]
            ", "
            [:code "Meander"]
@@ -153,7 +152,7 @@
            "That makes a Specter-like navigation algebra a plausible universal substrate for moving through materialized views."]
 
           [:p
-           "But plain host traversal is still not enough. DaoDB views carry semantics that ordinary nested maps and vectors do not:"]
+           "But plain host traversal is still not enough. DaoSpace views carry semantics that ordinary nested maps and vectors do not:"]
 
           [:ul.bulleted
            [:li "snapshot and history boundaries"]
@@ -164,8 +163,8 @@
            [:li "capability and cost differences between views"]]
 
           [:p
-           "So the right conclusion is not that DaoDB should literally reuse raw Specter paths over arbitrary Clojure values. "
-           "The right conclusion is that DaoDB should adopt a "
+           "So the right conclusion is not that DaoSpace should literally reuse raw Specter paths over arbitrary Clojure values. "
+           "The right conclusion is that DaoSpace should adopt a "
            [:strong "Specter-like traversal model"]
            " over "
            [:strong "declared view capabilities"]
@@ -175,7 +174,7 @@
 
           [:p
            "At this point an important boundary appears. A structural view API is not a general way to navigate an infinite space of all imaginable materializations. "
-           "It is a uniform way to navigate the sanctioned subset that a DaoDB implementation declares."]
+           "It is a uniform way to navigate the sanctioned subset that a DaoSpace implementation declares."]
 
           [:p
            "In other words, the API should answer questions like:"]
@@ -195,9 +194,9 @@
 
           [:p
            "The central question is not, "
-           [:em "What is DaoDB's one true query language?"]
+           [:em "What is DaoSpace's one true query language?"]
            ", but rather, "
-           [:em "What is DaoDB's query compiler pipeline?"]]
+           [:em "What is DaoSpace's query compiler pipeline?"]]
 
           [:p
            "That shift matters. It moves us away from the idea of sending a finished query to a fixed engine. "
@@ -217,7 +216,7 @@
           [:p
            "In this framing, Meander is the planner. Specter is the executor. Querying becomes compilation."]
 
-          [:h2 "A Compiler Pipeline for DaoDB"]
+          [:h2 "A Compiler Pipeline for DaoSpace"]
 
           [:p
            "The full pipeline can be sketched like this:"]
@@ -231,11 +230,11 @@
             "  -> execution against materialized or derived views"]]
 
           [:p
-           "Or, in DaoDB terms:"]
+           "Or, in DaoSpace terms:"]
 
           [:ol
            [:li "The caller states what they want, not how to fetch it."]
-           [:li "The planner inspects the DaoDB implementation's declared views and capabilities."]
+           [:li "The planner inspects the DaoSpace implementation's declared views and capabilities."]
            [:li "Rewrite rules choose an efficient access strategy."]
            [:li "The strategy lowers into a Specter-like path IR."]
            [:li "An executor runs that plan against a materialized view or triggers an on-demand derivation."]]
@@ -248,7 +247,7 @@
            [:li "optimization is explicit"]
            [:li "execution is structural"]
            [:li "view choice is capability-aware"]
-           [:li "different DaoDB implementations can share the compiler while exposing different physical views"]]
+           [:li "different DaoSpace implementations can share the compiler while exposing different physical views"]]
 
           [:h2 "A Concrete Example"]
 
@@ -263,7 +262,7 @@
             " :where [[:attr= :user/email \"alice@example.com\"]]}"]]
 
           [:p
-           "The planner now asks what kind of DaoDB it is dealing with."]
+           "The planner now asks what kind of DaoSpace it is dealing with."]
 
           [:ul.bulleted
            [:li "If the database exposes a covered " [:code "AVET"] " view, compile to a direct indexed lookup."]
@@ -275,7 +274,7 @@
            "Same intent. Different compiled access plans. Same family. Different database."]
 
           [:p
-           "This is why calling DaoDB a family of databases is not just rhetoric. It changes the meaning of query execution."]
+           "This is why calling DaoSpace a family of databases is not just rhetoric. It changes the meaning of query execution."]
 
           [:h2 "Why This Fits Datom.World"]
 
@@ -310,13 +309,13 @@
            "The redesign does not discard what was already good."]
 
           [:ul.bulleted
-           [:li "The default DaoDB can still ship with Datomic-style covered indexes."]
+           [:li "The default DaoSpace can still ship with Datomic-style covered indexes."]
            [:li "Datalog remains a powerful relational front-end where those views exist."]
            [:li "Snapshot semantics, transaction semantics, and bounded history remain central."]
-           [:li "The in-memory DaoDB remains a useful reference implementation."]]
+           [:li "The in-memory DaoSpace remains a useful reference implementation."]]
 
           [:p
-           "What changes is the level at which the system is defined. DaoDB stops being defined by one query language and one index family. It is instead defined by the shared stream substrate and the contract for producing and traversing views."]
+           "What changes is the level at which the system is defined. DaoSpace stops being defined by one query language and one index family. It is instead defined by the shared stream substrate and the contract for producing and traversing views."]
 
           [:h2 "The New Center of Gravity"]
 
@@ -334,7 +333,7 @@
            "That is a healthier architecture. It is more general without becoming vague. It preserves the stream as the invariant and lets structure emerge through constrained interpretation."]
 
           [:p
-           "DaoDB does not need one universal physical layout. It needs a canonical stream, a disciplined view contract, and a compiler that can lower intent into executable plans against whatever structures a particular DaoDB chooses to expose."]
+           "DaoSpace does not need one universal physical layout. It needs a canonical stream, a disciplined view contract, and a compiler that can lower intent into executable plans against whatever structures a particular DaoSpace chooses to expose."]
 
           [:p
-           "That is the redesign: not a retreat from DaoDB, but a sharper statement of what it has been trying to be all along."]]]]}
+           "That is the redesign: not a retreat from DaoSpace, but a sharper statement of what it has been trying to be all along."]]]]}

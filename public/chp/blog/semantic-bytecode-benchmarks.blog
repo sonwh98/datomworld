@@ -243,7 +243,7 @@
           [:h3 "Use Semantic Bytecode When:"]
           [:ul.bulleted
            [:li "You need to query or transform the code"]
-           [:li "The bytecode is a persistent representation (stored in DaoDB (since merged into DaoSpace))"]
+           [:li "The bytecode is a persistent representation (stored in DaoSpace)"]
            [:li "You want to analyze code structure (find all mutations, all calls, etc.)"]
            [:li "You need provenance tracking or debugging"]
            [:li "Cross-language translation requires semantic preservation"]]
@@ -255,7 +255,7 @@
           [:ol
            [:li
             [:strong "Semantic bytecode"]
-            " stored in DaoDB for queries and analysis"]
+            " stored in DaoSpace for queries and analysis"]
            [:li
             [:strong "Traditional bytecode"]
             " compiled on-demand for hot execution paths"]]

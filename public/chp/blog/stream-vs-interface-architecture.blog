@@ -325,19 +325,19 @@
           [:p
            "Appending to immutable logs and querying via Datalog adds overhead compared to direct pointer access in traditional VMs. "
            "However, this is mitigated through the architecture of "
-           [:a {:href "/dao-space.chp"} "DaoDB (since merged into DaoSpace)"]
+           [:a {:href "/dao-space.chp"} "DaoSpace"]
            " and Yin.VM working together."]
 
           [:p
-           "DaoDB acts as a specialized indexer, continuously building efficient query structures from the datom stream (see "
-           [:a {:href "/blog/daodb-distributed-database-immutable-streams.blog"} "DaoDB: Distributed Database from Immutable Streams"]
-           "). Yin.VM queries DaoDB for the AST slices it needs, caching them for fast execution. The \"everything is a query\" concern "
+           "DaoSpace acts as a specialized indexer, continuously building efficient query structures from the datom stream (see "
+           [:a {:href "/blog/daospace-distributed-database-immutable-streams.blog"} "DaoSpace: Distributed Database from Immutable Streams"]
+           "). Yin.VM queries DaoSpace for the AST slices it needs, caching them for fast execution. The \"everything is a query\" concern "
            "only applies at system boundaries, not during hot execution loops."]
 
           [:h3 "Storage and memory"]
 
           [:p
-           "An append-only log that never forgets does consume more space than systems that overwrite. However, DaoDB can implement "
+           "An append-only log that never forgets does consume more space than systems that overwrite. However, DaoSpace can implement "
            "sophisticated compression, tiered storage (hot data in RAM, cold history on disk), and garbage collection of obsolete indexes. "
            "The trade-off is deliberate: disk space is cheap, but "
            [:a {:href "/blog/architecture.blog"} "lost history is priceless"]
@@ -411,7 +411,7 @@
           [:ul.bulleted
            [:li [:a {:href "/datomworld.chp"} "Datom.World"] ": platform overview"]
            [:li [:a {:href "/yin.chp"} "Yin.VM"] ": the CESK continuation machine"]
-           [:li [:a {:href "/dao-space.chp"} "DaoDB"] ": materialized views from streams"]
+           [:li [:a {:href "/dao-space.chp"} "DaoSpace"] ": materialized views from streams"]
            [:li [:a {:href "/dao-stream.chp"} "DaoStream"] ": universal streaming API"]
            [:li [:a {:href "/blog/architecture.blog"} "The Trillion-Dollar Glitch"] ": why software architecture fails"]
            [:li [:a {:href "/blog/power-of-restriction-datom-tuple.blog"} "The Power of Restriction"] ": why fixed tuples enable flexibility"]

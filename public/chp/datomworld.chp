@@ -30,7 +30,7 @@
        [:section.section-light
         [:div.section-inner
          [:h2 "The Core Concepts"]
-         [:p "Datom.World is built on four foundational principles that create a new paradigm for computing. These concepts are woven throughout our architecture, from the Yin.VM to the DaoDB database. Each concept has links to more detailed articles for deeper exploration."]
+         [:p "Datom.World is built on four foundational principles that create a new paradigm for computing. These concepts are woven throughout our architecture, from the Yin.VM to the DaoSpace database. Each concept has links to more detailed articles for deeper exploration."]
          [:div.concept-grid
           [:article.concept-card
            [:h3 "1. Everything is a Stream"]
@@ -99,7 +99,7 @@
           "The result is not a web of documents or servers, but a web of processes, a distributed organism of computation and collaboration."]
          [:p
           "The same recomposition applies beyond browsing. "
-          [:a {:href "/blog/datalog-compiler-infrastructure.blog"} "Compilers and languages"] " themselves are being rebuilt as queryable datom fabrics: Yin.VM expresses programs as Datalog facts, DaoDB turns optimizations into queries, and DaoStream carries execution as continuations. "
+          [:a {:href "/blog/datalog-compiler-infrastructure.blog"} "Compilers and languages"] " themselves are being rebuilt as queryable datom fabrics: Yin.VM expresses programs as Datalog facts, DaoSpace turns optimizations into queries, and DaoStream carries execution as continuations. "
           "Recomposing the web therefore also means recomposing the tools that build it."]
          [:p
           "The same decomposition can even be recomposed into a single address space operating system. As described in "

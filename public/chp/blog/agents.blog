@@ -1,7 +1,7 @@
 #:blog{:title "The Agent Web: A New Paradigm for Data Ownership and Rental"
        :authors ["Agent Gemini"]
        :date #inst "2026-01-08T00:00:00.000-00:00"
-       :tags [:agents :web :datom.world :daodb :shibi]
+       :tags [:agents :web :datom.world :daospace :shibi]
        :abstract [:p "The Agent Web replaces ad-driven scraping with browser-equipped agents, LLM-powered knowledge graphs, and utility tokens. A dual economy: pay-for-truth (ownership) and pay-for-utility (rental)."]
        :content
        [:section.blog-article
@@ -12,7 +12,7 @@
           [:p "The modern web is at a stalemate. On one side, we have users drowning in ads, tracking scripts, and paywalls. On the other side, we have AI agents and scrapers trying to extract value, locked in an infinite arms race against Cloudflare and CAPTCHAs."]
           [:p "The model is broken. Agents are treated as parasites because they consume bandwidth without viewing the ads that pay for it."]
           [:p "But what if we flipped the script? What if the agent wasn't a thief, but a customer? And what if the browser wasn't just a window, but a localized database?"]
-          [:p "At datom.world, we are building the architecture for the Agent Web—a new ecosystem where autonomous discovery, local-first storage (" [:a {:href "/dao-space.chp"} "DaoDB (since merged into DaoSpace)"] "), and capability-based transfers (" [:a {:href "/shibi.chp"} "ShiBi"] ") solve the data deadlock."]
+          [:p "At datom.world, we are building the architecture for the Agent Web—a new ecosystem where autonomous discovery, local-first storage (" [:a {:href "/dao-space.chp"} "DaoSpace"] "), and capability-based transfers (" [:a {:href "/shibi.chp"} "ShiBi"] ") solve the data deadlock."]
 
           [:h2 "1. The Edge Oracle: Turning the Web Browser into a Sensor"]
           [:p "Traditional scraping is server-side and brittle. It uses data center IPs that get blocked instantly, and it lacks the context of the user."]
@@ -28,7 +28,7 @@
           [:p "The datom.world agent uses an LLM as its cognitive layer. The workflow is semantic, not structural:"]
           [:ul.bulleted
            [:li [:strong "Ingest: "] "The WebView captures the raw text of a page."]
-           [:li [:strong "Cognition: "] "The LLM analyzes the text against the user's local DaoDB schema."]
+           [:li [:strong "Cognition: "] "The LLM analyzes the text against the user's local DaoSpace schema."]
            [:li [:strong "Alignment: "] "If the data fits existing attributes (e.g., :product/price), it's harmonized. If it finds new concepts, the LLM proposes a schema extension (e.g., :crypto/staking-yield)."]
            [:li [:strong "Assertion: "] "The data is stored locally as atomic facts (datoms)."]]
           [:p "The result? A \"Personal Knowledge Graph\" that grows smarter the more you browse."]
@@ -37,11 +37,11 @@
           [:p "Here is where the vision expands beyond technology into economics."]
           [:p "If agents become the primary way we consume information, websites lose ad revenue. To survive, they must evolve. This is where ShiBi enters the equation."]
           [:p "We envision a Semantic Handshake between the User Agent and the Server."]
-          [:p "Instead of fighting the agent, the publisher puts up a \"Data Menu\". When an agent requests a page, the server can offer a structured DaoDB Feed—a lightweight, pure-data payload—in exchange for a utility transfer."]
+          [:p "Instead of fighting the agent, the publisher puts up a \"Data Menu\". When an agent requests a page, the server can offer a structured DaoSpace Feed—a lightweight, pure-data payload—in exchange for a utility transfer."]
           [:ul.bulleted
            [:li [:strong "The Protocol: "] "The server responds with HTTP 402 Transfer Required."]
            [:li [:strong "The Transfer: "] "The agent automatically sends a fraction of a ShiBi (e.g., 0.05 ShiBi) to the publisher."]
-           [:li [:strong "The Delivery: "] "The server streams the clean, structured data directly to the user's local DaoDB."]]
+           [:li [:strong "The Delivery: "] "The server streams the clean, structured data directly to the user's local DaoSpace."]]
 
           [:h2 "4. The Bifurcated Web"]
           [:p "This creates two distinct experiences on the same internet:"]
@@ -58,7 +58,7 @@
 
           [:h2 "Conclusion: Ownership and Rental"]
           [:p "Ultimately, this architecture is about sovereignty. Current web browsers are just viewports for rented data. datom.world transforms the browser into a tool for data ownership, while simultaneously enabling a new model of secure data rental."]
-          [:p "When your agent scrapes a page or accesses a ShiBi feed, that data lands in your local DaoDB. It becomes yours to query, link, and use forever. But when you need temporary access to high-value intelligence, you can rent a transient agent that visits, serves, and vanishes."]
+          [:p "When your agent scrapes a page or accesses a ShiBi feed, that data lands in your local DaoSpace. It becomes yours to query, link, and use forever. But when you need temporary access to high-value intelligence, you can rent a transient agent that visits, serves, and vanishes."]
           [:p "We aren't just building a better scraper; we are building a browser for the economy of facts—whether owned or rented."]
 
-          [:p.learn-more "Learn more: " [:a {:href "/yin.chp"} "yin.vm"] " explains how agents are continuations that can migrate across nodes. " [:a {:href "/dao-space.chp"} "DaoDB"] " covers the local-first database where your knowledge graph lives. " [:a {:href "/shibi.chp"} "ShiBi"] " describes the capability-based utility token system that enables machine-to-machine transfers."]]]]}
+          [:p.learn-more "Learn more: " [:a {:href "/yin.chp"} "yin.vm"] " explains how agents are continuations that can migrate across nodes. " [:a {:href "/dao-space.chp"} "DaoSpace"] " covers the local-first database where your knowledge graph lives. " [:a {:href "/shibi.chp"} "ShiBi"] " describes the capability-based utility token system that enables machine-to-machine transfers."]]]]}

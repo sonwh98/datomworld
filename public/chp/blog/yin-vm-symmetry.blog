@@ -59,9 +59,9 @@
                    [:p [:strong "Related Reading:"]]
                    [:ul.bulleted
                     [:li
-                     [:a {:href "/blog/yin-vm-daodb-architecture.blog"}
-                      "Yin.VM and DaoDB: How Persistent ASTs Make Self-Modification Practical"]
-                     " (DaoDB since merged into DaoSpace)"]
+                     [:a {:href "/blog/yin-vm-daospace-architecture.blog"}
+                      "Yin.VM and DaoSpace: How Persistent ASTs Make Self-Modification Practical"]
+                     ""]
                     [:li
                      [:a {:href "/blog/continuations-universal-semantic-kernel.blog"}
                       "Why Continuations Are the Universal Semantic Kernel"]]

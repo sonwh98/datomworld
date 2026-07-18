@@ -3,7 +3,7 @@
        :date #inst "2025-11-16T00:00:00.000-00:00",
        :abstract
        [:p
-        "When ASTs are datoms in DaoDB, the entire program becomes a "
+        "When ASTs are datoms in DaoSpace, the entire program becomes a "
         [:strong "queryable database"]
         ". Every optimization transforms from manual tree-walking to declarative Datalog queries—enabling whole-program reasoning, composable analyses, and user-programmable compilation impossible in traditional architectures."],
        :content
@@ -26,7 +26,7 @@
            "?"]
           [:p
            "When you store ASTs as datoms in "
-           [:a {:href "/dao-space.chp"} "DaoDB (since merged into DaoSpace)"]
+           [:a {:href "/dao-space.chp"} "DaoSpace"]
            ", you've "
            [:strong
             "turned the compiler into a queryable semantic database"]
@@ -90,7 +90,7 @@
            "This is why traditional ASTs feel \"simple\": they intentionally capture only a transient slice of meaning. The "
            [:strong "essential complexity"]
            " of representing full semantics—spanning time, provenance, types, and execution state—"
-           "is discarded as soon as machine code is emitted. Yin/DaoDB keep that complexity in the primary data model because it is "
+           "is discarded as soon as machine code is emitted. Yin/DaoSpace keep that complexity in the primary data model because it is "
            [:strong "inherent to reasoning about code"]
            "."]
           [:table
@@ -106,7 +106,7 @@
              [:td
               "Lightweight tree optimized for one-time linear traversal; semantics evaporate after codegen."]]
             [:tr
-             [:td "DaoDB / Universal AST"]
+             [:td "DaoSpace / Universal AST"]
              [:td "Essential"]
              [:td
               "Canonical datom graph that preserves meaning across paradigms, time, and execution so every tool can query it."]]]]
@@ -120,11 +120,11 @@
             " — refactoring, static analysis, and debugging were punted to external tools. IDEs re-parse text heuristically, linters rebuild simplified graphs, "
             "debuggers rely on coarse line-number symbols. Each tool reconstructs its own partial truth, creating massive accidental complexity in the glue."]]
           [:p
-           "DaoDB instead centralizes the essential complexity once. The Universal AST becomes shared infrastructure for compilers, IDEs, analyzers, and runtimes. "
+           "DaoSpace instead centralizes the essential complexity once. The Universal AST becomes shared infrastructure for compilers, IDEs, analyzers, and runtimes. "
            "By absorbing the irreducible semantics upfront, it eliminates the downstream accidental complexity of keeping disparate models in sync."]
           [:h2 "Datalog Compilation: The Query Model"]
           [:p
-           "When you store the AST as datoms in DaoDB, you turn the entire program into a "
+           "When you store the AST as datoms in DaoSpace, you turn the entire program into a "
            [:strong "semantic graph"]
            ":"]
           [:pre
@@ -139,7 +139,7 @@
           [:p "Compilation becomes:"]
           [:pre
            [:code
-            "Source Code\n    ↓\n  Parse → Datoms (stored in DaoDB)\n    ↓\n  Issue Queries:\n    - Type inference query\n    - Optimization queries\n    - Code generation query\n    ↓\n  Apply Transformations (add more datoms)\n    ↓\n  Query Again (incremental, composable)\n    ↓\n  Output"]]
+            "Source Code\n    ↓\n  Parse → Datoms (stored in DaoSpace)\n    ↓\n  Issue Queries:\n    - Type inference query\n    - Optimization queries\n    - Code generation query\n    ↓\n  Apply Transformations (add more datoms)\n    ↓\n  Query Again (incremental, composable)\n    ↓\n  Output"]]
           [:p
            "Every optimization is a "
            [:strong "declarative Datalog query"]
@@ -353,7 +353,7 @@
            "."]
           [:h3
            "Example: Find Every Function Whose Last Argument is Unused"]
-          [:p "In DaoDB, this is trivial:"]
+          [:p "In DaoSpace, this is trivial:"]
           [:pre
            [:code
             {:class "language-clojure"}
@@ -457,7 +457,7 @@
            "."]
           [:h3 "Query-Driven JIT Specialization"]
           [:p
-           "Because DaoDB is also a "
+           "Because DaoSpace is also a "
            [:strong "runtime"]
            " tuple store, you can mix static and dynamic information:"]
           [:ul.bulleted
@@ -477,7 +477,7 @@
            "This is "
            [:strong
             "structural intelligence that grows as the program runs"]
-           ". Traditional compilers have fixed pipelines and lose context after compilation. With DaoDB, "
+           ". Traditional compilers have fixed pipelines and lose context after compilation. With DaoSpace, "
            [:strong
             "compilation and execution continuously inform each other"]
            "."]
@@ -562,7 +562,7 @@
             " They analyze snapshots of code, not a continuous, versioned stream of datoms. Time-travel queries are not part of their model."]]
           [:h3 "Yin.vm: A Synthesis"]
           [:p
-           "Yin.vm, powered by DaoDB, synthesizes the strengths of these systems while addressing their limitations:"]
+           "Yin.vm, powered by DaoSpace, synthesizes the strengths of these systems while addressing their limitations:"]
           [:ul.bulleted
            [:li
             "Like "
@@ -586,7 +586,7 @@
             [:tr
              [:th "Feature"]
              [:th "GraalVM / Truffle"]
-             [:th "Yin.vm / DaoDB"]]]
+             [:th "Yin.vm / DaoSpace"]]]
            [:tbody
             [:tr
              [:td [:strong "AST Representation"]]
@@ -634,13 +634,13 @@
           [:h3 "Datalog Compiler"]
           [:pre
            [:code
-            "Query-Based:\n  Parse → Store as Datoms (DaoDB)\n       → Issue Queries:\n         * Type inference (recursive rules)\n         * Purity analysis (recursive rules)\n         * Reachability (recursive rules)\n         * Optimization queries (composition)\n       → Apply Transformations (add datoms)\n       → Query Again (incremental, composable)\n       → Code Gen (query for execution plan)\n\nAdvantages:\n  - Every analysis is a Datalog query\n  - Unlimited context (whole-program reasoning)\n  - Composing analyses is natural (join queries)\n  - Incremental compilation built-in (transaction IDs)\n  - Users can write custom queries (programmable compiler)"]]
+            "Query-Based:\n  Parse → Store as Datoms (DaoSpace)\n       → Issue Queries:\n         * Type inference (recursive rules)\n         * Purity analysis (recursive rules)\n         * Reachability (recursive rules)\n         * Optimization queries (composition)\n       → Apply Transformations (add datoms)\n       → Query Again (incremental, composable)\n       → Code Gen (query for execution plan)\n\nAdvantages:\n  - Every analysis is a Datalog query\n  - Unlimited context (whole-program reasoning)\n  - Composing analyses is natural (join queries)\n  - Incremental compilation built-in (transaction IDs)\n  - Users can write custom queries (programmable compiler)"]]
           [:h2 "The Paradigm Shift: From Passes to Semantic Queries"]
           [:p
            "Traditional compilers require "
            [:strong "compiler engineers"]
            " to write each optimization by hand. Every pass is custom code that walks trees and updates annotations."]
-          [:p "Yin + DaoDB shifts the burden:"]
+          [:p "Yin + DaoSpace shifts the burden:"]
           [:ul.bulleted
            [:li
             "The "
@@ -762,7 +762,7 @@
            "The same database that empowers compiler engineers is also accessible to new kinds of agents. When every optimization, execution trace, and user edit is a datom, even an external assistant—like a large language model—can participate in compilation without bespoke hooks."]
           [:h2 "LLMs as Compiler Optimization Agents"]
           [:p
-           "Once optimizations, transformations, provenance, and execution traces live as datoms, a large language model no longer needs privileged compiler hooks. It simply becomes another client of DaoDB—one that can "
+           "Once optimizations, transformations, provenance, and execution traces live as datoms, a large language model no longer needs privileged compiler hooks. It simply becomes another client of DaoSpace—one that can "
            [:strong "query existing knowledge"]
            ", "
            [:strong "propose new rules"]
@@ -780,13 +780,13 @@
            "The response returns the actual transformation patterns and rules. The LLM doesn't hallucinate compiler internals—it reads them."]
           [:h3 "2. LLM Proposes and Tests New Optimizations"]
           [:p
-           "LLMs can mine DaoDB for suspicious IR shapes, emit candidate rules, and immediately verify the impact:"]
+           "LLMs can mine DaoSpace for suspicious IR shapes, emit candidate rules, and immediately verify the impact:"]
           [:pre
            [:code
             {:class "language-clojure"}
             ";; Detect x + x\n[:find ?expr ?x\n :where\n [?expr :ir/op :add]\n [?expr :ir/lhs ?x]\n [?expr :ir/rhs ?x]]\n\n;; Proposed transform: x + x → x * 2\n(defn optimize-double-add [db]\n  (doseq [[expr x] (d/q '[:find ?expr ?x\n                          :where\n                          [?expr :ir/op :add]\n                          [?expr :ir/lhs ?x]\n                          [?expr :ir/rhs ?x]]\n                        db)]\n    (transact! db\n      [[:db/retract expr :ir/op :add]\n       [:db/add expr :ir/op :mul]\n       [:db/add expr :ir/rhs 2]])))"]]
           [:p
-           "After the transaction, the LLM can ask DaoDB if instruction counts dropped, or if semantics still match sample executions. It's the same workflow compiler authors perform manually, but now expressed as data the LLM can manipulate."]
+           "After the transaction, the LLM can ask DaoSpace if instruction counts dropped, or if semantics still match sample executions. It's the same workflow compiler authors perform manually, but now expressed as data the LLM can manipulate."]
           [:h3 "3. LLM-Driven Transpilation via IR Queries"]
           [:p
            "With a Universal AST, language translation becomes a pure query problem:"]
@@ -798,7 +798,7 @@
            "The LLM doesn't have to invent the translation. It queries previously recorded equivalences, applies them to the AST, and emits target syntax that shares semantic annotations with the source."]
           [:h3 "4. Learning from Historical Optimizations"]
           [:p
-           "DaoDB already records when an optimization was applied, who authored it, and the measured benefit. LLMs can mine this telemetry to prioritize future suggestions:"]
+           "DaoSpace already records when an optimization was applied, who authored it, and the measured benefit. LLMs can mine this telemetry to prioritize future suggestions:"]
           [:pre
            [:code
             {:class "language-clojure"}
@@ -807,7 +807,7 @@
            "If loop unrolling historically delivers 30% speedups on similar IR, the LLM can recommend it first, or auto-trigger the corresponding rule."]
           [:h3 "5. Automatic Correctness Checks"]
           [:p
-           "DaoDB already records regression harness results as "
+           "DaoSpace already records regression harness results as "
            [:code ":ir/eval-to"]
            " facts keyed by specific inputs. Verifying an LLM-proposed change is therefore just another query:"]
           [:pre
@@ -818,7 +818,7 @@
            "If pre- and post-optimization evaluations match for all sampled inputs, the proposal can be merged automatically or surfaced to a reviewer with proof."]
           [:h3 "6. Feedback Loop from User Edits"]
           [:p
-           "Developers often hand-tune code. DaoDB can capture those diffs as new optimization patterns, which LLMs then reuse:"]
+           "Developers often hand-tune code. DaoSpace can capture those diffs as new optimization patterns, which LLMs then reuse:"]
           [:pre
            [:code
             {:class "language-clojure"}
@@ -826,11 +826,11 @@
           [:p
            "The next time an indexed loop appears, the LLM can cite this pattern, show the expected speedup, and offer the comprehension rewrite as an automated fix."]
           [:p
-           "Traditional compilers hide optimization logic inside imperative passes. DaoDB makes that logic explicit, queryable, and editable—exactly the substrate LLMs need to become useful co-optimizers rather than documentation parrots."]
-          [:h2 "The Implementation: DaoDB"]
+           "Traditional compilers hide optimization logic inside imperative passes. DaoSpace makes that logic explicit, queryable, and editable—exactly the substrate LLMs need to become useful co-optimizers rather than documentation parrots."]
+          [:h2 "The Implementation: DaoSpace"]
           [:p
            "This vision requires a database designed for code. "
-           [:a {:href "/dao-space.chp"} "DaoDB"]
+           [:a {:href "/dao-space.chp"} "DaoSpace"]
            " is built specifically for storing ASTs as datoms:"]
           [:ul.bulleted
            [:li
@@ -849,7 +849,7 @@
             [:strong "Incremental indexing"]
             " — Fast updates for incremental compilation"]]
           [:p
-           "Traditional Datalog engines (Datomic, Datascript) weren't designed for compilers. DaoDB is optimized for "
+           "Traditional Datalog engines (Datomic, Datascript) weren't designed for compilers. DaoSpace is optimized for "
            [:strong "code as data"]
            ":"]
           [:ul.bulleted
@@ -903,7 +903,7 @@
            [:li "Manual coordination of phases"]
            [:li "Limited extensibility"]]
           [:p
-           "Storing ASTs as datoms in DaoDB transforms compilation into "
+           "Storing ASTs as datoms in DaoSpace transforms compilation into "
            [:strong "database queries"]
            ". This unlocks capabilities that "
            [:strong "no existing compiler architecture has"]
@@ -959,7 +959,7 @@
            [:li
             "All backed by a "
             [:strong "universal datom substrate"]
-            " (DaoDB)"]]
+            " (DaoSpace)"]]
           [:p
            [:strong
             "Yin.vm isn't just implementing compiler passes. It's implementing semantic reasoning over code."]
@@ -996,7 +996,7 @@
              "Yin.vm: Chinese Characters for Programming Languages"]
             " (the Universal Semantic AST)"]
            [:li
-            [:a {:href "/dao-space.chp"} "DaoDB"]
+            [:a {:href "/dao-space.chp"} "DaoSpace"]
             " (the Datalog database powering all of this)"]
            [:li
             [:a {:href "/yin.chp"} "Yin VM Documentation"]

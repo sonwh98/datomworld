@@ -232,7 +232,7 @@
             "it loses the ability to provide that native capability."]
            [:li
             [:strong "Auditable"]
-            ": Because Shibi transactions are recorded as datoms in DaoDB (since merged into DaoSpace), the history of who installed "
+            ": Because Shibi transactions are recorded as datoms in DaoSpace, the history of who installed "
             "what dispatcher is permanently auditable."]]
 
           [:p

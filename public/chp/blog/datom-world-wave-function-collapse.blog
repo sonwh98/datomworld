@@ -2,7 +2,7 @@
        :date #inst "2025-11-17T00:00:00.000-00:00",
        :abstract
        [:p
-        "DaoDB implements "
+        "DaoSpace implements "
         [:strong "Relational Quantum Mechanics"]
         ": no global state exists, only local states relative to observers. When isolated devices sync, their conflicting states undergo wave function collapse through CRDT merge—creating correlation, not convergence to pre-existing truth."],
        :content
@@ -13,7 +13,7 @@
           :$blog-date
           [:h2 "The Observation"]
           [:p
-           "DaoDB (since merged into DaoSpace) is a "
+           "DaoSpace is a "
            [:strong "local-first distributed tuple store"]
            ". When a device operates "
            [:strong "in isolation"]
@@ -51,8 +51,8 @@
           [:p
            "This is "
            [:em "exactly"]
-           " how DaoDB works. "
-           [:strong "DaoDB is an implementation of RQM"]
+           " how DaoSpace works. "
+           [:strong "DaoSpace is an implementation of RQM"]
            "."]
           [:h2 "What Is Relational Quantum Mechanics?"]
           [:p
@@ -111,8 +111,8 @@
            ", and they agree on a "
            [:strong "correlated outcome"]
            "—but there was never a moment when the electron had a global, observer-independent spin."]
-          [:h2 "DaoDB as RQM in Practice"]
-          [:p "Now let's see how DaoDB implements these RQM principles:"]
+          [:h2 "DaoSpace as RQM in Practice"]
+          [:p "Now let's see how DaoSpace implements these RQM principles:"]
           [:h3 "Local-First Architecture"]
           [:p
            "Each device is an "
@@ -170,7 +170,7 @@
            "."]
           [:h3 "Conflict Resolution = Entanglement"]
           [:p
-           "DaoDB uses "
+           "DaoSpace uses "
            [:strong "CRDTs"]
            " (Conflict-free Replicated Data Types) and "
            [:strong "causal ordering"]
@@ -204,10 +204,10 @@
            [:strong "unitarity"]
            " means the total information in the system is preserved. The wave function never loses information—it only evolves."]
           [:p
-           "In DaoDB, when devices form an "
+           "In DaoSpace, when devices form an "
            [:strong "entanglement group"]
-           " (a sync network), unitarity manifests as distributed partial states. Like RAID 5 storage arrays where data is striped across disks, DaoDB can distribute information across devices—but with a critical quantum difference."]
-          [:h4 "DaoDB's Distributed Unitarity"]
+           " (a sync network), unitarity manifests as distributed partial states. Like RAID 5 storage arrays where data is striped across disks, DaoSpace can distribute information across devices—but with a critical quantum difference."]
+          [:h4 "DaoSpace's Distributed Unitarity"]
           [:pre
            [:code
             "Isolated Device A (complete state):\n  [entity-1 :name \"Alice\" tx-100 nil]\n  [entity-1 :age 30 tx-100 nil]\n  [entity-2 :name \"Bob\" tx-100 nil]\n  [entity-2 :age 35 tx-100 nil]\n\nDevice A joins entanglement group → holds partial state:\n  [entity-1 :name \"Alice\" tx-100 nil]\n  [entity-1 :age 30 tx-100 nil]\n  ; entity-2 is now on Device B\n\nDevice B (partial state):\n  [entity-2 :name \"Bob\" tx-100 nil]\n  [entity-2 :age 35 tx-100 nil]\n\nTotal system state = Device A + Device B (unitary)"]]
@@ -222,8 +222,8 @@
            ", not in copies. This is the "
            [:strong "no-cloning theorem"]
            " applied to distributed systems."]
-          [:h4 "DaoDB's Two Modes"]
-          [:p "DaoDB can operate in two distinct modes:"]
+          [:h4 "DaoSpace's Two Modes"]
+          [:p "DaoSpace can operate in two distinct modes:"]
           [:p [:strong "Mode 1: Pure Quantum (No Redundancy)"] ""]
           [:pre
            [:code
@@ -245,7 +245,7 @@
            [:strong "fault tolerance"]
            ". CRDTs replicate data, creating redundancy. This is more like RAID 5 or traditional distributed databases."]
           [:p
-           "DaoDB supports both: "
+           "DaoSpace supports both: "
            [:strong "pure quantum distribution"]
            " (maximum efficiency, no redundancy) and "
            [:strong "fault-tolerant replication"]
@@ -257,13 +257,13 @@
           [:p
            "When isolated: complete local database. When entangled in Mode 1: partial view with no redundancy, information in correlations. When entangled in Mode 2: partial view with CRDT replication for fault tolerance."]
           [:h2 "The RQM Parallel"]
-          [:p "We've seen how DaoDB works in practice. Now let's make the structural parallels between RQM and DaoDB explicit—this isn't just analogy, it's "
+          [:p "We've seen how DaoSpace works in practice. Now let's make the structural parallels between RQM and DaoSpace explicit—this isn't just analogy, it's "
            [:strong "isomorphism"]
            ":"]
-          [:h3 "Quantum Mechanics → DaoDB"]
+          [:h3 "Quantum Mechanics → DaoSpace"]
           [:table
            [:thead
-            [:tr [:th "RQM Concept"] [:th "DaoDB Implementation"]]]
+            [:tr [:th "RQM Concept"] [:th "DaoSpace Implementation"]]]
            [:tbody
             [:tr [:td "Observer"] [:td "Device/Database instance"]]
             [:tr
@@ -315,7 +315,7 @@
             " with the system"]
            [:li
             "But relative to observer B, the system is still in superposition!"]]
-          [:p "In DaoDB:"]
+          [:p "In DaoSpace:"]
           [:p "Before sync:"]
           [:ul.bulleted
            [:li
@@ -357,7 +357,7 @@
            [:strong
             "creating correlation with your current perspective"]
            "."]
-          [:h3 "Retrocausality in DaoDB"]
+          [:h3 "Retrocausality in DaoSpace"]
           [:p
            "When two devices sync and resolve conflicts, they "
            [:strong "reconcile their histories"]
@@ -382,7 +382,7 @@
            "."]
           [:h3 "Causal Ordering Preserves Locality"]
           [:p
-           "DaoDB uses "
+           "DaoSpace uses "
            [:strong "causal ordering"]
            " (via vector clocks or similar mechanisms) to ensure that:"]
           [:ol
@@ -408,9 +408,9 @@
            ", not multi-world. There's one reality, but "
            [:strong "reality is relational"]
            ", not absolute."]
-          [:h3 "DaoDB's Multiverse"]
+          [:h3 "DaoSpace's Multiverse"]
           [:p
-           "Before sync, DaoDB creates a temporary "
+           "Before sync, DaoSpace creates a temporary "
            [:strong "multiverse"]
            ":"]
           [:pre
@@ -431,7 +431,7 @@
            " through interaction."]
           [:h2 "Why This Matters: Distributed Systems Are Quantum"]
           [:p
-           "The parallels between RQM and DaoDB run deep. But this isn't just theoretical elegance—it has profound practical implications for how we build distributed systems."]
+           "The parallels between RQM and DaoSpace run deep. But this isn't just theoretical elegance—it has profound practical implications for how we build distributed systems."]
           [:p
            "Traditional distributed systems textbooks treat conflicts as "
            [:strong "bugs to eliminate"]
@@ -602,8 +602,8 @@
            " from the beginning. No faster-than-light signaling occurred. "
            [:strong "Locality is preserved."]
            ""]
-          [:h3 "DaoDB's Bell Test"]
-          [:p "In DaoDB, the same pattern emerges:"]
+          [:h3 "DaoSpace's Bell Test"]
+          [:p "In DaoSpace, the same pattern emerges:"]
           [:pre
            [:code
             "Device A (offline): [entity-1 :color \"red\" tx-101 nil]\nDevice B (offline): [entity-1 :color \"blue\" tx-102 nil]\n\nNeither device 'knows' what the other chose.\nBoth are correct relative to their local state.\n\nWhen they sync (local interaction via network):\n  Conflict detected! Apply CRDT merge.\n  Result: [entity-1 :color \"blue\" tx-103 meta-merged]\n  [meta-merged :meta/merged-from [tx-101 tx-102]]\n\nThe correlation emerges through LOCAL interaction,\nnot through spooky action at a distance."]]
@@ -620,7 +620,7 @@
            [:strong "local event"]
            "."]
           [:h3 "Why Distributed Databases Don't Violate Bell"]
-          [:p "DaoDB doesn't face Bell's theorem because:"]
+          [:p "DaoSpace doesn't face Bell's theorem because:"]
           [:ol
            [:li
             [:strong "No hidden variables"]
@@ -679,10 +679,10 @@
            ""]
           [:h2 "Practical Implications"]
           [:p
-           "Understanding DaoDB as RQM isn't just philosophically satisfying—it leads to concrete design principles for building robust distributed systems:"]
+           "Understanding DaoSpace as RQM isn't just philosophically satisfying—it leads to concrete design principles for building robust distributed systems:"]
           [:h3 "1. Embrace Conflicts, Don't Fight Them"]
           [:p
-           "Traditional databases treat conflicts as failures. DaoDB treats them as "
+           "Traditional databases treat conflicts as failures. DaoSpace treats them as "
            [:strong "expected reality"]
            "."]
           [:p "Design CRDT merge semantics that preserve user intent:"]
@@ -710,7 +710,7 @@
            ". Timestamps are global and fragile."]
           [:h3 "3. Provenance Is Essential"]
           [:p
-           "RQM says measurements create correlations. In DaoDB, every merge creates a new fact with "
+           "RQM says measurements create correlations. In DaoSpace, every merge creates a new fact with "
            [:strong "provenance"]
            ":"]
           [:pre
@@ -730,7 +730,7 @@
            "If your app requires a central server, you're assuming "
            [:strong "global state"]
            ". This breaks RQM principles."]
-          [:p "DaoDB is " [:strong "offline-first"] ":"]
+          [:p "DaoSpace is " [:strong "offline-first"] ":"]
           [:ul.bulleted
            [:li "Every device is a complete observer"]
            [:li "Local operations always succeed"]
@@ -752,7 +752,7 @@
            [:em "relative to your measurement apparatus"]
            "."]
           [:p
-           "DaoDB says: "
+           "DaoSpace says: "
            [:strong
             "Data is a network of interactions, not a collection of independent tuples."]
            ""]
@@ -781,14 +781,14 @@
             "Local perspectives are all there is. Global truth is an illusion."]
            ""]
           [:p
-           "DaoDB implements this: "
+           "DaoSpace implements this: "
            [:strong
             "Every device is correct from its own perspective. Sync creates correlation, not convergence to truth."]
            ""]
           [:h2 "Connection to Other Work"]
           [:h3 "CRDT Research"]
           [:p
-           "CRDTs (Shapiro et al., 2011) formalize conflict-free merge semantics. DaoDB uses CRDTs extensively."]
+           "CRDTs (Shapiro et al., 2011) formalize conflict-free merge semantics. DaoSpace uses CRDTs extensively."]
           [:p
            "What RQM adds: CRDTs aren't just "
            [:em "algorithms"]
@@ -799,7 +799,7 @@
           [:p
            "The π-calculus models distributed systems as interacting processes. Communication is message-passing, not shared memory."]
           [:p
-           "RQM is the quantum version: observers interact via measurement, not shared state. DaoDB implements this with streams and sync."]
+           "RQM is the quantum version: observers interact via measurement, not shared state. DaoSpace implements this with streams and sync."]
           [:p
            "Both share the same fundamental insight: "
            [:strong "reality is interaction, not state"]
@@ -818,10 +818,10 @@
           [:p
            "Git is "
            [:strong "already an RQM implementation"]
-           "—for code instead of data. DaoDB generalizes this to arbitrary tuples."]
+           "—for code instead of data. DaoSpace generalizes this to arbitrary tuples."]
           [:h2 "Conclusion: Local-First Is Physics-First"]
           [:p
-           "DaoDB isn't just a local-first database. It's an "
+           "DaoSpace isn't just a local-first database. It's an "
            [:strong "implementation of Relational Quantum Mechanics"]
            ":"]
           [:ul.bulleted
@@ -866,14 +866,14 @@
            "Distributed databases are quantum systems. Conflicts behave like wave function \"collapse\"—not as real collapse events, but as "
            [:strong "correlation establishment"]
            " between observers. Sync is entanglement. Partial states preserve unitarity. And "
-           [:strong "DaoDB embraces this"]
+           [:strong "DaoSpace embraces this"]
            " instead of fighting it."]
           [:p
            "The universe has no global state. Why should your database?"]
           [:p [:strong "Learn more:"]]
           [:ul.bulleted
            [:li
-            [:a {:href "/dao-space.chp"} "DaoDB Documentation"]
+            [:a {:href "/dao-space.chp"} "DaoSpace Documentation"]
             " (local-first distributed tuple store)"]
            [:li
             [:a

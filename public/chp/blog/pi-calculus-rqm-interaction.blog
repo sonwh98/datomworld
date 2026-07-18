@@ -6,7 +6,7 @@
         [:strong "interactions, not state"]
         ". π-calculus says computation is "
         [:strong "message-passing, not mutation"]
-        ". These are the same insight: both reject independent facts/state as primary, making interaction fundamental. DaoDB implements this—distributed observers correlate through sync, not through shared global state."],
+        ". These are the same insight: both reject independent facts/state as primary, making interaction fundamental. DaoSpace implements this—distributed observers correlate through sync, not through shared global state."],
        :content
        [:section.blog-article
         [:div.section-inner
@@ -27,7 +27,7 @@
           [:p
            "Are these the same insight? "
            [:strong "Yes."]
-           " And understanding why reveals something profound about DaoDB (since merged into DaoSpace), quantum mechanics, and the nature of computation itself."]
+           " And understanding why reveals something profound about DaoSpace, quantum mechanics, and the nature of computation itself."]
           [:h2 "State vs Interaction: Two Paradigms"]
           [:p
            "Most systems—databases, programming languages, physics theories—assume "
@@ -72,7 +72,7 @@
             [:em "are"]
             " their communication behavior."]
            [:li
-            [:strong "DaoDB"]
+            [:strong "DaoSpace"]
             ": Entities don't have independent properties. Properties are "
             [:em "datoms appended through interaction"]
             "."]
@@ -199,8 +199,8 @@
            [:strong
             "correlation isn't carried by state—it's encoded in the interaction structure"]
            "."]
-          [:h2 "DaoDB: Datoms as Interactions"]
-          [:p "Now we can see how DaoDB fits this pattern."]
+          [:h2 "DaoSpace: Datoms as Interactions"]
+          [:p "Now we can see how DaoSpace fits this pattern."]
           [:h3 "Datoms Are Interaction Records"]
           [:p
            "A datom is: "
@@ -225,7 +225,7 @@
            [:strong "an interaction occurred"]
            " where entity 42 communicated 'Alice' on the :name channel at transaction 100.\""]
           [:h3 "Properties Emerge from Interaction History"]
-          [:p "In DaoDB, you query:"]
+          [:p "In DaoSpace, you query:"]
           [:pre [:code "[:find ?value\n :where\n [?e :name ?value]]"]]
           [:p
            "This doesn't retrieve a \"stored property.\" It "
@@ -241,7 +241,7 @@
            [:strong "participated in :name interactions"]
            ". The property is derived."]
           [:h3 "Sync as π-Calculus Synchronization"]
-          [:p "When two DaoDB devices sync:"]
+          [:p "When two DaoSpace devices sync:"]
           [:pre
            [:code
             "Device A: [entity-1 :age 31 :tx 101]\nDevice B: [entity-1 :age 29 :tx 102]\n\nSync = interaction:\n  A sends its datoms to B\n  B sends its datoms to A\n  Both observe: \"conflict on entity-1 :age\"\n  CRDT merge creates new datom:\n    [entity-1 :age 29 :tx 103 :merged-from [101 102]]"]]
@@ -275,7 +275,7 @@
            [:li
             "RQM: Observers interact—correlation emerges automatically"]
            [:li
-            "DaoDB: Streams append concurrently—no coordination needed"]]
+            "DaoSpace: Streams append concurrently—no coordination needed"]]
           [:h3 "2. Distribution"]
           [:p "State-first systems struggle with distribution:"]
           [:ul.bulleted
@@ -292,7 +292,7 @@
            [:li
             "RQM: Every observer has local reality. No global state to synchronize."]
            [:li
-            "DaoDB: Every device has its own datom stream. Sync is just interaction."]]
+            "DaoSpace: Every device has its own datom stream. Sync is just interaction."]]
           [:h3 "3. Causality"]
           [:p
            "State-first systems encode causality poorly. If variable x changes, "
@@ -307,7 +307,7 @@
            [:li
             "RQM: Measurement outcomes depend on prior interactions. Light cones define causal structure."]
            [:li
-            "DaoDB: The causality dimension of datoms "
+            "DaoSpace: The causality dimension of datoms "
             [:code "[e a v t m]"]
             " explicitly tracks causal dependencies."]]
           [:h3 "4. Time Travel and Provenance"]
@@ -319,7 +319,7 @@
            [:li
             "RQM: No information is lost (unitarity). All interactions are preserved in the joint state."]
            [:li
-            "DaoDB: Datom streams are append-only. Query any point in time by filtering transactions."]]
+            "DaoSpace: Datom streams are append-only. Query any point in time by filtering transactions."]]
           [:h2 "The Deep Pattern"]
           [:p "Here's the unifying insight:"]
           [:table
@@ -338,7 +338,7 @@
              [:td "Properties emerge from measurement"]
              [:td "Particles have pre-existing properties"]]
             [:tr
-             [:td "DaoDB"]
+             [:td "DaoSpace"]
              [:td "Entities accumulate interaction datoms"]
              [:td "Entities store mutable attributes"]]
             [:tr
@@ -409,8 +409,8 @@
            "The mathematics is different (process algebra vs quantum mechanics), but the "
            [:strong "conceptual structure is identical"]
            "."]
-          [:h3 "DaoDB Implements Both"]
-          [:p "DaoDB is simultaneously:"]
+          [:h3 "DaoSpace Implements Both"]
+          [:p "DaoSpace is simultaneously:"]
           [:ul.bulleted
            [:li
             [:strong "A π-calculus implementation"]
@@ -445,10 +445,10 @@
            "Interaction-first: Assert that interaction sequences produce correct outcomes."]
           [:pre
            [:code
-            "π-calculus test:\n  Process A sends x on channel c\n  Process B receives y on channel c\n  Assert: x = y\n\nDaoDB test:\n  Device A appends [entity-1 :color \"red\" :tx 101]\n  Device B appends [entity-1 :color \"blue\" :tx 102]\n  Sync()\n  Assert: merged datom preserves both transactions in provenance"]]
+            "π-calculus test:\n  Process A sends x on channel c\n  Process B receives y on channel c\n  Assert: x = y\n\nDaoSpace test:\n  Device A appends [entity-1 :color \"red\" :tx 101]\n  Device B appends [entity-1 :color \"blue\" :tx 102]\n  Sync()\n  Assert: merged datom preserves both transactions in provenance"]]
           [:h2 "Conclusion: Computation Is Interaction"]
           [:p
-           "The insight shared by π-calculus, RQM, and DaoDB is profound:"]
+           "The insight shared by π-calculus, RQM, and DaoSpace is profound:"]
           [:p
            [:strong
             "Reality is not a collection of objects with properties. Reality is a network of interactions."]
@@ -458,7 +458,7 @@
           [:p
            "In computation: Behavior emerges when processes communicate (π-calculus)."]
           [:p
-           "In databases: State emerges from the history of appended datoms (DaoDB)."]
+           "In databases: State emerges from the history of appended datoms (DaoSpace)."]
           [:p
            "This isn't metaphor. It's "
            [:strong "structural correspondence"]
@@ -493,7 +493,7 @@
             [:a
              {:href "/blog/datom-world-wave-function-collapse.blog"}
              "Datom.World and the Collapse of the Wave Function"]
-            " — How DaoDB implements RQM"]
+            " — How DaoSpace implements RQM"]
            [:li
             [:a
              {:href "/blog/structure-vs-interpretation.blog"}
@@ -503,7 +503,7 @@
             [:a {:href "/dao-stream.chp"} "DaoStream"]
             " — The interaction substrate"]
            [:li
-            [:a {:href "/dao-space.chp"} "DaoDB"]
+            [:a {:href "/dao-space.chp"} "DaoSpace"]
             " — Query interaction histories with Datalog"]
            [:li
             [:a

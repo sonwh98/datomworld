@@ -164,7 +164,7 @@
         [:div.section-inner
          [:h2 "Relation to DaoSpace"]
          [:p
-          "Streams are independent of " [:a {:href "/dao-space.chp"} "DaoSpace"] " (which absorbed the former DaoDB). DaoSpace consumes streams. In Datom.World, DaoStream is the general stream substrate and DaoSpace is a datom consumer over that substrate: its indexing library builds covered indexes from stream datoms, and its query library matches over them."]
+          "Streams are independent of " [:a {:href "/dao-space.chp"} "DaoSpace"] " (which absorbed the former DaoSpace). DaoSpace consumes streams. In Datom.World, DaoStream is the general stream substrate and DaoSpace is a datom consumer over that substrate: its indexing library builds covered indexes from stream datoms, and its query library matches over them."]
          [:p
           "DaoStream can carry arbitrary values or bytes, but the dominant system use case is datom transport. That is why most streams in Datom.World are streams of datoms. A bounded stream is a stable value that DaoSpace can consume to build indexes or answer queries. Stream semantics do not depend on those indexes."]
          [:p

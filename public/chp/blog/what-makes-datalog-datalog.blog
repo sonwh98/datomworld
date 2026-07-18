@@ -549,16 +549,16 @@
            " (code as data) is why Lisp-family languages excel at metaprogramming. Datomic's EDN syntax makes queries "
            [:strong "first-class data"]
            " that can be manipulated, composed, and generated programmatically."]
-          [:h2 "DaoDB's Datalog Design"]
+          [:h2 "DaoSpace's Datalog Design"]
           [:p
            "When building "
-           [:a {:href "/dao-space.chp"} "DaoDB (since merged into DaoSpace)"]
+           [:a {:href "/dao-space.chp"} "DaoSpace"]
            " for "
            [:a {:href "/yin.chp"} "Yin.vm"]
            ", the design choices are clear:"]
           [:h3 "Syntax: Datomic's EDN-Based Datalog"]
           [:p
-           [:strong "DaoDB implements Datomic's syntax of Datalog"]
+           [:strong "DaoSpace implements Datomic's syntax of Datalog"]
            "—using Clojure's EDN (Extensible Data Notation) for homoiconic queries:"]
           [:pre
            [:code
@@ -695,7 +695,7 @@
            "This is why "
            [:a {:href "/"} "datom.world"]
            " chose Datalog as the foundation for "
-           [:a {:href "/dao-space.chp"} "DaoDB"]
+           [:a {:href "/dao-space.chp"} "DaoSpace"]
            " and "
            [:a {:href "/yin.chp"} "Yin.vm"]
            ". The evaluation model—not the syntax—is what makes Datalog the perfect query language for "
@@ -719,7 +719,7 @@
              "AST Datom Streams: Bytecode Performance with Semantic Preservation"]
             " (execution + queries)"]
            [:li
-            [:a {:href "/dao-space.chp"} "DaoDB Documentation"]
+            [:a {:href "/dao-space.chp"} "DaoSpace Documentation"]
             " (the Datalog database powering datom.world)"]
            [:li
             [:a {:href "/yin.chp"} "Yin VM Documentation"]

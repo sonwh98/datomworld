@@ -3,7 +3,7 @@
        :abstract
        [:p
         "Yin.vm's universal AST-as-datom design transforms programming from \"code as text\" to \"code as queryable data\". "
-        "When combined with DaoDB's distributed tuple store, this architecture creates a new computational substrate where "
+        "When combined with DaoSpace's distributed tuple store, this architecture creates a new computational substrate where "
         "programs, continuations, and knowledge graphs coexist in a single queryable space. LLMs become meta-compilers "
         "operating over structured semantic graphs rather than generating free-form text, while contracts and ontologies "
         "eliminate hallucinations at the system boundary."],
@@ -35,7 +35,7 @@
            "This seemingly simple choice has profound implications. When your AST "
            [:em "is"]
            " data, stored in "
-           [:a {:href "/dao-space.chp"} "DaoDB (since merged into DaoSpace)"]
+           [:a {:href "/dao-space.chp"} "DaoSpace"]
            "'s distributed tuple store, you get:"]
           [:ul.bulleted
            [:li
@@ -201,9 +201,9 @@
            [:strong "sandboxable capability language"]
            " rather than unconstrained code generation."]
 
-          [:h2 "AST + Continuations in DaoDB"]
+          [:h2 "AST + Continuations in DaoSpace"]
           [:p
-           "Storing Yin's AST and continuations as datoms in DaoDB—a distributed, P2P tuple store—"
+           "Storing Yin's AST and continuations as datoms in DaoSpace—a distributed, P2P tuple store—"
            "fundamentally changes what \"code\" means."]
 
           [:h3 "Code as Queryable Data"]
@@ -237,7 +237,7 @@
            "and resume on different hardware or even in a different language runtime."]
 
           [:h3 "System-Wide Optimization"]
-          [:p "With all code queryable in DaoDB, you can run scheduled Datalog rules that:"]
+          [:p "With all code queryable in DaoSpace, you can run scheduled Datalog rules that:"]
           [:ul.bulleted
            [:li "Identify hot paths (frequently executed code-ids)"]
            [:li "Mark them for JIT compilation or specialization"]
@@ -250,7 +250,7 @@
 
           [:h2 "LLMs Operating Over Distributed Code"]
           [:p
-           "When you combine LLMs with AST-as-datom in DaoDB, the model's role shifts "
+           "When you combine LLMs with AST-as-datom in DaoSpace, the model's role shifts "
            "from \"code generator\" to "
            [:strong "meta-compiler and refactoring agent"]
            "."]
@@ -258,7 +258,7 @@
           [:h3 "Retrieval-Augmented Programming"]
           [:p "Instead of generating from scratch, the LLM:"]
           [:ol
-           [:li "Queries DaoDB for existing functions and continuations"]
+           [:li "Queries DaoSpace for existing functions and continuations"]
            [:li "Finds components that implement required capabilities"]
            [:li "Synthesizes new continuations that compose existing pieces"]]
           [:p
@@ -270,7 +270,7 @@
           [:p "When a failure occurs:"]
           [:ol
            [:li "Yin writes trace datoms describing the failed continuation"]
-           [:li "LLM queries AST and trace slices from DaoDB"]
+           [:li "LLM queries AST and trace slices from DaoSpace"]
            [:li "Proposes structural fixes as AST patches"]
            [:li "Yin validates under policy constraints"]
            [:li "New code-id versions are published"]]
@@ -287,7 +287,7 @@
            [:li "Which continuations often fail"]
            [:li "Where type instability causes overhead"]]
           [:p
-           "Then propose rewritten or specialized AST variants. DaoDB versioning allows "
+           "Then propose rewritten or specialized AST variants. DaoSpace versioning allows "
            "safe rollout and rollback."]
 
           [:h2 "Eliminating Hallucinations with Ontology as Type System"]
@@ -295,11 +295,11 @@
            "In another design discussion, we explored using a "
            [:strong "knowledge graph with ontology"]
            " as an invariant representation—a third \"basis\" alongside LLM vectors and natural language. "
-           "This technique integrates perfectly with Yin/DaoDB."]
+           "This technique integrates perfectly with Yin/DaoSpace."]
 
-          [:h3 "Ontology Embedded in DaoDB"]
+          [:h3 "Ontology Embedded in DaoSpace"]
           [:p
-           "DaoDB can hold both "
+           "DaoSpace can hold both "
            [:strong "world knowledge"]
            " (entities, relationships) and "
            [:strong "program knowledge"]
@@ -419,7 +419,7 @@
           [:h3 "For Distributed Systems"]
           [:ul.bulleted
            [:li "Mobile code that migrates between nodes seamlessly"]
-           [:li "P2P synchronization via DaoDB's entanglement"]
+           [:li "P2P synchronization via DaoSpace's entanglement"]
            [:li "Global introspection across the computation graph"]
            [:li "Policy-enforced security at the datom level"]
            [:li "Live patching without downtime"]]
@@ -427,7 +427,7 @@
           [:h2 "Conclusion: Beyond the VM"]
           [:p
            "Yin.vm isn't just another virtual machine. By encoding the AST as datoms and storing "
-           "everything in DaoDB's distributed tuple space, it creates a "
+           "everything in DaoSpace's distributed tuple space, it creates a "
            [:strong "new kind of computational substrate"]
            ":"]
           [:ul.bulleted
@@ -459,11 +459,11 @@
              "Universal AST vs Assembly"]
             " (high-level semantics in low-level form)"]
            [:li
-            [:a {:href "/blog/daodb-distributed-database-immutable-streams.blog"}
-             "DaoDB: Distributed Database Built on Immutable Streams"]
+            [:a {:href "/blog/daospace-distributed-database-immutable-streams.blog"}
+             "DaoSpace: Distributed Database Built on Immutable Streams"]
             " (where ASTs and continuations live)"]
            [:li
-            [:a {:href "/dao-space.chp"} "DaoDB Documentation"]
+            [:a {:href "/dao-space.chp"} "DaoSpace Documentation"]
             " (Datalog queries over datom streams)"]
            [:li
             [:a {:href "/yin.chp"} "Yin VM Documentation"]

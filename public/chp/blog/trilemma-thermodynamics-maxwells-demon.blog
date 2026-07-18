@@ -102,9 +102,9 @@ S_A ~= S_B ~= S_C"]]
             [:a {:href "/blog/stream-vs-interface-architecture.blog"}
              "Stream vs Interface Architecture"]]
            [:li
-            [:a {:href "/blog/daodb-distributed-database-immutable-streams.blog"}
-             "DaoDB: Distributed Database from Immutable Streams"]
-            " (DaoDB since merged into DaoSpace)"]
+            [:a {:href "/blog/daospace-distributed-database-immutable-streams.blog"}
+             "DaoSpace: Distributed Database from Immutable Streams"]
+            ""]
            [:li
             [:a {:href "/blog/path-integral-history-and-datom-streams.blog"}
              "Path Integrals and Datom Streams: History Is Primary"]]]]]]}

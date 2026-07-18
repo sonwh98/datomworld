@@ -358,7 +358,7 @@
              "Yin.vm: Chinese Characters for Programming Languages"]
             " (the Universal Semantic AST)"]
            [:li
-            [:a {:href "/dao-space.chp"} "DaoDB (since merged into DaoSpace)"]
+            [:a {:href "/dao-space.chp"} "DaoSpace"]
             " (the Datalog database powering queryable ASTs)"]
            [:li
             [:a {:href "/yin.chp"} "Yin VM Documentation"]

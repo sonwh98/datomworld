@@ -186,7 +186,7 @@
           [:pre
            [:code
             {:class "language-text"}
-            "┌─────────────────────────────────────────────┐\n│  Flutter Framework (Dart, compiled)         │\n│  - Widgets, rendering, platform channels    │\n└─────────────────────────────────────────────┘\n                    ↑\n                    │ calls\n                    ↓\n┌─────────────────────────────────────────────┐\n│  Application Shell (Dart, compiled)         │\n│  - Yin.vm interpreter                       │\n│  - Native primitives (I/O, crypto, etc.)    │\n│  - Stream infrastructure                    │\n└─────────────────────────────────────────────┘\n                    ↑\n                    │ interprets\n                    ↓\n┌─────────────────────────────────────────────┐\n│  Business Logic (Datom AST, dynamic)        │\n│  - Workflows, rules, transformations        │\n│  - User-defined functions                   │\n│  - Remotely loaded features                 │\n└─────────────────────────────────────────────┘\n                    ↑\n                    │ streams from\n                    ↓\n┌─────────────────────────────────────────────┐\n│  DaoDB / Datom Streams                      │\n│  - Persistent AST storage                   │\n│  - Continuation checkpoints                 │\n│  - Distributed synchronization              │\n└─────────────────────────────────────────────┘"]]
+            "┌─────────────────────────────────────────────┐\n│  Flutter Framework (Dart, compiled)         │\n│  - Widgets, rendering, platform channels    │\n└─────────────────────────────────────────────┘\n                    ↑\n                    │ calls\n                    ↓\n┌─────────────────────────────────────────────┐\n│  Application Shell (Dart, compiled)         │\n│  - Yin.vm interpreter                       │\n│  - Native primitives (I/O, crypto, etc.)    │\n│  - Stream infrastructure                    │\n└─────────────────────────────────────────────┘\n                    ↑\n                    │ interprets\n                    ↓\n┌─────────────────────────────────────────────┐\n│  Business Logic (Datom AST, dynamic)        │\n│  - Workflows, rules, transformations        │\n│  - User-defined functions                   │\n│  - Remotely loaded features                 │\n└─────────────────────────────────────────────┘\n                    ↑\n                    │ streams from\n                    ↓\n┌─────────────────────────────────────────────┐\n│  DaoSpace / Datom Streams                      │\n│  - Persistent AST storage                   │\n│  - Continuation checkpoints                 │\n│  - Distributed synchronization              │\n└─────────────────────────────────────────────┘"]]
           [:p
            "The compiled Dart layer handles performance-critical rendering and platform integration. "
            "The interpreted Yin.vm layer handles dynamic, changeable business logic. "
@@ -283,7 +283,7 @@
            [:li [:strong "ClojureDart"] " for compiling cljc to Dart"]
            [:li [:strong "Native Dart"] " for performance-critical primitives and benchmarking"]
            [:li [:strong "Yin.vm"] " for interpreting dynamic AST datoms"]
-           [:li [:strong "DaoDB (since merged into DaoSpace)"] " for persisting and distributing code and continuations"]
+           [:li [:strong "DaoSpace"] " for persisting and distributing code and continuations"]
            [:li [:strong "Flutter"] " for cross-platform UI rendering"]]
 
           [:h2 "Conclusion"]

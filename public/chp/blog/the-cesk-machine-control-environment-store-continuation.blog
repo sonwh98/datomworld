@@ -80,7 +80,7 @@ env2 (assoc env1 'y 2)"]]
           [:p
            "Store is the heap—where mutable data lives. In traditional CESK machines, the store is a mutable map updated in‑place. Yin.vm’s store is also a persistent map, but it’s rarely used directly. Instead, mutable state is represented as "
            [:strong "datom streams"]
-           " in DaoDB (since merged into DaoSpace). The store becomes a local cache of stream references, not the authoritative source of truth."]
+           " in DaoSpace. The store becomes a local cache of stream references, not the authoritative source of truth."]
           [:p
            "This is a key departure from classic CESK: Yin.vm externalizes the store into a stream of immutable facts. A “mutation” is the addition of a new datom; the store map is just a materialized view of the stream’s current state. This makes time‑travel trivial: to roll back a mutation, you simply revert to an earlier prefix of the stream."]
           [:h3 "4. Continuation"]

@@ -215,7 +215,7 @@
              [:td "Materialized view (any transformation of the stream)"]]
             [:tr
              [:td "Multiple observers"]
-             [:td "Multiple interpreters (DaoDB, frontend, backend, analytics)"]]
+             [:td "Multiple interpreters (DaoSpace, frontend, backend, analytics)"]]
             [:tr
              [:td "Observer-independent reality"]
              [:td "Immutable facts independent of interpretation"]]]]
@@ -226,7 +226,7 @@
            "Interpretation produces a particular observable structure, but the stream itself remains unchanged and complete."]
 
           [:p
-           "DaoDB (since merged into DaoSpace) is just one such interpreter. It materializes queryable indexes from the stream, and then Datalog queries "
+           "DaoSpace is just one such interpreter. It materializes queryable indexes from the stream, and then Datalog queries "
            "run against those indexes. But the frontend (PostGraphics), the backend (Yin.VM continuations), and analytics pipelines "
            "are all equally valid interpreters, each transforming the same stream into their own specialized data structures."]
 
@@ -308,7 +308,7 @@
            "The "
            [:strong "Universal Abstract Syntax Tree (AST) is the canonical representation of code"]
            ". But unlike traditional ASTs stored as tree structures scattered across the heap, "
-           [:strong "the AST itself is expressed as datoms in DaoDB"]
+           [:strong "the AST itself is expressed as datoms in DaoSpace"]
            ". Code and data are streams. In the knowledge base, these streams carry datoms."]
 
           [:p
@@ -341,9 +341,9 @@
             ", "
             [:code "[user-123 :user/name \"Alice\" tx-1 {}]"]]
            [:li
-            [:strong "DaoDB materializes an index:"]
+            [:strong "DaoSpace materializes an index:"]
             " The database is just a queryable view over the stream, built by "
-            [:a {:href "/dao-space.chp"} "DaoDB"]
+            [:a {:href "/dao-space.chp"} "DaoSpace"]
             ". It doesn't \"store\" the user. It indexes datoms for fast queries."]
            [:li
             [:strong "The API streams datoms:"]
@@ -396,7 +396,7 @@
            " materializing views of the same underlying stream of facts."]
 
           [:p
-           "When DaoDB indexes the stream and the frontend queries it, they cannot be out of sync. They're "
+           "When DaoSpace indexes the stream and the frontend queries it, they cannot be out of sync. They're "
            "both pure functions of the same append-only log. Cache invalidation becomes trivial: re-query the stream."]
 
           [:h4 "2. Logic layer (business rules)"]
@@ -913,7 +913,7 @@
           [:ul.bulleted
            [:li [:a {:href "/yin.chp"} "Yin.VM"] ": The CESK continuation machine"]
            [:li [:a {:href "/dao-stream.chp"} "DaoStream"] ": Universal streaming API"]
-           [:li [:a {:href "/dao-space.chp"} "DaoDB"] ": Materialized views from streams"]
+           [:li [:a {:href "/dao-space.chp"} "DaoSpace"] ": Materialized views from streams"]
            [:li [:a {:href "/post-graphics.chp"} "PostGraphics"] ": Frame-program graphics vocabulary and renderer"]]
 
           [:p [:em "Related:"]]

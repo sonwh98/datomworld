@@ -321,5 +321,5 @@
              "The Semantic Impedance Mismatch"]
             " (how to translate across languages)"]
            [:li
-            [:a {:href "/dao-space.chp"} "DaoDB (since merged into DaoSpace)"]
+            [:a {:href "/dao-space.chp"} "DaoSpace"]
             " (the Datalog database powering datom streams)"]]]]]}

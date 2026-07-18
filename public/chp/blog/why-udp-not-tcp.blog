@@ -373,7 +373,7 @@
             "NAT traversal, roaming, key rotation without reinventing anything"]
            [:li "Clean integration with existing OS routing and VPN UX"]
            [:li
-            "Focus on DaoDB (since merged into DaoSpace), Yin.VM, agents, and entanglement, not protocol minutiae"]]
+            "Focus on DaoSpace, Yin.VM, agents, and entanglement, not protocol minutiae"]]
           [:p
            [:strong
             "Crucially: Datom.world's design still holds because WireGuard is just a secure pipe."]
@@ -385,7 +385,7 @@
           [:p "The stack is:"]
           [:pre
            [:code
-            "UDP → WireGuard → Datom.packet → DaoDB/Yin/Agents"]]
+            "UDP → WireGuard → Datom.packet → DaoSpace/Yin/Agents"]]
           [:h3 "Path 2: Native Datom.world Protocol (Long-Term Vision)"]
           [:p
            "This is the \"Datom.world becomes its own mesh/VPN fabric\" path."]
@@ -434,7 +434,7 @@
             "Implement that trait using WireGuard first"]
            [:li
             "Stack: "
-            [:code "UDP → WireGuard → Datom.packet → DaoDB/Yin/Agents"]]]
+            [:code "UDP → WireGuard → Datom.packet → DaoSpace/Yin/Agents"]]]
           [:p [:strong "Long-term:"] ""]
           [:ol
            [:li
@@ -456,7 +456,7 @@
           [:p
            "The abstraction layer ("
            [:code "SecureDatagramChannel"]
-           ") means the rest of Datom.world (DaoDB, interpreters, agents) doesn't care which backend provides the secure channel. The semantics remain external. The architecture stays clean."]
+           ") means the rest of Datom.world (DaoSpace, interpreters, agents) doesn't care which backend provides the secure channel. The semantics remain external. The architecture stays clean."]
           [:h2 "Clean Separation of Concerns"]
           [:table
            [:thead
@@ -466,7 +466,7 @@
              [:td "Datom " [:code "[e a v t m]"]]
              [:td
               "Entities, attributes, values, time, causality, provenance"]
-             [:td "DaoDB, query engines, agents, continuations"]]
+             [:td "DaoSpace, query engines, agents, continuations"]]
             [:tr
              [:td "Transport envelope (UDP + DRDS)"]
              [:td
@@ -598,5 +598,5 @@
              "Computation Moves, Data Stays: The Yin.vm Continuation Model"]
             " (how continuations become lightweight enough to migrate)"]
            [:li
-            [:a {:href "/dao-space.chp"} "DaoDB"]
+            [:a {:href "/dao-space.chp"} "DaoSpace"]
             " (the stream database powering Datom.world)"]]]]]}

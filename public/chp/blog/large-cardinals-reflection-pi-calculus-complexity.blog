@@ -269,7 +269,7 @@
           [:pre
            [:code
             {:class "language-clojure"}
-            ";; Level 0: Raw datom stream (1D - time)\n[e a v t m]\n\n;; Level 1: DaoDB interprets as entities (2D - entities × attributes)\n{:entity-1 {:name \"Alice\" :age 30}}\n\n;; Level 2: PostGraphics interprets as UI (3D - entities × attributes × screen position)\n[:div {:style {:x 100 :y 200}} \"Alice, 30\"]\n\n;; Level 3: Yin interprets as computation (4D - + control flow)\n(if (> age 18) (render-adult) (render-child))\n\n;; Each interpreter ADDS A DIMENSION"]]
+            ";; Level 0: Raw datom stream (1D - time)\n[e a v t m]\n\n;; Level 1: DaoSpace interprets as entities (2D - entities × attributes)\n{:entity-1 {:name \"Alice\" :age 30}}\n\n;; Level 2: PostGraphics interprets as UI (3D - entities × attributes × screen position)\n[:div {:style {:x 100 :y 200}} \"Alice, 30\"]\n\n;; Level 3: Yin interprets as computation (4D - + control flow)\n(if (> age 18) (render-adult) (render-child))\n\n;; Each interpreter ADDS A DIMENSION"]]
 
           [:p
            "This is "
@@ -290,7 +290,7 @@
           [:pre
            [:code
             {:class "language-text"}
-            "Property P holds at Level 3 (full system)\n  ↓ reflection\nProperty P already holds at Level 1 (DaoDB)\n  ↓ work required\nLevel 1 must simulate Level 3 behavior\n\nThis is metacircular interpretation!"]]
+            "Property P holds at Level 3 (full system)\n  ↓ reflection\nProperty P already holds at Level 1 (DaoSpace)\n  ↓ work required\nLevel 1 must simulate Level 3 behavior\n\nThis is metacircular interpretation!"]]
 
           [:p
            "Our post on "
@@ -328,11 +328,11 @@
 
           [:p "All are dimensional gradient crossings."]
 
-          [:h2 "DaoDB as Large Cardinal Architecture"]
+          [:h2 "DaoSpace as Large Cardinal Architecture"]
           [:p
-           "DaoDB (since merged into DaoSpace) implements these principles directly."]
+           "DaoSpace implements these principles directly."]
 
-          [:h3 "Reflection in DaoDB"]
+          [:h3 "Reflection in DaoSpace"]
           [:p
            "From our post on "
            [:a {:href "/blog/datom-world-wave-function-collapse.blog"}
@@ -363,7 +363,7 @@
             {:class "language-clojure"}
             ";; Device A: local universe M_A\n(def local-db-A\n  [[1 :name \"Alice\" 100]\n   [1 :age 30 100]])\n\n;; Device B: local universe M_B\n(def local-db-B\n  [[1 :name \"Alice\" 100]\n   [1 :age 31 101]])  ; diverged!\n\n;; Sync creates embedding j: M_A → V, k: M_B → V\n;; CRDT merge computes global V\n(def global-db\n  [[1 :name \"Alice\" 100]\n   [1 :age 30 100]\n   [1 :age 31 101]\n   [1 :age 31 102 {:merged-from [100 101]}]])\n\n;; Reflection: properties of V hold in M_A, M_B after sync"]]
 
-          [:h3 "Communication Complexity in DaoDB"]
+          [:h3 "Communication Complexity in DaoSpace"]
           [:p
            "The critical point is "
            [:strong "network partition size"]
@@ -462,7 +462,7 @@
              [:td "First unavailable channel"]
              [:td "Communication rounds"]]
             [:tr
-             [:td "DaoDB"]
+             [:td "DaoSpace"]
              [:td "Local query = global query"]
              [:td "Partition boundary"]
              [:td "Sync messages"]]
@@ -508,7 +508,7 @@
 
           [:p
            "Large cardinals formalize this in logic. π-Calculus formalizes it in concurrency. "
-           "DaoDB implements it in databases. Physics enforces it with the speed of light."]
+           "DaoSpace implements it in databases. Physics enforces it with the speed of light."]
 
           [:p
            "The universe is "
@@ -531,7 +531,7 @@
            "work emerges from bridging separated observers."]
 
           [:p
-           "This is why DaoDB works: it embraces reflection, makes communication explicit, "
+           "This is why DaoSpace works: it embraces reflection, makes communication explicit, "
            "and minimizes gradient-crossing work."]
 
           [:p
@@ -551,7 +551,7 @@
             [:a {:href "/blog/unitarity-and-communication-limits.blog"}
              "Unitarity, π-Calculus, and the Cosmic Speed Limit"]]
            [:li
-            [:a {:href "/dao-space.chp"} "DaoDB"]
+            [:a {:href "/dao-space.chp"} "DaoSpace"]
             " — Distributed database built on these principles"]
            [:li
             [:a {:href "/dao-stream.chp"} "DaoStream"]

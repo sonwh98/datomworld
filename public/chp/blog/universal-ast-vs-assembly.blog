@@ -312,7 +312,7 @@
            [:em "representation"]
            ", not the execution format. You can:"]
           [:ol
-           [:li "Keep the AST in memory for queries (DaoDB (since merged into DaoSpace))"]
+           [:li "Keep the AST in memory for queries (DaoSpace)"]
            [:li "Compile to optimized bytecode for execution"]
            [:li "Preserve both simultaneously"]]
           [:p "Example:"]
@@ -320,7 +320,7 @@
            [:li
             [:strong "AST (datoms)"]
             " stored in "
-            [:a {:href "/dao-space.chp"} "DaoDB"]
+            [:a {:href "/dao-space.chp"} "DaoSpace"]
             " for queryability"]
            [:li
             [:strong "Bytecode"]
@@ -408,5 +408,5 @@
              "Yin.vm: Chinese Characters for Programming Languages"]
             " (the Universal Semantic AST)"]
            [:li
-            [:a {:href "/dao-space.chp"} "DaoDB"]
+            [:a {:href "/dao-space.chp"} "DaoSpace"]
             " (the Datalog database storing AST datoms)"]]]]]}

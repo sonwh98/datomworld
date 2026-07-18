@@ -18,7 +18,7 @@
              [:a {:href "/yang.chp"} "Yang"]
              " (a compiler), "
              [:a {:href "/dao-space.chp"} "DaoSpace"]
-             " (a tuple space of datom streams, formerly DaoDB), "
+             " (a tuple space of datom streams), "
              [:a {:href "/post-graphics.chp"} "PostGraphics"]
              " (a graphics frame vocabulary and renderer), and "
              [:a {:href "/shibi.chp"} "Shibi"]
@@ -102,8 +102,8 @@
              "Second, datoms are used for everything (ASTs, bytecode, execution traces, schema, provenance), not just application data. "
              "Third, while Datomic fixes the datom as a 5-tuple, Datom.World allows N-dimensional tuples for specialized streams, though the 5-tuple remains the canonical persistent format. "
              [:a {:href "/dao-space.chp"} "DaoSpace"]
-             " (formerly DaoDB) is a family of stream interpreters that materialize whatever indexes the consumer needs. See "
-             [:a {:href "/blog/daodb-moduli-space-of-databases.blog"} "DaoDB as a Moduli Space of Databases"]
+             " is a family of stream interpreters that materialize whatever indexes the consumer needs. See "
+             [:a {:href "/blog/daospace-moduli-space-of-databases.blog"} "DaoSpace as a Moduli Space of Databases"]
              "."]]]
           [:details.faq
            [:summary "Is Yin a replacement for the JVM?"]
@@ -218,10 +218,10 @@
           [:details.faq {:open true}
            [:summary "How are datoms stored and replicated?"]
            [:div
-            [:p
-             "Datoms flow through DaoStreams. Apps like DaoDB consume streams and materialize what they need. "
-             "DaoDB maintains append-only covered indexes (EAVT, AEVT, AVET, VAET) and merges datoms by transaction and causal ID. "
-             "Each node chooses what to materialize. Some store everything, others keep only recent data or specific attributes."]]]
+              [:p
+               "Datoms flow through DaoStreams. Interpreters consume streams and materialize what they need. "
+               "The index library maintains append-only covered indexes (EAVT, AEVT, AVET, VAET) and merges datoms by transaction and causal ID. "
+               "Each node chooses what to materialize. Some store everything, others keep only recent data or specific attributes."]]]
           [:details.faq
            [:summary "What is entanglement between nodes?"]
            [:div

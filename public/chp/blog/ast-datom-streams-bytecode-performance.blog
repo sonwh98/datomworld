@@ -167,7 +167,7 @@
            [:strong "Yang compiler"]
            ". This tool parses traditional source files (like Python or Clojure) and produces an in-memory AST map. This map must then be "
            [:strong "decomposed"]
-           " into the flat, canonical datom representation for storage in DaoDB (since merged into DaoSpace)."]
+           " into the flat, canonical datom representation for storage in DaoSpace."]
           [:pre
            [:code
             "Text Source Code → Yang Compiler → AST Map → Decomposition → AST Datoms in DB"]]
@@ -590,7 +590,7 @@
              "Why yin.vm Succeeds Where Previous Attempts Failed"]
             " (addressing skeptical objections to this architecture)"]
            [:li
-            [:a {:href "/dao-space.chp"} "DaoDB"]
+            [:a {:href "/dao-space.chp"} "DaoSpace"]
             " (the Datalog database powering datom streams)"]
            [:li
             [:a {:href "/yin.chp"} "Yin VM Documentation"]

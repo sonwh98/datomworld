@@ -176,7 +176,7 @@
             [:strong "The VM"]
             " acts as the scheduler of these control flows"]
            [:li
-            [:strong "DaoDB (since merged into DaoSpace) and DaoStream"]
+            [:strong "DaoSpace and DaoStream"]
             " act as the long-term memory"]
            [:li
             [:strong "The Yin-Yang stack"]
@@ -259,5 +259,5 @@
             [:a {:href "/yin.chp"} "Yin VM Documentation"]
             " (technical deep dive)"]
            [:li
-            [:a {:href "/dao-space.chp"} "DaoDB"]
+            [:a {:href "/dao-space.chp"} "DaoSpace"]
             " (the stream database)"]]]]]}

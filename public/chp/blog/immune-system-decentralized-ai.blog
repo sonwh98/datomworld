@@ -4,7 +4,7 @@
        [:p
         "The promise of decentralized intelligence is vast: millions of IoT devices collaborating to train smarter AI "
         "models without sharing raw, private data. But in a zero-trust environment, this dream faces a critical nightmare: "
-        "Poisoning Attacks. By synthesizing Yin.VM, DaoDB, and Shibi, Datom.world creates a self-defending nervous system "
+        "Poisoning Attacks. By synthesizing Yin.VM, DaoSpace, and Shibi, Datom.world creates a self-defending nervous system "
         "for decentralized intelligence, where participants don't need to trust each other, only the immutable physics of the infrastructure."],
        :content
        [:section.blog-article
@@ -40,7 +40,7 @@
            "these theoretical defenses practically viable."]
 
           [:p
-           "By synthesizing our core components (Yin.VM, DaoDB (since merged into DaoSpace), and Shibi) we are creating a "
+           "By synthesizing our core components (Yin.VM, DaoSpace, and Shibi) we are creating a "
            [:strong "self-defending nervous system"]
            " for decentralized intelligence."]
 
@@ -124,7 +124,7 @@
             "\"burn\" or slash the staked Shibi. The malicious actor instantly loses their capability "
             "to interact with the system."]]
 
-          [:h3 "3. The Memory Layer: DaoDB as the Immutable Reputation Ledger"]
+          [:h3 "3. The Memory Layer: DaoSpace as the Immutable Reputation Ledger"]
 
           [:p
            "To effectively defend against poisoning, the system must "
@@ -133,7 +133,7 @@
            "a node that does it once."]
 
           [:p
-           [:a {:href "/dao-space.chp"} "DaoDB"]
+           [:a {:href "/dao-space.chp"} "DaoSpace"]
            ", with its Datomic-inspired architecture of immutable facts "
            [:code "(e a v t m)"]
            ", provides the perfect substrate for long-term reputation. We don't just store the final "
@@ -143,7 +143,7 @@
           [:p
            "This creates a "
            [:strong "permanent, unforgeable audit trail"]
-           ". The \"Robust Aggregation\" (Stage 2) algorithms can query DaoDB to weight contributions "
+           ". The \"Robust Aggregation\" (Stage 2) algorithms can query DaoSpace to weight contributions "
            "based on a node's entire history, not just their current submission. Once a reputation is "
            "tarnished in the immutable ledger, it cannot be reset."]
 
@@ -158,7 +158,7 @@
             [:em "detect lies"]
             "."]
            [:li
-            [:strong "DaoDB"]
+            [:strong "DaoSpace"]
             " provides the immutable memory to "
             [:em "track liars"]
             "."]
@@ -179,7 +179,7 @@
            [:li
             [:a {:href "/yin.chp"} "Yin VM Documentation"]]
            [:li
-            [:a {:href "/dao-space.chp"} "DaoDB Documentation"]]
+            [:a {:href "/dao-space.chp"} "DaoSpace Documentation"]]
            [:li
             [:a {:href "/blog/shibi-as-money.blog"} "Shibi as Money"]]
            [:li

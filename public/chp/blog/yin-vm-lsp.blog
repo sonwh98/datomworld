@@ -33,7 +33,7 @@
            [:a {:href "/blog/ide-edits-ast-not-text.blog"} "When the IDE Edits AST, Not Text"]
            ", Yin.vm makes the Universal AST the canonical representation of code. Text is just a rendering: a view. The AST is stored as "
            [:strong "datom streams"]
-           " in a Datalog database (DaoDB (since merged into DaoSpace))."]
+           " in a Datalog database (DaoSpace)."]
           [:p "This changes everything. Instead of an IDE asking a language server \"where is the definition?\", the IDE runs a Datalog query:"]
           [:pre
            [:code
@@ -60,7 +60,7 @@
             [:tr
              [:td [:strong "Server"]]
              [:td "Per‑language (Python, Java, …)"]
-             [:td "Single DaoDB (all languages)"]]
+             [:td "Single DaoSpace (all languages)"]]
             [:tr
              [:td [:strong "Cross‑Language"]]
              [:td "None (separate servers)"]
@@ -178,7 +178,7 @@
            [:strong "one parser per language"]
            " (to convert source text to Universal AST), but "
            [:strong "one database for all languages"]
-           ". The parser's output is datoms, which go into DaoDB. From there, every IDE feature works the same way, regardless of language."]
+           ". The parser's output is datoms, which go into DaoSpace. From there, every IDE feature works the same way, regardless of language."]
           [:p "This reduces complexity dramatically:"]
           [:table
            [:thead
@@ -194,7 +194,7 @@
             [:tr
              [:td [:strong "Index"]]
              [:td "Per language server, in‑memory, rebuilt on change"]
-             [:td "Single DaoDB with persistent EAVT/AEVT/AVET/VAET indexes"]]
+             [:td "Single DaoSpace with persistent EAVT/AEVT/AVET/VAET indexes"]]
             [:tr
              [:td [:strong "Query Engine"]]
              [:td "Language‑specific heuristics"]
@@ -221,7 +221,7 @@
            [:strong "query engine"]
            "."]
           [:h2 "The IDE as Database Client"]
-          [:p "With Yin.vm, the IDE doesn't talk to a language server. It talks to DaoDB. It can:"]
+          [:p "With Yin.vm, the IDE doesn't talk to a language server. It talks to DaoSpace. It can:"]
           [:ul.bulleted
            [:li "Subscribe to datom streams (live updates as code changes)"]
            [:li "Run Datalog queries (for navigation, refactoring, analysis)"]
@@ -240,11 +240,11 @@
            [:strong "straightforward Datalog queries"]
            " over the AST database."]
           [:h2 "What About Performance?"]
-          [:p "LSP servers are notorious for memory usage and sluggishness. They parse entire codebases on startup and keep ASTs in memory. Yin.vm's DaoDB is a "
+          [:p "LSP servers are notorious for memory usage and sluggishness. They parse entire codebases on startup and keep ASTs in memory. Yin.vm's DaoSpace is a "
            [:strong "persistent, indexed database"]
            ". It doesn't need to parse on startup: the datoms are already there, indexed for fast queries."]
-          [:p "DaoDB's EAVT/AEVT/AVET/VAET covering indexes make queries like \"find all references\" O(log n), not O(n). The database is updated incrementally as datoms arrive, not rebuilt from scratch."]
-          [:p "For massive codebases, you can shard by project, module, or namespace. Datalog queries can run distributed. This is already how DaoDB scales for data; the same architecture works for code."]
+          [:p "DaoSpace's EAVT/AEVT/AVET/VAET covering indexes make queries like \"find all references\" O(log n), not O(n). The database is updated incrementally as datoms arrive, not rebuilt from scratch."]
+          [:p "For massive codebases, you can shard by project, module, or namespace. Datalog queries can run distributed. This is already how DaoSpace scales for data; the same architecture works for code."]
           [:h2 "The Universal Language Server Is a Database"]
           [:p "LSP's great insight was standardization: one protocol for many IDEs and languages. Yin.vm's insight is deeper: "
            [:strong "the language server shouldn't be a server at all"]
@@ -272,7 +272,7 @@
             " for Clojure)"]
            [:li
             [:strong "IDE integration"]
-            " :  IDEs need to speak Datalog to DaoDB instead of JSON‑RPC to LSP"]
+            " :  IDEs need to speak Datalog to DaoSpace instead of JSON‑RPC to LSP"]
            [:li
             [:strong "Incremental migration"]
             " :  tools that convert existing codebases to AST datoms"]]
@@ -292,7 +292,7 @@
             [:a {:href "/blog/universal-ast-vs-assembly.blog"} "Universal AST vs Assembly"]
             " (low‑level form, high‑level semantics)"]
            [:li
-            [:a {:href "/dao-space.chp"} "DaoDB"]
+            [:a {:href "/dao-space.chp"} "DaoSpace"]
             " (the Datalog database storing AST datoms)"]
            [:li
             [:a {:href "/yin.chp"} "Yin VM Documentation"]

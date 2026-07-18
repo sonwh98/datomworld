@@ -97,7 +97,7 @@
           [:p
            "Now put those tuples in "
            [:a {:href "/dao-space.chp"} [:strong "DaoSpace"]]
-           ": a shared, queryable coordination space built on DaoStream and DaoDB (since merged into DaoSpace). Code is no longer \"checked out\" into isolated file trees and reconciled afterward. It lives as shared facts that agents can query, fork, refine, and promote directly."]
+           ": a shared, queryable coordination space built on DaoStream and DaoSpace. Code is no longer \"checked out\" into isolated file trees and reconciled afterward. It lives as shared facts that agents can query, fork, refine, and promote directly."]
           [:p
            "Editing is transacting new datoms. History is automatic, not a manual "
            [:code "git commit"]
@@ -156,7 +156,7 @@
            ", built from "
            [:a {:href "/dao-stream.chp"} "DaoStream"]
            " and "
-           [:a {:href "/dao-space.chp"} "DaoDB"]
+           [:a {:href "/dao-space.chp"} "DaoSpace"]
            ". A stream of content-addressed, append-only, hash-linked records replicated by hash transfer is, structurally, "
            [:em "what Git is"]
            ". The commit graph is a Merkle DAG of content-addressed blobs; our datom stream is a Merkle sequence of content-addressed facts. Same primitive, same guarantees."]

@@ -313,9 +313,9 @@
            "This is "
            [:strong "schema-on-write"]
            ": the first write defines the type, subsequent writes are validated and optimized."]
-          [:h2 "DaoDB's Approach"]
+          [:h2 "DaoSpace's Approach"]
           [:p
-           [:a {:href "/dao-space.chp"} "DaoDB (since merged into DaoSpace)"]
+           [:a {:href "/dao-space.chp"} "DaoSpace"]
            " combines multiple strategies:"]
           [:ul.bulleted
            [:li
@@ -424,7 +424,7 @@
           [:h2 "Learn More"]
           [:ul.bulleted
            [:li
-            [:a {:href "/dao-space.chp"} "DaoDB"]
+            [:a {:href "/dao-space.chp"} "DaoSpace"]
             ": How the datom database optimizes representation"]
            [:li
             [:a

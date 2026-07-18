@@ -206,13 +206,13 @@
           [:p "The key components:"]
 
           [:ul.bulleted
-           [:li [:strong "DaoDB (since merged into DaoSpace)"] ": An organ that indexes datoms for queryability with Datalog. It enables trust and coordination across geographic and political boundaries by organizing the stream, allowing clusters to query and coordinate without requiring physical proximity or political unity."]
+           [:li [:strong "DaoSpace"] ": An organ that indexes datoms for queryability with Datalog. It enables trust and coordination across geographic and political boundaries by organizing the stream, allowing clusters to query and coordinate without requiring physical proximity or political unity."]
            [:li [:strong "DaoStream"] ": The digital nervous system. Flow-based architecture that models economic activity as streams of datoms moving through networks. Resources and signals flow where they're needed, driven by gradients rather than central planning."]
            [:li [:strong "ShiBi"] ": A " [:a {:href "/blog/shibi-as-money.blog"} "system for creating capability tokens"] " that grant access based on relevance and contribution rather than purchasing power. ShiBi deliberately tries not to be money, instead creating context-specific tokens that establish borders based on expertise and value created."]]
 
           [:p "In practice, this means " [:strong "Datomworld participants will naturally form clusters in abstract space"] ",not because of laws or restrictions, but because agglomeration effects make certain positions in the network more valuable for certain activities. A cluster of AI researchers might form in one abstract space, creating a strange attractor that pulls in related talent. A manufacturing coordination hub might emerge in a different region of abstract space, connected to the research cluster through Datomworld's transportation infrastructure of datom streams."]
 
-          [:p [:strong "The critical difference from today's system: the borders between these clusters are permeable economic gradients, not impermeable political walls"] ". Someone in a low-cost manufacturing cluster can contribute to high-value research projects through the digital nervous system (DaoStream), with coordination enabled by querying the indexed datoms (DaoDB). Capital can flow from high-return clusters to fund expansion in production clusters through the economic bloodstream (DaoStream). And capability tokens (ShiBi) grant access based on relevance and contribution, not just economic position."]
+          [:p [:strong "The critical difference from today's system: the borders between these clusters are permeable economic gradients, not impermeable political walls"] ". Someone in a low-cost manufacturing cluster can contribute to high-value research projects through the digital nervous system (DaoStream), with coordination enabled by querying the indexed datoms (DaoSpace). Capital can flow from high-return clusters to fund expansion in production clusters through the economic bloodstream (DaoStream). And capability tokens (ShiBi) grant access based on relevance and contribution, not just economic position."]
 
           [:p "But ShiBi introduces something even more interesting: " [:strong "capability tokens that create borders based on relevance rather than economics"] ". Traditional economic borders ask: " [:em "\"Can you afford to be here?\""] " ShiBi's capability tokens ask: " [:em "\"Are you relevant to this context?\""] " This creates a fundamentally different kind of boundary."]
 
@@ -233,5 +233,5 @@
            [:li [:a {:href "/blog/all-money-is-monopoly-money.blog"} "All Money Is Monopoly Money"]]
            [:li [:a {:href "/blog/maxwells-demon-economic-value.blog"} "Maxwell's Demon and Economic Value"]]
            [:li [:a {:href "/blog/shibi-as-money.blog"} "ShiBi as Money"]]
-           [:li [:a {:href "/dao-space.chp"} "DaoDB"] " - The data substrate"]
+           [:li [:a {:href "/dao-space.chp"} "DaoSpace"] " - The data substrate"]
            [:li [:a {:href "/dao-stream.chp"} "DaoStream"] " - Flow-based architecture"]]]]]}

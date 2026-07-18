@@ -120,7 +120,7 @@
            [:li [:strong "Context window"] " : working memory for the current inference, not the durable source of truth"]
            [:li [:strong "Active continuation"] " : the current control state, captured environment, and point of suspension"]
            [:li [:strong "DaoStream"] " : append-only history in transaction order"]
-           [:li [:strong "DaoDB (since merged into DaoSpace)"] " : bounded, queryable memory built from those streams"]
+           [:li [:strong "DaoSpace"] " : bounded, queryable memory built from those streams"]
            [:li [:strong "Agent Smith"] " : one or more continuations that watch streams, decide what matters, and route relevant datoms back into execution"]]
 
           [:p
@@ -147,7 +147,7 @@
           [:p
            "The strongest consequence of this architecture is also the simplest one: agents are continuations, and Agent Smith is no exception. "
            "When memory is needed, the active continuation can park. "
-           "A retrieval continuation can query DaoDB. "
+           "A retrieval continuation can query DaoSpace. "
            "Execution then resumes with the returned datoms."]
 
           [:p
@@ -216,9 +216,9 @@
 
           [:ul.bulleted
            [:li [:a {:href "/blog/containing-agent-smith.blog"} "Containing Agent Smith in a Pocket Universe"] " , on containment, continuations, and safe execution"]
-           [:li [:a {:href "/blog/yin-vm-daodb-architecture.blog"} "Yin.VM + DaoDB Architecture"] " , on how continuations and bounded memory fit together"]
+           [:li [:a {:href "/blog/yin-vm-daospace-architecture.blog"} "Yin.VM + DaoSpace Architecture"] " , on how continuations and bounded memory fit together"]
            [:li [:a {:href "/blog/datoms-as-streams.blog"} "Datoms as Streams"] " , on the stream-first model behind durable facts"]
            [:li [:a {:href "/blog/computation-dimensional-expansion-compression.blog"} "What Is Computation?"] " , on streams expanding into structure and compressing back into invariants"]
            [:li [:a {:href "/yin.chp"} "Yin.VM"] " , on continuations as first-class execution"]
-           [:li [:a {:href "/dao-space.chp"} "DaoDB"] " , on bounded datom streams as durable memory"]
+           [:li [:a {:href "/dao-space.chp"} "DaoSpace"] " , on bounded datom streams as durable memory"]
            [:li [:a {:href "/blog/architecture.blog"} "Architecture"] " , on restriction, explicit causality, and stream-based systems"]]]]]}

@@ -397,7 +397,7 @@
           [:h3 "Expansion in Datom.world"]
 
           [:ul.bulleted
-           [:li [:strong "DaoDB (since merged into DaoSpace)"] " expands datoms into entity graphs"]
+           [:li [:strong "DaoSpace"] " expands datoms into entity graphs"]
            [:li [:strong "PostGraphics"] " expands datoms into UI trees"]
            [:li [:strong "Yin.vm"] " expands datoms into execution semantics"]
            [:li [:strong "Entangled nodes"] " expand streams into distributed timelines"]]
@@ -476,7 +476,7 @@
            [:li
             [:a {:href "/blog/datom-world-wave-function-collapse.blog"}
              "Datom.World and the Collapse of the Wave Function"]]
-           [:li [:a {:href "/dao-space.chp"} "DaoDB"] " - The dimensional substrate"]
+           [:li [:a {:href "/dao-space.chp"} "DaoSpace"] " - The dimensional substrate"]
            [:li
             [:a {:href "/dao-stream.chp"} "DaoStream"]
             " - Stream-based architecture"]

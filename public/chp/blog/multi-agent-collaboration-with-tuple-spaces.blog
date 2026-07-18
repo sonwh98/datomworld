@@ -118,7 +118,7 @@
            [:li "Controlled mode, the trust boundary that goes beyond both tuple spaces and Datomic, is specified but out of scope for v1. v1 ships public mode only."]
            [:li "The lazy B-tree pull depends on a library without a Dart target, so ClojureDart peers fall back to an in-memory sorted set and cannot lazily fetch segments across the network. They load the whole index into memory."]]
           [:p "None of this changes the API or the boundaries. It sets the order of work after v1, and most of it is finishing the Datomic inheritance rather than inventing anything new."]
-          [:p "More on the storage boundary in the writeup on " [:a {:href "/blog/daodb-distributed-database-immutable-streams.blog"} "building a distributed database on immutable streams"] ", and on separating representation from interpretation in " [:a {:href "/blog/semantics-structure-interpretation.blog"} "the semantics piece"] "."]
+          [:p "More on the storage boundary in the writeup on " [:a {:href "/blog/daospace-distributed-database-immutable-streams.blog"} "building a distributed database on immutable streams"] ", and on separating representation from interpretation in " [:a {:href "/blog/semantics-structure-interpretation.blog"} "the semantics piece"] "."]
 
           [:h2 "The Bet"]
           [:p

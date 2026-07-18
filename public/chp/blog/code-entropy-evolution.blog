@@ -389,7 +389,7 @@
            "Where traditional codebases fight entropy through discipline and testing, datom.world embeds entropy management into the substrate itself. "
            "This realizes the core evolutionary strategy: by fixing the fundamental constraints, the invariant 5-tuple datom, we create the stable environment where behavior can evolve through stream history and open interpretation."]
           [:p
-           "Quick orientation for readers new to datom.world: DaoDB (since merged into DaoSpace) is the database engine, Yin.VM is the evaluator, "
+           "Quick orientation for readers new to datom.world: DaoSpace is the database engine, Yin.VM is the evaluator, "
            "PostGraphics is the UI/runtime layer, and Shibi is the capability token system. The details differ, but each "
            "component interprets the same datom stream."]
           [:h3 "Immutable Streams: Entropy Distribution by Design"]
@@ -461,7 +461,7 @@
            "Datom.world extends the same layered interpretation pattern across the entire stack, from language to storage to runtime."]
           [:p
            "Streams of datoms are the universal substrate. "
-           "DaoDB interprets the stream as indexes. "
+           "DaoSpace interprets the stream as indexes. "
            "Yin.VM interprets it as execution. "
            "PostGraphics interprets it as UI. "
            "AI agents interpret it as training data. "

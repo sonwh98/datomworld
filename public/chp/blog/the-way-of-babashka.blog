@@ -54,7 +54,7 @@
           [:p "The new architecture:"]
           [:ul.bulleted
            [:li [:strong "Implement Yin.VM in Clojure"] " - Leverage my actual expertise"]
-           [:li [:strong "Use Datascript for AST persistence"] " - A mature datalog database instead of building DaoDB (since merged into DaoSpace) from scratch"]
+           [:li [:strong "Use Datascript for AST persistence"] " - A mature datalog database instead of building DaoSpace from scratch"]
            [:li [:strong "Bootstrap from the JVM"] " - Get a working system quickly"]
            [:li [:strong "Progressive enhancement"] " - Self-host later, once the core is proven"]]
           [:p "This isn't admitting defeat. It's admitting "
@@ -69,16 +69,16 @@
           [:p "The bottleneck wasn't the language's runtime. It was my expertise."]
           [:h3 "2. Datascript Removes Uncertainty Cheaply"]
           [:p
-           "The core hypothesis of Yin.VM—that ASTs can be stored as queryable datoms—is unproven. Building DaoDB from scratch in Rust meant months of work "
+           "The core hypothesis of Yin.VM—that ASTs can be stored as queryable datoms—is unproven. Building DaoSpace from scratch in Rust meant months of work "
            [:em "before"]
            " validating the idea."]
           [:p
            "Datascript changes the equation. It's a mature, battle-tested datalog database implemented in ClojureScript. It can:"]
           [:ul.bulleted
            [:li "Store AST nodes as entities with relationships"]
-           [:li "Query with datalog (the same query language I'm planning for DaoDB)"]
+           [:li "Query with datalog (the same query language I'm planning for DaoSpace)"]
            [:li "Run in-memory for fast iteration"]
-           [:li "Provide a compatibility target if I eventually build DaoDB"]]
+           [:li "Provide a compatibility target if I eventually build DaoSpace"]]
           [:p "Within "
            [:em "hours"]
            ", not months, I can test the viability of \"AST as datoms\":"]
@@ -146,9 +146,9 @@
            [:li "Renders to multiple syntaxes"]
            [:li "Evaluates directly from AST"]
            [:li "Supports lightweight continuations"]]
-          [:h3 "Phase 3: Decide on DaoDB"]
-          [:p "After validation, the data will show whether I need DaoDB:"]
-          [:p [:strong "Build DaoDB if"] ":"]
+          [:h3 "Phase 3: Decide on DaoSpace"]
+          [:p "After validation, the data will show whether I need DaoSpace:"]
+          [:p [:strong "Build DaoSpace if"] ":"]
           [:ul.bulleted
            [:li "Storage overhead >5x becomes problematic"]
            [:li "Query performance is a bottleneck"]
@@ -161,7 +161,7 @@
            [:li "In-memory storage works for my use cases"]
            [:li "Maturity and community support matter more than custom optimization"]]
           [:p
-           "If I build DaoDB later, Datascript becomes my compatibility baseline. The API will be compatible, making migration straightforward."]
+           "If I build DaoSpace later, Datascript becomes my compatibility baseline. The API will be compatible, making migration straightforward."]
           [:h2 "The Hard Lesson"]
           [:p "Here's what the Rust experience taught me:"]
           [:p
@@ -249,7 +249,7 @@
              "Why yin.vm Succeeds Where Previous Attempts Failed"]
             " (addressing skeptical objections to this architecture)"]
            [:li
-            [:a {:href "/dao-space.chp"} "DaoDB"]
+            [:a {:href "/dao-space.chp"} "DaoSpace"]
             " (the eventual production database, built after validation)"]
            [:li
             [:a {:href "/yin.chp"} "Yin VM Documentation"]

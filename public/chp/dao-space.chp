@@ -10,8 +10,7 @@
          [:p.section-lead
           "DaoSpace is not a component you deploy or a store you instantiate. It is the " [:strong "tuple space that emerges"] " when agents use two libraries over shared storage: "
           [:code "dao.space.index"] " builds covered indexes over each agent's own " [:a {:href "/dao-stream.chp"} "DaoStream"] " and persists them in DaoJing, the content-addressed store, and "
-          [:code "dao.space.query"] " matches over the persisted indexes associatively: by content, never by address. "
-          "DaoDB, formerly a separate component, has been merged into DaoSpace: its indexing and query duties are now these two libraries."]
+          [:code "dao.space.query"] " matches over the persisted indexes associatively: by content, never by address."]
          [:p
           "A tuple space is defined by two complementary moves. Reading is " [:strong "associative matching"] ": you locate a tuple by describing its content, never by naming its address. "
           "Writing is " [:strong "generative communication"] ": you deposit a tuple into the shared medium and never address a receiver. "

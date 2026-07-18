@@ -39,21 +39,21 @@
           [:strong "The Universal AST is a construction of datoms"]
           ". The datom is " [:em "always"] " the source of truth. "
           "What appears as a nested map structure in Yin.vm's surface API is an interpretation of the underlying datoms. "
-          "The AST is deconstructed into datoms for storage in DaoDB, and reconstructed when needed. "
+          "The AST is deconstructed into datoms for storage in DaoSpace, and reconstructed when needed. "
           "Underneath, every AST node is a set of facts: entity ID, attributes (node type, operator, operands), and relationships to other nodes."]
          [:p
           "The " [:a {:href "/yang.chp"} "Yang compiler"] " can generate the Universal AST in two forms. "
           "It can directly emit the map projection for immediate use by Yin.vm's API. "
-          "Or it can directly generate the datom representation, which can be streamed directly into " [:a {:href "/dao-space.chp"} "DaoDB"] ", "
+          "Or it can directly generate the datom representation, which can be streamed directly into " [:a {:href "/dao-space.chp"} "DaoSpace"] ", "
           "bypassing the map form entirely. "
-          "In DaoDB, datoms are indexed as covering indexes for efficient Datalog queries."]
+          "In DaoSpace, datoms are indexed as covering indexes for efficient Datalog queries."]
          [:p
-          "Once in DaoDB, both the AST and runtime state persist throughout the entire lifecycle as datoms. "
+          "Once in DaoSpace, both the AST and runtime state persist throughout the entire lifecycle as datoms. "
           "Everything—AST nodes, bytecode, continuations, environments, stores—exists as datoms, queryable with Datalog at any time. "
           "Nothing is ever discarded. "
           "Every transformation therefore preserves reversibility, provenance, and rich introspection."]
          [:p
-          "Once the AST datoms are indexed in DaoDB, Yin.vm uses Datalog to transform them into bytecode datoms without ever materializing the map form of the AST. "
+          "Once the AST datoms are indexed in DaoSpace, Yin.vm uses Datalog to transform them into bytecode datoms without ever materializing the map form of the AST. "
           "Both AST and bytecode are datom streams. "
           "Yin can JIT-compile bytecode for performance. "
           "Transforming AST datoms into flat execution bytecode achieves bytecode-like performance while preserving full semantic queryability—see "
@@ -137,7 +137,7 @@
           "Surface-level language features collapse into a small universal kernel."]
          [:h3 "Computation becomes data"]
          [:p
-          "Because both AST and runtime state (including continuations, environments, and stores) are just datoms in " [:a {:href "/dao-space.chp"} "DaoDB"] ", "
+          "Because both AST and runtime state (including continuations, environments, and stores) are just datoms in " [:a {:href "/dao-space.chp"} "DaoSpace"] ", "
           "the boundary between program and process disappears. Everything—from source code to execution state—is queryable with Datalog, modifiable, and transferable."]
          [:ul.bulleted
           [:li [:strong "Query with Datalog"] " : inspect active continuations, find bottlenecks, trace execution paths, analyze runtime state"]
@@ -146,7 +146,7 @@
           [:li [:strong "Hot code reload"] " : patch running continuations without restart"]
           [:li [:strong "AI-assisted modification"] " : LLMs can read, understand, and transform continuations and runtime state"]]
          [:p
-          "The same DaoDB holds AST nodes, bytecode, continuation frames, CESK state, type information, and runtime facts. "
+          "The same DaoSpace holds AST nodes, bytecode, continuation frames, CESK state, type information, and runtime facts. "
           "Just as the AST graph decomposes into datoms (entity-attribute-value facts), so do continuations, environments, and stores. "
           "Code, data, and execution state share a unified representation as queryable, versioned facts in the same knowledge graph."]
          [:p

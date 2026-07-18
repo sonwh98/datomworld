@@ -78,7 +78,7 @@
 
                    [:p "More critically, " [:strong "the serialization format is not the data model"] ". A triple is a conceptual structure. RDF/XML, JSON-LD, and Turtle are different " [:em "representations"] " of that structure. You negotiate which format to use, then parse it into an internal representation (often... integers for performance, as we'll see)."]
 
-                   [:p "Datoms take the opposite approach: " [:strong "datoms are the canonical format for persistent facts"] ". A datom is a five-element vector [e a v t m]. That's not a representation of a datom, that " [:em "is"] " a datom. There's no parsing step where you transform from one structure to another. The vector literal " [:code "[42 :person/name \"Alice\" 1001 nil]"] " is what gets indexed, what gets queried, what gets persisted in DaoDB (since merged into DaoSpace) as raw EDN or encoded with Transit. Ephemeral streams may carry other value types; the datom format is the invariant for stored facts."]
+                   [:p "Datoms take the opposite approach: " [:strong "datoms are the canonical format for persistent facts"] ". A datom is a five-element vector [e a v t m]. That's not a representation of a datom, that " [:em "is"] " a datom. There's no parsing step where you transform from one structure to another. The vector literal " [:code "[42 :person/name \"Alice\" 1001 nil]"] " is what gets indexed, what gets queried, what gets persisted in DaoSpace as raw EDN or encoded with Transit. Ephemeral streams may carry other value types; the datom format is the invariant for stored facts."]
 
                    [:h3 "2. The Consensus Bottleneck"]
                    [:p "The semantic web vision required " [:strong "universal agreement"] " on ontologies before applications could interoperate. While you could technically build an application with your own private ontology, doing so removed the main benefit: automatic data integration across systems. But agreement is expensive."]
@@ -89,7 +89,7 @@
 
                    [:p "The datom model avoids this trap by shifting from " [:strong "global specification"] " to " [:strong "local interpretation"] ":"]
                    [:ul
-                    [:li [:strong "Local IDs, Late-Binding Identity"] ": Entity IDs are integers assigned locally within each stream, sized by the stream type (as small as 16-bit on constrained devices), requiring zero consensus. When datoms migrate to a remote DaoDB, the remote upgrades entity IDs to 128-bit by using the originating node's 64-bit ID as the high bits. The node ID serves as a namespace jail: the jail itself has node ID zero, and all entity references in the migrated datoms are relative to the originating node ID. Correlation between systems uses shared unique attributes (" [:code ":person/email"] ") at query time, not during storage. This moves the \"agreement\" cost from the storage layer (hard, upfront) to the query layer (flexible, as-needed)."]
+                    [:li [:strong "Local IDs, Late-Binding Identity"] ": Entity IDs are integers assigned locally within each stream, sized by the stream type (as small as 16-bit on constrained devices), requiring zero consensus. When datoms migrate to a remote DaoSpace, the remote upgrades entity IDs to 128-bit by using the originating node's 64-bit ID as the high bits. The node ID serves as a namespace jail: the jail itself has node ID zero, and all entity references in the migrated datoms are relative to the originating node ID. Correlation between systems uses shared unique attributes (" [:code ":person/email"] ") at query time, not during storage. This moves the \"agreement\" cost from the storage layer (hard, upfront) to the query layer (flexible, as-needed)."]
                     [:li [:strong "Agents Replace Ontologies"] ": Instead of passive dictionaries requiring industry-wide agreement, datom.world uses executable agents that process data. Meaning is defined by what the agent " [:em "does"] ", not what a specification " [:em "says"] ". You don't wait for a standards committee to define " [:code "standard:invoice"] ". You write an agent that processes your invoice datoms."]
                     [:li [:strong "Fixed Structure, No Meta-Agreement"] ": The five-tuple structure is non-negotiable. Time and provenance are built-in dimensions, not interpretive layers requiring additional agreement on how to track history. Systems don't need to agree on " [:em "how"] " to handle change, they just replay the append-only log."]]
 
@@ -107,7 +107,7 @@
 
                    [:p "Datom.world provides an answer: " [:strong "agents are yin.vm continuations"] ". Because yin.vm unifies functions, closures, and continuations, agents are simply functions that consume streams of datoms and can migrate across nodes. The Universal AST serves as the compilation target, preserving semantics across languages."]
 
-                   [:p [:strong "Continuations exist as datoms"] ". It's datoms all the way down. The execution state (control, environment, store, continuation) is stored as datoms in DaoDB. This means agents can be serialized, migrated across nodes, and resumed from any point. Code and runtime state share the same representation."]
+                   [:p [:strong "Continuations exist as datoms"] ". It's datoms all the way down. The execution state (control, environment, store, continuation) is stored as datoms in DaoSpace. This means agents can be serialized, migrated across nodes, and resumed from any point. Code and runtime state share the same representation."]
 
                    [:p "Instead of relying on consensus about what a predicate means, you have " [:strong "executable agents"] " that process datoms according to explicit rules. The meaning isn't in the ontology: it's in the agent's behavior."]
 
@@ -127,9 +127,9 @@
                    [:p "Entity IDs are " [:strong "internal references"] " within a stream. Streams are typed, and the stream type determines the size of each position in the datom " [:code "[e a v t m]"] ":"]
                    [:pre [:code "[42 :person/name \"Alice\" 1001 nil]"]]
 
-                   [:p "Stream types determine entity ID size. Constrained edge devices can use streams typed with entity IDs as small as 16-bit. When a continuation migrates to the cloud, the remote DaoDB upgrades entity IDs to 128-bit: the originating node's 64-bit ID becomes the high bits, and the original entity ID is zero-extended to fill the low bits. The node ID acts as a namespace jail. The remote DaoDB's own entities have node ID zero, while migrated entities retain their originating node ID. All entity references within the migrated datoms are interpreted relative to the originating node ID."]
+                   [:p "Stream types determine entity ID size. Constrained edge devices can use streams typed with entity IDs as small as 16-bit. When a continuation migrates to the cloud, the remote DaoSpace upgrades entity IDs to 128-bit: the originating node's 64-bit ID becomes the high bits, and the original entity ID is zero-extended to fill the low bits. The node ID acts as a namespace jail. The remote DaoSpace's own entities have node ID zero, while migrated entities retain their originating node ID. All entity references within the migrated datoms are interpreted relative to the originating node ID."]
 
-                   [:p "This structure accommodates trillions of devices. The 64-bit node ID space supports billions of nodes, each with its own 64-bit entity ID space, ensuring isolation while allowing entities to coexist on the same remote DaoDB. This mirrors IPv6's design: 64-bit network prefix plus 64-bit interface ID."]
+                   [:p "This structure accommodates trillions of devices. The 64-bit node ID space supports billions of nodes, each with its own 64-bit entity ID space, ensuring isolation while allowing entities to coexist on the same remote DaoSpace. This mirrors IPv6's design: 64-bit network prefix plus 64-bit interface ID."]
 
                    [:p "Entity IDs 0-1024 are reserved for system entities (built-in attributes like " [:code ":db/ident"] ", type markers, and other primitives) with universal meaning across all namespaces. User entities start at 1025, which serves as the \"zero basis\" for user data. On migration, the zero basis changes but entity IDs remain unchanged because they are relative offsets."]
 
@@ -142,7 +142,7 @@
 
                    [:h4 "Semantic Identity: Unique Attributes"]
                    [:p "Identity is not a property of entity IDs. It's a " [:strong "semantic property"] " expressed through unique attributes:"]
-                   [:pre [:code ";; DaoDB-A: Personal database\n[1 :person/name \"Alice\"]\n[1 :person/uuid #uuid \"550e8400-...\"]\n[1 :person/email \"alice@example.com\"]\n\n;; DaoDB-B: Work database\n[7 :person/uuid #uuid \"550e8400-...\"]  ;; Same UUID\n[7 :person/department \"Engineering\"]"]]
+                   [:pre [:code ";; DaoSpace-A: Personal database\n[1 :person/name \"Alice\"]\n[1 :person/uuid #uuid \"550e8400-...\"]\n[1 :person/email \"alice@example.com\"]\n\n;; DaoSpace-B: Work database\n[7 :person/uuid #uuid \"550e8400-...\"]  ;; Same UUID\n[7 :person/department \"Engineering\"]"]]
 
                    [:p "Different entity IDs (" [:code "1"] " vs " [:code "7"] "), but the same person. Correlation happens through the shared " [:code ":person/uuid"] " attribute, not the entity ID."]
 
@@ -150,7 +150,7 @@
                    [:ul
                     [:li [:strong "Lookup refs"] ": " [:code "[:person/email \"alice@example.com\"]"] " resolves to the local entity ID"]
                     [:li [:strong "Upsert semantics"] ": facts added to a unique attribute find or create the entity"]
-                    [:li [:strong "Cross-DaoDB queries"] ": join on shared unique values"]]
+                    [:li [:strong "Cross-DaoSpace queries"] ": join on shared unique values"]]
 
                    [:p "Different entities can use different identity schemes: " [:code ":person/uuid"] " for globally unique entities, " [:code ":person/email"] " for natural identity, " [:code ":document/sha256"] " for content-addressed identity, or no unique attributes for private, non-correlatable entities."]
 
@@ -159,7 +159,7 @@
                    [:h2 "Interpreters Materialize Datoms"]
                    [:p "The datom " [:code "[e a v t m]"] " is canonical for persistent facts. What you do with it depends on the interpreter. Streams carry datoms for persistent layers and appropriate values for ephemeral layers."]
 
-                   [:p [:strong "DaoDB"] " is one interpreter. It materializes datoms into covered indexes (EAVT, AEVT, AVET, VAET) for efficient querying. But DaoDB is not the only way to interpret a datom stream."]
+                   [:p [:strong "DaoSpace"] " is one interpreter. It materializes datoms into covered indexes (EAVT, AEVT, AVET, VAET) for efficient querying. But DaoSpace is not the only way to interpret a datom stream."]
 
                    [:p [:strong "A content-addressing interpreter"] " can materialize datoms differently. For universal structures like AST nodes, it hashes " [:code "(a, v)"] " to produce SHA-256 content hashes. The same expression " [:code "(+ 1 2)"] " produces the same hash everywhere, enabling deduplication and verification across the network."]
 
@@ -172,7 +172,7 @@
                    [:h3 "Streams: Bounded and Unbounded"]
                    [:p "Streams can be " [:strong "open"] " (unbounded, still receiving datoms) or " [:strong "bounded"] " (closed at some transaction " [:code "t"] ", finite, stable for reasoning). A bounded stream " [:em "is"] " the database value. There is no separate \"value\" type. Stability comes from bounding, not from a different abstraction."]
 
-                   [:p "Datalog queries (" [:code "d/q"] ") work on any bounded stream. A raw stream without indexes requires O(n) scan. A DaoDB-managed stream with EAVT/AEVT/AVET/VAET indexes enables O(log n) lookup. Same interface, same semantics, different performance. Indexes are a performance optimization, not a semantic requirement."]
+                   [:p "Datalog queries (" [:code "d/q"] ") work on any bounded stream. A raw stream without indexes requires O(n) scan. A DaoSpace-managed stream with EAVT/AEVT/AVET/VAET indexes enables O(log n) lookup. Same interface, same semantics, different performance. Indexes are a performance optimization, not a semantic requirement."]
 
                    [:h2 "Restrictions as Features"]
                    [:p "Datoms are more restrictive than RDF:"]

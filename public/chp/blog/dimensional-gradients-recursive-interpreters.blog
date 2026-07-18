@@ -35,7 +35,7 @@
             {:class "language-text"}
             "Time axis: datom₁ → datom₂ → datom₃ → ...\nDimensionality: 1 (time)"]]
 
-          [:h3 "Layer 1: DaoDB Interprets as Entities (2D)"]
+          [:h3 "Layer 1: DaoSpace Interprets as Entities (2D)"]
           [:pre
            [:code
             {:class "language-clojure"}
@@ -47,7 +47,7 @@
             "Dimensionality: 2 (entities × attributes)\nNew dimension: entity-space"]]
 
           [:p
-           "By grouping datoms by entity, DaoDB (since merged into DaoSpace) adds a "
+           "By grouping datoms by entity, DaoSpace adds a "
            [:strong "spatial dimension"]
            "—entities exist as points "
            "in attribute-space."]
@@ -126,7 +126,7 @@
              [:td "Stack, heap, scope"]]
             [:tr
              [:td "Datoms (1D)"]
-             [:td "DaoDB"]
+             [:td "DaoSpace"]
              [:td "Entities (2D)"]
              [:td "Entity-space"]]
             [:tr
@@ -257,7 +257,7 @@
           [:pre
            [:code
             {:class "language-clojure"}
-            ";; Level 0: Datom stream\n[e a v t m]\n\n;; Level 1: DaoDB interprets datoms as entities\n(interpret-as-entities datoms)\n\n;; Level 2: Yin interprets entities as code\n(interpret-as-code entities)\n\n;; Level 3: Code interprets itself (metacircular)\n(eval (interpret-as-code entities))\n\n;; Level 4: The interpreter at Level 3 interprets Level 2\n;; ...\n;; Infinite tower of interpreters"]]
+            ";; Level 0: Datom stream\n[e a v t m]\n\n;; Level 1: DaoSpace interprets datoms as entities\n(interpret-as-entities datoms)\n\n;; Level 2: Yin interprets entities as code\n(interpret-as-code entities)\n\n;; Level 3: Code interprets itself (metacircular)\n(eval (interpret-as-code entities))\n\n;; Level 4: The interpreter at Level 3 interprets Level 2\n;; ...\n;; Infinite tower of interpreters"]]
 
           [:p
            "Each level "
@@ -376,15 +376,15 @@
            [:strong "3D projection of 2D information"]
            "—an interpretive layer adding spatial dimension."]
 
-          [:h2 "DaoDB as Dimensional Architecture"]
+          [:h2 "DaoSpace as Dimensional Architecture"]
           [:p
-           "DaoDB deliberately minimizes gradient-crossing work:"]
+           "DaoSpace deliberately minimizes gradient-crossing work:"]
 
           [:h3 "Minimal Interpretive Layers"]
           [:pre
            [:code
             {:class "language-text"}
-            "Layer 0: Datom stream (1D)\n  ↓ DaoDB interpreter\nLayer 1: Entities (2D)\n  ↓ Query interpreter (Datalog)\nLayer 2: Results (2D)\n  ↓ PostGraphics interpreter\nLayer 3: UI (3D)\n\nOnly 3 gradient crossings!"]]
+            "Layer 0: Datom stream (1D)\n  ↓ DaoSpace interpreter\nLayer 1: Entities (2D)\n  ↓ Query interpreter (Datalog)\nLayer 2: Results (2D)\n  ↓ PostGraphics interpreter\nLayer 3: UI (3D)\n\nOnly 3 gradient crossings!"]]
 
           [:p "Compare to traditional stack:"]
 
@@ -397,12 +397,12 @@
           [:p
            "By keeping data as "
            [:strong "streams of datoms"]
-           " throughout, DaoDB minimizes dimensional changes:"]
+           " throughout, DaoSpace minimizes dimensional changes:"]
 
           [:pre
            [:code
             {:class "language-clojure"}
-            ";; Traditional: many gradient crossings\nDB → SQL → Rows → Objects → JSON → Strings → Bytes → HTTP\n\n;; DaoDB: stream stays stream\nDatoms → (filter by-query) → Datoms → (render) → UI\n\n;; Interpretation happens in-place, no serialization"]]
+            ";; Traditional: many gradient crossings\nDB → SQL → Rows → Objects → JSON → Strings → Bytes → HTTP\n\n;; DaoSpace: stream stays stream\nDatoms → (filter by-query) → Datoms → (render) → UI\n\n;; Interpretation happens in-place, no serialization"]]
 
           [:h3 "CRDTs Minimize Sync Gradients"]
           [:p
@@ -547,11 +547,11 @@
            [:li
             "Why the universe has a speed limit (gradients have finite slope)"]
            [:li "Why consciousness feels like \"something\" (high-dimensional self-interpretation)"]
-           [:li "Why DaoDB minimizes layers (fewer gradients = less work)"]]
+           [:li "Why DaoSpace minimizes layers (fewer gradients = less work)"]]
 
           [:p
            "When you write code, you're creating interpretive layers. "
-           "When you query DaoDB, you're traversing dimensional gradients. "
+           "When you query DaoSpace, you're traversing dimensional gradients. "
            "When you think about this blog post, your brain is recursively interpreting itself interpreting these ideas."]
 
           [:p
@@ -575,7 +575,7 @@
            [:li
             [:a {:href "/blog/datom-world-wave-function-collapse.blog"}
              "Wave Function Collapse as Dimensional Reduction"]]
-           [:li [:a {:href "/dao-space.chp"} "DaoDB"] " — Minimal gradient architecture"]
+           [:li [:a {:href "/dao-space.chp"} "DaoSpace"] " — Minimal gradient architecture"]
            [:li
             [:a {:href "/dao-stream.chp"} "DaoStream"]
             " — The fundamental 1D substrate"]

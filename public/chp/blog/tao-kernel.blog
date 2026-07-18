@@ -130,7 +130,7 @@
                       [:td "The Logic"]
                       [:td "Validation Rules"]]
                      [:tr
-                      [:td "DaoDB (since merged into DaoSpace)"]
+                      [:td "DaoSpace"]
                       [:td "The State"]
                       [:td "The Materialized View"]]
                      [:tr

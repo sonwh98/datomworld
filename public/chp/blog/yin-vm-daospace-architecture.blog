@@ -1,4 +1,4 @@
-#:blog{:title "Yin.VM and DaoDB: How Persistent ASTs Make Self-Modification Practical",
+#:blog{:title "Yin.VM and DaoSpace: How Persistent ASTs Make Self-Modification Practical",
        :date #inst "2025-12-19T00:00:00.000-00:00",
        :abstract
        [:p
@@ -9,7 +9,6 @@
          [:article
           :$blog-title
           :$blog-date
-          [:p [:em "Editor's note: DaoDB has since been merged into " [:a {:href "/dao-space.chp"} "DaoSpace"] ". This post predates the merge and uses the original name."]]
 
           [:p
            "Every runtime makes a fundamental choice about what to preserve and what to discard. "
@@ -34,7 +33,7 @@
              [:th "System Aspect"]
              [:th "Static Type Systems (Java, Go, Rust)"]
              [:th "Dynamic Type Systems (JavaScript, Python)"]
-             [:th "Yin.VM + DaoDB"]]]
+             [:th "Yin.VM + DaoSpace"]]]
            [:tbody
             [:tr
              [:td [:strong "Type Information"]]
@@ -70,14 +69,14 @@
            [:strong "constructive"]
            ". Structure is never destroyed... only augmented with execution state."]
 
-          [:h2 "The architecture: DaoDB as the indexer"]
+          [:h2 "The architecture: DaoSpace as the indexer"]
 
           [:p "The key to making this practical is the division of labor between two components:"]
 
-          [:h3 "DaoDB: the specialized indexer"]
+          [:h3 "DaoSpace: the specialized indexer"]
 
           [:p
-           [:a {:href "/dao-space.chp"} "DaoDB"]
+           [:a {:href "/dao-space.chp"} "DaoSpace"]
            " is an interpreter that subscribes to the datom stream and continuously builds efficient query structures. "
            "It's responsible for:"]
 
@@ -89,7 +88,7 @@
            [:li "Managing storage tiers (hot in RAM, cold on disk)"]]
 
           [:p
-           "DaoDB is like Datomic but can run locally, distributed, or peer-to-peer. It can even split responsibilities... "
+           "DaoSpace is like Datomic but can run locally, distributed, or peer-to-peer. It can even split responsibilities... "
            "one instance handles transactions, another handles queries, a third handles storage... all coordinating over the same stream."]
 
           [:h3 "Yin.VM: the execution engine"]
@@ -99,24 +98,24 @@
            "that operates on AST datoms. It's responsible for:"]
 
           [:ul.bulleted
-           [:li "Querying DaoDB for AST nodes at execution time"]
+           [:li "Querying DaoSpace for AST nodes at execution time"]
            [:li "Caching hot execution paths for performance"]
            [:li "Maintaining continuations (serializable execution state)"]
            [:li "Appending new datoms to record execution traces or state changes"]
-           [:li "Subscribing to DaoDB for notifications when cached AST becomes stale"]]
+           [:li "Subscribing to DaoSpace for notifications when cached AST becomes stale"]]
 
           [:p
            "Critically, Yin.VM doesn't build its own data structures to represent the AST. "
-           "It works directly with DaoDB's indexed view of the datom stream."]
+           "It works directly with DaoSpace's indexed view of the datom stream."]
 
           [:h2 "The synchronization dance"]
 
-          [:p "The relationship between DaoDB and Yin.VM creates an elegant synchronization pattern:"]
+          [:p "The relationship between DaoSpace and Yin.VM creates an elegant synchronization pattern:"]
 
           [:h3 "Query for execution"]
 
           [:p
-           "When Yin.VM needs to execute code, it queries DaoDB for the relevant AST nodes. "
+           "When Yin.VM needs to execute code, it queries DaoSpace for the relevant AST nodes. "
            "This query can target:"]
 
           [:ul.bulleted
@@ -132,7 +131,7 @@
           [:h3 "Subscribe for updates"]
 
           [:p
-           "Yin.VM registers with DaoDB to receive notifications when relevant datoms change. "
+           "Yin.VM registers with DaoSpace to receive notifications when relevant datoms change. "
            "A predicate can be provided to filter notifications:"]
 
           [:pre
@@ -151,16 +150,16 @@
 
           [:p
            "When Yin.VM executes code that produces side effects... writing to application state, logging events, "
-           "or even modifying the AST itself... it appends new datoms to the stream. These flow back through DaoDB, "
+           "or even modifying the AST itself... it appends new datoms to the stream. These flow back through DaoSpace, "
            "are indexed, and become immediately queryable."]
 
           [:p "This creates a feedback loop:"]
 
           [:ol
-           [:li "Yin.VM queries AST datoms from DaoDB"]
+           [:li "Yin.VM queries AST datoms from DaoSpace"]
            [:li "Executes code, producing new datoms"]
            [:li "Appends datoms to the stream"]
-           [:li "DaoDB indexes the new datoms"]
+           [:li "DaoSpace indexes the new datoms"]
            [:li "Yin.VM receives notification of changes"]
            [:li "Cycle continues"]]
 
@@ -244,7 +243,7 @@
             " Yin.VM executes code, recording performance traces as datoms"]
            [:li
             [:strong "Analysis:"]
-            " An optimization agent queries DaoDB for hot paths and identifies an inefficiency"]
+            " An optimization agent queries DaoSpace for hot paths and identifies an inefficiency"]
            [:li
             [:strong "Proposal:"]
             " The agent generates new AST datoms representing an optimized version"]
@@ -315,12 +314,12 @@
           [:h3 "Performance: the query cost"]
 
           [:p
-           "Querying DaoDB for AST nodes adds latency compared to direct pointer access in traditional VMs. "
+           "Querying DaoSpace for AST nodes adds latency compared to direct pointer access in traditional VMs. "
            "This is mitigated through:"]
 
           [:ul.bulleted
            [:li [:strong "Caching:"] " Hot execution paths are cached locally in Yin.VM"]
-           [:li [:strong "Indexing:"] " DaoDB uses specialized structures (like HISA) for fast queries"]
+           [:li [:strong "Indexing:"] " DaoSpace uses specialized structures (like HISA) for fast queries"]
            [:li [:strong "Locality:"] " Queries fetch only the AST subtrees needed, not the entire program"]]
 
           [:p
@@ -336,7 +335,7 @@
           [:ul.bulleted
            [:li [:strong "Compression:"] " Immutable logs compress extremely well"]
            [:li [:strong "Tiering:"] " Hot data in RAM, warm on SSD, cold on cheap archival storage"]
-           [:li [:strong "Garbage collection:"] " DaoDB can prune obsolete indexes while preserving the log"]]
+           [:li [:strong "Garbage collection:"] " DaoSpace can prune obsolete indexes while preserving the log"]]
 
           [:p
            "The trade-off is deliberate: storage is cheap and getting cheaper. "
@@ -374,7 +373,7 @@
 
           [:p
            "The datom stream contains application data. It also contains the AST of the application code. "
-           "It also contains the AST of DaoDB itself. And the AST of Yin.VM. Everything is datoms observing datoms."]
+           "It also contains the AST of DaoSpace itself. And the AST of Yin.VM. Everything is datoms observing datoms."]
 
           [:p
            "This creates a self-describing system where the boundary between \"system\" and \"application\" blurs. "
@@ -408,7 +407,7 @@
           [:h2 "Conclusion: persistence as power"]
 
           [:p
-           "The key innovation of Yin.VM and DaoDB is making program structure "
+           "The key innovation of Yin.VM and DaoSpace is making program structure "
            [:strong "persistent and queryable"]
            ". This single decision cascades into capabilities that seem magical from a traditional perspective:"]
 
@@ -434,7 +433,7 @@
 
           [:ul.bulleted
            [:li [:a {:href "/yin.chp"} "Yin.VM"] " : the CESK continuation machine"]
-           [:li [:a {:href "/dao-space.chp"} "DaoDB"] " : materialized views from streams"]
+           [:li [:a {:href "/dao-space.chp"} "DaoSpace"] " : materialized views from streams"]
            [:li [:a {:href "/datomworld.chp"} "Datom.World"] " : platform overview"]
            [:li [:a {:href "/blog/stream-vs-interface-architecture.blog"} "Beyond Interfaces"] " : why streams mirror evolution"]
            [:li [:a {:href "/blog/universal-ast-vs-assembly.blog"} "Universal AST vs Assembly"] " : code representation"]

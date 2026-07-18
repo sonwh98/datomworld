@@ -84,7 +84,7 @@
            ". Google Wave famously failed partly due to OT bugs. Even Google Docs occasionally shows merge artifacts. Worse: "
            [:strong "your local edits can be overwritten"]
            " by the merge. What you wrote is gone."]
-          [:p [:strong "DaoDB (since merged into DaoSpace) approach: Git-like branching + CRDTs"]]
+          [:p [:strong "DaoSpace approach: Git-like branching + CRDTs"]]
           [:p
            "The key insight: "
            [:strong "local history should never be lost"]
@@ -141,7 +141,7 @@
            [:li "\"What edits happened between 2pm and 5pm?\""]
            [:li "\"Show me the evolution of paragraph 7\""]
            [:li "\"When did Alice and Bob's edits diverge?\""]]
-          [:p [:strong "With DaoDB, every edit is preserved:"]]
+          [:p [:strong "With DaoSpace, every edit is preserved:"]]
           [:pre
            [:code
             {:class "language-clojure"}
@@ -240,7 +240,7 @@
           [:h3 "6. Multi-Device Sync Without Servers"]
           [:p
            "Ellipsus promises multi-device accessibility. But most tools require a central server."]
-          [:p [:strong "DaoDB's distributed architecture:"]]
+          [:p [:strong "DaoSpace's distributed architecture:"]]
           [:ul.bulleted
            [:li "Each device has complete local database"]
            [:li "Sync peer-to-peer (or via relay server)"]
@@ -253,7 +253,7 @@
           [:p [:strong "Optional cloud backup:"]]
           [:pre
            [:code
-            "Local DaoDB → Encrypted .db file → S3 backup\n(But not required - fully local-first)"]]
+            "Local DaoSpace → Encrypted .db file → S3 backup\n(But not required - fully local-first)"]]
           [:h2 "What This Enables That Doesn't Exist Today"]
           [:h3 "1. Never Lose Your Creative Decisions"]
           [:pre
@@ -299,7 +299,7 @@
            [:li "Export as .docx (loses comments, version history)"]
            [:li "Can't query or script"]
            [:li "Vendor lock-in"]]
-          [:p [:strong "With DaoDB:"]]
+          [:p [:strong "With DaoSpace:"]]
           [:pre
            [:code
             "~/Documents/Ellipsus/my-novel.db\n\nSQLite file on YOUR disk\n- Query with SQL\n- Script with nbb-logseq\n- Back up to Git\n- Export as EDN (full fidelity)\n- Switch tools (data portable)"]]
@@ -347,7 +347,7 @@
           [:h3 "Client Application"]
           [:pre
            [:code
-            "Ellipsus App (ClojureScript + React)\n  ↓\nDaoDB Client (DataScript in-memory + SQLite persistence)\n  ↓\nLocal Filesystem: ~/Documents/Ellipsus/*.db"]]
+            "Ellipsus App (ClojureScript + React)\n  ↓\nDaoSpace Client (DataScript in-memory + SQLite persistence)\n  ↓\nLocal Filesystem: ~/Documents/Ellipsus/*.db"]]
           [:h3 "Data Model"]
           [:pre
            [:code
@@ -373,7 +373,7 @@
             ": Users write Datalog queries for custom features"]]
           [:h2 "What Ellipsus Could Differentiate On"]
           [:p
-           "With DaoDB as the foundation, Ellipsus could market as:"]
+           "With DaoSpace as the foundation, Ellipsus could market as:"]
           [:ul.bulleted
            [:li
             [:strong
@@ -468,7 +468,7 @@
           [:h2 "Learn More"]
           [:ul.bulleted
            [:li
-            [:a {:href "/dao-space.chp"} "DaoDB"]
+            [:a {:href "/dao-space.chp"} "DaoSpace"]
             ": Distributed Datalog database for datom storage"]
            [:li
             [:a
@@ -498,6 +498,6 @@
           [:p.meta
            "Note: This is not a critique of Ellipsus. It's recognition that "
            [:em "every"]
-           " collaborative writing tool faces these challenges. Ellipsus's philosophy (data ownership, no AI) aligns perfectly with what DaoDB enables. The question isn't whether they "
+           " collaborative writing tool faces these challenges. Ellipsus's philosophy (data ownership, no AI) aligns perfectly with what DaoSpace enables. The question isn't whether they "
            [:em "should"]
            " use datoms, but when the entire industry realizes documents are the wrong abstraction."]]]]}
