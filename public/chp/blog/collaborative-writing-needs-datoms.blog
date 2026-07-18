@@ -84,7 +84,7 @@
            ". Google Wave famously failed partly due to OT bugs. Even Google Docs occasionally shows merge artifacts. Worse: "
            [:strong "your local edits can be overwritten"]
            " by the merge. What you wrote is gone."]
-          [:p [:strong "DaoDB approach: Git-like branching + CRDTs"]]
+          [:p [:strong "DaoDB (since merged into DaoSpace) approach: Git-like branching + CRDTs"]]
           [:p
            "The key insight: "
            [:strong "local history should never be lost"]

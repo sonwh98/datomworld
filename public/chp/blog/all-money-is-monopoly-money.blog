@@ -486,5 +486,5 @@
          [:ul.bulleted
           [:li [:a {:href "/blog/shibi-as-money.blog"} "ShiBi as Money"]]
           [:li [:a {:href "/blog/maxwells-demon-economic-value.blog"} "Maxwell's Demon and Economic Value"]]
-          [:li [:a {:href "/dao-space.chp"} "DaoDB"] " - The data substrate"]
+          [:li [:a {:href "/dao-space.chp"} "DaoDB (since merged into DaoSpace)"] " - The data substrate"]
           [:li [:a {:href "/dao-stream.chp"} "DaoStream"] " - Flow-based architecture"]]]]}

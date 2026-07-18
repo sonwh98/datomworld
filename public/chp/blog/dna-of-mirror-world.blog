@@ -59,7 +59,7 @@
 
                    [:ul
                     [:li [:strong "The Stream is the Test: "] "Logic (Continuations) lives in the stream. If a Continuation fails to process a Datom (crashes or produces garbage), it is naturally \"pruned.\" It produces no output Datoms, effectively going extinct in that branch."]
-                    [:li [:strong "DaoDB is the Fossil Record: "] "Successful Continuations write their state back to DaoDB. Over time, the database fills with \"survivor\" code, logic that successfully navigated the chaotic stream of reality."]]
+                    [:li [:strong "DaoDB (since merged into DaoSpace) is the Fossil Record: "] "Successful Continuations write their state back to DaoDB. Over time, the database fills with \"survivor\" code, logic that successfully navigated the chaotic stream of reality."]]
 
                    [:h2 "Conclusion: From Building to Growing"]
 

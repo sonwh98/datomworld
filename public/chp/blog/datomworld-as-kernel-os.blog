@@ -209,7 +209,7 @@
           [:p
            "This is why Yin.VM isn't just a VM. "
            [:strong "It's an operating system for interpreters."]
-           " And DaoDB, DaoStream, PostGraphics, and the rest sit above this semantic OS."]
+           " And DaoDB (since merged into DaoSpace), DaoStream, PostGraphics, and the rest sit above this semantic OS."]
           [:h2 "Kernel Space as a Set of Core Streams"]
           [:p
            "In a Datom.world OS, the kernel is defined structurally, not hierarchically:"]

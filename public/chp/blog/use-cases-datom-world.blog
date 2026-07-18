@@ -62,7 +62,7 @@
           [:h4 "The Problem"]
           [:p "Centralized platforms extract high commissions, monopolize user data, and exert absolute control over participants. Drivers and hosts are at the mercy of a single algorithm."]
           [:h4 "The Datom.world Solution"]
-          [:p "Peer-to-peer coordination via datom streams. Drivers/Hosts broadcast availability and terms. Users discover services via Datalog. Trust is established through immutable reputation logs in " [:a {:href "/dao-space.chp"} "DaoDB"] ". Compensation is direct via " [:a {:href "/shibi.chp"} "ShiBi"] " utility tokens. No central intermediary."]
+          [:p "Peer-to-peer coordination via datom streams. Drivers/Hosts broadcast availability and terms. Users discover services via Datalog. Trust is established through immutable reputation logs in " [:a {:href "/dao-space.chp"} "DaoDB (since merged into DaoSpace)"] ". Compensation is direct via " [:a {:href "/shibi.chp"} "ShiBi"] " utility tokens. No central intermediary."]
 
           [:h3 "7. Hyper-Local Social & Discovery (Dating, Twitter, Facebook)"]
           [:h4 "The Problem"]

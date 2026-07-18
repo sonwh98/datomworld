@@ -17,14 +17,14 @@
              " (a continuation VM), "
              [:a {:href "/yang.chp"} "Yang"]
              " (a compiler), "
-             [:a {:href "/dao-space.chp"} "DaoDB"]
-             " (a datom stream interpreter), "
+             [:a {:href "/dao-space.chp"} "DaoSpace"]
+             " (a tuple space of datom streams, formerly DaoDB), "
              [:a {:href "/post-graphics.chp"} "PostGraphics"]
              " (a graphics frame vocabulary and renderer), and "
              [:a {:href "/shibi.chp"} "Shibi"]
              " (an economic primitive)."]
             [:p
-             "All apps work the same way: they consume datom streams and interpret them. DaoDB interprets them as queryable indexes, PostGraphics interprets graphics frame programs as drawn output, Shibi interprets them as economic signals. "
+             "All apps work the same way: they consume datom streams and interpret them. DaoSpace interprets them as queryable indexes, PostGraphics interprets graphics frame programs as drawn output, Shibi interprets them as economic signals. "
              "The radical move is unifying code, data, and computation into a single primitive (the datom stream), making programs queryable, mobile, and evolvable."]]]
           [:details.faq
            [:summary "What is a datom, and what is a tuple?"]
@@ -33,10 +33,10 @@
              "A tuple is an element of any dimension/size in the moduli space. A datom is specifically the canonical persistent five-tuple [e a v t m]: entity, attribute, value, transaction ID, metadata entity ID. It is an immutable fact, not an object. "
              "The t is monotonic within its stream, not globally ordered. The m references an entity carrying causal relationships, encryption context, or expansion provenance, and is used to establish causality across streams (since t has no meaning outside its originating stream). "
              "When you transact a map, it decomposes into datoms automatically. See "
-             [:a {:href "/dao-space.chp"} "DaoDB"]
-             " for the full structure and "
+             [:a {:href "/dao-space.chp"} "DaoSpace"]
+             " for how datoms are indexed and queried, and "
              [:a {:href "/blog/power-of-restriction-datom-tuple.blog"} "The Power of Restriction"]
-             " for the design rationale."]]]
+             " for the tuple's structure and design rationale."]]]
           [:details.faq
            [:summary "What does \"everything is a stream\" mean?"]
            [:div
@@ -101,8 +101,8 @@
              "Datom.World inherits the datom idea from Datomic and generalizes it. First, the transaction ID t is stream-scoped, not globally ordered. Cross-stream causality lives in the metadata slot m. "
              "Second, datoms are used for everything (ASTs, bytecode, execution traces, schema, provenance), not just application data. "
              "Third, while Datomic fixes the datom as a 5-tuple, Datom.World allows N-dimensional tuples for specialized streams, though the 5-tuple remains the canonical persistent format. "
-             [:a {:href "/dao-space.chp"} "DaoDB"]
-             " is a family of stream interpreters that materialize whatever indexes the consumer needs. See "
+             [:a {:href "/dao-space.chp"} "DaoSpace"]
+             " (formerly DaoDB) is a family of stream interpreters that materialize whatever indexes the consumer needs. See "
              [:a {:href "/blog/daodb-moduli-space-of-databases.blog"} "DaoDB as a Moduli Space of Databases"]
              "."]]]
           [:details.faq
@@ -235,13 +235,13 @@
             [:p
              "A globally monotonic t requires a single source of truth. That is fine for one database; it is a coordination bottleneck for a local-first, offline-capable, peer-to-peer fabric. "
              "Stream-scoped t plus causal metadata is the price of doing without a central transactor. See "
-             [:a {:href "/dao-space.chp"} "DaoDB"]
+             [:a {:href "/dao-space.chp"} "DaoSpace"]
              "."]]]
           [:details.faq
-           [:summary "Datomic uses [e a v t op] where op is true for assertions and false for retractions. DaoDB uses [e a v t m] with no op. How does DaoDB handle retraction?"]
+           [:summary "Datomic uses [e a v t op] where op is true for assertions and false for retractions. Datom.World uses [e a v t m] with no op. How is retraction handled?"]
            [:div
             [:p
-             "DaoDB does not encode polarity in the datom. A datom is pure fact; there is no \"false datom\". Retraction is a "
+             "Datom.World does not encode polarity in the datom. A datom is pure fact; there is no \"false datom\". Retraction is a "
              [:strong "transaction operation"]
              ", not a flag on the datom."]
             [:p

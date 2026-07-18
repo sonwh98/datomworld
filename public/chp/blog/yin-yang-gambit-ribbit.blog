@@ -71,7 +71,7 @@
              [:td "First‑class as required by R4RS. Implemented via heap‑allocated stack segments in the portable VM. No built‑in migration or serialization across hosts."]]
             [:tr
              [:td [:strong "Code Representation"]]
-             [:td "Universal AST (Abstract Semantic Graph) stored as datoms " [:code "[e a v t m]"] " in DaoDB. Queryable via Datalog. Multiple backends (stack, register, semantic) project the same datom stream."]
+             [:td "Universal AST (Abstract Semantic Graph) stored as datoms " [:code "[e a v t m]"] " in DaoDB (since merged into DaoSpace). Queryable via Datalog. Multiple backends (stack, register, semantic) project the same datom stream."]
              [:td "Traditional AST compiled to C intermediate representation, then to native code. No persistent queryable representation after compilation."]
              [:td "Scheme source → RVM bytecode (compact, specialized). The compiler (" [:code "rsc.scm"] ") emits host‑language‑specific VM interpreters that execute the bytecode."]]
             [:tr

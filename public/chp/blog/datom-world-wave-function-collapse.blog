@@ -13,7 +13,7 @@
           :$blog-date
           [:h2 "The Observation"]
           [:p
-           "DaoDB is a "
+           "DaoDB (since merged into DaoSpace) is a "
            [:strong "local-first distributed tuple store"]
            ". When a device operates "
            [:strong "in isolation"]

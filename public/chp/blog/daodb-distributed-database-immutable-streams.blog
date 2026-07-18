@@ -11,6 +11,7 @@
          [:article
           :$blog-title
           :$blog-date
+          [:p [:em "Editor's note: DaoDB has since been merged into " [:a {:href "/dao-space.chp"} "DaoSpace"] ". This post predates the merge and uses the original name."]]
           [:p
            "Imagine a database that doesn't store your current state—it stores " [:em "all"] " your states. "
            "A database where time travel isn't a feature request but a fundamental capability. "

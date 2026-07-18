@@ -146,5 +146,5 @@
              "AST as Higher Dimensional Construction of Datom Streams"]
             " (how complex computation emerges from simple tuples)"]
            [:li
-            [:a {:href "/dao-space.chp"} "DaoDB"]
+            [:a {:href "/dao-space.chp"} "DaoDB (since merged into DaoSpace)"]
             " (the database that makes datoms universal)"]]]]]}

@@ -40,7 +40,7 @@
            "these theoretical defenses practically viable."]
 
           [:p
-           "By synthesizing our core components (Yin.VM, DaoDB, and Shibi) we are creating a "
+           "By synthesizing our core components (Yin.VM, DaoDB (since merged into DaoSpace), and Shibi) we are creating a "
            [:strong "self-defending nervous system"]
            " for decentralized intelligence."]
 

@@ -206,7 +206,7 @@
           [:p "The key components:"]
 
           [:ul.bulleted
-           [:li [:strong "DaoDB"] ": An organ that indexes datoms for queryability with Datalog. It enables trust and coordination across geographic and political boundaries by organizing the stream, allowing clusters to query and coordinate without requiring physical proximity or political unity."]
+           [:li [:strong "DaoDB (since merged into DaoSpace)"] ": An organ that indexes datoms for queryability with Datalog. It enables trust and coordination across geographic and political boundaries by organizing the stream, allowing clusters to query and coordinate without requiring physical proximity or political unity."]
            [:li [:strong "DaoStream"] ": The digital nervous system. Flow-based architecture that models economic activity as streams of datoms moving through networks. Resources and signals flow where they're needed, driven by gradients rather than central planning."]
            [:li [:strong "ShiBi"] ": A " [:a {:href "/blog/shibi-as-money.blog"} "system for creating capability tokens"] " that grant access based on relevance and contribution rather than purchasing power. ShiBi deliberately tries not to be money, instead creating context-specific tokens that establish borders based on expertise and value created."]]
 

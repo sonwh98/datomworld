@@ -221,7 +221,7 @@
           [:h2 "The Implementation"]
           [:p
            "Yin.vm implements this using "
-           [:strong [:a {:href "/dao-space.chp"} "DaoDB"]]
+           [:strong [:a {:href "/dao-space.chp"} "DaoDB (since merged into DaoSpace)"]]
            ", a Datalog database built for datom.world. The Yang compiler parses code and emits datom transactions. Each parse, each type inference, each transformation, each execution step "
            [:strong "adds datoms to the stream"]
            "."]

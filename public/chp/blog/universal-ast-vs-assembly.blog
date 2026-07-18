@@ -312,7 +312,7 @@
            [:em "representation"]
            ", not the execution format. You can:"]
           [:ol
-           [:li "Keep the AST in memory for queries (DaoDB)"]
+           [:li "Keep the AST in memory for queries (DaoDB (since merged into DaoSpace))"]
            [:li "Compile to optimized bytecode for execution"]
            [:li "Preserve both simultaneously"]]
           [:p "Example:"]

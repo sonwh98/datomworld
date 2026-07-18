@@ -37,7 +37,7 @@
           [:h2 "Why Streams Beat Databases for Knowledge"]
           [:h3 "1. Sync is Native"]
           [:p "With " [:strong "buku"] ", syncing is an operations problem (cron jobs, git push)."]
-          [:p "With " [:a {:href "/dao-space.chp"} "DaoDB"] ", syncing is the default state. Your laptop emits the bookmark datom. Your phone's DaoDB instance subscribes to the stream. The merge happens automatically via CRDTs. No conflicts, no servers to manage."]
+          [:p "With " [:a {:href "/dao-space.chp"} "DaoDB (since merged into DaoSpace)"] ", syncing is the default state. Your laptop emits the bookmark datom. Your phone's DaoDB instance subscribes to the stream. The merge happens automatically via CRDTs. No conflicts, no servers to manage."]
           [:h3 "2. Stigmergy: Bookmarks as Signals"]
           [:p "A bookmark is rarely just \"save this URL.\" It's a signal: \"This content is valuable to me.\""]
           [:p "In a database, that signal sits idle. In a stream, " [:strong "agents can react to it"] "."]

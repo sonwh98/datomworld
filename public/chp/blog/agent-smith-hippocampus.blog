@@ -120,7 +120,7 @@
            [:li [:strong "Context window"] " : working memory for the current inference, not the durable source of truth"]
            [:li [:strong "Active continuation"] " : the current control state, captured environment, and point of suspension"]
            [:li [:strong "DaoStream"] " : append-only history in transaction order"]
-           [:li [:strong "DaoDB"] " : bounded, queryable memory built from those streams"]
+           [:li [:strong "DaoDB (since merged into DaoSpace)"] " : bounded, queryable memory built from those streams"]
            [:li [:strong "Agent Smith"] " : one or more continuations that watch streams, decide what matters, and route relevant datoms back into execution"]]
 
           [:p

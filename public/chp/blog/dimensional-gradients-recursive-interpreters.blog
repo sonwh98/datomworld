@@ -47,7 +47,7 @@
             "Dimensionality: 2 (entities × attributes)\nNew dimension: entity-space"]]
 
           [:p
-           "By grouping datoms by entity, DaoDB adds a "
+           "By grouping datoms by entity, DaoDB (since merged into DaoSpace) adds a "
            [:strong "spatial dimension"]
            "—entities exist as points "
            "in attribute-space."]

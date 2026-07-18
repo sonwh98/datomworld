@@ -26,7 +26,7 @@
            "?"]
           [:p
            "When you store ASTs as datoms in "
-           [:a {:href "/dao-space.chp"} "DaoDB"]
+           [:a {:href "/dao-space.chp"} "DaoDB (since merged into DaoSpace)"]
            ", you've "
            [:strong
             "turned the compiler into a queryable semantic database"]

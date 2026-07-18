@@ -87,12 +87,9 @@
           "HTTP's request-response model dissolves into "
           [:a {:href "/dao-stream.chp"} "DaoStream"]
           ", the universal streaming API where data flows continuously between entangled peers through append-only datom streams. "
-          "LocalStorage becomes "
-          [:a {:href "/dao-space.chp"} "DaoDB"]
-          ", an app that materializes queryable indexes from those streams. "
-          "The shared coordination space becomes "
+          "LocalStorage and the shared coordination space become "
           [:a {:href "/dao-space.chp"} "DaoSpace"]
-          ", a tuple space implementation that enables stigmergic coordination between agents via Datalog queries over shared streams. "
+          ", a tuple space that materializes queryable indexes from those streams and enables stigmergic coordination between agents via Datalog queries. "
           "For graphics, "
           [:a {:href "/post-graphics.chp"} "PostGraphics"]
           " defines a frame vocabulary that consumers paint, treating drawn output as the realization of a stream of explicit frame programs."]

@@ -552,7 +552,7 @@
           [:h2 "DaoDB's Datalog Design"]
           [:p
            "When building "
-           [:a {:href "/dao-space.chp"} "DaoDB"]
+           [:a {:href "/dao-space.chp"} "DaoDB (since merged into DaoSpace)"]
            " for "
            [:a {:href "/yin.chp"} "Yin.vm"]
            ", the design choices are clear:"]

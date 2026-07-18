@@ -274,7 +274,7 @@
            ", not the storage format."]
           [:h3 "3. Multi-Device Sync Without Servers"]
           [:p
-           [:a {:href "/dao-space.chp"} "DaoDB"]
+           [:a {:href "/dao-space.chp"} "DaoDB (since merged into DaoSpace)"]
            " is "
            [:strong "designed for distributed sync"]
            ":"]

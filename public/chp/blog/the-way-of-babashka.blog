@@ -54,7 +54,7 @@
           [:p "The new architecture:"]
           [:ul.bulleted
            [:li [:strong "Implement Yin.VM in Clojure"] " - Leverage my actual expertise"]
-           [:li [:strong "Use Datascript for AST persistence"] " - A mature datalog database instead of building DaoDB from scratch"]
+           [:li [:strong "Use Datascript for AST persistence"] " - A mature datalog database instead of building DaoDB (since merged into DaoSpace) from scratch"]
            [:li [:strong "Bootstrap from the JVM"] " - Get a working system quickly"]
            [:li [:strong "Progressive enhancement"] " - Self-host later, once the core is proven"]]
           [:p "This isn't admitting defeat. It's admitting "

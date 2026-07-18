@@ -226,7 +226,7 @@
            "Interpretation produces a particular observable structure, but the stream itself remains unchanged and complete."]
 
           [:p
-           "DaoDB is just one such interpreter. It materializes queryable indexes from the stream, and then Datalog queries "
+           "DaoDB (since merged into DaoSpace) is just one such interpreter. It materializes queryable indexes from the stream, and then Datalog queries "
            "run against those indexes. But the frontend (PostGraphics), the backend (Yin.VM continuations), and analytics pipelines "
            "are all equally valid interpreters, each transforming the same stream into their own specialized data structures."]
 

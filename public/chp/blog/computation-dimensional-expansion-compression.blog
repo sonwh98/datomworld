@@ -397,7 +397,7 @@
           [:h3 "Expansion in Datom.world"]
 
           [:ul.bulleted
-           [:li [:strong "DaoDB"] " expands datoms into entity graphs"]
+           [:li [:strong "DaoDB (since merged into DaoSpace)"] " expands datoms into entity graphs"]
            [:li [:strong "PostGraphics"] " expands datoms into UI trees"]
            [:li [:strong "Yin.vm"] " expands datoms into execution semantics"]
            [:li [:strong "Entangled nodes"] " expand streams into distributed timelines"]]

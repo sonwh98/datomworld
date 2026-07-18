@@ -167,7 +167,7 @@
            [:strong "Yang compiler"]
            ". This tool parses traditional source files (like Python or Clojure) and produces an in-memory AST map. This map must then be "
            [:strong "decomposed"]
-           " into the flat, canonical datom representation for storage in DaoDB."]
+           " into the flat, canonical datom representation for storage in DaoDB (since merged into DaoSpace)."]
           [:pre
            [:code
             "Text Source Code → Yang Compiler → AST Map → Decomposition → AST Datoms in DB"]]

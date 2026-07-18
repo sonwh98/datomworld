@@ -435,7 +435,7 @@
              "AST as Higher Dimensional Construction of Datom Streams"]
             " (how ASTs are materialized views)"]
            [:li
-            [:a {:href "/dao-space.chp"} "DaoDB"]
+            [:a {:href "/dao-space.chp"} "DaoDB (since merged into DaoSpace)"]
             " (the Datalog database powering queryable ASTs)"]
            [:li
             [:a {:href "/yin.chp"} "Yin VM Documentation"]

@@ -27,7 +27,7 @@
           [:p
            "Are these the same insight? "
            [:strong "Yes."]
-           " And understanding why reveals something profound about DaoDB, quantum mechanics, and the nature of computation itself."]
+           " And understanding why reveals something profound about DaoDB (since merged into DaoSpace), quantum mechanics, and the nature of computation itself."]
           [:h2 "State vs Interaction: Two Paradigms"]
           [:p
            "Most systems—databases, programming languages, physics theories—assume "

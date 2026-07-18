@@ -283,7 +283,7 @@
            [:li [:strong "ClojureDart"] " for compiling cljc to Dart"]
            [:li [:strong "Native Dart"] " for performance-critical primitives and benchmarking"]
            [:li [:strong "Yin.vm"] " for interpreting dynamic AST datoms"]
-           [:li [:strong "DaoDB"] " for persisting and distributing code and continuations"]
+           [:li [:strong "DaoDB (since merged into DaoSpace)"] " for persisting and distributing code and continuations"]
            [:li [:strong "Flutter"] " for cross-platform UI rendering"]]
 
           [:h2 "Conclusion"]

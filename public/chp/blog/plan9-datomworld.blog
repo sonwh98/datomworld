@@ -89,7 +89,7 @@
                       [:tr [:td "Smell"] [:td "Local Multicast"] [:td "Subnet"] [:td "Sensing service availability in the building"]]
                       [:tr [:td "Hearing"] [:td "Ultrasonic (Acoustic)"] [:td "Room"] [:td "Intentional discovery with someone next to you"]]
                       [:tr [:td "Touch"] [:td "BLE / NFC"] [:td "Personal Space"] [:td "Tethering your phone to your watch or laptop"]]
-                      [:tr [:td "Memory"] [:td "Persistence (DaoDB)"] [:td "Temporal"] [:td "Recalling streams you interacted with previously"]]]]
+                      [:tr [:td "Memory"] [:td "Persistence (DaoDB, since merged into DaoSpace)"] [:td "Temporal"] [:td "Recalling streams you interacted with previously"]]]]
 
                     [:p "The Five Senses map discovery by scope; the ant metaphor maps discovery by intent. Ultrasonic requires physical proximity (you must be in the same room), making it ideal for intentional sharing. Sound doesn't travel through walls effectively, so receiving an ultrasonic datom is physical proof of presence."]
 

@@ -97,7 +97,7 @@
           [:p
            "Now put those tuples in "
            [:a {:href "/dao-space.chp"} [:strong "DaoSpace"]]
-           ": a shared, queryable coordination space built on DaoStream and DaoDB. Code is no longer \"checked out\" into isolated file trees and reconciled afterward. It lives as shared facts that agents can query, fork, refine, and promote directly."]
+           ": a shared, queryable coordination space built on DaoStream and DaoDB (since merged into DaoSpace). Code is no longer \"checked out\" into isolated file trees and reconciled afterward. It lives as shared facts that agents can query, fork, refine, and promote directly."]
           [:p
            "Editing is transacting new datoms. History is automatic, not a manual "
            [:code "git commit"]

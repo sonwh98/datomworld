@@ -6,6 +6,7 @@
                   [:article
                    :$blog-title
                    :$blog-date
+          [:p [:em "Editor's note: DaoDB has since been merged into " [:a {:href "/dao-space.chp"} "DaoSpace"] ". This post predates the merge and uses the original name."]]
 
                    [:h2 "The Serialization Bottleneck"]
                    [:p "In the datom.world architecture, everything is a stream of immutable 5-tuple datoms. While this provides a robust foundation for explicit causality and interpretation, moving these datoms between processes (or between Web Workers in the browser) historically incurred serialization overhead. The " [:a {:href "https://github.com/SeniorCareMarket/eve"} "SeniorCareMarket/eve"] " library introduces a paradigm shift: shared-memory persistent data structures for Clojure and ClojureScript."]

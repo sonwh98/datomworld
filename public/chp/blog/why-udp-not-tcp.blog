@@ -373,7 +373,7 @@
             "NAT traversal, roaming, key rotation without reinventing anything"]
            [:li "Clean integration with existing OS routing and VPN UX"]
            [:li
-            "Focus on DaoDB, Yin.VM, agents, and entanglement, not protocol minutiae"]]
+            "Focus on DaoDB (since merged into DaoSpace), Yin.VM, agents, and entanglement, not protocol minutiae"]]
           [:p
            [:strong
             "Crucially: Datom.world's design still holds because WireGuard is just a secure pipe."]

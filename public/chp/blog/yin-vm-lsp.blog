@@ -33,7 +33,7 @@
            [:a {:href "/blog/ide-edits-ast-not-text.blog"} "When the IDE Edits AST, Not Text"]
            ", Yin.vm makes the Universal AST the canonical representation of code. Text is just a rendering: a view. The AST is stored as "
            [:strong "datom streams"]
-           " in a Datalog database (DaoDB)."]
+           " in a Datalog database (DaoDB (since merged into DaoSpace))."]
           [:p "This changes everything. Instead of an IDE asking a language server \"where is the definition?\", the IDE runs a Datalog query:"]
           [:pre
            [:code

@@ -9,6 +9,7 @@
          [:article
           :$blog-title
           :$blog-date
+          [:p [:em "Editor's note: DaoDB has since been merged into " [:a {:href "/dao-space.chp"} "DaoSpace"] ". This post predates the merge and uses the original name."]]
 
           [:p
            "Every runtime makes a fundamental choice about what to preserve and what to discard. "

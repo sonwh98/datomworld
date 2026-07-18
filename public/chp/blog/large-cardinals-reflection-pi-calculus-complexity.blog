@@ -330,7 +330,7 @@
 
           [:h2 "DaoDB as Large Cardinal Architecture"]
           [:p
-           "DaoDB implements these principles directly."]
+           "DaoDB (since merged into DaoSpace) implements these principles directly."]
 
           [:h3 "Reflection in DaoDB"]
           [:p

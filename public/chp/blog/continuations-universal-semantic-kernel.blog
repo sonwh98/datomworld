@@ -129,7 +129,7 @@
           [:p [:strong "This is NOT the case for:"] " JVM, WASM, LLVM, BEAM, or most other IRs."]
           [:p
            "In Yin, a continuation is literally just data in "
-           [:a {:href "/dao-space.chp"} "DaoDB"]
+           [:a {:href "/dao-space.chp"} "DaoDB (since merged into DaoSpace)"]
            ":"]
           [:pre
            [:code

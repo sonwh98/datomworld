@@ -315,7 +315,7 @@
            ": the first write defines the type, subsequent writes are validated and optimized."]
           [:h2 "DaoDB's Approach"]
           [:p
-           [:a {:href "/dao-space.chp"} "DaoDB"]
+           [:a {:href "/dao-space.chp"} "DaoDB (since merged into DaoSpace)"]
            " combines multiple strategies:"]
           [:ul.bulleted
            [:li
