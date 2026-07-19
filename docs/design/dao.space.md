@@ -264,7 +264,7 @@ A mix is legal too — a collection argument may hold `dao.jing` handles and raw
 vectors side by side; each element is folded by whichever rule matches its shape and the
 results are merged. This makes the library useful standalone, the same way Datomic's `d/q`
 takes db values and in-memory rel/collection inputs interchangeably — a caller should never
-need a throwaway `dao.jing/create-kv-mem` just to query a handful of test datoms. It does
+need a throwaway `dao.jing.mem/create-kv-mem` just to query a handful of test datoms. It does
 not change what the tuple space *is*: coordination between agents still runs through shared
 `dao.jing` storage (see *What Makes It a Tuple Space*, above), because a raw in-memory vector
 is by definition not shared. Source polymorphism is an ergonomic property of the query

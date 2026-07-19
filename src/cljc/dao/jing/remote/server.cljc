@@ -27,7 +27,7 @@
   "Start a WebSocket server exposing store's IKVStore operations.
 
    Args:
-     store - an IKVStore implementation (e.g., from jing/create-kv-mem or jing.file/create-kv-file)
+     store - an IKVStore implementation (e.g., from jing.mem/create-kv-mem or jing.file/create-kv-file)
      port  - port number to listen on
      opts  - optional map passed to dao.stream.rpc.server/start!, plus:
        :handlers - a handlers map that REPLACES the jing default map entirely

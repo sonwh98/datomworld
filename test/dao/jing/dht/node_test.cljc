@@ -13,6 +13,7 @@
   #?(:cljd nil
      :clj (:require [clojure.test :refer [deftest is testing]]
                     [dao.jing :as jing]
+                    [dao.jing.mem :as mem]
                     [dao.jing.dht :as dht]
                     [dao.jing.dht.node :as node]
                     [dao.stream.transit :as transit])))
@@ -86,7 +87,7 @@
    (deftest store-handler-enforces-key-discipline
      (testing "an incoming :store must present the exact segment key"
        (let [handle (deref #'node/handle)
-             local (jing/create-kv-mem)
+             local (mem/create-kv-mem)
              table (atom {})
              v {:bytes [1]}
              hash (jing/content-hash v)]

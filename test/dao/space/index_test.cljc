@@ -8,6 +8,7 @@
   identically to the wholesale root it replaced."
   (:require [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
+            [dao.jing.mem :as mem]
             #?(:cljd nil
                :clj [dao.jing.file :as file])
             [dao.space.index :as index]
@@ -60,7 +61,7 @@
      (testing
        "publish advances the root to {:indexes ... :count n} and
               q/match answer identically before and after"
-       (let [store (jing/create-kv-mem)
+       (let [store (mem/create-kv-mem)
              _ (seed! store many-datoms)
              q-form '[:find ?v :where [1030 :work/task ?v]]
              before-q (query/q q-form store)
@@ -105,7 +106,7 @@
      (testing
        "content addressing: unchanged data yields identical root
               addresses on republish"
-       (let [store (jing/create-kv-mem)
+       (let [store (mem/create-kv-mem)
              _ (seed! store many-datoms)
              idx1 (index/publish-index! store :root/test)
              idx2 (index/publish-index! store
@@ -121,7 +122,7 @@
        "the published root carries a :vaet segment whose node graph
               holds every datom the EAVT graph holds — VAET is a peer of
               the other three covered indexes, not an optional extra"
-       (let [store (jing/create-kv-mem)
+       (let [store (mem/create-kv-mem)
              _ (seed! store many-datoms)
              _ (index/publish-index! store :root/test)
              root (jing/get store :root/test nil)
@@ -139,7 +140,7 @@
      (testing
        "a bound-e match over a published index loads only the seek
               path, not the whole tree"
-       (let [inner (jing/create-kv-mem)
+       (let [inner (mem/create-kv-mem)
              gets (atom [])
              store (recording-store inner gets)
              _ (seed! store many-datoms)
@@ -165,7 +166,7 @@
      (testing
        "publishing an empty stream yields nil index roots that read
               back as no datoms, not an error"
-       (let [store (jing/create-kv-mem)]
+       (let [store (mem/create-kv-mem)]
          (index/register-member! store :root/test)
          (index/publish-index! store [] {:key :root/test})
          (is (= [] (query/match store ['_ '_ '_])))
@@ -174,28 +175,28 @@
 
 (deftest publish-index-2-arity-guard
   (testing "the re-aritied 2-arity rejects a datom seq on all platforms"
-    (let [store (jing/create-kv-mem)]
+    (let [store (mem/create-kv-mem)]
       (is (thrown-with-msg? #?(:cljs js/Error
                                :cljd Object
                                :default Exception)
                             #"keyword key"
             (index/publish-index! store [])))))
   (testing "the re-aritied 2-arity rejects a segment key on all platforms"
-    (let [store (jing/create-kv-mem)]
+    (let [store (mem/create-kv-mem)]
       (is (thrown-with-msg? #?(:cljs js/Error
                                :cljd Object
                                :default Exception)
                             #":root/<name>"
             (index/publish-index! store :segment/foo)))))
   (testing "the re-aritied 2-arity rejects an empty name key on all platforms"
-    (let [store (jing/create-kv-mem)]
+    (let [store (mem/create-kv-mem)]
       (is (thrown-with-msg? #?(:cljs js/Error
                                :cljd Object
                                :default Exception)
                             #"non-empty"
             (index/publish-index! store (keyword "root" ""))))))
   (testing "the re-aritied 2-arity rejects the membership root on all platforms"
-    (let [store (jing/create-kv-mem)]
+    (let [store (mem/create-kv-mem)]
       (is (thrown-with-msg? #?(:cljs js/Error
                                :cljd Object
                                :default Exception)
@@ -207,30 +208,30 @@
    :clj
    (deftest publish-index-3-arity-guard
      (testing "the 3-arity rejects a non-root key"
-       (let [store (jing/create-kv-mem)]
+       (let [store (mem/create-kv-mem)]
          (is (thrown-with-msg? Exception
                                #"keyword key"
                (index/publish-index! store [] {:key []})))))
      (testing "the 3-arity rejects a segment key"
-       (let [store (jing/create-kv-mem)]
+       (let [store (mem/create-kv-mem)]
          (is (thrown-with-msg?
                Exception
                #":root/<name>"
                (index/publish-index! store [] {:key :segment/foo})))))
      (testing "the 3-arity rejects an empty name key"
-       (let [store (jing/create-kv-mem)]
+       (let [store (mem/create-kv-mem)]
          (is (thrown-with-msg?
                Exception
                #"non-empty"
                (index/publish-index! store [] {:key (keyword "root" "")})))))
      (testing "the 3-arity rejects the membership root"
-       (let [store (jing/create-kv-mem)]
+       (let [store (mem/create-kv-mem)]
          (is (thrown-with-msg?
                Exception
                #"membership root"
                (index/publish-index! store [] {:key :root/members})))))
      (testing "the 3-arity accepts a valid root key"
-       (let [store (jing/create-kv-mem)]
+       (let [store (mem/create-kv-mem)]
          (index/register-member! store :root/datoms)
          (is (some? (index/publish-index! store [] {:key :root/datoms})))))))
 
@@ -238,7 +239,7 @@
 (deftest register-member-guard
   (testing
     "register-member! rejects invalid, empty, or members keys on all platforms"
-    (let [store (jing/create-kv-mem)]
+    (let [store (mem/create-kv-mem)]
       (is (thrown-with-msg? #?(:cljs js/Error
                                :cljd Object
                                :default Exception)
@@ -259,7 +260,7 @@
 (deftest read-datoms-guard
   (testing
     "read-datoms rejects invalid, empty, or members keys on all platforms"
-    (let [store (jing/create-kv-mem)]
+    (let [store (mem/create-kv-mem)]
       (is (thrown-with-msg? #?(:cljs js/Error
                                :cljd Object
                                :default Exception)
@@ -287,7 +288,7 @@
     "a hand-built node graph — plain EDN blobs, no psset involved in
            its construction — answers q/match on every platform (lazily
            restored on the JVM, eagerly walked elsewhere)"
-    (let [store (jing/create-kv-mem)
+    (let [store (mem/create-kv-mem)
           leaf-1 {:keys [[1 :a "x" 0 1] [2 :a "y" 0 1]]}
           k1 (jing/segment-key leaf-1)
           leaf-2 {:keys [[3 :b "z" 0 1]]}
@@ -310,13 +311,13 @@
 
 #?(:cljd (deftest publish-index-is-jvm-only
            (is (thrown? Object
-                 (index/publish-index! (jing/create-kv-mem)
+                 (index/publish-index! (mem/create-kv-mem)
                                        []
                                        {:key :root/test}))))
    :clj nil
    :cljs (deftest publish-index-is-jvm-only
            (is (thrown? js/Error
-                 (index/publish-index! (jing/create-kv-mem)
+                 (index/publish-index! (mem/create-kv-mem)
                                        []
                                        {:key :root/test})))))
 
@@ -327,7 +328,7 @@
            original three keys; the fold guard must reject it from
            restored-indexes (which would deref a nil :vaet address) and
            fall through to the eager walk, so old data still queries"
-    (let [store (jing/create-kv-mem)
+    (let [store (mem/create-kv-mem)
           leaf {:keys [[1 :a "x" 0 1] [2 :a "y" 0 1]]}
           k (jing/segment-key leaf)]
       (jing/put! store k leaf)

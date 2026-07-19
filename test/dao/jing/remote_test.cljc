@@ -6,6 +6,7 @@
    - Client: implements IKVStore by sending put!/cas!/get/delete! requests over the network"
   (:require [clojure.test :as t :refer [deftest is testing use-fixtures]]
             [dao.jing :as jing]
+            [dao.jing.mem :as mem]
             [dao.jing.file :as jing.file]
             [dao.jing.remote.server :as remote-server]
             [dao.jing.remote.client :as remote-client]
@@ -33,7 +34,7 @@
                 ;; persistence
                 ;; tests)
                 backing-store (case store-type
-                                :memory (jing/create-kv-mem)
+                                :memory (mem/create-kv-mem)
                                 :file (jing.file/create-kv-file
                                         (str "/tmp/dao-jing-remote-test-"
                                              (rand-int 1000000))))

@@ -6,6 +6,7 @@
   that query/q over the same store immediately sees."
   (:require [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
+            [dao.jing.mem :as mem]
             [dao.space.index :as index]
             [dao.space.query :as query]
             [dao.space.stream]
@@ -14,7 +15,7 @@
 
 (deftest open-put-query-roundtrip
   (testing "an entity map put! through a :dao-stream is queryable in the store"
-    (let [store (jing/create-kv-mem)
+    (let [store (mem/create-kv-mem)
           log (ds/open! {:type :dao-stream, :store store, :name "producer"})]
       (is (= {:result :ok, :woke []}
              (ds/append!
@@ -28,13 +29,13 @@
 
 (deftest raw-datom-put
   (testing "a raw [e a v] datom vector is padded and appended"
-    (let [store (jing/create-kv-mem)
+    (let [store (mem/create-kv-mem)
           log (ds/open! {:type :dao-stream, :store store, :name "w"})]
       (ds/append! log [1 :work/status :todo])
       (is (= #{[:todo]}
              (query/q '[:find ?v :where [1 :work/status ?v]] store)))))
   (testing "an explicit 5-tuple keeps its m slot — retraction works"
-    (let [store (jing/create-kv-mem)
+    (let [store (mem/create-kv-mem)
           log (ds/open! {:type :dao-stream, :store store, :name "w"})]
       (ds/append! log {:db/id 1, :work/status :todo})
       (ds/append! log [1 :work/status :todo nil 0])
@@ -44,7 +45,7 @@
 (deftest stigmergy-example-end-to-end
   (testing
     "the dao.space.md worker loop: post, query unclaimed, claim, re-query"
-    (let [store (jing/create-kv-mem)
+    (let [store (mem/create-kv-mem)
           producer (ds/open!
                      {:type :dao-stream, :store store, :name "producer"})
           worker (ds/open! {:type :dao-stream, :store store, :name "worker-1"})
@@ -64,7 +65,7 @@
 
 (deftest cursor-reading
   (testing "a cursor walks appended datoms in append order"
-    (let [store (jing/create-kv-mem)
+    (let [store (mem/create-kv-mem)
           log (ds/open! {:type :dao-stream, :store store, :name "w"})]
       (ds/append! log {:db/id 1, :a 1})
       (ds/append! log {:db/id 2, :a 2})
@@ -78,13 +79,13 @@
           (ds/close! log)
           (is (= :end (ds/next log (:cursor r2))))))))
   (testing "a second handle with the same name tails the same stream"
-    (let [store (jing/create-kv-mem)
+    (let [store (mem/create-kv-mem)
           a (ds/open! {:type :dao-stream, :store store, :name "a"})
           a2 (ds/open! {:type :dao-stream, :store store, :name "a"})]
       (ds/append! a {:db/id 1, :x true})
       (is (map? (ds/next a2 {:position 0})))))
   (testing "a differently-named stream's cursor does not see another's log"
-    (let [store (jing/create-kv-mem)
+    (let [store (mem/create-kv-mem)
           a (ds/open! {:type :dao-stream, :store store, :name "a"})
           b (ds/open! {:type :dao-stream, :store store, :name "b"})]
       (ds/append! a {:db/id 1, :x true})
@@ -93,7 +94,7 @@
 
 (deftest per-stream-roots
   (testing "each stream's datoms land under its own :root/<name>"
-    (let [store (jing/create-kv-mem)
+    (let [store (mem/create-kv-mem)
           producer (ds/open!
                      {:type :dao-stream, :store store, :name "producer"})
           worker (ds/open! {:type :dao-stream, :store store, :name "worker-1"})]
@@ -114,7 +115,7 @@
         (is (= [[100 :work/posted true 0 1]]
                (query/match store ['_ :work/posted true]))))))
   (testing "an explicit :key override is honored and registered"
-    (let [store (jing/create-kv-mem)
+    (let [store (mem/create-kv-mem)
           log
           (ds/open!
             {:type :dao-stream, :store store, :name "a", :key :root/custom})]
@@ -128,14 +129,14 @@
                              :default Exception)
                           #"name"
           (ds/open! {:type :dao-stream,
-                     :store (jing/create-kv-mem)}))))
+                     :store (mem/create-kv-mem)}))))
   (testing "a stream named members throws due to membership root collision"
     (is (thrown-with-msg? #?(:cljs js/Error
                              :cljd Object
                              :default Exception)
                           #"cannot target the membership root"
           (ds/open! {:type :dao-stream,
-                     :store (jing/create-kv-mem),
+                     :store (mem/create-kv-mem),
                      :name "members"}))))
   (testing
     "a stream with custom key :root/members throws due to membership root collision"
@@ -144,7 +145,7 @@
                              :default Exception)
                           #"cannot target the membership root"
           (ds/open! {:type :dao-stream,
-                     :store (jing/create-kv-mem),
+                     :store (mem/create-kv-mem),
                      :name "a",
                      :key :root/members}))))
   (testing "a stream with empty name key throws with register-member! context"
@@ -153,7 +154,7 @@
                              :default Exception)
                           #"register-member! requires a non-empty"
           (ds/open! {:type :dao-stream,
-                     :store (jing/create-kv-mem),
+                     :store (mem/create-kv-mem),
                      :key (keyword "root" "")}))))
   (testing "a stream with segment key throws with register-member! context"
     (is (thrown-with-msg? #?(:cljs js/Error
@@ -161,12 +162,12 @@
                              :default Exception)
                           #"register-member! requires a :root"
           (ds/open! {:type :dao-stream,
-                     :store (jing/create-kv-mem),
+                     :store (mem/create-kv-mem),
                      :key :segment/foo})))))
 
 
 (deftest lifecycle
-  (let [store (jing/create-kv-mem)
+  (let [store (mem/create-kv-mem)
         log (ds/open! {:type :dao-stream, :store store, :name "w"})]
     (is (false? (ds/closed? log)))
     (is (= {:woke []} (ds/close! log)))
@@ -178,7 +179,7 @@
                             #"closed"
             (ds/append! log {:db/id 1, :a 1}))))
     (testing "closing does not erase deposited datoms"
-      (let [store2 (jing/create-kv-mem)
+      (let [store2 (mem/create-kv-mem)
             log2 (ds/open! {:type :dao-stream, :store store2, :name "w"})]
         (ds/append! log2 {:db/id 1, :a 1})
         (ds/close! log2)
@@ -193,7 +194,7 @@
                           #"store"
           (ds/open! {:type :dao-stream, :name "w"}))))
   (testing "an entity map without :db/id throws"
-    (let [store (jing/create-kv-mem)
+    (let [store (mem/create-kv-mem)
           log (ds/open! {:type :dao-stream, :store store, :name "w"})]
       (is (thrown-with-msg? #?(:cljs js/Error
                                :cljd Object
@@ -201,7 +202,7 @@
                             #":db/id"
             (ds/append! log {:work/posted true})))))
   (testing "a value that is neither entity map nor datom vector throws"
-    (let [store (jing/create-kv-mem)
+    (let [store (mem/create-kv-mem)
           log (ds/open! {:type :dao-stream, :store store, :name "w"})]
       (is (thrown-with-msg? #?(:cljs js/Error
                                :cljd Object
@@ -212,7 +213,7 @@
 
 (deftest appends-compose-with-existing-roots
   (testing "a :dao-stream append preserves datoms already seeded wholesale"
-    (let [store (jing/create-kv-mem)]
+    (let [store (mem/create-kv-mem)]
       (index/register-member! store :root/w)
       (jing/cas! store :root/w 0 {:datoms [[1 :work/status :todo 0 1]]})
       (let [log (ds/open! {:type :dao-stream, :store store, :name "w"})]
@@ -221,7 +222,7 @@
                (query/q '[:find ?e :where [?e :work/status :todo]] store))))))
   #?(:clj (testing
             "an append folds a publish-index!-ed stream root back to wholesale"
-            (let [store (jing/create-kv-mem)
+            (let [store (mem/create-kv-mem)
                   log (ds/open! {:type :dao-stream, :store store, :name "w"})]
               (ds/append! log {:db/id 1, :work/status :todo})
               (index/publish-index! store

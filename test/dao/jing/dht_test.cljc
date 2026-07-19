@@ -6,6 +6,7 @@
   dao.jing.dht.node-test."
   (:require [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
+            [dao.jing.mem :as mem]
             [dao.jing.dht :as dht]
             [dao.jing.dht.kad :as kad]))
 
@@ -79,7 +80,7 @@
      :stores (mapv
                (fn [i]
                  (let [peer {:id (dht/node-id "fake" i), :host "fake", :port i}
-                       local (jing/create-kv-mem)]
+                       local (mem/create-kv-mem)]
                    (swap! registry assoc (:id peer) {:peer peer, :local local})
                    (dht/create-kv-dht {:net (->FakeNet peer registry),
                                        :local local})))
@@ -92,7 +93,7 @@
 ;; canonical/content-hash/segment-key/key-class as pure functions are tested
 ;; against dao.jing directly in test/dao/jing_test.cljc. This test is
 ;; DHT-specific: it exercises KVDht's put!/cas!/get actually enforcing the
-;; discipline over the grid — dao.jing's own KVMem enforces none of this.
+;; discipline over the grid — dao.jing.mem's own KVMem enforces none of this.
 
 (deftest key-discipline
   (testing "keys must be :segment/<hash> or :root/<name>, used by class"

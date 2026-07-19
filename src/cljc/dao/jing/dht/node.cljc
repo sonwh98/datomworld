@@ -21,6 +21,7 @@
     hash before writing. No address validation or rate limiting yet
     (Operational reality, UDP amplification)."
   #?(:clj (:require [dao.jing :as jing]
+                    [dao.jing.mem :as mem]
                     [dao.jing.dht :as dht]
                     [dao.jing.dht.kad :as kad]
                     [dao.stream.transit :as transit]))
@@ -280,7 +281,7 @@
      (let [host (or host "127.0.0.1")
            socket (DatagramSocket. (int (or port 0)))
            port (.getLocalPort socket)
-           local (or local (jing/create-kv-mem))
+           local (or local (mem/create-kv-mem))
            peer {:id (dht/node-id host port), :host host, :port port}
            table (atom {})
            pending (ConcurrentHashMap.)
@@ -310,6 +311,6 @@
      "Convenience: open a UDP node and wrap it as an IKVStore. The node and
      the store share `local`, so this peer serves the same bytes it reads."
      [opts]
-     (let [local (or (:local opts) (jing/create-kv-mem))
+     (let [local (or (:local opts) (mem/create-kv-mem))
            node (create-node (assoc opts :local local))]
        (dht/create-kv-dht {:net node, :local local}))))

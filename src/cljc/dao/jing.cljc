@@ -49,49 +49,6 @@
     "Release the storage backend resources."))
 
 
-(defrecord KVMem
-  [state-atom]
-
-  IKVStore
-
-  (put! [_ k v-map] (swap! state-atom assoc k (assoc v-map :rev 0)) true)
-
-
-  (cas!
-    [_ k old-rev v-map]
-    (loop []
-      (let [state @state-atom
-            current (clojure.core/get state k)
-            current-rev (or (:rev current) 0)]
-        (if (not= old-rev current-rev)
-          false
-          (if (compare-and-set! state-atom
-                                state
-                                (assoc state
-                                       k (assoc v-map :rev (inc current-rev))))
-            true
-            (recur))))))
-
-
-  (get
-    [_ k not-found]
-    (let [s @state-atom]
-      (if (contains? s k) (clojure.core/get s k) not-found)))
-
-
-  (delete! [_ k] (swap! state-atom dissoc k) true)
-
-
-  (close! [_] nil))
-
-
-(defn create-kv-mem
-  "Creates an ephemeral, thread-safe in-memory KVStore.
-   Useful for testing and single-process ephemeral spaces."
-  []
-  (->KVMem (atom {})))
-
-
 ;; =============================================================================
 ;; Content addressing
 ;; =============================================================================

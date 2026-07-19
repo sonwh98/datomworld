@@ -8,12 +8,13 @@
   (:require [clojure.test :refer [deftest is testing]]
             #?(:clj [clojure.edn])
             [dao.jing :as jing]
+            [dao.jing.mem :as mem]
             [dao.jing.file :as file]))
 
 
 (defn run-with-stores
   [f]
-  (doseq [make [(fn [] [(jing/create-kv-mem) nil])
+  (doseq [make [(fn [] [(mem/create-kv-mem) nil])
                 (fn []
                   (let [path (str "target/test-db-" (random-uuid) ".db")]
                     [(file/create-kv-file path) path]))]]
