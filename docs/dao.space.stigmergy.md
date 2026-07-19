@@ -79,8 +79,8 @@ When a Memory Tree is implemented as datoms in `dao.space`, it upgrades from a l
 The substrate is real and tested:
 
 - **Shared storage** — `dao.jing` with in-memory, file, WebSocket-remote
-  (`dao.jing.remote`, `:clj` client), and DHT backends. Agents on different machines can
-  share a store today.
+  (`dao.jing.remote`, `:clj` client), and DHT backends. Agents on different
+  machines can share a store today.
 - **Associative read** — `dao.space.query/q` (Datalog joins) and `match` (positional
   templates) over any store or federation of stores, with `as-of` bounds.
 - **Owner-built indexes** — `publish-index!` persists a stream's covered indexes as

@@ -204,15 +204,18 @@ contract and the in-memory, file, and DHT backends) operates identically across 
 
 ## Reaching `IKVStore`: `dao.stream.apply` and `dao.stream.rpc`
 
-**Status: implemented** for the cross-process case via `dao.jing.remote.{server,client}`
-(`src/cljc/dao/jing/remote/{server,client}.cljc`; tests in
-`test/dao/jing/remote_test.cljc`), which exposes a local `IKVStore` over the network today.
-The other two cases below — a direct in-process `dao.stream.apply` exposure of `IKVStore`,
-and controlled-mode confinement through `yin.vm.ffi` — are patterns this document names as
-the right shape, not code that exists yet: nothing in `src/` currently registers `:jing/*`
-handlers against an in-process `dao.stream.apply` pair or against `yin.vm.ffi`; the only
-`:jing/*` handlers map in the codebase is `dao.jing.remote.server/default-handlers`, built
-for `dao.stream.rpc`.
+**Status: implemented** for the cross-process case via `dao.jing.remote`
+(`src/cljc/dao/jing/remote.cljc`; tests in `test/dao/jing/remote_test.cljc`),
+which is a thin `dao.jing`-specific adapter over the generic
+`dao.stream.rpc.{server,client}` transport. Exposing a local `IKVStore` over
+the network and reading it back as an `IKVStore` from another process both
+work today. The other two cases below — a direct in-process `dao.stream.apply`
+exposure of `IKVStore`, and controlled-mode confinement through `yin.vm.ffi` —
+are patterns this document names as the right shape, not code that exists yet:
+nothing in `src/` currently registers `:jing/*` handlers against an in-process
+`dao.stream.apply` pair or against `yin.vm.ffi`; the only `:jing/*` handlers
+map in the codebase is `dao.jing.remote/default-handlers`, built for
+`dao.stream.rpc`.
 
 `dao.stream.apply` and `dao.stream.rpc` are not two interchangeable ways to reach `IKVStore`
 — they are two different interface shapes, and the choice follows directly from whether a
@@ -234,9 +237,7 @@ network is actually involved:
   `dao.stream.apply/put-request!` (`dao/stream/rpc/client.cljc:209`) followed by a poll loop
   that calls `next-response` (`dao/stream/rpc/client.cljc:80`, inside `wait-for-response`,
   `client.cljc:210-214`) — but that stream is private framing plumbing the RPC layer owns,
-  never exposed for general stream use. `dao.jing.remote.client`'s
-  `RemoteKVStore` keeps a `:stream` field only so `close!` can call `ds/close!` on it; that is
-  not an invitation to treat it as a generic stream elsewhere.
+  never exposed for general stream use.
 
 The layering, bottom to top:
 
@@ -244,20 +245,22 @@ The layering, bottom to top:
   *"dao.stream.apply Pattern"*) is the primitive: it reifies function application as
   request/response datoms over a stream pair, independently of any particular caller.
 - **`dao.stream.rpc.{server,client}`** (`src/cljc/dao/stream/rpc/`) is the generic transport
-  built directly on `dao.stream.apply` (both require `dao.stream.apply`; `rpc.server`'s own
+  built directly on `dao.stream.apply` (both require `dao.stream.apply`; `rpc.server`'s
   docstring: "exposes a caller-supplied handlers map over a WebSocket via `dao.stream.apply`").
   It knows nothing about `dao.jing` — `rpc.server/start!` takes any `{op-keyword fn}` handlers
   map, and `rpc.client/call!` sends `(op args)` and waits for the matching response.
-- **`dao.jing.remote.{server,client}`** is the `dao.jing`-specific adapter over that generic
-  layer: `remote.server/default-handlers` builds `{:jing/put! ..., :jing/cas! ...,
-  :jing/get ..., :jing/delete! ...}` from a local store and hands it to `rpc.server/start!`;
-  `remote.client/connect!` returns a `RemoteKVStore` whose every `IKVStore` method calls
-  `rpc.client/call!` against the matching `:jing/*` op. This is a third way to reach
-  `IKVStore`, alongside a plain in-process handle and the `dao.jing.dht` network backend (see
-  The Storage Interface, above) — a WebSocket instead of `dao.jing.dht`'s purpose-built
-  `IDhtNet`/Kademlia transport. (`RemoteKVStore`/`connect!` are `:clj`-only today: reconciling
-  `IKVStore`'s synchronous-return contract with `rpc.client/call!`'s Promise/Future return on
-  `:cljs`/`:cljd` is unscoped; the `dao.stream.rpc` layer underneath is portable regardless.)
+- **`dao.jing.remote`** (`src/cljc/dao/jing/remote.cljc`) is the `dao.jing`-specific adapter
+  over that generic layer: `default-handlers` builds
+  `{:jing/put! ..., :jing/cas! ..., :jing/get ..., :jing/delete! ...}` from a local store and
+  hands it to `rpc.server/start!`; `connect-kv!` returns a `RemoteKVStore` whose every
+  `IKVStore` method calls `rpc.client/call!` against the matching `:jing/*` op. This is a
+  third way to reach `IKVStore`, alongside a plain in-process handle and the `dao.jing.dht`
+  network backend (see The Storage Interface, above) — a WebSocket instead of
+  `dao.jing.dht`'s purpose-built `IDhtNet`/Kademlia transport.
+  (`RemoteKVStore` is cross-platform; `connect-kv!` is `:clj`-only today:
+  reconciling `IKVStore`'s synchronous-return contract with `rpc.client/call!`'s Promise/Future
+  return on `:cljs`/`:cljd` is unscoped; the `dao.stream.rpc` layer underneath is portable
+  regardless.)
 
 Not yet built: **controlled-mode confinement**, the more load-bearing case. A governed
 interpreter — per the "share governed computation, not data" model (`dao.space.security.md`,
@@ -270,8 +273,9 @@ that `dao.jing` or `dao.stream.apply` has on `yin.vm`. Registering `IKVStore` as
 capability-gated handlers there — present but refused when the capability doesn't cover the
 call, an empty allow-set equivalent to no handler at all — would be exactly the mediator the
 security model requires: one instance of the "effect handlers that securely honor capability
-tokens" the security doc names as not yet built. Unlike the plain `dao.jing.remote` handlers
-above (which trust every caller unconditionally), this variant does not exist yet.
+tokens" the security doc names as not yet built. Unlike the plain
+`dao.jing.remote/default-handlers` exposed today (which trust every caller
+unconditionally), this capability-gated variant does not exist yet.
 
 ## The Block Storage Metaphor (Hardware Analogies)
 

@@ -19,8 +19,7 @@
             [dao.datom :as datom]
             [dao.jing :as jing]
             [dao.jing.file :as file]
-            [dao.jing.remote.client :as remote-client]
-            [dao.jing.remote.server :as remote-server]
+            [dao.jing.remote :as remote]
             [dao.space.index :as index]
             [dao.space.query :as query]
             [dao.space.stream] ; loaded for defopen :dao-stream side effect
@@ -33,10 +32,8 @@
 
 
 ;; ---------------------------------------------------------------------------
-;; The medium: a dao.jing.file store served over dao.stream.rpc.
-;; Exposing a store is just registering its ops as handlers; consuming one is
-;; a reify over rpc-client/call!. No namespaces needed — dao.stream.rpc makes
-;; any function remotely callable.
+;; The medium: a dao.jing.file store served over dao.stream.rpc, reached
+;; through dao.jing.remote/default-handlers + dao.jing.remote/connect-kv!.
 ;; ---------------------------------------------------------------------------
 
 
@@ -54,7 +51,7 @@
     (.mkdirs (.getParentFile fl))
     (when (.exists fl) (.delete fl)))
   (let [store (file/create-kv-file space-path)
-        srv (rpc-server/start! (remote-server/default-handlers store)
+        srv (rpc-server/start! (remote/default-handlers store)
                                (+ 10000 (rand-int 50000)))]
     (try (binding [*store* store *url* (str "ws://127.0.0.1:" (:port srv))] (f))
          (finally ((:stop! srv)) (jing/close! store)))))
@@ -66,7 +63,7 @@
 (defn- with-remote
   "Run f with a remote dao.jing handle; closes the rpc client after."
   [f]
-  (let [client (remote-client/connect! *url*)]
+  (let [client (remote/connect-kv! *url*)]
     (try (f client) (finally (jing/close! client)))))
 
 

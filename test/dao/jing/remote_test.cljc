@@ -1,16 +1,16 @@
 (ns dao.jing.remote-test
-  "Tests for dao.jing.remote — exposing a local IKVStore over the network via dao.stream.apply.
+  "Tests for dao.jing.remote — the WebSocket-remote IKVStore adapter.
 
    Architecture:
-   - Server: exposes a local dao.jing store (file or memory) over WebSocket
-   - Client: implements IKVStore by sending put!/cas!/get/delete! requests over the network"
+   - Server side uses dao.stream.rpc.server with dao.jing.remote/default-handlers
+   - Client side uses dao.jing.remote/connect-kv!, which wraps a
+     dao.stream.rpc.client connection as a RemoteKVStore implementing IKVStore"
   (:require [clojure.test :as t :refer [deftest is testing use-fixtures]]
             [dao.jing :as jing]
             [dao.jing.mem :as mem]
             [dao.jing.file :as jing.file]
-            [dao.jing.remote.server :as remote-server]
-            [dao.jing.remote.client :as remote-client]
-            [dao.stream :as ds]))
+            [dao.jing.remote :as remote]
+            [dao.stream.rpc.server :as rpc-server]))
 
 
 ;; =============================================================================
@@ -27,6 +27,11 @@
           (+ 10000 (rand-int 50000))))
 
 
+#?(:clj (defn- start-kv!
+          [store port]
+          (rpc-server/start! (remote/default-handlers store) port)))
+
+
 #?(:clj (defn- with-remote-server
           [store-type f]
           (let [port (random-port)
@@ -39,11 +44,11 @@
                                         (str "/tmp/dao-jing-remote-test-"
                                              (rand-int 1000000))))
                 ;; Start WebSocket server exposing the store
-                server (remote-server/start! backing-store port)
+                server (start-kv! backing-store port)
                 ;; Give server time to start
                 _ (Thread/sleep 100)]
             (try (binding [*server* server *store* backing-store] (f))
-                 (finally (remote-server/stop! server)
+                 (finally (rpc-server/stop! server)
                           (jing/close! backing-store))))))
 
 
@@ -56,7 +61,7 @@
             :memory
             (fn []
               (let [url (str "ws://localhost:" (:port *server*))
-                    client (remote-client/connect! url)]
+                    client (remote/connect-kv! url)]
                 (is (some? client) "Client should connect successfully")
                 (is (satisfies? jing/IKVStore client)
                     "Client should implement IKVStore")
@@ -66,7 +71,7 @@
 (deftest client-rejects-invalid-url-test
   #?(:clj (testing "Client throws on connection failure"
             (is (thrown? Exception
-                  (remote-client/connect! "ws://localhost:99999"))))))
+                  (remote/connect-kv! "ws://localhost:99999"))))))
 
 
 ;; =============================================================================
@@ -78,7 +83,7 @@
             :memory
             (fn []
               (let [url (str "ws://localhost:" (:port *server*))
-                    client (remote-client/connect! url)]
+                    client (remote/connect-kv! url)]
                 (try
                   ;; Put a value
                   (is (true? (jing/put! client
@@ -103,7 +108,7 @@
             (fn []
               (let [url (str "ws://localhost:"
                              (:port *server*))
-                    client (remote-client/connect! url)]
+                    client (remote/connect-kv! url)]
                 (try
                   ;; First put
                   (jing/put! client :key {:v 1})
@@ -125,7 +130,7 @@
             :memory
             (fn []
               (let [url (str "ws://localhost:" (:port *server*))
-                    client (remote-client/connect! url)]
+                    client (remote/connect-kv! url)]
                 (try
                   ;; Initial put
                   (jing/put! client :counter {:n 0})
@@ -146,7 +151,7 @@
             :memory
             (fn []
               (let [url (str "ws://localhost:" (:port *server*))
-                    client (remote-client/connect! url)]
+                    client (remote/connect-kv! url)]
                 (try
                   ;; Initial put
                   (jing/put! client :counter {:n 0})
@@ -165,7 +170,7 @@
             :memory
             (fn []
               (let [url (str "ws://localhost:" (:port *server*))
-                    client (remote-client/connect! url)]
+                    client (remote/connect-kv! url)]
                 (try
                   ;; CAS on non-existent key with old-rev 0 should succeed
                   (is (true? (jing/cas! client :fresh-key 0 {:data "value"})))
@@ -182,7 +187,7 @@
             :memory
             (fn []
               (let [url (str "ws://localhost:" (:port *server*))
-                    client (remote-client/connect! url)]
+                    client (remote/connect-kv! url)]
                 (try
                   ;; Put then delete
                   (jing/put! client :temp {:data "to delete"})
@@ -199,7 +204,7 @@
             :memory
             (fn []
               (let [url (str "ws://localhost:" (:port *server*))
-                    client (remote-client/connect! url)]
+                    client (remote/connect-kv! url)]
                 (try
                   ;; Deleting non-existent key should succeed (be
                   ;; idempotent)
@@ -216,8 +221,8 @@
             :memory
             (fn []
               (let [url (str "ws://localhost:" (:port *server*))
-                    client-a (remote-client/connect! url)
-                    client-b (remote-client/connect! url)]
+                    client-a (remote/connect-kv! url)
+                    client-b (remote/connect-kv! url)]
                 (try
                   ;; Client A writes
                   (jing/put! client-a :shared {:from "a"})
@@ -236,53 +241,49 @@
 ;; =============================================================================
 ;; File-backed Store Tests
 ;; =============================================================================
-
 (deftest remote-file-store-persists-test
-  #?(:clj (testing "File-backed store persists across client reconnections"
-            (let [port (random-port)
-                  path (str "/tmp/dao-jing-remote-persist-test-"
-                            (rand-int 1000000))
-                  backing-store (jing.file/create-kv-file path)]
-              (try
-                ;; Start server with file store
-                (let [server (remote-server/start! backing-store port)]
-                  (Thread/sleep 100)
-                  ;; Client 1 connects and writes
-                  (let [client1 (remote-client/connect! (str "ws://localhost:"
-                                                             port))]
-                    (jing/put! client1 :persistent {:data "survives"})
-                    (jing/close! client1))
-                  ;; Stop server
-                  (remote-server/stop! server)
-                  (jing/close! backing-store))
-                ;; Reopen the same file
-                (let [backing-store2 (jing.file/create-kv-file path)
-                      server2 (remote-server/start! backing-store2 port)]
-                  (Thread/sleep 100)
-                  ;; Client 2 connects and reads
-                  (let [client2 (remote-client/connect! (str "ws://localhost:"
-                                                             port))]
-                    (is (= "survives"
-                           (:data (jing/get client2 :persistent nil)))
-                        "Data should persist across server restarts")
-                    (jing/close! client2))
-                  (remote-server/stop! server2)
-                  (jing/close! backing-store2))
-                (finally
-                  ;; Cleanup
-                  (try #?(:clj (java.nio.file.Files/deleteIfExists
-                                 (java.nio.file.Path/of path
-                                                        (make-array String 0))))
-                       (catch #?(:clj Exception
-                                 :cljs :default)
-                              _))))))))
+  #?(:clj
+     (testing "File-backed store persists across client reconnections"
+       (let [port (random-port)
+             path (str "/tmp/dao-jing-remote-persist-test-"
+                       (rand-int 1000000))
+             backing-store (jing.file/create-kv-file path)]
+         (try
+           ;; Start server with file store
+           (let [server (start-kv! backing-store port)]
+             (Thread/sleep 100)
+             ;; Client 1 connects and writes
+             (let [client1 (remote/connect-kv! (str "ws://localhost:" port))]
+               (jing/put! client1 :persistent {:data "survives"})
+               (jing/close! client1))
+             ;; Stop server
+             (rpc-server/stop! server)
+             (jing/close! backing-store))
+           ;; Reopen the same file
+           (let [backing-store2 (jing.file/create-kv-file path)
+                 server2 (start-kv! backing-store2 port)]
+             (Thread/sleep 100)
+             ;; Client 2 connects and reads
+             (let [client2 (remote/connect-kv! (str "ws://localhost:" port))]
+               (is (= "survives" (:data (jing/get client2 :persistent nil)))
+                   "Data should persist across server restarts")
+               (jing/close! client2))
+             (rpc-server/stop! server2)
+             (jing/close! backing-store2))
+           (finally
+             ;; Cleanup
+             (try #?(:clj (java.nio.file.Files/deleteIfExists
+                            (java.nio.file.Path/of path
+                                                   (make-array String 0))))
+                  (catch #?(:clj Exception
+                            :cljs :default)
+                         _))))))))
 
 
 (deftest client-operations-fail-when-server-down-test
-  #?(:clj (testing
-            "Client throws on connection timeout when server is unreachable"
-            (is (thrown? Exception
-                  (remote-client/connect! "ws://localhost:59999"))))))
+  #?(:clj
+     (testing "Client throws on connection timeout when server is unreachable"
+       (is (thrown? Exception (remote/connect-kv! "ws://localhost:59999"))))))
 
 
 ;; =============================================================================
@@ -294,7 +295,7 @@
             (fn []
               (let [url (str "ws://localhost:"
                              (:port *server*))
-                    client (remote-client/connect! url)]
+                    client (remote/connect-kv! url)]
                 (try
                   ;; Empty value map
                   (jing/put! client :empty {})
@@ -309,7 +310,7 @@
             :memory
             (fn []
               (let [url (str "ws://localhost:" (:port *server*))
-                    client (remote-client/connect! url)
+                    client (remote/connect-kv! url)
                     large-data (vec (range 1000))]
                 (try (jing/put! client :large {:data large-data})
                      (is (= large-data (:data (jing/get client :large nil)))
@@ -322,7 +323,7 @@
             :memory
             (fn []
               (let [url (str "ws://localhost:" (:port *server*))
-                    client (remote-client/connect! url)]
+                    client (remote/connect-kv! url)]
                 (try
                   ;; Various key types that dao.jing supports
                   (jing/put! client :keyword-key {:type "keyword"})
@@ -339,7 +340,7 @@
             :memory
             (fn []
               (let [url (str "ws://localhost:" (:port *server*))
-                    client (remote-client/connect! url)]
+                    client (remote/connect-kv! url)]
                 ;; Multiple closes should not error
                 (jing/close! client)
                 (jing/close! client)
