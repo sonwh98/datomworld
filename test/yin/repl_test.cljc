@@ -9,6 +9,7 @@
             [dao.stream.apply :as dao-apply]
             [dao.stream.ws]
             [dao.stream.rpc.client :as rpc-client]
+            [dao.stream.rpc.ws :as rpc-ws]
             [yin.repl :as repl]))
 
 
@@ -391,11 +392,10 @@
                        :response-cursor-atom (atom {:position 0}),
                        :request-id-atom (atom 0),
                        :closed-atom (atom false)}]
-         (with-redefs [dao.stream.rpc.client/connect! (fn [url & _]
-                                                        (case url
-                                                          "ws://one" client-1
-                                                          "ws://two"
-                                                          client-2))
+         (with-redefs [dao.stream.rpc.ws/connect! (fn [url & _]
+                                                    (case url
+                                                      "ws://one" client-1
+                                                      "ws://two" client-2))
                        dao.stream.rpc.client/close!
                        (fn [client] (swap! closed-clients conj client))]
            (let [[state-1 _] @(repl/eval-input (repl/create-state)
@@ -411,8 +411,7 @@
   #?(:clj (testing
             "connect waits until the remote websocket link reaches :connected"
             (let [client {:stream ::stream}]
-              (with-redefs [dao.stream.rpc.client/connect! (fn [_url & _]
-                                                             client)]
+              (with-redefs [dao.stream.rpc.ws/connect! (fn [_url & _] client)]
                 (let [[state result] @(repl/eval-input
                                         (repl/create-state)
                                         "(connect \"ws://remote\")")]
@@ -426,7 +425,7 @@
      (async
        done
        (let [good-client {:stream ::good}]
-         (with-redefs [dao.stream.rpc.client/connect!
+         (with-redefs [dao.stream.rpc.ws/connect!
                        (fn
                          ([url]
                           (case url
@@ -460,7 +459,7 @@
          (let [state-atom (atom (repl/create-state))
                client {:stream ::stream}
                eval-handler (get (repl/make-handlers state-atom) :op/eval)]
-           (with-redefs [dao.stream.rpc.client/connect!
+           (with-redefs [dao.stream.rpc.ws/connect!
                          (fn
                            ([_url] (js/Promise.resolve client))
                            ([_url _opts] (js/Promise.resolve client)))]

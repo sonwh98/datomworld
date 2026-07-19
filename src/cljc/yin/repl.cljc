@@ -10,7 +10,7 @@
             [dao.stream :as ds]
             [dao.stream.ws :as ws]
             [dao.stream.rpc.client :as rpc-client]
-            [dao.stream.rpc.server :as rpc-server]
+            [dao.stream.rpc.ws :as rpc-ws]
             [yang.clojure :as yang.clojure]
             [yang.php :as yang.php]
             [yang.python :as yang.python]
@@ -578,12 +578,12 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
              (str (get vm-labels (:vm-type state)) " reset")]
       connect
       #?(:clj (let [url (normalize-daostream-url (first args))
-                    client (rpc-client/connect! url)
+                    client (rpc-ws/connect! url)
                     state' (detach-remote-endpoint state)]
                 [(attach-remote-endpoint state' client)
                  (str "Connected to " url)])
          :cljs (let [url (normalize-daostream-url (first args))
-                     p (rpc-client/connect! url)]
+                     p (rpc-ws/connect! url)]
                  (-> p
                      (.then (fn [client]
                               (let [state' (detach-remote-endpoint state)]
@@ -591,7 +591,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                                  (str "Connected to " url)])))
                      (.catch (fn [err] [state (format-error err)]))))
          :cljd (let [url (normalize-daostream-url (first args))
-                     f (rpc-client/connect! url)]
+                     f (rpc-ws/connect! url)]
                  (-> ^async/Future f
                      (.then (fn [client]
                               (let [state' (detach-remote-endpoint state)]
@@ -784,7 +784,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
   ([state-atom port opts]
    (let [host (or (:host opts) "127.0.0.1")
          handlers (make-handlers state-atom)
-         server-handle (rpc-server/start!
+         server-handle (rpc-ws/start!
                          handlers
                          port
                          (assoc opts
@@ -802,7 +802,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
       :server (:server server-handle),
       :conns (:conns server-handle),
       :stop! (fn []
-               (rpc-server/stop! server-handle)
+               (rpc-ws/stop! server-handle)
                (swap! state-atom unexpose-repl-server))})))
 
 

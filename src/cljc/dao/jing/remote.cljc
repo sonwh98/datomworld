@@ -21,7 +21,8 @@
    the `RemoteKVStore` record and `default-handlers` it pairs with are
    portable across clj/cljs/cljd regardless."
   (:require [dao.jing :as jing]
-            #?(:clj [dao.stream.rpc.client :as rpc-client])))
+            #?(:clj [dao.stream.rpc.client :as rpc-client])
+            #?(:clj [dao.stream.rpc.ws :as rpc-ws])))
 
 
 (defn default-handlers
@@ -69,7 +70,7 @@
         store are safe."
      ([url] (connect-kv! url {}))
      ([url opts]
-      (let [client (rpc-client/connect! url opts)]
+      (let [client (rpc-ws/connect! url opts)]
         (->RemoteKVStore (fn [op args] (rpc-client/call! client op args))
                          (fn [] (rpc-client/close! client)))))))
 
@@ -77,11 +78,11 @@
 (comment
   (require '[dao.jing :as jing]
            '[dao.jing.file :as jing.file]
-           '[dao.stream.rpc.server :as rpc-server])
+           '[dao.stream.rpc.ws :as rpc-ws])
   ;; Start once and leave the server running for multiple client
   ;; connections, including from other processes.
   (def store (jing.file/create-kv-file "target/dao/store.jing"))
-  (def server (rpc-server/start! (default-handlers store) 7070))
+  (def server (rpc-ws/start! (default-handlers store) 7070))
   ;; Connect as many clients as needed.
   (def client-1 (connect-kv! "ws://localhost:7070"))
   (jing/put! client-1 :hello {:v "world"})
@@ -89,6 +90,6 @@
   (def client-2 (connect-kv! "ws://localhost:7070"))
   (jing/get client-2 :hello nil)
   ;; Explicit cleanup when the server should stop.
-  ;; (rpc-server/stop! server)
+  ;; (rpc-ws/stop! server)
   ;; (jing/close! store)
 )

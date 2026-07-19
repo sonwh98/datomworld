@@ -1,8 +1,9 @@
 (ns dao.stream.rpc.client
-  "Generic RPC client: call any op a dao.stream.rpc.server's handlers map exposes.
+  "Transport-agnostic RPC client: given an already-connected stream, init-client
+   returns a client value; call! sends a request and waits for the matching
+   response: (call! client :demo/add [2 3]).
 
-   connect! opens a WebSocket connection and returns a client value; call! sends a
-   request and waits for the matching response: (call! client :demo/add [2 3]).
+   For WebSocket convenience (connect!, start!, stop!), see dao.stream.rpc.ws.
 
    Portable across :clj, :cljs, and :cljd, following the same portable
    wait-for-response pattern already established in yin.repl (see
@@ -13,8 +14,7 @@
   (:require #?(:cljd ["dart:async" :as async])
             #?(:cljd ["dart:core" :as core])
             [dao.stream :as ds]
-            [dao.stream.apply :as dao-apply]
-            [dao.stream.ws :as ws]))
+            [dao.stream.apply :as dao-apply]))
 
 
 (def ^:private default-timeout-ms 5000)
@@ -109,81 +109,25 @@
                    (.-future ^async/Completer completer))))))
 
 
-(defn- await-connected
-  "Poll a just-opened WebSocketStream's connection-status until :connected.
+(defn init-client
+  "Initialize an RPC client over an already-connected stream.
 
-   Returns the client map directly on :clj (blocking). Returns a js/Promise on
-   :cljs or a dart:async Future on :cljd that resolves to the client map, or
-   rejects with an ex-info on connection failure/timeout."
-  [stream client url timeout-ms]
-  (let [attempts-max (max-attempts timeout-ms)
-        #?@(:cljs [p-resolve (atom nil)
-                   p-reject (atom nil)
-                   p (js/Promise. (fn [resolve reject]
-                                    (reset! p-resolve resolve)
-                                    (reset! p-reject reject)))]
-            :cljd [completer (async/Completer.)])]
-    (letfn
-      [(succeed
-         []
-         #?(:clj client
-            :cljs (@p-resolve client)
-            :cljd (do (.complete ^async/Completer completer client) nil)))
-       (fail
-         [ex]
-         #?(:clj (throw ex)
-            :cljs (@p-reject ex)
-            :cljd (do (.completeError ^async/Completer completer ex) nil)))
-       (poll
-         [attempts]
-         (let [status (ws/connection-status stream)]
-           (cond (= :connected status) (succeed)
-                 (= :closed status) (fail (ex-info "Connection failed"
-                                                   {:url url}))
-                 (> attempts attempts-max)
-                 (fail (ex-info "Connection timeout"
-                                {:url url, :timeout-ms timeout-ms}))
-                 :else #?(:clj (do (Thread/sleep poll-interval-ms)
-                                   (recur (inc attempts)))
-                          :cljs (js/setTimeout #(poll (inc attempts))
-                                               poll-interval-ms)
-                          :cljd (do (.then (async/Future.delayed
-                                             (core/Duration .milliseconds
-                                                            poll-interval-ms))
-                                           (fn [_] (poll (inc attempts))))
-                                    nil)))))]
-      #?(:clj (poll 0)
-         :cljs (do (poll 0) p)
-         :cljd (do (poll 0) (.-future ^async/Completer completer))))))
+   The caller owns the stream's lifecycle: connect it, wait for readiness
+   (e.g. dao.stream.ws/await-connected), and close it when done.
 
-
-(defn connect!
-  "Connect to an RPC server at url.
-
-   Args:
-     url  - WebSocket URL (e.g. \"ws://localhost:8080\")
-     opts - optional map with:
-       :timeout-ms         - connection handshake timeout in ms (default 5000)
-       :request-timeout-ms - per-call! timeout in ms (default 5000), stored on
-                              the returned client and used by every call! made
-                              with it
+   opts: :request-timeout-ms — per-call! timeout in ms (default 5000),
+   stored on the returned client and used by every call! made with it.
 
    Returns a client map {:stream :response-cursor-atom :request-id-atom
-   :closed-atom :request-timeout-ms} directly on :clj (blocking until
-   connected). Returns a js/Promise on :cljs or a dart:async Future on :cljd
-   that resolves to the same client map once connected, or rejects on
-   failure/timeout."
-  ([url] (connect! url {}))
-  ([url opts]
-   (let [timeout-ms (get opts :timeout-ms default-timeout-ms)
-         request-timeout-ms (get opts :request-timeout-ms default-timeout-ms)
-         stream (ws/connect! url)
-         client {:stream stream,
-                 :response-cursor-atom (atom {:position 0}),
-                 :request-id-atom (atom 0),
-                 :closed-atom (atom false),
-                 :request-timeout-ms request-timeout-ms}]
-     (await-connected stream client url timeout-ms))))
+   :closed-atom :request-timeout-ms} synchronously."
+  ([stream] (init-client stream {}))
+  ([stream opts]
+   (let [request-timeout-ms (get opts :request-timeout-ms default-timeout-ms)]
+     {:stream stream,
+      :response-cursor-atom (atom {:position 0}),
+      :request-id-atom (atom 0),
+      :closed-atom (atom false),
+      :request-timeout-ms request-timeout-ms})))
 
 
 (defn call!

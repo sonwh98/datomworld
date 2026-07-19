@@ -10,7 +10,7 @@
             [dao.jing.mem :as mem]
             [dao.jing.file :as jing.file]
             [dao.jing.remote :as remote]
-            [dao.stream.rpc.server :as rpc-server]))
+            [dao.stream.rpc.ws :as rpc-ws]))
 
 
 ;; =============================================================================
@@ -29,7 +29,7 @@
 
 #?(:clj (defn- start-kv!
           [store port]
-          (rpc-server/start! (remote/default-handlers store) port)))
+          (rpc-ws/start! (remote/default-handlers store) port)))
 
 
 #?(:clj (defn- with-remote-server
@@ -48,8 +48,7 @@
                 ;; Give server time to start
                 _ (Thread/sleep 100)]
             (try (binding [*server* server *store* backing-store] (f))
-                 (finally (rpc-server/stop! server)
-                          (jing/close! backing-store))))))
+                 (finally (rpc-ws/stop! server) (jing/close! backing-store))))))
 
 
 ;; =============================================================================
@@ -257,7 +256,7 @@
                (jing/put! client1 :persistent {:data "survives"})
                (jing/close! client1))
              ;; Stop server
-             (rpc-server/stop! server)
+             (rpc-ws/stop! server)
              (jing/close! backing-store))
            ;; Reopen the same file
            (let [backing-store2 (jing.file/create-kv-file path)
@@ -268,7 +267,7 @@
                (is (= "survives" (:data (jing/get client2 :persistent nil)))
                    "Data should persist across server restarts")
                (jing/close! client2))
-             (rpc-server/stop! server2)
+             (rpc-ws/stop! server2)
              (jing/close! backing-store2))
            (finally
              ;; Cleanup

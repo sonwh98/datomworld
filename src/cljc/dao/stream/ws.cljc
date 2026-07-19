@@ -13,8 +13,10 @@
      IDaoStreamBound  — close! and closed? manage lifecycle
 
    Utilities (non-protocol):
-     drain-one!      — destructive read from remote-stream (legacy support)"
+     drain-one!      — destructive read from remote-stream (legacy support)
+     await-connected — poll a stream's connection-status until :connected or timeout"
   (:require #?(:cljd ["dart:async" :as async])
+            #?(:cljd ["dart:core" :as core])
             #?(:cljd ["dart:io" :as io])
             [dao.stream :as ds]
             [dao.stream.link :as link]
@@ -438,3 +440,67 @@
                (throw (ex-info
                         "websocket transport mode must be :listen or :connect"
                         {:descriptor descriptor, :mode mode}))))))
+
+
+;; =============================================================================
+;; await-connected
+;; =============================================================================
+
+(def ^:private poll-interval-ms 10)
+
+
+(defn- max-attempts
+  [timeout-ms]
+  (max 1 (quot timeout-ms poll-interval-ms)))
+
+
+(defn await-connected
+  "Poll a WebSocketStream's connection-status until :connected, :closed,
+   or timeout. Returns the stream itself on :clj (blocking), a js/Promise
+   on :cljs, or a dart:async Future on :cljd that resolves to the stream.
+   Rejects/throws on connection failure or timeout.
+
+   error-context is an optional map merged into ex-info data on failure,
+   e.g. {:url url} so callers can preserve connection context in errors."
+  ([stream timeout-ms] (await-connected stream timeout-ms nil))
+  ([stream timeout-ms error-context]
+   (let [attempts-max (max-attempts timeout-ms)
+         #?@(:cljs [p-resolve (atom nil)
+                    p-reject (atom nil)
+                    p (js/Promise. (fn [resolve reject]
+                                     (reset! p-resolve resolve)
+                                     (reset! p-reject reject)))]
+             :cljd [completer (async/Completer.)])]
+     (letfn
+       [(succeed
+          []
+          #?(:clj stream
+             :cljs (@p-resolve stream)
+             :cljd (do (.complete ^async/Completer completer stream) nil)))
+        (fail
+          [ex]
+          #?(:clj (throw ex)
+             :cljs (@p-reject ex)
+             :cljd (do (.completeError ^async/Completer completer ex) nil)))
+        (poll
+          [attempts]
+          (let [status (connection-status stream)]
+            (cond (= :connected status) (succeed)
+                  (= :closed status) (fail (ex-info "Connection failed"
+                                                    (merge {} error-context)))
+                  (> attempts attempts-max)
+                  (fail (ex-info "Connection timeout"
+                                 (merge {:timeout-ms timeout-ms}
+                                        error-context)))
+                  :else #?(:clj (do (Thread/sleep poll-interval-ms)
+                                    (recur (inc attempts)))
+                           :cljs (js/setTimeout #(poll (inc attempts))
+                                                poll-interval-ms)
+                           :cljd (do (.then (async/Future.delayed
+                                              (core/Duration .milliseconds
+                                                             poll-interval-ms))
+                                            (fn [_] (poll (inc attempts))))
+                                     nil)))))]
+       #?(:clj (poll 0)
+          :cljs (do (poll 0) p)
+          :cljd (do (poll 0) (.-future ^async/Completer completer)))))))

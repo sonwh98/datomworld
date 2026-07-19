@@ -24,7 +24,7 @@
             [dao.space.query :as query]
             [dao.space.stream] ; loaded for defopen :dao-stream side effect
             [dao.stream :as ds]
-            [dao.stream.rpc.server :as rpc-server])
+            [dao.stream.rpc.ws :as rpc-ws])
   (:import (java.io File)))
 
 
@@ -51,8 +51,8 @@
     (.mkdirs (.getParentFile fl))
     (when (.exists fl) (.delete fl)))
   (let [store (file/create-kv-file space-path)
-        srv (rpc-server/start! (remote/default-handlers store)
-                               (+ 10000 (rand-int 50000)))]
+        srv (rpc-ws/start! (remote/default-handlers store)
+                           (+ 10000 (rand-int 50000)))]
     (try (binding [*store* store *url* (str "ws://127.0.0.1:" (:port srv))] (f))
          (finally ((:stop! srv)) (jing/close! store)))))
 

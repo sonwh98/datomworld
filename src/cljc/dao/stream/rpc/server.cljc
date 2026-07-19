@@ -1,13 +1,8 @@
 (ns dao.stream.rpc.server
-  "Generic RPC server: exposes a caller-supplied handlers map over a WebSocket via
-   dao.stream.apply.
+  "Transport-agnostic RPC server: exposes a caller-supplied handlers map over
+   any IDaoStream via dao.stream.apply.
 
-   handlers is a plain {op-keyword fn} map built in trusted process code and passed
-   into start!. The op keyword arriving over the wire is only ever used as a lookup
-   key into this pre-registered map -- the same closed-map dispatch
-   dao.stream.apply/dispatch-request already implements. There is no dynamic
-   symbol/var resolution of wire-supplied input, on any platform: a remote peer can
-   only invoke functions this process explicitly registered in handlers.
+   For WebSocket convenience (connect!, start!, stop!), see dao.stream.rpc.ws.
 
    Portable across :clj, :cljs, and :cljd. Each client connection gets its own
    request loop that reads requests and sends responses over that connection's
@@ -17,8 +12,7 @@
   (:require #?(:cljd ["dart:async" :as async])
             #?(:cljd ["dart:core" :as core])
             [dao.stream :as ds]
-            [dao.stream.apply :as dao-apply]
-            [dao.stream.ws :as ws]))
+            [dao.stream.apply :as dao-apply]))
 
 
 (def ^:private max-consecutive-errors
@@ -71,9 +65,17 @@
          {:cursor (update cursor :position (fnil inc 0)), :malformed? true})))
 
 
-(defn- serve-connection!
+(defn serve-connection!
   "Serve requests from a single client connection until the connection closes or
-   stop-atom is set."
+   stop-atom is set.
+
+   Example transport-agnostic usage (e.g. over an in-memory stream):
+   ```clojure
+   (let [handlers {:demo/add +}
+         stream (ds/open! {:type :ringbuffer, :capacity 1024})
+         stop-atom (atom false)]
+     (serve-connection! handlers stream stop-atom))
+   ```"
   [handlers stream stop-atom]
   (letfn
     [(step
@@ -110,55 +112,3 @@
     #?(:clj (future (step {:position 0} 0))
        :cljs (step {:position 0} 0)
        :cljd (step {:position 0} 0))))
-
-
-(defn start!
-  "Start a WebSocket server exposing handlers.
-
-   Args:
-     handlers - a {op-keyword fn} map built by the caller in trusted process code.
-                The op keyword arriving over the wire is only ever used as a lookup
-                key into this map; there is no dynamic resolution of wire-supplied
-                input, so a remote peer can only invoke what handlers registers.
-     port     - port number to listen on
-     opts     - optional map passed to ws/listen!
-
-   Returns:
-     {:port <port> :stop! <fn> :server <handle> :conns <atom-of-streams>}"
-  ([handlers port] (start! handlers port {}))
-  ([handlers port opts]
-   (let [stop-atom (atom false)
-         conns-atom (atom #{})
-         caller-on-connect (:on-connect opts)
-         caller-on-disconnect (:on-disconnect opts)
-         server-handle (ws/listen!
-                         port
-                         (assoc opts
-                                :on-connect
-                                (fn [stream]
-                                  (swap! conns-atom conj stream)
-                                  (serve-connection! handlers stream stop-atom)
-                                  (when caller-on-connect
-                                    (caller-on-connect stream)))
-                                :on-disconnect (fn [stream]
-                                                 (swap! conns-atom disj stream)
-                                                 (when caller-on-disconnect
-                                                   (caller-on-disconnect stream)))))]
-     {:port port,
-      :stop! (fn []
-               (reset! stop-atom true)
-               ;; Best-effort grace period for in-flight polling loops to
-               ;; observe stop-atom before their stream is closed out from
-               ;; under them. Only :clj has a real blocking sleep;
-               ;; :cljs/:cljd close immediately.
-               #?(:clj (Thread/sleep 100))
-               (doseq [stream @conns-atom] (ds/close! stream))
-               ((:stop-fn server-handle))),
-      :server server-handle,
-      :conns conns-atom})))
-
-
-(defn stop!
-  "Stop a running RPC server."
-  [server]
-  ((:stop! server)))
