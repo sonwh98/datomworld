@@ -1,6 +1,8 @@
 (ns dao.stream.ws
   "WebSocket-backed stream for ClojureDart using dart:io."
-  (:require ["dart:io" :as io]
+  (:require ["dart:async" :as async]
+            ["dart:core" :as core]
+            ["dart:io" :as io]
             [dao.stream :as ds]
             [dao.stream.link :as link]
             [dao.stream.ringbuffer :as ringbuffer]
@@ -197,3 +199,51 @@
                          {:capacity capacity, :eviction-policy eviction-policy})
       (throw (ex-info "websocket transport mode must be :listen or :connect"
                       {:descriptor descriptor, :mode mode})))))
+
+
+;; =============================================================================
+;; await-connected
+;; =============================================================================
+;; Ported from the :cljd branch of dao/stream/ws.cljc's await-connected --
+;; this file shadows that .cljc namespace for ClojureDart builds, so the
+;; shared version's defn never compiles here; this one must be kept in sync
+;; by hand.
+
+(def ^:private poll-interval-ms 10)
+
+
+(defn- max-attempts
+  [timeout-ms]
+  (max 1 (quot timeout-ms poll-interval-ms)))
+
+
+(defn await-connected
+  "Poll a WebSocketStream's connection-status until :connected, :closed, or
+   timeout. Returns a dart:async Future that resolves to the stream, or
+   completes with an error on connection failure/timeout.
+
+   error-context is an optional map merged into ex-info data on failure,
+   e.g. {:url url} so callers can preserve connection context in errors."
+  ([stream timeout-ms] (await-connected stream timeout-ms nil))
+  ([stream timeout-ms error-context]
+   (let [attempts-max (max-attempts timeout-ms)
+         completer (async/Completer.)]
+     (letfn
+       [(succeed [] (.complete ^async/Completer completer stream) nil)
+        (fail [ex] (.completeError ^async/Completer completer ex) nil)
+        (poll
+          [attempts]
+          (let [status (connection-status stream)]
+            (cond (= :connected status) (succeed)
+                  (= :closed status) (fail (ex-info "Connection failed"
+                                                    (merge {} error-context)))
+                  (> attempts attempts-max)
+                  (fail (ex-info "Connection timeout"
+                                 (merge {:timeout-ms timeout-ms}
+                                        error-context)))
+                  :else (do (.then (async/Future.delayed (core/Duration
+                                                           .milliseconds
+                                                           poll-interval-ms))
+                                   (fn [_] (poll (inc attempts))))
+                            nil))))]
+       (poll 0) (.-future ^async/Completer completer)))))

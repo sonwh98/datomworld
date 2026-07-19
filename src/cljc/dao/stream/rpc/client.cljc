@@ -17,7 +17,7 @@
             [dao.stream.apply :as dao-apply]))
 
 
-(def ^:private default-timeout-ms 5000)
+(def default-timeout-ms 5000)
 (def ^:private poll-interval-ms 10)
 
 
@@ -42,8 +42,10 @@
                          current))))
 
 
-(defn- wait-for-response
+(defn wait-for-response
   "Wait for a response matching req-id on stream, starting from start-cursor.
+   Public so dao.stream.rpc.retry can reuse it for a retry attempt's wait,
+   without duplicating this logic.
 
    start-cursor must be a position at or before where req-id's eventual
    response can appear (i.e. captured before the request was sent) -- starting
