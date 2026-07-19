@@ -5,6 +5,7 @@
             [dao.stream.ringbuffer]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
+            [yin.vm.prototype.cesk-space :as cesk-space]
             [yin.vm.register :as register]
             [yin.vm.semantic :as semantic]
             [yin.vm.stack :as stack]))
@@ -29,6 +30,8 @@
               "--semantic-only" (assoc opts :semantic-only? true)
               "--ast-walker" (assoc opts :ast-walker? true)
               "--ast-walker-only" (assoc opts :ast-walker-only? true)
+              "--cesk-space" (assoc opts :cesk-space? true)
+              "--cesk-space-only" (assoc opts :cesk-space-only? true)
               (assoc opts :n (parse-arg-long arg n))))
           {:n 1000,
            :fast-only? false,
@@ -36,7 +39,9 @@
            :stack-only? false,
            :semantic-only? false,
            :ast-walker? false,
-           :ast-walker-only? false}
+           :ast-walker-only? false,
+           :cesk-space? false,
+           :cesk-space-only? false}
           args))
 
 
@@ -64,6 +69,37 @@
      :operator self-fn,
      :operands [self-fn {:type :literal, :value n}],
      :tail? true}))
+
+
+(defn- cesk-countdown-expr
+  "The tail-countdown workload in the cesk-space surface language."
+  [n]
+  (list 'letrec
+        ['loop '(lambda (n) (if (< n 1) 0 (loop (- n 1))))]
+        (list 'loop n)))
+
+
+(defn- bench-cesk-space
+  "Manually timed runs instead of Criterium: one run is seconds, not
+  microseconds, so a fixed run count keeps wall time bounded and lets the
+  JVM exit cleanly for JFR dumponexit."
+  [n]
+  (println "\n=== CESK-space prototype (datoms-as-machine) ===")
+  (let [expr (cesk-countdown-expr n)
+        fuel (max 1000000 (* 100 n))
+        {:keys [value steps st]} (cesk-space/run expr fuel)]
+    (println (format "  steps: %d, value: %s, space datoms: %d"
+                     steps
+                     (str value)
+                     (count (:space st))))
+    (println "Measuring cesk-space run (1 warmup + 3 timed runs)...")
+    (let [times (vec (for [i (range 3)]
+                       (let [t0 (System/nanoTime)
+                             _ (cesk-space/run expr fuel)
+                             ms (/ (- (System/nanoTime) t0) 1e6)]
+                         (println (format "  run %d: %.1f ms" (inc i) ms))
+                         ms)))]
+      (println (format "  mean: %.1f ms" (/ (reduce + times) (count times)))))))
 
 
 (defn- track-opcodes
@@ -166,14 +202,15 @@
 (defn -main
   [& args]
   (let [{:keys [n fast-only? register-only? stack-only? semantic-only?
-                ast-walker? ast-walker-only?],
+                ast-walker? ast-walker-only? cesk-space? cesk-space-only?],
          :as opts}
         (parse-opts args)
         exclusive-flags (cond-> []
                           register-only? (conj "--register-only")
                           stack-only? (conj "--stack-only")
                           semantic-only? (conj "--semantic-only")
-                          ast-walker-only? (conj "--ast-walker-only"))]
+                          ast-walker-only? (conj "--ast-walker-only")
+                          cesk-space-only? (conj "--cesk-space-only"))]
     (when (> (count exclusive-flags) 1)
       (throw (ex-info (str "Cannot combine " (str/join " and " exclusive-flags))
                       {:args args})))
@@ -182,24 +219,33 @@
                               (and (not register-only?)
                                    (not stack-only?)
                                    (not semantic-only?)
-                                   (not ast-walker-only?)))
+                                   (not ast-walker-only?)
+                                   (not cesk-space-only?)))
           run-semantic? (or semantic-only?
                             (and (not register-only?)
                                  (not stack-only?)
-                                 (not ast-walker-only?)))
+                                 (not ast-walker-only?)
+                                 (not cesk-space-only?)))
           run-register? (or register-only?
                             (and (not stack-only?)
                                  (not semantic-only?)
-                                 (not ast-walker-only?)))
+                                 (not ast-walker-only?)
+                                 (not cesk-space-only?)))
           run-stack? (or stack-only?
                          (and (not register-only?)
                               (not semantic-only?)
-                              (not ast-walker-only?)))
+                              (not ast-walker-only?)
+                              (not cesk-space-only?)))
+          ;; The cesk-space prototype re-folds the raw datom vector on
+          ;; every read, so it is opt-in only: it would dominate wall time
+          ;; at the default n.
+          run-cesk-space? (or cesk-space? cesk-space-only?)
           ast (tail-countdown-ast n)
           mode-str (cond ast-walker-only? "ast-walker-only"
                          register-only? "register-only"
                          stack-only? "stack-only"
                          semantic-only? "semantic-only"
+                         cesk-space-only? "cesk-space-only"
                          :else "all")]
       (println "VM optimization benchmark")
       (println (str "workload: tail-recursive countdown n=" n))
@@ -215,4 +261,5 @@
           (bench-stepping-vm "Semantic VM" program opts)))
       (when run-ast-walker?
         (let [program (queue-vm (ast-walker/create-vm) (vm/ast->datoms ast))]
-          (bench-stepping-vm "AST Walker VM" program opts))))))
+          (bench-stepping-vm "AST Walker VM" program opts)))
+      (when run-cesk-space? (bench-cesk-space n)))))

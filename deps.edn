@@ -23,6 +23,9 @@
            :profile-fast {:extra-paths ["test"]
                           :jvm-opts ["-XX:StartFlightRecording=filename=/tmp/datomworld-bytecode-bench-fast.jfr,settings=profile,dumponexit=true"]
                           :main-opts ["-m" "yin.vm.bytecode-bench" "--fast-only" "--register-only"]}
+           :profile-cesk-space {:extra-paths ["test"]
+                                :jvm-opts ["-XX:StartFlightRecording=filename=/tmp/datomworld-cesk-space.jfr,settings=profile,dumponexit=true"]
+                                :main-opts ["-m" "yin.vm.bytecode-bench" "--cesk-space-only"]}
            :profile-ast-walker {:extra-paths ["test"]
                                 :jvm-opts ["-XX:StartFlightRecording=filename=/tmp/datomworld-ast-walker.jfr,settings=profile,dumponexit=true"]
                                 :main-opts ["-m" "yin.vm.bytecode-bench" "--ast-walker-only"]}
