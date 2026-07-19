@@ -3,9 +3,9 @@
 
    Server side: `default-handlers` builds the {:jing/put! ... :jing/cas! ...
    :jing/get ... :jing/delete!} handlers map from a local store and hands it
-   to `dao.stream.rpc.server/start!`. Transport, dispatch, and request/
-   response framing belong entirely to `dao.stream.rpc.server`, which knows
-   nothing about `dao.jing`.
+   to `dao.stream.rpc.ws/start!`. Transport, dispatch, and request/
+   response framing belong entirely to `dao.stream.rpc.server`/`.ws`, which
+   know nothing about `dao.jing`.
 
    Client side: `connect-kv!` returns a `RemoteKVStore` whose every
    `IKVStore` method calls `dao.stream.rpc.client/call!` against the
@@ -60,7 +60,7 @@
 
       Args:
         url  - WebSocket URL (e.g., \"ws://localhost:8080\")
-        opts - optional map passed to dao.stream.rpc.client/connect!:
+        opts - optional map passed to dao.stream.rpc.ws/connect!:
                  :timeout-ms         - connection handshake timeout (default 5000)
                  :request-timeout-ms - per-call! timeout (default 5000)
 
@@ -76,9 +76,7 @@
 
 
 (comment
-  (require '[dao.jing :as jing]
-           '[dao.jing.file :as jing.file]
-           '[dao.stream.rpc.ws :as rpc-ws])
+  (require '[dao.jing.file :as jing.file] '[dao.stream.rpc.ws :as rpc-ws])
   ;; Start once and leave the server running for multiple client
   ;; connections, including from other processes.
   (def store (jing.file/create-kv-file "target/dao/store.jing"))

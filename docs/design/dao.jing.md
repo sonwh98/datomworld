@@ -206,8 +206,9 @@ contract and the in-memory, file, and DHT backends) operates identically across 
 
 **Status: implemented** for the cross-process case via `dao.jing.remote`
 (`src/cljc/dao/jing/remote.cljc`; tests in `test/dao/jing/remote_test.cljc`),
-which is a thin `dao.jing`-specific adapter over the generic
-`dao.stream.rpc.{server,client}` transport. Exposing a local `IKVStore` over
+which is a thin `dao.jing`-specific adapter over `dao.stream.rpc.ws`, the
+WebSocket convenience layer built on the transport-agnostic
+`dao.stream.rpc.{client,server}` primitives. Exposing a local `IKVStore` over
 the network and reading it back as an `IKVStore` from another process both
 work today. The other two cases below — a direct in-process `dao.stream.apply`
 exposure of `IKVStore`, and controlled-mode confinement through `yin.vm.ffi` —
@@ -229,30 +230,37 @@ network is actually involved:
   `yin.vm.ffi`'s confined-host bridge already uses for other ops (below) — but no `:jing/*`
   handlers are registered there yet, for this or the in-process case.
 - **`dao.stream.rpc`, only when a network is involved.** `dao.stream.rpc` is a *request/response
-  call* abstraction, not a *stream* abstraction — its public surface is `connect!`/`call!`/
-  `close!` (client) and `start!`/`stop!` (server), where `call!` sends one `(op args)` and
-  returns one result (blocking on `:clj`; a Promise/Future on `:cljs`/`:cljd`). It does not
-  hand the caller a `dao.stream` to read or write. Internally it *is* built on one — `connect!`
-  opens a `dao.stream.ws` WebSocket stream, and `call!` drives it through
-  `dao.stream.apply/put-request!` (`dao/stream/rpc/client.cljc:209`) followed by a poll loop
-  that calls `next-response` (`dao/stream/rpc/client.cljc:80`, inside `wait-for-response`,
-  `client.cljc:210-214`) — but that stream is private framing plumbing the RPC layer owns,
-  never exposed for general stream use.
+  call* abstraction, not a *stream* abstraction. `dao.stream.rpc.{client,server}` are
+  transport-agnostic: `init-client`/`call!`/`close!` (client) and `serve-connection!` (server)
+  operate over any already-connected `IDaoStream`, where `call!` sends one `(op args)` and
+  returns one result (blocking on `:clj`; a Promise/Future on `:cljs`/`:cljd`). `dao.stream.rpc.ws`
+  adds `connect!`/`start!`/`stop!`, the WebSocket-specific convenience built on those primitives.
+  It does not hand the caller a `dao.stream` to read or write: `connect!` opens a `dao.stream.ws`
+  WebSocket stream and wraps it via `init-client`, and `call!` drives it through
+  `dao.stream.apply/put-request!` (`dao/stream/rpc/client.cljc:153`) followed by a poll loop that
+  calls `next-response` (`dao/stream/rpc/client.cljc:80`, inside `wait-for-response`,
+  `client.cljc:45-109`) — but that stream is private framing plumbing the RPC layer owns, never
+  exposed for general stream use.
 
 The layering, bottom to top:
 
 - **`dao.stream.apply`** (`src/cljc/dao/stream/apply.cljc`; `docs/design/dao.stream.md`,
   *"dao.stream.apply Pattern"*) is the primitive: it reifies function application as
   request/response datoms over a stream pair, independently of any particular caller.
-- **`dao.stream.rpc.{server,client}`** (`src/cljc/dao/stream/rpc/`) is the generic transport
-  built directly on `dao.stream.apply` (both require `dao.stream.apply`; `rpc.server`'s
-  docstring: "exposes a caller-supplied handlers map over a WebSocket via `dao.stream.apply`").
-  It knows nothing about `dao.jing` — `rpc.server/start!` takes any `{op-keyword fn}` handlers
-  map, and `rpc.client/call!` sends `(op args)` and waits for the matching response.
-- **`dao.jing.remote`** (`src/cljc/dao/jing/remote.cljc`) is the `dao.jing`-specific adapter
-  over that generic layer: `default-handlers` builds
+- **`dao.stream.rpc.{client,server}`** (`src/cljc/dao/stream/rpc/`) is the transport-agnostic
+  layer built directly on `dao.stream.apply` (both require `dao.stream.apply`; `rpc.server`'s
+  docstring: "exposes a caller-supplied handlers map over any IDaoStream via `dao.stream.apply`").
+  It knows nothing about `dao.jing` or WebSockets — `rpc.server/serve-connection!` drives any
+  `{op-keyword fn}` handlers map over a caller-supplied stream, and `rpc.client/call!` sends
+  `(op args)` and waits for the matching response.
+- **`dao.stream.rpc.ws`** (`src/cljc/dao/stream/rpc/ws.cljc`) is the WebSocket convenience layer
+  over that transport-agnostic pair: `start!` opens a WebSocket listener and hands each
+  connection's stream to `rpc.server/serve-connection!`; `connect!` opens a WebSocket stream and
+  wraps it via `rpc.client/init-client`, waiting for the handshake to reach `:connected` first.
+- **`dao.jing.remote`** (`src/cljc/dao/jing/remote.cljc`) is the `dao.jing`-specific adapter on
+  top of `dao.stream.rpc.ws`: `default-handlers` builds
   `{:jing/put! ..., :jing/cas! ..., :jing/get ..., :jing/delete! ...}` from a local store and
-  hands it to `rpc.server/start!`; `connect-kv!` returns a `RemoteKVStore` whose every
+  hands it to `rpc.ws/start!`; `connect-kv!` returns a `RemoteKVStore` whose every
   `IKVStore` method calls `rpc.client/call!` against the matching `:jing/*` op. This is a
   third way to reach `IKVStore`, alongside a plain in-process handle and the `dao.jing.dht`
   network backend (see The Storage Interface, above) — a WebSocket instead of
