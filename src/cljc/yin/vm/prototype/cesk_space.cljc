@@ -68,14 +68,61 @@
   [(:eid st) (update st :eid inc)])
 
 
+(defn- sync-st-cache
+  [st]
+  (let [space (:space st)
+        start (or (:cache-seq st) 0)
+        end (count space)]
+    (if (= start end)
+      st
+      (let [new-datoms (subvec space start end)
+            cache' (reduce (fn [c [e a v]] (assoc-in c [e a] v))
+                           (or (:cache st) {})
+                           new-datoms)
+            bind-attrs #{:bind/frame :bind/name :bind/addr}
+            env-cache' (if (some #(contains? bind-attrs (second %)) new-datoms)
+                         (reduce (fn [ec [e a _]]
+                                   (if (contains? bind-attrs a)
+                                     (let [attrs (get cache' e)
+                                           f (:bind/frame attrs)
+                                           name (:bind/name attrs)
+                                           addr (:bind/addr attrs)]
+                                       (if (and f name addr)
+                                         (assoc-in ec [f name] addr)
+                                         ec))
+                                     ec))
+                                 (or (:env-cache st) {})
+                                 new-datoms)
+                         (or (:env-cache st) {}))]
+        (assoc st
+               :cache cache'
+               :env-cache env-cache'
+               :cache-seq end)))))
+
+
+(defn- cached-pull
+  "Map-based entity lookup replacing `q/pull` for the hot path.
+  Returns nil when the entity is not in the cache, matching `q/pull` behavior."
+  [cache eid pattern]
+  (if-let [attrs (get cache eid)]
+    (reduce (fn [res attr]
+              (if-let [e (find attrs attr)]
+                (assoc res (key e) (val e))
+                res))
+            {:db/id eid}
+            pattern)
+    nil))
+
+
 (defn- add
   "Append assertion datoms (each a [e a v] triple) at the current step `t`,
   stamped with the machine's owner entity as `m`."
   [st & triples]
-  (update st
-          :space
-          into
-          (map (fn [[e a v]] [e a v (:t st) (:owner st)]) triples)))
+  (let [st' (update st
+                    :space
+                    into
+                    (map (fn [[e a v]] [e a v (:t st) (:owner st)]) triples))]
+    (sync-st-cache st')))
 
 
 (defn- tick
@@ -201,11 +248,11 @@
 
 (defn- load-node
   [st eid]
-  (q/pull (view st)
-          eid
-          [:yin/type :yin/value :yin/name :yin/params :yin/body :yin/test
-           :yin/consequent :yin/alternate :yin/operator :yin/operands :yin/init
-           :yin/key :yin/val-node]))
+  (cached-pull (:cache st)
+               eid
+               [:yin/type :yin/value :yin/name :yin/params :yin/body :yin/test
+                :yin/consequent :yin/alternate :yin/operator :yin/operands
+                :yin/init :yin/key :yin/val-node]))
 
 
 ;; ---------------------------------------------------------------------------
@@ -214,7 +261,7 @@
 
 (defn- parent
   [st f]
-  (when f (:frame/parent (q/pull (view st) f [:frame/parent]))))
+  (when f (:frame/parent (cached-pull (:cache st) f [:frame/parent]))))
 
 
 (defn- env-lookup
@@ -223,12 +270,9 @@
   [st frame name]
   (loop [f frame]
     (when f
-      (let [hit (q/q '[:find ?a :in $ ?f ?n :where [?b :bind/frame ?f]
-                       [?b :bind/name ?n] [?b :bind/addr ?a]]
-                     (view st)
-                     f
-                     name)]
-        (if (seq hit) (ffirst hit) (recur (parent st f)))))))
+      (if-let [addr (get-in st [:env-cache f name])]
+        addr
+        (recur (parent st f))))))
 
 
 (defn- env-extend
@@ -238,7 +282,7 @@
         [b st] (new-eid st)
         st (cond-> st
              env (add [f :frame/parent env])
-             (:cfg st) (add [f :frame/created-by (:cfg st)])
+             (and (:trace? st) (:cfg st)) (add [f :frame/created-by (:cfg st)])
              :always
              (add [b :bind/frame f] [b :bind/name name] [b :bind/addr addr]))]
     [f st]))
@@ -251,14 +295,14 @@
 (defn- store-get
   [st addr]
   (let [{:cell/keys [value ref]}
-        (q/pull (view st) addr [:cell/value :cell/ref])]
+        (cached-pull (:cache st) addr [:cell/value :cell/ref])]
     (if ref (ref-val ref) value)))
 
 
 (defn- store-set
   [st addr v]
   (let [vt (if (ref-val? v) [addr :cell/ref (:ref v)] [addr :cell/value v])]
-    (if-let [c (:cfg st)]
+    (if-let [c (and (:trace? st) (:cfg st))]
       (add st vt [addr :cell/set-by c])
       (add st vt))))
 
@@ -279,10 +323,10 @@
 
 (defn- load-kont
   [st k]
-  (q/pull (view st)
-          k
-          [:k/tag :k/next :k/then :k/else :k/env :k/name :k/body :k/addr :k/op
-           :k/b :k/v1 :k/clo :k/arg :k/key]))
+  (cached-pull (:cache st)
+               k
+               [:k/tag :k/next :k/then :k/else :k/env :k/name :k/body :k/addr
+                :k/op :k/b :k/v1 :k/clo :k/arg :k/key]))
 
 
 ;; ---------------------------------------------------------------------------
@@ -293,7 +337,7 @@
   [st triples]
   (let [[c st] (new-eid st)
         triples (cond-> (conj (vec triples) [:_ :cfg/step (:t st)])
-                  (:cfg st) (conj [:_ :cfg/prev (:cfg st)]))
+                  (and (:trace? st) (:cfg st)) (conj [:_ :cfg/prev (:cfg st)]))
         st (reduce (fn [s [_ a v]] (add s [c a v])) st triples)]
     [c st]))
 
@@ -315,10 +359,10 @@
 
 (defn- load-cfg
   [st c]
-  (q/pull (view st)
-          c
-          [:cfg/mode :cfg/ctrl :cfg/env :cfg/kont :cfg/val :cfg/val-ref
-           :cfg/step]))
+  (cached-pull (:cache st)
+               c
+               [:cfg/mode :cfg/ctrl :cfg/env :cfg/kont :cfg/val :cfg/val-ref
+                :cfg/step]))
 
 
 ;; ---------------------------------------------------------------------------
@@ -334,11 +378,14 @@
 
 (defn- rd-match
   "Linda rd as dao.space.query/match: run the positional template through
-  the chokepoint; when a tuple entity matches, yield its value."
+  the chokepoint; when a tuple entity matches, yield its value.
+  NOTE: `q/match` still folds the raw space — this is the remaining re-fold
+  site after the read cache optimization. Linda-heavy workloads will want a
+  positional index here (plan step 3 applies: fold at safepoints)."
   [st pattern]
   (when-let [d (first (q/match (view st) pattern))]
     (let [{:tuple/keys [val ref]}
-          (q/pull (view st) (nth d 0) [:tuple/val :tuple/ref])]
+          (cached-pull (:cache st) (nth d 0) [:tuple/val :tuple/ref])]
       (if ref (ref-val ref) val))))
 
 
@@ -442,12 +489,13 @@
               (mk-kont st :app-arg {:k/clo (:ref v), :k/env env} next)]
           (eval-cfg st arg env k2))
         (throw (ex-info "cannot apply non-closure" {:val v})))
-      :app-arg (let [{:clo/keys [param body env]}
-                     (q/pull (view st) clo [:clo/param :clo/body :clo/env])
-                     [cell st] (new-eid st)
-                     st (store-set st cell v)
-                     [env' st] (env-extend st env param cell)]
-                 (eval-cfg st body env' next))
+      :app-arg
+      (let [{:clo/keys [param body env]}
+            (cached-pull (:cache st) clo [:clo/param :clo/body :clo/env])
+            [cell st] (new-eid st)
+            st (store-set st cell v)
+            [env' st] (env-extend st env param cell)]
+        (eval-cfg st body env' next))
       :out-val (let [[e st] (new-eid st)
                      st (add st
                              [e :tuple/key key]
@@ -485,17 +533,23 @@
                 disjoint between machines sharing a space; must be >= 1025
                 so `m` refs a metadata entity, see dao.datom)
     :owner-name symbol naming the owner entity (default 'machine)
+    :trace?     whether to record telemetry (default true)
   Returns [st cfg]."
   ([expr] (inject expr {}))
   ([expr
-    {:keys [space eid-base owner-name],
-     :or {space [], eid-base 2048, owner-name 'machine}}]
+    {:keys [space eid-base owner-name trace?],
+     :or {space [], eid-base 2048, owner-name 'machine, trace? true}}]
    (let [owner eid-base
          st {:space space,
              :eid (inc eid-base),
              :t 0,
              :owner owner,
-             :name owner-name}
+             :name owner-name,
+             :trace? trace?,
+             :cache-seq 0,
+             :cache {},
+             :env-cache {}}
+         st (sync-st-cache st)
          st (add st [owner :agent/name owner-name])
          [root st] (emit-node st expr) ; genesis: C enters the space at t=0
          [done st] (mk-kont st :done {} nil)
@@ -517,7 +571,8 @@
   "If a wait entity's match template now hits, resume its parked
   continuation with the matched tuple's value. Returns [st next] or nil."
   [st w]
-  (let [{:wait/keys [pattern k]} (q/pull (view st) w [:wait/pattern :wait/k])
+  (let [{:wait/keys [pattern k]}
+        (cached-pull (:cache st) w [:wait/pattern :wait/k])
         hit (rd-match st pattern)]
     (when (some? hit)
       (let [[result st] (continue-step st hit k)] [(tick st) result]))))
@@ -526,24 +581,29 @@
 (defn drive
   "Step (st, cfg) to a value. This is the *resume* half of `run`: a machine
   that was serialized mid-flight (its whole state being datoms) restarts here
-  from any config eid. Returns {:value v :st st :steps n}."
+  from any config eid. Returns {:value v :st st :steps n}.
+  An initial `sync-st-cache` catches any datoms appended to the space after
+  serialization (e.g., by another machine); if :cache-seq matches the space
+  length (the common case for a just-deserialized machine), it's a no-op."
   [st cfg fuel]
-  (loop [st st
-         cfg cfg
-         n 0]
-    (when (> n fuel) (throw (ex-info "out of fuel" {:steps n})))
-    (let [[st result] (step st cfg)]
-      (cond (halt? result) {:value (second result), :st st, :steps (inc n)}
-            (blocked? result) (throw (ex-info "deadlock: rd with no tuple"
-                                              {:wait (second result)}))
-            :else (recur st result (inc n))))))
+  (let [st (sync-st-cache st)]
+    (loop [st st
+           cfg cfg
+           n 0]
+      (when (> n fuel) (throw (ex-info "out of fuel" {:steps n})))
+      (let [[st' result] (step st cfg)]
+        (cond (halt? result) {:value (second result), :st st', :steps (inc n)}
+              (blocked? result) (throw (ex-info "deadlock: rd with no tuple"
+                                                {:wait (second result)}))
+              :else (recur st' result (inc n)))))))
 
 
 (defn run
   "Run `expr` to a value. Returns {:value v :st st :steps n}.
   `st` retains the full datom log for time-travel / introspection / migration."
   ([expr] (run expr 100000))
-  ([expr fuel] (let [[st cfg] (inject expr)] (drive st cfg fuel))))
+  ([expr fuel] (run expr fuel {}))
+  ([expr fuel opts] (let [[st cfg] (inject expr opts)] (drive st cfg fuel))))
 
 
 (defn- machine-status
@@ -557,7 +617,8 @@
   "Give one machine its turn against the shared space. Returns
   [shared machine progressed?]."
   [shared {:keys [st next], :as machine}]
-  (let [st (assoc st :space shared)]
+  (let [st (assoc st :space shared)
+        st (sync-st-cache st)]
     (cond (halt? next) [shared machine false]
           (blocked? next) (if-let [[st' result] (try-resume st (second next))]
                             [(:space st')

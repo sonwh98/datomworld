@@ -87,7 +87,7 @@
   (println "\n=== CESK-space prototype (datoms-as-machine) ===")
   (let [expr (cesk-countdown-expr n)
         fuel (max 1000000 (* 100 n))
-        {:keys [value steps st]} (cesk-space/run expr fuel)]
+        {:keys [value steps st]} (cesk-space/run expr fuel {:trace? false})]
     (println (format "  steps: %d, value: %s, space datoms: %d"
                      steps
                      (str value)
@@ -95,7 +95,7 @@
     (println "Measuring cesk-space run (1 warmup + 3 timed runs)...")
     (let [times (vec (for [i (range 3)]
                        (let [t0 (System/nanoTime)
-                             _ (cesk-space/run expr fuel)
+                             _ (cesk-space/run expr fuel {:trace? false})
                              ms (/ (- (System/nanoTime) t0) 1e6)]
                          (println (format "  run %d: %.1f ms" (inc i) ms))
                          ms)))]
