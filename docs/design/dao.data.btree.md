@@ -441,7 +441,17 @@ that are easy to drop:
   ClojureDart sets satisfy. `slice`/`rslice` themselves are plain functions
   in the library's namespace on every host, so they need no protocol. No
   Dart `Set` interface: its contract is too broad to implement faithfully
-  on a deftype, and nothing consumes it.
+  on a deftype, and nothing consumes it. Dart `Iterable` is likewise
+  **deferred** (Phase 2 outcome): implementing it on a deftype means
+  satisfying Dart's full Iterable member surface or mixin plumbing, and
+  `ISeqable` is the idiomatic ClojureDart surface that everything in this
+  codebase consumes; it can be added later without breaking anything.
+  ClojureDart's `ISorted` differs from cljs's: it is
+  `(-sorted-seq coll from to flags)` / `(-sorted-rseq coll from to flags)`
+  with bit-flag bounds (has-from 8, from-inclusive 4, has-to 2,
+  to-inclusive 1), which is why the slice internals support per-bound
+  exclusivity even though the public `slice`/`rslice` are
+  inclusive-inclusive.
 
 **Hash memoization.** The memo lives on the `BTSet` wrapper, never on a
 node — nodes are shared between versions, so a node-level memo would be
@@ -976,7 +986,10 @@ clj -M:cljd test                                                     (Dart; requ
 ### Phase 2: Collection protocol conformance
 
 - The full §4 protocol matrix on all three hosts, including `IFn`,
-  `ILookup`, and `IHashEq`/`hashUnordered` on JVM.
+  `ILookup`, and `IHashEq`/`hashUnordered` on JVM — except
+  `IEditableCollection`/`ITransientSet`, which are Phase 3's deliverable
+  (implementing them before the edit lease exists would ship transients
+  that silently alias the persistent set).
 - A shared conformance suite: `conj`/`disj`/`get`/`contains?`/`seq`/`rseq`,
   set-as-function invocation, `reduce` with early `reduced`, O(1) `count`,
   equality and `hasheq` against `sorted-set` fixtures (including BTSet as a
