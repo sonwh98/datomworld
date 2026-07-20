@@ -1,15 +1,15 @@
 (ns yin.vm.parity-test
-  (:require
-    [clojure.test :refer [deftest is testing]]
-    [dao.stream :as ds]
-    [dao.stream.ringbuffer]
-    [yang.clojure :as yang]
-    [yin.vm :as vm]
-    [yin.vm.ast-walker :as ast-walker]
-    [yin.vm.register :as register]
-    [yin.vm.semantic :as semantic]
-    [yin.vm.stack :as stack]
-    [yin.vm.test-utils :as vtu]))
+  (:require [clojure.test :refer [deftest is testing]]
+            [dao.stream :as ds]
+            [dao.stream.ringbuffer]
+            [yang.clojure :as yang]
+            [yin.vm :as vm]
+            [yin.vm.ast-walker :as ast-walker]
+            [yin.vm.register :as register]
+            [yin.vm.semantic :as semantic]
+            [yin.vm.space :as space]
+            [yin.vm.stack :as stack]
+            [yin.vm.test-utils :as vtu]))
 
 
 (defn- stream-capacity
@@ -30,6 +30,7 @@
           states [(vtu/queue-vm (ast-walker/create-vm) datoms)
                   (vtu/queue-vm (stack/create-vm) datoms)
                   (vtu/queue-vm (semantic/create-vm) datoms)
+                  (vtu/queue-vm (space/create-vm) datoms)
                   (vtu/queue-vm (register/create-vm) datoms)]]
       (doseq [state states]
         (is (= {:position 0} (:in-cursor state)))
@@ -62,16 +63,24 @@
       (vm/eval {:type :stream/make})))
 
 
+(defn- space-stream-make-default-vm
+  []
+  (-> (space/create-vm)
+      (vm/eval {:type :stream/make})))
+
+
 (deftest stream-make-default-capacity-parity-test
   (testing "All VMs should agree on default stream capacity semantics"
     (let [ast-walker-vm (ast-walker-stream-make-default-vm)
           expected-capacity (stream-capacity ast-walker-vm)
           stack-vm (stack-stream-make-default-vm)
           semantic-vm (semantic-stream-make-default-vm)
-          register-vm (register-stream-make-default-vm)]
+          register-vm (register-stream-make-default-vm)
+          space-vm (space-stream-make-default-vm)]
       (is (= expected-capacity (stream-capacity stack-vm)))
       (is (= expected-capacity (stream-capacity semantic-vm)))
-      (is (= expected-capacity (stream-capacity register-vm))))))
+      (is (= expected-capacity (stream-capacity register-vm)))
+      (is (= expected-capacity (stream-capacity space-vm))))))
 
 
 (deftest canonical-datom-program-parity-test
@@ -112,6 +121,7 @@
                    :ast-walker (ast-walker/create-vm)
                    :stack (stack/create-vm)
                    :semantic (semantic/create-vm)
+                   :space (space/create-vm)
                    :register (register/create-vm))
               ;; First run: evaluates (park) in operand position
               vm-parked-1 (vm/eval vm ast)
@@ -160,6 +170,7 @@
                          :ast-walker (ast-walker/create-vm)
                          :stack (stack/create-vm)
                          :semantic (semantic/create-vm {:env vm/primitives})
+                         :space (space/create-vm {:env vm/primitives})
                          :register (register/create-vm {:env vm/primitives}))
                     vm-parked (vm/eval vm ast)
                     reified (vm/value vm-parked)
@@ -179,6 +190,7 @@
   (case vm-type
     :ast-walker (loop [k k d 0] (if (nil? k) d (recur (:next k) (inc d))))
     :semantic (count k)
+    :space (count k)
     :stack (count k)
     :register (loop [k k d 0] (if (nil? k) d (recur (:next k) (inc d))))))
 
@@ -249,11 +261,12 @@
                :operator self-fn,
                :operands [self-fn {:type :literal, :value 100}],
                :tail? true}]
-      (doseq [vm-type [:ast-walker :semantic :stack :register]]
+      (doseq [vm-type [:ast-walker :semantic :space :stack :register]]
         (let [vm (case vm-type
                    :ast-walker (vtu/queue-ast (ast-walker/create-vm) ast)
                    :semantic (vtu/queue-vm (semantic/create-vm)
                                            (vm/ast->datoms ast))
+                   :space (vtu/queue-vm (space/create-vm) (vm/ast->datoms ast))
                    :stack (-> (stack/create-vm)
                               (vm/eval ast))
                    :register (-> (register/create-vm)

@@ -55,7 +55,7 @@ outside this contract is Yang's job and happens before the datom stream is
 serialized.
 
 The normative vocabulary is the one exercised by
-`src/cljc/yin/vm/prototype/cesk_space.cljc` and its test suite; this section
+`src/cljc/yin/vm/space.cljc` and its test suite; this section
 freezes it as contract version 0.
 
 ### 2.1 Value model
