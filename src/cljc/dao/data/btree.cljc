@@ -67,6 +67,63 @@
 
 
 ;; ---------------------------------------------------------------------------
+;; Edit lease (§3.1, Phase 3). The token is host-appropriate: an
+;; AtomicBoolean on the JVM (transients may be handed between threads, so
+;; the staleness read must be atomic), a plain mutable box on cljs/cljd
+;; (single-threaded / isolate-local). A node is editable in place iff its
+;; own `settings` carries a live lease — nodes from before the transient
+;; began hold different Settings and are never mutated (ownership rule).
+
+#?(:cljd (deftype EditBox
+           [^:mutable val])
+   :clj nil
+   :cljs (deftype EditBox
+           [^:mutable val]))
+
+
+(defn- new-lease
+  []
+  #?(:cljd (EditBox. true)
+     :clj (java.util.concurrent.atomic.AtomicBoolean. true)
+     :cljs (EditBox. true)))
+
+
+(defn- editing?
+  [^Settings sett]
+  (when-some [e (.-edit sett)]
+    #?(:cljd (.-val ^EditBox e)
+       :clj (.get ^java.util.concurrent.atomic.AtomicBoolean e)
+       :cljs (.-val ^EditBox e))))
+
+
+(defn- clear-lease!
+  [^Settings sett]
+  (let [e (.-edit sett)]
+    #?(:cljd (set! (.-val ^EditBox e) false)
+       :clj (.set ^java.util.concurrent.atomic.AtomicBoolean e false)
+       :cljs (set! (.-val ^EditBox e) false))))
+
+
+(defn- editable-settings
+  "A fresh Settings sharing bf/ref-type with sett, carrying a live lease."
+  ^Settings [^Settings sett]
+  (Settings. (.-branching-factor sett) (.-ref-type sett) (new-lease)))
+
+
+(def ^:private expand-len
+  "Extra key slots allocated per copy under a lease (psset expandLen), so
+   repeated transient inserts into one node do not reallocate every time."
+  8)
+
+
+(defn- new-cap
+  "Allocation size for n live entries: exact when persistent, grown by
+   expand-len (capped at the branching factor) under a live lease."
+  [n ^Settings sett]
+  (if (editing? sett) (min (bf* sett) (+ n expand-len)) n))
+
+
+;; ---------------------------------------------------------------------------
 ;; Binary search (ANode.search / searchFirst / searchLast)
 
 (defn- search
@@ -223,7 +280,9 @@
 ;; Leaf (Leaf.java)
 
 (deftype Leaf
-  [len keys settings]
+  [#?(:cljd ^:mutable len
+      :clj ^:unsynchronized-mutable len
+      :cljs ^:mutable len) keys settings]
 
   INode
 
@@ -244,32 +303,49 @@
       (if (>= idx 0)
         UNCHANGED ; already in set
         (let [ins (- (- idx) 1)]
-          ;; transient in-place path (Leaf.add editable branch) lands in
-          ;; Phase 3; editable? is constant false until then
-          (if (< len (bf* settings))
-            ;; simply adding
-            (one (Leaf. (inc len) (arr/ainsert-at keys len ins k) sett))
+          (cond
+            ;; transient in-place (Leaf.add editable): this node is owned
+            ;; by the live lease and has spare allocated capacity
+            (and (editing? settings) (< len (arr/alength keys)))
+            (if (== ins len)
+              (do (arr/aset keys len k) (set! len (inc len)) (one this)) ; appended
+              ;; at
+              ;; end:
+              ;; maxKey
+              ;; changed
+              (do (arr/acopy keys ins keys (inc ins) (- len ins))
+                  (arr/aset keys ins k)
+                  (set! len (inc len))
+                  EARLY-EXIT))
+            ;; simply adding (grown allocation under a lease)
+            (< len (bf* settings)) (let [nl (inc len)
+                                         ks (arr/anew (new-cap nl sett))]
+                                     (as-> 0 o
+                                           (stitch-all ks o keys 0 ins)
+                                           (stitch-one ks o k)
+                                           (stitch-all ks o keys ins len))
+                                     (one (Leaf. nl ks sett)))
             ;; splitting
-            (let [h1 (quot (inc len) 2)
-                  h2 (- (inc len) h1)]
-              (if (< ins h1)
-                ;; new key goes to the first half
-                (let [k1 (arr/anew h1)
-                      k2 (arr/anew h2)]
-                  (as-> 0 o
-                        (stitch-all k1 o keys 0 ins)
-                        (stitch-one k1 o k)
-                        (stitch-all k1 o keys ins (dec h1)))
-                  (arr/acopy keys (dec h1) k2 0 (- len (dec h1)))
-                  (two (Leaf. h1 k1 sett) (Leaf. h2 k2 sett)))
-                ;; copy first, insert into second
-                (let [k1 (arr/asub keys 0 h1)
-                      k2 (arr/anew h2)]
-                  (as-> 0 o
-                        (stitch-all k2 o keys h1 ins)
-                        (stitch-one k2 o k)
-                        (stitch-all k2 o keys ins len))
-                  (two (Leaf. h1 k1 sett) (Leaf. h2 k2 sett))))))))))
+            :else (let [h1 (quot (inc len) 2)
+                        h2 (- (inc len) h1)]
+                    (if (< ins h1)
+                      ;; new key goes to the first half
+                      (let [k1 (arr/anew h1)
+                            k2 (arr/anew h2)]
+                        (as-> 0 o
+                              (stitch-all k1 o keys 0 ins)
+                              (stitch-one k1 o k)
+                              (stitch-all k1 o keys ins (dec h1)))
+                        (arr/acopy keys (dec h1) k2 0 (- len (dec h1)))
+                        (two (Leaf. h1 k1 sett) (Leaf. h2 k2 sett)))
+                      ;; copy first, insert into second
+                      (let [k1 (arr/asub keys 0 h1)
+                            k2 (arr/anew h2)]
+                        (as-> 0 o
+                              (stitch-all k2 o keys h1 ins)
+                              (stitch-one k2 o k)
+                              (stitch-all k2 o keys ins len))
+                        (two (Leaf. h1 k1 sett) (Leaf. h2 k2 sett))))))))))
 
 
   (node-disj
@@ -284,8 +360,16 @@
             ;; nothing to merge
             (or (>= new-len (min-bf* settings))
                 (and (nil? left) (nil? right)))
-            (let [ck (arr/aremove-at keys len idx)]
-              (three left (Leaf. new-len ck sett) right))
+            (if (editing? settings)
+              ;; transient in-place (Leaf.remove editable)
+              (do (arr/acopy keys (inc idx) keys idx (- len (inc idx)))
+                  (set! len new-len)
+                  (if (== idx new-len)
+                    (three left this right) ; removed last: maxKey
+                    ;; changed
+                    EARLY-EXIT))
+              (let [ck (arr/aremove-at keys len idx)]
+                (three left (Leaf. new-len ck sett) right)))
             ;; can join with left
             (and (some? left) (<= (+ llen new-len) (bf* settings)))
             (let [jl (+ llen new-len)
@@ -386,31 +470,43 @@
             (identical? EARLY-EXIT nodes) EARLY-EXIT
             ;; single replacement node — same len
             (== 1 (arr/alength nodes))
-            (let [node (arr/aget nodes 0)
-                  nk (if (== 0
-                             (cmp (node-lim-key node) (arr/aget keys ins)))
-                       keys ; share unmodified keys array
-                       (let [ks (arr/asub keys 0 len)]
-                         (arr/aset ks ins (node-lim-key node))
-                         ks))
-                  na (when addresses
-                       (let [as (arr/asub addresses 0 len)]
-                         (arr/aset as ins nil)
-                         as))
-                  nc (let [cs (if children
-                                (arr/asub children 0 len)
-                                (arr/anew len))]
-                       (arr/aset cs ins node)
-                       cs)]
-              (one (Branch. level len nk nc na sett)))
-            ;; two nodes, len + 1 still fits
+            (if (and (editing? settings) children)
+              ;; transient in-place (Branch.add editable): swap key +
+              ;; child
+              (do (arr/aset keys ins (node-lim-key (arr/aget nodes 0)))
+                  (when addresses (arr/aset addresses ins nil))
+                  (arr/aset children ins (arr/aget nodes 0))
+                  (if (== ins (dec len))
+                    (one this) ; maxKey changed: propagate upward
+                    EARLY-EXIT))
+              (let [node (arr/aget nodes 0)
+                    nk (if (== 0
+                               (cmp (node-lim-key node)
+                                    (arr/aget keys ins)))
+                         keys ; share unmodified keys array
+                         (let [ks (arr/asub keys 0 len)]
+                           (arr/aset ks ins (node-lim-key node))
+                           ks))
+                    na (when addresses
+                         (let [as (arr/asub addresses 0 len)]
+                           (arr/aset as ins nil)
+                           as))
+                    nc (let [cs (if children
+                                  (arr/asub children 0 len)
+                                  (arr/anew len))]
+                         (arr/aset cs ins node)
+                         cs)]
+                (one (Branch. level len nk nc na sett))))
+            ;; two nodes, len + 1 still fits (grown allocation under
+            ;; lease)
             (< len (bf* settings))
             (let [n1 (arr/aget nodes 0)
                   n2 (arr/aget nodes 1)
                   nl (inc len)
-                  ks (arr/anew nl)
-                  cs (arr/anew nl)
-                  as (when addresses (arr/anew nl))]
+                  cap (new-cap nl sett)
+                  ks (arr/anew cap)
+                  cs (arr/anew cap)
+                  as (when addresses (arr/anew cap))]
               (as-> 0 o
                     (stitch-all ks o keys 0 ins)
                     (stitch-one ks o (node-lim-key n1))
@@ -727,6 +823,54 @@
 
 
 ;; ---------------------------------------------------------------------------
+;; Direct tree reduce: IReduce walks the node arrays instead of realizing
+;; the lazy path-stack seq (a ~5x win measured against psset's chunked Seq
+;; on full-set reduce). Early termination propagates `reduced` upward
+;; unwrapped; the entry points deref it.
+
+(def ^:private no-init
+  "Identity sentinel: tree-reduce-1 accumulator before the first element."
+  (arr/anew 0))
+
+
+(defn- node-reduce
+  [node f acc]
+  (if (branch? node)
+    (let [l (node-len node)]
+      (loop [i 0
+             acc acc]
+        (if (< i l)
+          (let [acc' (node-reduce (node-child node i) f acc)]
+            (if (reduced? acc') acc' (recur (inc i) acc')))
+          acc)))
+    (let [ks (node-keys node)
+          l (long (node-len node))]
+      ;; hot loop: raw host array access, not the arr/aget fn indirection
+      (loop [i 0
+             acc acc]
+        (if (< i l)
+          (let [acc' (f acc
+                        #?(:cljd (clojure.core/aget ks (int i))
+                           :clj (clojure.core/aget ^objects ks i)
+                           :cljs (unchecked-get ks i)))]
+            (if (reduced? acc') acc' (recur (inc i) acc')))
+          acc)))))
+
+
+(defn- tree-reduce
+  "clojure.core/reduce semantics over the tree, without a seq."
+  ([root f]
+   (let [r (node-reduce root
+                        (fn [acc x] (if (identical? acc no-init) x (f acc x)))
+                        no-init)]
+     (cond (reduced? r) (deref r)
+           (identical? r no-init) (f)
+           :else r)))
+  ([root f init]
+   (let [r (node-reduce root f init)] (if (reduced? r) (deref r) r))))
+
+
+;; ---------------------------------------------------------------------------
 ;; BTSet wrapper (§4): {meta cmp address storage root cnt version settings}
 ;; plus the memoized unordered-hash slot (hmemo, per-version — a new BTSet
 ;; starts with an empty memo; §4). Phase 2 implements the host collection
@@ -745,7 +889,9 @@
          seq
          rseq
          empty-root
-         equiv-sets)
+         equiv-sets
+         nil-element!
+         ->TBTSet)
 
 
 (deftype BTSet
@@ -801,14 +947,10 @@
                                       (when (pos? (bit-and flags 8)) from)
                                       (pos? (bit-and flags 4))
                                       cmp)))
-             cljd.core/IReduce (-reduce [this f]
-                                        (if-let [xs (seq this)]
-                                          (clojure.core/reduce f xs)
-                                          (f)))
-             (-reduce [this f start]
-                      (if-let [xs (seq this)]
-                        (clojure.core/reduce f start xs)
-                        start))
+             cljd.core/IReduce (-reduce [_ f]
+                                        (if (zero? cnt) (f) (tree-reduce root f)))
+             (-reduce [_ f start]
+                      (if (zero? cnt) start (tree-reduce root f start)))
              cljd.core/IFn
              (-invoke [this k] (lookup this k)) (-invoke [this k not-found]
                                                          (if-some [v (lookup this k)]
@@ -818,6 +960,15 @@
              cljd.core/IWithMeta
              (-with-meta [_ m]
                          (BTSet. m cmp address storage root cnt version settings hmemo))
+             cljd.core/IEditableCollection (-as-transient [_]
+                                                          (->TBTSet meta
+                                                                    cmp
+                                                                    storage
+                                                                    root
+                                                                    cnt
+                                                                    version
+                                                                    (editable-settings
+                                                                      settings)))
              cljd.core/IPrint (-print [this sink]
                                       (.write sink
                                               (apply str
@@ -870,14 +1021,10 @@
                                              (set! hmemo h)
                                              h)
                                            hmemo))
-            clojure.lang.IReduce (reduce [this f]
-                                         (if-let [xs (seq this)]
-                                           (clojure.core/reduce f xs)
-                                           (f)))
-            (reduce [this f start]
-                    (if-let [xs (seq this)]
-                      (clojure.core/reduce f start xs)
-                      start))
+            clojure.lang.IReduce (reduce [_ f]
+                                         (if (zero? cnt) (f) (tree-reduce root f)))
+            (reduce [_ f start]
+                    (if (zero? cnt) start (tree-reduce root f start)))
             java.lang.Iterable
             (iterator [this] (clojure.lang.SeqIterator. (seq this)))
             java.util.Set
@@ -894,6 +1041,15 @@
             (retainAll [_ _] (throw (UnsupportedOperationException.)))
             (clear [_] (throw (UnsupportedOperationException.)))
             java.io.Serializable
+            clojure.lang.IEditableCollection (asTransient [_]
+                                                          (->TBTSet meta
+                                                                    cmp
+                                                                    storage
+                                                                    root
+                                                                    cnt
+                                                                    version
+                                                                    (editable-settings
+                                                                      settings)))
             Object (equals [this other]
                            (clojure.core/boolean
                              (or (identical? this other)
@@ -947,14 +1103,9 @@
              (-sorted-seq-from [this k ascending?]
                                (if ascending? (slice this k nil) (rslice this k nil)))
              (-entry-key [_ entry] entry) (-comparator [_] cmp)
-             IReduce (-reduce [this f]
-                              (if-let [xs (seq this)]
-                                (clojure.core/reduce f xs)
-                                (f)))
-             (-reduce [this f start]
-                      (if-let [xs (seq this)]
-                        (clojure.core/reduce f start xs)
-                        start))
+             IReduce (-reduce [_ f] (if (zero? cnt) (f) (tree-reduce root f)))
+             (-reduce [_ f start]
+                      (if (zero? cnt) start (tree-reduce root f start)))
              IFn
              (-invoke [this k] (lookup this k)) (-invoke [this k not-found]
                                                          (if-some [v (lookup this k)]
@@ -964,6 +1115,14 @@
              IWithMeta
              (-with-meta [_ m]
                          (BTSet. m cmp address storage root cnt version settings hmemo))
+             IEditableCollection (-as-transient [_]
+                                                (->TBTSet meta
+                                                          cmp
+                                                          storage
+                                                          root
+                                                          cnt
+                                                          version
+                                                          (editable-settings settings)))
              Object (toString [this]
                               (apply str
                                      (clojure.core/concat ["#{"]
@@ -993,6 +1152,145 @@
 (defn- empty-root
   [^Settings sett]
   (Leaf. 0 (arr/anew 0) sett))
+
+
+;; ---------------------------------------------------------------------------
+;; Transients (Phase 3, §3.1/§6). TBTSet is a separate mutable wrapper — the
+;; standard core split (PersistentHashSet/TransientHashSet), not psset's
+;; single-class design, which needs covariant returns a deftype cannot
+;; express. Two consequences worth naming:
+;;
+;; - Iterating a transient is unrepresentable: TBTSet is not seqable, so
+;;   psset's version-capture fail-fast (Seq captures _version) has nothing
+;;   to guard. Persistent snapshots are immune by the lease-ownership rule:
+;;   in-place mutation touches only nodes created under the live lease, and
+;;   no pre-transient node ever points at a lease-owned node.
+;; - EARLY-EXIT adjusts cnt/version here (psset's alterCount on that path);
+;;   the persistent wrapper keeps throwing on it.
+
+(defprotocol ITransientBTSet
+  "Internal: the transient operations, implemented once; the host transient
+   protocols in the TBTSet splices delegate here."
+
+  (t-conj! [t k])
+
+  (t-disj! [t k])
+
+  (t-persistent! [t])
+
+  (t-lookup [t k])
+
+  (t-count [t]))
+
+
+(defn- ensure-editable!
+  [^Settings sett]
+  (when-not (editing? sett)
+    (throw (ex-info "Transient used after persistent! call" {}))))
+
+
+(deftype TBTSet
+  [meta cmp storage
+   #?(:cljd ^:mutable root
+      :clj ^:unsynchronized-mutable root
+      :cljs ^:mutable root)
+   #?(:cljd ^:mutable cnt
+      :clj ^:unsynchronized-mutable cnt
+      :cljs ^:mutable cnt)
+   #?(:cljd ^:mutable version
+      :clj ^:unsynchronized-mutable version
+      :cljs ^:mutable version) ^Settings settings]
+
+  ITransientBTSet
+
+  (t-conj!
+    [this k]
+    (ensure-editable! settings)
+    (when (nil? k) (nil-element!))
+    (let [nodes (node-conj root cmp k settings)]
+      (cond (identical? UNCHANGED nodes) this
+            (identical? EARLY-EXIT nodes)
+            (do (set! cnt (inc cnt)) (set! version (inc version)) this)
+            (== 1 (arr/alength nodes)) (do (set! root (arr/aget nodes 0))
+                                           (set! cnt (inc cnt))
+                                           (set! version (inc version))
+                                           this)
+            :else ; new root level
+            (let [n1 (arr/aget nodes 0)
+                  n2 (arr/aget nodes 1)
+                  cs (two n1 n2)
+                  ks (arr/anew 2)]
+              (arr/aset ks 0 (node-lim-key n1))
+              (arr/aset ks 1 (node-lim-key n2))
+              (set! root
+                    (Branch. (inc (node-level n1)) 2 ks cs nil settings))
+              (set! cnt (inc cnt))
+              (set! version (inc version))
+              this))))
+
+
+  (t-disj!
+    [this k]
+    (ensure-editable! settings)
+    (let [nodes (node-disj root cmp k true nil nil settings)]
+      (cond (identical? UNCHANGED nodes) this
+            (identical? EARLY-EXIT nodes)
+            (do (set! cnt (dec cnt)) (set! version (inc version)) this)
+            :else (let [nr (arr/aget nodes 1)
+                        nr (if (and (branch? nr) (== 1 (node-len nr)))
+                             (node-child nr 0) ; root collapse
+                             nr)]
+                    (set! root nr)
+                    (set! cnt (dec cnt))
+                    (set! version (inc version))
+                    this))))
+
+
+  (t-persistent!
+    [_]
+    (ensure-editable! settings)
+    (clear-lease! settings)
+    (BTSet. meta cmp nil storage root cnt version settings nil))
+
+
+  (t-lookup
+    [_ k]
+    (ensure-editable! settings)
+    (when (pos? cnt) (node-lookup root cmp k)))
+
+
+  (t-count [_] (ensure-editable! settings) cnt)
+  #?@(:cljd [cljd.core/ITransientCollection (-conj! [this k] (t-conj! this k))
+             (-persistent! [this] (t-persistent! this)) cljd.core/ITransientSet
+             (-disjoin! [this k] (t-disj! this k)) cljd.core/ICounted
+             (-count [this] (t-count this)) cljd.core/ILookup
+             (-lookup [this k] (t-lookup this k))
+             (-lookup [this k not-found]
+                      (if-some [v (t-lookup this k)]
+                        v
+                        not-found))
+             (-contains-key? [this k] (some? (t-lookup this k)))]
+      :clj [clojure.lang.ITransientSet (disjoin [this k] (t-disj! this k))
+            (contains [this k] (clojure.core/boolean (some? (t-lookup this k))))
+            (get [this k] (t-lookup this k))
+            ;; ITransientCollection
+            (conj [this k] (t-conj! this k))
+            (persistent [this] (t-persistent! this)) clojure.lang.Counted
+            (count [this] (t-count this)) clojure.lang.ILookup
+            (valAt [this k] (t-lookup this k))
+            (valAt [this k not-found]
+                   (if-some [v (t-lookup this k)]
+                     v
+                     not-found))]
+      :cljs [ITransientCollection (-conj! [this k] (t-conj! this k))
+             (-persistent! [this] (t-persistent! this)) ITransientSet
+             (-disjoin! [this k] (t-disj! this k)) ICounted
+             (-count [this] (t-count this)) ILookup
+             (-lookup [this k] (t-lookup this k))
+             (-lookup [this k not-found]
+                      (if-some [v (t-lookup this k)]
+                        v
+                        not-found))]))
 
 
 (defn sorted-set*

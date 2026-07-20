@@ -375,6 +375,8 @@ Everything below is a departure from psset and must **not** be transcribed:
 | Stale transient use | `persistent()` flips the edit flag and returns `this` (`PersistentSortedSet.java:331-336`); a later `conj` on the stale transient sees `editable() == false` and *silently* takes the persistent path; only double-`persistent()` throws | any operation on a stale transient throws | Clojure-core transient semantics; fail-fast beats a silent copy that discards the caller's assumption of in-place mutation |
 | `acopy` shape | `(from from-start from-end to to-start)`, end-exclusive (`arrays.cljc:65`) | `(src src-pos dest dest-pos len)`, the `System/arraycopy` shape (§3.2) | one shape everywhere; call sites must be converted during transcription, not copied |
 | Node-level recursive `count` | `Branch.count`/`Leaf.count` serve the `-1` restored sentinel | not ported; `cnt` maintained incrementally, recursive walk only as a test invariant (§3.3.1) | the sentinel is eliminated (§5.1), leaving the recursive walk without a production caller |
+| Transient wrapper | one class; `PersistentSortedSet` is its own transient, flipping on the edit flag | separate `TBTSet` type (core's PersistentHashSet/TransientHashSet split) | the single-class design needs covariant `disjoin` returns a deftype cannot express; the split also makes iterating a transient unrepresentable (TBTSet is not seqable), which subsumes psset's version-capture fail-fast |
+| Transient in-place coverage | edits in place in leaf insert/remove, branch child-replace, and the borrow paths (`left.editable()` steers borrow choice) | in place for leaf insert/remove and branch child-replace; splits/joins/borrows path-copy with lease-owned results | same node shapes and fill invariants either way; the borrow-side steering by editability is an allocation optimization, not a semantic |
 | Ref-type default | always `:soft` (`Settings.java`) | per host: `:soft` JVM, `:strong` cljs/cljd (§5.3) | `:soft` silently degrades to `:weak` off-JVM |
 | Transients + lazy nodes | unspecified | modification path pinned strongly for the lease's lifetime (Phase 3) | a weakly-held child can refault as a different object mid-transient |
 | Async backends | no concept | uniform API; `"unhydrated segment on write path"`; `hydrate!` public (§5.4) | Flutter Web / browser cljs have no sync backend |
@@ -1016,6 +1018,20 @@ clj -M:cljd test                                                     (Dart; requ
     requires threading the wrapper's `version` through the descent
     helpers and seq steps — a signature change to the iteration internals,
     named here so it is not discovered late.
+    **Outcome:** resolved structurally rather than by threading. The
+    transient is a separate, non-seqable `TBTSet` (§3.3.3), so iterating a
+    transient is unrepresentable; and persistent snapshots are immune by
+    the lease-ownership rule (in-place mutation touches only nodes created
+    under the live lease, and no pre-transient node ever points at a
+    lease-owned node). `version` is still maintained on both wrappers.
+- **Phase 3 benchmark record (JVM leg, 2026-07-20,** `clj -M:dev -m
+  btree-bench`**, n=100k):** persistent conj 1.8x psset, transient conj!
+  1.9x, lookup 1.6x, slice 2.1x, full reduce 1.7x (after routing IReduce
+  through a direct node walk), bulk build 4.4x (absolute 27 ms/100k —
+  still 3x faster than core's sorted-set; the gap is psset's Java-side
+  sort/distinct/chunk path). Core `sorted-set` is beaten on every
+  workload. The cljs (vs psset.cljs) and cljd (vs `sorted-set-by`
+  fallback) legs remain to be measured before the Phase 4 switchover.
 - **Transients over a lazily restored tree pin their path.** The edit lease
   identifies nodes it is allowed to mutate in place; a faulted child held
   only by a `:weak` (or degraded `:soft`) reference can be collected
