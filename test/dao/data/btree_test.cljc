@@ -378,7 +378,15 @@
   [bf profile]
   (let [{:keys [root count blobs]} (get-in fx/fixtures [bf profile])
         sett (bt/->Settings bf :strong nil)]
-    (bt/->BTSet nil compare nil nil (blob->node blobs root sett) count 0 sett)))
+    (bt/->BTSet nil
+                compare
+                nil
+                nil
+                (blob->node blobs root sett)
+                count
+                0
+                sett
+                nil)))
 
 
 (deftest psset-fixture-restore-test

@@ -727,12 +727,267 @@
 
 
 ;; ---------------------------------------------------------------------------
-;; BTSet wrapper (§4): {meta cmp address storage root cnt version settings}.
-;; Phase 1: address/storage always nil, root held strong. Host collection
-;; protocols land in Phase 2; until then the API is this namespace's fns.
+;; BTSet wrapper (§4): {meta cmp address storage root cnt version settings}
+;; plus the memoized unordered-hash slot (hmemo, per-version — a new BTSet
+;; starts with an empty memo; §4). Phase 2 implements the host collection
+;; protocol matrix; this namespace's named fns remain the primary API and
+;; the protocol methods delegate to them. IEditableCollection/transients
+;; land in Phase 3; durability fields (address/storage) activate in Phase 4.
+
+(declare conj
+         disj
+         lookup
+         contains?
+         slice
+         rslice
+         slice*
+         rslice*
+         seq
+         rseq
+         empty-root
+         equiv-sets)
+
 
 (deftype BTSet
-  [meta cmp address storage root cnt version settings])
+  [meta cmp address storage root cnt version settings
+   #?(:cljd ^:mutable hmemo
+      :clj ^:unsynchronized-mutable hmemo
+      :cljs ^:mutable hmemo)]
+  #?@(:cljd [cljd.core/ISeqable (-seq [this] (seq this))
+             cljd.core/ICounted (-count [_] cnt)
+             cljd.core/ICollection (-conj [this k] (conj this k))
+             cljd.core/ISet (-disjoin [this k] (disj this k))
+             cljd.core/IEmptyableCollection (-empty [_]
+                                                    (BTSet. meta
+                                                            cmp
+                                                            nil
+                                                            storage
+                                                            (empty-root settings)
+                                                            0
+                                                            0
+                                                            settings
+                                                            nil))
+             cljd.core/ILookup (-lookup [this k] (lookup this k))
+             (-lookup [this k not-found]
+                      (if-some [v (lookup this k)]
+                        v
+                        not-found))
+             (-contains-key? [this k] (some? (lookup this k)))
+             cljd.core/IEquiv (-equiv [this other] (equiv-sets this other))
+             cljd.core/IHash (-hash [this]
+                                    (if (nil? hmemo)
+                                      (let [h (hash-unordered-coll this)]
+                                        (set! hmemo h)
+                                        h)
+                                      hmemo))
+             (-hash-realized? [_] (some? hmemo)) cljd.core/IReversible
+             (-rseq [this] (rseq this)) cljd.core/ISorted
+             (-sorted-seq [this from to flags]
+                          (let [flags (int flags)]
+                            (slice* this
+                                    (when (pos? (bit-and flags 8)) from)
+                                    (pos? (bit-and flags 4))
+                                    (when (pos? (bit-and flags 2)) to)
+                                    (pos? (bit-and flags 1))
+                                    cmp)))
+             (-sorted-rseq [this from to flags]
+                           ;; from/to are not swapped (cljd contract): range [from
+                           ;; to], iterated descending — start at the `to` side, stop
+                           ;; at `from`
+                           (let [flags (int flags)]
+                             (rslice* this
+                                      (when (pos? (bit-and flags 2)) to)
+                                      (pos? (bit-and flags 1))
+                                      (when (pos? (bit-and flags 8)) from)
+                                      (pos? (bit-and flags 4))
+                                      cmp)))
+             cljd.core/IReduce (-reduce [this f]
+                                        (if-let [xs (seq this)]
+                                          (clojure.core/reduce f xs)
+                                          (f)))
+             (-reduce [this f start]
+                      (if-let [xs (seq this)]
+                        (clojure.core/reduce f start xs)
+                        start))
+             cljd.core/IFn
+             (-invoke [this k] (lookup this k)) (-invoke [this k not-found]
+                                                         (if-some [v (lookup this k)]
+                                                           v
+                                                           not-found))
+             cljd.core/IMeta (-meta [_] meta)
+             cljd.core/IWithMeta
+             (-with-meta [_ m]
+                         (BTSet. m cmp address storage root cnt version settings hmemo))
+             cljd.core/IPrint (-print [this sink]
+                                      (.write sink
+                                              (apply str
+                                                     (clojure.core/concat
+                                                       ["#{"]
+                                                       (interpose " "
+                                                                  (map pr-str (or (seq this) ())))
+                                                       ["}"]))))]
+      :clj [clojure.lang.IPersistentSet (disjoin [this k] (disj this k))
+            (contains [this k] (clojure.core/boolean (contains? this k)))
+            (get [this k] (lookup this k))
+            ;; IPersistentCollection
+            (count [_] cnt) (cons [this k] (conj this k))
+            (empty [_]
+                   (BTSet. meta
+                           cmp
+                           nil
+                           storage
+                           (empty-root settings)
+                           0
+                           0
+                           settings
+                           nil))
+            (equiv [this other] (equiv-sets this other))
+            ;; Seqable
+            (seq [this] (slice this nil nil)) clojure.lang.Sorted
+            (comparator [_] cmp) (entryKey [_ entry] entry)
+            (seq [this ascending] (if ascending (seq this) (rseq this)))
+            (seqFrom [this k ascending]
+                     (if ascending (slice this k nil) (rslice this k nil)))
+            clojure.lang.Reversible (rseq [this] (rslice this nil nil))
+            clojure.lang.IObj
+            (withMeta [_ m]
+                      (BTSet. m cmp address storage root cnt version settings hmemo))
+            (meta [_] meta) clojure.lang.ILookup
+            (valAt [this k] (lookup this k)) (valAt [this k not-found]
+                                                    (if-some [v (lookup this k)]
+                                                      v
+                                                      not-found))
+            clojure.lang.IFn (invoke [this k] (lookup this k))
+            (invoke [this k not-found]
+                    (if-some [v (lookup this k)]
+                      v
+                      not-found))
+            (applyTo [this args] (clojure.lang.AFn/applyToHelper this args))
+            clojure.lang.IHashEq (hasheq [this]
+                                         (if (nil? hmemo)
+                                           (let [h (clojure.lang.Murmur3/hashUnordered
+                                                     this)]
+                                             (set! hmemo h)
+                                             h)
+                                           hmemo))
+            clojure.lang.IReduce (reduce [this f]
+                                         (if-let [xs (seq this)]
+                                           (clojure.core/reduce f xs)
+                                           (f)))
+            (reduce [this f start]
+                    (if-let [xs (seq this)]
+                      (clojure.core/reduce f start xs)
+                      start))
+            java.lang.Iterable
+            (iterator [this] (clojure.lang.SeqIterator. (seq this)))
+            java.util.Set
+            (size [_] (int cnt)) (isEmpty [_] (zero? cnt))
+            (containsAll [this c] (every? #(contains? this %) c))
+            (^objects toArray [this] (clojure.lang.RT/seqToArray (seq this)))
+            (^objects toArray
+             [this ^objects a]
+             (clojure.lang.RT/seqToPassedArray (seq this) a))
+            (add [_ _] (throw (UnsupportedOperationException.)))
+            (remove [_ _] (throw (UnsupportedOperationException.)))
+            (addAll [_ _] (throw (UnsupportedOperationException.)))
+            (removeAll [_ _] (throw (UnsupportedOperationException.)))
+            (retainAll [_ _] (throw (UnsupportedOperationException.)))
+            (clear [_] (throw (UnsupportedOperationException.)))
+            java.io.Serializable
+            Object (equals [this other]
+                           (clojure.core/boolean
+                             (or (identical? this other)
+                                 (and (instance? java.util.Set other)
+                                      (== cnt (.size ^java.util.Set other))
+                                      (every? #(contains? this %) other)))))
+            (hashCode [this]
+                      ;; java.util.Set contract: sum of element hashCodes
+                      (clojure.core/reduce (fn [^long acc x]
+                                             (unchecked-add-int acc
+                                                                (.hashCode ^Object x)))
+                                           (int 0)
+                                           (or (seq this) ())))
+            (toString [this]
+                      (apply str
+                             (clojure.core/concat ["#{"]
+                                                  (interpose " "
+                                                             (map pr-str (or (seq this) ())))
+                                                  ["}"])))]
+      :cljs [ISeqable (-seq [this] (seq this))
+             ICounted (-count [_] cnt)
+             ICollection (-conj [this k] (conj this k))
+             ISet (-disjoin [this k] (disj this k))
+             IEmptyableCollection (-empty [_]
+                                          (BTSet. meta
+                                                  cmp
+                                                  nil
+                                                  storage
+                                                  (empty-root settings)
+                                                  0
+                                                  0
+                                                  settings
+                                                  nil))
+             ILookup (-lookup [this k] (lookup this k))
+             (-lookup [this k not-found]
+                      (if-some [v (lookup this k)]
+                        v
+                        not-found))
+             IEquiv
+             (-equiv [this other] (equiv-sets this other)) IHash
+             (-hash [this]
+                    (if (nil? hmemo)
+                      (let [h (hash-unordered-coll this)]
+                        (set! hmemo h)
+                        h)
+                      hmemo))
+             IReversible
+             (-rseq [this] (rseq this)) ISorted
+             (-sorted-seq [this ascending?]
+                          (if ascending? (seq this) (rseq this)))
+             (-sorted-seq-from [this k ascending?]
+                               (if ascending? (slice this k nil) (rslice this k nil)))
+             (-entry-key [_ entry] entry) (-comparator [_] cmp)
+             IReduce (-reduce [this f]
+                              (if-let [xs (seq this)]
+                                (clojure.core/reduce f xs)
+                                (f)))
+             (-reduce [this f start]
+                      (if-let [xs (seq this)]
+                        (clojure.core/reduce f start xs)
+                        start))
+             IFn
+             (-invoke [this k] (lookup this k)) (-invoke [this k not-found]
+                                                         (if-some [v (lookup this k)]
+                                                           v
+                                                           not-found))
+             IMeta (-meta [_] meta)
+             IWithMeta
+             (-with-meta [_ m]
+                         (BTSet. m cmp address storage root cnt version settings hmemo))
+             Object (toString [this]
+                              (apply str
+                                     (clojure.core/concat ["#{"]
+                                                          (interpose " "
+                                                                     (map pr-str (or (seq this) ())))
+                                                          ["}"])))
+             IPrintWithWriter (-pr-writer [this writer _opts]
+                                          (-write writer (.toString this)))]))
+
+
+#?(:cljd nil
+   :clj (defmethod print-method BTSet [s ^java.io.Writer w] (.write w (str s))))
+
+
+(defn- equiv-sets
+  "Set equality under the host's `=`: other is a set, same size, and every
+   element of other is contained here (via this set's comparator, matching
+   psset's APersistentSortedSet.equiv)."
+  [^BTSet s other]
+  (boolean (and #?(:cljd (set? other)
+                   :clj (instance? java.util.Set other)
+                   :cljs (set? other))
+                (== (.-cnt s) (clojure.core/count other))
+                (every? #(contains? s %) other))))
 
 
 (defn- empty-root
@@ -751,7 +1006,8 @@
             (empty-root sett)
             0
             0
-            sett)))
+            sett
+            nil)))
 
 
 (defn sorted-set-by
@@ -814,8 +1070,9 @@
                                               (arr/aget nodes 0)
                                               (inc (.-cnt s))
                                               (inc (.-version s))
-                                              sett)
-           :else                  ; new root level
+                                              sett
+                                              nil)
+           :else ; new root level
            (let [n1 (arr/aget nodes 0)
                  n2 (arr/aget nodes 1)
                  ks (two n1 n2) ; reuse 2-array shape
@@ -830,7 +1087,8 @@
                      new-root
                      (inc (.-cnt s))
                      (inc (.-version s))
-                     sett))))))
+                     sett
+                     nil))))))
 
 
 (defn disj
@@ -852,7 +1110,8 @@
                            nr
                            (dec (.-cnt s))
                            (inc (.-version s))
-                           sett))))))
+                           sett
+                           nil))))))
 
 
 (defn lookup
@@ -951,22 +1210,29 @@
             (cons [node i] stack)))))))
 
 
+(defn- stack-key
+  [stack]
+  (let [[leaf idx] (first stack)] (arr/aget (node-keys leaf) idx)))
+
+
 (defn- stack-seq
-  [stack to cmp]
+  [stack to to-incl? cmp]
   (lazy-seq (when stack
-              (let [[leaf idx] (first stack)
-                    k (arr/aget (node-keys leaf) idx)]
-                (when (or (nil? to) (<= (cmp k to) 0))
-                  (cons k (stack-seq (advance stack) to cmp)))))))
+              (let [k (stack-key stack)]
+                (when (or (nil? to)
+                          (let [d (cmp k to)]
+                            (or (neg? d) (and to-incl? (zero? d)))))
+                  (cons k (stack-seq (advance stack) to to-incl? cmp)))))))
 
 
 (defn- stack-rseq
-  [stack to cmp]
+  [stack lo lo-incl? cmp]
   (lazy-seq (when stack
-              (let [[leaf idx] (first stack)
-                    k (arr/aget (node-keys leaf) idx)]
-                (when (or (nil? to) (>= (cmp k to) 0))
-                  (cons k (stack-rseq (retreat stack) to cmp)))))))
+              (let [k (stack-key stack)]
+                (when (or (nil? lo)
+                          (let [d (cmp k lo)]
+                            (or (pos? d) (and lo-incl? (zero? d)))))
+                  (cons k (stack-rseq (retreat stack) lo lo-incl? cmp)))))))
 
 
 (defn- non-empty
@@ -974,30 +1240,50 @@
   (when (some? (first s)) s))
 
 
+(defn- slice*
+  "Generalized ascending range with per-bound inclusivity (nil = unbounded).
+   The exclusivity knobs exist for cljd's ISorted bit-flag contract (§4);
+   the public `slice` is inclusive-inclusive, matching psset."
+  [^BTSet s from from-incl? to to-incl? cmp]
+  (let [root (.-root s)]
+    (when (pos? (node-len root))
+      (when-let [stack (if (nil? from)
+                         (descend-leftmost nil root)
+                         (when-let [st (descend-from root from cmp)]
+                           (if (and (not from-incl?)
+                                    (zero? (cmp (stack-key st) from)))
+                             (advance st) ; distinct keys: skip at most one
+                             st)))]
+        (non-empty (stack-seq stack to to-incl? cmp))))))
+
+
+(defn- rslice*
+  "Generalized descending range: iterates from the hi bound down to lo."
+  [^BTSet s hi hi-incl? lo lo-incl? cmp]
+  (let [root (.-root s)]
+    (when (pos? (node-len root))
+      (when-let [stack (if (nil? hi)
+                         (descend-rightmost nil root)
+                         (when-let [st (descend-from-r root hi cmp)]
+                           (if (and (not hi-incl?)
+                                    (zero? (cmp (stack-key st) hi)))
+                             (retreat st)
+                             st)))]
+        (non-empty (stack-rseq stack lo lo-incl? cmp))))))
+
+
 (defn slice
   "Lazy ascending seq of all X with from <= X <= to (nil bound = unbounded);
    nil when empty. Explicit-comparator arity per psset."
   ([^BTSet s from to] (slice s from to (.-cmp s)))
-  ([^BTSet s from to cmp]
-   (let [root (.-root s)]
-     (when (pos? (node-len root))
-       (when-let [stack (if (nil? from)
-                          (descend-leftmost nil root)
-                          (descend-from root from cmp))]
-         (non-empty (stack-seq stack to cmp)))))))
+  ([^BTSet s from to cmp] (slice* s from true to true cmp)))
 
 
 (defn rslice
   "Lazy descending seq of all X with to <= X <= from, iterating from `from`
    downward (nil bound = unbounded); nil when empty."
   ([^BTSet s from to] (rslice s from to (.-cmp s)))
-  ([^BTSet s from to cmp]
-   (let [root (.-root s)]
-     (when (pos? (node-len root))
-       (when-let [stack (if (nil? from)
-                          (descend-rightmost nil root)
-                          (descend-from-r root from cmp))]
-         (non-empty (stack-rseq stack to cmp)))))))
+  ([^BTSet s from to cmp] (rslice* s from true to true cmp)))
 
 
 (defn seq
@@ -1062,8 +1348,8 @@
      (loop [level 1
             nodes leaves]
        (condp == (clojure.core/count nodes)
-         0 (BTSet. (:meta opts) cmp nil nil (empty-root sett) 0 0 sett)
-         1 (BTSet. (:meta opts) cmp nil nil (nodes 0) len 0 sett)
+         0 (BTSet. (:meta opts) cmp nil nil (empty-root sett) 0 0 sett nil)
+         1 (BTSet. (:meta opts) cmp nil nil (nodes 0) len 0 sett nil)
          (recur (inc level)
                 (mapv (fn [[from to]]
                         (let [n (- to from)
