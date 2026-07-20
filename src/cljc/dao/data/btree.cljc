@@ -250,8 +250,17 @@
 
 (defn- search
   "Arrays.binarySearch semantics over keys[0 ... len): index of k, or
-   -(insertion-point)-1 when absent."
-  [keys len k cmp]
+   -(insertion-point)-1 when absent. JVM-only `^long` on `len`/loop
+   locals/return (§3.2 note in dao.data.arrays): the JFR profiling record
+   in docs/design/dao.data.btree.md §6 found this loop's own arithmetic
+   was ~45% of the tree's Long allocation, boxing low/high/mid on every
+   binary-search step; cljs/cljd get the identical untagged source below.
+   `:cljd` must be listed first in the reader conditional — ClojureDart's
+   host-eval pass also matches `:clj` branches, so a `:clj`/`:default`
+   pair leaks the JVM tag into cljd and fails to compile there."
+  #?(:cljd [keys len k cmp]
+     :clj ^long [keys ^long len k cmp]
+     :cljs [keys len k cmp])
   (loop [low 0
          high (dec len)]
     (if (<= low high)
@@ -265,7 +274,9 @@
 
 (defn- search-first
   "First idx in [0 ... len) with keys[idx] >= k; len when none."
-  [keys len k cmp]
+  #?(:cljd [keys len k cmp]
+     :clj ^long [keys ^long len k cmp]
+     :cljs [keys len k cmp])
   (loop [low 0
          high len]
     (if (< low high)
@@ -278,7 +289,9 @@
 
 (defn- search-last
   "Last idx in [0 ... len) with keys[idx] <= k; -1 when none."
-  [keys len k cmp]
+  #?(:cljd [keys len k cmp]
+     :clj ^long [keys ^long len k cmp]
+     :cljs [keys len k cmp])
   (loop [low 0
          high len]
     (if (< low high)
@@ -295,6 +308,25 @@
 ;; the slots stay nil), which is how lazily-restored branches with nil
 ;; children/addresses arrays flow through node surgery.
 
+;; Not primitive-hinted, unlike search/the deftype fields above. Two dead
+;; ends, both confirmed empirically rather than assumed:
+;; - stitch-all: 5 params, over Clojure's 4-arg ceiling for primitive ARGS
+;;   ("fns taking primitives support only 4 or fewer args"); a
+;;   return-only name-tag (`(defn ^long stitch-all ...)`) sidesteps that
+;;   ceiling but produces no `invokePrim`-style interface (verified via
+;;   `(supers (class stitch-all))`: plain `IFn`, not `IFn$...`) — it is
+;;   inert metadata here, not a real optimization, for a fn with no
+;;   primitive-tagged args.
+;; - stitch-one: 3 params, well under the ceiling, and both a vector+arg
+;;   tag and a name+arg tag genuinely produce a primitive `IFn$OLLL`-style
+;;   interface — but doing so corrupts compilation of a LATER, unrelated
+;;   top-level form in this namespace (reproduced repeatedly: `Leaf`'s
+;;   deftype fails with "Unable to resolve classname:
+;;   clojure.core$long@...", even though Leaf is read and compiled before
+;;   stitch-one's callers are ever parsed, which rules out any
+;;   call-site-shape explanation — bisected form-by-form to confirm).
+;;   Left unhinted; a `definline` variant (sidesteps the IFn machinery
+;;   this bug lives in) is the one untried avenue if this is revisited.
 (defn- stitch-all
   [target offset src from to]
   (if (>= to from)
@@ -409,7 +441,7 @@
 
 (deftype Leaf
   [#?(:cljd ^:mutable len
-      :clj ^:unsynchronized-mutable len
+      :clj ^long ^:unsynchronized-mutable len
       :cljs ^:mutable len) keys settings]
 
   INode
@@ -566,7 +598,12 @@
 ;; all-dirty (addresses nil, children resident and strong).
 
 (deftype Branch
-  [level len keys
+  [#?(:cljd level
+      :clj ^long level
+      :cljs level)
+   #?(:cljd len
+      :clj ^long len
+      :cljs len) keys
    #?(:cljd ^:mutable children
       :clj ^:unsynchronized-mutable children
       :cljs ^:mutable children)
@@ -1127,7 +1164,13 @@
       :cljs ^:mutable storage)
    #?(:cljd ^:mutable root
       :clj ^:unsynchronized-mutable root
-      :cljs ^:mutable root) cnt version settings
+      :cljs ^:mutable root)
+   #?(:cljd cnt
+      :clj ^long cnt
+      :cljs cnt)
+   #?(:cljd version
+      :clj ^long version
+      :cljs version) settings
    #?(:cljd ^:mutable hmemo
       :clj ^:unsynchronized-mutable hmemo
       :cljs ^:mutable hmemo)]
@@ -1482,10 +1525,10 @@
       :clj ^:unsynchronized-mutable root
       :cljs ^:mutable root)
    #?(:cljd ^:mutable cnt
-      :clj ^:unsynchronized-mutable cnt
+      :clj ^long ^:unsynchronized-mutable cnt
       :cljs ^:mutable cnt)
    #?(:cljd ^:mutable version
-      :clj ^:unsynchronized-mutable version
+      :clj ^long ^:unsynchronized-mutable version
       :cljs ^:mutable version) ^Settings settings]
 
   ITransientBTSet

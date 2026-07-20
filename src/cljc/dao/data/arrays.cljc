@@ -8,13 +8,28 @@
 
   `acopy` takes (src src-pos dest dest-pos len), the System/arraycopy
   shape. This is a deliberate departure from psset's end-exclusive
-  (from from-start from-end to to-start) — see §3.3.3 of the design doc."
+  (from from-start from-end to to-start) — see §3.3.3 of the design doc.
+
+  Index/length params carry JVM-only `^long` hints (`#?(:cljd x :clj ^long x
+  :cljs x)` — `:cljd` MUST come first: ClojureDart's host-eval pass also
+  matches `:clj` branches, so a `:clj`/`:default` pair leaks the JVM tag
+  into cljd and fails with \"Can't resolve type long\"; elided to a plain
+  symbol on cljs/cljd, where the tag is inert metadata off the JVM, never
+  a coercion, so this changes nothing there once ordered correctly). JFR
+  profiling of dao.data.btree (docs/design/dao.data.btree.md §6 Phase 3
+  benchmark record) found ~80% of the tree's own `java.lang.Long`
+  allocation traced to `search` boxing its loop-control longs at every
+  call boundary into this namespace; hinting the boundary here is
+  required for the hint at the call site to actually stick — an unhinted
+  `aget`/`aset`/etc. re-boxes on the way in."
   (:refer-clojure :exclude [aget aset alength aclone]))
 
 
 (defn anew
   "A new host array of n slots, all nil."
-  [n]
+  [#?(:cljd n
+      :clj ^long n
+      :cljs n)]
   #?(:cljd (object-array (int n))
      :clj (object-array (int n))
      :cljs (let [a (js/Array. n)]
@@ -23,21 +38,29 @@
 
 
 (defn aget
-  [arr i]
+  [arr
+   #?(:cljd i
+      :clj ^long i
+      :cljs i)]
   #?(:cljd (clojure.core/aget arr (int i))
      :clj (clojure.core/aget ^objects arr (int i))
      :cljs (clojure.core/aget arr i)))
 
 
 (defn aset
-  [arr i v]
+  [arr
+   #?(:cljd i
+      :clj ^long i
+      :cljs i) v]
   #?(:cljd (clojure.core/aset arr (int i) v)
      :clj (clojure.core/aset ^objects arr (int i) v)
      :cljs (clojure.core/aset arr i v)))
 
 
 (defn alength
-  [arr]
+  #?(:cljd [arr]
+     :clj ^long [arr]
+     :cljs [arr])
   #?(:cljd (clojure.core/alength arr)
      :clj (clojure.core/alength ^objects arr)
      :cljs (clojure.core/alength arr)))
@@ -51,8 +74,13 @@
 
 
 (defn acopy
-  "Copy len slots from src[src-pos ...] into dest[dest-pos ...].
-   Safe for overlapping ranges within the same array."
+  "Copy len slots from src[src-pos ...] into dest[dest-pos ...]. Safe for
+   overlapping ranges within the same array. 5 params: over Clojure's
+   4-arg ceiling for primitive-typed args (\"fns taking primitives support
+   only 4 or fewer args\"), so this stays boxed at its own boundary — its
+   per-call cost is amortized over the copy length, unlike the per-element
+   cost in search/stitch-all's own arithmetic, which is where the hinting
+   actually pays off (see the ns docstring)."
   [src src-pos dest dest-pos len]
   #?(:clj (System/arraycopy ^objects src
                             (int src-pos)
@@ -72,7 +100,13 @@
 
 (defn asub
   "New array holding arr[from ... to)."
-  [arr from to]
+  [arr
+   #?(:cljd from
+      :clj ^long from
+      :cljs from)
+   #?(:cljd to
+      :clj ^long to
+      :cljs to)]
   (let [n (- to from)
         r (anew n)]
     (acopy arr from r 0 n)
@@ -81,7 +115,13 @@
 
 (defn aconcat
   "New array holding a[0 ... a-len) followed by b[0 ... b-len)."
-  [a a-len b b-len]
+  [a
+   #?(:cljd a-len
+      :clj ^long a-len
+      :cljs a-len) b
+   #?(:cljd b-len
+      :clj ^long b-len
+      :cljs b-len)]
   (let [r (anew (+ a-len b-len))]
     (acopy a 0 r 0 a-len)
     (acopy b 0 r a-len b-len)
@@ -89,17 +129,27 @@
 
 
 (defn asort
-  "Sort arr in place by cmp; returns arr."
+  "Sort arr in place by cmp; returns arr. JVM uses parallelSort (matching
+   psset's arrays.cljc): the only call site is from-sequential's one-time
+   bulk sort, ForkJoinPool.commonPool()-parallel work with no correctness
+   difference from a serial sort."
   [arr cmp]
   #?(:cljd (do (.sort ^List arr cmp) arr)
-     :clj (do (java.util.Arrays/sort ^objects arr ^java.util.Comparator cmp)
+     :clj (do (java.util.Arrays/parallelSort ^objects arr
+                                             ^java.util.Comparator cmp)
               arr)
      :cljs (do (.sort arr cmp) arr)))
 
 
 (defn ainsert-at
   "New array of arr[0 ... len) with x inserted at idx (result length len+1)."
-  [arr len idx x]
+  [arr
+   #?(:cljd len
+      :clj ^long len
+      :cljs len)
+   #?(:cljd idx
+      :clj ^long idx
+      :cljs idx) x]
   (let [r (anew (inc len))]
     (acopy arr 0 r 0 idx)
     (aset r idx x)
@@ -109,7 +159,13 @@
 
 (defn aremove-at
   "New array of arr[0 ... len) with slot idx removed (result length len-1)."
-  [arr len idx]
+  [arr
+   #?(:cljd len
+      :clj ^long len
+      :cljs len)
+   #?(:cljd idx
+      :clj ^long idx
+      :cljs idx)]
   (let [r (anew (dec len))]
     (acopy arr 0 r 0 idx)
     (acopy arr (inc idx) r idx (- len (inc idx)))

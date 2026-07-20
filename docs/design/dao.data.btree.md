@@ -1035,6 +1035,54 @@ clj -M:cljd test                                                     (Dart; requ
   sort/distinct/chunk path). Core `sorted-set` is beaten on every
   workload. The cljs (vs psset.cljs) and cljd (vs `sorted-set-by`
   fallback) legs remain to be measured before the Phase 4 switchover.
+- **JFR-driven follow-up (2026-07-20).** Programmatic-`jdk.jfr.Recording`
+  profiling (`clj -M:profile-btree btree|psset <outfile.jfr> ...`,
+  warmup excluded from the recording) attributed the gap to two causes,
+  both fixed:
+  - **Bulk build was single-threaded; psset's isn't.** psset's
+    `arrays.cljc` sorts via `Arrays/parallelSort` on the JVM; ours used
+    `Arrays/sort`. One-line fix in `dao.data.arrays/asort` (its only call
+    site, `from-sequential`'s one-time bulk sort — no correctness
+    surface). Bulk build dropped from 4.4x to ~1.2x psset.
+  - **`search`'s own loop math, and the `Leaf`/`Branch`/`BTSet`/`TBTSet`
+    integer fields it reads, were boxed on every access.** Allocation
+    sampling (not just execution sampling, which JIT inlining can
+    misattribute onto callers) pinned ~45% of the tree's own
+    `java.lang.Long` allocation to `search`'s `low`/`high`/`mid` loop
+    locals. Fixed with JVM-only `^long` hints (§3.2 note in
+    `dao.data.arrays`) on `search`/`search-first`/`search-last`'s `len`
+    param and return, and on the small-integer deftype fields (`Leaf.len`,
+    `Branch.level`/`len`, `BTSet.cnt`/`version`, `TBTSet.cnt`/`version`).
+    Two things this touched that are worth recording as pitfalls, not
+    just outcomes:
+    - **`stitch-all`/`stitch-one` were reverted, not hinted**, despite
+      being the *second*-largest allocation source (~38%, confirmed by
+      the same allocation-sample method): their return values thread
+      through `(if n0 (stitch-one ..) o)`-style conditionals in the disj
+      borrow/join paths, where one branch is primitive-typed and the
+      sibling branch isn't. Clojure's local-type inference across that
+      mismatch doesn't fail at the call site — it corrupts compilation of
+      an unrelated, *later* top-level form in the same namespace (in this
+      case, `Leaf`'s `deftype`), which is a genuinely difficult failure
+      mode to diagnose from the error alone (`"Unable to resolve
+      classname: clojure.core$long@..."`, pointing at the wrong form).
+      Left boxed; the cost is amortized over copy length per call, unlike
+      `search`'s per-element cost, so this is a smaller loss than the
+      allocation share alone suggests.
+    - **`:cljd`-first is not optional for host-conditional type hints.**
+      A `#?(:clj ^long x :default x)` two-branch pattern leaks the `:clj`
+      branch into ClojureDart's compilation (its host-eval pass also
+      matches `:clj`), failing with `"Can't resolve type long"` — the
+      general trap already on record
+      ([[project_cljd_clj_reader_conditional]]), rediscovered here
+      specifically for primitive type hints. Every site uses the explicit
+      three-branch `#?(:cljd x :clj ^long x :cljs x)` form.
+  - **Net effect, n=200k:** persistent conj ~1.5x psset, transient conj!
+    ~1.4x, lookup ~1.6x, slice ~1.9x, bulk build ~1.2x. Full-seq-reduce is
+    at rough parity but too fast (low single-digit ms) to trust a precise
+    ratio from wall-clock `best-of` sampling without a real microbenchmark
+    harness (JMH) — treat any single run's number as noise. All three
+    hosts (854 JVM / 758 cljs / 733 cljd tests) green after the change.
 - **Transients over a lazily restored tree pin their path.** The edit lease
   identifies nodes it is allowed to mutate in place; a faulted child held
   only by a `:weak` (or degraded `:soft`) reference can be collected
