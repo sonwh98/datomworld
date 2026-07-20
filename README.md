@@ -8,9 +8,9 @@ Tuples are immutable elements in an open moduli space, graded by dimension *n*. 
 **Core components:**
 - **Yang**: Compiler frontend that transforms source code (Clojure/Python/PHP) into Universal AST datoms
 - **Yin VM**: Family of CESK continuation machines (stack‑based, register‑based, semantic) that execute projections of the Universal AST
-- **DaoDB**: Persistent datom store with Datalog queries over indexed datom streams
 - **DaoStream**: Stream transport foundation modeling all IO as streams
-- **DaoSpace**: Tuple space for stigmergic coordination via shared datom streams
+- **DaoJing**: Content-addressed key-value store holding immutable datom segments; dumb storage, no matching or querying
+- **DaoSpace**: Tuple space for stigmergic coordination; a query library (associative matching, Datalog) over indexes agents build on their own streams and persist to DaoJing
 - **PostGraphics**: A backend-neutral graphics frame vocabulary plus a reference Flutter terminal. Producers emit frame programs as data; terminals interpret them as drawing.
 - **Shibi**: Capability tokens for authentication and authorization in stream descriptors
 
