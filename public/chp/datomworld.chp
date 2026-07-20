@@ -1,12 +1,11 @@
 (let [template (load-file "public/chp/template.chp")]
   (clojure.walk/postwalk-replace
-    {:template/title "Datom.World: Private preview overview"
+    {:template/title "Datom.World: Share data wthout losing control"
      :template/content
      (list
        [:section.hero
         [:div.section-inner
          [:div.hero-copy
-          [:span.status-pill "Private preview"]
           [:h1 "Share data without losing control"]
           [:p.lead
            "Data has to be shared to be useful, but once it is shared, control is easy to lose. "
