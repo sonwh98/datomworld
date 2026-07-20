@@ -377,7 +377,7 @@
 (defn- restore-fixture
   [bf profile]
   (let [{:keys [root count blobs]} (get-in fx/fixtures [bf profile])
-        sett (bt/->Settings bf :strong nil)]
+        sett (bt/->Settings bf :strong nil nil)]
     (bt/->BTSet nil
                 compare
                 nil

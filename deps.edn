@@ -6,7 +6,6 @@
         org.clojure/data.json {:mvn/version "2.5.0"}
         http-kit/http-kit {:mvn/version "2.8.0"}
         org.jsoup/jsoup {:mvn/version "1.18.3"}
-        persistent-sorted-set/persistent-sorted-set {:mvn/version "0.3.0"}
         instaparse/instaparse {:mvn/version "1.5.0"}
         criterium/criterium {:mvn/version "0.4.6"}
         stigmergy/chp {:mvn/version "0.1.0-SNAPSHOT"
@@ -46,7 +45,12 @@
                  :extra-deps {thheller/shadow-cljs {:mvn/version "3.3.5"}
                               cider/cider-nrepl {:mvn/version "0.58.0"}
                               reagent/reagent {:mvn/version "2.0.1"}
-                              com.cognitect/transit-cljs {:mvn/version "0.8.280"}}
+                              com.cognitect/transit-cljs {:mvn/version "0.8.280"}
+                              ;; benchmark baseline + psset-fixtures
+                              ;; generator only; production uses
+                              ;; dao.data.btree
+                              persistent-sorted-set/persistent-sorted-set
+                              {:mvn/version "0.3.0"}}
                  :jvm-opts ["-Dconfig=config.clj"]}
            :cljd {:extra-paths ["test"]
                   :extra-deps {tensegritics/clojuredart

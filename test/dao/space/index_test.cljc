@@ -309,17 +309,19 @@
       (is (= 3 (count (query/match store ['_ '_ '_])))))))
 
 
-#?(:cljd (deftest publish-index-is-jvm-only
-           (is (thrown? Object
-                 (index/publish-index! (mem/create-kv-mem)
-                                       []
-                                       {:key :root/test}))))
-   :clj nil
-   :cljs (deftest publish-index-is-jvm-only
-           (is (thrown? js/Error
-                 (index/publish-index! (mem/create-kv-mem)
-                                       []
-                                       {:key :root/test})))))
+(deftest publish-index-works-on-every-platform
+  ;; historically JVM-only (psset durability was Clojure-only); the
+  ;; dao.data.btree switchover made build + lazy restore universal
+  (let [store (mem/create-kv-mem)
+        datoms [[1 :a "x" 0 1] [2 :a "y" 0 2] [3 :b "z" 0 3]]]
+    (index/register-member! store :root/test)
+    (index/publish-index! store datoms {:key :root/test})
+    (let [manifest (jing/get store :root/test nil)]
+      (is (= 3 (:count manifest)))
+      (is (= 512 (:branching-factor manifest)))
+      (is (every? some? (map (:indexes manifest) [:eavt :aevt :avet :vaet])))
+      (is (= (set datoms) (set (query/match store ['_ '_ '_]))))
+      (is (= #{["x"]} (query/q '[:find ?v :where [1 :a ?v]] store))))))
 
 
 (deftest pre-vaet-root-takes-the-eager-path

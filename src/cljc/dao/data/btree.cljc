@@ -15,7 +15,8 @@
   Comparators are caller-supplied; this namespace knows nothing of datoms."
   (:refer-clojure :exclude
                   [conj disj count contains? seq rseq comparator sorted-set-by])
-  (:require [dao.data.arrays :as arr]))
+  (:require #?(:cljd ["dart:core" :as dc])
+            [dao.data.arrays :as arr]))
 
 
 ;; ---------------------------------------------------------------------------
@@ -45,15 +46,30 @@
 
 (deftype Settings
   [branching-factor ; max keys per node, default 512
-   ref-type         ; :strong | :soft | :weak; default per
-   ;; host (§5.3)
-   edit])             ; transient mutation lease (Phase 3); nil when persistent
+   ref-type         ; :strong | :soft | :weak | :test;
+   ;; default per host (§5.3)
+   edit             ; transient mutation lease (Phase 3);
+   ;; nil when persistent
+   storage-box])    ; nil, or a volatile holding the IStorage faulting reads
+;; go through (Phase 4). A box, not a value: the
+;; storage
+;; and the settings reference each other, so the slot
+;; is
+;; filled after construction. Plumbing, not identity —
+;; the conceptual Settings shape stays §3.1's three.
 
 (defn- make-settings
   ^Settings [opts]
   (Settings. (or (:branching-factor opts) 512)
              (or (:ref-type opts) default-ref-type)
+             nil
              nil))
+
+
+(defn- settings-storage
+  [^Settings sett]
+  (some-> (.-storage-box sett)
+          deref))
 
 
 (defn- bf*
@@ -105,9 +121,13 @@
 
 
 (defn- editable-settings
-  "A fresh Settings sharing bf/ref-type with sett, carrying a live lease."
+  "A fresh Settings sharing bf/ref-type/storage with sett, carrying a live
+   lease."
   ^Settings [^Settings sett]
-  (Settings. (.-branching-factor sett) (.-ref-type sett) (new-lease)))
+  (Settings. (.-branching-factor sett)
+             (.-ref-type sett)
+             (new-lease)
+             (.-storage-box sett)))
 
 
 (def ^:private expand-len
@@ -121,6 +141,108 @@
    expand-len (capped at the branching factor) under a live lease."
   [n ^Settings sett]
   (if (editing? sett) (min (bf* sett) (+ n expand-len)) n))
+
+
+;; ---------------------------------------------------------------------------
+;; IStorage (§5.1, Phase 4). Modeled on psset's IStorage over dao.jing's
+;; IKVStore; the concrete adapters live in dao.data.btree.storage so this
+;; namespace stays storage-agnostic. `-settings` is the concrete form of
+;; the §5.1 settings-threading rule: the storage and the trees restored
+;; through it share one Settings, so no restored node can ever carry
+;; defaults.
+
+(defprotocol IStorage
+
+  (-store
+    [storage node]
+    "Serialize node, put! it content-addressed, return the address. Called
+     only after all of the node's children have been stored and have
+     addresses (§5.1).")
+
+  (-restore
+    [storage address]
+    "Fetch + deserialize the node at address; node type from blob shape
+     (§5.1). Throws \"missing index segment\" on authoritative absence,
+     \"unhydrated segment\" when a hydration cache cannot answer,
+     \"corrupt index segment\" on a same-host hash mismatch (§5.2).")
+
+  (-accessed
+    [storage address]
+    "No-op hook: a memoized child was reused (§5.1 layering note).")
+
+  (-settings
+    [storage]
+    "The Settings shared by every tree restored through this storage."))
+
+
+;; ---------------------------------------------------------------------------
+;; Faulted-child references (§5.3). One factory (psset makeReference); the
+;; :test ref-type is the deterministic-eviction seam — clearable on demand,
+;; because js/WeakRef and Dart WeakReference cannot be forced to clear.
+
+(defprotocol ITestRef
+
+  (test-ref-val [r])
+
+  (test-ref-clear! [r]))
+
+
+(deftype TestRef
+  [#?(:cljd ^:mutable val
+      :clj ^:unsynchronized-mutable val
+      :cljs ^:mutable val)]
+
+  ITestRef
+
+  (test-ref-val [_] val)
+
+
+  (test-ref-clear! [_] (set! val nil)))
+
+
+(defn- make-ref
+  "Wrap a freshly faulted (or newly stored) node per the settings ref-type.
+   :soft degrades to :weak off-JVM (§5.3)."
+  [^Settings sett node]
+  (case (.-ref-type sett)
+    :strong node
+    :test (TestRef. node)
+    :soft #?(:cljd (dc/WeakReference. node)
+             :clj (java.lang.ref.SoftReference. node)
+             :cljs (js/WeakRef. node))
+    :weak #?(:cljd (dc/WeakReference. node)
+             :clj (java.lang.ref.WeakReference. node)
+             :cljs (js/WeakRef. node))))
+
+
+(defn- make-store-ref
+  "Ref for a just-stored child (§3.1 dirty->stored conversion). When the
+   node's settings carry no storage (a tree built in memory and then
+   stored), a cleared reference could never refault — so pin strong
+   regardless of ref-type; the node was strongly held before the store, so
+   this is not a memory regression. Trees restored through a storage get
+   the configured ref-type."
+  [^Settings sett node]
+  (if (settings-storage sett) (make-ref sett node) node))
+
+
+(defn- read-ref
+  "Deref a child/root slot: nil, a node held strong, or a reference whose
+   target may have been collected (=> nil, refault)."
+  [x]
+  #?(:cljd (cond (nil? x) nil
+                 (instance? TestRef x) (test-ref-val x)
+                 (dart/is? x dc/WeakReference) (.-target ^dc/WeakReference x)
+                 :else x)
+     :clj (cond (nil? x) nil
+                (instance? TestRef x) (test-ref-val x)
+                (instance? java.lang.ref.Reference x)
+                (.get ^java.lang.ref.Reference x)
+                :else x)
+     :cljs (cond (nil? x) nil
+                 (instance? TestRef x) (test-ref-val x)
+                 (instance? js/WeakRef x) (.deref x)
+                 :else x)))
 
 
 ;; ---------------------------------------------------------------------------
@@ -258,9 +380,15 @@
 
   (node-child
     [node i]
-    "Resident child at slot i. Throws when the slot is unfaulted — Phase 4
-     routes faulting through IStorage (§5.1); mutation paths require
-     residency (§5.4)."))
+    "Resident child at slot i, faulting through the settings' storage when
+     the slot is stored-but-unfaulted (§3.1 state 3). Throws \"unhydrated
+     segment\" when no storage or address can satisfy the fault (§5.4).")
+
+  (node-store
+    [node storage]
+    "Store the dirty subgraph rooted here, children before parents (§5.1);
+     skips slots that already carry an address (§3.1). Returns this node's
+     address."))
 
 
 (declare ->Leaf ->Branch branch?)
@@ -309,10 +437,7 @@
             (and (editing? settings) (< len (arr/alength keys)))
             (if (== ins len)
               (do (arr/aset keys len k) (set! len (inc len)) (one this)) ; appended
-              ;; at
-              ;; end:
-              ;; maxKey
-              ;; changed
+              ;; at end: MaxKey changed
               (do (arr/acopy keys ins keys (inc ins) (- len ins))
                   (arr/aset keys ins k)
                   (set! len (inc len))
@@ -430,7 +555,10 @@
   (node-addresses-arr [_] nil)
 
 
-  (node-child [_ i] (unhydrated! i)))
+  (node-child [_ i] (unhydrated! i))
+
+
+  (node-store [this storage] (-store storage this)))
 
 
 ;; ---------------------------------------------------------------------------
@@ -438,7 +566,13 @@
 ;; all-dirty (addresses nil, children resident and strong).
 
 (deftype Branch
-  [level len keys children addresses settings]
+  [level len keys
+   #?(:cljd ^:mutable children
+      :clj ^:unsynchronized-mutable children
+      :cljs ^:mutable children)
+   #?(:cljd ^:mutable addresses
+      :clj ^:unsynchronized-mutable addresses
+      :cljs ^:mutable addresses) settings]
 
   INode
 
@@ -810,16 +944,85 @@
 
 
   (node-child
-    [_ i]
-    ;; Phase 1: all children resident and strong. Phase 4 adds the §3.1
-    ;; state-2/3 deref-or-restore transitions here.
-    (let [c (when children (arr/aget children i))]
-      (if (nil? c) (unhydrated! i) c))))
+    [this i]
+    ;; §3.1 per-slot state machine: state 1 (dirty) and state 2 (stored,
+    ;; memoized) deref the slot; state 3 (stored, not faulted) restores
+    ;; at addresses[i] and memoizes a ref-type reference. No storage
+    ;; attached or no address => the slot is unhydrated (§5.4).
+    (let [c (when children (read-ref (arr/aget children i)))]
+      (if (some? c)
+        (do (when-some [addr (when addresses (arr/aget addresses i))]
+              (when-some [st (settings-storage settings)]
+                (-accessed st addr)))
+            c)
+        (let [addr (when addresses (arr/aget addresses i))
+              st (settings-storage settings)]
+          (if (or (nil? addr) (nil? st))
+            (unhydrated! i)
+            (let [n (-restore st addr)]
+              (when (nil? children)
+                (set! children (arr/anew (arr/alength keys))))
+              (arr/aset children i (make-ref settings n))
+              n))))))
+
+
+  (node-store
+    [this storage]
+    ;; children before parents (§5.1); slots already carrying an address
+    ;; are clean subtrees and are skipped (§3.1) — this is what makes
+    ;; incremental re-publish proportional to the changed path.
+    (when (nil? addresses) (set! addresses (arr/anew (arr/alength keys))))
+    (dotimes [i len]
+      (when (nil? (arr/aget addresses i))
+        (let [c (read-ref (arr/aget children i))]
+          (when (nil? c)
+            (throw (ex-info "dirty child not resident" {:slot i})))
+          (arr/aset addresses i (node-store c storage))
+          (arr/aset children i (make-store-ref settings c)))))
+    (-store storage this)))
 
 
 (defn branch?
   [node]
   (instance? Branch node))
+
+
+;; ---------------------------------------------------------------------------
+;; Blob conversion (§5.1/§5.2): pure functions over the EDN shapes
+;; `publish-index!` persists today. Leaf `{:keys [...]}`, Branch
+;; `{:level n :keys [...] :addresses [...]}`. Bounded by len, never by
+;; allocation (grown transient arrays carry spare slots).
+
+(defn node->blob
+  "The §5.2 EDN blob for node. Branch slots must all be addressed (§3.1:
+   no partially-addressed branch is ever serialized)."
+  [node]
+  (let [ks (node-keys node)
+        l (node-len node)
+        keys-v (mapv #(arr/aget ks %) (range l))]
+    (if (branch? node)
+      (let [as (node-addresses-arr node)]
+        {:level (node-level node),
+         :keys keys-v,
+         :addresses (mapv #(arr/aget as %) (range l))})
+      {:keys keys-v})))
+
+
+(defn blob->node
+  "Rebuild a node from its blob; type from blob shape (a map carrying
+   :addresses is a Branch, one with :keys alone a Leaf — §5.1). Every node
+   carries sett (the §5.1 settings-threading rule). Branch children start
+   nil: every slot is §3.1 state 3."
+  [blob ^Settings sett]
+  (let [ks (:keys blob)]
+    (if-some [as (:addresses blob)]
+      (Branch. (:level blob)
+               (clojure.core/count ks)
+               (arr/from-coll ks)
+               nil
+               (arr/from-coll as)
+               sett)
+      (Leaf. (clojure.core/count ks) (arr/from-coll ks) sett))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -891,14 +1094,84 @@
          empty-root
          equiv-sets
          nil-element!
+         resident-root
          ->TBTSet)
 
 
+(defprotocol IBTSetImpl
+  "Internal: root residency and the store entry point — deftype methods
+   because they mutate the wrapper's memo fields (§4: root is itself a
+   ref-type reference refaulted from address; store-tree is a no-op when
+   address is non-nil)."
+
+  (resident-root [s])
+
+  (-store-tree! [s storage])
+
+  (raw-root
+    [s]
+    "The root slot as held: node, ref, or nil. No faulting.")
+
+  (raw-address [s])
+
+  (raw-storage [s]))
+
+
 (deftype BTSet
-  [meta cmp address storage root cnt version settings
+  [meta cmp
+   #?(:cljd ^:mutable address
+      :clj ^:unsynchronized-mutable address
+      :cljs ^:mutable address)
+   #?(:cljd ^:mutable storage
+      :clj ^:unsynchronized-mutable storage
+      :cljs ^:mutable storage)
+   #?(:cljd ^:mutable root
+      :clj ^:unsynchronized-mutable root
+      :cljs ^:mutable root) cnt version settings
    #?(:cljd ^:mutable hmemo
       :clj ^:unsynchronized-mutable hmemo
       :cljs ^:mutable hmemo)]
+
+  IBTSetImpl
+
+  (resident-root
+    [this]
+    ;; §4: root is itself a ref-type reference; refault from address when
+    ;; it has cleared. Memoized per wrapper, like any branch child slot.
+    (let [r (read-ref root)]
+      (if (some? r)
+        r
+        (let [st storage]
+          (when (or (nil? address) (nil? st))
+            (throw (ex-info "no resident root and no address to restore from"
+                            {:address address})))
+          (let [n (-restore st address)]
+            (set! root (make-ref settings n))
+            n)))))
+
+
+  (-store-tree!
+    [this storage']
+    ;; no-op when already addressed (§4/§5.1): an unchanged tree
+    ;; re-publishes for free
+    (if (some? address)
+      address
+      (let [r (read-ref root)]
+        (when (nil? r) (throw (ex-info "dirty root not resident" {})))
+        (let [addr (node-store r storage')]
+          (set! storage storage')
+          (set! address addr)
+          (set! root (make-store-ref settings r))
+          addr))))
+
+
+  (raw-root [_] root)
+
+
+  (raw-address [_] address)
+
+
+  (raw-storage [_] storage)
   #?@(:cljd [cljd.core/ISeqable (-seq [this] (seq this))
              cljd.core/ICounted (-count [_] cnt)
              cljd.core/ICollection (-conj [this k] (conj this k))
@@ -947,10 +1220,13 @@
                                       (when (pos? (bit-and flags 8)) from)
                                       (pos? (bit-and flags 4))
                                       cmp)))
-             cljd.core/IReduce (-reduce [_ f]
-                                        (if (zero? cnt) (f) (tree-reduce root f)))
-             (-reduce [_ f start]
-                      (if (zero? cnt) start (tree-reduce root f start)))
+             cljd.core/IReduce
+             (-reduce [this f]
+                      (if (zero? cnt) (f) (tree-reduce (resident-root this) f)))
+             (-reduce [this f start]
+                      (if (zero? cnt)
+                        start
+                        (tree-reduce (resident-root this) f start)))
              cljd.core/IFn
              (-invoke [this k] (lookup this k)) (-invoke [this k not-found]
                                                          (if-some [v (lookup this k)]
@@ -960,11 +1236,12 @@
              cljd.core/IWithMeta
              (-with-meta [_ m]
                          (BTSet. m cmp address storage root cnt version settings hmemo))
-             cljd.core/IEditableCollection (-as-transient [_]
+             cljd.core/IEditableCollection (-as-transient [this]
                                                           (->TBTSet meta
                                                                     cmp
                                                                     storage
-                                                                    root
+                                                                    address
+                                                                    (resident-root this)
                                                                     cnt
                                                                     version
                                                                     (editable-settings
@@ -1021,10 +1298,11 @@
                                              (set! hmemo h)
                                              h)
                                            hmemo))
-            clojure.lang.IReduce (reduce [_ f]
-                                         (if (zero? cnt) (f) (tree-reduce root f)))
-            (reduce [_ f start]
-                    (if (zero? cnt) start (tree-reduce root f start)))
+            clojure.lang.IReduce
+            (reduce [this f]
+                    (if (zero? cnt) (f) (tree-reduce (resident-root this) f)))
+            (reduce [this f start]
+                    (if (zero? cnt) start (tree-reduce (resident-root this) f start)))
             java.lang.Iterable
             (iterator [this] (clojure.lang.SeqIterator. (seq this)))
             java.util.Set
@@ -1041,11 +1319,12 @@
             (retainAll [_ _] (throw (UnsupportedOperationException.)))
             (clear [_] (throw (UnsupportedOperationException.)))
             java.io.Serializable
-            clojure.lang.IEditableCollection (asTransient [_]
+            clojure.lang.IEditableCollection (asTransient [this]
                                                           (->TBTSet meta
                                                                     cmp
                                                                     storage
-                                                                    root
+                                                                    address
+                                                                    (resident-root this)
                                                                     cnt
                                                                     version
                                                                     (editable-settings
@@ -1103,9 +1382,13 @@
              (-sorted-seq-from [this k ascending?]
                                (if ascending? (slice this k nil) (rslice this k nil)))
              (-entry-key [_ entry] entry) (-comparator [_] cmp)
-             IReduce (-reduce [_ f] (if (zero? cnt) (f) (tree-reduce root f)))
-             (-reduce [_ f start]
-                      (if (zero? cnt) start (tree-reduce root f start)))
+             IReduce
+             (-reduce [this f]
+                      (if (zero? cnt) (f) (tree-reduce (resident-root this) f)))
+             (-reduce [this f start]
+                      (if (zero? cnt)
+                        start
+                        (tree-reduce (resident-root this) f start)))
              IFn
              (-invoke [this k] (lookup this k)) (-invoke [this k not-found]
                                                          (if-some [v (lookup this k)]
@@ -1115,11 +1398,12 @@
              IWithMeta
              (-with-meta [_ m]
                          (BTSet. m cmp address storage root cnt version settings hmemo))
-             IEditableCollection (-as-transient [_]
+             IEditableCollection (-as-transient [this]
                                                 (->TBTSet meta
                                                           cmp
                                                           storage
-                                                          root
+                                                          address
+                                                          (resident-root this)
                                                           cnt
                                                           version
                                                           (editable-settings settings)))
@@ -1191,6 +1475,9 @@
 
 (deftype TBTSet
   [meta cmp storage
+   #?(:cljd ^:mutable address
+      :clj ^:unsynchronized-mutable address
+      :cljs ^:mutable address)
    #?(:cljd ^:mutable root
       :clj ^:unsynchronized-mutable root
       :cljs ^:mutable root)
@@ -1209,9 +1496,12 @@
     (when (nil? k) (nil-element!))
     (let [nodes (node-conj root cmp k settings)]
       (cond (identical? UNCHANGED nodes) this
-            (identical? EARLY-EXIT nodes)
-            (do (set! cnt (inc cnt)) (set! version (inc version)) this)
-            (== 1 (arr/alength nodes)) (do (set! root (arr/aget nodes 0))
+            (identical? EARLY-EXIT nodes) (do (set! address nil)
+                                              (set! cnt (inc cnt))
+                                              (set! version (inc version))
+                                              this)
+            (== 1 (arr/alength nodes)) (do (set! address nil)
+                                           (set! root (arr/aget nodes 0))
                                            (set! cnt (inc cnt))
                                            (set! version (inc version))
                                            this)
@@ -1222,6 +1512,7 @@
                   ks (arr/anew 2)]
               (arr/aset ks 0 (node-lim-key n1))
               (arr/aset ks 1 (node-lim-key n2))
+              (set! address nil)
               (set! root
                     (Branch. (inc (node-level n1)) 2 ks cs nil settings))
               (set! cnt (inc cnt))
@@ -1234,12 +1525,15 @@
     (ensure-editable! settings)
     (let [nodes (node-disj root cmp k true nil nil settings)]
       (cond (identical? UNCHANGED nodes) this
-            (identical? EARLY-EXIT nodes)
-            (do (set! cnt (dec cnt)) (set! version (inc version)) this)
+            (identical? EARLY-EXIT nodes) (do (set! address nil)
+                                              (set! cnt (dec cnt))
+                                              (set! version (inc version))
+                                              this)
             :else (let [nr (arr/aget nodes 1)
                         nr (if (and (branch? nr) (== 1 (node-len nr)))
                              (node-child nr 0) ; root collapse
                              nr)]
+                    (set! address nil)
                     (set! root nr)
                     (set! cnt (dec cnt))
                     (set! version (inc version))
@@ -1250,7 +1544,10 @@
     [_]
     (ensure-editable! settings)
     (clear-lease! settings)
-    (BTSet. meta cmp nil storage root cnt version settings nil))
+    ;; an untouched transient keeps its address (psset: _address survives
+    ;; until the first edit), so persistent!-then-store-tree stays a
+    ;; no-op
+    (BTSet. meta cmp address storage root cnt version settings nil))
 
 
   (t-lookup
@@ -1325,8 +1622,9 @@
 
 
 (defn root
+  "The resident root node (faults from storage when the memo has cleared)."
   [^BTSet s]
-  (.-root s))
+  (resident-root s))
 
 
 (defn settings
@@ -1358,13 +1656,13 @@
   ([^BTSet s k cmp]
    (when (nil? k) (nil-element!))
    (let [^Settings sett (.-settings s)
-         nodes (node-conj (.-root s) cmp k sett)]
+         nodes (node-conj (resident-root s) cmp k sett)]
      (cond (identical? UNCHANGED nodes) s
            (identical? EARLY-EXIT nodes) (early-exit-unreachable!)
            (== 1 (arr/alength nodes)) (BTSet. (.-meta s)
                                               (.-cmp s)
                                               nil
-                                              (.-storage s)
+                                              (raw-storage s)
                                               (arr/aget nodes 0)
                                               (inc (.-cnt s))
                                               (inc (.-version s))
@@ -1381,7 +1679,7 @@
              (BTSet. (.-meta s)
                      (.-cmp s)
                      nil
-                     (.-storage s)
+                     (raw-storage s)
                      new-root
                      (inc (.-cnt s))
                      (inc (.-version s))
@@ -1394,7 +1692,7 @@
   ([^BTSet s k] (disj s k (.-cmp s)))
   ([^BTSet s k cmp]
    (let [^Settings sett (.-settings s)
-         nodes (node-disj (.-root s) cmp k true nil nil sett)]
+         nodes (node-disj (resident-root s) cmp k true nil nil sett)]
      (cond (identical? UNCHANGED nodes) s
            (identical? EARLY-EXIT nodes) (early-exit-unreachable!)
            :else (let [nr (arr/aget nodes 1)
@@ -1404,7 +1702,7 @@
                    (BTSet. (.-meta s)
                            (.-cmp s)
                            nil
-                           (.-storage s)
+                           (raw-storage s)
                            nr
                            (dec (.-cnt s))
                            (inc (.-version s))
@@ -1416,7 +1714,8 @@
   "The stored element equal to k under the comparator, or nil.
    nil is not a legal element, so nil unambiguously means absent."
   ([^BTSet s k] (lookup s k (.-cmp s)))
-  ([^BTSet s k cmp] (when (pos? (.-cnt s)) (node-lookup (.-root s) cmp k))))
+  ([^BTSet s k cmp]
+   (when (pos? (.-cnt s)) (node-lookup (resident-root s) cmp k))))
 
 
 (defn contains?
@@ -1543,8 +1842,8 @@
    The exclusivity knobs exist for cljd's ISorted bit-flag contract (§4);
    the public `slice` is inclusive-inclusive, matching psset."
   [^BTSet s from from-incl? to to-incl? cmp]
-  (let [root (.-root s)]
-    (when (pos? (node-len root))
+  (when (pos? (.-cnt s))
+    (let [root (resident-root s)]
       (when-let [stack (if (nil? from)
                          (descend-leftmost nil root)
                          (when-let [st (descend-from root from cmp)]
@@ -1558,8 +1857,8 @@
 (defn- rslice*
   "Generalized descending range: iterates from the hi bound down to lo."
   [^BTSet s hi hi-incl? lo lo-incl? cmp]
-  (let [root (.-root s)]
-    (when (pos? (node-len root))
+  (when (pos? (.-cnt s))
+    (let [root (resident-root s)]
       (when-let [stack (if (nil? hi)
                          (descend-rightmost nil root)
                          (when-let [st (descend-from-r root hi cmp)]
@@ -1679,3 +1978,90 @@
   "Vector of the node's valid keys [0 ... len)."
   [node]
   (let [ks (node-keys node)] (mapv #(arr/aget ks %) (range (node-len node)))))
+
+
+;; ---------------------------------------------------------------------------
+;; Durability entry points (§5.1, Phase 4)
+
+(defn store-tree
+  "Store the dirty subgraph, children before parents (Merkle by
+   construction); returns the root address. No-op returning the existing
+   address when the set is already stored (§4). An empty set stores as nil
+   (the existing convention: nil root address, walk of nil => ())."
+  [^BTSet s storage]
+  (when (pos? (.-cnt s)) (-store-tree! s storage)))
+
+
+(defn restore-tree
+  "A lazy BTSet over `address`; nothing is fetched until traversed. `cnt`
+   is the element count from the manifest (§5.1 — psset's fault-the-tree
+   count sentinel is deliberately not ported). nil address => the empty
+   set (cnt must be 0). The tree adopts the storage's Settings (`-settings`),
+   which is how the manifest's branching factor reaches every restored
+   node — never construct the storage with defaults for a tree published
+   at another branching factor (§5.1)."
+  [cmp address storage cnt]
+  (let [sett (-settings storage)]
+    (if (nil? address)
+      (BTSet. nil cmp nil storage (empty-root sett) 0 0 sett nil)
+      (BTSet. nil cmp address storage nil cnt 0 sett nil))))
+
+
+(defn walk-addresses
+  "Call on-address with every segment key reachable from address, the
+   root's own address first; descend into a subtree only while on-address
+   returns truthy (psset's prune protocol — lets a GC mark phase skip
+   subtrees shared with already-marked versions). nil address => nothing."
+  [storage address on-address]
+  (letfn [(walk-node
+            [n]
+            (when (branch? n)
+              (let [as (node-addresses-arr n)
+                    l (node-len n)
+                    deep? (> (node-level n) 1)]
+                (dotimes [i l]
+                  (let [a (arr/aget as i)]
+                    (when (and (on-address a) deep?)
+                      (walk-node (-restore storage a))))))))]
+    (when (some? address)
+      (when (on-address address) (walk-node (-restore storage address))))))
+
+
+(defn clear-test-refs!
+  "Test seam (§5.3): clear every :test-ref-type reference reachable from
+   the set's resident nodes (root slot included), so the eviction suite
+   can force 'collection' deterministically and assert the refault path."
+  [^BTSet s]
+  (letfn [(walk-node
+            [n]
+            (when (branch? n)
+              (when-some [cs (node-children-arr n)]
+                (dotimes [i (node-len n)]
+                  (let [slot (arr/aget cs i)]
+                    (when-some [c (read-ref slot)] (walk-node c))
+                    (when (instance? TestRef slot) (test-ref-clear! slot)))))))]
+    (let [slot (raw-root s)]
+      (when-some [r (read-ref slot)] (walk-node r))
+      (when (instance? TestRef slot) (test-ref-clear! slot)))))
+
+
+;; ---------------------------------------------------------------------------
+;; Accessors for storage adapters (dao.data.btree.storage) and tests
+
+(defn default-ref-type*
+  "The per-host default ref-type (§5.3): :soft on the JVM, :strong on
+   cljs/cljd where :soft would silently degrade to :weak."
+  []
+  default-ref-type)
+
+
+(defn set-address
+  "The set's own root address; nil while the root is dirty (§4)."
+  [^BTSet s]
+  (raw-address s))
+
+
+(defn set-storage
+  "The set's attached IStorage, or nil for a purely in-memory tree."
+  [^BTSet s]
+  (raw-storage s))

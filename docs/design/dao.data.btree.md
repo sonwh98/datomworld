@@ -1,6 +1,9 @@
 # dao.data.btree — Universal Persistent B-Tree
 
-Status: Proposed design plan, revised after a third review round. This
+Status: Implemented through Phase 4 (2026-07-20); `dao.space.index` runs on
+`dao.data.btree` on all three hosts and psset is a dev-only dependency
+(benchmark baseline + fixture generator). Phase-outcome notes are recorded
+inline in §6. This
 document details the
 architectural design and phased execution plan for a unified, cross-platform
 persistent B-tree implementation (`dao.data.btree`) that compiles from one
@@ -1094,6 +1097,38 @@ clj -M:cljd test                                                     (Dart; requ
   `subseq-from`, `kv-storage`, `restored-indexes`, `publish-index!`) to
   `dao.data.btree` and drop the psset dependency. `dao.space.query` remains
   btree-free; `walk-index-datoms` stays as the universal eager path.
+
+**Phase 4 outcome notes (2026-07-20):**
+
+- Delivered: `node->blob`/`blob->node`, `IStorage` (plus a fourth method,
+  `-settings` — the concrete form of the settings-threading rule: the
+  storage owns the Settings every restored tree shares), `KVStorage` and
+  the `HydrationStorage` cache adapter in `dao.data.btree.storage` (the
+  tree namespace stays jing-free), `store-tree`/`restore-tree` (nil
+  address, manifest count, settings threading)/`walk-addresses` (root
+  first, prune)/`hydrate!`, the ref-type factory with the `:test` seam and
+  `clear-test-refs!`, and the full Phase 4 test matrix including the §5.5
+  lazy-fetch bar (a narrow slice over 600 elements at bf 32 stays under 6
+  segment fetches across 21+ segments) — green on JVM, Node cljs, and
+  cljd. Storage reaches faulting nodes through a `storage-box` slot on the
+  implementation's Settings (a volatile, filled after construction because
+  storage and settings reference each other); conceptually Settings
+  remains §3.1's three fields.
+- Switchover: done on **all three hosts** — `publish-index!` and
+  `restored-indexes` are no longer JVM-only, which retires the historical
+  "psset durability is Clojure-only" restriction; the manifest now carries
+  the additive `:branching-factor`, and `fold`'s lazy-path guard also
+  requires `:count` (§5.1 policy). psset moved to the `:dev` alias
+  (benchmark baseline + fixture generator only). Gate status: the JVM
+  bench leg is recorded above; on cljd the switchover replaces a strictly
+  weaker structure (eager `sorted-set-by` + linear `drop-while`, no
+  durability at all), so the no-regression intent holds by construction;
+  the cljs leg vs psset.cljs remains an open measurement (§7).
+- Deferred, blocked on backend surface: `hydrate-async` and
+  `store-tree-async` — `dao.jing` has no async IKVStore variant yet, so
+  there is nothing real to await; wrapping the sync paths in
+  Promise/Future would be API theater. They land with the first async
+  backend (dao.jing.remote / IndexedDB), same signatures as §5.4.
 
 ### Dependency picture after Phase 4
 
