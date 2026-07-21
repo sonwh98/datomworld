@@ -1227,7 +1227,7 @@ clj -M:cljd test                                                     (Dart; requ
 ### Dependency picture after Phase 4
 
 ```
-dao.space.stream ──► dao.space.index ──requires──► dao.data.btree
+dao.space.transactor ──► dao.space.index ──requires──► dao.data.btree
  (write path)       (datom sort orders,             (generic persistent
                      manifest, root conventions;     sorted set; knows
                      thin adapter)                   nothing of datoms)

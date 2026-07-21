@@ -408,10 +408,17 @@ but without a central transactor process:
    `dao.jing`; the local cache and the persisted segments cover the same datoms at
    different lifecycle stages.
 
-Publishing is an acceleration, never a semantic change — readers answer identically over a
-wholesale root, a local index, or a persisted index — and the stages interact safely: a later
-`ds/append!` folds a persisted root back to wholesale rather than dropping it, until the owner
-republishes. See `dao.space.index.md`, *The agent-transactor loop*.
+Publishing is an acceleration, never a semantic change for `q`/`match` — readers answer
+identically over a wholesale root, a local index, or a persisted index — and the stages
+interact safely: a later `ds/append!` folds a persisted root back to wholesale rather than
+dropping it, until the owner republishes. See `dao.space.index.md`, *The agent-transactor
+loop*.
+
+The same is not true for a `dao.stream` cursor reading a stream's own root directly
+(`ds/next`, not `q`/`match`): publishing reorders the datoms `next` walks from append order to
+index order, so a live cursor gaps (`:daostream/gap`) rather than silently landing on a
+different datom. See `dao.space.transactor`'s ns docstring for the mechanism
+(`:reorder-epoch`) and why this gap's recovery differs from the eviction-based transports.
 
 ### Fault Tolerance (Crash-Only Semantics)
 
@@ -424,8 +431,12 @@ crash-only semantics natively:
   yields (`ds/next` returns `:blocked`); it waits for new data rather than failing.
 - **Write recovery:** A restarted writer reopens its file in append mode; the next `ds/append!`
   lands safely after the last flushed datom.
-- **Read recovery:** A reader resumes from a checkpointed cursor offset, so an incremental
-  index rebuilds without reprocessing or skipping.
+- **Read recovery:** A reader resumes from a checkpointed cursor, so an incremental index
+  rebuilds without reprocessing or skipping. Against `:transactor` a checkpoint must persist
+  the whole cursor map (`(:cursor result)`, not just the bare `:position` offset) — it carries
+  `:epoch`, which is what lets `ds/next` detect a publish! that reordered data since the
+  checkpoint was taken and gap instead of resuming into the wrong datom (see
+  `dao.space.transactor`).
 
 ## Coordination: Stigmergy
 
@@ -435,12 +446,18 @@ agent *appends a new datom* asserting the claim, and "current state" is a read-s
 the accreted datoms. This is the tuple space working as designed — coordination with no
 broker, no message-format negotiation, and no leader election.
 
+The worker loop below reads with `query/q` and writes with `ds/append!` — two different
+concurrency models. `append!` is a per-root CAS: an agent's own write is immediately durable
+and visible to any reader that re-folds. `q` folds every member root fresh on each call, so a
+claim becomes visible to *other* workers only once they re-query after the claim's `append!`
+returns — there is no push, no shared read-your-writes guarantee across agents.
+
 **The example below is runnable.** Every former blocker is implemented: `match`/`q` mask
 retracted datoms and supersede cardinality-one values at query time via `current-state-seq`
 (see `dao.space.query.md`, *Current-state resolution*); `q` implements `not`/`not-join`
 (stratified, over the current-state-resolved index), so the `(not [_ :work/claims ?w])`
-clause executes as written; and `{:type :dao-stream :store store :name ...}` is a
-registered `dao.stream` type (`dao.space.stream`) whose `ds/append!` deposits an entity map
+clause executes as written; and `{:type :transactor :store store :name ...}` is a
+registered `dao.stream` type (`dao.space.transactor`) whose `ds/append!` deposits an entity map
 or datom vector into the stream's **own** root, `:root/<name>` — each stream a single-writer
 log, no shared write surface. `open!` registers the root in the store's membership root
 (`:root/members`, the intake record of *Membership is intake*, above), and the query library
@@ -455,11 +472,11 @@ though the write path now runs top-down:
 
 ```clojure
 (defn producer [store]
-  (let [log (ds/open! {:type :dao-stream :store store :name "producer"})]
+  (let [log (ds/open! {:type :transactor :store store :name "producer"})]
     (ds/append! log {:db/id (random-id) :work/posted true :work/task "process payment"})))
 
 (defn worker [store worker-id]
-  (let [log (ds/open! {:type :dao-stream :store store :name worker-id})]
+  (let [log (ds/open! {:type :transactor :store store :name worker-id})]
     (loop []
       ;; "posted work nothing has claimed" — negation + join over the whole store,
       ;; the query that justifies a tuple space (not a per-datom scan).
@@ -475,13 +492,27 @@ though the write path now runs top-down:
 ```
 
 The naive version hides a familiar race: two workers can run the claim query before either
-appends, and both then claim the same task. That is not a storage bug; it is check-then-act
-over an append-only log. There is no lock and no `cas!` over a shared stream to force
-exclusion — both claims are simply recorded in their own owners' logs. The conflict is
-resolved **on the read side**: a downstream reader sees both claims, sorts by timestamp,
-breaks ties by worker id, and deterministically yields one winner. Exclusion is a query rule
-in the interpreters, not a guarantee the store enforces — which is exactly why the
-tuple-space character belongs to `dao.space`, not `dao.jing`.
+appends, and both then claim the same task. That is not a storage bug, and not a transactor
+bug either — `dao.jing` never sees "claims," only datoms, and each worker's `append!` is a
+local `cas!` over its own single-writer root; neither layer knows the other worker exists, so
+neither can prevent or even detect the race. There is no lock and no `cas!` over a shared
+stream to force exclusion — both claims are simply recorded in their own owners' logs.
+
+Resolving the race, if resolution is wanted at all, is entirely an **interpreter-level policy
+choice** — the same declared-materialized-view freedom [*A Family of
+Interpreters*](#a-family-of-interpreters) describes, applied to conflict resolution instead of
+read shape. One convention an interpreter could adopt: a downstream reader sees both claims,
+sorts by some rule, and picks a winner. But "sort by timestamp" is not free of a pitfall of its
+own — each claim's `t` is a per-root watermark (`(count existing)` at CAS-win time,
+`dao.space.transactor`'s ns docstring), not a shared clock, so ordering two *different*
+streams' claims by `t` is arbitrary, not meaningful, unless the interpreter's convention
+supplies its own comparable clock (a wall-clock stamp on the datom, an external sequencer) or
+sidesteps the ambiguity entirely (a single shared claims stream, entity-id ownership). Absent
+such a convention, both claims simply stay queryable, and it is up to whichever interpreter is
+asking whether "two claims" is a conflict to break or two valid answers to return. Exclusion is
+a query rule an interpreter can choose to implement, never a guarantee `dao.jing` or
+`dao.space.transactor` enforces — which is exactly why the tuple-space character belongs to
+`dao.space`, not the storage or write layers below it.
 
 ## Lineage
 

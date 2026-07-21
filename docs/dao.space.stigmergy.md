@@ -118,7 +118,7 @@ embedded library: the Peer stays in-process on the JVM; agents reach it over the
 
 Today a stream owner publishes by `cas!`-ing `{:datoms [...]}` wholesale or calling
 `publish-index!`. There is no incremental `append!` for "add these three datoms to my log,"
-and the jing-backed stream descriptor `dao.space.md` sketches (`{:type :dao-stream ...}`)
+and the jing-backed stream descriptor `dao.space.md` sketches (`{:type :transactor ...}`)
 is not a registered `dao.stream` type. Agents generate datoms one decision at a time; they
 need the incremental owner-append convenience — read-modify-`cas!` under the single-writer
 discipline, or the real `dao.stream`-fed path once it exists. Per-agent identity falls out
@@ -233,8 +233,8 @@ deposit API, no new namespaces:
    call-site wiring; dao.stream.rpc makes any function remotely callable). A remote agent
    holds a ~10-line `reify jing/IKVStore` over `rpc-client/call!`; everything above the
    handle is unchanged.
-2. **Writes**: each agent opens its own `:dao-stream` on that handle
-   (`(ds/open! {:type :dao-stream :store handle :name agent-id})`) and deposits with
+2. **Writes**: each agent opens its own `:transactor` on that handle
+   (`(ds/open! {:type :transactor :store handle :name agent-id})`) and deposits with
    `ds/append!` — nothing else. The agent stamps its own conventions into the datoms it
    builds: fresh UUID entity id, `:dao/agent` self-stamp, wall-clock `t` in the t slot,
    `:claim/expires` on claims.

@@ -13,7 +13,7 @@
 
     - the root conventions: each stream owns `:root/<name>`, enumerated
       through the membership root (`members-key`, written at open! by the
-      `:dao-stream` transport, read by `member-keys`). Every datom root
+      `:transactor` transport, read by `member-keys`). Every datom root
       carries one of two shapes,
       wholesale `{:datoms [...]}` or owner-built
       `{:indexes {:eavt <segment-key> :aevt ... :avet ... :vaet ...} :count n}`
@@ -277,6 +277,27 @@
         (:keys node)))))
 
 
+(defn read-root
+  "Atomically read a stream's root as `{:datoms [...] :rev n
+  :reorder-epoch n}` — one `jing/get`, so the three are a consistent
+  snapshot. `:rev` lets a caller (`publish-index!`, `transactor/publish!`)
+  `cas!` against exactly what it read instead of a fresher-but-mismatched
+  revision, closing the lost-update race where a concurrent append lands
+  between an index build and its commit. `:reorder-epoch` increments only
+  on wholesale→indexes publish (the one transition that changes what
+  `next`'s position `n` refers to — see `dao.space.transactor`'s cursor
+  gap check); ordinary appends and index→wholesale fold-back carry it
+  forward unchanged, since neither reorders an already-minted position."
+  [store datoms-key]
+  (validate-root-key! datoms-key "read-root")
+  (let [root (jing/get store datoms-key {:datoms [], :rev 0, :reorder-epoch 0})]
+    {:datoms (if-some [indexes (:indexes root)]
+               (vec (walk-index-datoms store (:eavt indexes)))
+               (:datoms root)),
+     :rev (:rev root 0),
+     :reorder-epoch (:reorder-epoch root 0)}))
+
+
 (defn read-datoms
   "Read the datoms held at a dao.jing handle's datoms-key, or [] if never
   seeded. Handles both root shapes: the wholesale `{:datoms [...]}`
@@ -285,10 +306,7 @@
   node graph)."
   [store datoms-key]
   (validate-root-key! datoms-key "read-datoms")
-  (let [root (jing/get store datoms-key {:datoms []})]
-    (if-some [indexes (:indexes root)]
-      (vec (walk-index-datoms store (:eavt indexes)))
-      (:datoms root))))
+  (:datoms (read-root store datoms-key)))
 
 
 (defn store-datoms
@@ -327,7 +345,12 @@
   segment blobs (put!), and advances the stream root to
   `{:indexes {...} :count n :branching-factor n}` via cas!. Republishing
   unchanged data is idempotent. Single-writer discipline: throws if the
-  root cas! is lost. Runs on every platform (dao.data.btree).
+  root cas! is lost — including when it is lost to a concurrent append
+  landing after `datoms` was read: pass `:rev` (from `read-root`) so the
+  cas! targets the revision `datoms` actually came from, not a
+  fresher one, otherwise the cas! always finds a revision to succeed
+  against and silently commits indexes built over stale data, dropping
+  the concurrent append. Runs on every platform (dao.data.btree).
 
   Usage:
     (publish-index! store datoms-key)  — reindexes the current contents of datoms-key
@@ -335,11 +358,22 @@
 
   opts: {:branching-factor n  — max keys per node (default 512, Datomic-
                                 style fat segments)
-         :key k               — the stream root to advance (required)}."
+         :key k               — the stream root to advance (required)
+         :rev n               — the revision `datoms` was read at
+                                (default: a fresh read at cas! time, for
+                                callers indexing a datom seq unrelated to
+                                any live root)
+         :reorder-epoch n     — carried into the published root's
+                                `:reorder-epoch` + 1 (default: read
+                                alongside the :rev fallback)}."
   ([store datoms-key]
    ;; guard the re-aritied API: the old 2-arity took a datom seq, and a
-   ;; vector silently becomes a phantom root key. read-datoms handles this.
-   (publish-index! store (read-datoms store datoms-key) {:key datoms-key}))
+   ;; vector silently becomes a phantom root key. read-root handles this.
+   (let [{:keys [datoms rev reorder-epoch]} (read-root store datoms-key)]
+     (publish-index!
+       store
+       datoms
+       {:key datoms-key, :rev rev, :reorder-epoch reorder-epoch})))
   ([store datoms opts]
    (let [datoms-key (or (:key opts)
                         (throw (ex-info "publish-index! requires a :key option"
@@ -359,11 +393,34 @@
                     :aevt (root-addr aevt-cmp),
                     :avet (root-addr avet-cmp),
                     :vaet (root-addr vaet-cmp)}
-           rev (:rev (jing/get store datoms-key nil) 0)
-           v {:indexes indexes,
-              :count (count datoms),
-              :branching-factor branching}]
-       (when-not (jing/cas! store datoms-key rev v)
-         (throw (ex-info "publish-index! lost the root cas!"
-                         {:key datoms-key, :rev rev})))
-       indexes))))
+           ;; content addressing means `indexes` already tells us whether
+           ;; anything changed; comparing against the current root (rather
+           ;; than trusting the :rev/:reorder-epoch opts alone) is what
+           ;; keeps a same-data republish a true no-op: no cas!, no
+           ;; :reorder-epoch bump, no gapping every live cursor over data
+           ;; that never actually reordered.
+           current (jing/get store datoms-key nil)
+           rev (or (:rev opts) (:rev current 0))
+           epoch (or (:reorder-epoch opts) (:reorder-epoch current 0))]
+       (if (= indexes (:indexes current))
+         indexes
+         (let [v {:indexes indexes,
+                  :count (count datoms),
+                  :branching-factor branching,
+                  :reorder-epoch (inc epoch)}]
+           (when-not (jing/cas! store datoms-key rev v)
+             (throw
+               (ex-info
+                 "publish-index! lost the root cas!"
+                 {:key datoms-key,
+                  :rev rev,
+                  :likely-cause
+                  "the root changed since datoms/:rev were read — most
+                        often a concurrent append (or, for the 2-arity
+                        transactor/publish! path, another publish! winning
+                        first — indistinguishable from here); if `datoms`
+                        came from some other external write source entirely,
+                        it's simply a concurrent writer on this key. Retry
+                        by re-reading and republishing, or reconcile with
+                        the winner."})))
+           indexes))))))

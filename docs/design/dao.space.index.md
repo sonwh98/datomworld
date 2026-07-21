@@ -46,7 +46,7 @@ One namespace, `src/cljc/dao/space/index.cljc`. Everything below is the index
 
 - **The root conventions** — each stream owns its root, `:root/<name>`,
   enumerated through the membership root (`members-key`, `:root/members`,
-  written at `open!` by the `:dao-stream` transport, read by `member-keys`;
+  written at `open!` by the `:transactor` transport, read by `member-keys`;
   the old shared `default-datoms-key` / `:root/datoms` is removed), and the
   two root shapes every datom root carries: wholesale `{:datoms [...]}` and
   owner-built `{:indexes {:eavt <segment-key> :aevt ... :avet ...} :count n}`.
@@ -113,10 +113,10 @@ index/members-key                               ; :root/members
 ## The agent-transactor loop
 
 How the pieces compose for a long-lived agent (the write path is
-`dao.space.stream`'s `:dao-stream`; see `dao.space.md`, *The Write Path*):
+`dao.space.transactor`'s `:transactor`; see `dao.space.md`, *The Write Path*):
 
 ```clojure
-(def log (ds/open! {:type :dao-stream :store store :name "worker-7"}))
+(def log (ds/open! {:type :transactor :store store :name "worker-7"}))
 
 (ds/append! log {:db/id id :work/claims task})   ; 1. deposit — appends datoms
 ;; ... more appends ...
@@ -137,7 +137,7 @@ The two stages mirror Datomic's memory-index → disk-index pipeline, decentrali
 
 Two interactions are deliberate:
 
-- A `:dao-stream` append onto a published root **folds the indexed datoms
+- A `:transactor` append onto a published root **folds the indexed datoms
   back to the wholesale shape** rather than dropping them — appends never
   destroy an index, they just downgrade the root until the owner republishes.
 - `dao.space.query/fold` prefers the lazy restored path only for a complete
@@ -174,7 +174,7 @@ local cache for the agent's most recent writes, and the persisted segments for
 everything published (its own previously-published data and every other agent's).
 
 ```
-dao.space.stream  ──►  dao.space.index  ◄──  dao.space.query
+dao.space.transactor  ──►  dao.space.index  ◄──  dao.space.query
    (write path:          (realization:          (the Peer:
     ds/append! appends;      local sorted sets,     fold, match, q —
     folds indexed         publish-index!,        reads local and
@@ -188,7 +188,7 @@ dao.space.stream  ──►  dao.space.index  ◄──  dao.space.query
 - `dao.space.query` requires `dao.space.index` and sheds its
   `persistent-sorted-set` dependency entirely — every psset touchpoint lives
   in the index library.
-- `dao.space.stream` requires only `dao.space.index` (`read-datoms`,
+- `dao.space.transactor` requires only `dao.space.index` (`read-datoms`,
   `register-member!`) — the write path does not drag in the Datalog engine.
 - `dao.space.index` requires `dao.jing` and (JVM/cljs) psset; never
   `dao.space.query`. No cycle is possible: realization below, interpretation
@@ -218,7 +218,7 @@ platform. Reader-conditional discipline: `:cljd` FIRST in every conditional
   roots fall back to the eager walk.
 - **Incremental indexing** — the natural next increment for long-lived agent
   transactors: today an owner republishes wholesale from the full datom seq,
-  and a `:dao-stream` append downgrades an indexed root to wholesale. A
+  and a `:transactor` append downgrades an indexed root to wholesale. A
   per-append (or every-N-appends) maintenance strategy — psset conj onto the
   restored sets plus a re-store of the changed path — would keep publishing
   cost proportional to the delta, Datomic's memory-index/merge move. Nothing

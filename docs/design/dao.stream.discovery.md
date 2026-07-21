@@ -5,7 +5,7 @@ agents find streams at internet scale. Nothing here is implemented; it exists to
 down the mechanisms worth building, the mechanisms explicitly rejected, and why. The
 implemented baseline it extends is the membership root (`:root/members`,
 `src/cljc/dao/space/index.cljc`) — within-store enumeration, written at `open!` by the
-`:dao-stream` transport and folded by `dao.space.query`.
+`:transactor` transport and folded by `dao.space.query`.
 
 **Related documents:**
 - `docs/design/dao.space.md` — the tuple space; *Membership is intake*
