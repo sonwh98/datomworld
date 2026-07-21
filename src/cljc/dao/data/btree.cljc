@@ -307,37 +307,78 @@
 ;; the advanced offset. A nil src advances without writing (Java semantics:
 ;; the slots stay nil), which is how lazily-restored branches with nil
 ;; children/addresses arrays flow through node surgery.
+;;
+;; psset's Stitch is a mutable Java object with a plain `int offset` field;
+;; copyAll/copyOne mutate the field and return `this`. Porting that as pure
+;; functions threading the offset as a returned NUMBER hits a wall neither
+;; version of psset's design has to deal with: `defn`/`fn` primitive
+;; arg/return typing goes through Clojure's IFn dispatch machinery, which
+;; caps at 4 total params for ANY primitive-tagged arg ("fns taking
+;; primitives support only 4 or fewer args" — stitch-all has 5) and, for
+;; stitch-one specifically (well under that cap), a `^long` arg+return tag
+;; reproducibly corrupts compilation of a LATER, unrelated top-level form
+;; in this namespace (`Leaf`'s deftype fails with "Unable to resolve
+;; classname: clojure.core$long@...", confirmed via form-by-form
+;; bisection — the trigger has nothing to do with how stitch-one is
+;; called, only that it's hinted at all).
+;;
+;; StitchAt sidesteps both failure modes by moving the offset OFF the
+;; function boundary entirely, onto a field — the same mechanism that
+;; already makes Leaf.len/Branch.len/etc. real primitives, with none of
+;; the IFn-arity restrictions those are subject to (field access is
+;; `getfield`, a constructor call is a plain JVM constructor — neither
+;; goes through IFn at all). Immutable, not mutable like Stitch.java: a
+;; fresh instance per step, since deftype CONSTRUCTORS aren't arity-capped
+;; either (Branch's 6-arg constructor already proves this) and it keeps
+;; this file's existing mutable fields (§3.1's dirty/stored ones) as the
+;; only mutable state to reason about, rather than adding a new kind
+;; alongside them for a call chain whose result every call site already
+;; discards (confirmed by inspection — every `(as-> (StitchAt. 0) o ...)`
+;; below runs purely for its side effects on the target array).
+;;
+;; Measured (JVM, n=200k, sustained 12s window, 3s warmup,
+;; clj -M:profile-btree — see docs/design/dao.data.btree.md §6): 54 ->
+;; 67 mixed-workload rounds in the window (+24% throughput), allocation
+;; SAMPLES per round -17% (StitchAt itself: ~0.9% of samples, not the
+;; dominant cost — `arr/acopy`'s own unhinted args and stitch-all's
+;; boxed `to`/`from` params remain, confirmed via `javap -c` on the
+;; compiled class, and are NOT eliminated by this change).
+;;
+;; `definline` (JVM-only, no IFn machinery, no arity cap, offset stays
+;; a primitive local end to end) is the alternative that was considered
+;; and NOT tried — multiple evaluation of args referenced twice in the
+;; body is a known definline hazard, harmless here only because every
+;; call site passes simple already-bound locals (never a
+;; side-effecting expression), but it wasn't worth the added macro-vs-fn
+;; complexity once StitchAt's measured win was in hand. Worth trying if
+;; this is revisited.
+;;
+;; cljs/cljd get plain-field StitchAt (no `^long`): every stitch step now
+;; allocates a small wrapper object on those hosts too, where the offset
+;; was previously a bare number (cheap/unboxed on both V8 and the Dart
+;; VM). This is an unmeasured risk, not a confirmed regression — no cljs/
+;; cljd benchmark harness exists yet (§7), so there's no baseline to
+;; compare against; flagging it rather than asserting either direction.
+(deftype StitchAt
+  [#?(:cljd offset
+      :clj ^long offset
+      :cljs offset)])
 
-;; Not primitive-hinted, unlike search/the deftype fields above. Two dead
-;; ends, both confirmed empirically rather than assumed:
-;; - stitch-all: 5 params, over Clojure's 4-arg ceiling for primitive ARGS
-;;   ("fns taking primitives support only 4 or fewer args"); a
-;;   return-only name-tag (`(defn ^long stitch-all ...)`) sidesteps that
-;;   ceiling but produces no `invokePrim`-style interface (verified via
-;;   `(supers (class stitch-all))`: plain `IFn`, not `IFn$...`) — it is
-;;   inert metadata here, not a real optimization, for a fn with no
-;;   primitive-tagged args.
-;; - stitch-one: 3 params, well under the ceiling, and both a vector+arg
-;;   tag and a name+arg tag genuinely produce a primitive `IFn$OLLL`-style
-;;   interface — but doing so corrupts compilation of a LATER, unrelated
-;;   top-level form in this namespace (reproduced repeatedly: `Leaf`'s
-;;   deftype fails with "Unable to resolve classname:
-;;   clojure.core$long@...", even though Leaf is read and compiled before
-;;   stitch-one's callers are ever parsed, which rules out any
-;;   call-site-shape explanation — bisected form-by-form to confirm).
-;;   Left unhinted; a `definline` variant (sidesteps the IFn machinery
-;;   this bug lives in) is the one untried avenue if this is revisited.
+
 (defn- stitch-all
-  [target offset src from to]
-  (if (>= to from)
-    (do (when src (arr/acopy src from target offset (- to from)))
-        (+ offset (- to from)))
-    offset))
+  [target ^StitchAt at src from to]
+  (let [offset (.-offset at)]
+    (if (>= to from)
+      (do (when src (arr/acopy src from target offset (- to from)))
+          (StitchAt. (+ offset (- to from))))
+      at)))
 
 
 (defn- stitch-one
-  [target offset x]
-  (arr/aset target offset x) (inc offset))
+  [target ^StitchAt at x]
+  (let [offset (.-offset at)]
+    (arr/aset target offset x)
+    (StitchAt. (inc offset))))
 
 
 ;; Result arrays (return conventions, §3.3.2)
@@ -477,7 +518,7 @@
             ;; simply adding (grown allocation under a lease)
             (< len (bf* settings)) (let [nl (inc len)
                                          ks (arr/anew (new-cap nl sett))]
-                                     (as-> 0 o
+                                     (as-> (StitchAt. 0) o
                                            (stitch-all ks o keys 0 ins)
                                            (stitch-one ks o k)
                                            (stitch-all ks o keys ins len))
@@ -489,7 +530,7 @@
                       ;; new key goes to the first half
                       (let [k1 (arr/anew h1)
                             k2 (arr/anew h2)]
-                        (as-> 0 o
+                        (as-> (StitchAt. 0) o
                               (stitch-all k1 o keys 0 ins)
                               (stitch-one k1 o k)
                               (stitch-all k1 o keys ins (dec h1)))
@@ -498,7 +539,7 @@
                       ;; copy first, insert into second
                       (let [k1 (arr/asub keys 0 h1)
                             k2 (arr/anew h2)]
-                        (as-> 0 o
+                        (as-> (StitchAt. 0) o
                               (stitch-all k2 o keys h1 ins)
                               (stitch-one k2 o k)
                               (stitch-all k2 o keys ins len))
@@ -531,7 +572,7 @@
             (and (some? left) (<= (+ llen new-len) (bf* settings)))
             (let [jl (+ llen new-len)
                   jk (arr/anew jl)]
-              (as-> 0 o
+              (as-> (StitchAt. 0) o
                     (stitch-all jk o (node-keys left) 0 llen)
                     (stitch-all jk o keys 0 idx)
                     (stitch-all jk o keys (inc idx) len))
@@ -540,7 +581,7 @@
             (and (some? right) (<= (+ new-len rlen) (bf* settings)))
             (let [jl (+ new-len rlen)
                   jk (arr/anew jl)]
-              (as-> 0 o
+              (as-> (StitchAt. 0) o
                     (stitch-all jk o keys 0 idx)
                     (stitch-all jk o keys (inc idx) len)
                     (stitch-all jk o (node-keys right) 0 rlen))
@@ -552,7 +593,7 @@
                   ncl (- total nll)
                   ck (arr/anew ncl)
                   lk (arr/asub (node-keys left) 0 nll)]
-              (as-> 0 o
+              (as-> (StitchAt. 0) o
                     (stitch-all ck o (node-keys left) nll llen)
                     (stitch-all ck o keys 0 idx)
                     (stitch-all ck o keys (inc idx) len))
@@ -565,7 +606,7 @@
                   right-head (- rlen nrl)
                   ck (arr/anew ncl)
                   rk (arr/asub (node-keys right) right-head rlen)]
-              (as-> 0 o
+              (as-> (StitchAt. 0) o
                     (stitch-all ck o keys 0 idx)
                     (stitch-all ck o keys (inc idx) len)
                     (stitch-all ck o (node-keys right) 0 right-head))
@@ -678,21 +719,21 @@
                   ks (arr/anew cap)
                   cs (arr/anew cap)
                   as (when addresses (arr/anew cap))]
-              (as-> 0 o
+              (as-> (StitchAt. 0) o
                     (stitch-all ks o keys 0 ins)
                     (stitch-one ks o (node-lim-key n1))
                     (stitch-one ks o (node-lim-key n2))
                     (stitch-all ks o keys (inc ins) len))
-              (as-> 0 o
+              (as-> (StitchAt. 0) o
                     (stitch-all cs o children 0 ins)
                     (stitch-one cs o n1)
                     (stitch-one cs o n2)
                     (stitch-all cs o children (inc ins) len))
               (when as
-                (as-> 0 o
+                (as-> (StitchAt. 0) o
                       (stitch-all as o addresses 0 ins)
-                      (stitch-one as o nil)
-                      (stitch-one as o nil)
+                      (stitch-all as o nil 0 2) ; two nil slots: no source
+                      ;; to copy, just advance
                       (stitch-all as o addresses (inc ins) len)))
               (one (Branch. level nl ks cs as sett)))
             ;; split
@@ -710,13 +751,13 @@
                       cs2 (when children (arr/anew h2))
                       as1 (when addresses (arr/anew h1))
                       as2 (when addresses (arr/anew h2))]
-                  (as-> 0 o
+                  (as-> (StitchAt. 0) o
                         (stitch-all ks1 o keys 0 ins)
                         (stitch-one ks1 o (node-lim-key n1))
                         (stitch-one ks1 o (node-lim-key n2))
                         (stitch-all ks1 o keys (inc ins) (dec h1)))
                   (arr/acopy keys (dec h1) ks2 0 (- len (dec h1)))
-                  (as-> 0 o
+                  (as-> (StitchAt. 0) o
                         (stitch-all cs1 o children 0 ins)
                         (stitch-one cs1 o n1)
                         (stitch-one cs1 o n2)
@@ -724,10 +765,11 @@
                   (when cs2
                     (arr/acopy children (dec h1) cs2 0 (- len (dec h1))))
                   (when as1
-                    (as-> 0 o
+                    (as-> (StitchAt. 0) o
                           (stitch-all as1 o addresses 0 ins)
-                          (stitch-one as1 o nil)
-                          (stitch-one as1 o nil)
+                          (stitch-all as1 o nil 0 2) ; two nil slots: no
+                          ;; source to copy, just
+                          ;; advance
                           (stitch-all as1 o addresses (inc ins) (dec h1)))
                     (arr/acopy addresses (dec h1) as2 0 (- len (dec h1))))
                   (two (Branch. level h1 ks1 cs1 as1 sett)
@@ -739,21 +781,22 @@
                       cs2 (arr/anew h2)
                       as1 (when addresses (arr/asub addresses 0 h1))
                       as2 (when addresses (arr/anew h2))]
-                  (as-> 0 o
+                  (as-> (StitchAt. 0) o
                         (stitch-all ks2 o keys h1 ins)
                         (stitch-one ks2 o (node-lim-key n1))
                         (stitch-one ks2 o (node-lim-key n2))
                         (stitch-all ks2 o keys (inc ins) len))
-                  (as-> 0 o
+                  (as-> (StitchAt. 0) o
                         (stitch-all cs2 o children h1 ins)
                         (stitch-one cs2 o n1)
                         (stitch-one cs2 o n2)
                         (stitch-all cs2 o children (inc ins) len))
                   (when as2
-                    (as-> 0 o
+                    (as-> (StitchAt. 0) o
                           (stitch-all as2 o addresses h1 ins)
-                          (stitch-one as2 o nil)
-                          (stitch-one as2 o nil)
+                          (stitch-all as2 o nil 0 2) ; two nil slots: no
+                          ;; source to copy, just
+                          ;; advance
                           (stitch-all as2 o addresses (inc ins) len)))
                   (two (Branch. level h1 ks1 cs1 as1 sett)
                        (Branch. level h2 ks2 cs2 as2 sett))))))))))
@@ -835,15 +878,19 @@
                 (let [ks (arr/anew new-len)
                       cs (arr/anew new-len)
                       as (when addresses (arr/anew new-len))]
-                  (stitch-center-keys! ks
-                                       (stitch-all ks 0 keys 0 (dec idx)))
+                  (stitch-center-keys!
+                    ks
+                    (stitch-all ks (StitchAt. 0) keys 0 (dec idx)))
                   (stitch-center-children!
                     cs
-                    (stitch-all cs 0 children 0 (dec idx)))
+                    (stitch-all cs (StitchAt. 0) children 0 (dec idx)))
                   (when as
-                    (stitch-center-addresses!
-                      as
-                      (stitch-all as 0 addresses 0 (dec idx))))
+                    (stitch-center-addresses! as
+                                              (stitch-all as
+                                                          (StitchAt. 0)
+                                                          addresses
+                                                          0
+                                                          (dec idx))))
                   (three left
                          (Branch. level new-len ks cs as sett)
                          right))
@@ -856,16 +903,16 @@
                       ks (arr/anew jl)
                       cs (arr/anew jl)
                       as (when (or la addresses) (arr/anew jl))]
-                  (as-> 0 o
+                  (as-> (StitchAt. 0) o
                         (stitch-all ks o (node-keys left) 0 llen)
                         (stitch-all ks o keys 0 (dec idx))
                         (stitch-center-keys! ks o))
-                  (as-> 0 o
+                  (as-> (StitchAt. 0) o
                         (stitch-all cs o (node-children-arr left) 0 llen)
                         (stitch-all cs o children 0 (dec idx))
                         (stitch-center-children! cs o))
                   (when as
-                    (as-> 0 o
+                    (as-> (StitchAt. 0) o
                           (stitch-all as o la 0 llen)
                           (stitch-all as o addresses 0 (dec idx))
                           (stitch-center-addresses! as o)))
@@ -879,16 +926,16 @@
                       ks (arr/anew jl)
                       cs (arr/anew jl)
                       as (when (or addresses ra) (arr/anew jl))]
-                  (as-> 0 o
+                  (as-> (StitchAt. 0) o
                         (stitch-all ks o keys 0 (dec idx))
                         (stitch-center-keys! ks o)
                         (stitch-all ks o (node-keys right) 0 rlen))
-                  (as-> 0 o
+                  (as-> (StitchAt. 0) o
                         (stitch-all cs o children 0 (dec idx))
                         (stitch-center-children! cs o)
                         (stitch-all cs o (node-children-arr right) 0 rlen))
                   (when as
-                    (as-> 0 o
+                    (as-> (StitchAt. 0) o
                           (stitch-all as o addresses 0 (dec idx))
                           (stitch-center-addresses! as o)
                           (stitch-all as o ra 0 rlen)))
@@ -906,22 +953,22 @@
                       lk (node-keys left)
                       nlk (arr/asub lk 0 nll)
                       nlc (let [c (arr/anew nll)]
-                            (stitch-all c 0 lc 0 nll)
+                            (stitch-all c (StitchAt. 0) lc 0 nll)
                             c)
                       nla (when la (arr/asub la 0 nll))
                       ks (arr/anew ncl)
                       cs (arr/anew ncl)
                       as (when (or la addresses) (arr/anew ncl))]
-                  (as-> 0 o
+                  (as-> (StitchAt. 0) o
                         (stitch-all ks o lk nll llen)
                         (stitch-all ks o keys 0 (dec idx))
                         (stitch-center-keys! ks o))
-                  (as-> 0 o
+                  (as-> (StitchAt. 0) o
                         (stitch-all cs o lc nll llen)
                         (stitch-all cs o children 0 (dec idx))
                         (stitch-center-children! cs o))
                   (when as
-                    (as-> 0 o
+                    (as-> (StitchAt. 0) o
                           (stitch-all as o la nll llen)
                           (stitch-all as o addresses 0 (dec idx))
                           (stitch-center-addresses! as o)))
@@ -939,23 +986,24 @@
                       rc (node-children-arr right)
                       rk (node-keys right)
                       nrk (arr/asub rk right-head rlen)
-                      nrc (let [c (arr/anew nrl)]
-                            (stitch-all c 0 rc right-head rlen)
-                            c)
+                      nrc
+                      (let [c (arr/anew nrl)]
+                        (stitch-all c (StitchAt. 0) rc right-head rlen)
+                        c)
                       nra (when ra (arr/asub ra right-head rlen))
                       ks (arr/anew ncl)
                       cs (arr/anew ncl)
                       as (when (or addresses ra) (arr/anew ncl))]
-                  (as-> 0 o
+                  (as-> (StitchAt. 0) o
                         (stitch-all ks o keys 0 (dec idx))
                         (stitch-center-keys! ks o)
                         (stitch-all ks o rk 0 right-head))
-                  (as-> 0 o
+                  (as-> (StitchAt. 0) o
                         (stitch-all cs o children 0 (dec idx))
                         (stitch-center-children! cs o)
                         (stitch-all cs o rc 0 right-head))
                   (when as
-                    (as-> 0 o
+                    (as-> (StitchAt. 0) o
                           (stitch-all as o addresses 0 (dec idx))
                           (stitch-center-addresses! as o)
                           (stitch-all as o ra 0 right-head)))

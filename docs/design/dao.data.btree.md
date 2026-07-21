@@ -1083,6 +1083,52 @@ clj -M:cljd test                                                     (Dart; requ
     ratio from wall-clock `best-of` sampling without a real microbenchmark
     harness (JMH) — treat any single run's number as noise. All three
     hosts (854 JVM / 758 cljs / 733 cljd tests) green after the change.
+- **`stitch-all`/`stitch-one` revisited: `StitchAt` (2026-07-21).** The
+  "reverted, not hinted" entry above stood as the final word until a
+  closer read of psset's own `Stitch.java` showed the boxing wasn't
+  inherent to the *algorithm*, only to how it was ported: `Stitch` is a
+  mutable Java object carrying the running offset on a plain `int`
+  field, mutated via `copyAll`/`copyOne` returning `this` — never a
+  number crossing a Java method's return boundary the way our pure
+  functions had it crossing Clojure's `IFn` boundary. `StitchAt` ports
+  that mechanism (immutable, not mutable — a fresh instance per step,
+  since deftype constructors aren't subject to the arity cap that
+  blocked hinting `stitch-all`/`stitch-one` directly): the offset moves
+  onto a `^long` field, sidestepping the IFn machinery both prior
+  failure modes lived in entirely. All ~30 call sites converted
+  (mechanical: `(as-> 0 o ...)` → `(as-> (StitchAt. 0) o ...)`, plus 5
+  bare-literal call sites the same regex missed on the first pass — a
+  `ClassCastException` in the disj test suite caught the miss
+  immediately). Verified via `javap -c` on the AOT-compiled class: the
+  field read and the constructor call are genuinely primitive
+  (`getfield ... :J`, `invokespecial StitchAt."<init>":(J)V`), and via
+  reflection that the `offset` field itself is `long`, not `Object`.
+
+  A subsequent review disputed the benchmark, reporting the opposite of
+  a win (JFR allocation samples showing `StitchAt` as a new #2
+  allocation source, ~9% *more* total allocation than the pre-change
+  code) and recommending `definline` instead. Independently reproducing
+  that specific claim (same methodology, `n=200k`, 12s window, 3s
+  warmup) did **not** reproduce it: `StitchAt` measured at 34 samples
+  (~0.9%, well down the list) against a reconstructed boxed baseline
+  with 0 in a controlled A/B on the identical code, not just an isolated
+  reading — and the throughput metric moved from 54 to 67 mixed-workload
+  rounds in the same 12s window (+24%), with allocation samples *per
+  round* down ~17%. The review's directional call (a real throughput
+  win exists) was right and, if anything, understated; its specific
+  allocation-regression numbers did not reproduce under repeated,
+  controlled measurement and are recorded here as disputed rather than
+  either accepted or silently dropped. What *did* hold up from that
+  review: `definline` was never tried (right — flagged as the
+  "untried avenue" in the entry above, then dropped from the class-level
+  comment when `StitchAt` replaced it; restored as a note there), the
+  cljs/cljd legs are genuinely unmeasured and this change plausibly
+  costs them a small new per-step allocation where a bare number was
+  free before (no baseline exists to confirm either way — §7), and three
+  `(stitch-one X o nil) (stitch-one X o nil)` pairs writing explicit
+  nils were simplified to one `(stitch-all X o nil 0 2)` each (same
+  observable result — `arr/anew` already zeroes to nil — fewer
+  `StitchAt` allocations).
 - **Transients over a lazily restored tree pin their path.** The edit lease
   identifies nodes it is allowed to mutate in place; a faulted child held
   only by a `:weak` (or degraded `:soft`) reference can be collected
@@ -1224,3 +1270,20 @@ Carried over from `dao.space.index.md`, plus one this design adds:
   sidesteps it by walking every tree eagerly (`walk-index-datoms`). Deferred
   because it costs laziness only on federated reads, which are the rarer
   case.
+- **cljs/cljd performance baseline** — no benchmark harness exists for
+  either host (JVM's `clj -M:profile-btree`/`btree-bench` has no
+  equivalent), so every perf claim in §6 is JVM-only. This matters
+  concretely for `StitchAt` (§6, 2026-07-21): it plausibly costs cljs/cljd
+  a small new per-`stitch-all`/`stitch-one`-step allocation where a bare
+  number was free before, but there's no baseline to confirm or size it.
+- **`definline` for `stitch-all`/`stitch-one`** — flagged as untried when
+  they were left boxed, still untried after `StitchAt` replaced that
+  entry (§6, 2026-07-21). Sidesteps the IFn machinery both `^long`-hint
+  attempts failed in, at the cost of the standard `definline`
+  multiple-evaluation hazard (harmless today, since every call site
+  passes a simple bound local, never a side-effecting expression — worth
+  re-checking if that ever changes). Not pursued once `StitchAt` measured
+  a real win; worth trying only if a future profile shows `arr/acopy`'s
+  own unhinted args (§3.2 note, `dao.data.arrays`) as the next
+  concentrated cost, since `definline` could plausibly close that one
+  too without hitting `acopy`'s 5-arg ceiling the way a `defn` hint does.

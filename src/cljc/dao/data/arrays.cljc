@@ -79,8 +79,15 @@
    4-arg ceiling for primitive-typed args (\"fns taking primitives support
    only 4 or fewer args\"), so this stays boxed at its own boundary — its
    per-call cost is amortized over the copy length, unlike the per-element
-   cost in search/stitch-all's own arithmetic, which is where the hinting
-   actually pays off (see the ns docstring)."
+   cost in search's own arithmetic, which is where the hinting actually
+   pays off (see the ns docstring). stitch-all/stitch-one in
+   dao.data.btree carry their running offset on a StitchAt deftype's
+   `^long` field instead — a different mechanism, not this one, since
+   they hit the same 4-arg ceiling `acopy` does and a name-tagged
+   return-only hint (the escape hatch that works for `acopy`-arity
+   functions in general) turned out to produce no primitive interface
+   for a function with zero primitive-tagged args (verified via
+   `(supers (class f))`)."
   [src src-pos dest dest-pos len]
   #?(:clj (System/arraycopy ^objects src
                             (int src-pos)
