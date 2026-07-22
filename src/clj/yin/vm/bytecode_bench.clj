@@ -5,7 +5,7 @@
             [dao.stream.ringbuffer]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
-            [yin.vm.prototype.cesk-space :as cesk-space]
+            [yin.vm.space :as cesk-space]
             [yin.vm.register :as register]
             [yin.vm.semantic :as semantic]
             [yin.vm.stack :as stack]))
@@ -71,35 +71,13 @@
      :tail? true}))
 
 
-(defn- cesk-countdown-expr
-  "The tail-countdown workload in the cesk-space surface language."
-  [n]
-  (list 'letrec
-        ['loop '(lambda (n) (if (< n 1) 0 (loop (- n 1))))]
-        (list 'loop n)))
-
-
-(defn- bench-cesk-space
-  "Manually timed runs instead of Criterium: one run is seconds, not
-  microseconds, so a fixed run count keeps wall time bounded and lets the
-  JVM exit cleanly for JFR dumponexit."
-  [n]
-  (println "\n=== CESK-space prototype (datoms-as-machine) ===")
-  (let [expr (cesk-countdown-expr n)
-        fuel (max 1000000 (* 100 n))
-        {:keys [value steps st]} (cesk-space/run expr fuel {:trace? false})]
-    (println (format "  steps: %d, value: %s, space datoms: %d"
-                     steps
-                     (str value)
-                     (count (:space st))))
-    (println "Measuring cesk-space run (1 warmup + 3 timed runs)...")
-    (let [times (vec (for [i (range 3)]
-                       (let [t0 (System/nanoTime)
-                             _ (cesk-space/run expr fuel {:trace? false})
-                             ms (/ (- (System/nanoTime) t0) 1e6)]
-                         (println (format "  run %d: %.1f ms" (inc i) ms))
-                         ms)))]
-      (println (format "  mean: %.1f ms" (/ (reduce + times) (count times)))))))
+(defn- report-space-deposit
+  "How many datoms the run leaves behind — the thing the space VM buys."
+  [loaded]
+  (let [done (vm/run loaded)]
+    (println (format "  value: %s, space datoms deposited: %d"
+                     (str (vm/value done))
+                     (count (cesk-space/machine-space done))))))
 
 
 (defn- track-opcodes
@@ -148,6 +126,14 @@
 (defn- load-semantic-program
   [ast]
   (queue-vm (semantic/create-vm) (vm/ast->datoms ast)))
+
+
+(defn- load-space-program
+  "Queue the program the same way every other backend does, so the timed
+   region is `vm/run` alone — VM construction and program load stay outside
+   it, as they do for register/stack/semantic/ast-walker."
+  [ast trace?]
+  (queue-vm (cesk-space/create-vm {:trace? trace?}) (vm/ast->datoms ast)))
 
 
 (defn- track-vm-steps
@@ -236,10 +222,12 @@
                               (not semantic-only?)
                               (not ast-walker-only?)
                               (not cesk-space-only?)))
-          ;; The cesk-space prototype re-folds the raw datom vector on
-          ;; every read, so it is opt-in only: it would dominate wall time
-          ;; at the default n.
-          run-cesk-space? (or cesk-space? cesk-space-only?)
+          run-cesk-space? (or cesk-space-only?
+                              cesk-space?
+                              (and (not register-only?)
+                                   (not stack-only?)
+                                   (not semantic-only?)
+                                   (not ast-walker-only?)))
           ast (tail-countdown-ast n)
           mode-str (cond ast-walker-only? "ast-walker-only"
                          register-only? "register-only"
@@ -262,4 +250,12 @@
       (when run-ast-walker?
         (let [program (queue-vm (ast-walker/create-vm) (vm/ast->datoms ast))]
           (bench-stepping-vm "AST Walker VM" program opts)))
-      (when run-cesk-space? (bench-cesk-space n)))))
+      (when run-cesk-space?
+        ;; Twice: trace off is the like-for-like execution number against
+        ;; the other backends; trace on is what the queryable machine
+        ;; costs.
+        (let [program (load-space-program ast false)]
+          (bench-stepping-vm "Space VM (trace? false)" program opts))
+        (let [program (load-space-program ast true)]
+          (report-space-deposit program)
+          (bench-stepping-vm "Space VM (trace? true)" program opts))))))

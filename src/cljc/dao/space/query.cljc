@@ -99,32 +99,33 @@
 
 (defn fold
   "Fold a source into an index, optionally bounded to datoms with t <= as-of.
-  A single dao.jing handle whose root carries owner-built `:indexes` folds
-  lazily on the JVM (nothing loaded until traversal); every other shape —
-  as-of bounds, federated collections, raw vectors, non-JVM platforms —
-  takes the eager path (for `:indexes` roots, via walk-index-datoms)."
+  A single dao.jing handle whose root carries an owner-built manifest
+  (`{:indexes {...} :count n}`) folds lazily on every platform (nothing
+  loaded until traversal, dao.data.btree restore-tree); every other shape —
+  as-of bounds, federated collections, raw vectors — takes the eager path
+  (for `:indexes` roots, via walk-index-datoms)."
   ([source] (fold source nil))
   ([source as-of]
-   (or #?(:cljd nil
-          :clj (when (dao-jing-handle? source)
-                 ;; single-handle: when the store has exactly one member
-                 ;; root holding a complete manifest, restore it lazily;
-                 ;; multiple members take the eager merge (k-way lazy
-                 ;; merge is the documented gap, see dao.space.query.md)
-                 (let [ks (index/member-keys source)
-                       indexes (when (= 1 (count ks))
-                                 (:indexes (jing/get source (first ks) nil)))]
-                   (if (and (nil? as-of)
-                            ;; a complete manifest only: an empty published
-                            ;; index has nil root addresses (walk of nil =>
-                            ;; ()), and a partial hand-crafted one must not
-                            ;; reach restore-by
-                            (every? #(some? (get indexes %))
-                                    [:eavt :aevt :avet :vaet]))
-                     (index/restored-indexes source indexes)
-                     (-> (index/store-datoms source)
-                         (bound-datoms as-of)
-                         index/index-datoms)))))
+   (or (when (dao-jing-handle? source)
+         ;; single-handle: when the store has exactly one member
+         ;; root holding a complete manifest, restore it lazily;
+         ;; multiple members take the eager merge (k-way lazy
+         ;; merge is the documented gap, see dao.space.query.md)
+         (let [ks (index/member-keys source)
+               manifest (when (= 1 (count ks)) (jing/get source (first ks) nil))
+               indexes (:indexes manifest)]
+           (if (and (nil? as-of)
+                    ;; a complete manifest only: an empty published
+                    ;; index has nil root addresses (walk of nil =>
+                    ;; ()); a partial hand-crafted one, or one without
+                    ;; the :count restore-tree requires (dao.data.btree.md
+                    ;; §5.1), must not reach the lazy path
+                    (int? (:count manifest))
+                    (every? #(some? (get indexes %)) [:eavt :aevt :avet :vaet]))
+             (index/restored-indexes source manifest)
+             (-> (index/store-datoms source)
+                 (bound-datoms as-of)
+                 index/index-datoms))))
        (-> (source->datoms source)
            (bound-datoms as-of)
            index/index-datoms))))

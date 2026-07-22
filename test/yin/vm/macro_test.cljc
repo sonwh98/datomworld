@@ -10,6 +10,7 @@
             [yin.vm.macro :as macro]
             [yin.vm.register :as register]
             [yin.vm.semantic :as semantic]
+            [yin.vm.space :as space]
             [yin.vm.stack :as stack]
             [yin.vm.test-utils :as vtu]))
 
@@ -357,7 +358,8 @@
                        (vm/value)))]
       (is (= 42 (run-vm register/create-vm)) "Register VM")
       (is (= 42 (run-vm stack/create-vm)) "Stack VM")
-      (is (= 42 (run-vm semantic/create-vm)) "Semantic VM"))))
+      (is (= 42 (run-vm semantic/create-vm)) "Semantic VM")
+      (is (= 42 (run-vm space/create-vm)) "Space VM"))))
 
 
 ;; =============================================================================
@@ -391,7 +393,12 @@
       (let [vm (-> (vtu/queue-vm (semantic/create-vm {:macro-registry registry})
                                  datoms)
                    (vm/run))]
-        (is (= -7 (vm/value vm)) "Semantic VM: (- 3 10) = -7")))))
+        (is (= -7 (vm/value vm)) "Semantic VM: (- 3 10) = -7"))
+      ;; Verify space VM (runtime expansion)
+      (let [vm (-> (vtu/queue-vm (space/create-vm {:macro-registry registry})
+                                 datoms)
+                   (vm/run))]
+        (is (= -7 (vm/value vm)) "Space VM: (- 3 10) = -7")))))
 
 
 ;; =============================================================================

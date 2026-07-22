@@ -4,6 +4,7 @@
             [yin.vm.ast-walker :as ast-walker]
             [yin.vm.register :as register]
             [yin.vm.semantic :as semantic]
+            [yin.vm.space :as space]
             [yin.vm.stack :as stack]))
 
 
@@ -13,6 +14,7 @@
   {:ast-walker ast-walker/create-vm,
    :semantic semantic/create-vm,
    :register register/create-vm,
+   :space space/create-vm,
    :stack stack/create-vm})
 
 

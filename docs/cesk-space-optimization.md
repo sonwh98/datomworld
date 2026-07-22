@@ -1,25 +1,69 @@
 # CESK-space Optimization Plan
 
-Status: implemented (2026-07-20)
-Target: `src/cljc/yin/vm/prototype/cesk_space.cljc`
+Status: **superseded by feature parity (2026-07-20)**. `yin.vm.space` is no
+longer a prototype: it is a peer VM implementing `vm/IVM`/`vm/IVMState` over
+the same canonical `:yin/*` AST datoms as `yin.vm.register` and
+`yin.vm.semantic`, with the same node vocabulary, tail-call behavior, and
+engine/stream/FFI/macro integration. It runs in `yin.vm.parity-test`
+alongside the other backends. This document is kept as the record of how the
+read-cost problem was diagnosed and closed; the plan below is history, not a
+backlog.
+
+Target: `src/cljc/yin/vm/space.cljc`
 Baseline comparison: `src/cljc/yin/vm/register.cljc`
 
-## Baseline & Post-Optimization Comparison (measured 2026-07-20, JVM)
+## Where it landed (measured 2026-07-20, JVM)
 
-Workload: tail-recursive countdown, same program in both VMs
-(`yin.vm.bytecode-bench`).
+Workload: tail-recursive countdown, the **same canonical AST** in every
+backend, all measured the same way: `criterium/quick-bench` over `vm/run`
+alone, with VM construction and program load outside the timed region
+(`clj -M:bench <n> --fast-only`). The prototype used to run a different
+surface language and was timed by hand including setup, so earlier
+comparisons were not like-for-like; these are.
 
-| Metric | Register VM (fast path) | CESK-space prototype (Baseline) | CESK-space prototype (Optimized) |
+| Mean time per run | n=500 | n=5000 | Ratio to register (n=5000) |
 |---|---|---|---|
-| Mean time per run (n=50) | 544.7 us (Criterium) | 20,126.5 ms (3 timed runs) | 33.3 ms (3 timed runs) |
-| Ratio (n=50) | 1x | ~37,000x slower | ~61x slower |
-| Mean time per run (n=5000) | 28.98 ms (Criterium) | DNF (Estimated ~10+ hours) | 747.2 ms (3 timed runs) |
-| Ratio (n=5000) | 1x | - | ~25.7x slower |
-| Machine steps (n=50) | - | 817 steps, 6,531 datoms | 817 steps, 5,611 datoms (trace? false) |
-| Machine steps (n=5000) | - | - | 80,017 steps, 545,161 datoms (trace? false) |
+| Register | 2.41 ms | 22.15 ms | 1x |
+| Stack | 2.42 ms | 23.37 ms | 1.06x |
+| AST Walker | 3.06 ms | 29.33 ms | 1.32x |
+| Semantic | 8.97 ms | 37.50 ms | 1.69x |
+| **Space** (`:trace? false`) | 4.66 ms | 46.26 ms | **2.09x** |
+| **Space** (`:trace? true`) | 17.59 ms | 172.04 ms | **7.77x** |
 
-Scaling of the baseline prototype was superlinear (O(N^2)): 20s at n=50, 65s at n=100.
-Scaling of the optimized prototype is strictly linear (O(N)): 33.3 ms at n=50, 84.7 ms at n=500, 747.2 ms at n=5000.
+Every backend scales linearly across that 10x (register 9.2x, stack 9.6x,
+ast-walker 9.6x, space 9.9x); semantic's n=500 figure is the one outlier and
+is likely small-n noise rather than sublinear scaling.
+
+The historical prototype figures, for contrast: ~37,000x slower than
+register at n=50 before optimization, ~25.7x after, and it had no tail-call
+optimization at all (the countdown grew the continuation without bound).
+
+**What the trace costs.** Depositing the full machine-state trace is roughly
+a **3.7x** multiplier on execution — consistently so (3.77x at n=500, 3.72x
+at n=5000), and it is the dominant cost of running the space VM:
+
+| | n=500 | n=5000 |
+|---|---|---|
+| Datoms deposited | 72,695 | 725,195 |
+| Cost vs `:trace? false` | 3.77x | 3.72x |
+
+That is ~145 datoms per countdown iteration, allocated and appended on the
+hot path. It is the price of the queryable machine, not an accident, and it
+is why `:trace?` is a per-VM flag: turn it off and the space VM is an
+ordinary tree-walking interpreter at ~2x register.
+
+An earlier revision of this document claimed the trace was "nearly free"
+(~5%). That was a measurement error — an unwarmed single run on the plain
+`clj` classpath, where the trace-off baseline was itself inflated to ~176 ms
+against a true ~46 ms. The corrected figures above are Criterium means.
+
+The lesson that does survive: **read cost was the original problem, not write
+cost.** The prototype re-folded the raw datom vector into four sorted indexes
+on every read, several times per step, which is what produced the
+superlinear blowup. Execution now runs on a host-side `{eid {attr value}}`
+node index and host CESK structures, and the space is deposit-only —
+nothing reads it back during execution. Queryability is preserved and the
+O(|space|) read is gone; what remains is honest allocation cost.
 
 
 JFR attribution for cesk-space: nearly all CPU sits below
@@ -37,6 +81,11 @@ the file's own docstring anticipates: log as truth, maps as caches,
 promoted at safepoints.
 
 ## Plan, in order of leverage
+
+*(Historical. Steps 1, 2 and 4 landed in the prototype; the parity rewrite
+then subsumed all of them by keeping execution on host structures and
+reducing the space to a deposit-only medium. Step 6, the endgame, is
+effectively what shipped — see "How it was actually resolved" below.)*
 
 ### 1. Incremental read cache behind `view` (the big one)
 

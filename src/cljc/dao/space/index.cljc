@@ -13,7 +13,7 @@
 
     - the root conventions: each stream owns `:root/<name>`, enumerated
       through the membership root (`members-key`, written at open! by the
-      `:dao-stream` transport, read by `member-keys`). Every datom root
+      `:transactor` transport, read by `member-keys`). Every datom root
       carries one of two shapes,
       wholesale `{:datoms [...]}` or owner-built
       `{:indexes {:eavt <segment-key> :aevt ... :avet ... :vaet ...} :count n}`
@@ -27,17 +27,13 @@
     - `publish-index!`, the transactor entry point: build, persist the
       segments (put!), advance the root (cas!)
 
-  Build is JVM-only for now (psset durability is a Clojure-only feature);
-  readability is universal — node blobs are ordinary EDN."
-  (:require [dao.jing :as jing]
-            ;; :cljd FIRST: the cljd host pass also matches :clj, and
-            ;; persistent-sorted-set has no Dart implementation.
-            #?@(:cljd []
-                :default [[me.tonsky.persistent-sorted-set :as psset]]))
-  #?@(:cljd []
-      :clj
-      [(:import
-         (me.tonsky.persistent_sorted_set Branch IStorage Leaf Settings))]))
+  Build and lazy restore run on every platform: the tree is
+  dao.data.btree, one .cljc source (JVM, cljs, cljd), and durability is
+  its IStorage over this store (dao.data.btree.storage). Node blobs are
+  ordinary EDN either way."
+  (:require [dao.data.btree :as bt]
+            [dao.data.btree.storage :as bts]
+            [dao.jing :as jing]))
 
 
 (def members-key
@@ -227,19 +223,16 @@
 
 (defn- sorted-index-by
   [cmp]
-  #?(:cljd (sorted-set-by cmp)
-     :default (psset/sorted-set-by cmp)))
+  (bt/sorted-set-by cmp))
 
 
 (defn subseq-from
-  "All elements >= sentinel, in index order. On psset platforms this is
-  `slice` — a log-n descent that, on a lazily-restored set, loads only the
-  nodes on the seek path plus the matching range, never the nodes left of
-  the sentinel. The cljd fallback set has no slice; drop-while over seq is
-  linear but correct."
+  "All elements >= sentinel, in index order: a log-n slice descent that,
+  on a lazily-restored set, loads only the nodes on the seek path plus
+  the matching range, never the nodes left of the sentinel. One
+  implementation on every platform (dao.data.btree)."
   [sorted-set cmp sentinel]
-  #?(:cljd (drop-while #(neg? (cmp % sentinel)) (seq sorted-set))
-     :default (psset/slice sorted-set sentinel nil cmp)))
+  (bt/slice sorted-set sentinel nil cmp))
 
 
 (defn index-datoms
@@ -284,6 +277,27 @@
         (:keys node)))))
 
 
+(defn read-root
+  "Atomically read a stream's root as `{:datoms [...] :rev n
+  :reorder-epoch n}` — one `jing/get`, so the three are a consistent
+  snapshot. `:rev` lets a caller (`publish-index!`, `transactor/publish!`)
+  `cas!` against exactly what it read instead of a fresher-but-mismatched
+  revision, closing the lost-update race where a concurrent append lands
+  between an index build and its commit. `:reorder-epoch` increments only
+  on wholesale→indexes publish (the one transition that changes what
+  `next`'s position `n` refers to — see `dao.space.transactor`'s cursor
+  gap check); ordinary appends and index→wholesale fold-back carry it
+  forward unchanged, since neither reorders an already-minted position."
+  [store datoms-key]
+  (validate-root-key! datoms-key "read-root")
+  (let [root (jing/get store datoms-key {:datoms [], :rev 0, :reorder-epoch 0})]
+    {:datoms (if-some [indexes (:indexes root)]
+               (vec (walk-index-datoms store (:eavt indexes)))
+               (:datoms root)),
+     :rev (:rev root 0),
+     :reorder-epoch (:reorder-epoch root 0)}))
+
+
 (defn read-datoms
   "Read the datoms held at a dao.jing handle's datoms-key, or [] if never
   seeded. Handles both root shapes: the wholesale `{:datoms [...]}`
@@ -292,10 +306,7 @@
   node graph)."
   [store datoms-key]
   (validate-root-key! datoms-key "read-datoms")
-  (let [root (jing/get store datoms-key {:datoms []})]
-    (if-some [indexes (:indexes root)]
-      (vec (walk-index-datoms store (:eavt indexes)))
-      (:datoms root))))
+  (:datoms (read-root store datoms-key)))
 
 
 (defn store-datoms
@@ -305,61 +316,41 @@
   (mapcat #(read-datoms store %) (member-keys store)))
 
 
-#?(:cljd nil
-   :clj
-   (defn- kv-storage
-     "psset IStorage over an IKVStore: nodes store as content-addressed
-     segment blobs; addresses are the segment keys."
-     ^IStorage [store]
-     (reify
-       IStorage
-       (store
-         [_ node]
-         (let [v (if (instance? Branch node)
-                   {:level (.level ^Branch node),
-                    :keys (vec (.keys ^Branch node)),
-                    :addresses (vec (.addresses ^Branch node))}
-                   {:keys (vec (.keys ^Leaf node))})
-               k (jing/segment-key v)]
-           (jing/put! store k v)
-           k))
+(defn restored-indexes
+  "Lazily-loaded {:eavt :aevt :avet :vaet} dao.data.btree sets over a
+  published root manifest (`{:indexes {...} :count n}` plus the additive
+  `:branching-factor`, absent meaning 512). Nothing is fetched until a
+  query traverses; slice (subseq-from) then loads only the seek path plus
+  the matching range. Works on every platform.
 
-       (restore
-         [_ address]
-         (let [{:keys [level keys addresses], :as node}
-               (jing/get store address nil)]
-           (when (nil? node)
-             (throw (ex-info "missing index segment" {:address address})))
-           (if addresses
-             (Branch. (int level)
-                      ^java.util.List keys
-                      ^java.util.List addresses
-                      (Settings.))
-             (Leaf. ^java.util.List keys (Settings.))))))))
-
-
-#?(:cljd nil
-   :clj
-   (defn restored-indexes
-     "Lazily-loaded {:eavt :aevt :avet :vaet} psset sets over a published
-     root's `:indexes` map. Nothing is fetched until a query traverses;
-     slice (subseq-from) then loads only the seek path plus the matching
-     range."
-     [store indexes]
-     (let [storage (kv-storage store)]
-       {:eavt (psset/restore-by eavt-cmp (:eavt indexes) storage),
-        :aevt (psset/restore-by aevt-cmp (:aevt indexes) storage),
-        :avet (psset/restore-by avet-cmp (:avet indexes) storage),
-        :vaet (psset/restore-by vaet-cmp (:vaet indexes) storage)})))
+  The manifest's :count and :branching-factor are threaded through
+  restore-tree deliberately (dao.data.btree.md §5.1): count keeps O(1)
+  `count` on restored trees without faulting the graph, and the branching
+  factor reaches every restored node so mutation splits at the published
+  thresholds, never defaults. A manifest without :count is foreign or
+  hand-built and belongs to the eager path (walk-index-datoms), not here."
+  [store manifest]
+  (let [{:keys [indexes count branching-factor]} manifest
+        storage (bts/kv-storage store
+                                {:branching-factor (or branching-factor 512)})]
+    {:eavt (bt/restore-tree eavt-cmp (:eavt indexes) storage count),
+     :aevt (bt/restore-tree aevt-cmp (:aevt indexes) storage count),
+     :avet (bt/restore-tree avet-cmp (:avet indexes) storage count),
+     :vaet (bt/restore-tree vaet-cmp (:vaet indexes) storage count)}))
 
 
 (defn publish-index!
   "The transactor entry point, owner-side. Builds the four covered indexes
   from the stream's datoms, persists them as immutable content-addressed
   segment blobs (put!), and advances the stream root to
-  `{:indexes {...} :count n}` via cas!. Republishing unchanged data is
-  idempotent. Single-writer discipline: throws if the root cas! is lost.
-  JVM-only for now.
+  `{:indexes {...} :count n :branching-factor n}` via cas!. Republishing
+  unchanged data is idempotent. Single-writer discipline: throws if the
+  root cas! is lost — including when it is lost to a concurrent append
+  landing after `datoms` was read: pass `:rev` (from `read-root`) so the
+  cas! targets the revision `datoms` actually came from, not a
+  fresher one, otherwise the cas! always finds a revision to succeed
+  against and silently commits indexes built over stale data, dropping
+  the concurrent append. Runs on every platform (dao.data.btree).
 
   Usage:
     (publish-index! store datoms-key)  — reindexes the current contents of datoms-key
@@ -367,42 +358,69 @@
 
   opts: {:branching-factor n  — max keys per node (default 512, Datomic-
                                 style fat segments)
-         :key k               — the stream root to advance (required)}."
+         :key k               — the stream root to advance (required)
+         :rev n               — the revision `datoms` was read at
+                                (default: a fresh read at cas! time, for
+                                callers indexing a datom seq unrelated to
+                                any live root)
+         :reorder-epoch n     — carried into the published root's
+                                `:reorder-epoch` + 1 (default: read
+                                alongside the :rev fallback)}."
   ([store datoms-key]
    ;; guard the re-aritied API: the old 2-arity took a datom seq, and a
-   ;; vector silently becomes a phantom root key. read-datoms handles this.
-   (publish-index! store (read-datoms store datoms-key) {:key datoms-key}))
+   ;; vector silently becomes a phantom root key. read-root handles this.
+   (let [{:keys [datoms rev reorder-epoch]} (read-root store datoms-key)]
+     (publish-index!
+       store
+       datoms
+       {:key datoms-key, :rev rev, :reorder-epoch reorder-epoch})))
   ([store datoms opts]
-   #?(:cljd (throw (ex-info "publish-index! is JVM-only for now"
-                            {:store store, :datoms datoms, :opts opts}))
-      :clj (let [datoms-key (or (:key opts)
-                                (throw (ex-info
-                                         "publish-index! requires a :key option"
-                                         {:opts opts})))]
-             (validate-root-key! datoms-key "publish-index! 3-arity")
-             (let [branching (:branching-factor opts 512)
-                   storage (kv-storage store)
-                   root-addr (fn [cmp]
-                               ;; an empty index has no root node:
-                               ;; psset/store of an empty set yields a
-                               ;; phantom; nil is the
-                               ;; explicit "nothing here" (walk of nil =>
-                               ;; ())
-                               (when (seq datoms)
-                                 (-> (psset/from-sequential cmp
-                                                            datoms
-                                                            {:branching-factor
-                                                             branching})
-                                     (psset/store storage))))
-                   indexes {:eavt (root-addr eavt-cmp),
-                            :aevt (root-addr aevt-cmp),
-                            :avet (root-addr avet-cmp),
-                            :vaet (root-addr vaet-cmp)}
-                   rev (:rev (jing/get store datoms-key nil) 0)
-                   v {:indexes indexes, :count (count datoms)}]
-               (when-not (jing/cas! store datoms-key rev v)
-                 (throw (ex-info "publish-index! lost the root cas!"
-                                 {:key datoms-key, :rev rev})))
-               indexes))
-      :cljs (throw (ex-info "publish-index! is JVM-only for now"
-                            {:store store, :datoms datoms, :opts opts})))))
+   (let [datoms-key (or (:key opts)
+                        (throw (ex-info "publish-index! requires a :key option"
+                                        {:opts opts})))]
+     (validate-root-key! datoms-key "publish-index! 3-arity")
+     (let [branching (:branching-factor opts 512)
+           storage (bts/kv-storage store {:branching-factor branching})
+           root-addr (fn [cmp]
+                       ;; an empty index has no root node; nil is the
+                       ;; explicit "nothing here" (walk of nil => ())
+                       (when (seq datoms)
+                         (-> (bt/from-sequential cmp
+                                                 datoms
+                                                 {:branching-factor branching})
+                             (bt/store-tree storage))))
+           indexes {:eavt (root-addr eavt-cmp),
+                    :aevt (root-addr aevt-cmp),
+                    :avet (root-addr avet-cmp),
+                    :vaet (root-addr vaet-cmp)}
+           ;; content addressing means `indexes` already tells us whether
+           ;; anything changed; comparing against the current root (rather
+           ;; than trusting the :rev/:reorder-epoch opts alone) is what
+           ;; keeps a same-data republish a true no-op: no cas!, no
+           ;; :reorder-epoch bump, no gapping every live cursor over data
+           ;; that never actually reordered.
+           current (jing/get store datoms-key nil)
+           rev (or (:rev opts) (:rev current 0))
+           epoch (or (:reorder-epoch opts) (:reorder-epoch current 0))]
+       (if (= indexes (:indexes current))
+         indexes
+         (let [v {:indexes indexes,
+                  :count (count datoms),
+                  :branching-factor branching,
+                  :reorder-epoch (inc epoch)}]
+           (when-not (jing/cas! store datoms-key rev v)
+             (throw
+               (ex-info
+                 "publish-index! lost the root cas!"
+                 {:key datoms-key,
+                  :rev rev,
+                  :likely-cause
+                  "the root changed since datoms/:rev were read — most
+                        often a concurrent append (or, for the 2-arity
+                        transactor/publish! path, another publish! winning
+                        first — indistinguishable from here); if `datoms`
+                        came from some other external write source entirely,
+                        it's simply a concurrent writer on this key. Retry
+                        by re-reading and republishing, or reconcile with
+                        the winner."})))
+           indexes))))))

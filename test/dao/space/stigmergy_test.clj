@@ -1,6 +1,6 @@
 (ns dao.space.stigmergy-test
   "Agents collaborating by stigmergy over dao.space: every write is ds/append!
-  on the agent's own :dao-stream, every read is query/q or query/match.
+  on the agent's own :transactor, every read is query/q or query/match.
   There is no coordinator and no stigmergy API — the conventions (self-stamped
   provenance, wall-clock t, claim leases, the [t agent] winner rule) are
   expressed by the datoms agents build and the query forms below
@@ -8,7 +8,7 @@
 
   The shared medium is a network-accessible dao.jing.file store served over
   dao.stream.rpc — the rpc is an implementation detail below IKVStore, so
-  :dao-stream and q/match work over it unmodified. JVM-only (blocking rpc,
+  :transactor and q/match work over it unmodified. JVM-only (blocking rpc,
   file store, wall-clock).
 
   The space persists after the run for inspection at target/stigmergy-space.db:
@@ -22,7 +22,8 @@
             [dao.jing.remote :as remote]
             [dao.space.index :as index]
             [dao.space.query :as query]
-            [dao.space.stream] ; loaded for defopen :dao-stream side effect
+            [dao.space.transactor] ; loaded for defopen :transactor side
+            ;; effect
             [dao.stream :as ds]
             [dao.stream.rpc.ws :as rpc-ws])
   (:import (java.io File)))
@@ -97,7 +98,7 @@
 
 (defn- open-agent
   [store agent-id]
-  (ds/open! {:type :dao-stream, :store store, :name agent-id}))
+  (ds/open! {:type :transactor, :store store, :name agent-id}))
 
 
 ;; ---------------------------------------------------------------------------
