@@ -21,9 +21,9 @@
       heterogeneous values) and the in-memory index (`index-datoms`)
     - the persisted node-blob format, both directions: nodes store as
       plain-EDN content-addressed segment blobs (Merkle by construction —
-      psset stores children before parents); `restored-indexes` re-attaches
-      a manifest lazily (JVM), `walk-index-datoms` reads it eagerly on
-      every platform, `read-datoms` reads either root shape
+      dao.data.btree stores children before parents); `restored-indexes`
+      re-attaches a manifest lazily, `walk-index-datoms` reads it eagerly,
+      both on every platform; `read-datoms` reads either root shape
     - `publish-index!`, the transactor entry point: build, persist the
       segments (put!), advance the root (cas!)
 
@@ -106,9 +106,14 @@
         rb (type-rank b)]
     (if (= ra rb)
       (try (compare a b)
-           (catch #?(:clj ClassCastException
-                     :cljs js/Error
-                     :cljd Object)
+           ;; :cljd FIRST in every reader-conditional: the cljd host-eval
+           ;; pass also matches :clj, so a :clj branch appearing earlier
+           ;; in the clause list wins on cljd too — here that would mean
+           ;; referencing the JVM-only ClassCastException, which doesn't
+           ;; exist in Dart.
+           (catch #?(:cljd Object
+                     :clj ClassCastException
+                     :cljs js/Error)
                   _
              (compare (str a) (str b))))
       (compare ra rb))))
@@ -250,25 +255,24 @@
 ;; =============================================================================
 ;; A stream owner persists its covered indexes as immutable, content-
 ;; addressed B-Tree node blobs (put! under jing/segment-key — Merkle by
-;; construction, since psset stores children before parents) and publishes
-;; `{:indexes {:eavt <segment-key> ...} :count n}` at the stream root via
-;; cas!. Node blobs are plain EDN, so any platform can read them eagerly
-;; (walk-index-datoms); the *lazy* read path rides persistent-sorted-set's
-;; IStorage/restore machinery, a Clojure-only feature of that library, so
-;; it is JVM-only for now.
-;; :cljd FIRST in every conditional: the cljd host pass also matches :clj.
+;; construction, since dao.data.btree stores children before parents) and
+;; publishes `{:indexes {:eavt <segment-key> ...} :count n}` at the stream
+;; root via cas!. Node blobs are plain EDN, so any platform can read them
+;; eagerly (walk-index-datoms); the *lazy* read path (restored-indexes)
+;; rides dao.data.btree's IStorage/restore over dao.data.btree.storage, so
+;; it too runs on every platform (JVM, cljs, cljd).
 
 (defn walk-index-datoms
   "Eagerly collect every datom reachable from a persisted index node, in
   index order, by walking the node graph with plain `jing/get`. Node blobs
   are ordinary EDN maps (leaf `{:keys [...]}`, branch `{:level n :keys
   [...] :addresses [...]}`), so this works on every platform — it needs no
-  persistent-sorted-set support, only storage reads. This is the
-  cross-platform (and as-of / federated) read path for `{:indexes ...}`
-  roots; the lazy path is `restored-indexes`, below, JVM-only."
+  tree-library support at all, only `jing/get` on plain EDN maps. This is
+  the eager (and as-of / federated) read path for `{:indexes ...}` roots;
+  the lazy path is `restored-indexes`, below — also cross-platform."
   [store address]
   (if (nil? address)
-    () ; an empty index has no root node (psset/store of an empty set)
+    () ; an empty index has no root node (btree store of an empty set)
     (let [node (jing/get store address nil)]
       (when (nil? node)
         (throw (ex-info "missing index segment" {:address address})))
