@@ -20,7 +20,7 @@ This document specifies that backend. Throughout, it distinguishes the *contract
 | DRDS reliable layer | Proposed | Named in the UDP descriptor; not implemented. |
 | Eve slab representation | Research | Real library (`SeniorCareMarket/eve`); not yet a dependency. See Zero-copy. |
 | Sortition consensus | Research | Unbuilt; open questions. See `cas!`. |
-| `dao.space` / `dao.qi` consumers | Design docs | The query and vector layers are themselves unbuilt. |
+| `dao.space` / `dao.field` consumers | Design docs | The query and vector layers are themselves unbuilt. |
 
 ## The IKVStore Contract over a Network
 
@@ -145,6 +145,6 @@ The philosophical commitment to UDP, "reject the false semantics of TCP, a datom
 
 ## Emergent Behavior
 
-The point of keeping `dao.jing` dumb is that the higher abstractions inherit the network for free. When an agent, eventually, executes a Datalog query in `dao.space` or a similarity search in `dao.qi`, the engine will simply ask `dao.jing` for nodes; it will not know the index was fetched from a peer, validated and rehydrated into a local slab, and committed by a committee. (`dao.space` and `dao.qi` are themselves design documents today, so this is a statement of intent for the whole stack, not a present capability.)
+The point of keeping `dao.jing` dumb is that the higher abstractions inherit the network for free. When an agent, eventually, executes a Datalog query in `dao.space` or a similarity search in `dao.field`, the engine will simply ask `dao.jing` for nodes; it will not know the index was fetched from a peer, validated and rehydrated into a local slab, and committed by a committee. (`dao.space` and `dao.field` are themselves design documents today, so this is a statement of intent for the whole stack, not a present capability.)
 
 The interpretation remains pristine; the execution, once the bets are paid, scales to the globe.

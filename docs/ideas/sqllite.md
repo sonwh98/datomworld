@@ -54,7 +54,7 @@ per-node loop.
 ## Where the Traversal Primitives Live
 
 We considered a new namespace (`dao.mai`, meridian/channel, paired conceptually with
-`dao.qi`'s field metaphor) for these sequencing primitives, then decided against
+`dao.field`'s field metaphor) for these sequencing primitives, then decided against
 creating it yet. The primitives (`seek`, `slice`, and similar) reuse `dao.space.query`'s
 existing psset/`fold`/`read-datoms` machinery directly; there is no new concern here,
 just a new caller. CLAUDE.md's own "Evolution, Not Design" and "High Cohesion, Loose
