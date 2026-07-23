@@ -133,20 +133,27 @@
 
 
 (defn- cas-append!
-  "Drives the read-modify-cas! loop to append new datoms to the root,
-  retrying up to max-append-retries times.
-  build-new-datoms is a fn [existing-datoms] -> new-datoms.
-  Returns the new-datoms on success, or throws on retry exhaustion.
+  "Drives the read-modify-cas! loop shared by `append!` and `transact!`:
+  re-reads the root, calls `build-new-datoms` (a fn `[existing-datoms] ->
+  new-datoms`) for the datoms to add, then `cas!`s them on. Returns the
+  new-datoms on success, or throws once `attempt` reaches
+  `max-append-retries` (`attempt` counts lost `cas!` attempts only — it
+  advances in the failure branch below, not on every loop iteration; a
+  successful `cas!` returns directly and never reaches `recur`).
 
-  `t` is the log position at append time (a monotone per-root watermark); it is a
-  write-time identity, not a live cursor position — a fold-back does not
-  renumber old datoms to match wherever they now sit in `next`'s order.
-  `:reorder-epoch` is carried forward unchanged (index/read-root, §ns
-  docstring): folding an indexed root back to wholesale does not reorder
-  the positions already minted against it, only a fresh publish! does.
-  `read-root` gives datoms/rev/epoch as one snapshot — reading them
-  separately risked a rev that no longer matched the datoms a concurrent
-  publish! had already reshaped, costing a spurious lost-CAS retry."
+  `cas-append!` has no `t` of its own — both callers derive their own `t`
+  from `(count existing-datoms)` inside their `build-new-datoms` closure,
+  which is why every datom added in one call, whether one (`append!`) or
+  many (`transact!`), shares a single `t`: the log position at append time
+  (a monotone per-root watermark). That `t` is a write-time identity, not a
+  live cursor position — a fold-back does not renumber old datoms to match
+  wherever they now sit in `next`'s order. `:reorder-epoch` is carried
+  forward unchanged (index/read-root, §ns docstring): folding an indexed
+  root back to wholesale does not reorder the positions already minted
+  against it, only a fresh publish! does. `read-root` gives datoms/rev/epoch
+  as one snapshot — reading them separately risked a rev that no longer
+  matched the datoms a concurrent publish! had already reshaped, costing a
+  spurious lost-CAS retry."
   [store datoms-key build-new-datoms error-msg]
   (loop [attempt 0]
     (when (>= attempt max-append-retries)
