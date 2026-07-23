@@ -124,4 +124,20 @@
           [:p
            "The shared-state coordination idea has now been reinvented three times. The blackboard gave it shared state but kept a controller. The tuple space removed the controller but left matching centralized, and never solved durability, multi-writer consistency, or trust. dao.space takes the controller-free tuple space and finishes it with Datomic's storage, query, and time-travel disciplines, plus a trust boundary of its own. Each stage fixed what the one before could not."]
           [:p
-           "This is a bet: that multi-agent systems will grow into needing accountable, decentralized shared truth, and that the current ecosystem is still in the phase where a transcript plus a vector index is enough. dao.space is what that bet looks like when you build it out instead of just placing it. It is early. The hardest part, content-addressed identity that makes cross-stream joins gauge-invariant, is unfinished, and controlled mode is specified rather than shipped. But the lineage is honest about where it stops. When agent systems finally hit the wall that long-lived, multi-tenant, mutually distrusting participants always hit, the substrate they reach for will look like this, and it will have a fifty-year-old idea at its core."]]]]}
+           "This is a bet: that multi-agent systems will grow into needing accountable, decentralized shared truth, and that the current ecosystem is still in the phase where a transcript plus a vector index is enough. dao.space is what that bet looks like when you build it out instead of just placing it. It is early. The hardest part, content-addressed identity that makes cross-stream joins gauge-invariant, is unfinished, and controlled mode is specified rather than shipped. But the lineage is honest about where it stops. When agent systems finally hit the wall that long-lived, multi-tenant, mutually distrusting participants always hit, the substrate they reach for will look like this, and it will have a fifty-year-old idea at its core."]
+
+          [:p [:strong "Related:"]]
+          [:ul.bulleted
+           [:li
+            [:a
+             {:href "/blog/agents-colony-and-crowd.blog"}
+             "The Colony and the Crowd"]
+            " on how MoA, the ant hive, and the wisdom of the crowd are three read disciplines over the same tuple space, and how they fuse through judgment and allocation"]
+           [:li
+            [:a {:href "/blog/daospace-distributed-database-immutable-streams.blog"}
+             "Building a Distributed Database on Immutable Streams"]
+            " on the storage boundary"]
+           [:li
+            [:a {:href "/blog/semantics-structure-interpretation.blog"}
+             "Semantics is Structure Through Interpretation"]
+            " on separating representation from interpretation"]]]]]}

@@ -1,0 +1,224 @@
+#:blog{:title "The Colony and the Crowd: How Agents Collaborate on a Tuple Space",
+       :date #inst "2026-07-22T00:00:00.000-00:00",
+       :abstract
+       [:p
+        "Coding agents do not need an orchestrator to collaborate. They need a "
+        [:strong "shared medium"]
+        ". Once agents coordinate by leaving and reading traces on a tuple space, three famous models of collective intelligence (Mixture-of-Agents, the ant colony, and the wisdom of the crowd) stop looking like rivals and start looking like points in one design space. This is how they compose in dao.space: MoA is a circuit, the hive is a search, the crowd is a judge, and the tuple space is the substrate that lets you run all three at once."],
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+          [:p
+           "Suppose you want several coding agents (Claude Code, Codex, and whatever ships next quarter) to work together: one as architect, one as coder, one as reviewer. The instinct is to build an orchestrator that dispatches work between them. Resist it. An orchestrator is implicit control flow, and implicit control flow is the thing dao.space exists to abolish."]
+          [:p
+           "The alternative is older than any of these tools. Let the agents coordinate the way ants do: by modifying a shared medium and reacting to what they find there. That medium is the tuple space."]
+          [:h2 "The Tuple Space Is the Collaboration Layer"]
+          [:p
+           "In dao.space the collaboration layer is not an API. It is the space of datoms. An agent does not call another agent. It writes a trace (Linda "
+           [:code "out"]
+           ") and reads traces that match a pattern (Linda "
+           [:code "rd"]
+           "), or claims one atomically (Linda "
+           [:code "in"]
+           "). Coordination is indirect: the trace routes the behavior, not a message."]
+          [:p
+           "Roles are not assignments. They are standing subscriptions over the state of the space:"]
+          [:div.highlight
+           [:p
+            [:code
+             "architect : [?t :task/goal _] and no :design/spec  ->  out [?t :design/spec  ...]"]
+            [:br]
+            [:code
+             "coder     : [?t :design/spec _] and no :impl/code  ->  out [?t :impl/code    ...]"]
+            [:br]
+            [:code
+             "qa        : [?t :impl/code _]   and no :qa/verdict ->  out [?t :qa/verdict   ...]"]]]
+          [:p
+           "No agent names another. Each reacts to the shape of the tuples and leaves a trace, and the trace is the trigger for the next. This is the blackboard model made durable. It is "
+           [:strong "stigmergy"]
+           ": coordination through traces on a shared medium, which is precisely the formal reason dao.space is a tuple space in the first place."]
+          [:p
+           "Because every datom is the canonical 5-tuple "
+           [:code "[e a v t m]"]
+           ", the collaboration is auditable for free. The "
+           [:code "t"]
+           " gives global ordering, the "
+           [:code "m"]
+           " gives provenance (which agent, which model, which prompt). A reviewer's verdict points at the exact implementation datom it judged. The whole session is a replayable causal log rather than a black box."]
+          [:h2 "Agents as Stream Effects, Not API Calls"]
+          [:p
+           "For an off-the-shelf coding agent to live in this space, do not wrap it in an orchestrator. Make the agent loop itself a yin.vm program, and make the model a "
+           [:strong "foreign oracle"]
+           " the loop calls, an effect with the same status as a disk read. When the agent needs the model, it emits "
+           [:code "[?k :llm/request ...]"]
+           " and suspends as a continuation datom "
+           [:code "?k"]
+           "; the response arrives as "
+           [:code "[?k :llm/response ...]"]
+           " and resumes it."]
+          [:p
+           "This gives the agent yin.vm's defining property: its continuation is a datom. Suspendable, replayable, and portable across models, because its state was never inside any model. The context handed to the model each step is reconstructed fresh from the space and then discarded. The model call is stateless. The state is the continuation datom plus the space."]
+          [:p "This leaves you a single design knob, the grain:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Coarse grain."]
+            " The whole task is one effect. A subscription-billed harness runs its interior loop under a flat rate and returns an artifact. Cheap, opaque, high volume."]
+           [:li
+            [:strong "Fine grain."]
+            " Each model call is one reduction against the raw stateless Messages API. Transparent, step-replayable, model-portable, but metered. The main cost lever becomes prefix discipline: freeze the stable context, cache it, confine the volatile delta to the tail."]]
+          [:p
+           "Both are datoms at the boundary, so both coexist in one space. Some tasks resolved by a native continuation, others by a subscription oracle, indistinguishable downstream. Now the interesting question: once agents share a medium, how should the collective actually think?"]
+          [:h2 "Mixture-of-Agents: The Circuit"]
+          [:p
+           "The Mixture-of-Agents result (several smaller open models, layered, beating one frontier model) is the natural first answer. Proposers emit responses; an aggregator reads a full layer and synthesizes; repeat for a fixed number of layers. Its headline finding, "
+           [:strong "collaborativeness"]
+           ", is that a model writes a better answer when shown its peers' outputs, even when those outputs are individually worse."]
+          [:p
+           "In tuple-space terms MoA is trivial to express. A proposer output is "
+           [:code "out [?e :moa/response text {:layer i}]"]
+           ". An aggregator's read is "
+           [:code "rd [?e :moa/response ?v {:layer i}]"]
+           " over the layer. The synthesize step is just the projection function from space to prompt. The layer index is the transaction axis."]
+          [:p
+           "So MoA is a special case, and naming the restrictions is the point:"]
+          [:div.highlight
+           [:p
+            [:strong
+             "MoA = tuple space + synchronous-layer barrier + static-role table."]]]
+          [:p
+           "MoA is a "
+           [:strong "circuit"]
+           ": it computes a fixed function of its models once, in a single forward pass. The barrier buys reproducibility. The static roles buy predictability. But there is no search in it. It aggregates diverse views one time and stops."]
+          [:h2 "The Hive: The Search"]
+          [:p
+           "An ant colony is not a circuit. It is a "
+           [:strong "search"]
+           ", a dynamical system that relaxes to an attractor. What MoA lacks and the hive has is "
+           [:strong "dynamics"]
+           ": traces that accumulate (agents corroborating the same trace strengthen it) and evaporate (old traces fade). The medium itself carries a running estimate of what is promising, with no aggregator computing it. Fan-in becomes search."]
+          [:p "Two ingredients from the dao.space stack fall into place:"]
+          [:ul.bulleted
+           [:li
+            [:strong "dao.qi is the pheromone sense."]
+            " Resonance over vector datoms is how an agent smells the gradient and follows the trail."]
+           [:li
+            [:strong "Autocatalysis is the search."]
+            " Reinforce good partial solutions, evaporate the rest, and the swarm explores a space no single pass can reach."]]
+          [:p
+           "There is a consistency trap here worth guarding. In dao.space the well (dao.jing) is passive and payload-agnostic. Giving it decay behavior would be handing it agency. So the pheromone field must not live in the well. It lives in the reading agents:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Evaporation"]
+            " is a TTL on the datom (data, not agency) plus a resonance-weighted projection that discounts old traces at read time. The well never forgets; the reader weights."]
+           [:li
+            [:strong "Reinforcement"]
+            " is agents emitting corroborating datoms, which the projection sums. Strength is more matching traces, computed by whoever reads."]]
+          [:p
+           "The well stays dumb; the field exists only in the eye of the agents sensing it. Syntax in the well, semantics in the agents. The hive stays honest to the layering."]
+          [:h2 "The Crowd: Independence"]
+          [:p
+           "Now the twist. A hive and the wisdom of the crowd look like the same idea, and they are almost opposites. They split on one variable: "
+           [:strong "error correlation"]
+           "."]
+          [:p
+           "Stigmergy and MoA depend on interaction. Agents read each other, and reinforcement amplifies shared signals, so the agents become correlated by design. The wisdom of the crowd depends on the reverse. It works only when estimates are "
+           [:strong "independent"]
+           ", because uncorrelated errors cancel under aggregation. The moment crowd members read each other before answering, correlation rises, herding sets in, and the crowd gets dumber. The governing law is exact:"]
+          [:div.highlight
+           [:p
+            [:strong
+             "Collective error = average individual error - diversity of predictions."]]]
+          [:p
+           "Diversity is a literal subtractive term. Interaction reduces diversity, which raises collective error. Stigmergy spends diversity to buy refinement. The crowd hoards diversity and forbids interaction. You cannot maximize both on the same variable at the same time."]
+          [:p
+           "In tuple-space terms, wisdom of the crowd is a specific "
+           [:strong "read discipline"]
+           ": a sealed bid. Agents write their estimate without reading peers first (write-only until a reveal barrier), then one aggregation read combines them. The same barrier primitive MoA used for completeness, now used for the opposite purpose: enforcing independence."]
+          [:p
+           "One caveat is load-bearing for LLMs. Sampling the same model many times gives correlated errors (shared training, shared bias), so it is a correlated crowd wearing a crowd costume. A genuinely wise LLM crowd needs manufactured diversity: heterogeneous base models, or decorrelating prompts. This is the same lever MoA found when it reported that heterogeneous models beat identical ones. Diversity is the scarce resource in every frame."]
+          [:h2 "The Synthesis: Judgment and Allocation"]
+          [:p
+           "The resolution is that the hive and the crowd are not opposites once you stop applying both to the same variable. They operate on "
+           [:strong "different quantities"]
+           ":"]
+          [:ul.bulleted
+           [:li
+            [:strong "Wisdom of the crowd operates on judgment."]
+            " Independent assessments of quality, aggregated to cancel error. It is the evaluation function."]
+           [:li
+            [:strong "Stigmergy operates on allocation."]
+            " Reinforced trails route effort toward promising regions. It is the search policy."]]
+          [:p
+           "Biology already fuses them. An ant colony choosing a nest site runs three mechanisms in layers: scouts assess candidate sites independently (the crowd), recruit in proportion to assessed quality (the hive), and commit when recruitment crosses a quorum (a crowd decision). Independence lives at the assessment layer, correlation lives at the recruitment layer, and they never collide because they are different layers acting on different signals."]
+          [:p
+           "The move that dissolves the contradiction is one rule:"]
+          [:div.highlight
+           [:p [:strong "Reinforce the aggregate, never the individual."]]]
+          [:p
+           "The pheromone strength carries the crowd's aggregated verdict, not any single agent's opinion. When stigmergy amplifies a trail, it amplifies a decorrelated, error-cancelled estimate. No agent imitates a peer; they all respond to a trail whose strength is a crowd statistic. Independence is preserved at the point of judgment, and amplification happens only on the aggregate."]
+          [:p "In dao.space this is two datom species coupled in a loop:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Judgment datoms"]
+            " ("
+            [:code ":assess"]
+            "), written sealed-bid: blind, independent, decorrelated, then aggregated to a quality estimate."]
+           [:li
+            [:strong "Trail datoms"]
+            " ("
+            [:code ":trace"]
+            "), written openly, sensed via dao.qi, reinforced by that aggregate and decayed at read time."]]
+          [:p
+           "The loop: independent blind assess (harvest diversity), aggregate to quality, deposit a trail proportional to the aggregate, follow trails to allocate effort, then blind-assess again at the new frontier. Exploration and exploitation, each pure in its own phase."]
+          [:p
+           "This closes a question that opens the whole design: with no orchestrator, what stops the architect, coder, and reviewer loop from oscillating forever? "
+           [:strong "Quorum sensing"]
+           ", the same rule the ants use. The loop commits when the crowd-aggregated quality crosses a threshold. Not a fixed layer count (MoA), not a hardcoded attempt budget, but a convergence condition expressed as a datom count over a threshold. The termination rule was hiding in the biology."]
+          [:p
+           "One invariant keeps the whole thing honest. Keep the routing channel and the assessment channel "
+           [:strong "separate"]
+           ", and keep assessment blind to the trail. An agent follows "
+           [:code ":trace"]
+           " to learn where to go, but must assess quality without reading "
+           [:code ":trace"]
+           ", emitting its "
+           [:code ":assess"]
+           " sealed. If the trail that led an agent to a region also biases its judgment of that region, correlation leaks back and the crowd collapses into herding. Protect the boundary and the two mechanisms stay complementary."]
+          [:h2 "What the Tuple Space Uniquely Enables"]
+          [:p
+           "Notice that none of this required three different systems. It required one substrate and a choice about "
+           [:strong "when traces become visible"]
+           ". The read discipline alone selects the regime:"]
+          [:ul.bulleted
+           [:li "Continuous reads give you the correlated hive (search)."]
+           [:li "Sealed bids give you the independent crowd (judgment)."]
+           [:li
+            "Full-layer barriers give you the MoA circuit (one-shot aggregation)."]
+           [:li
+            "Phased visibility gives you the fused colony: assess blind, recruit on the aggregate, commit on quorum."]]
+          [:p
+           "And because every trace is a datom carrying "
+           [:code "t"]
+           " and "
+           [:code "m"]
+           ", even the stochastic asynchronous hive stays replayable. You lose reproducibility-from-scratch (a swarm run twice takes two paths) but you keep the exact recorded trajectory. The economics line up too: a population-based search wants many cheap agents, which is exactly the coarse, subscription-billed, cheap-model regime the grain knob already gives you."]
+          [:p
+           "The open experiment is now sharp. MoA proved that collaborativeness lifts quality under a synchronous, full-barrier regime. Nobody has shown it survives asynchronous, decaying, reinforcement-driven aggregation, or that such a swarm converges rather than thrashes. That is the question a tuple space is uniquely built to answer, because in it the difference between MoA, a hive, and a crowd is not three architectures. It is three settings of a single knob."]
+          [:p [:strong "Related:"]]
+          [:ul.bulleted
+           [:li
+            [:a
+             {:href "/blog/multi-agent-collaboration-with-tuple-spaces.blog"}
+             "Multi-agent Collaboration with Tuple Spaces"]
+            " on the fifty-year lineage from blackboards to Linda to dao.space, and how the durable stigmergic medium is built"]
+           [:li
+            [:a
+             {:href "/blog/semantics-structure-interpretation.blog"}
+             "Semantics is Structure Through Interpretation"]
+            " on why the field lives in the reader, not the well"]
+           [:li
+            [:a {:href "/datomworld.chp"} "Datom.World Overview"]
+            " on the complete vision"]]]]]}
