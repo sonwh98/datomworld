@@ -28,16 +28,9 @@
            "). Coordination is indirect: the trace routes the behavior, not a message."]
           [:p
            "Roles are not assignments. They are standing subscriptions over the state of the space:"]
-          [:div.highlight
-           [:p
-            [:code
-             "architect : [?t :task/goal _] and no :design/spec  ->  out [?t :design/spec  ...]"]
-            [:br]
-            [:code
-             "coder     : [?t :design/spec _] and no :impl/code  ->  out [?t :impl/code    ...]"]
-            [:br]
-            [:code
-             "qa        : [?t :impl/code _]   and no :qa/verdict ->  out [?t :qa/verdict   ...]"]]]
+          [:pre
+           [:code
+            "architect : [?t :task/goal _] and no :design/spec  ->  out [?t :design/spec  ...]\ncoder     : [?t :design/spec _] and no :impl/code  ->  out [?t :impl/code    ...]\nqa        : [?t :impl/code _]   and no :qa/verdict ->  out [?t :qa/verdict   ...]"]]
           [:p
            "No agent names another. Each reacts to the shape of the tuples and leaves a trace, and the trace is the trigger for the next. This is the blackboard model made durable. It is "
            [:strong "stigmergy"]
